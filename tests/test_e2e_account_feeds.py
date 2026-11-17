@@ -22,7 +22,7 @@ from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
@@ -302,7 +302,7 @@ def test_network_mode_feeds_are_per_account_and_purge_keeps_documents(tmp_path: 
     settings, members, session = _make_env(tmp_path, network=True)
     alice_id, bob_id = members["alice_feeds"], members["bob_feeds"]
     # The ingest target of the item: a theme that the purge of Alice does not delete.
-    theme = ThemeManager(settings).define_theme("Shared Garden", account_id=1, is_default=False)
+    theme = KnowledgeBaseManager(settings).define_kb("Shared Garden", account_id=1, is_personal=False, knowledge_type="real")
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         alice, bob = session(alice_id), session(bob_id)
@@ -327,18 +327,18 @@ def test_network_mode_feeds_are_per_account_and_purge_keeps_documents(tmp_path: 
     client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
     conn = dbm.connect_existing(settings.db_file)
     try:
-        dbm.insert_document(conn, Document(id="feed-doc", url="https://garden.example/tomatoes", raw_text="tomatoes", source_type="web", content_hash="hf"), theme_id=theme.id)
+        dbm.insert_document(conn, Document(id="feed-doc", url="https://garden.example/tomatoes", raw_text="tomatoes", source_type="web", content_hash="hf"), kb_id=theme.id)
         conn.commit()
-        client.execute("UPDATE feed_items SET linked_theme_id=?, linked_doc_id='feed-doc' WHERE id=?", (theme.id, alice_items[0]["id"]))
+        client.execute("UPDATE feed_items SET linked_kb_id=?, linked_doc_id='feed-doc' WHERE id=?", (theme.id, alice_items[0]["id"]))
         # The purge touches only the feed data of Alice: the feed of Bob stays.
         client.execute("INSERT INTO feed_subscriptions (account_id, url, created_at, updated_at) VALUES (?, 'https://bob.example/feed', 0, 0)", (bob_id,))
         client.commit()
-        assert dbm.get_document_row(conn, "feed-doc", theme_id=theme.id) is not None
+        assert dbm.get_document_row(conn, "feed-doc", kb_id=theme.id) is not None
         accounts_store.AccountStore(conn).purge(alice_id, data_dir=settings.data_dir)
         assert client.execute("SELECT COUNT(*) FROM feed_subscriptions WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
         assert client.execute("SELECT COUNT(*) FROM feed_items WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
         assert feeds_store.count_feeds(client, bob_id) == 1
-        assert dbm.get_document_row(conn, "feed-doc", theme_id=theme.id) is not None
+        assert dbm.get_document_row(conn, "feed-doc", kb_id=theme.id) is not None
     finally:
         conn.close()
         client.close()

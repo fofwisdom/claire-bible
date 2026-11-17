@@ -128,13 +128,13 @@ def _mount_invite_routes_for_tests(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(server, "build_account_routes", _patched_build)
 
     extra_policy = {
-        ("GET", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("HEAD", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("POST", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("GET", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("HEAD", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("POST", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("PATCH", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
+        ("GET", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("HEAD", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("POST", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("GET", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("HEAD", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("POST", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("PATCH", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
     }
     merged_policy = dict(security.ROUTE_POLICY)
     merged_policy.update(extra_policy)
@@ -553,9 +553,9 @@ def test_e2e_invitation_signup_and_login_flow(settings: _Settings):
         assert acc.status == "active"
         assert acc.display_name == "Charlie Brown"
 
-        theme = conn.execute("SELECT id, number, label, is_default FROM themes WHERE account_id=?", (acc.id,)).fetchone()
+        theme = conn.execute("SELECT id, number, label, is_personal FROM knowledge_bases WHERE account_id=?", (acc.id,)).fetchone()
         assert theme is not None
-        assert theme["is_default"] == 1
+        assert theme["is_personal"] == 1
         assert theme["label"] == "General"
     finally:
         conn.close()

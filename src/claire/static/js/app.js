@@ -163,7 +163,7 @@ function isMultiThemeEnabled(){
 
 function getThemeKey(t){
   if(!t) return '0';
-  if(t.is_default || String(t.id) === '0' || t.number === '0') return '0';
+  if(t.is_personal || String(t.id) === '0' || t.number === '0') return '0';
   if(t.number !== null && t.number !== undefined && String(t.number).trim() !== ''){
     return String(t.number).trim();
   }
@@ -174,78 +174,43 @@ let availableThemes = (function(){
   if(window.__CLAIRE_CONFIG && Array.isArray(window.__CLAIRE_CONFIG.themes) && window.__CLAIRE_CONFIG.themes.length){
     return window.__CLAIRE_CONFIG.themes;
   }
-  return [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
+  return [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_personal: true}];
 })();
 
 function findTheme(themeRef){
   if(!availableThemes || !availableThemes.length) return null;
   const ref = String(themeRef ?? '').trim();
   if(!ref || ref === '0'){
-    return availableThemes.find(t => t.is_default || String(t.id) === '0' || t.number === '0') || availableThemes[0];
+    return availableThemes.find(t => t.is_personal || String(t.id) === '0' || t.number === '0') || availableThemes[0];
   }
   return availableThemes.find(t => String(t.number) === ref)
     || availableThemes.find(t => String(t.id) === ref)
     || null;
 }
 
+// Design Sections 5.2 and 7: the path selects the knowledge base. API_BASE is "/kb/<number>/" when the page path pins a shared knowledge base; else it is the path of a personal knowledge base.
+const KB_PIN_RE = /^\/kb\/(\d+)\/$/;
 let activeThemeId = (function(){
-  if(!isMultiThemeEnabled()){
-    return '0';
-  }
-  try{
-    const sp = new URLSearchParams(window.location.search);
-    const q = sp.get('theme');
-    if(q !== null && q !== ''){
-      const matched = findTheme(q);
-      return matched ? getThemeKey(matched) : String(q).trim();
-    }
-    const saved = getAccountStorage('claireKnowledgeTheme');
-    if(saved !== null && saved !== ''){
-      const matched = findTheme(saved);
-      if(matched){
-        const canonical = getThemeKey(matched);
-        if(canonical !== saved){
-          setAccountStorage('claireKnowledgeTheme', canonical);
-        }
-        return canonical;
-      }
-      return String(saved).trim();
-    }
-  }catch(_){}
-  return '0';
+  const m = API_BASE.match(KB_PIN_RE);
+  return m ? m[1] : '0';
 })();
+// The number of the knowledge base of this page, for routes without a namespace that need the parameter ``kb`` (design Section 5.2 rule 2).
+function currentKbNumber(){
+  const t = (typeof findTheme === 'function') ? findTheme(activeThemeId) : null;
+  const n = t && t.number != null ? String(t.number) : '';
+  return /^[1-9]\d*$/.test(n) ? n : '';
+}
+window.currentKbNumber = currentKbNumber;
+// The page path of a knowledge base. A shared one: "/kb/<number>/". The personal one: this page when it is not pinned; else "/kb/<its number>/", and the server sends 308 to its own path (design Section 7).
+function kbHomePath(themeKey){
+  const key = String(themeKey ?? '0');
+  if(key !== '0') return ROOT_BASE + 'kb/' + encodeURIComponent(key) + '/';
+  if(!KB_PIN_RE.test(API_BASE)) return API_BASE;
+  const personal = (typeof findTheme === 'function') ? findTheme('0') : null;
+  const n = personal && personal.number != null ? String(personal.number) : '';
+  return /^[1-9]\d*$/.test(n) ? ROOT_BASE + 'kb/' + encodeURIComponent(n) + '/' : ROOT_BASE;
+}
 
-(function(){
-  const _origFetch = window.fetch;
-  window.fetch = function(resource, init){
-    init = init || {};
-    let url = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
-    const isRelative = typeof url === 'string' && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//');
-    if(isRelative || (url && url.startsWith(window.location.origin))){
-      if(isMultiThemeEnabled() && activeThemeId !== null && activeThemeId !== undefined){
-        let headers = init.headers;
-        if(headers instanceof Headers){
-          if(!headers.has('X-Claire-Theme')){
-            headers.set('X-Claire-Theme', String(activeThemeId));
-          }
-        } else if(Array.isArray(headers)){
-          const hasTheme = headers.some(([k]) => k.toLowerCase() === 'x-claire-theme');
-          if(!hasTheme){
-            headers.push(['X-Claire-Theme', String(activeThemeId)]);
-          }
-        } else {
-          headers = Object.assign({}, headers);
-          const hasTheme = Object.keys(headers).some(k => k.toLowerCase() === 'x-claire-theme');
-          if(!hasTheme){
-            headers['X-Claire-Theme'] = String(activeThemeId);
-          }
-          init.headers = headers;
-        }
-      }
-    }
-    return _origFetch.call(this, resource, init);
-  };
-})();
 
 async function fetchThemes(){
   if(!isMultiThemeEnabled()){
@@ -258,21 +223,14 @@ async function fetchThemes(){
     renderThemeSelector();
   }
   try{
-    const r = await fetch(apiUrl('themes'));
+    // The shared knowledge bases come from the collection /kb (design Section 7). The personal knowledge base of this page stays from the inline list.
+    const r = await fetch(rootUrl('kb'), {headers: {Accept: 'application/json'}});
     if(!r.ok) return;
     const data = await r.json();
-    const themes = data.themes || data.orderedItems;
-    if(themes && themes.length){
-      availableThemes = themes;
-      // Migrate stored internal ID if needed (§7.3)
-      const matched = findTheme(activeThemeId);
-      if(matched){
-        const canonical = getThemeKey(matched);
-        if(canonical !== activeThemeId){
-          activeThemeId = canonical;
-          setAccountStorage('claireKnowledgeTheme', canonical);
-        }
-      }
+    const personal = (availableThemes || []).filter(t => t.is_personal);
+    const shared = data.knowledge_bases || [];
+    if(personal.length || shared.length){
+      availableThemes = [...personal, ...shared];
       renderThemeSelector();
     }
   }catch(e){
@@ -291,7 +249,7 @@ function renderThemeSelector(){
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
-    availableThemes = [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
+    availableThemes = [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_personal: true}];
   }
 
   const current = findTheme(activeThemeId) || availableThemes[0];
@@ -492,35 +450,8 @@ async function switchKnowledgeTheme(themeId){
   const themeObj = findTheme(ref);
   const targetId = themeObj ? getThemeKey(themeObj) : ref;
   if(targetId === String(activeThemeId)) return;
-
-  activeThemeId = targetId;
-  setAccountStorage('claireKnowledgeTheme', targetId);
-
-  const url = new URL(window.location);
-  if(targetId === '0'){
-    url.searchParams.delete('theme');
-  } else {
-    url.searchParams.set('theme', targetId);
-  }
-  window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash);
-
-  syncThemeSelectorUI();
-  await enterHome({reason: 'theme'});
-  resetListWindows();   // The two lists of the new knowledge theme start from the first page.
-
-  await Promise.all([
-    reloadThemeData(true),
-    loadThemeDocuments()
-  ]);
-
-  lastStatsSig = null;
-  try{
-    const r = await fetch(apiUrl('stats'));
-    if(r.ok){
-      const d = await r.json();
-      lastStatsSig = [d.documents, d.entities, d.relations].join(':');
-    }
-  }catch(_){}
+  // Navigation between knowledge bases uses paths, not a header (design Section 5.3).
+  window.location.assign(kbHomePath(targetId));
 }
 
 // --- 웹 표준 History API 기반 모바일 뒤로가기/내비게이션 관리 ---
@@ -705,7 +636,7 @@ const paneTabs = {
 
 const panel = document.getElementById('panel');
 function canWrite(){ return AUTH_SCOPE==='owner'; }
-function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }
+function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='write'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function personalKbCardHtml(){
@@ -2481,12 +2412,6 @@ async function runIngest(){
   }
   if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus){
-    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
-  } else if(targetThemeObj && getThemeKey(targetThemeObj) !== '0' && targetThemeObj.default_focus){
-    const df = targetThemeObj.default_focus;
-    optionLabels.push(tr('ws.ingest.opt_focus_default', { focus: df.length > 20 ? df.slice(0,20)+'…' : df }));
-  }
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
@@ -2513,7 +2438,7 @@ async function runIngest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(payload, targetThemeObj ? targetThemeObj.label : '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2526,9 +2451,7 @@ async function runIngest(){
   }
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
-    if(focus) bodyObj.focus=focus;
     const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
@@ -2613,18 +2536,17 @@ function renderIngestResult(d){
     '<p class=al>' + tr("ws.ingest.kept_for_recover") + '</p>'; return; }
   let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
-  if(d.focus) h+='<p class=al><b>' + tr("ws.ingest.focus_prefix") + '</b> '+esc(d.focus)+'</p>';
   const appliedOptions=[];
-  if(d.theme_id !== undefined){
-    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.theme_id) })));
+  if(d.kb_id !== undefined){
+    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.kb_id) })));
   }
   if(d.full_content) appliedOptions.push(tr("ws.ingest.opt_full"));
   if(d.effort) appliedOptions.push(esc(tr('ws.ingest.opt_effort', { effort: d.effort })));
   if(appliedOptions.length) h+='<p class=al><b>' + tr("ws.ingest.applied") + '</b> '+appliedOptions.join(' · ')+'</p>';
   if(!d.duplicate) h+='<p class=al>'+tr('ws.ingest.counts', { created: d.entities_created||0, linked: d.entities_linked||0, relations: d.relations_added||0 })+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.theme_id !== undefined && String(d.theme_id) !== String(activeThemeId)){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.theme_id) }))+'</button></p>';
+  if(d.kb_id !== undefined && String(d.kb_id) !== String(activeThemeId)){
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.kb_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.kb_id) }))+'</button></p>';
   } else {
     if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">' + tr("ws.ingest.open_doc") + '</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
@@ -2702,9 +2624,6 @@ async function runReingest(){
   }
   if(fullContent) optionLabels.push(tr("ws.reingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus){
-    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
-  }
   if(untombstone) optionLabels.push(tr("ws.reingest.opt_untombstone"));
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
@@ -2732,7 +2651,7 @@ async function runReingest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(target, focus, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(target, targetThemeObj ? targetThemeObj.label : '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2745,9 +2664,7 @@ async function runReingest(){
   }
   try{
     const bodyObj = {target:target, full_content:fullContent, untombstone:untombstone};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
-    if(focus) bodyObj.focus=focus;
     const r=await fetch(apiUrl('reingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
@@ -2891,10 +2808,6 @@ async function runRegen(isDryRun){
         refetch: refetch,
       };
       if(effort) payload.effort = effort;
-      if(focus) payload.focus = focus;
-      if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-        payload.theme = targetThemeId;
-      }
       const r = await fetch(apiUrl('regenerate'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -2946,7 +2859,6 @@ async function runRegen(isDryRun){
   }
   optionLabels.push(tr('ws.regen.opt_component', { component: component }));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus) optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
   if(refetch) optionLabels.push(tr("ws.regen.opt_refetch"));
   if(optionLabels.length){
     labelText += ' (' + optionLabels.join(' · ') + ')';
@@ -2970,10 +2882,6 @@ async function runRegen(isDryRun){
     refetch: refetch,
   };
   if(effort) payload.effort = effort;
-  if(focus) payload.focus = focus;
-  if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-    payload.theme = targetThemeId;
-  }
 
   let result = null;
   try{
@@ -3098,21 +3006,11 @@ function openPurge(){
   const defTarget = (curDoc && (curDoc.id || curDoc.url || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  if(isMulti && availableThemes && availableThemes.length > 1){
-    themeFieldHtml = ('<div class="ingest-field">'+
-      '<label class="ingest-label" for="purgetheme">' + tr("ws.purge.target_theme") + ' <span class="ingest-help">' + tr("ws.purge.target_theme_hint") + '</span></label>'+
-      '<select id="purgetheme" class="ingest-theme-select">'+
-        renderThemeOptions(activeThemeId)+
-      '</select>'+
-    '</div>');
-  }
 
   host.innerHTML = '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
       '<span data-icon="warning"></span> <b>' + tr("ws.purge.warning_title") + '</b><br>' + tr("ws.purge.warning")+
     '</div>'+
     '<div class="ingest-form">'+
-      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="purgetarget">' + tr("ws.purge.target") + ' <span class="ingest-help">' + tr("ws.purge.target_hint") + '</span></label>'+
         '<input type="text" id="purgetarget" class="ingest-input" value="'+esc(defTarget)+'" placeholder="' + tr("ws.purge.target_placeholder") + '">'+
@@ -3155,8 +3053,7 @@ async function runPurgeCheck(isDryRun){
   const reason = ((reasonInp||{}).value||'').trim() || 'web_purge';
   const tombstoneChk = document.getElementById('purgetombstone');
   const tombstone = !!(tombstoneChk && tombstoneChk.checked);
-  const themeEl = document.getElementById('purgetheme');
-  const targetThemeId = (isMulti && themeEl) ? String(themeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
 
   if(!isDryRun){
     if(!confirm(tr("ws.purge.confirm"))){
@@ -3176,9 +3073,6 @@ async function runPurgeCheck(isDryRun){
       tombstone: tombstone,
       reason: reason,
     };
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-      payload.theme = targetThemeId;
-    }
     const r = await fetch(apiUrl('document/purge'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -3376,7 +3270,7 @@ let activeMatrixInitialized = false;
 function handleActiveIngestState(activeInfo){
   if(!activeInfo) return;
   if(!activeMatrixInitialized && typeof initIngestMatrixView === 'function'){
-    initIngestMatrixView(activeInfo.payload, activeInfo.focus, activeInfo.theme_label);
+    initIngestMatrixView(activeInfo.payload, activeInfo.theme_label);
     activeMatrixInitialized = true;
   }
   const spin = document.getElementById('matrix-progress-spinner');
@@ -4977,11 +4871,11 @@ function resolveHomeView(stats, activeThemeId){
   } else if(stats.active_ingest && stats.active_ingest.active){
     jobs = [stats.active_ingest];
   } else if(stats.ingesting){
-    jobs = [{ active: true, theme_id: targetTheme }];
+    jobs = [{ active: true, kb_id: targetTheme }];
   }
   if(jobs.length === 0) return 'home';
   const matchesCurrent = jobs.some(j => {
-    const jTheme = String((j.theme_id !== undefined && j.theme_id !== null) ? j.theme_id : '0');
+    const jTheme = String((j.kb_id !== undefined && j.kb_id !== null) ? j.kb_id : '0');
     const curThemeObj = findTheme(targetTheme);
     const jThemeObj = findTheme(jTheme);
     if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
@@ -4998,7 +4892,7 @@ function showOtherThemeJobBanner(stats){
   const otherJobs = (stats && Array.isArray(stats.active_jobs) ? stats.active_jobs : (stats && stats.active_ingest ? [stats.active_ingest] : []))
     .filter(j => {
       if(!j || !j.active) return false;
-      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const jThemeStr = String(j.kb_id !== undefined ? j.kb_id : '0');
       const curThemeObj = findTheme(curThemeStr);
       const jThemeObj = findTheme(jThemeStr);
       if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return false;
@@ -5006,7 +4900,7 @@ function showOtherThemeJobBanner(stats){
     });
   if(!otherJobs.length) return;
   const job = otherJobs[0];
-  const tName = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id || 0));
+  const tName = job.theme_label || (tr("ws.jobs.theme_hash") + (job.kb_id || 0));
   if(typeof ClaireStatusBanner !== 'undefined' && ClaireStatusBanner && ClaireStatusBanner.show){
     ClaireStatusBanner.show('custom_notice', {
       message: tr('ws.jobs.other_theme', { theme: tName, job: job.title || tr('ws.jobs.job') })
@@ -5016,7 +4910,7 @@ function showOtherThemeJobBanner(stats){
       title: tr("ws.jobs.background"),
       actionLabel: tr("ws.jobs.go_theme"),
       action: function(){
-        switchKnowledgeTheme(String(job.theme_id || '0'));
+        switchKnowledgeTheme(String(job.kb_id || '0'));
       }
     });
   }
@@ -5037,17 +4931,15 @@ async function enterHome({reason = 'brand'} = {}){
   if(centerView !== 'matrix') setCenterView('home');
   document.title = HOME_TITLE;
 
-  // URL / History: preserve ?theme=N if non-zero, replaceState without pushing
+  // URL / History: the path selects the knowledge base; replaceState without pushing
   const url = new URL(window.location.href);
-  const currentThemeParam = url.searchParams.get('theme');
-  url.search = (activeThemeId && String(activeThemeId) !== '0') ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
+  url.search = '';
   url.hash = '';
-  window.history.replaceState({ pane: 'graph', modal: null, view: 'home' }, HOME_TITLE, url.pathname + url.search);
+  window.history.replaceState({ pane: 'graph', modal: null, view: 'home' }, HOME_TITLE, url.pathname);
 
-  // Sync brand href with current theme
   const brandLink = document.querySelector('a.brand');
   if(brandLink){
-    brandLink.href = (activeThemeId && String(activeThemeId) !== '0') ? ('./?theme=' + activeThemeId) : './';
+    brandLink.href = kbHomePath(activeThemeId);
   }
 
   let stats = null;
@@ -5077,7 +4969,7 @@ async function enterHome({reason = 'brand'} = {}){
     try{
       window.gtag('event', 'home_navigate', {
         reason: 'brand',
-        theme_id: activeThemeId
+        kb_id: activeThemeId
       });
     }catch(_){}
   }
@@ -5583,10 +5475,6 @@ function renderDocPanel(dc){
   const tab=DOC_CTX_TABS.includes(activeDocCtxTab)?activeDocCtxTab:'links';
   activeDocCtxTab=tab;
   let h='<div class="ctx-doc-head"><h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
-  if(focus){
-    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)"><span data-icon="target"></span> ' + tr("ws.ingest.focus_prefix") + '</b> '+esc(focus)+'</div>';
-  }
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
@@ -5833,7 +5721,7 @@ function updateSearchModeUI(){
   }
 }
 function setAccessScope(scope, reason){
-  AUTH_SCOPE = ['owner','collaborator','readonly','anonymous'].includes(scope) ? scope : 'unknown';
+  AUTH_SCOPE = ['owner','write','readonly','anonymous'].includes(scope) ? scope : 'unknown';
   READONLY = !canWrite();
   document.body.dataset.authScope=AUTH_SCOPE;
   document.body.classList.toggle('ro', READONLY);
@@ -6760,7 +6648,7 @@ function extractActiveJobs(d){
       job_id: 'default_ingest',
       active: true,
       kind: 'ingest',
-      theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+      kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
       title: tr("ws.cockpit.ingest_running"),
       stage: 'extract',
       msg: tr("ws.cockpit.analysis_preparing")
@@ -6865,7 +6753,7 @@ function updateCockpitChrome(job){
   const isDone = curStage === 'done' || (job.active === false && curStage !== 'error');
   const isError = curStage === 'error';
   const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
-  const themeTxt = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id !== undefined ? job.theme_id : 0));
+  const themeTxt = job.theme_label || (tr("ws.jobs.theme_hash") + (job.kb_id !== undefined ? job.kb_id : 0));
 
   const statusBadge = document.getElementById('cockpit-status-badge');
   const statusText = document.getElementById('cockpit-status-text');
@@ -6942,7 +6830,7 @@ function updateCenterJobView(job){
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
     const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
-    const themeTxt = job.theme_label || ('#' + (job.theme_id !== undefined ? job.theme_id : 0));
+    const themeTxt = job.theme_label || ('#' + (job.kb_id !== undefined ? job.kb_id : 0));
     docMetaEl.textContent = tr('ws.cockpit.target_full', { title: job.title || tr('home.recent.untitled'), theme: themeTxt, kind: kindTxt });
   }
 
@@ -6982,7 +6870,7 @@ function renderMultiSlotUI(jobs){
     const curThemeStr = String(activeThemeId || '0');
     const curThemeObj = findTheme(curThemeStr);
     const themeMatch = jobs.find(j => {
-      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const jThemeStr = String(j.kb_id !== undefined ? j.kb_id : '0');
       const jThemeObj = findTheme(jThemeStr);
       if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
       return jThemeStr === curThemeStr;
@@ -7002,7 +6890,7 @@ function processActiveJobsStats(d){
   }
 }
 
-function initIngestMatrixView(payload, focus, themeLabel){
+function initIngestMatrixView(payload, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
@@ -7022,7 +6910,7 @@ function initIngestMatrixView(payload, focus, themeLabel){
   const synthJob = {
     active: true,
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: themeLabel || tr("ws.bar.theme_default"),
     title: shortDesc || tr("ws.cockpit.collect_target"),
     stage: 'fetch',
@@ -7072,7 +6960,7 @@ function updateMatrixProgress(msg){
   const synthJob = {
     active: inferredStage !== 'done',
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: tr("ws.bar.theme_default"),
     stage: inferredStage,
     progress: inferredPct,
@@ -7240,7 +7128,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
       updateCockpitChrome({
         active: isActivelyIngesting,
         kind: 'ingest',
-        theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+        kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
         theme_label: tr("ws.bar.theme_default"),
         title: title || '',
         stage: isActivelyIngesting ? 'resolve' : 'done',
@@ -7284,7 +7172,7 @@ function completeIngestMatrixView(result){
   updateCockpitChrome({
     active: false,
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: tr("ws.bar.theme_default"),
     title: (result && result.title) || '',
     stage: 'done',

@@ -8,22 +8,21 @@
 
 ## 0. 작업 전에 알아 둘 것
 
-1. **[코드] 모든 테마가 한 DB 파일을 쓴다.** v14부터 모든 테마의 데이터는 `data/claire.db` 하나에 있다. 테마 격리는 `theme_id` 컬럼으로만 이루어진다. 테마별 `Settings` 사본도 같은 `db_file`과 `data_dir`을 가리킨다(`ThemeManager._settings_for_theme_info`). 따라서 다음은 **모든 테마가 공유한다.**
+1. **[코드] 모든 테마가 한 DB 파일을 쓴다.** v14부터 모든 테마의 데이터는 `data/claire.db` 하나에 있다. 테마 격리는 `kb_id` 컬럼으로만 이루어진다. 테마별 `Settings` 사본도 같은 `db_file`과 `data_dir`을 가리킨다(`KnowledgeBaseManager._settings_for_theme_info`). 따라서 다음은 **모든 테마가 공유한다.**
    - 파일 기반 상태: `data/jobs/*.json` 작업 기록, `providers.json`, `ingest_limits.json`, 텔레메트리
    - 이런 상태를 응답에 내보낼 때는 테마 권한으로 걸러야 한다. 예: `server.py`의 `_visible_active_jobs`(§4.3)
-2. **[코드] 새 쿼리는 반드시 `theme_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `theme_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
-   - 집행: `tests/test_theme_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `theme_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `theme_id=None`처럼 명시해야 한다.
+2. **[코드] 새 쿼리는 반드시 `kb_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `kb_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
+   - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
-3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_default=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
-4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_theme`·`update_theme`·`delete_theme`는 `RuntimeError`, HTTP `POST`·`PATCH`·`DELETE /themes`는 403)를 잠근다. `reset_theme`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `themes` 테이블에서 읽어 일관된 코드 경로로 동작한다.
-5. **[코드] 테마 소유권과 계정 귀속 (`account_id`)**: 모든 테마는 `ThemeInfo.account_id`를 통해 특정 계정에 귀속된다(`claire.db` v15 `themes.account_id`). 관리자 테마는 `account_id = 1`이며, 멤버 계정이 생성한 테마는 해당 계정의 `account_id`를 갖는다.
-6. **[코드] 기본 테마 불변식의 `theme.is_default` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_default = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_default` 판정으로 일원화했다:
-   - 기본 테마는 삭제할 수 없다 (`delete_theme`에서 `theme.is_default`이면 `ValueError`).
-   - 기본 테마는 협업자 쓰기·접근이 차단된다 (`is_collaborator_accessible = False`).
-   - 기본 테마는 기본 초점이 빈 문자열로 강제된다 (`default_focus = ""`).
-   - 계정당 기본 테마는 정확히 1개이며, `claire.db`의 `idx_themes_account_default ON themes(account_id) WHERE is_default = 1` 유니크 인덱스로 강제된다.
-   - 테마 생략 시 `ThemeManager.default_theme_for(account_id)`로 해당 계정의 기본 테마를 단일 진실 공급원으로 조회한다.
-7. **[코드] 테마 레이블 유일성 범위 `(account_id, label)`**: 테마 레이블 중복 검사는 전역이 아니라 **계정 범위** `(account_id, label)`로 판정한다. 서로 다른 계정 간에는 동일한 레이블명을 쓸 수 있으며, 동일 계정 내에서만 대소문자 무시 중복이 거부된다(`define_theme`, `update_theme`).
+3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `KnowledgeBaseManager.get_kb(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `KnowledgeBaseNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_personal=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
+4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_kb`·`update_kb`·`delete_kb`는 `RuntimeError`, HTTP `POST /kb`, `PATCH /`, `DELETE /`는 403)를 잠근다. `reset_kb`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `knowledge_bases` 테이블에서 읽어 일관된 코드 경로로 동작한다.
+5. **[코드] 테마 소유권과 계정 귀속 (`account_id`)**: 모든 테마는 `KnowledgeBaseInfo.account_id`를 통해 특정 계정에 귀속된다(`claire.db` v15 `themes.account_id`). 관리자 테마는 `account_id = 1`이며, 멤버 계정이 생성한 테마는 해당 계정의 `account_id`를 갖는다.
+6. **[코드] 기본 테마 불변식의 `theme.is_personal` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_personal = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_personal` 판정으로 일원화했다:
+   - 기본 테마는 삭제할 수 없다 (`delete_kb`에서 `theme.is_personal`이면 `ValueError`).
+   - The personal knowledge base takes writes only from its account (`kb_access.decide`, §4.1). The column `is_collaborator_accessible` is removed (claire.db version 28, unit CT-2).
+   - 계정당 기본 테마는 정확히 1개이며, `claire.db`의 `idx_knowledge_bases_account_personal ON themes(account_id) WHERE is_personal = 1` 유니크 인덱스로 강제된다.
+   - 테마 생략 시 `KnowledgeBaseManager.personal_kb_for(account_id)`로 해당 계정의 기본 테마를 단일 진실 공급원으로 조회한다.
+7. **[코드] 테마 레이블 유일성 범위 `(account_id, label)`**: 테마 레이블 중복 검사는 전역이 아니라 **계정 범위** `(account_id, label)`로 판정한다. 서로 다른 계정 간에는 동일한 레이블명을 쓸 수 있으며, 동일 계정 내에서만 대소문자 무시 중복이 거부된다(`define_kb`, `update_kb`).
 
 ---
 
@@ -31,10 +30,10 @@
 
 | 파일 | 역할 | 주요 기호 |
 | :--- | :--- | :--- |
-| `src/claire/store/theme.py` | 테마 레지스트리, 조회, 수명주기, 테마별 설정 | `ThemeInfo`, `ThemeNotFound`, `ThemeManager`(`reload`, `get_theme`, `define_theme`, `update_theme`, `delete_theme`, `reset_theme`, `theme_data_counts`, `get_settings_for_theme`, `active_theme_settings`, `get_theme_by_fqdn`), `THEMES_REGISTRY_FILENAME`, `validate_fqdn`, `get_theme_manager` |
-| `src/claire/store/db.py` | `themes` 테이블, `theme_id` 인덱스, 레거시 DB 병합 | `init_db`, `reset_graph`, `migrate_multi_db_to_single_db` |
-| `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_extract_theme_ref`, `_theme_accessible`, `_get_theme_ctx`, `_visible_active_jobs`, `_job_theme_id` |
-| `src/claire/ingest/service.py` | 테마별 적재 서비스 | `IngestService.theme_id`, `IngestServicePool` |
+| `src/claire/store/knowledge_base.py` | 테마 레지스트리, 조회, 수명주기, 테마별 설정 | `KnowledgeBaseInfo`, `KnowledgeBaseNotFound`, `KnowledgeBaseManager`(`reload`, `get_kb`, `define_kb`, `update_kb`, `delete_kb`, `reset_kb`, `kb_data_counts`, `get_settings_for_kb`, `active_kb_settings`, `get_kb_by_fqdn`), `THEMES_REGISTRY_FILENAME`, `validate_fqdn`, `get_kb_manager` |
+| `src/claire/store/db.py` | `knowledge_bases` 테이블, `kb_id` 인덱스, 레거시 DB 병합 | `init_db`, `reset_graph`, `migrate_multi_db_to_single_db` |
+| `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_theme_accessible`, `_get_theme_ctx`, `_get_personal_kb_ctx`, `_visible_active_jobs`, `_job_kb_id` |
+| `src/claire/ingest/service.py` | 테마별 적재 서비스 | `IngestService.kb_id`, `IngestServicePool` |
 | `src/claire/cli.py` | CLI의 테마 결정 | `get_effective_settings`, `cmd_theme`, `cmd_migrate` |
 | `src/claire/telegram_bot.py` | 텔레그램의 테마 선택 | `on_theme`, `parse_message_theme` |
 | `src/claire/ingest/active.py` | 진행 중 작업 기록(전 테마 공용 디렉터리) | `get_active_jobs`, `get_primary_active_job` |
@@ -44,31 +43,31 @@
 ## 2. 저장 구조
 
 **[코드] 레지스트리는 두 곳에 있다.**
-- 정본은 DB의 `themes` 테이블이다.
+- 정본은 DB의 `knowledge_bases` 테이블이다.
 - `data/themes.json`은 `_save_registry()`가 원자적으로 다시 쓰는 사본이다.
 - `reload()`는 DB 행을 읽고, JSON에만 있는 항목은 DB에 `INSERT OR IGNORE`로 넣는다. 그래서 두 곳이 다르면 DB 값이 이긴다.
-- `define_theme`은 DB에 넣고 커밋한 뒤 JSON을 다시 쓴다. ID는 `seq`와 같은 일련번호(`_next_seq`)다.
+- `define_kb`은 DB에 넣고 커밋한 뒤 JSON을 다시 쓴다. ID는 `seq`와 같은 일련번호(`_next_seq`)다.
 
-**[코드] 기본 테마(`theme.is_default=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_default = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있고, 기본 초점은 빈 문자열로 고정된다(`ThemeInfo.from_dict`).
+**[코드] 기본 테마(`theme.is_personal=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_personal = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있다.
 
-**[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`. `(theme_id, …)` 복합 인덱스는 `init_db`가 만든다.
+**[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`. `(kb_id, …)` 복합 인덱스는 `init_db`가 만든다.
 
-**[코드] 레거시 DB 병합.** 멀티 테마 모드에서 `ThemeManager(create_registry=True)`가 `reload()`할 때 동작은 다음과 같다.
+**[코드] 레거시 DB 병합.** 멀티 테마 모드에서 `KnowledgeBaseManager(create_registry=True)`가 `reload()`할 때 동작은 다음과 같다.
 - `data/themes/*/claire.db`가 있으면 `migrate_multi_db_to_single_db`를 부른다.
-- 각 파일을 `ATTACH`하고, 행을 `INSERT OR IGNORE`로 `theme_id`를 붙여 복사한다.
+- 각 파일을 `ATTACH`하고, 행을 `INSERT OR IGNORE`로 `kb_id`를 붙여 복사한다.
 - 다 끝나면 원본을 `claire.db.migrated`로 이름을 바꾼다.
 
 ---
 
-## 3. 테마 조회 (`ThemeManager.get_theme`)
+## 3. 테마 조회 (`KnowledgeBaseManager.get_kb`)
 
 **[코드]** 매칭 순서는 다음과 같다.
-1. 비어 있으면(`None`, 빈 문자열) 관리자 계정의 기본 테마(`default_theme_for(ADMIN_ACCOUNT_ID)`, 보통 테마 0). 참조를 생략한 경우의 기본값이다. 계정 안에서 해석하는 요청 입력은 `resolve_theme_ref`를 쓴다(§4.6).
+1. 비어 있으면(`None`, 빈 문자열) 관리자 계정의 기본 테마(`personal_kb_for(ADMIN_ACCOUNT_ID)`, 보통 테마 0). 관리 도구(CLI)의 기본값이다. HTTP 요청은 §4.1의 선택 규칙을 따른다.
 2. 숫자 ID 정확 일치
 3. 레이블 정확 일치(대소문자 무시)
 4. 레이블 부분 일치(처음 걸린 테마): `label_match="partial"`일 때만
 
-찾지 못했거나 접근할 수 없으면(`include_private=False`이면 비공개 테마, `collaborator=True`이면 협업 비허용 비공개 테마) `ThemeNotFound`를 던진다. 두 경우의 메시지는 같아서 비공개 테마의 존재가 드러나지 않는다. 다른 테마로 대신하는 분기는 없다(PRINCIPLES C1).
+찾지 못했거나 접근할 수 없으면(`include_private=False`이면 비공개 테마) `KnowledgeBaseNotFound`를 던진다. 메시지는 같아서 비공개 테마의 존재가 드러나지 않는다. 다른 테마로 대신하는 분기는 없다(PRINCIPLES C1).
 
 **[코드] 진입점별 처리**
 
@@ -77,10 +76,10 @@
 | HTTP `_get_theme_ctx` | 정확 | 404 `theme not found` (접근 불가와 같음) |
 | HTTP 문서 → 테마 후보 (`_first_live_target`) | — | 삭제된 테마의 후보는 건너뛴다. 남는 후보가 없으면 404 |
 | Syndication dispatch 대상·원본 테마 | 정확 | 404 |
-| MCP 도구 (`_theme_id`) | 정확 | `{"error": "theme not found"}` |
-| `IngestServicePool.get_service` | 정확 | `ThemeNotFound` 전파 (캐시된 서비스도) |
+| MCP 도구 (`_kb_id`) | 정확 | `{"error": "theme not found"}` |
+| `IngestServicePool.get_service` | 정확 | `KnowledgeBaseNotFound` 전파 (캐시된 서비스도) |
 | CLI `--theme` 등 사람이 입력하는 조회 | 부분 | 종료 코드 2 |
-| 텔레그램 `/theme <arg>`, `#태그` | 부분 | 안내 메시지 |
+| 텔레그램 `/kb <arg>`, `#태그` | 부분 | 안내 메시지 |
 | 텔레그램 저장된 선택 테마 (`resolve_selected_theme`) | — | 선택을 지우고 요청을 거부한다(적재·검색 안 함) |
 
 - 집행: `tests/test_theme_strict_lookup.py`
@@ -91,27 +90,55 @@
 
 ### 4.1 HTTP (`server.py`)
 
-**[코드]** 테마 참조 및 경로 해석 우선순위는 다음과 같다.
+**[코드]** 지식 베이스 선택 규칙(공유 지식 베이스 설계 §5.2, CT23, `_get_theme_ctx`):
 
-1. 경로에 테마 번호가 포함되어 있으면(`/themes/{number}/...`) 해당 테마로 고정(`pinned_theme_id`)한다. 고정과 모순되는 `?theme=` 쿼리나 본문 파라미터는 400으로 거부한다.
-2. 경로에 고정이 없으면 `?theme=` → 본문 `theme` → `X-Claire-Theme` 헤더 순으로 해석한다(`resolve_theme_ref`).
-3. 외부 식별자는 64비트 시간 정렬 번호(`number`, `>= 2^56`)를 사용한다. 내부 ID(`0 <= id < 2^31`)로 들어온 요청은 호환 수용하되 RFC 8594 `Deprecation` 및 `Sunset` 응답 헤더를 부착한다.
-4. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
+1. **네임스페이스 라우트**: 경로만 선택한다. `/kb/{number}/…`는 그 공유 지식 베이스를 고정한다(`pinned_kb_id`, 네임스페이스 계정 없음, 모드와 무관). 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다. 개인 지식 베이스의 번호로 `/kb/{number}/…`를 요청하면 읽을 수 있을 때 그 계정 경로(`/@{u}/…`, 싱글 모드 `/…`)로 308, 아니면 404다. 옛 링크 `/themes/{number}/…`·`/@{u}/themes/{number}/…`는 공유면 `/kb/{number}/…`로, 개인이면 그 계정 경로로 308이다(설계 §7).
+2. **네임스페이스가 없는 라우트**(`any`·`system` 표면, 예: `/p/presentation`, `/api/me/data-bundles`, MCP 읽기 도구): 매개변수 `kb`(번호)가 필수다. 없으면 400 `kb_required`. `KnowledgeBaseManager.get_kb_by_reference`는 번호만 받는다(내부 ID·레이블·빈 값은 404).
+3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_by_contribution`, 다른 계정의 네임스페이스는 404다.
+4. **옛 이름**: 쿼리·본문 `theme`, `X-Claire-Theme` 헤더, 내부 ID 참조는 모르는 필드처럼 무시한다. `Deprecation`·`Sunset` 헤더도 없다. 문서를 다른 지식 베이스에서 찾아 대상을 바꾸는 폴백(`/share`, `/document`, 재생성, 프레젠테이션, 배급 원본)은 없다. 공유 토큰(`/p?s=`, `/p/presentation?s=`)은 토큰이 자기 지식 베이스를 정한다.
+5. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
 
-**[코드]** `_theme_accessible`의 접근 검사(`_get_theme_ctx`가 쓰고, 실패하면 404)는 다음과 같다.
+**[코드] 지식 베이스의 두 종류와 권한(CT-1, 설계 §6.2·§6.5·§11.2)**:
 
-| 인증 범위 | 접근 가능한 테마 |
+- **개인**(`is_personal=1`, `account_id`=계정, `knowledge_type` NULL): 계정마다 하나(CT1). 공개 또는 비공개. 소유자만 쓴다.
+- **공유**(`is_personal=0`, `account_id` NULL, 항상 공개, `knowledge_type`은 `real`·`fictional`): 소유자가 없다. `define_kb(..., knowledge_type=..., account_id=창립자)`가 만들고 창립자는 `created_by_account_id`와 첫 `moderator` 멤버십이 된다(CT8). `POST /kb`는 `knowledge_type`이 없으면 400 `knowledge_type_required`다. 개수 한도는 없다(CT3, 등급의 `max_themes`는 쓰지 않는다). 레이블은 겹쳐도 된다.
+- **권한 판정**은 함수 하나다: `claire.kb_access.decide`(§6.2 표 전체, §6.5, §6.6). 서버는 `_kb_decide`·`_require_kb`로만 쓴다. 익명은 404, 권한 없는 계정은 403 `kb_capability_required`다. 숨긴 문서는 공유 지식 베이스에서 `review` 권한자만, 개인 지식 베이스에서 그 계정만 본다.
+- **Route capabilities and credential scopes (CT-2, design Sections 6.6 to 6.9)**:
+  - Each entry of `api.security.ROUTE_POLICY` declares two values: the access level (the minimum scope of the credential) and the capability in the selected knowledge base. `_request_capability` reads the capability of the route; no handler selects it. `tests/test_credential_scopes.py` has the table of all routes that act on a knowledge base; a route that is not in the table fails the test.
+  - Capabilities of a route: `none` (no knowledge base), `read`, `share` (make a share link), `write` (a write into the personal knowledge base of the account of the credential: ingest, re-ingest, publish, dispatch), and the capabilities of design Section 6.2 (`review`, `curate`, `maintain`, `settings`, `remove`, `delete`, and the others).
+  - In a personal knowledge base, `read` and `share` stay, a decision about the knowledge base (`settings`, `delete`) needs `settings`, and each other capability is a write of the content. In a shared knowledge base a route with `write` gets 403 `kb_ingest_by_contribution` (CT4).
+  - Scopes: `owner`, `write`, `readonly`. `write` replaces `collaborator`. In the personal knowledge base `write` reads, ingests, regenerates, and publishes. In a shared knowledge base `write` has only `read`, `contribute_direct`, `contribute_theme`, and `share`, also for a moderator or the admin. `readonly` has `read` and `share`.
+  - A credential of an account whose scope is too small gets 403 `{"error": "scope_insufficient", "scope", "required"}` on a route that acts on a knowledge base. Under `/@{u}/` and on account, console, and admin routes the answer stays 404.
+  - Regeneration (`/regenerate`, `/regenerate-stream`, `/document/regenerate`): minimum scope `write`, capability `maintain`. Thus a `write` token regenerates in the personal knowledge base, and a reviewer with the scope `owner` regenerates in a shared knowledge base (design Section 13.1 rule 5). `/synthesize` and `/research` write no document: capability `read`, minimum scope `owner`.
+  - `share`: this capability is not in the table of design Section 6.2. Each account that reads a shared knowledge base has it (not a banned one); in a personal knowledge base only its account has it. In single mode a reader of the public knowledge base of the admin, an anonymous one included, has it (the rule from before this design).
+  - Step-up (design Section 6.8): a route with `step_up=True` needs a session with a recent sign-in. A bearer credential gets 403 `step_up_requires_session`; an old session gets 401 `reauth_required`. Routes with it: `DELETE /kb/{number}/` and the admin moderator routes. `PATCH /kb/{number}/members/{account}` asks for it in the handler, only for a role change, because its other actions (approve, ban, remove) must be fast (Section 6.8 rule 2).
+  - Syndication dispatch (`POST /api/syndication/dispatch`): the copy is an ingest, so its target is the personal knowledge base of the caller; a shared knowledge base as the target gets 403 `kb_ingest_by_contribution`. The source needs `read`. Federation publish and retract take only documents of the personal knowledge base of the caller.
+- **프로바이더(§13.1 규칙 5)**: 공유 지식 베이스에서 사람이 시작한 작업(재생성, 프레젠테이션, 합성 등)은 **요청자 계정의 프로바이더 컨텍스트**로 실행한다(`IngestServicePool.get_service(..., acting_account_id=)`, `_provider_account_of`). 서버의 프로바이더를 쓰지 않는다. 재임베딩 필요 표시는 서버 임베딩과 비교한다(CT24).
+- **워커(CT10)**: `_theme_services_for_cycle`은 공유 지식 베이스를 돌지 않는다(watch·refresh·expand·recover는 개인 지식 베이스만).
+- **목록**: `list_account_kbs`는 계정이 소유한 것(개인), `list_selectable_kbs`는 선택기용(개인 + 모든 공유)이다.
+- **콘솔·텔레그램**: `/settings/*`의 `?kb=`와 계정 백업·데이터 번들은 개인 지식 베이스만 받는다. 텔레그램의 테마 선택은 소유한 것만 보므로 공유 지식 베이스는 대상이 아니다(정리는 CT-8). 연합 발행(`POST /api/federation/publish`)도 개인 지식 베이스에서만 한다.
+
+**[코드]** `_theme_accessible`은 `_kb_decide(request, kb, <the capability of the route>) == "allow"`다. A personal knowledge base that the requester cannot use gives 404 from `_get_theme_ctx`.
+
+| Requester | Personal knowledge base that it reads |
 | :--- | :--- |
-| `anonymous` / 타 계정 방문자 | `is_public`인 테마 |
-| `collaborator` | `is_public` 또는 `is_collaborator_accessible`인 테마 |
-| 그 밖(`owner`, `readonly` 등) | 계정 내 모든 테마 |
+| Anonymous, or another account | A public one |
+| The account of the knowledge base (`owner`, `write`, `readonly`) | Its own, private included |
 
-### 4.5 테마 컬렉션 계약 (`GET /themes`)
+### 4.5 Collections: `GET /kb`, `GET /@{u}/kb`, `GET /themes` (CT-2, design Section 7)
+
+- **[코드] `/kb`**: the shared knowledge bases of the server, newest first, for each reader. `?joined=true` selects those where the requester is an active member. `?type=real` or `?type=fictional` selects one knowledge type. An unknown value of `joined` or `type` gets 400 (`invalid_joined`, `invalid_type`).
+- **[코드] `/@{u}/kb`**: the shared knowledge bases where `u` is an active member (CT9). An HTML request gets the workspace page of `u`.
+- **[코드] Response**: the root has `knowledge_bases` (the items), `personal_kb`, and `multi_theme`. `personal_kb` is the personal knowledge base of the requester at `/kb`, and the one of `u` at `/@{u}/kb` when the requester can read it; else `null`. An item has the fields of `KnowledgeBaseInfo.to_dict()`, `stats`, `url` (`/kb/{number}/`), and `role` (the role of the requester at `/kb`, of `u` at `/@{u}/kb`). `legacy_hosts` and `reembed_required` go only to a requester with the capability `settings`. With `CLAIRE_MULTI_THEME=0` the collection has no shared knowledge base.
+- **[코드] `/themes`**: the collection of themes (table `themes`, design Section 8), with `?type=`. An item has `number`, `url` (`/themes/{number}`), `label`, `description`, `knowledge_type`, `state`, and `knowledge_bases` (the count). The page of one theme is unit CT-5.
+- **[코드] Old links**: `GET /@{u}/themes` gets 308 to `/@{u}/kb`. The old routes `POST`, `PATCH`, and `DELETE /themes` are removed; the lifecycle routes are `POST /kb`, `PATCH /kb/{number}/`, and `DELETE /kb/{number}/` (§4.7).
+- **[코드] Surface**: `/kb` and `/themes` have the route surface `collection` (`api.security._collection`): at the root there is no namespace account; under `/@{u}/` the namespace is `u`; a pinned knowledge base (`/kb/{number}/kb`) gets 404.
+- **[코드] WebUI**: the selector of the workspace keeps the personal knowledge base from the inline list and reads the shared ones from `/kb` (`app.js` `fetchThemes`). The knowledge base manager of the console reads `/kb` (admin) or `/kb?joined=true` (`manage_panels.js` `renderThemeManager`).
 
 - **2단계 컬렉션**: 루트(`OrderedCollection`)와 페이지(`OrderedCollectionPage`)로 제공된다(설계 §7.4).
 - **커서 페이지네이션**: `max_id`, `min_id`, `since_id` 중 최대 1개와 `limit`(기본 20, 최대 80)를 지원한다. 둘 이상 커서 지정 시 400으로 거부된다.
 - **캐시 규칙**: 익명 `public, max-age=60`, 인증 `private, no-cache`, 강한 ETag 및 조건부 요청(304). `Vary: Cookie, Authorization, Sec-Fetch-Dest, Accept`.
-- **하위 호환**: P2–P3 기간 동안 루트 응답에 기존 `themes` 배열, `default_theme_id`, `default_theme_number`, `multi_theme`을 함께 반환한다. Owner에게는 `legacy_hosts` 목록을 함께 싣는다.
+- **Root response**: see the list above. The old fields `themes`, `default_kb_id`, and `default_theme_number` are removed.
 
 ### 4.2 CLI
 
@@ -125,34 +152,97 @@
 **[코드]** `/stats`와 `/ingest/active`는 다음과 같이 동작한다.
 - `active_jobs`를 `_visible_active_jobs`로 거른다. 요청자가 `_theme_accessible`로 접근할 수 있는 테마의 작업만 남는다.
 - 대표 작업(`active_ingest`)은 거른 목록 안에서만 고른다(`get_primary_active_job(..., jobs=...)`). 이때 전 테마 공용인 레거시 `active_ingest.json`으로 폴백하지 않는다.
-- 멀티 테마 모드에서는 권한 검사를 통과한 테마 ID만 쓰고, 날 `?theme=` 값은 무시한다(`_job_theme_id`).
+- 작업 조회 대상은 선택 규칙(§4.1)이 정한 지식 베이스다(`_job_kb_id`).
 - 이 처리가 없으면 공개 테마 FQDN에서 비공개 테마의 적재 URL과 제목이 보인다(`tests/test_active_jobs_theme_isolation.py`).
 
 ### 4.4 적재 서비스와 워커
 
 - **[코드]** `IngestServicePool`은 테마마다 `IngestService`를 하나씩 캐시하고, LLM 프로바이더 인스턴스는 공유한다.
-- **[코드]** `recover-loop`, `refresh-loop`, `expand-loop`와 `app health`, `migrate`는 `active_theme_settings()`로 테마 목록을 매번 다시 읽는다.
+- **[코드]** `recover-loop`, `refresh-loop`, `expand-loop`와 `app health`, `migrate`는 `active_kb_settings()`로 테마 목록을 매번 다시 읽는다.
 - **[코드]** `cmd_migrate`는 멀티 테마 모드에서 테마마다 `init_db`와 `require_current_schema`를 실행한다. 대상 파일은 모두 같은 단일 DB다.
 
-### 4.6 콘솔 화면의 테마 관리와 `?theme=`
+### 4.6 콘솔 화면의 테마 관리와 `?kb=`
 
-- **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(둘 다 `/themes` API를 부르는 `src/claire/static/js/manage_panels.js`의 `renderThemeManager`). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 협업자는 테마 관리 화면에 들어가지 않는다(테마 선택기만 쓴다). 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
+- **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(`src/claire/static/js/manage_panels.js`의 `renderThemeManager`: 목록은 `GET /kb`, 변경은 `POST /kb`·`PATCH /kb/{number}/`·`DELETE /kb/{number}/`). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
 - **[코드] 관리자 화면의 경계**: `/admin/themes`는 관리자 계정(`account_id = 1`)의 테마만 관리하고, 서버 전체는 `COUNT(*)` 집계(`total_themes`, `admin_themes`, `purged`가 아닌 계정 수)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다.
-- **[코드] `/settings/themes`의 슬롯 표시**: 호출자 계정의 테마 수와 서버 등급의 `max_themes`를 보인다.
-- **[코드] 콘솔의 `?theme=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?theme=`를 `ThemeManager.resolve_theme_ref(ref, account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(§0-3). 쿼리가 없으면 호출자 계정의 기본 테마(`is_default`)를 쓴다. 테마별 섹션(`/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`)은 사이드바 링크와 리디렉트에 검증한 `?theme=`를 이어 붙인다.
-- **[코드] 옛 `/syndication/preferences?theme=`**: `_get_theme_ctx`로 먼저 검사해 실패하면 404이고, 통과하면 `/settings/*` 대상에 테마 공개 참조(`ids.format_public_id(number)`)를 `?theme=`로 붙인다.
+- **[코드] No slot count**: the tier field `max_themes` is retired (design Section 10.1). `ServerTier.from_dict` ignores the key in a stored tier or in an old request; the console has no slot count.
+- **[코드] 콘솔의 `?kb=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?kb=`(번호)를 `get_kb_by_reference`로 찾고 호출자 계정의 것인지 검사한다. 빈 값, 없는 번호, 다른 계정의 지식 베이스는 404다. 쿼리가 없으면 콘솔 주인 계정의 개인 지식 베이스다(`/settings/*`는 그 계정의 콘솔이다).
+- **[코드] 옛 `/syndication/preferences?kb=`**: `?kb=`가 있으면 `_get_theme_ctx`로 검사하고 호출자 계정의 것이 아니면 404, 통과하면 `/settings/*` 대상에 공개 참조를 `?kb=`로 붙인다.
 
 ---
+
+### 4.7 Lifecycle, membership, and moderation of a shared knowledge base (CT-3, design Section 10)
+
+- **[코드] Store**: `store/kb_collab.py` has `add_membership`, `update_membership`, `delete_membership`, `active_moderators` (an active membership with the role `moderator` of an account whose status is `active`), `members_with_accounts`, and `log_moderation`. `KnowledgeBaseManager.update_kb` takes the settings of a shared knowledge base: `join_policy`, `knowledge_type` (a new type takes the knowledge base out of its themes), `seed_entities` (`validate_seed_entities`: at most 20 names), and `state` (`archived` sets `archived_at`).
+- **[코드] Routes**: `POST /kb`, `PATCH /` and `DELETE /` under the path of the knowledge base, `POST` and `DELETE /membership`, `GET /members`, `PATCH /members/{account}`, and `PUT` and `DELETE /api/admin/kb/{number}/moderators/{account}`. The contract is in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md). `_select_kb` selects the knowledge base of the path and checks the capability of the route; `_get_theme_ctx` adds the settings and the ingest service.
+- **[코드] Roles**: a join makes the role `member`. A moderator with a recent sign-in gives and removes `collaborator`. Only the admin gives and removes `moderator`. A moderator cannot change another moderator. The last active moderator cannot leave. A suspended account keeps its role in storage, but its credential is not valid, and it does not count as an active moderator.
+- **[코드] Archive**: `kb_access.decide(..., archived=True)` refuses the capabilities of `ARCHIVED_BLOCKED`; the join route refuses with 403 `kb_archived`.
+- **[코드] Log**: each decision about a member, each role change, and each settings change writes `kb_moderation_log` (actions `approve`, `ban`, `remove`, `role_collaborator`, `role_member`, `moderator_give`, `moderator_remove`, `leave`, `settings`). The admin actions on moderators and the delete also write `admin_audit`.
+- **[미구현]** The console pages for members, roles, and the log are unit CT-9. Mutual collaborators of the founder do not become collaborators yet (unit CT-13).
+
+### 4.8 Contributions to a shared knowledge base (CT-4, design Sections 9.1, 9.4 to 9.6)
+
+- **[코드] Module**: `src/claire/contributions.py`. A contribution is a copy of a document of a personal knowledge base in a shared knowledge base K. The copy has its own document ID, its own files, and its own graph in K. `store/kb_collab.py` reads and writes `kb_contributions` and `kb_contribution_revisions`.
+- **[코드] Direct contribution** (`contribute_direct`, one transaction): the checks are a duplicate in K (the same `canonical_url` or `content_hash`: 409 `contribution_duplicate` with the URL), a tombstone in K (409 `contribution_tombstoned`), and a completed extraction of the source (409 `document_not_extracted`). Then `copy_document` copies the `documents` row and the latest `extractions` row with a new ID (hidden, no watch, without the keys of `meta` that are results of the source knowledge base), and the contribution (origin `direct`, state `merging`, root = the source document) and its job are added. A contributor with the capability `review` needs no approval: `approved_at` is set at once. Else `approved_at` is NULL and the contributor can withdraw.
+- **[코드] Merge job** (`run_merge_job`, `build_graph_from_extraction`): the job gives the copy its files (`copy_document_files`: local images, the text artifact, attachments; the uploaded source file of `raw_inbox` is not copied), and builds the graph of K from the stored extraction (`ExtractionResult` JSON in `extractions.raw_response`). It makes **no LLM call** (CT24): no new extraction, no entity judge (`resolve_or_create(judge_fn=None)`: name, alias, and the automatic threshold only), and no relation judge. Embeddings use the provider of the server and the fixed embedding model of K; when the provider does not serve that model, the contribution gets `failed` with the code `embedding_model_unavailable`. The resolution log goes into the `meta` of the copy, so a purge can undo its merges. Success: `documents.hidden = 0`, state `visible`. Failure: state `failed` with a code in `decision_reason`; `retry_merge` adds a new job.
+- **[코드] Jobs**: a merge job is a row of `jobs` with `source_type = 'contribution_merge'` and the payload `{"contribution", "revision"?}`. States: `pending`, `running`, `done`, `error`. `claim_job` takes a job for one process; a job that is `running` for more than 15 minutes becomes `pending` again. The contribution routes run the jobs of K in the request. Each service job of `IngestService` runs the jobs that wait when it ends (`run_waiting_merge_jobs`), with the settings of the server, so the worker loops also run them.
+- **[코드] Withdrawal and review** (`withdraw`, `approve`, `reject`, `set_hidden`, `set_updates_frozen`, `remove`): the contributor withdraws while `approved_at IS NULL` (the copy and the row are deleted, no tombstone); after the approval 409 `contribution_approved`. An approval is final; for a pending contribution it starts the merge job. A reject is for a pending contribution and needs a reason code. Hide and unhide change `documents.hidden` and the state; `POST /document/hide` on a copy does the same. Remove needs a reason code, purges the copy with a tombstone, and sets the state `removed`. Reason codes: `off_subject`, `wrong_knowledge_type`, `duplicate`, `low_quality`, `spam`, `other`. Each review action writes `kb_moderation_log`. A purge of a copy from another entry point (`POST /document/purge` in K) sets its contribution to `removed` (`purge_document_cascade`).
+- **[코드] Revisions** (`start_revisions`, design Section 9.5): `ingest.pipeline.extract_resolve_store` calls `_start_contribution_revisions` after each successful extraction. When the document is the root of contributions and the `content_hash` of a copy differs from the root (`documents.content_hash` is the hash of the fetched text; regenerate does not change it), the new version and its extraction are copied into K without graph. For a visible or hidden contribution the merge job builds the graph of the new copy, points the contribution to it, purges the old copy, and records a row in `kb_contribution_revisions`; there is no approval, and the state stays. For a pending contribution the new version replaces the pending copy. A contribution with stopped updates (`updates_frozen`) and a closed one keep their version. The revisions do not read the visibility of the personal knowledge base (CT26). When the root is deleted, the copies stay.
+- **[코드] Contribution to a theme** (`submit_to_themes`, CT-6, design Sections 9.2 and 9.3): a submission (`kb_submissions`) has one item (`kb_submission_items`) for each document. The theme of an item is the theme that the account selected (`routed_by = 'account'`) or the theme match of the document (`match_document`, `routed_by = 'server'`, with the score). An item with no theme has no target. The targets are the active shared knowledge bases of the theme where the account is not banned. In each target: a reviewer (a collaborator, a moderator, or the admin) contributes with the approval and the merge job runs after the commit; each other account makes a contribution in the state `pending` with a hidden copy, no graph, and no merge job. A duplicate, a tombstone, a document with no extraction, and the pending limit skip the target; the item keeps the reason. Each contribution has `origin = 'bulk'` and `submission_item_id`. The decision in one knowledge base does not change the contribution in another one.
+- **[코드] Limits**: `read_limits` gives the `server_settings` key `submission_max_documents` (20; no HTTP route writes it yet). The limit of the pending contributions of one account in one knowledge base comes from the reputation (`reputation.pending_limit`, Section 4.10).
+- **[코드] Review help and agreement**: `decision_of` gives the decision of a knowledge base on a contribution; the contribution list gives a reviewer the decisions of the other knowledge bases on the same item, the theme score, and the score of the document against the signature of the knowledge base. `decision_agreement` gives, for each shared knowledge base, the part of its decisions that agree with the majority of the other knowledge bases, for items with 3 or more decisions; `GET /api/admin/themes` shows it. The server makes no decision from it.
+- **[코드] Curation** (`curation_source`, `curate`, CT-7, design Section 9.7): the source S is another knowledge base that is a member of one active theme of K (`themes_store.share_a_theme`); a private personal S is "not found". A document of S must be not hidden; in a shared S its contribution must be `visible`. The copy is a contribution with `origin = 'curation'`, `curator_account_id` and `approved_by_account_id` = the reviewer, `source_kb_id` = S. The credit and the root: for a shared S, `contributor_account_id`, `root_kb_id`, and `root_document_id` of the contribution in S; for a personal S, the owner of S and the document itself. Thus the copy follows the revisions of the root (Section 4.8). The checks, the hidden copy, and the merge job are the ones of a direct contribution (`_add_copy`). The moderation log gets `curate`.
+- **[코드] Fork** (`fork_copy`, CT-7, design Section 9.8): the route makes the new shared knowledge base with `define_kb` (label `<label> (fork)`, the knowledge type and the seed entities of the source; the requester is the founder and the moderator), then `fork_copy` runs in the request in one transaction. It copies each document that is not hidden and has a `visible` contribution (with its latest extraction and its files), each entity and relation that has a copied document in `sources` (new IDs; `sources` holds the copies), the embeddings and the FTS rows of the copied entities, and the `resolution_log` of each document with the new entity IDs. It makes no LLM call and no embedding. Each copy gets a contribution with `origin = 'fork'`, `state = 'visible'`, the credit and the root of the source contribution, `curator_account_id` = the requester, and `approved_at` = the fork time. The fork gets `embed_provider`, `embed_model`, `forked_from_kb_id`, `forked_at`, and a membership (`source = 'fork'`) in each active theme of the source. When the copy fails, the route deletes the new knowledge base. Limit: an observation of an entity is not bound to a document, so a copied entity keeps the observations that came from documents that were not copied.
+- **[미구현]** The console pages (CT-9), and the automatic contribution (CT-13).
+
+### 4.9 Themes: subject judgement and document match (CT-5, design Sections 8.2 to 8.5)
+
+- **[코드] Module**: `src/claire/theme_judgement.py`. It makes no LLM call. `store/themes.py` reads and writes `themes`, `theme_knowledge_bases`, `kb_signatures`, and `kb_document_matches`.
+- **[코드] Signature** (`compute_signature`): the 256 entities of a public knowledge base with the most visible source documents; keys `(type, norm_name)` of the entities and of their aliases; the centroid of their embeddings when they have one model. Fewer than 5 counted documents: no signature. The fiction-like documents of a personal knowledge base do not count.
+- **[코드] Similarity and clustering** (`similarity`, `cluster`): weighted Jaccard of the tf-idf vectors, plus `0.3 ×` the cosine of the centroids when the two knowledge bases have one embedding model; average-linkage clustering of the shared knowledge bases of one type until the next merge is below `theme_match_threshold`.
+- **[코드] Run** (`run_judgement`, one transaction): signatures; clusters; stable identity (a cluster takes the theme whose computed members overlap with a Jaccard of 0.5 or more, else a new number); memberships (a pinned or excluded row stays; a knowledge base without a signature keeps its rows; a knowledge base that the admin excluded from its cluster theme gets a theme of its own); public personal knowledge bases attach to each `real` theme with an average score at or above the threshold and never make a theme; state `empty` for a theme without members; label ("A · B") and description from the two and the ten entities with the highest summed weight, unless the label is locked; the theme signature; `last_activity_at`; the document matches of personal knowledge bases.
+- **[코드] Document match** (`DocumentMatcher`, `match_document`): the keys of a document are the keys of its source entities; the score with a theme is the idf-weighted part of those keys in the theme signature; the match is the theme with the highest score at or above `document_match_threshold` when the document has 3 keys or more (a tie goes to the theme with more shared knowledge bases). `seed_score` gives the score with seed entities. The ingest pipeline computes the match of a document of a personal knowledge base after its extraction (`_match_document_theme`).
+- **[코드] Schedule**: `run_is_due` is true once a day and when a knowledge base has 20 new visible documents. Each service job of `IngestService` calls `run_theme_judgement_if_due` when it ends; the admin starts a run with `POST /api/admin/themes/judge`.
+- **[코드] Adjustments** (design Section 8.3, admin routes in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md)): rename (locks the label), pin, exclude, merge (`merge_themes`: the page of the merged theme gives 308), and split (make a theme, then pin). Each one stays after a new run.
+- **[코드] Pages**: `/themes/{number}/` gives the theme as JSON or HTML (the namespace middleware sends a theme number to it; a number of a knowledge base still gets the 308 of the old links). The root page of network mode shows the themes first.
+- **[코드] Changes of the method of the design, not calibrated (CT25)**: `idf = ln(1 + N / df)` in place of `ln(N / df)` (the design formula gives 0 for a key of each signature, so two knowledge bases of one type never match), and tf-idf vectors with the sum 1 (else the sizes of the knowledge bases decide the similarity). The defaults `theme_match_threshold = 0.25`, `document_match_threshold = 0.5`, and `seed_match_threshold = 0.5` have no calibration: the development data has only one knowledge base with documents. With real embeddings the cosine of unrelated centroids is not near 0, so the threshold needs data from a server with some shared knowledge bases.
+- **[미구현]** Remote knowledge bases in the judgement (federation), the actions of the theme page in the WebUI (contribute to a theme, fork: the routes are there), the theme card of the home overview and the page `/admin/themes` of the console (CT-9).
+
+### 4.10 Reputation and campaign message (CT-11, design Sections 8.6 and 8.7)
+
+- **[코드] Module**: `src/claire/reputation.py`. `compute` gives the reputation of an account from the data at each use, so a decision takes effect at once; `refresh` also stores it in `account_reputation` (for the lists, and for the day of the standing message).
+- **[코드] Fiction share**: the fiction-like documents (`kb_document_matches` with a `fictional` theme) divided by the visible documents of the personal knowledge base. A fiction-like document does not count when the account has a contribution with that root in a shared knowledge base of the type `fictional` that is visible or approved (`kb_collab.roots_in_fictional_kbs`).
+- **[코드] Approval rate** (`kb_collab.decisions_of_account`, `approval_rate`): the window is `reputation_window_days` (180). Only the contributions that the account made itself count (origins `direct`, `bulk`, `auto`), and only a decision of another account: an approval by the contributor itself (a reviewer of K) is not a decision. A rejection or a removal counts only with the reason codes `off_subject`, `wrong_knowledge_type`, `low_quality`, `spam`. A knowledge base with more than one third of the decisions keeps its own rate and gets the weight of one third. No value with fewer than `reputation_min_decisions` (10) decisions.
+- **[코드] Level** (`level_of`): `low` with a fiction share of at least 0.5 or a rate below 0.2; `limited` with a share of at least 0.2 or a rate below 0.5; else `good`. The numbers are `server_settings` keys (`reputation.SETTINGS`); `PUT /api/admin/reputations/settings` writes them. They are not calibrated: the development data has no decisions.
+- **[코드] Effects**:
+  - Theme attachment: the judgement does not attach a public personal knowledge base of the level `low` (`run_judgement` step 4). The theme view does not list it; `limited` is listed after the others with `"limited": true`. `curation_source` refuses a personal source of the level `low` with `source_not_in_theme`.
+  - Direct contribution (`contributions.direct_mode`): with `low` the contribution is `pending` (hidden copy, no merge job), also for a collaborator or a moderator; the pending limit of the level applies (409 `pending_limit`). The admin has no reputation rule.
+  - Contribution to a theme (`submit_to_themes`): a reviewer of the level `low` gets a pending contribution; the pending limit is `pending_limit_good` (100), `pending_limit_limited` (20), or `pending_limit_low` (5).
+  - Review queue: `GET /kb/{number}/contributions?state=pending` for a reviewer is in the order `good`, `limited`, `low`, then the oldest first. A reviewer sees `contributor_reputation` (`level`, `approval_rate`).
+  - Automatic contribution: `reputation.auto_contribution_limit` (no limit, `auto_contribution_limited_documents`, or 0 for paused) is ready for unit CT-13; nothing uses it yet.
+- **[코드] Campaign notices** (`src/claire/campaign.py`): after the theme match of a new document of a personal knowledge base, `IngestReport.notices` gets `fiction_like_document` (with `document`, `theme`, `theme_label`) when the match is a `fictional` theme, and `fiction_standing_message` with the first ingest of each UTC day of the account (`account_reputation.campaign_day`). Each notice has `message` (English). The HTTP result of an ingest has them in the report; the Telegram reply shows them in the locale of the chat (catalog keys `campaign.*`); the CLI command `ingest` prints them as `NOTICE:` lines.
+- **[미구현]** The standing message on the ingest forms of the WebUI (the catalog keys `campaign.standing`, `campaign.fictional_themes_link`, `campaign.make_kb_link` are there; the forms get it after the merge with the ingest dialogs of the main branch), the action "Contribute to this theme" in Telegram and the CLI, and the reputation part of `/settings/kb` (CT-9). MCP has no ingest tool, so it shows no notice.
+
+### 4.11 Effects on other subsystems (CT-8, design Section 13)
+
+- **[코드] Ingest**: an ingest pinned to a shared knowledge base gets 403 `kb_ingest_by_contribution` (`_require_kb`; each route with the capability `write`).
+- **[코드] Workers**: `watch_due_documents`, `pending_refresh`, and `pending_expand` take no row of a shared knowledge base (`_NOT_SHARED_KB` in `store/db.py`), also when the caller gives the ID of a shared knowledge base. A copy has `watch_enabled = 0` from the start.
+- **[코드] Account purge** (`AccountStore.purge`, `kb_collab.purge_account`): the memberships, the automatic rule, the contribution blocks, the mutual collaborations, the stored reputation, and the theme rows of the personal knowledge base are deleted. A pending contribution of the account is deleted with its hidden copy. Each other contribution stays with `contributor_account_id = NULL`; the account goes also from `curator_account_id`, `approved_by_account_id`, `kb_memberships.decided_by_account_id`, `knowledge_bases.created_by_account_id`, and `kb_moderation_log.actor_account_id`. With `delete_activity_records` (the body field of the admin purge action) the submissions with their items are deleted and the reason texts of the account in the moderation log are cleared; no document, graph, or contribution changes.
+- **[코드] Account backup**: a backup has the knowledge bases with `account_id` = the account, which is the personal one. The restore (`_is_personal_target`) replaces only the personal knowledge base of the account. A knowledge base of the archive that is a shared knowledge base now (a backup made before version 28) is skipped; the result lists it in `skipped_knowledge_bases`.
+- **[코드] Federation**: the publish route has the capability `write`, so only the personal knowledge base publishes. The removal of a contribution purges the copy with `purge_document_cascade`, which adds the `Delete` tasks for a published object.
+- **[코드] Telegram**: the command `/kb` (before: `/theme`) selects the personal knowledge base or a shared knowledge base (`AccountThemeScope.readable_kbs`, `get_readable_kb`). `/search` uses the selection. Ingest, `/failed`, and `/retry` use the personal knowledge base when the selection is a shared one (`resolve_selected_theme`). The ingest reply shows the campaign notices (Section 4.10).
+- **[코드] CLI**: `claire theme` (list, judge, rename, unlock, pin, exclude, free, merge); see `COMMANDS.md`.
+- **[미구현]** The option "Delete my activity records" in the WebUI purge confirmation (CT-9); MCP tools `kb_candidates` and `kb_submit` (CT-13); the data bundle of a shared knowledge base for moderators.
 
 ## 5. 테마 수명주기
 
 | 동작 | 코드 | 범위 |
 | :--- | :--- | :--- |
-| 정의 | `define_theme` | `account_id` 귀속, `themes` 행 추가, JSON 갱신. `(account_id, label)` 범위 레이블 중복 검사 |
-| 수정 | `update_theme` | 동일 계정 내 레이블 중복 검사. 비어 있지 않은 `fqdn`은 `ValueError`(테마 FQDN 폐지, HTTP는 400)이고, 기존 `themes.fqdn` 값은 `legacy_hosts`의 원본이라 지우지 않는다. GA ID는 `validate_ga_measurement_id`로 검증한다(빈 값은 해제). `theme.is_default`이면 `is_collaborator_accessible=False`, `default_focus=""` 강제. 공개 여부가 바뀌면 `visibility_epoch`를 올린다 |
-| 리셋 | `reset_theme` | `reset_graph(theme_id)`로 엔티티·관계·임베딩·FTS를 지우고, §2의 테이블에서 해당 `theme_id` 행을 삭제. 메타데이터와 ID는 보존 |
-| 삭제 | `delete_theme(purge=False)` | `theme.is_default`이면 삭제 거부(`ValueError`). `themes` 행만 삭제. 데이터 행은 남는다 |
-| 삭제 + 소각 | `delete_theme(purge=True)` | `theme.is_default`이면 삭제 거부(`ValueError`). 리셋과 같은 범위를 지운 뒤 `themes` 행을 삭제 |
+| 정의 | `define_kb` | `account_id` 귀속, `themes` 행 추가, JSON 갱신. `(account_id, label)` 범위 레이블 중복 검사 |
+| 수정 | `update_kb` | 동일 계정 내 레이블 중복 검사. 비어 있지 않은 `fqdn`은 `ValueError`(테마 FQDN 폐지, HTTP는 400)이고, 기존 `themes.fqdn` 값은 `legacy_hosts`의 원본이라 지우지 않는다. GA ID는 `validate_ga_measurement_id`로 검증한다(빈 값은 해제). `theme.is_personal`이면 `default_focus=""` 강제. 공개 여부가 바뀌면 `visibility_epoch`를 올린다 |
+| 리셋 | `reset_kb` | `reset_graph(kb_id)`로 엔티티·관계·임베딩·FTS를 지우고, §2의 테이블에서 해당 `kb_id` 행을 삭제. 메타데이터와 ID는 보존 |
+| 삭제 | `delete_kb(purge=False)` | `theme.is_personal`이면 삭제 거부(`ValueError`). `themes` 행만 삭제. 데이터 행은 남는다 |
+| 삭제 + 소각 | `delete_kb(purge=True)` | `theme.is_personal`이면 삭제 거부(`ValueError`). 리셋과 같은 범위를 지운 뒤 `themes` 행을 삭제 |
 
 **[결정]** CLI `theme reset`과 `theme delete`는 기본이 dry-run이다. `--apply`가 있어야 실행하며, 데이터를 지우는 경우에는 확인을 받는다(PRINCIPLES D2·D3).
 
@@ -162,25 +252,18 @@
 
 - **[코드] 레거시 병합 실패를 삼킨다.** `reload()`는 `migrate_multi_db_to_single_db`의 예외를 `log.warning`으로만 남기고 계속한다. 그러면 `claire migrate`가 성공으로 끝나고 서비스도 시작되지만, 옛 테마 데이터 일부가 빠진 상태가 된다(PRINCIPLES C2·E3 위반).
   - 단순히 예외를 다시 던지게 고치면 재시도가 안전하지 않다. 병합은 DB 파일 단위로 커밋하고, 자동 증가 키 테이블은 `id`를 빼고 복사한다. 그래서 부분 실패 뒤에 다시 실행하면 그 테이블의 행이 중복될 수 있다.
-- **[코드] 삭제(`purge=False`) 뒤에 남은 데이터 행에는 접근할 수 없다.** 해당 `theme_id`의 행이 DB에 남지만 어느 테마에서도 보이지 않는다. 정리하는 명령은 확인하지 못했다.
-- **[미검증]** `import-graph --theme`은 테마의 `db_path`(현재는 단일 DB)를 대상으로 한다. 가져온 행에 `theme_id`가 붙는지는 확인하지 않았다.
-- **[미검증]** 텔레그램 `/theme`과 MCP 도구의 테마 지정에서 비공개 테마 접근이 어떻게 검사되는지는 이 문서 작성 시 확인하지 않았다.
+- **[코드] 삭제(`purge=False`) 뒤에 남은 데이터 행에는 접근할 수 없다.** 해당 `kb_id`의 행이 DB에 남지만 어느 테마에서도 보이지 않는다. 정리하는 명령은 확인하지 못했다.
+- **[미검증]** `import-graph --theme`은 테마의 `db_path`(현재는 단일 DB)를 대상으로 한다. 가져온 행에 `kb_id`가 붙는지는 확인하지 않았다.
+- **[미검증]** 텔레그램 `/kb`와 MCP 도구의 테마 지정에서 비공개 테마 접근이 어떻게 검사되는지는 이 문서 작성 시 확인하지 않았다.
 
 ---
 
-## 7. Default focus of a theme
+## 7. Default focus of a theme (removed)
 
-- **[code]** An explicit focus in the request (API body, CLI `--focus`, Telegram message parsed by `parse_message_focus`) comes first.
-- **[code]** When the request has no focus, `IngestService.get_effective_default_focus` (`src/claire/ingest/service.py`) gives it:
-  1. The `default_focus` of the `Settings` copy of the theme. `ThemeManager._settings_for_theme_info` writes the theme value into this copy, and `IngestServicePool.get_service` gives the copy to the service.
-  2. Else the `default_focus` of the theme record, when the theme is not a default theme and its ID is above 0.
-  3. Else no focus.
-- **[code]** A default theme always has `default_focus = ""` (`ThemeInfo.from_dict`, `update_theme`). Thus it gives no focus through step 1 or step 2.
-- **[code]** When a service gets `Settings` that are not a theme copy, step 1 reads `CLAIRE_THEME_DEFAULT_FOCUS` (`Settings.default_focus`).
-- **[code]** A deleted theme gives `ThemeNotFound`. The service does not use theme 0 in its place.
-- **[code]** The Telegram bot applies the same rule before it calls the service (`telegram_bot.py`: no focus, theme not default, ID above 0).
+- **[code]** The theme default focus is removed with the ingest focus seal (CT28, [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4). `KnowledgeBaseInfo` has no `default_focus`, theme create and update ignore the field, and `CLAIRE_THEME_DEFAULT_FOCUS` is not a setting. The column `themes.default_focus` stays as data.
+- **[code]** A deleted theme gives `KnowledgeBaseNotFound`. The service does not use theme 0 in its place.
 
 ## 8. Public site and analytics of a theme
 
-- **[code]** A theme has a GA4 measurement ID (`ThemeInfo.ga_measurement_id`). A page with a theme context uses only this ID; there is no fallback to `CLAIRE_GA_MEASUREMENT_ID`. The tag also sends `theme_id` and `theme_label`. Details: [`PUBLIC_SITE.md`](PUBLIC_SITE.md) §6.
+- **[code]** A theme has a GA4 measurement ID (`KnowledgeBaseInfo.ga_measurement_id`). A page with a theme context uses only this ID; there is no fallback to `CLAIRE_GA_MEASUREMENT_ID`. The tag also sends `kb_id` and `theme_label`. Details: [`PUBLIC_SITE.md`](PUBLIC_SITE.md) §6.
 - **[code]** In multi-theme mode, `/sitemap.xml` lists the documents of all public themes. Details: [`PUBLIC_SITE.md`](PUBLIC_SITE.md) §4.

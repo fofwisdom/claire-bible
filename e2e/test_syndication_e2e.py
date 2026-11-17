@@ -12,7 +12,6 @@ from claire.config import Settings
 from claire.store import db as dbm
 
 OWNER_TOKEN = "owner-token-secret-12345678901234"
-COLLAB_TOKEN = "collab-token-secret-1234567890123"
 READONLY_TOKEN = "readonly-token-secret-123456789012"
 
 
@@ -32,7 +31,6 @@ def syndication_e2e_env(tmp_path: Path):
         public_url="http://127.0.0.1:8765/",
         fqdn="",
         inject_token=OWNER_TOKEN,
-        collaborator_token=COLLAB_TOKEN,
         readonly_token=READONLY_TOKEN,
         anonymous_readonly=True,
         multi_theme=False,
@@ -78,13 +76,13 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert 'data-settings-path="/settings/reader"' in r_pub.text
         assert "/syndication/preferences" not in r_pub.text
         # Legacy preferences URL needs the owner (anonymous readonly callers get no redirect target).
-        r_prefs_anon = client.get("/syndication/preferences?theme=0", follow_redirects=False)
+        r_prefs_anon = client.get("/syndication/preferences", follow_redirects=False)
         assert r_prefs_anon.status_code in (401, 403, 404)
         assert "location" not in r_prefs_anon.headers
         owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        r_prefs = client.get("/syndication/preferences?tab=accounts&theme=0", headers=owner, follow_redirects=False)
+        r_prefs = client.get("/syndication/preferences?tab=accounts", headers=owner, follow_redirects=False)
         assert r_prefs.status_code == 302
-        assert r_prefs.headers["location"].startswith("/settings/connections?theme=")
+        assert r_prefs.headers["location"] == "/settings/connections"
         r_console = client.get(r_prefs.headers["location"], headers=owner)
         assert r_console.status_code == 200
         assert "Connected server accounts" in r_console.text

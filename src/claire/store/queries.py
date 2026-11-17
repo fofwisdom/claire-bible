@@ -22,16 +22,16 @@ def _is_web_url(url: str | None) -> bool:
     return u.startswith(("http://", "https://"))
 
 
-def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0, entity_language: str | None = None) -> dict:
+def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int | None = 0, entity_language: str | None = None) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
     각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만 표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소). include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다.
 
     entity_language is the entity language of the viewer (ontology.label_language). It selects the label of each node. None gives the stored main label.
     """
-    ents = dbm.all_entities(conn, theme_id=theme_id)
-    rels = dbm.all_relations(conn, theme_id=theme_id)
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
+    ents = dbm.all_entities(conn, kb_id=kb_id)
+    rels = dbm.all_relations(conn, kb_id=kb_id)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
 
     visible_nodes = []
     visible_ent_ids = set()
@@ -106,15 +106,15 @@ def _safe_file_name(name_or_path: Any) -> str | None:
     return base if base else None
 
 
-def _document_raw_file(conn: sqlite3.Connection, document_id: str, meta: dict, theme_id: int | None = None) -> tuple[bool, str | None]:
+def _document_raw_file(conn: sqlite3.Connection, document_id: str, meta: dict, kb_id: int | None = None) -> tuple[bool, str | None]:
     """(has_raw_file, raw_file_name) of one document: an original file in raw_inbox, or a presentation PDF or an original requested file in the document meta. document_detail() and the docs_brief mode of node_detail() use this one function, thus the two results are always equal."""
     raw_row = None
     try:
         sql = "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ?"
         params: list[Any] = [document_id]
-        if theme_id is not None:
-            sql += " AND theme_id = ?"
-            params.append(theme_id)
+        if kb_id is not None:
+            sql += " AND kb_id = ?"
+            params.append(kb_id)
         sql += " AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1"
         raw_row = conn.execute(sql, params).fetchone()
     except sqlite3.Error:
@@ -132,20 +132,20 @@ def _document_raw_file(conn: sqlite3.Connection, document_id: str, meta: dict, t
     return False, None
 
 
-def _document_has_raw_file(conn: sqlite3.Connection, row: sqlite3.Row, theme_id: int | None = None) -> bool:
+def _document_has_raw_file(conn: sqlite3.Connection, row: sqlite3.Row, kb_id: int | None = None) -> bool:
     """True when GET /document/raw can supply a file for this document."""
     try:
         meta = json.loads(row["meta"]) if row["meta"] else {}
     except (ValueError, TypeError):
         meta = {}
-    return _document_raw_file(conn, row["id"], meta if isinstance(meta, dict) else {}, theme_id=theme_id)[0]
+    return _document_raw_file(conn, row["id"], meta if isinstance(meta, dict) else {}, kb_id=kb_id)[0]
 
 
 def node_detail(
     conn: sqlite3.Connection,
     entity_id: str,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     docs_brief: bool = False,
     entity_language: str | None = None,
 ) -> dict | None:
@@ -155,20 +155,20 @@ def node_detail(
 
     entity_language is the entity language of the viewer. ``name`` is then the label in that language and ``aliases`` has the other names (the stored main label first). The names of the neighbors follow the same rule.
     """
-    ent = dbm.get_entity(conn, entity_id, theme_id=theme_id)
+    ent = dbm.get_entity(conn, entity_id, kb_id=kb_id)
     if ent is None:
         return None
 
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
     if not include_hidden and hidden_doc_ids and ent.sources:
         valid_sources = [s for s in ent.sources if s not in hidden_doc_ids]
         if not valid_sources:
             return None
 
     neighbors = []
-    for r in dbm.neighbors(conn, entity_id, theme_id=theme_id):
+    for r in dbm.neighbors(conn, entity_id, kb_id=kb_id):
         out = r.source_id == entity_id
-        other = dbm.get_entity(conn, r.target_id if out else r.source_id, theme_id=theme_id)
+        other = dbm.get_entity(conn, r.target_id if out else r.source_id, kb_id=kb_id)
         if other:
             if not include_hidden and hidden_doc_ids and other.sources:
                 if not any(s not in hidden_doc_ids for s in other.sources):
@@ -186,28 +186,28 @@ def node_detail(
     for did in ent.sources:
         if not include_hidden and did in hidden_doc_ids:
             continue
-        row = dbm.get_document_row(conn, did, theme_id=theme_id)
+        row = dbm.get_document_row(conn, did, kb_id=kb_id)
         if row and docs_brief:
             documents.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
                 "url": row["url"] if _is_web_url(row["url"]) else None,
-                "summary": dbm.latest_extraction_summary(conn, did, theme_id=theme_id) or "",
+                "summary": dbm.latest_extraction_summary(conn, did, kb_id=kb_id) or "",
                 "fetched_at": row["fetched_at"],
                 "has_detail": bool(row["detail"]),
                 "source_type": row["source_type"],
-                "has_raw_file": _document_has_raw_file(conn, row, theme_id=theme_id),
+                "has_raw_file": _document_has_raw_file(conn, row, kb_id=kb_id),
             })
         elif row:
             documents.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
                 "url": row["url"] if _is_web_url(row["url"]) else None,
-                "summary": dbm.latest_extraction_summary(conn, did, theme_id=theme_id) or "",
+                "summary": dbm.latest_extraction_summary(conn, did, kb_id=kb_id) or "",
                 # 가독 렌더(여러 단락) — 패널에서 '상세'로 펼친다.
-                "detail": dbm.get_document_detail(conn, did, theme_id=theme_id) or "",
-                "detail_format": dbm.get_document_detail_format(conn, did, theme_id=theme_id),
-                "detail_html": dbm.get_document_detail_html(conn, did, theme_id=theme_id) or "",
+                "detail": dbm.get_document_detail(conn, did, kb_id=kb_id) or "",
+                "detail_format": dbm.get_document_detail_format(conn, did, kb_id=kb_id),
+                "detail_html": dbm.get_document_detail_html(conn, did, kb_id=kb_id) or "",
                 # 원시 epoch(초) — MCP 등 API 소비자용.
                 "fetched_at": row["fetched_at"],
             })
@@ -229,19 +229,19 @@ def document_detail(
     conn: sqlite3.Connection,
     document_id: str,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     entity_language: str | None = None,
 ) -> dict | None:
     """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·상세(detail). 없으면 None.
 
     좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/상세를 펼친다(노드 클릭 없이 문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로 여기선 싣지 않는다(중복 전송 방지).
     """
-    row = dbm.get_document_row(conn, document_id, theme_id=theme_id)
+    row = dbm.get_document_row(conn, document_id, kb_id=kb_id)
     if row is None:
         return None
     if not include_hidden and bool(row["hidden"]):
         return None
-    ents = dbm.document_entities(conn, document_id, theme_id=theme_id)
+    ents = dbm.document_entities(conn, document_id, kb_id=kb_id)
     nodes = []
     for e in ents:
         shown_name, other_names = display_names(e.name, e.aliases or [], entity_language)
@@ -291,7 +291,7 @@ def document_detail(
     stt_segments = stt_data["segments"] if stt_data else []
     stt_truncated = bool(stt_data["stt_truncated"]) if stt_data else False
 
-    pres = dbm.get_document_presentation(conn, document_id, theme_id=theme_id)
+    pres = dbm.get_document_presentation(conn, document_id, kb_id=kb_id)
     has_presentation = False
     presentation_status = None
     if pres:
@@ -307,8 +307,8 @@ def document_detail(
             has_presentation = True
             presentation_status = "ready"
 
-    has_raw_file, raw_file_name = _document_raw_file(conn, document_id, meta_dict, theme_id=theme_id)
-    extraction_provider, extraction_model = dbm.latest_extraction_model(conn, document_id, theme_id=theme_id)
+    has_raw_file, raw_file_name = _document_raw_file(conn, document_id, meta_dict, kb_id=kb_id)
+    extraction_provider, extraction_model = dbm.latest_extraction_model(conn, document_id, kb_id=kb_id)
 
     if "original_requested_file" in meta_dict and meta_dict["original_requested_file"]:
         meta_dict["original_requested_file"] = _safe_file_name(meta_dict["original_requested_file"])
@@ -334,14 +334,14 @@ def document_detail(
         "title": row["title"] or "(제목 없음)",
         "url": row["url"] if _is_web_url(row["url"]) else None,
         "source_type": row["source_type"],
-        "summary": dbm.latest_extraction_summary(conn, document_id, theme_id=theme_id) or "",
-        "detail": dbm.get_document_detail(conn, document_id, theme_id=theme_id) or "",
-        "detail_format": dbm.get_document_detail_format(conn, document_id, theme_id=theme_id),
-        "detail_html": dbm.get_document_detail_html(conn, document_id, theme_id=theme_id) or "",
+        "summary": dbm.latest_extraction_summary(conn, document_id, kb_id=kb_id) or "",
+        "detail": dbm.get_document_detail(conn, document_id, kb_id=kb_id) or "",
+        "detail_format": dbm.get_document_detail_format(conn, document_id, kb_id=kb_id),
+        "detail_html": dbm.get_document_detail_html(conn, document_id, kb_id=kb_id) or "",
         "hidden": bool(row["hidden"]),
         # [1홉 병합, docs/implementation/ONEHOP_MERGE.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
-        "extra_sources": dbm.get_document_extra_sources(conn, document_id, theme_id=theme_id),
+        "extra_sources": dbm.get_document_extra_sources(conn, document_id, kb_id=kb_id),
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
         "fetched_at": row["fetched_at"],
         "nodes": nodes,
@@ -361,7 +361,6 @@ def document_detail(
         "published_at": row["published_at"] or meta_dict.get("published_at"),
         "orig_chars": meta_dict.get("orig_chars") if meta_dict.get("orig_chars") is not None else (len(raw_text) if raw_text else None),
         "raw_chars": meta_dict.get("raw_chars") if meta_dict.get("raw_chars") is not None else (len(raw_text) if raw_text else None),
-        "focus": meta_dict.get("focus"),
         "has_transcript": bool(meta_dict.get("has_transcript", False)),
         "transcript_source": meta_dict.get("transcript_source"),
         "caption_status": meta_dict.get("caption_status"),
@@ -391,7 +390,7 @@ def document_detail(
     }
 
 
-def dedup_clusters(conn: sqlite3.Connection, scan: dict, theme_id: int | None = None) -> dict:
+def dedup_clusters(conn: sqlite3.Connection, scan: dict, kb_id: int | None = None) -> dict:
     """dedup_scan 결과를 웹 UI 용으로 보강 — 각 문서의 제목·URL·본문길이·적재시각 + keeper 추천.
 
     scan(=svc.dedup_scan)은 ids/urls/titles/score 만 준다. UI 가 '무엇을 유지할지' 고르게 각 문서 메타를 채우고, 기본 keeper(=최장 본문, 동률이면 최초 적재)를 표시한다 — service.dedup_merge 의 keeper 선정과 동일 규칙(웹/CLI 일관).
@@ -400,7 +399,7 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict, theme_id: int | None = 
     for c in scan.get("clusters", []):
         docs = []
         for did in c["ids"]:
-            row = dbm.get_document_row(conn, did, theme_id=theme_id)
+            row = dbm.get_document_row(conn, did, kb_id=kb_id)
             if row is None:
                 continue
             docs.append({
@@ -430,7 +429,7 @@ def documents_page(
     *,
     before: str | None = None,
     include_hidden: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     list_func: Any = None,
     **filters: Any,
 ) -> dict[str, Any]:
@@ -444,13 +443,13 @@ def documents_page(
     if before:
         page_filters["before"] = dbm.decode_documents_cursor(before)
     # One more row than the limit shows that a next page is available.
-    docs = (list_func or documents_list)(conn, limit=limit + 1, include_hidden=include_hidden, theme_id=theme_id, **page_filters)
+    docs = (list_func or documents_list)(conn, limit=limit + 1, include_hidden=include_hidden, kb_id=kb_id, **page_filters)
     has_more = len(docs) > limit
     docs = docs[:limit]
     return {
         "documents": docs,
         "next_before": dbm.encode_documents_cursor(docs[-1]["fetched_at"], docs[-1]["id"]) if (has_more and docs) else None,
-        "total": dbm.documents_count(conn, include_hidden=include_hidden, theme_id=theme_id, **filters),
+        "total": dbm.documents_count(conn, include_hidden=include_hidden, kb_id=kb_id, **filters),
     }
 
 
@@ -460,7 +459,7 @@ def documents_list(
     since: float | None = 0,
     include_hidden: bool = False,
     query: str = "",
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     **kwargs: Any,
 ) -> list[dict]:
     """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각).
@@ -476,8 +475,8 @@ def documents_list(
         query = kwargs["query"]
     if "limit" in kwargs:
         limit = kwargs["limit"]
-    if "theme_id" in kwargs:
-        theme_id = kwargs["theme_id"]
+    if "kb_id" in kwargs:
+        kb_id = kwargs["kb_id"]
 
     since_filter = None if (since is None or since == 0) else since
     query_filter = query if query else None
@@ -486,9 +485,9 @@ def documents_list(
     try:
         pres_sql = "SELECT document_id FROM document_presentations WHERE status = 'ready'"
         pres_params: list[Any] = []
-        if theme_id is not None:
-            pres_sql += " AND theme_id = ?"
-            pres_params.append(theme_id)
+        if kb_id is not None:
+            pres_sql += " AND kb_id = ?"
+            pres_params.append(kb_id)
         cur = conn.execute(pres_sql, pres_params)
         ready_presentations = {r[0] for r in cur.fetchall()}
     except Exception:
@@ -501,7 +500,7 @@ def documents_list(
         since=since_filter,
         query=query_filter,
         include_hidden=include_hidden,
-        theme_id=theme_id,
+        kb_id=kb_id,
         **filters,
     ):
         doc_id = r["id"]
@@ -516,7 +515,7 @@ def documents_list(
             "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
             "pinned": r["pinned"],              # 1=즐겨찾기 → 목록 상단 고정 섹션
             "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
-            "summary": dbm.latest_extraction_summary(conn, doc_id, theme_id=theme_id) or "",
+            "summary": dbm.latest_extraction_summary(conn, doc_id, kb_id=kb_id) or "",
             "has_presentation": bool(has_pres),
             "has_detail": bool(r["has_detail"]) if "has_detail" in r.keys() else False,
             "detail_format": r["detail_format"] if "detail_format" in r.keys() else "adoc",
@@ -529,7 +528,7 @@ def synthesis_context(
     entity_ids: list[str],
     compact: bool = False,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
@@ -537,9 +536,9 @@ def synthesis_context(
     """
     blocks: list[str] = []
     names: list[str] = []
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
     for eid in entity_ids:
-        ent = dbm.get_entity(conn, eid, theme_id=theme_id)
+        ent = dbm.get_entity(conn, eid, kb_id=kb_id)
         if ent is None:
             continue
         if not include_hidden and hidden_doc_ids and ent.sources:
@@ -553,9 +552,9 @@ def synthesis_context(
             obs = ent.observations[:3] if compact else ent.observations
             parts.append("관찰: " + " ".join(obs))
         rels = []
-        for r in dbm.neighbors(conn, eid, theme_id=theme_id):
+        for r in dbm.neighbors(conn, eid, kb_id=kb_id):
             out = r.source_id == eid
-            other = dbm.get_entity(conn, r.target_id if out else r.source_id, theme_id=theme_id)
+            other = dbm.get_entity(conn, r.target_id if out else r.source_id, kb_id=kb_id)
             if other:
                 if not include_hidden and hidden_doc_ids and other.sources:
                     if not any(s not in hidden_doc_ids for s in other.sources):
@@ -567,7 +566,7 @@ def synthesis_context(
             for did in ent.sources:
                 if not include_hidden and did in hidden_doc_ids:
                     continue
-                summ = dbm.latest_extraction_summary(conn, did, theme_id=theme_id)
+                summ = dbm.latest_extraction_summary(conn, did, kb_id=kb_id)
                 if summ:
                     parts.append(f"출처요약: {summ}")
         blocks.append("\n".join(parts))
@@ -579,13 +578,13 @@ def synthesize(
     provider: Any,
     entity_ids: list[str],
     query: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict:
     """선택 노드들을 아우르는 종합 지식 문서(인용 포함, 한국어)를 생성.
 
     summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약). 비용(LLM 호출)이 있으므로 호출측(API)에서 토큰 인증 + 명시적 액션으로만 부른다.
     """
-    context, names = synthesis_context(conn, entity_ids, theme_id=theme_id)
+    context, names = synthesis_context(conn, entity_ids, kb_id=kb_id)
     if not context:
         return {"error": "유효한 노드가 없습니다"}
     if not hasattr(provider, "summarize_search"):
@@ -595,14 +594,14 @@ def synthesize(
     return {"answer": answer, "entities": names, "query": q}
 
 
-def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0) -> dict[str, int]:
+def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int | None = 0) -> dict[str, int]:
     """테마 DB의 기본 지표 요약(문서 수, 엔티티 수, 관계 수)."""
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
     where_parts: list[str] = []
     params: list[Any] = []
-    if theme_id is not None:
-        where_parts.append("theme_id = ?")
-        params.append(theme_id)
+    if kb_id is not None:
+        where_parts.append("kb_id = ?")
+        params.append(kb_id)
     if not include_hidden and hidden_doc_ids:
         where_parts.append("id NOT IN (SELECT document_id FROM doc_flags WHERE flag='hidden')")
     where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
@@ -610,16 +609,16 @@ def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True, theme_i
 
     ent_sql = "SELECT count(*) FROM entities"
     ent_params: list[Any] = []
-    if theme_id is not None:
-        ent_sql += " WHERE theme_id = ?"
-        ent_params.append(theme_id)
+    if kb_id is not None:
+        ent_sql += " WHERE kb_id = ?"
+        ent_params.append(kb_id)
     ent_count = conn.execute(ent_sql, ent_params).fetchone()[0]
 
     rel_sql = "SELECT count(*) FROM relations"
     rel_params: list[Any] = []
-    if theme_id is not None:
-        rel_sql += " WHERE theme_id = ?"
-        rel_params.append(theme_id)
+    if kb_id is not None:
+        rel_sql += " WHERE kb_id = ?"
+        rel_params.append(kb_id)
     rel_count = conn.execute(rel_sql, rel_params).fetchone()[0]
 
     return {

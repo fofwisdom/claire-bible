@@ -15,7 +15,7 @@ class PublicThemeSummary:
     id: int
     number: int | None
     label: str
-    is_default: bool
+    is_personal: bool
     documents: int
 
 
@@ -71,11 +71,11 @@ class SqlitePublicIndexStore:
         query = """
             SELECT a.id, a.public_id, a.username, a.display_name,
                    COALESCE(c.public_themes, (
-                       SELECT COUNT(DISTINCT t.id) FROM themes t WHERE t.account_id = a.id AND t.is_public = 1
+                       SELECT COUNT(DISTINCT t.id) FROM knowledge_bases t WHERE t.account_id = a.id AND t.is_public = 1
                    )) as public_themes,
                    COALESCE(c.public_documents, (
-                       SELECT COUNT(DISTINCT d.id) FROM themes t
-                       JOIN documents d ON t.id = d.theme_id
+                       SELECT COUNT(DISTINCT d.id) FROM knowledge_bases t
+                       JOIN documents d ON t.id = d.kb_id
                        WHERE t.account_id = a.id AND t.is_public = 1 AND COALESCE(d.hidden, 0) = 0
                    )) as public_documents,
                    a.created_at
@@ -109,13 +109,13 @@ class SqlitePublicIndexStore:
             acc_ids = [r[0] for r in rows]
             placeholders = ",".join("?" for _ in acc_ids)
             theme_query = f"""
-                SELECT t.id, t.number, t.label, t.is_default, t.account_id,
+                SELECT t.id, t.number, t.label, t.is_personal, t.account_id,
                        COUNT(DISTINCT CASE WHEN d.id IS NOT NULL AND COALESCE(d.hidden, 0) = 0 THEN d.id END) as docs_count
-                FROM themes t
-                LEFT JOIN documents d ON t.id = d.theme_id
+                FROM knowledge_bases t
+                LEFT JOIN documents d ON t.id = d.kb_id
                 WHERE t.account_id IN ({placeholders}) AND t.is_public = 1
                 GROUP BY t.id
-                ORDER BY t.is_default DESC, t.id ASC
+                ORDER BY t.is_personal DESC, t.id ASC
             """
             t_cursor = self._conn.execute(theme_query, acc_ids)
             for tr in t_cursor.fetchall():
@@ -127,7 +127,7 @@ class SqlitePublicIndexStore:
                         id=tr[0],
                         number=tr[1],
                         label=tr[2],
-                        is_default=bool(tr[3]),
+                        is_personal=bool(tr[3]),
                         documents=int(tr[5]),
                     )
                 )
@@ -159,8 +159,8 @@ class SqlitePublicIndexStore:
             """
             SELECT COUNT(DISTINCT t.id) as themes_count,
                    COUNT(DISTINCT CASE WHEN d.id IS NOT NULL AND COALESCE(d.hidden, 0) = 0 THEN d.id END) as docs_count
-            FROM themes t
-            LEFT JOIN documents d ON t.id = d.theme_id
+            FROM knowledge_bases t
+            LEFT JOIN documents d ON t.id = d.kb_id
             WHERE t.account_id = ? AND t.is_public = 1
             """,
             (account_id,),

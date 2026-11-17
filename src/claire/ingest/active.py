@@ -111,12 +111,12 @@ def _job_matches_account(job: dict[str, Any], account_id: int) -> bool:
             return int(job_acc) == account_id
         except (ValueError, TypeError):
             return False
-    tid = job.get("theme_id")
+    tid = job.get("kb_id")
     if tid is not None:
         try:
-            from ..store.theme import get_theme_manager
-            tm = get_theme_manager()
-            theme = tm.get_theme(int(tid))
+            from ..store.knowledge_base import get_kb_manager
+            tm = get_kb_manager()
+            theme = tm.get_kb(int(tid))
             return getattr(theme, "account_id", None) == account_id
         except Exception:
             pass
@@ -195,7 +195,7 @@ def get_active_jobs_for_account(
 
 def get_primary_active_job(
     data_dir: Path | str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     *,
     jobs: list[dict[str, Any]] | None = None,
     account_id: int | None = None,
@@ -218,9 +218,9 @@ def get_primary_active_job(
         return None
 
     # 1. 요청 테마의 활성 작업
-    if theme_id is not None:
+    if kb_id is not None:
         for j in jobs:
-            if j.get("active") and j.get("theme_id") == theme_id:
+            if j.get("active") and j.get("kb_id") == kb_id:
                 return j
 
     # 2. 전체 활성 작업 중 최신
@@ -229,9 +229,9 @@ def get_primary_active_job(
             return j
 
     # 3. 요청 테마의 완료 보존 작업
-    if theme_id is not None:
+    if kb_id is not None:
         for j in jobs:
-            if j.get("theme_id") == theme_id:
+            if j.get("kb_id") == kb_id:
                 return j
 
     # 4. 전체 완료 보존 작업 중 최신
@@ -287,10 +287,9 @@ def active_job(
     *,
     kind: str,
     payload: str,
-    theme_id: int = 0,
+    kb_id: int = 0,
     theme_label: str = "",
     doc_id: str | None = None,
-    focus: str | None = None,
     title: str | None = None,
     source: str = "web",
     account_id: int | None = None,
@@ -322,9 +321,9 @@ def active_job(
     short_title = title or (clean_payload[:80] + "…" if len(clean_payload) > 80 else clean_payload)
     if account_id is None:
         try:
-            from ..store.theme import get_theme_manager
-            tm = get_theme_manager()
-            theme = tm.get_theme(theme_id)
+            from ..store.knowledge_base import get_kb_manager
+            tm = get_kb_manager()
+            theme = tm.get_kb(kb_id)
             account_id = getattr(theme, "account_id", None)
         except Exception:
             pass
@@ -335,11 +334,10 @@ def active_job(
         "kind": kind,
         "payload": clean_payload,
         "source": source,
-        "theme_id": theme_id,
+        "kb_id": kb_id,
         "theme_label": theme_label,
         "account_id": account_id,
         "doc_id": doc_id,
-        "focus": focus or "",
         "title": short_title,
         "stage": "init",
         "stages": ["fetch", "extract", "resolve", "detail", "done"],
@@ -387,9 +385,8 @@ def set_active_ingest(
     *,
     payload: str,
     source: str = "web",
-    theme_id: int = 0,
+    kb_id: int = 0,
     theme_label: str = "",
-    focus: str | None = None,
     title: str | None = None,
     account_id: int | None = None,
 ) -> None:
@@ -398,8 +395,6 @@ def set_active_ingest(
     if current_job is not None:
         if title:
             current_job.state["title"] = title
-        if focus:
-            current_job.state["focus"] = focus
         if account_id is not None and current_job.state.get("account_id") is None:
             current_job.state["account_id"] = account_id
         current_job.state["updated_at"] = time.time()
@@ -413,9 +408,9 @@ def set_active_ingest(
     short_title = title or (clean_payload[:80] + "…" if len(clean_payload) > 80 else clean_payload)
     if account_id is None:
         try:
-            from ..store.theme import get_theme_manager
-            tm = get_theme_manager()
-            theme = tm.get_theme(theme_id)
+            from ..store.knowledge_base import get_kb_manager
+            tm = get_kb_manager()
+            theme = tm.get_kb(kb_id)
             account_id = getattr(theme, "account_id", None)
         except Exception:
             pass
@@ -426,10 +421,9 @@ def set_active_ingest(
         "kind": "ingest",
         "payload": clean_payload,
         "source": source,
-        "theme_id": theme_id,
+        "kb_id": kb_id,
         "theme_label": theme_label,
         "account_id": account_id,
-        "focus": focus or "",
         "title": short_title,
         "stage": "init",
         "stages": ["fetch", "extract", "resolve", "detail", "done"],

@@ -87,7 +87,6 @@ function docMetaHtml(dc){
   const isEncodingFlaw = !!(dc.pdf_encoding_flaw_detected || (dc.meta && dc.meta.pdf_encoding_flaw_detected));
   const encodingFlaws = (dc.pdf_encoding_flaws || (dc.meta && dc.meta.pdf_encoding_flaws) || []);
   const isScanned = !!(dc.pdf_is_scanned || (dc.meta && dc.meta.pdf_is_scanned));
-  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
@@ -107,7 +106,7 @@ function docMetaHtml(dc){
   }
   const canAccessRaw = Boolean(dc.can_access_raw);
   const hasRawLink = canAccessRaw && Boolean(dc.has_raw_file);
-  if(!hasUrl && !hasRawLink && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
+  if(!hasUrl && !hasRawLink && !isTrunc && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>' + rtr("share.node_open_source") + '</a>';
@@ -170,10 +169,6 @@ function docMetaHtml(dc){
     const tip = rtr('reader.tag.bundle_tip', { source: bundleSource })+metaDetail+' · '+artifactState;
     const tagClass = 'focus-tag' + (isStt ? ' stt-tag' : '');
     tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
-  }
-  if(focus){
-    const dispFocus = focus.length > 25 ? focus.slice(0, 25) + '…' : focus;
-    tags.push('<span class="focus-tag" title="'+esc(rtr('reader.tag.focus_tip', { focus: focus }))+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
@@ -294,10 +289,6 @@ if((dc.extra_sources||[]).length){
   h+='<div class=sec>'+rtr('reader.merged_sources', { count: dc.extra_sources.length })+'</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
-}
-const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
-if(focus){
-  h+='<div class=sec>' + rtr("share.ingest_focus") + '</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
 }
 if(dc.summary){
   h+='<div class=sec>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';

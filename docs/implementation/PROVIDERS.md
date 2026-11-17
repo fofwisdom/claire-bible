@@ -32,7 +32,7 @@
 | `src/claire/store/usage_ledger.py` | auth.db의 account_usage UTC 일/월별 원장 집계 | `UsageSnapshot`, `utc_period`, `utc_day`, `get_usage`, `record_tokens`, `try_reserve_ingest`, `tokens_remaining` |
 | `src/claire/secret_scrub.py` | API 키 등 비밀 누출 방지 및 로그/예외 마스킹 | `register_secret`, `scrub_text`, `scrub_exception`, `SecretScrubFilter`, `install_log_scrubber` |
 | `src/claire/store/vectors.py` | 테마별 임베딩 모델 고정 및 검색 필터링 | `EmbedPin`, `EmbeddingModelMismatch`, `read_embed_pin`, `replace_theme_embeddings`, `VectorStore.search` |
-| `src/claire/store/theme.py` | 테마 메타데이터 및 임베딩 고정 필드 보존 | `ThemeInfo`, `embed_provider`, `embed_model` |
+| `src/claire/store/knowledge_base.py` | 테마 메타데이터 및 임베딩 고정 필드 보존 | `KnowledgeBaseInfo`, `embed_provider`, `embed_model` |
 | `src/claire/config.py` | 전역 프로바이더 설정 및 사용 가능 판정 | `Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`, `provider_unavailable_reason`, `is_production`, `ProviderUnavailableError`, `PROVIDER_UNAVAILABLE`, `find_agy_executable`, `find_codex_executable` |
 | `src/claire/provider_manager.py` | data/providers.json 읽기·쓰기, 환경변수 마이그레이션, WebUI 연결 검증 | `ProviderManager`, `DEFAULT_PROVIDERS_CONFIG`, `MIGRATED_ENV_VARS`, `SUPPORTED_ACTIVE_PROVIDERS`, `get_settings_dict`, `migrate_from_env_if_needed`, `test_connection` |
 | `src/claire/extract/provider.py` | LLM 프로토콜과 팩토리 | `Provider`(Protocol), `MockProvider`, `UnavailableProvider`, `get_provider` |
@@ -149,14 +149,14 @@
 
 ### 4.4 테마별 임베딩 모델 고정 (Theme Embedding Pinning)
 
-**[코드]** `src/claire/store/vectors.py`, `src/claire/store/theme.py`. 설계 §10.4 (P4 L4-a3).
+**[코드]** `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py`. 설계 §10.4 (P4 L4-a3).
 
-- **테마별 공간 고정**: `themes` 테이블에 `embed_provider`, `embed_model` 열을 두어 테마 단위로 임베딩 모델 공간을 고정한다.
+- **테마별 공간 고정**: `knowledge_bases` 테이블에 `embed_provider`, `embed_model` 열을 두어 테마 단위로 임베딩 모델 공간을 고정한다.
 - **모델 혼합 거부**: 테마에 고정된 모델과 다른 모델로 생성된 벡터를 저장하려 하면 `EmbeddingModelMismatch` 예외를 내며 저장을 거부한다.
 - **검색 필터링**: `VectorStore.search`는 테마의 고정 모델(`themes.embed_model`)과 일치하는 `embeddings.model` 행만 조회한다.
   - 검색 질의 모델(`query_model`)이 테마의 고정 모델과 다르면 벡터 공간이 달라 유사도 비교가 불가능하므로 빈 결과를 반환한다.
 - **Mock 모델 격리**: `MockProvider`의 의사 임베딩 모델명은 `mock-sha256`으로 명시하여 실제 모델 공간과 격리한다.
-- **재임베딩 (re-embed)**: 프로바이더나 키 변경으로 모델이 바뀌면 `claire reembed -t <theme>`(`replace_theme_embeddings`)으로 해당 테마의 벡터를 새로운 고정 모델로 일괄 재구축해야 한다. `reset_theme` 시에는 테마 임베딩 고정이 해제된다.
+- **재임베딩 (re-embed)**: 프로바이더나 키 변경으로 모델이 바뀌면 `claire reembed -t <theme>`(`replace_theme_embeddings`)으로 해당 테마의 벡터를 새로운 고정 모델로 일괄 재구축해야 한다. `reset_kb` 시에는 테마 임베딩 고정이 해제된다.
 - **공개 테마 검색 격리**: 네임스페이스 소유자가 아닌 타 계정 또는 익명 사용자의 검색은 임베딩 비용 전가를 막기 위해 FTS 전용으로 동작한다.
 
 ### 4.5 저비용 분류 (`get_lowest_effort_provider`)
@@ -183,10 +183,9 @@
   - `max_effort`: 허용 최대 effort (기본값 `"low"`)
   - `features`: 허용 기능 집합 (기본값 빈 집합. `expand`, `stt`, `vlm`, `presentation`, `synthesize`)
   - `storage_mb`: 계정별 저장 용량 상한 MB (기본값 `2048`)
-  - `max_themes`: 계정별 최대 테마 수 (기본값 `5`)
   - `max_documents`: 계정별 최대 문서 수 (기본값 `5000`)
   - `byok_caps`: BYOK 계정의 서버 자원 상한 (`{"max_concurrency": 1}`)
-- **자원 한도 공통 적용**: 서버 자원 한도(`storage_mb`, `max_themes`, `max_documents`, `daily_ingests`)는 본인 키가 있는 BYOK 멤버에게도 동일하게 적용된다.
+- **자원 한도 공통 적용**: 서버 자원 한도(`storage_mb`, `max_documents`, `daily_ingests`)는 본인 키가 있는 BYOK 멤버에게도 동일하게 적용된다.
 - **유효성 검증 및 보호**:
   - `ServerTier.from_dict`가 필드와 범위를 엄격히 검증하며, 잘못된 JSON이나 미지원 프로바이더는 `provider="none"`으로 fail-closed 처리한다.
 - **관리 경로**: 관리자 세션에서 `GET /api/admin/server-tier`, `PUT /api/admin/server-tier`를 통해 설정 및 조회할 수 있으며, `/admin/server` 화면에 관리 패널이 제공된다.

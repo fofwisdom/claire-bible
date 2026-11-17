@@ -14,7 +14,7 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire/api/security.py` | Route rules, CSP header | `ROUTE_POLICY`, `_build_content_security_policy`, `SafeAccessLogMiddleware` |
 | `src/claire/store/db.py` | Documents and share tokens for the sitemap | `list_public_sitemap_documents`, `create_doc_share` |
 | `src/claire/graphview.py` | Page metadata and GA tag | `render_ga_tag`, `render_open_graph_tags`, `shared_html`, `render_graph_html` |
-| `src/claire/store/theme.py` | GA ID of a theme | `validate_ga_measurement_id`, `ThemeManager.has_any_ga_enabled` |
+| `src/claire/store/knowledge_base.py` | GA ID of a theme | `validate_ga_measurement_id`, `KnowledgeBaseManager.has_any_ga_enabled` |
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
 | `src/claire/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
 
@@ -36,7 +36,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 **[code] Block-all case.** The body is `User-agent: *` and `Disallow: /` when one of these is true:
 - `anonymous_readonly` is false (`CLAIRE_ANONYMOUS_READONLY=0`).
 - `robots_policy` is `disallow_all`. Any other value gives the public case.
-- In multi-theme mode, `ThemeManager.get_theme_by_fqdn` finds a theme for the `Host` name, and that theme is not public. This index comes from the old `themes.fqdn` values. Because of §2, it matches only when an old theme host is also the app host.
+- In multi-theme mode, `KnowledgeBaseManager.get_kb_by_fqdn` finds a theme for the `Host` name, and that theme is not public. This index comes from the old `themes.fqdn` values. Because of §2, it matches only when an old theme host is also the app host.
 
 **[code] Public case.** The body has these parts:
 1. `User-agent: *` with `Allow` lines for `/$`, `/p?`, `/static/`, `/images/`, `/p/images/`, `/fonts/`, `/favicon.*`.
@@ -58,9 +58,9 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 | :--- | :--- |
 | Single theme mode (`CLAIRE_MULTI_THEME=0`) | Theme 0 |
 | Multi-theme mode, `Host` matches a theme | That theme |
-| Multi-theme mode, other `Host` | All themes with `is_public`, of all accounts (`ThemeManager.list_themes()`) |
+| Multi-theme mode, other `Host` | All themes with `is_public`, of all accounts (`KnowledgeBaseManager.list_kbs()`) |
 
-- **[code]** For each theme, `list_public_sitemap_documents(conn, ensure_shares=True, theme_id=...)` reads the documents with `hidden = 0`. For each document it uses the newest share token that is not expired.
+- **[code]** For each theme, `list_public_sitemap_documents(conn, ensure_shares=True, kb_id=...)` reads the documents with `hidden = 0`. For each document it uses the newest share token that is not expired.
 - **[code]** When a document has no such token, the function makes one with `create_doc_share(..., reuse_existing=True)`. Thus a sitemap request can write new `doc_shares` rows. If the database is read-only (`sqlite3.OperationalError`), it returns only the existing tokens.
 - **[code]** The handler ignores an error of one theme and continues with the other themes.
 
@@ -107,7 +107,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 - Otherwise it loads `gtag.js` from `www.googletagmanager.com` and calls `gtag("config", id, {...})` with:
   - `page_location`: `origin + pathname`. On the shared document page it is `origin + '/p/{doc_id}'`. This value has no query string (`?s=`, `?t=`).
   - `cookie_domain`: the host name of the page. `cookie_flags`: `SameSite=Lax;Secure`.
-  - `theme_id` and `theme_label`, only when the caller gives a theme.
+  - `kb_id` and `theme_label`, only when the caller gives a theme.
 
 ### 6.2 Which measurement ID
 
@@ -118,7 +118,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 | Shared document page (`shared_html`) | `CLAIRE_GA_MEASUREMENT_ID` in all modes |
 
 - **[code]** The main page route gets a theme context in multi-theme mode and when the path pins a theme (`/themes/{number}/`).
-- **[code]** A theme ID must match `^(?:G|GTM)-[A-Z0-9]{4,20}$` (`validate_ga_measurement_id`). `POST /themes` and `PATCH /themes` take `ga_measurement_id` (old name `ga_id`). An empty value clears it. The server ID only needs letters, digits, `_`, and `-` (`Settings._parse_ga_measurement_id`).
+- **[code]** A theme ID must match `^(?:G|GTM)-[A-Z0-9]{4,20}$` (`validate_ga_measurement_id`). `POST /kb` and `PATCH /kb/{number}/` (or `PATCH /@{u}/`) take `ga_measurement_id`. An empty value clears it. The server ID only needs letters, digits, `_`, and `-` (`Settings._parse_ga_measurement_id`).
 - Tests: `tests/test_google_analytics.py` (`test_render_graph_html_theme_ga_no_fallback_to_global_settings`), `tests/test_theme_fqdn.py`.
 
 ### 6.3 CSP (`SafeAccessLogMiddleware._csp_for`)

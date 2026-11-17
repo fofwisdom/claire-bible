@@ -408,7 +408,7 @@ class CodexProvider:
         body = doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        selected_focus = focus or (doc.meta or {}).get("focus")
+        selected_focus = focus
         text = self._render_detail_call(
             body,
             images,
@@ -474,7 +474,7 @@ class CodexProvider:
         title = (doc.title or doc.url or "Claire Bible Presentation").strip()
         author = doc.author
         published_at = doc.published_at
-        focus_val = focus or (doc.meta or {}).get("focus")
+        focus_val = focus
         images_val = (doc.meta or {}).get("images")
 
         prompt = compose_presentation_prompt_adoc(

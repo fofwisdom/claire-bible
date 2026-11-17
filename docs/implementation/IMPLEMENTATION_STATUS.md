@@ -86,7 +86,7 @@ Limits:
 | 항목 | 결정 (2026-11-13) |
 | :--- | :--- |
 | HD8 태블릿 폭(721–1100px) | 작업하지 않았다. 문맥 패널은 이 폭에서 서랍이다. |
-| `documents`의 `(theme_id, fetched_at DESC, id DESC)` 인덱스 | 넣지 않는다. 여러 사용자의 목록을 함께 보고 쓰는 프로젝트의 상세 설계에서 스키마 변경과 함께 정한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). 지금은 요청마다 일치 행을 정렬한다. |
+| `documents`의 `(kb_id, fetched_at DESC, id DESC)` 인덱스 | 넣지 않는다. 여러 사용자의 목록을 함께 보고 쓰는 프로젝트의 상세 설계에서 스키마 변경과 함께 정한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). 지금은 요청마다 일치 행을 정렬한다. |
 
 ---
 
@@ -159,9 +159,9 @@ Limits:
 1. `/admin/idp`의 로그인 정책 카드(승인·자동 가입, 허용 도메인, `email_verified`, Back-Channel Logout)는 프로토타입이다. 저장하는 API가 없고 서버가 적용하지 않는다. 가입은 초대로만 한다.
 2. `og:site_name`은 고정 문자열 "Claire Bible"이고 `CLAIRE_SITE_NAME`을 쓰지 않는다. `CLAIRE_SITE_DESCRIPTION`은 쓰이지 않는다.
 3. robots `Disallow` 목록에 `/admin`, `/settings`, `/api`, `/@{username}/` 경로가 없다.
-4. `robots_txt_route`·`sitemap_xml_route`의 테마 호스트 분기(`get_theme_by_fqdn`)는 실제로 맞지 않는다. `HostRouter`가 옛 테마 호스트를 먼저 보낸다.
+4. `robots_txt_route`·`sitemap_xml_route`의 테마 호스트 분기(`get_kb_by_fqdn`)는 실제로 맞지 않는다. `HostRouter`가 옛 테마 호스트를 먼저 보낸다.
 5. sitemap 캐시는 문서를 숨겨도 지워지지 않고 TTL(기본 900초)을 기다린다. 한 테마의 오류와 공유 토큰 생성 중 `sqlite3.OperationalError`는 무시되어 일부만 담긴 sitemap이 정상처럼 보인다(C2).
-6. `ThemeManager.get_theme(None)`은 관리자 기본 테마가 없으면 `is_default` 테마나 테마 0으로 대체한다.
+6. `KnowledgeBaseManager.get_kb(None)`은 관리자 기본 테마가 없으면 `is_personal` 테마나 테마 0으로 대체한다.
 7. MCP: 텔레메트리에 `client_id`가 없고, OAuth 토큰 목록·폐기 경로와 자격증명별 호출 한도가 없다. `claire token create`의 클라이언트 예시는 `server-everything`이다(MCP_SUPPORT.md MP1–MP4).
 
 ### 4.7 운영, 텔레메트리, 데이터 ([`TELEMETRY.md`](TELEMETRY.md), [`OPERATIONS.md`](OPERATIONS.md), [`FEDERATION.md`](FEDERATION.md))

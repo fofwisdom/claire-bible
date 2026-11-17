@@ -15,8 +15,8 @@ A presentation is a reveal.js slide deck of one document. It has two stages:
 
 ## 2. Storage
 
-- **[code]** Table `document_presentations` in `claire.db`, one row per `(document_id, theme_id)` (`src/claire/store/db.py`). Columns: the deck (`presentation_adoc`), `content_hash` (SHA-256 of the body at composition), `adoc_hash`, `cache_key` (SHA-256 of `adoc_hash:theme:transition`), `theme` (default `night`), `transition` (default `slide`), `slide_count`, `file_path`, `file_size`, `status`, `error_message`, `authoring_provider`, `authoring_model`, `prompt_version`, `compose_duration_ms`, `compile_duration_ms`, `created_at`, `updated_at`. Helpers: `save_document_presentation`, `save_presentation_adoc`, `get_document_presentation`, `get_presentation_adoc`, `update_document_presentation_status`.
-- **[code]** Files: `<data_dir>/presentations/<document_id>.adoc` (the deck) and `<data_dir>/presentations/<document_id>.html` (the compiled page). `data_dir` comes from the theme settings; `get_settings_for_theme` changes only the database path, so all themes use the same folder.
+- **[code]** Table `document_presentations` in `claire.db`, one row per `(document_id, kb_id)` (`src/claire/store/db.py`). Columns: the deck (`presentation_adoc`), `content_hash` (SHA-256 of the body at composition), `adoc_hash`, `cache_key` (SHA-256 of `adoc_hash:theme:transition`), `theme` (default `night`), `transition` (default `slide`), `slide_count`, `file_path`, `file_size`, `status`, `error_message`, `authoring_provider`, `authoring_model`, `prompt_version`, `compose_duration_ms`, `compile_duration_ms`, `created_at`, `updated_at`. Helpers: `save_document_presentation`, `save_presentation_adoc`, `get_document_presentation`, `get_presentation_adoc`, `update_document_presentation_status`.
+- **[code]** Files: `<data_dir>/presentations/<document_id>.adoc` (the deck) and `<data_dir>/presentations/<document_id>.html` (the compiled page). `data_dir` comes from the theme settings; `get_settings_for_kb` changes only the database path, so all themes use the same folder.
 - **[code]** `slide_count` is the count of `== ` and `=== ` lines plus one.
 
 ## 3. States
@@ -73,20 +73,20 @@ All routes are in `src/claire/api/server.py`; the access rules are in `src/clair
 | Method and path | Access | Function |
 | :--- | :--- | :--- |
 | `GET /document/presentation?id=` | `read` | Record of the presentation, or `not_created`. |
-| `POST /document/presentation/generate` | `collaborator` | `get_or_create_presentation`. Parameters in the query or in a JSON body: `id`, `slide_theme`, `transition`, `force`, `wait`. With `wait=false`: 200 with a `ready` record, or 202 and a background task. |
-| `POST /document/presentation/compose` | `collaborator` | Composition, then compilation unless `no_compile`. Parameters: `id`, `focus`, `slide_budget`, `theme`, `transition`, `no_compile`. |
-| `POST /document/presentation/compile` | `collaborator` | Compilation only. Parameters: `id`, `theme`, `transition`, `force` (default true). |
+| `POST /document/presentation/generate` | `owner` | `get_or_create_presentation`. Parameters in the query or in a JSON body: `id`, `slide_theme`, `transition`, `force`, `wait`. With `wait=false`: 200 with a `ready` record, or 202 and a background task. |
+| `POST /document/presentation/compose` | `owner` | Composition, then compilation unless `no_compile`. Parameters: `id`, `focus`, `slide_budget`, `theme`, `transition`, `no_compile`. |
+| `POST /document/presentation/compile` | `owner` | Compilation only. Parameters: `id`, `theme`, `transition`, `force` (default true). |
 | `GET /document/presentation/adoc?id=` | `read` | The deck as JSON (`presentation_adoc`). |
-| `PUT /document/presentation/adoc` | `collaborator` | Stores an edited deck (`authoring_provider` `manual`) and compiles it unless `recompile` is false. |
+| `PUT /document/presentation/adoc` | `owner` | Stores an edited deck (`authoring_provider` `manual`) and compiles it unless `recompile` is false. |
 | `GET /p/presentation` | `public` | The viewer page (Section 6). |
 
 - **[code]** `generate`, `compose`, `compile`, and `PUT .../adoc` also check the tier feature `presentation` of the theme (`_require_theme_feature`).
 
 ## 8. Per-Theme Switch
 
-- **[code]** Each theme has `presentation_enabled` (`ThemeInfo` in `src/claire/store/theme.py`, column `themes.presentation_enabled`, default 0). [`THEMES.md`](THEMES.md) tells where theme records are stored.
+- **[code]** Each theme has `presentation_enabled` (`KnowledgeBaseInfo` in `src/claire/store/knowledge_base.py`, column `themes.presentation_enabled`, default 0). [`THEMES.md`](THEMES.md) tells where theme records are stored.
 - **[code]** In single theme mode, theme 0 takes the value from `CLAIRE_PRESENTATION_ENABLED` (default `false`), not from its row (`_load_single_mode_theme0`). The default theme that the code builds (`_build_default_theme`) takes the same value.
-- **[code]** Changes: `claire theme define ... --presentation` and `claire theme update <theme> --presentation | --no-presentation`, `POST /themes` and `PATCH /themes` with `presentation_enabled`, and the theme panel of the console (`src/claire/static/js/manage_panels.js`). `claire theme list` shows the value.
+- **[code]** Changes: `claire kb define ... --presentation` and `claire kb update <theme> --presentation | --no-presentation`, `POST /kb` and `PATCH /kb/{number}/` (or `PATCH /@{u}/` for the personal knowledge base) with `presentation_enabled`, and the theme panel of the console (`src/claire/static/js/manage_panels.js`). `claire kb list` shows the value.
 - **[code]** When the switch is off, every route of Section 7 refuses: the JSON routes give 403 `presentation_disabled`; `/p/presentation` gives 403 with the page of status `disabled`.
 - **[code]** When the switch is off, the workspace hides the center tab (`syncPresentationFeatureUI` in `src/claire/static/js/app.js`). If the presentation view is open, it shows the empty banner with the message that the function is off and no generate button; it does not change the view (`reader.js`).
 - **[code]** The CLI `claire presentation` does not check the switch. It is the operator path.

@@ -53,8 +53,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         view: dict[str, Any] = {"id": str(public_id), "url": f"{origin}/ap/objects/{public_id}", "kind": "gone", "text": ""}
         obj = federation_store.get_object(conn, public_id)
         if obj is not None:
-            title = conn.execute("SELECT title FROM documents WHERE id=? AND theme_id=?", (obj.document_id, obj.theme_id)).fetchone()
-            view.update(kind="document", text=str((title[0] if title else "") or "")[:_TEXT_MAX], theme_id=obj.theme_id, document_id=obj.document_id)
+            title = conn.execute("SELECT title FROM documents WHERE id=? AND kb_id=?", (obj.document_id, obj.kb_id)).fetchone()
+            view.update(kind="document", text=str((title[0] if title else "") or "")[:_TEXT_MAX], kb_id=obj.kb_id, document_id=obj.document_id)
             return view
         note = notes_store.get_note(client, public_id)
         if note is not None and note.deleted_at is None:
@@ -161,7 +161,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # The policy and the ``update`` task are in one transaction of claire.db (Section 5.4 rule 6). The task of an account that is not an actor waits.
                 federation_store.set_object_quote_policy(conn, obj, body["quote_policy"], now=time.time())
                 conn.commit()
-                return 200, {"object": {"id": str(obj.public_id), "theme_id": obj.theme_id, "document_id": obj.document_id, "quote_policy": body["quote_policy"]}}
+                return 200, {"object": {"id": str(obj.public_id), "kb_id": obj.kb_id, "document_id": obj.document_id, "quote_policy": body["quote_policy"]}}
             finally:
                 conn.close()
 

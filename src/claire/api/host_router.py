@@ -219,7 +219,7 @@ class LegacyHost:
     """``legacy_hosts`` 행(§13.2)."""
 
     host: str
-    theme_id: int
+    kb_id: int
     created_at: float
     activated_at: float | None   # 일몰 시계 시작. None이면 아직 활성화하지 않음(무기한 308)
     sunset_at: float | None      # None이면 유예·무기한 308

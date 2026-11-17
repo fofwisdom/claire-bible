@@ -197,23 +197,20 @@ def _delete_bot(ctx: AccountsContext, account_id: int) -> int:
 
 
 def _owned_theme(ctx: AccountsContext, account_id: int, raw: Any) -> Any | None:
-    from ...store.theme import ThemeNotFound, get_theme_manager
+    from ...store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
-    manager = get_theme_manager(_settings(ctx))
+    manager = get_kb_manager(_settings(ctx))
     try:
-        if raw is None or str(raw).strip() == "":
-            theme = manager.default_theme_for(account_id)
-        else:
-            theme = manager.resolve_theme_ref(str(raw).strip(), account_id=account_id).theme
-    except (ThemeNotFound, ValueError, KeyError):
+        theme = manager.get_kb_by_reference(raw)
+    except (KnowledgeBaseNotFound, ValueError, KeyError):
         return None
     return theme if int(getattr(theme, "account_id", -1)) == int(account_id) else None
 
 
 def _owned_themes(ctx: AccountsContext, account_id: int) -> list[Any]:
-    from ...store.theme import get_theme_manager
+    from ...store.knowledge_base import get_kb_manager
 
-    return list(get_theme_manager(_settings(ctx)).list_account_themes(account_id))
+    return list(get_kb_manager(_settings(ctx)).list_account_kbs(account_id))
 
 
 def _theme_ref(theme: Any) -> str:
@@ -402,7 +399,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return JSONResponse(
             {
                 "bundles": items,
-                "themes": [{"theme": _theme_ref(t), "theme_id": t.id, "label": t.label, "icon": t.icon} for t in themes],
+                "themes": [{"theme": _theme_ref(t), "kb_id": t.id, "label": t.label, "icon": t.icon} for t in themes],
             },
             headers=NO_STORE,
         )
@@ -412,16 +409,19 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         body = await read_json_body(request)
-        if set(body) - {"theme"}:
-            return json_error(400, "invalid_request", fields=["theme"])
-        theme = await asyncio.to_thread(_owned_theme, ctx, principal.account_id, body.get("theme"))
+        if set(body) - {"kb"}:
+            return json_error(400, "invalid_request", fields=["kb"])
+        # Design Section 5.2 rule 2: the parameter ``kb`` (number) is required; there is no default.
+        if body.get("kb") is None or not str(body.get("kb")).strip():
+            return json_error(400, "kb_required")
+        theme = await asyncio.to_thread(_owned_theme, ctx, principal.account_id, body.get("kb"))
         if theme is None:
             return json_error(404, "theme_not_found")
         from ...graph_bundle import create_graph_bundle
 
         def _create() -> dict[str, Any]:
             info = create_graph_bundle(
-                _settings(ctx), theme_id=theme.id, request_context={"channel": "webui"}, account_id=principal.account_id
+                _settings(ctx), kb_id=theme.id, request_context={"channel": "webui"}, account_id=principal.account_id
             )
             return {
                 "bundle_id": info.bundle_id,

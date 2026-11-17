@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Planned, not implemented (draft, Rev. 8). Owner decisions CT1 to CT37 are locked (2026-11-16). No question of this design is open (Section 15). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16): it shows this design, the federation design, and the settings and admin console of [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md). The first prototype [`prototypes/shared_knowledge_federation_prototype.html`](prototypes/shared_knowledge_federation_prototype.html) is kept for reference.
+- **Status**: Planned, not implemented (draft, Rev. 9). Owner decisions CT1 to CT37 are locked (2026-11-16). No question of this design is open (Section 15). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16): it shows this design, the federation design, and the settings and admin console of [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md). The first prototype [`prototypes/shared_knowledge_federation_prototype.html`](prototypes/shared_knowledge_federation_prototype.html) is kept for reference.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -13,6 +13,7 @@
   - Rev. 6 (2026-11-16): terms as in Mastodon (CT36): **federation** is the open exchange between servers, and **relay** is the server-level subscription; the term "partnership" is retired. Themes share ingested documents between servers without an agreement (CT35). The agreement between two accounts is renamed mutual collaboration (Section 9.10). The exchange between servers is designed in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md).
   - Rev. 7 (2026-11-16): the relay is an idea outside this design; it moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) with the server-level partnership of the federation design Rev. 1 to Rev. 3 (owner: the plan grew too wide). The mutual collaboration (Section 9.10) is an exchange inside the server from the contributor proposal, not a part of that partnership; it stays here. The owner answered OQ29: CT37.
   - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The console pages of Section 10.3 get their place, tabs, and layout from [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md). The workspace stays; the prototype shows only the parts that this design adds (Sections 8.4, 10.3).
+  - Rev. 9 (2026-11-17): the schema versions move up by one, because `claire.db` version 26 is used by the entity language of an account (`accounts.entity_language`, commit `c4d1a188`). The renames are version 27 and the shared knowledge bases are version 28.
 - **Related Documents**:
   - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout, groups, and tabs of the console; console and workspace)
   - [`THEMES.md`](../implementation/THEMES.md) (current implementation of the partition)
@@ -154,7 +155,7 @@ Because the production server has only the admin account, the CT6 migration make
 | `client.db` `linked_theme_id` | `linked_kb_id` |
 | — | New table `themes` for collections (Section 11.2) |
 
-**[unverified]** `telemetry.db`, `auth.db`, the job files `data/jobs/*.json`, and the graph bundle format can have `theme_id` fields. Unit CT-0 makes the list. The version 26 migration rewrites stored files once; no reader accepts both names. The graph bundle format gets a new format version; the importer reads each format version by its own rule.
+**[unverified]** `telemetry.db`, `auth.db`, the job files `data/jobs/*.json`, and the graph bundle format can have `theme_id` fields. Unit CT-0 makes the list. The version 27 migration rewrites stored files once; no reader accepts both names. The graph bundle format gets a new format version; the importer reads each format version by its own rule.
 
 A query that still uses the old `themes` columns (for example `is_default`) fails on the new `themes` table with "no such column". The error is loud; no query reads collections by mistake.
 
@@ -575,11 +576,11 @@ New UI text uses keys of the English and Korean catalogs from the start.
 
 ## 11. Data Model
 
-### 11.1 `claire.db` Version 26: Names Only
+### 11.1 `claire.db` Version 27: Names Only
 
-Version 26 makes the renames of Section 5.1 and nothing else. Behavior does not change.
+Version 27 makes the renames of Section 5.1 and nothing else. Behavior does not change.
 
-### 11.2 `claire.db` Version 27: Shared Knowledge Bases and Themes
+### 11.2 `claire.db` Version 28: Shared Knowledge Bases and Themes
 
 **`knowledge_bases`**
 
@@ -794,12 +795,12 @@ The next versions of the credential stores make the changes of Section 6.6: the 
 
 | Object | Version | Reason |
 | :--- | :--- | :--- |
-| Old table `themes` (as registry) | 26 | Renamed to `knowledge_bases` (CT16) |
-| Tables `theme_members`, `users` | 27 | No reader; `theme_members` refers to `users` |
-| Column `is_collaborator_accessible` | 27 | CT17 |
-| `data/themes.json` | 26 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
+| Old table `themes` (as registry) | 27 | Renamed to `knowledge_bases` (CT16) |
+| Tables `theme_members`, `users` | 28 | No reader; `theme_members` refers to `users` |
+| Column `is_collaborator_accessible` | 28 | CT17 |
+| `data/themes.json` | 27 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
 
-A table to drop that has rows is renamed `<name>_retired_v27`; the migration writes a warning and continues (operator rule). Account and server purge include renamed tables.
+A table to drop that has rows is renamed `<name>_retired_v28`; the migration writes a warning and continues (operator rule). Account and server purge include renamed tables.
 
 Candidates for later removal: `knowledge_bases.db_path` and `knowledge_bases.fqdn` when no reader stays **[unverified]** (`graph_bundle.py`, `cli.py` `import-graph`, legacy hosts in `namespace.py`).
 
@@ -809,14 +810,14 @@ Candidates for later removal: `knowledge_bases.db_path` and `knowledge_bases.fqd
 
 All versions complete on their own at startup and keep all data (operator rule). A second start changes nothing.
 
-### 12.1 Version 26
+### 12.1 Version 27
 
 1. Rename the table, the columns, and the indexes of Section 5.1 in one transaction.
 2. Rewrite the stored files of Section 5.1 that have `theme_id` once.
 3. Rename `data/themes.json` to `themes.json.retired`.
 4. `client.db` (next version): rename `linked_theme_id` to `linked_kb_id`.
 
-### 12.2 Version 27
+### 12.2 Version 28
 
 1. Add the columns and tables of Section 11.2. Personal knowledge bases keep `knowledge_type = NULL`.
 2. For each knowledge base with `is_personal = 0` and `account_id IS NOT NULL`, in one transaction for each knowledge base:
@@ -858,7 +859,7 @@ All versions complete on their own at startup and keep all data (operator rule).
 The purge confirmation has the option "Delete my activity records" (CT19). With this option the purge also deletes the submissions and submission items of the account and clears the `reason` texts that the account wrote in `kb_moderation_log`; the moderation actions stay without an actor. The option never changes documents, graphs, or contributions of a knowledge base. The confirmation tells the account that its contributions stay.
 
 - An account backup has only the personal knowledge base. The server backup has all.
-- Restore of a backup made before version 27 restores the personal knowledge base and skips the other knowledge bases of the archive; the result lists them.
+- Restore of a backup made before version 28 restores the personal knowledge base and skips the other knowledge bases of the archive; the result lists them.
 - A data bundle of a shared knowledge base: moderators and the admin.
 
 ### 13.3 Federation
@@ -934,8 +935,8 @@ No question of this design is open. The questions about the console and the work
 
 | Unit | Scope | Completion criteria |
 | :--- | :--- | :--- |
-| CT-0 | Names and selection (Section 5): `claire.db` version 26, file rewrite, `client.db` rename, code, selection by path or required `kb` only, removal of the old names and of the internal ID references, WebUI navigation by path, `themes.json` retirement | All tests pass after the rename. A version 25 database starts as version 26 with the same rows. A request with `theme` or `X-Claire-Theme` gives the same result as without it. Each route that needs a knowledge base and has no reference in the path gives 400 `kb_required` without `kb`. |
-| CT-1 | `claire.db` version 27 (Section 11.2), migration (Section 12.2), `store/kb_collab.py`, `store/themes.py` | A version 26 database with four knowledge bases starts as version 27 with one personal knowledge base (`knowledge_type` NULL) and three shared knowledge bases (`real`), the admin as moderator, and one approved contribution for each document. A second start changes nothing. A failed conversion leaves a row that gives 404 and shows in `/admin/kb`. |
+| CT-0 | Names and selection (Section 5): `claire.db` version 27, file rewrite, `client.db` rename, code, selection by path or required `kb` only, removal of the old names and of the internal ID references, WebUI navigation by path, `themes.json` retirement | All tests pass after the rename. A version 26 database starts as version 27 with the same rows. A request with `theme` or `X-Claire-Theme` gives the same result as without it. Each route that needs a knowledge base and has no reference in the path gives 400 `kb_required` without `kb`. |
+| CT-1 | `claire.db` version 28 (Section 11.2), migration (Section 12.2), `store/kb_collab.py`, `store/themes.py` | A version 27 database with four knowledge bases starts as version 28 with one personal knowledge base (`knowledge_type` NULL) and three shared knowledge bases (`real`), the admin as moderator, and one approved contribution for each document. A second start changes nothing. A failed conversion leaves a row that gives 404 and shows in `/admin/kb`. |
 | CT-2 | Role model and capabilities (Section 6), credential scopes and their migration (Sections 6.6, 11.3), IdP rules, step-up, route review, removal of the `is_collaborator_accessible` code and `/webco`, paths and redirects (Section 7), collections `/kb`, `/@{u}/kb`, `/themes` | A test lists each route with its capability and minimum scope. A `write` token ingests into the personal knowledge base and contributes, and gets 403 for review, people, settings, and roles. A bearer credential cannot change a role. An IdP group claim changes no right. Old `collaborator` sessions end and old `collaborator` tokens read only. Old `/themes/{number}/` links get 308 to `/kb/{number}/`. |
 | CT-3 | Membership, roles, and moderation (Section 10), admin moderator routes, moderation log | Join with `open` and `approval`, approve, ban, leave, last-moderator rule, give and remove `collaborator` with step-up, admin assignment |
 | CT-4 | Direct contribution, merge job without LLM and with the provider of the server, review actions, withdraw, automatic revisions, stop updates (Sections 9.1, 9.4 to 9.6) | Graph without an LLM call; duplicate 409; withdrawal after approval 409; a new content hash of the root updates the copies without approval, also after the source becomes private; a stopped copy stays |

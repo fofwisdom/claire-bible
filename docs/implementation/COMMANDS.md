@@ -215,7 +215,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 `server check`는 지식 DB를 읽기 전용으로 열고 데이터를 바꾸지 않는다. DB를 열 수 없으면 종료 코드 `1`이다. 기본 출력은 검사마다 `<ID> PASS|FAIL <이름>: <설명>` 한 줄과 마지막 요약 줄(`network readiness: PASS` 또는 `federation readiness: FAIL` 형태)이다. `--json`은 `{"check": "network"|"federation", "items": [{"id", "name", "passed", "detail"}], "passed": bool}`을 출력한다. 관리자 API(`POST /api/admin/server/mode`, `POST /api/admin/federation`)가 같은 검사 함수를 쓴다. `--federation`의 GF7은 이 명령을 실행한 프로세스에서 공개 origin으로 HTTP 요청을 한 번 보낸다. 검사 항목은 [`FEDERATION.md`](FEDERATION.md) §7.2에 있다. 확인 기준: `src/claire/cli.py`의 `cmd_server`, `tests/test_federation_readiness.py`.
 
-v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_default`를 0으로 고친 뒤(`data/themes.json`과 `themes` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
+v15로 올릴 때 한 계정에 기본 테마(`is_personal=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_personal`를 0으로 고친 뒤(`data/themes.json`과 `knowledge_bases` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
 
 #### `doctor`
 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)한다.
@@ -264,10 +264,9 @@ v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이�
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
-* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--focus "초점 지침"]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc]`
 * **주요 옵션**:
-  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용된다.
-  * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어쓴다.
+  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
@@ -275,13 +274,12 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
 
 #### `reingest <target>`
 기존 문서 또는 URL을 다시 수집하여 엔티티, 관계, 임베딩, 요약, 상세(detail)를 완전히 재적재한다.
-* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--focus <focus>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
+* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
 * **주요 옵션**:
   * `target`: 재적재 대상 문서 ID, URL, 공유 링크(`/p?s=token`), 검색어, 또는 신규 적재 페이로드.
   * `-t <theme>`, `--theme <theme>`: 대상 테마 지정 (ID, 시퀀스, 또는 레이블).
   * `--full`, `--full-content`: 원문 길이 제한 없이 전체 무절단 수집.
   * `--effort <level>`: LLM 사고/추론 레벨 지정 (`none`, `minimal`, `low`, `medium`, `high`, `max`).
-  * `-f <focus>`, `--focus <focus>`: 가독 상세 작성 초점 지정.
   * `--untombstone`: 대상 문서가 이전에 소각(Purge)되어 툼스톤이 등록된 경우, 툼스톤을 원자적으로 해제하고 재적재 허용.
   * `--apply`: 실제 재적재 실행 (기본값: Dry-Run 진단 리포트 출력).
   * `--dry-run`: 변경 없이 시뮬레이션 진단만 출력 (기본값).
@@ -306,7 +304,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
 | :--- | :--- | :--- | :--- |
 | `reprocess` | `./cb-manuscript app reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | `uv run claire reprocess [...]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
-| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
 | `format-migrate` | `./cb-manuscript app format-migrate [--format adoc] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `./cb-manuscript app format-status [--format adoc] [--json]` | `uv run claire format-status [...]` | 문서 detail이 AsciiDoc인지, 아닌지, 누락인지 통계 출력. `--format`은 `adoc`만 받는다 |
@@ -315,7 +313,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `stt-scan` | `./cb-manuscript app stt-scan [<target>] [--doc-id <ID>] [--json]` | `uv run claire stt-scan [...]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
 | `stt-backfill` | `./cb-manuscript app stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | `uv run claire stt-backfill [...]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
 | `artifact-migrate` | `./cb-manuscript app artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | `uv run claire artifact-migrate [...]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format adoc] [--limit N] [--force] [--focus <focus>]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
+| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format adoc] [--limit N] [--force]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
 | `backfill-summary` | `./cb-manuscript app backfill-summary [--limit N]` | `uv run claire backfill-summary [...]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
@@ -361,7 +359,6 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
-  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정.
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias이다.
@@ -567,10 +564,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire doc <target> [--pin | --unpin] [--hide | --unhide] [--seen | --unseen] [--json]`: 문서의 주요 상태 플래그(상단 고정, 공개 목록 숨김, 읽음 처리)를 수동 토글/갱신.
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
-* `claire auth [--scope {owner,collab,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
+* `claire auth [--scope {owner,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
 * `claire token [list|create|revoke]`: 환경변수에 의존하지 않고 SQLite 데이터베이스 기반으로 API 및 MCP 상시 이용 Bearer 접근 토큰을 관리 (별칭: `api-key`, `key`).
   * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 조회 (별칭: `ls`). `-a` 지정 시 폐기 및 만료 토큰 포함.
-  * `claire token create <name> [--scope {owner,collab,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
+  * `claire token create <name> [--scope {owner,write,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
   * `claire token revoke <target> [--json]`: 토큰 즉시 폐기 (별칭: `delete`, `rm`). `target`은 토큰 ID 또는 토큰 접두사/전체값. 폐기 즉시 모든 API/MCP 통신 차단.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
@@ -633,59 +630,55 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.10 지식 테마 관리 및 단일 DB 테마 파티셔닝 (Theme Management)
 
-`claire theme` 명령군은 단일 SQLite 데이터베이스(`data/claire.db`) 내의 `themes` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
+`claire kb` 명령군은(v27 전 이름 `claire theme`; `claire theme`은 테마 컬렉션에 쓴다) 단일 SQLite 데이터베이스(`data/claire.db`) 내의 `knowledge_bases` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
-| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `themes` 테이블 및 테마 파티션을 프로비저닝 |
-| `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 기본 초점, 공개/협력자 접근 권한 수정 |
-| `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
-| `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`theme_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
+| `kb list` | `claire kb list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
+| `kb define` | `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public\|--private] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
+| `kb update` | `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개 여부 수정 |
+| `kb reset` | `claire kb reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID와 경로(`/themes/<number>/`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
+| `kb delete` | `claire kb delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`kb_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
-#### `claire theme list`
-* **사용법**: `claire theme list [--json]` (또는 `claire theme` 단독 실행 시 기본 동작)
+#### `claire kb list`
+* **사용법**: `claire kb list [--json]` (또는 `claire kb` 단독 실행 시 기본 동작)
 * **출력 항목**:
   * Sequence ID, 레이블(Label), 아이콘(Icon), 설명(Description)
   * 공개 여부 (Public / Private), 협력자 접근 허용 여부 (Collab O/X)
-  * 기본 초점 (Default Focus: 지식 적재 시 자동 적용될 Focus)
   * 문서/엔티티/관계 통계 및 파티션 테마 ID
 * **`--json`**: 기계 가독형 JSON 배열로 출력.
 
-#### `claire theme define`
-* **사용법**: `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+#### `claire kb define`
+* **사용법**: `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public|--private] [--json]`
 * **주요 옵션**:
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
-  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(Focus). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용된다.
   * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능하다.
-  * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능하다.
-* **프로비저닝**: 단일 DB(`data/claire.db`)의 `themes` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `theme_id` 파티션이 준비된다.
+* **프로비저닝**: 단일 DB(`data/claire.db`)의 `knowledge_bases` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `kb_id` 파티션이 준비된다.
 
-#### `claire theme update`
-* **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+#### `claire kb update`
+* **사용법**: `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public|--private] [--json]`
 * **주요 옵션**:
   * `id`: 대상 테마의 ID, 시퀀스 번호, 또는 레이블.
-  * `--focus ""`: 빈 문자열을 전달하여 기존에 설정된 기본 초점을 해제(초기화) 가능.
-  * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
-  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정된다.
+  * `--private`: The option `--collaborator` is removed (unit CT-2). A shared knowledge base is always public; `--private` applies to the personal knowledge base.
+  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하다.
 
-#### `claire theme reset`
-* **사용법**: `claire theme reset <id> [--apply] [-y|--yes] [--json]`
+#### `claire kb reset`
+* **사용법**: `claire kb reset <id> [--apply] [-y|--yes] [--json]`
 * **기본은 dry-run**: `--apply` 없이 실행하면 삭제될 문서·엔티티·관계 수만 보고하고 아무것도 바꾸지 않는다. `-y`만으로는 실행되지 않는다. `--json`이면 `{"ok": true, "plan": {"dry_run": true, "data_to_delete": {...}}}`를 출력한다.
-* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 기본 초점, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
-* **삭제되는 것** (`ThemeManager.reset_theme`):
-  1. `reset_graph(conn, theme_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
-  2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.
+* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 권한 설정, 생성일, 경로(`/themes/<number>/`). `updated_at`만 갱신된다.
+* **삭제되는 것** (`KnowledgeBaseManager.reset_kb`):
+  1. `reset_graph(conn, kb_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
+  2. `kb_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.
 * **확인**: `--apply` 시 대화형 터미널에서는 `[y/N]` 확인을 받는다. 비대화형 환경에서 `--yes`가 없으면 종료 코드 2로 거부한다.
 * **`--json`** (`--apply`와 함께): 삭제한 문서·엔티티·관계 수를 JSON으로 출력.
 
-#### `claire theme delete`
-* **사용법**: `claire theme delete <id> [--purge] [--apply] [--yes] [--json]`
+#### `claire kb delete`
+* **사용법**: `claire kb delete <id> [--purge] [--apply] [--yes] [--json]`
 * **주요 옵션**:
   * `id`: 삭제할 테마의 ID, 시퀀스 번호 또는 레이블.
-  * `--purge`: 레지스트리 제거와 함께 해당 `theme_id`의 데이터를 `theme reset`과 같은 범위로 영구 소각한다.
+  * `--purge`: 레지스트리 제거와 함께 해당 `kb_id`의 데이터를 `theme reset`과 같은 범위로 영구 소각한다.
   * `--apply`: 실제 삭제. 없으면 dry-run으로 계획(소각 예정 건수 포함)만 출력한다.
   * `--yes`, `-y`: `--purge --apply`의 확인 프롬프트 생략. 단독으로는 삭제하지 않는다.
 * **안전 장치**:
@@ -694,6 +687,23 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--purge --apply`를 비대화형 환경에서 `--yes` 없이 실행하면 종료 코드 2로 거부한다.
 
 ---
+
+#### `claire theme` (themes)
+
+A theme is a collection of knowledge bases with one subject (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8). The command reads and writes `data/claire.db` directly. The number of a theme is the number in `/themes/<number>/`.
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `theme list` | `claire theme list [--json]` | Each theme: number, knowledge type, state, count of knowledge bases, label. `claire theme` alone does the same. |
+| `theme judge` | `claire theme judge` | Run the subject judgement now: signatures, themes, memberships. Admin adjustments stay. |
+| `theme rename` | `claire theme rename <theme> <label>` | Set the label and lock it. The judgement does not change a locked label. |
+| `theme unlock` | `claire theme unlock <theme>` | Remove the lock. The next judgement sets the label. |
+| `theme pin` | `claire theme pin <theme> <kb>` | Pin a knowledge base to the theme. The knowledge types must be the same. |
+| `theme exclude` | `claire theme exclude <theme> <kb>` | Keep a knowledge base out of the theme. |
+| `theme free` | `claire theme free <theme> <kb>` | Remove the pin or the exclusion. The judgement decides the membership again. |
+| `theme merge` | `claire theme merge <theme> --into <theme>` | Merge a theme into another theme of the same knowledge type. |
+
+`<kb>` is a knowledge base number, ID, or label. An unknown theme or knowledge base gives exit code 1 and a message on stderr.
 
 ### 3.11 프레젠테이션 관리 및 렌더링 (`presentation`)
 
@@ -915,5 +925,5 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../src/claire/store/telemetry.py), [`src/claire/store/db.py`](../../src/claire/store/db.py), [`src/claire/support_bundle.py`](../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../ops/cb_manuscript.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_telemetry.py`](../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../tests/test_bot.py) (2026-09-11 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
-[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
-[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).
+[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

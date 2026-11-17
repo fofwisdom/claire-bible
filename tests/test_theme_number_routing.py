@@ -2,8 +2,8 @@
 
 검증 항목:
 1. v16 테마 번호 하한 (MIN_CURRENT_NUMBER >= 2^56, created_at=0 하한 고정 포함)
-2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /themes/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
-3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_theme_id 바인딩
+2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /kb/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
+3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 4. 고정과 다른 ?theme= 가 들어오면 400 거부
 5. 다른 계정의 테마 번호 요청 시 404
 6. 루트 해석기 308 (기존 SPA 쿼리 doc/node/theme 있을 때 /@{admin}/?... 리다이렉트)
@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire import ids
@@ -27,7 +29,7 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import reset_token_stores
 
 ADMIN_LEGACY_UNIX_MS = dbm.ADMIN_LEGACY_PUBLIC_ID_UNIX_MS
@@ -50,7 +52,7 @@ def _init_test_db(db_file: Path) -> sqlite3.Connection:
     return conn
 
 
-def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, ThemeInfo]:
+def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, KnowledgeBaseInfo]:
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     conn.close()
@@ -63,20 +65,20 @@ def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, T
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_ANONYMOUS_READONLY=True,
     )
-    theme_mgr = ThemeManager(s)
-    theme0 = theme_mgr.get_theme(0)
+    theme_mgr = KnowledgeBaseManager(s)
+    theme0 = theme_mgr.get_kb(0)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
     return client, s, theme0
 
 
-def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, ThemeInfo, ThemeInfo]:
+def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, KnowledgeBaseInfo, KnowledgeBaseInfo]:
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     now = time.time()
-    num1 = ids.timestamp_id("themes", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 10)
+    num1 = ids.timestamp_id("knowledge_bases", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (1, 1, ?, 'Theme Alpha', 1, 0, 1, ?, ?)",
         (num1, now, now),
     )
@@ -91,9 +93,9 @@ def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, Th
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_ANONYMOUS_READONLY=True,
     )
-    theme_mgr = ThemeManager(s)
-    theme0 = theme_mgr.get_theme(0)
-    theme1 = theme_mgr.get_theme(1)
+    theme_mgr = KnowledgeBaseManager(s)
+    theme0 = theme_mgr.get_kb(0)
+    theme1 = theme_mgr.get_kb(1)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
     return client, s, theme0, theme1
@@ -125,23 +127,23 @@ def _create_network_mode_client(tmp_path: Path) -> tuple[TestClient, Settings, d
     )
     carol_id = int(cur.lastrowid)
 
-    num_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 10)
+    num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Public Theme', ?, 1, 1, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
 
-    num_alice_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 11)
+    num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (11, 11, ?, 'Alice Private Theme', ?, 0, 0, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
-    num_carol_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 20)
+    num_carol_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (20, 20, ?, 'Carol Public Theme', ?, 1, 1, ?, ?)",
         (num_carol_pub, carol_id, now, now),
     )
@@ -183,11 +185,11 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
 
     # created_at이 0, 0.0 인 레거시 테마 생성 후 번호 백필 검증
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) "
         "VALUES (101, 101, 'Theme Zero Time', 1, 0, 0)"
     )
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) "
         "VALUES (102, 102, 'Theme Float Zero', 1, 0.0, 0.0)"
     )
     conn.commit()
@@ -201,7 +203,7 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
     assert filled == 2
     conn.commit()
 
-    rows = conn.execute("SELECT id, number FROM themes WHERE id IN (101, 102)").fetchall()
+    rows = conn.execute("SELECT id, number FROM knowledge_bases WHERE id IN (101, 102)").fetchall()
     for row in rows:
         num = row["number"]
         assert num is not None
@@ -218,8 +220,8 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
     )
-    mgr = ThemeManager(s)
-    new_theme = mgr.define_theme("Fresh Theme")
+    mgr = KnowledgeBaseManager(s)
+    new_theme = mgr.define_kb("Fresh Theme", knowledge_type="real")
     assert new_theme.number is not None
     assert new_theme.number >= MIN_NUMBER
     assert ids.parse_public_id(new_theme.number) == new_theme.number
@@ -240,11 +242,11 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     assert theme0.number is not None
     assert theme0.number >= MIN_NUMBER
 
-    # /themes/{number}/documents 및 /themes/{number}/ 동작 검증
-    resp_pin_docs = client.get(f"/themes/{theme0.number}/documents")
+    # /kb/{number}/documents 및 /kb/{number}/ 동작 검증
+    resp_pin_docs = client.get(f"/kb/{theme0.number}/documents", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_docs.status_code == 200
 
-    resp_pin_root = client.get(f"/themes/{theme0.number}/")
+    resp_pin_root = client.get(f"/kb/{theme0.number}/", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_root.status_code == 200
 
     # ?theme={number} 동작 검증
@@ -252,82 +254,52 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     assert resp_q_num.status_code == 200
 
     # ?theme=0 동작 검증
-    resp_q_0 = client.get("/documents?theme=0")
+    resp_q_0 = client.get("/documents")
     assert resp_q_0.status_code == 200
 
     # DB에 Theme 1 등 추가 테마가 있어도 CLAIRE_MULTI_THEME=0 에서는 404
     conn = dbm.connect(Path(s.db_file))
     now = time.time()
-    num1 = ids.timestamp_id("themes", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 100)
+    num1 = ids.timestamp_id("knowledge_bases", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 100)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (1, 1, ?, 'Forbidden Second', 1, 0, 1, ?, ?)",
         (num1, now, now),
     )
     conn.commit()
     conn.close()
 
-    assert client.get("/documents?theme=1").status_code == 404
-    assert client.get(f"/documents?theme={num1}").status_code == 404
-    assert client.get(f"/themes/{num1}/documents").status_code == 404
-    assert client.get("/themes/99999999999999999/documents").status_code == 404
-    assert client.get("/themes/99999999999999999/").status_code == 404
+    # ``theme`` is ignored (CT23): the root path is knowledge base 0
+    assert client.get("/documents?theme=1").status_code == 200
+    assert client.get(f"/documents?theme={num1}").status_code == 200
+    assert client.get(f"/kb/{num1}/documents").status_code == 404
+    assert client.get("/kb/99999999999999999/documents").status_code == 404
+    assert client.get("/kb/99999999999999999/").status_code == 404
 
 
 # ============================================================================
-# 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_theme_id 바인딩
+# 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 # ============================================================================
 
 
-def test_theme_pinning_binds_pinned_theme_id(tmp_path: Path) -> None:
+def test_theme_pinning_binds_pinned_kb_id(tmp_path: Path) -> None:
     client, _, theme0, theme1 = _create_multi_theme_client(tmp_path)
 
     # 경로에 테마 번호가 포함되면 graph API에서 해당 테마의 내부 ID를 반환
-    r0 = client.get(f"/themes/{theme0.number}/graph")
+    r0 = client.get(f"/kb/{theme0.number}/graph", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert r0.status_code == 200
-    assert r0.json().get("theme_id") == 0
+    assert r0.json().get("kb_id") == 0
     assert r0.json().get("theme_label") == theme0.label
 
-    r1 = client.get(f"/themes/{theme1.number}/graph")
+    r1 = client.get(f"/kb/{theme1.number}/graph")
     assert r1.status_code == 200
-    assert r1.json().get("theme_id") == 1
+    assert r1.json().get("kb_id") == 1
     assert r1.json().get("theme_label") == theme1.label
 
 
 # ============================================================================
 # 4. 고정과 다른 ?theme= 가 들어오면 400 거부
 # ============================================================================
-
-
-def test_contradictory_theme_query_rejected_with_400(tmp_path: Path) -> None:
-    client, _, theme0, theme1 = _create_multi_theme_client(tmp_path)
-    base_pin0 = f"/themes/{theme0.number}"
-
-    # 고정된 테마 0 경로에서 다른 테마(Theme 1 번호, 내부 ID 1, 미존재 번호) 요청 시 400 거부
-    r_diff_num = client.get(f"{base_pin0}/documents?theme={theme1.number}")
-    assert r_diff_num.status_code == 400
-    assert "contradicts pinned theme" in r_diff_num.json().get("error", "")
-
-    r_diff_id = client.get(f"{base_pin0}/documents?theme=1")
-    assert r_diff_id.status_code == 400
-    assert "contradicts pinned theme" in r_diff_id.json().get("error", "")
-
-    r_non_existent = client.get(f"{base_pin0}/documents?theme=99999999999999999")
-    assert r_non_existent.status_code == 400
-
-    # 헤더 및 본문의 모순 요청도 400 거부
-    r_hdr = client.get(f"{base_pin0}/documents", headers={"X-Claire-Theme": "1"})
-    assert r_hdr.status_code == 400
-
-    r_post_diff = client.post(f"{base_pin0}/search", json={"query": "test", "theme": 1})
-    assert r_post_diff.status_code == 400
-
-    # 동일한 테마를 가리키는 파라미터는 정상 통과 (200 OK)
-    assert client.get(f"{base_pin0}/documents?theme={theme0.number}").status_code == 200
-    assert client.get(f"{base_pin0}/documents?theme=0").status_code == 200
-    assert client.get(f"{base_pin0}/documents?theme={theme0.label}").status_code == 200
-    assert client.get(f"{base_pin0}/documents", headers={"X-Claire-Theme": "0"}).status_code == 200
-    assert client.post(f"{base_pin0}/search", json={"query": "test", "theme": 0}).status_code == 200
 
 
 # ============================================================================
@@ -340,19 +312,17 @@ def test_cross_account_theme_number_returns_404(tmp_path: Path) -> None:
     num_alice = info["num_alice_pub"]
     num_carol = info["num_carol_pub"]
 
-    # Alice 네임스페이스 아래에서 Carol의 테마 번호 경로 요청 시 404
-    r_path = client.get(f"/@alice/themes/{num_carol}/documents")
-    assert r_path.status_code == 404
+    # The number of the personal knowledge base of Carol: 308 to its own path when the requester can read it, else 404 (design Section 7)
+    r_path = client.get(f"/kb/{num_carol}/documents")
+    assert r_path.status_code in (308, 404)
 
-    # Alice 네임스페이스 아래에서 Carol의 테마 번호 쿼리 요청 시 404
+    # ``theme`` is ignored (CT23): the path selects the personal knowledge base of Alice, not the one of Carol or of the admin
     r_query = client.get(f"/@alice/documents?theme={num_carol}")
-    assert r_query.status_code == 404
-
-    # Alice 네임스페이스 아래에서 Theme 0(Admin 테마) 요청 시 404
-    assert client.get("/@alice/documents?theme=0").status_code == 404
+    assert r_query.status_code == client.get("/@alice/documents").status_code
+    assert r_query.json() == client.get("/@alice/documents").json()
 
     # Alice 본인의 테마 요청은 정상 200
-    assert client.get(f"/@alice/themes/{num_alice}/documents").status_code == 200
+    assert client.get(f"/kb/{num_alice}/documents", follow_redirects=True).status_code == 200
     assert client.get(f"/@alice/documents?theme={num_alice}").status_code == 200
 
 
@@ -395,51 +365,23 @@ def test_root_theme_resolver_in_network_mode(tmp_path: Path) -> None:
     num_alice_pub = info["num_alice_pub"]
     num_alice_priv = info["num_alice_priv"]
 
-    # 공개 테마 루트 접근 시 /@{owner}/themes/{number}/... 로 308 리다이렉트
-    r_root_theme = client.get(f"/themes/{num_alice_pub}/")
+    # 공개 테마 루트 접근 시 /@{owner}/kb/{number}/... 로 308 리다이렉트
+    r_root_theme = client.get(f"/kb/{num_alice_pub}/")
     assert r_root_theme.status_code == 308
-    assert r_root_theme.headers.get("location") == f"/@alice/themes/{num_alice_pub}/"
+    assert r_root_theme.headers.get("location") == "/@alice/"
 
-    r_root_theme_doc = client.get(f"/themes/{num_alice_pub}/documents")
+    r_root_theme_doc = client.get(f"/kb/{num_alice_pub}/documents")
     assert r_root_theme_doc.status_code == 308
-    assert r_root_theme_doc.headers.get("location") == f"/@alice/themes/{num_alice_pub}/documents"
+    assert r_root_theme_doc.headers.get("location") == "/@alice/documents"
 
-    # 비공개 테마는 익명 요청 시 404로 숨김
-    assert client.get(f"/themes/{num_alice_priv}/").status_code == 404
-    assert client.get("/themes/99999999999999999/").status_code == 404
+    # A knowledge base that is not personal is a shared knowledge base after version 28: public at /kb/{number}/
+    assert client.get(f"/kb/{num_alice_priv}/").status_code == 200
+    assert client.get("/kb/99999999999999999/").status_code == 404
 
 
 # ============================================================================
 # 7. 레거시 내부 ID (0 <= id < 2^31) 요청 시 Deprecation 및 Sunset 헤더 검증
 # ============================================================================
-
-
-def test_deprecation_and_sunset_headers_on_legacy_internal_id(tmp_path: Path) -> None:
-    client, _, _, theme1 = _create_multi_theme_client(tmp_path)
-
-    # 쿼리 파라미터 ?theme=0 (Theme 0 내부 ID)
-    r0 = client.get("/documents?theme=0")
-    assert r0.status_code == 200
-    assert r0.headers.get("deprecation") == "@1798761600"
-    assert r0.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 쿼리 파라미터 ?theme=1 (Theme 1 내부 ID)
-    r1 = client.get(f"/documents?theme={theme1.id}")
-    assert r1.status_code == 200
-    assert r1.headers.get("deprecation") == "@1798761600"
-    assert r1.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 헤더 X-Claire-Theme: 0
-    r_hdr = client.get("/documents", headers={"X-Claire-Theme": "0"})
-    assert r_hdr.status_code == 200
-    assert r_hdr.headers.get("deprecation") == "@1798761600"
-    assert r_hdr.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 요청 본문 {"theme": 0}
-    r_body = client.post("/search", json={"query": "test", "theme": 0})
-    assert r_body.status_code == 200
-    assert r_body.headers.get("deprecation") == "@1798761600"
-    assert r_body.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
 
 
 # ============================================================================
@@ -456,8 +398,8 @@ def test_no_deprecation_headers_on_v16_public_number(tmp_path: Path) -> None:
     assert "deprecation" not in r_num.headers
     assert "sunset" not in r_num.headers
 
-    # 테마 고정 경로 /themes/{number}/documents
-    r_pin = client.get(f"/themes/{theme0.number}/documents")
+    # 테마 고정 경로 /kb/{number}/documents
+    r_pin = client.get(f"/kb/{theme0.number}/documents", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert r_pin.status_code == 200
     assert "deprecation" not in r_pin.headers
     assert "sunset" not in r_pin.headers

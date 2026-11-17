@@ -25,7 +25,7 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
   - Anchors `[#id]` on main sections of long documents, and cross references `<<id, label>>`.
   - No facts that the source does not state. A section that truncation cut is left out.
   - No author line under the document title.
-  - A focus text (`--focus`) and the length hint for merged documents change the prompt.
+  - The length hint for merged documents changes the prompt. The prompt can take a focus text, but no entry point gives one (focus seal, [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4).
 - **[code]** `sanitize_rendered_detail` removes an author line under the document title and the attribution of a video channel in `[quote, ...]`.
 - **[code]** `set_document_detail` removes a leading link to the original (`remove_leading_original_link`) before it stores the body.
 - **[code]** Summaries are plain text. The summary prompts ask for no AsciiDoc and no Markdown, and `clean_plain_summary` removes marks that leak.

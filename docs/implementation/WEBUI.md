@@ -107,7 +107,7 @@ On a narrow screen an open drawer or sheet gets `role="dialog"` and `aria-modal=
 **[code]** `enterHome({reason})` is the one function for the brand link, the Home button, the bottom bar, the palette command, and a theme switch:
 
 1. It calls `resetWorkspaceState()` with `homeEntryActive` set, thus `closeReader()` does not change the view to the graph on the way.
-2. It sets the `home` view, `document.title = HOME_TITLE` (catalog key `home.title`), and `history.replaceState({pane:'graph', modal:null, view:'home'}, …)`. The URL keeps only `?theme=N`.
+2. It sets the `home` view, `document.title = HOME_TITLE` (catalog key `home.title`), and `history.replaceState({pane:'graph', modal:null, view:'home'}, …)`. The URL has no query: the path selects the knowledge base (CT23).
 3. It reads `GET /stats` (`cache: 'no-store'`) and calls `resolveHomeView(stats, activeThemeId)`:
    - `'job'`: an active job of this theme. The view changes to `matrix` (Section 8).
    - `'home+banner'`: an active job of a different theme. The home view and an information banner with a link to that theme.
@@ -166,7 +166,7 @@ Stage classes (`resolutionStageBadge()`): `exact_match`, `alias_match`, `acronym
 **[code]** `docMetaHtml(dc, options)` (`reader.js`) makes the first line below the title (`p.docmeta`):
 
 - Left part: links to the source. "Open the source" when `url` is a web URL; "open the raw file" (`/document/raw?id=`) when `has_raw_file` is true and the user can ingest or `can_access_raw` is true; "open the transcript" for an STT document; the presentation PDF link.
-- Right part (`.docmeta-tags`): tags of the ingestion, all with the classes `prov det`: parser fallback, PDF encoding flaw, scanned PDF, bundle (CC×PDF or STT×PDF), focus, STT, CC, image transcription, the source badge, and the model badge.
+- Right part (`.docmeta-tags`): tags of the ingestion, all with the classes `prov det`: parser fallback, PDF encoding flaw, scanned PDF, bundle (CC×PDF or STT×PDF), STT, CC, image transcription, the source badge, and the model badge.
 - Source badge: `data-source-badge="full"` when raw text is stored; `data-source-badge="partial"` with the two character counts when `raw_truncated` is true. The reason of the cut is the hover text and `data-trunc` (`references`, `appendix`, `appendix-references`, `stt`, `limit`).
 - Model badge (`.model-badge`): `extraction_model` (or `extraction_provider`) of `GET /document`, to the right of the source badge.
 - The meta line has no author and no publication date. The Source tab of the context panel shows them (Section 5).

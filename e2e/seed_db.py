@@ -11,7 +11,7 @@ from claire.store import db as dbm
 
 def _insert_entity_row(conn, ent: Entity) -> None:
     """Insert one entity row and its FTS row. dbm.upsert_entity() also adds the name to the tokenizer dictionary, which takes about one second for each entity."""
-    conn.execute("INSERT OR REPLACE INTO entities(id,theme_id,type,name,norm_name,aliases,props,observations,sources,provisional,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (ent.id, 0, ent.type, ent.name, ent.norm_name, json.dumps(ent.aliases, ensure_ascii=False), "{}", json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False), int(ent.provisional), ent.created_at, ent.updated_at))
+    conn.execute("INSERT OR REPLACE INTO entities(id,kb_id,type,name,norm_name,aliases,props,observations,sources,provisional,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (ent.id, 0, ent.type, ent.name, ent.norm_name, json.dumps(ent.aliases, ensure_ascii=False), "{}", json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False), int(ent.provisional), ent.created_at, ent.updated_at))
     conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (ent.id,))
     conn.execute("INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)", (ent.id, ent.name, " \n".join(ent.observations)))
 

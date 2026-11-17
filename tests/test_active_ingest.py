@@ -45,7 +45,6 @@ def test_active_ingest_lifecycle(tmp_path: Path):
         data_dir,
         payload="https://example.com/test-article",
         source="telegram",
-        focus="테스트 초점",
         title="초기 제목",
     )
     st = get_active_ingest(data_dir)
@@ -53,7 +52,6 @@ def test_active_ingest_lifecycle(tmp_path: Path):
     assert st["active"] is True
     assert st["source"] == "telegram"
     assert st["payload"] == "https://example.com/test-article"
-    assert st["focus"] == "테스트 초점"
     assert st["title"] == "초기 제목"
     assert st["stage"] == "init"
 

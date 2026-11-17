@@ -33,7 +33,6 @@ def syndication_env(tmp_path: Path):
         environment="development",
         public_url="http://127.0.0.1:8765/",
         inject_token=OWNER_TOKEN,
-        collaborator_token=COLLAB_TOKEN,
         readonly_token=READONLY_TOKEN,
         anonymous_readonly=False,
         cors_allowed_origins="",
@@ -144,7 +143,7 @@ def _legacy_prefs_url(tab: str | None, theme: str | None = None) -> str:
     if tab is not None:
         params.append(f"tab={tab}")
     if theme is not None:
-        params.append(f"theme={theme}")
+        params.append(f"kb={theme}")
     return "/syndication/preferences" + ("?" + "&".join(params) if params else "")
 
 
@@ -163,17 +162,18 @@ def test_legacy_preferences_tab_redirects_admin(syndication_env, tab, admin_targ
 def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndication_env) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
         headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        base = client.get("/syndication/preferences?tab=feeds&theme=0", headers=headers, follow_redirects=False)
+        kb0 = client.get("/kb", headers=headers).json()["personal_kb"]["number"]
+        base = client.get(f"/syndication/preferences?tab=feeds&kb={kb0}", headers=headers, follow_redirects=False)
         assert base.status_code == 302
         location = base.headers["location"]
-        assert location.startswith("/settings/feeds?theme=")
-        theme_ref = location.split("?theme=", 1)[1]
+        assert location.startswith("/settings/feeds?kb=")
+        theme_ref = location.split("?kb=", 1)[1]
         assert theme_ref
         # The console accepts the canonical ref it gets.
         console = client.get(location, headers=headers, follow_redirects=False)
         assert console.status_code == 200
-        # Admin-only targets are not theme-scoped: ?theme= is dropped.
-        idp = client.get("/syndication/preferences?tab=idp&theme=0", headers=headers, follow_redirects=False)
+        # Admin-only targets are not theme-scoped: ?kb= is dropped.
+        idp = client.get(f"/syndication/preferences?tab=idp&kb={kb0}", headers=headers, follow_redirects=False)
         assert idp.status_code == 302 and idp.headers["location"] == "/admin/idp"
 
 
@@ -181,9 +181,9 @@ def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndicati
     "/syndication/preferences?tab=nope",
     "/syndication/preferences?tab=",
     "/syndication/preferences?tab=READER",
-    "/syndication/preferences?theme=nope",
-    "/syndication/preferences?tab=reader&theme=nope",
-    "/syndication/preferences?tab=nope&theme=0",
+    "/syndication/preferences?kb=nope",
+    "/syndication/preferences?tab=reader&kb=nope",
+    "/syndication/preferences?tab=nope&kb=0",
 ])
 def test_legacy_preferences_unknown_tab_or_theme_is_404(syndication_env, url) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:

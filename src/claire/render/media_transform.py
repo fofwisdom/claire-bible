@@ -73,7 +73,7 @@ def media_url(
     *,
     is_public: bool = True,
     account_id: int = 1,
-    theme_id: int = 0,
+    kb_id: int = 0,
     visibility_epoch: int = 1,
     roles: Any | None = None,
     secret_service: SecretService | None = None,
@@ -101,14 +101,14 @@ def media_url(
     if not is_public:
         token = create_media_capability_token(
             account_id=account_id,
-            theme_id=theme_id,
+            kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             key=clean_key,
             expires_in=expires_in,
             secret_service=secret_service,
         )
         sep = "&" if "?" in base else "?"
-        return f"{base}{sep}account_id={account_id}&theme_id={theme_id}&visibility_epoch={visibility_epoch}&token={token}"
+        return f"{base}{sep}account_id={account_id}&kb_id={kb_id}&visibility_epoch={visibility_epoch}&token={token}"
 
     return base
 
@@ -119,7 +119,7 @@ def transform_media_urls_in_html(
     *,
     is_public: bool = True,
     account_id: int = 1,
-    theme_id: int = 0,
+    kb_id: int = 0,
     visibility_epoch: int = 1,
     roles: Any | None = None,
     secret_service: SecretService | None = None,
@@ -138,7 +138,7 @@ def transform_media_urls_in_html(
             viewer,
             is_public=is_public,
             account_id=account_id,
-            theme_id=theme_id,
+            kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             roles=roles,
             secret_service=secret_service,

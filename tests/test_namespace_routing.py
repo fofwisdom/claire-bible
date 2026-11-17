@@ -48,9 +48,9 @@ DEV_ORIGIN = "http://192.0.2.10:8766"
 ADMIN_NAME = "boss"
 BASE = 1 << 56
 N_ADMIN_DEFAULT = BASE + 100
-N_ADMIN_PRIVATE = BASE + 101
+N_ADMIN_PRIVATE = BASE + 101  # after version 28: a shared knowledge base that the admin made
 N_ALICE_PUBLIC = BASE + 200
-N_ALICE_PRIVATE = BASE + 201
+N_ALICE_PRIVATE = BASE + 201  # after version 28: a shared knowledge base that Alice made
 N_CAROL_PUBLIC = BASE + 300
 
 # 계정별 자격증명 대역: 토큰 → (계정, 범위)
@@ -105,14 +105,23 @@ def _insert_account(conn, public_id: int, username: str, *, status: str = "activ
     return int(cur.lastrowid)
 
 
-def _insert_theme(conn, theme_id: int, account_id: int, number: int, *, public: bool,
+def _insert_theme(conn, kb_id: int, account_id: int, number: int, *, public: bool,
                   default: bool = False, ga: str = "") -> None:
+    """``default=True``: the personal knowledge base of the account. Else a shared knowledge base (no owner, public, type ``real``) that the account made."""
     now = time.time()
+    if default:
+        conn.execute(
+            "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, "
+            "ga_measurement_id, created_at, updated_at, account_id, number) "
+            "VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+            (kb_id, kb_id, f"t{kb_id}", int(public), ga, now, now, account_id, number),
+        )
+        return
     conn.execute(
-        "INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, "
-        "ga_measurement_id, created_at, updated_at, account_id, number) "
-        "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
-        (theme_id, theme_id, f"t{theme_id}", int(default), int(public), ga, now, now, account_id, number),
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, "
+        "ga_measurement_id, created_at, updated_at, account_id, number, created_by_account_id, knowledge_type) "
+        "VALUES (?, ?, ?, 0, 1, ?, ?, ?, NULL, ?, ?, 'real')",
+        (kb_id, kb_id, f"t{kb_id}", ga, now, now, number, account_id),
     )
 
 
@@ -133,7 +142,7 @@ def world(tmp_path: Path) -> World:
             "INSERT INTO username_tombstones (username, account_id, was_public, retired_at) VALUES "
             "('zed', 90, 1, 0), ('yan', 91, 0, 0)"
         )
-        conn.execute("DELETE FROM themes")
+        conn.execute("DELETE FROM knowledge_bases")
         _insert_theme(conn, 0, 1, N_ADMIN_DEFAULT, public=True, default=True)
         _insert_theme(conn, 5, 1, N_ADMIN_PRIVATE, public=False, ga="G-PINNED")
         _insert_theme(conn, 10, alice, N_ALICE_PUBLIC, public=True, default=True)
@@ -157,7 +166,7 @@ def _credentials(world: World) -> dict[str, security._Credential]:
         ALICE_OWNER: cred(world.alice, "owner"),
         ALICE_READONLY: cred(world.alice, "readonly"),
         CAROL_OWNER: cred(world.carol, "owner"),
-        ADMIN_COLLAB: cred(1, "collaborator", "admin"),
+        ADMIN_COLLAB: cred(1, "write", "admin"),
     }
 
 
@@ -373,9 +382,9 @@ async def test_static_mount_is_untouched_and_system_under_prefix_is_404(app_fact
 async def test_access_log_and_router_see_original_and_stripped_paths(app_factory, caplog):
     app = app_factory()
     caplog.set_level("INFO", logger="claire.api.access")
-    res = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)
+    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
     assert res.status == 200 and res.json()["path"] == "/graph"
-    assert f"path=/themes/{N_ADMIN_DEFAULT}/graph" in caplog.text
+    assert f"path=/kb/{N_ADMIN_PRIVATE}/graph" in caplog.text
 
 
 # --- 싱글 모드 -----------------------------------------------------------------
@@ -388,7 +397,7 @@ async def test_single_mode_unprefixed_is_admin_namespace_without_username(app_fa
     body = res.json()
     assert res.status == 200
     assert body["ns"] == {
-        "mode": "single", "account_id": 1, "username": None, "pinned_theme_id": None,
+        "mode": "single", "account_id": 1, "username": None, "pinned_kb_id": None,
         "prefix": "", "via_prefix": False,
     }
     assert body["bootstrap"] == {"api-base": "/", "root-base": "/", "storage-key": f"a{world.admin_public_id}"}
@@ -420,26 +429,37 @@ async def test_single_mode_admin_prefix_redirects_after_network_return(app_facto
 
 
 @pytest.mark.asyncio
-async def test_single_mode_root_pin_is_admin_theme_only(app_factory, world):
+async def test_single_mode_kb_path_pins_a_shared_knowledge_base(app_factory, world):
+    """Design Section 7: ``/kb/{number}/`` pins a shared knowledge base with no namespace account. Old ``/themes/{number}/`` links get 308."""
     app = app_factory()
-    res = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
+    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
     assert res.status == 200
     body = res.json()
-    assert body["ns"]["pinned_theme_id"] == 5 and body["ns"]["prefix"] == f"/themes/{N_ADMIN_PRIVATE}"
-    assert body["ns"]["username"] is None
-    assert body["bootstrap"]["api-base"] == f"/themes/{N_ADMIN_PRIVATE}/"
-    assert body["link"] == f"{DEV_ORIGIN}/themes/{N_ADMIN_PRIVATE}/graph"
-    # 다른 계정의 번호, 없는 번호는 404(N2)
+    assert body["ns"]["pinned_kb_id"] == 5 and body["ns"]["prefix"] == f"/kb/{N_ADMIN_PRIVATE}"
+    assert body["ns"]["username"] is None and body["ns"]["account_id"] is None
+    assert body["bootstrap"]["api-base"] == f"/kb/{N_ADMIN_PRIVATE}/"
+    assert body["link"] == f"{DEV_ORIGIN}/kb/{N_ADMIN_PRIVATE}/graph"
+    # A shared knowledge base that another account made has the same path.
+    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=OWNER_TOKEN)).status == 200
+    # Old links: shared -> 308 /kb/{number}/…; the personal knowledge base of the admin -> 308 /… (single mode).
+    old = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN, query="a=1")
+    assert old.status == 308 and old.headers["location"] == f"/kb/{N_ADMIN_PRIVATE}/graph?a=1"
+    personal = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)
+    assert personal.status == 308 and personal.headers["location"] == "/graph"
+    assert (await _call(app, f"/kb/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)).headers["location"] == "/graph"
+    # The personal knowledge base of another account has no path in single mode; an unknown number is 404.
+    assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404
     assert (await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404
+    assert (await _call(app, f"/kb/{BASE + 999}/graph", token=OWNER_TOKEN)).status == 404
     assert (await _call(app, f"/themes/{BASE + 999}/graph", token=OWNER_TOKEN)).status == 404
 
 
 @pytest.mark.asyncio
 async def test_csp_follows_pinned_theme_ga(app_factory):
     app = app_factory()
-    pinned = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
+    pinned = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
     assert "googletagmanager" in pinned.headers["content-security-policy"]
-    no_ga = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)
+    no_ga = await _call(app, "/graph", token=OWNER_TOKEN)
     assert "googletagmanager" not in no_ga.headers["content-security-policy"]
 
 
@@ -488,9 +508,12 @@ async def test_network_account_prefix_resolution(app_factory, world, fake_sessio
     assert body["ns"]["prefix"] == "/@alice" and body["ns"]["username"] == "alice"
     assert body["bootstrap"] == {"api-base": "/@alice/", "root-base": "/", "storage-key": f"a{world.alice_public_id}"}
     assert body["link"] == f"{DEV_ORIGIN}/@alice/graph"
-    pinned = await _call(app, f"/@alice/themes/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
-    assert pinned.status == 200 and pinned.json()["ns"]["pinned_theme_id"] == 11
-    # 다른 계정의 번호는 404(N2)
+    # Old links under an account (design Section 7): a shared knowledge base -> 308 /kb/{number}/…
+    old = await _call(app, f"/@alice/themes/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
+    assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
+    pinned = await _call(app, f"/kb/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
+    assert pinned.status == 200 and pinned.json()["ns"]["pinned_kb_id"] == 11 and pinned.json()["ns"]["account_id"] is None
+    # The personal knowledge base of an account with a private profile: no redirect that shows the USERNAME.
     assert (await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
 
 
@@ -513,7 +536,8 @@ async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_fac
     world.set_mode("network")
     app = app_factory(anonymous_readonly=True)
     assert (await _call(app, "/graph")).status == 404
-    assert (await _call(app, "/themes")).status == 404
+    # ``/themes`` at the root is the collection of themes of the server (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7), not a namespaced route.
+    assert (await _call(app, "/themes")).status == 200
     res = await _call(app, "/graph", token=ALICE_READONLY)
     body = res.json()
     assert body["ns"]["account_id"] == world.alice and body["ns"]["prefix"] == "/@alice"
@@ -526,15 +550,16 @@ async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_fac
 async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
     world.set_mode("network")
     app = app_factory(anonymous_readonly=True)
-    # 공개 테마는 누구나(익명 포함) 소유자 경로로 308(query 보존)
+    # A public personal knowledge base: each requester (also anonymous) gets 308 to the path of the owner (query kept).
     res = await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", query="doc=1")
     assert res.status == 308
-    assert res.headers["location"] == f"/@alice/themes/{N_ALICE_PUBLIC}/graph?doc=1"
-    # 비공개 테마: 소유자 308, 다른 계정(관리자 포함) 404
-    own = await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
-    assert own.status == 308 and own.headers["location"] == f"/@alice/themes/{N_ALICE_PRIVATE}/"
-    assert (await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=CAROL_OWNER)).status == 404
-    assert (await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=OWNER_TOKEN)).status == 404
+    assert res.headers["location"] == "/@alice/graph?doc=1"
+    assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", query="doc=1")).headers["location"] == "/@alice/graph?doc=1"
+    # A shared knowledge base: each requester gets 308 to /kb/{number}/ from the old link, and the /kb path serves it.
+    for token in (ALICE_OWNER, CAROL_OWNER, OWNER_TOKEN):
+        old = await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=token)
+        assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
+    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=CAROL_OWNER)).status == 200
     # 공개 테마라도 소유자 프로필이 비공개면 USERNAME을 드러내지 않는다.
     assert (await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
     assert (await _call(app, f"/themes/{BASE + 999}/")).status == 404
@@ -542,7 +567,7 @@ async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
 
 @pytest.mark.asyncio
 async def test_modes_404_for_network_only_rule(app_factory, world, monkeypatch):
-    rule = security.RouteRule(access="public", surface="system", modes=security.NETWORK_ONLY)
+    rule = security.RouteRule(access="public", capability="none", surface="system", modes=security.NETWORK_ONLY)
     monkeypatch.setitem(security._EXACT_ROUTE_POLICY, ("GET", "/syndication"), rule)
     app = app_factory()
     assert (await _call(app, "/syndication")).status == 404
@@ -650,27 +675,27 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
         "scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False,
     }
     assert client.get("/static/css/theme.css").status_code == 200
-    created = client.post("/themes", json={"label": "옛 호스트", "is_public": True}, headers=owner)
+    created = client.post("/kb", json={"knowledge_type": "real", "label": "옛 호스트", "is_public": True}, headers=owner)
     assert created.status_code == 201, created.text
-    theme_id = created.json()["theme"]["id"]
+    kb_id = created.json()["knowledge_base"]["id"]
     conn = dbm.connect(settings.db_file)
     try:
-        conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (theme_id,))
-        conn.execute("UPDATE themes SET fqdn='old.example.com', number=NULL WHERE id=?", (theme_id,))
+        conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (kb_id,))
+        conn.execute("UPDATE knowledge_bases SET fqdn='old.example.com', number=NULL WHERE id=?", (kb_id,))
         conn.commit()
         dbm.init_db(conn)
         conn.execute("UPDATE accounts SET username=?, status='active' WHERE id=1", (ADMIN_NAME,))
         conn.commit()
-        number = int(conn.execute("SELECT number FROM themes WHERE id=?", (theme_id,)).fetchone()[0])
+        number = int(conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()[0])
     finally:
         conn.close()
     single = client.get("/graph", headers={"Host": "old.example.com"}, follow_redirects=False)
     assert single.status_code == 308
-    assert single.headers["location"] == f"http://127.0.0.1:8765/themes/{number}/graph"
-    assert client.get(f"/themes/{number}/", follow_redirects=False).status_code == 200
+    assert single.headers["location"] == f"http://127.0.0.1:8765/kb/{number}/graph"
+    assert client.get(f"/kb/{number}/", follow_redirects=False).status_code == 200
     World(settings.db_file, 0, 0, 0, 0, 0).set_mode("network")
     network = client.get("/graph", headers={"Host": "old.example.com"}, follow_redirects=False)
     assert network.status_code == 308
-    assert network.headers["location"] == f"http://127.0.0.1:8765/@{ADMIN_NAME}/themes/{number}/graph"
+    assert network.headers["location"] == f"http://127.0.0.1:8765/kb/{number}/graph"  # a shared knowledge base has the same path in each mode
     whoami = client.get("/whoami", headers=owner)
     assert whoami.json() == {"scope": "owner", "server": {"mode": "network"}, "relation": "owner", "is_admin": True}

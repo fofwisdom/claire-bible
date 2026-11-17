@@ -18,14 +18,14 @@ from typing import Any
 from ... import ids
 from ...i18n import t
 from ...store import accounts as accounts_store
-from ...store.theme import ThemeInfo
+from ...store.knowledge_base import KnowledgeBaseInfo
 from .common import TEMPLATES_DIR, AccountsContext, escape
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
     {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
 )
 
-# 사이드바 링크 순서와 같다. JS가 테마 선택을 바꿀 때 이 슬러그의 링크(``data-nav-section``)에만 ``?theme=``를 갱신한다.
+# 사이드바 링크 순서와 같다. JS가 테마 선택을 바꿀 때 이 슬러그의 링크(``data-nav-section``)에만 ``?kb=``를 갱신한다.
 THEME_SCOPED_NAV_SLUGS: tuple[str, ...] = ("reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
 
 PARTIALS_DIR = TEMPLATES_DIR / "partials" / "settings_syndication"
@@ -45,7 +45,7 @@ class SettingsSectionRender:
     extra_scripts_html: str = ""
 
 
-def theme_ref(theme: ThemeInfo) -> str:
+def theme_ref(theme: KnowledgeBaseInfo) -> str:
     """콘솔 테마 선택기와 같은 테마 참조값(외부 번호, 없으면 내부 id)."""
     return ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
 
@@ -91,8 +91,8 @@ def build_syndication_section(
     path: str,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    selected_theme: ThemeInfo | None,
-    owned_themes: list[ThemeInfo],
+    selected_theme: KnowledgeBaseInfo | None,
+    owned_themes: list[KnowledgeBaseInfo],
     theme_query: str | None,
 ) -> SettingsSectionRender:
     if slug not in SYNDICATION_SECTION_SLUGS:
@@ -113,7 +113,7 @@ def build_syndication_section(
         # console.py가 이미 소유 테마만 고른다. 여기 오면 호출 규약 위반이다(C1).
         raise ValueError("selected theme is not in owned_themes")
 
-    client_href = f"{_syndication_base_href(mode, account)}?tab=client&theme={ref}"
+    client_href = f"{_syndication_base_href(mode, account)}?tab=client&kb={ref}"
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     values = {
@@ -130,7 +130,6 @@ def build_syndication_section(
         "data-theme-label": selected_theme.label,
         "data-theme-icon": selected_theme.icon,
         "data-theme-public": "true" if selected_theme.is_public else "false",
-        "data-theme-collab": "true" if selected_theme.is_collaborator_accessible else "false",
         "data-theme-seed": str(seed_index),
     }
     attrs = " ".join(f'{name}="{escape(value)}"' for name, value in root_attrs.items())

@@ -168,7 +168,7 @@ async def test_bot_handlers_reply_in_the_locale_of_the_update(tmp_path: Path, mo
     assert msg.reply_text.call_args[0][0] == expected_text["ko"]
     bot = AsyncMock()
     await app.post_init(SimpleNamespace(bot=bot))
-    assert {call.args[0][0].description for call in bot.set_my_commands.call_args_list} == {t("bot.command.theme", locale="ko")}
+    assert {call.args[0][0].description for call in bot.set_my_commands.call_args_list} == {t("bot.command.kb", locale="ko")}
     _set_admin_locale(settings.db_file, "en")
     update, msg = _fake_update("ko")
     await handlers["on_search"](update, ctx)
@@ -188,7 +188,7 @@ async def test_bot_uses_claire_lang_after_the_telegram_language(tmp_path: Path) 
 
 async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from claire.store.telegram_bots import TelegramBotProfile
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     monkeypatch.delenv("CLAIRE_LANG", raising=False)
     settings = _bot_settings(tmp_path, CLAIRE_MULTI_THEME=True, telegram_bot_token="")
@@ -196,7 +196,7 @@ async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Pat
     member = conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)").lastrowid
     conn.commit()
     conn.close()
-    ThemeManager(settings).define_theme("Member theme", account_id=member, is_default=True)
+    KnowledgeBaseManager(settings).define_kb("Member theme", account_id=member, is_personal=True)
     profile = TelegramBotProfile(account_id=member, bot_id=7100000001, token="7100000001:" + "A" * 35, allowed_user_ids=(42,), fingerprint="abcd1234")
     handlers = _handlers(telegram_bot.build_app(settings, profile=profile))
     ctx = MagicMock()

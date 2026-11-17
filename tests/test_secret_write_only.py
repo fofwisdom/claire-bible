@@ -277,7 +277,7 @@ def test_canary_key_not_in_raw_inbox(tmp_path: Path) -> None:
 
         inbox_id = dbm.log_inbox(
             conn,
-            theme_id=0,
+            kb_id=0,
             source="test",
             kind="text",
             payload="sample payload text",
@@ -356,7 +356,7 @@ def test_canary_key_not_in_support_and_graph_bundles(tmp_path: Path) -> None:
         auth.close()
 
     # 1. Graph bundle verification
-    gb_info = create_graph_bundle(settings, theme_id=0)
+    gb_info = create_graph_bundle(settings, kb_id=0)
     assert gb_info.filepath.is_file()
     dctx = zstd.ZstdDecompressor()
     with open(gb_info.filepath, "rb") as fh:

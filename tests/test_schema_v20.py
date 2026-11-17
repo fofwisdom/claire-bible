@@ -12,7 +12,7 @@ from claire.store import db as dbm
 DROPPED_TABLES = ("syndication_accounts", "syndication_targets", "syndication_items")
 DROPPED_INDEXES = ("idx_synd_items_theme_collected", "idx_synd_items_theme_canon", "idx_synd_items_theme_doc")
 V20_DISPATCH_COLUMNS = [
-    "id", "theme_id", "target_theme_id", "document_id", "target_url", "mode", "status", "remote_ref", "payload", "error",
+    "id", "kb_id", "target_kb_id", "document_id", "target_url", "mode", "status", "remote_ref", "payload", "error",
     "dispatched_by_user_id", "dispatched_by_account_id", "applied_focus", "dispatched_at", "created_at", "updated_at",
 ]
 
@@ -20,7 +20,7 @@ V20_DISPATCH_COLUMNS = [
 V19_SYNDICATION_DDL = """
 CREATE TABLE syndication_accounts (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     protocol TEXT NOT NULL,
     server_url TEXT NOT NULL,
     software TEXT,
@@ -41,11 +41,11 @@ CREATE TABLE syndication_accounts (
     consecutive_failures INTEGER DEFAULT 0,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    UNIQUE(theme_id, protocol, server_url, remote_account_id)
+    UNIQUE(kb_id, protocol, server_url, remote_account_id)
 );
 CREATE TABLE syndication_targets (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     protocol TEXT NOT NULL,
     account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
     source_kind TEXT NOT NULL,
@@ -63,11 +63,11 @@ CREATE TABLE syndication_targets (
     last_polled_at REAL,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    UNIQUE(theme_id, protocol, account_id, source_kind, source_ref)
+    UNIQUE(kb_id, protocol, account_id, source_kind, source_ref)
 );
 CREATE TABLE syndication_items (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     target_id TEXT REFERENCES syndication_targets(id) ON DELETE SET NULL,
     via_account_id TEXT REFERENCES syndication_accounts(id) ON DELETE SET NULL,
     protocol TEXT NOT NULL,
@@ -88,16 +88,16 @@ CREATE TABLE syndication_items (
     ingest_state TEXT DEFAULT 'unlinked',
     linked_doc_id TEXT,
     outbound_state TEXT DEFAULT 'none',
-    UNIQUE(theme_id, protocol, external_id)
+    UNIQUE(kb_id, protocol, external_id)
 );
-CREATE INDEX idx_synd_items_theme_collected ON syndication_items(theme_id, collected_at DESC);
-CREATE INDEX idx_synd_items_theme_canon ON syndication_items(theme_id, canonical_url);
-CREATE INDEX idx_synd_items_theme_doc ON syndication_items(theme_id, linked_doc_id);
+CREATE INDEX idx_synd_items_theme_collected ON syndication_items(kb_id, collected_at DESC);
+CREATE INDEX idx_synd_items_theme_canon ON syndication_items(kb_id, canonical_url);
+CREATE INDEX idx_synd_items_theme_doc ON syndication_items(kb_id, linked_doc_id);
 DROP TABLE syndication_dispatches;
 CREATE TABLE syndication_dispatches (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-    target_theme_id INTEGER DEFAULT 0,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    target_kb_id INTEGER DEFAULT 0,
     item_id TEXT REFERENCES syndication_items(id) ON DELETE SET NULL,
     account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -114,13 +114,13 @@ CREATE TABLE syndication_dispatches (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status);
+CREATE INDEX idx_synd_dispatches_kb ON syndication_dispatches(kb_id, status);
 """
 
 SEED_ROWS = {
-    "syndication_accounts": "INSERT INTO syndication_accounts (id, theme_id, protocol, server_url, handle, auth_kind, scopes, created_at, updated_at) VALUES ('acc-1', 0, 'activitypub', 'https://remote.example', '@a@remote.example', 'oauth', 'read', 1.0, 1.0)",
-    "syndication_targets": "INSERT INTO syndication_targets (id, theme_id, protocol, source_kind, source_ref, title, created_at, updated_at) VALUES ('tgt-1', 0, 'rss', 'feed', 'https://remote.example/feed', 'Feed', 1.0, 1.0)",
-    "syndication_items": "INSERT INTO syndication_items (id, theme_id, protocol, external_id, collected_at) VALUES ('item-1', 0, 'rss', 'ext-1', 1.0)",
+    "syndication_accounts": "INSERT INTO syndication_accounts (id, kb_id, protocol, server_url, handle, auth_kind, scopes, created_at, updated_at) VALUES ('acc-1', 0, 'activitypub', 'https://remote.example', '@a@remote.example', 'oauth', 'read', 1.0, 1.0)",
+    "syndication_targets": "INSERT INTO syndication_targets (id, kb_id, protocol, source_kind, source_ref, title, created_at, updated_at) VALUES ('tgt-1', 0, 'rss', 'feed', 'https://remote.example/feed', 'Feed', 1.0, 1.0)",
+    "syndication_items": "INSERT INTO syndication_items (id, kb_id, protocol, external_id, collected_at) VALUES ('item-1', 0, 'rss', 'ext-1', 1.0)",
 }
 
 
@@ -144,22 +144,22 @@ def _dispatch_rows(conn: sqlite3.Connection) -> list[dict]:
 
 def _seed_dispatches(conn: sqlite3.Connection) -> None:
     now = 1_800_000_000.0
-    conn.execute("INSERT INTO themes (id, seq, label, is_default, created_at, updated_at, account_id) VALUES (7, 7, 'seven', 0, ?, ?, 1)", (now, now))
-    conn.execute("INSERT INTO documents (id, theme_id, title) VALUES ('doc-1', 0, 'Doc')")
+    conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, created_at, updated_at, account_id) VALUES (7, 7, 'seven', 0, ?, ?, 1)", (now, now))
+    conn.execute("INSERT INTO documents (id, kb_id, title) VALUES ('doc-1', 0, 'Doc')")
     conn.execute(
-        "INSERT INTO syndication_dispatches (id, theme_id, target_theme_id, item_id, account_id, document_id, target_url, mode, status, remote_ref, payload, error, dispatched_by_user_id, dispatched_by_account_id, applied_focus, dispatched_at, created_at, updated_at) "
+        "INSERT INTO syndication_dispatches (id, kb_id, target_kb_id, item_id, account_id, document_id, target_url, mode, status, remote_ref, payload, error, dispatched_by_user_id, dispatched_by_account_id, applied_focus, dispatched_at, created_at, updated_at) "
         "VALUES ('disp_a', 0, 7, NULL, NULL, 'doc-1', NULL, 'cross_theme', 'done', 'doc-x', 'https://example.com/a', NULL, NULL, 1, 'focus a', ?, ?, ?)",
         (now + 1, now, now + 1),
     )
     conn.execute(
-        "INSERT INTO syndication_dispatches (id, theme_id, target_theme_id, document_id, mode, status, error, dispatched_by_account_id, created_at, updated_at) "
+        "INSERT INTO syndication_dispatches (id, kb_id, target_kb_id, document_id, mode, status, error, dispatched_by_account_id, created_at, updated_at) "
         "VALUES ('disp_b', 7, 0, NULL, 'cross_theme', 'error', 'boom', 1, ?, ?)",
         (now + 2, now + 2),
     )
     conn.commit()
     # A theme deletion without purge leaves its dispatch rows (store/theme.py). The rebuild must keep such a row too.
     conn.execute("PRAGMA foreign_keys = OFF")
-    conn.execute("DELETE FROM themes WHERE id = 7")
+    conn.execute("DELETE FROM knowledge_bases WHERE id = 7")
     conn.commit()
     conn.execute("PRAGMA foreign_keys = ON")
 
@@ -180,7 +180,7 @@ def test_v19_database_with_empty_tables_upgrades_and_keeps_dispatch_rows(tmp_pat
         assert not set(DROPPED_TABLES) & names
         assert not set(DROPPED_INDEXES) & names
         assert "syndication_dispatches_v20" not in names
-        assert "idx_synd_dispatches_theme" in names
+        assert "idx_synd_dispatches_kb" in names
         assert [r["name"] for r in conn.execute("PRAGMA table_info(syndication_dispatches)")] == V20_DISPATCH_COLUMNS
         expected = [{k: v for k, v in row.items() if k not in ("item_id", "account_id")} for row in before]
         assert _dispatch_rows(conn) == expected
@@ -188,9 +188,9 @@ def test_v19_database_with_empty_tables_upgrades_and_keeps_dispatch_rows(tmp_pat
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
         # The dispatch store functions work on the rebuilt table.
-        did = dbm.create_syndication_dispatch(conn, theme_id=0, target_theme_id=0, document_id="doc-1", status="done", dispatched_by_account_id=1)
+        did = dbm.create_syndication_dispatch(conn, kb_id=0, target_kb_id=0, document_id="doc-1", status="done", dispatched_by_account_id=1)
         assert dbm.get_syndication_dispatch(conn, did)["status"] == "done"
-        assert [r["id"] for r in dbm.list_syndication_dispatches(conn, theme_id=7)] == ["disp_b"]
+        assert [r["id"] for r in dbm.list_syndication_dispatches(conn, kb_id=7)] == ["disp_b"]
     finally:
         conn.close()
 

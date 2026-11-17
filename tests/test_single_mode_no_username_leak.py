@@ -151,7 +151,7 @@ def test_root_html_shell_in_single_mode_does_not_leak_admin_username(app_env):
 
 
 def test_themes_collection_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9: GET /themes collection uses /themes/{n}/ and does not leak admin username."""
+    """S9: GET /themes collection uses /kb/{n}/ and does not leak admin username."""
     resp = app_env.client.get("/themes", headers={"Accept": "application/json"})
     assert resp.status_code == 200
     assert SECRET_ADMIN_USERNAME not in resp.text
@@ -179,7 +179,7 @@ def test_shell_bootstrap_helper_uses_storage_key_public_id(app_env):
                 mode="single",
                 account_id=1,
                 username=None,
-                pinned_theme_id=0,
+                pinned_kb_id=0,
                 prefix="",
                 via_prefix=False,
             ),
@@ -332,7 +332,7 @@ def test_readiness_g7_fails_when_no_password(app_env):
 
 def test_readiness_g8_passes_when_syndication_requires_auth(app_env, monkeypatch):
     """G8 passes when /syndication route access is not public."""
-    rule = security._namespaced("read")
+    rule = security._namespaced("read", "read")
     monkeypatch.setitem(security.ROUTE_POLICY, ("GET", "/syndication"), rule)
     conn = dbm.connect_existing(app_env.db_file)
     try:
@@ -515,7 +515,7 @@ def test_post_api_admin_server_legacy_hosts_sunset_actions(app_env):
     conn = dbm.connect_existing(app_env.db_file)
     try:
         conn.execute(
-            "INSERT INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) VALUES ('old.example.com', 0, ?, NULL, NULL)",
+            "INSERT INTO legacy_hosts (host, kb_id, created_at, activated_at, sunset_at) VALUES ('old.example.com', 0, ?, NULL, NULL)",
             (time.time(),),
         )
         conn.commit()

@@ -9,7 +9,7 @@ import pytest
 from claire import cli
 from claire.config import Settings
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def test_db_recompile_all_detail_html_with_doc_id(tmp_path):
@@ -118,7 +118,7 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
     # Setup themes.json
     themes_json_path = tmp_path / "themes.json"
     themes_data = {
-        "active_theme_id": 0,
+        "active_kb_id": 0,
         "themes": [
             {
                 "id": 0,
@@ -126,7 +126,7 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
                 "icon": "🌐",
                 "db_path": str(db_theme0),
                 "vault_path": str(tmp_path / "vault"),
-                "is_default": True,
+                "is_personal": True,
             },
             {
                 "id": 2,
@@ -134,7 +134,7 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
                 "icon": "⏳",
                 "db_path": str(db_theme2),
                 "vault_path": str(theme2_dir / "vault"),
-                "is_default": False,
+                "is_personal": False,
             },
         ],
     }
@@ -157,7 +157,7 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
 
     # Verify theme 2 document in unified DB is updated and <li>+ is gone
     conn = dbm.connect(db_theme0)
-    row = conn.execute("SELECT detail_html FROM documents WHERE id='doc_1e8c5a3772fb' AND theme_id=2").fetchone()
+    row = conn.execute("SELECT detail_html FROM documents WHERE id='doc_1e8c5a3772fb' AND kb_id=2").fetchone()
     assert row is not None
     assert "<li>+" not in row["detail_html"]
     assert "<ol>" not in row["detail_html"]

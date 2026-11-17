@@ -121,6 +121,7 @@ APP_ONE_OFF_COMMANDS = {
     "doc-title",
     "link-relations",
     "entity",
+    "kb",
     "theme",
     "repo",
     "format-status",
@@ -1000,7 +1001,6 @@ def _validate_cors_origins(
 def _validate_web_tokens(values: Mapping[str, str]) -> None:
     owner = values.get("CLAIRE_INJECT_TOKEN", "")
     readonly = values.get("CLAIRE_READONLY_TOKEN", "")
-    collaborator = values.get("CLAIRE_COLLABORATOR_TOKEN", "")
     if not WEB_TOKEN_RE.fullmatch(owner):
         raise ManuscriptError(
             "CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token. "
@@ -1013,17 +1013,6 @@ def _validate_web_tokens(values: Mapping[str, str]) -> None:
     if readonly and secrets.compare_digest(owner, readonly):
         raise ManuscriptError(
             "CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN must be different."
-        )
-    if collaborator and not WEB_TOKEN_RE.fullmatch(collaborator):
-        raise ManuscriptError(
-            "CLAIRE_COLLABORATOR_TOKEN must be empty or a 32-128 character URL-safe token."
-        )
-    if collaborator and (
-        secrets.compare_digest(owner, collaborator)
-        or (readonly and secrets.compare_digest(readonly, collaborator))
-    ):
-        raise ManuscriptError(
-            "CLAIRE_COLLABORATOR_TOKEN must be different from owner and readonly tokens."
         )
 
 

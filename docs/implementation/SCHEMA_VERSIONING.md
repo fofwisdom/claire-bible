@@ -14,8 +14,8 @@
 | 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v15로 전환 |
 | 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v15로 전환 가능 |
 | 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
-| 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
-| 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
+| 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `kb_id` 파티셔닝으로 승격 |
+| 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`kb_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
 | 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 서버 설정, 테마·자격증명의 계정 귀속 |
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
@@ -44,12 +44,12 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ## v14 수렴 기준 (단일 데이터베이스 및 테마 파티셔닝)
 
-공통 version v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/claire.db`)를 단일 정본 SQLite 데이터베이스(`data/claire.db`)로 통합하고, 논리적 테마 격리를 `theme_id` 컬럼과 복합 인덱스로 완비한 버전이다. 또한 외부 연동 및 테마 간 교차 적재를 위한 신디케이션(Syndication) 인프라를 구축하고, 옵시디언 볼트(Obsidian Vault) 마크다운 투영 서브시스템을 영구 제거하였다.
+공통 version v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/claire.db`)를 단일 정본 SQLite 데이터베이스(`data/claire.db`)로 통합하고, 논리적 테마 격리를 `kb_id` 컬럼과 복합 인덱스로 완비한 버전이다. 또한 외부 연동 및 테마 간 교차 적재를 위한 신디케이션(Syndication) 인프라를 구축하고, 옵시디언 볼트(Obsidian Vault) 마크다운 투영 서브시스템을 영구 제거하였다.
 
-1. **단일 DB 통합 및 `theme_id` 파티셔닝**:
-   - `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`에 `theme_id INTEGER NOT NULL DEFAULT 0` 컬럼 추가.
-   - `(theme_id, ...)` 복합 인덱스를 전면 배치하여 테마 간 데이터 누수를 물리적으로 방지하고 쿼리 성능 보장.
-   - 서버 시작 시 `ThemeManager.reload()`가 기존의 `themes/*/claire.db` 파일을 자동 감지하여 `data/claire.db`로 병합 마이그레이션하고, 완료된 파일은 `claire.db.migrated`로 보존.
+1. **단일 DB 통합 및 `kb_id` 파티셔닝**:
+   - `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`에 `kb_id INTEGER NOT NULL DEFAULT 0` 컬럼 추가.
+   - `(kb_id, ...)` 복합 인덱스를 전면 배치하여 테마 간 데이터 누수를 물리적으로 방지하고 쿼리 성능 보장.
+   - 서버 시작 시 `KnowledgeBaseManager.reload()`가 기존의 `themes/*/claire.db` 파일을 자동 감지하여 `data/claire.db`로 병합 마이그레이션하고, 완료된 파일은 `claire.db.migrated`로 보존.
 2. **다중 사용자 및 테마 거버넌스 인프라**:
    - `users`: 사용자 계정, 역할, 쿼터.
    - `themes`: 테마 메타데이터, 도메인 FQDN, 공개/협업자 권한 설정.
@@ -78,11 +78,11 @@ Basis: commit d15ae8e0 (2026-11-16).
 - **[결정] 번호 예약 불필요**: 테제 계보가 없어졌으므로 v15는 다른 계보와 예약하지 않는다.
 - **[코드] 추가 객체**(`_migrate_v15_accounts`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등)
   - 테이블 `accounts`, `username_tombstones`, `server_settings`
-  - 인덱스 `idx_accounts_single_admin`(관리자 한 명), `idx_themes_account_default`(계정마다 기본 테마 하나)
+  - 인덱스 `idx_accounts_single_admin`(관리자 한 명), `idx_knowledge_bases_account_personal`(계정마다 기본 테마 하나)
   - 트리거 `accounts_username_immutable`(설정된 USERNAME 변경 거부)
   - 열 `themes.account_id`, `auth_sessions.account_id`, `auth_sessions.authenticated_at`, `oauth_codes.account_id`, `oauth_tokens.account_id`, `oauth_auth_requests.account_id`
 - **[코드] 데이터 이관**(멱등): `server_settings.id_salt`가 없을 때만 만든다. 관리자 행(`id=1`, `role=admin`, `status=setup_required`, `username=NULL`)이 없을 때만 만들고, `public_id`는 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 계산해 다시 실행해도 같다. `account_id`가 NULL인 테마와 자격증명 행을 1로 채운다. `id=1` 행이 관리자가 아니면 실패한다. v14의 `users` 테이블은 그대로 두고 쓰지 않는다.
-- **[코드] 기본 테마 중복이면 실패**: v15 블록의 첫 단계(`_check_single_default_theme_per_account`)가 한 계정(NULL은 1로 봄)에 `is_default=1` 테마가 둘 이상인지 본다. 있으면 어느 쪽이 기본인지 추측하지 않고 `RuntimeError`(계정과 `themes.id` 목록 포함)를 낸다. 이 검사는 v15 객체를 만들기 전에 실행되고 `init_db`는 `schema_version`을 쓰기 전에 멈추므로, v14 DB에서는 v15 테이블·열·행을 하나도 쓰지 않고 `schema_version=14`가 남는다(`tests/test_schema_v15.py`의 `test_multiple_default_themes_fail_migration_without_changes`). `is_default=1`을 계정마다 하나로 고친 뒤 다시 실행한다.
+- **[코드] 기본 테마 중복이면 실패**: v15 블록의 첫 단계(`_check_single_default_theme_per_account`)가 한 계정(NULL은 1로 봄)에 `is_personal=1` 테마가 둘 이상인지 본다. 있으면 어느 쪽이 기본인지 추측하지 않고 `RuntimeError`(계정과 `themes.id` 목록 포함)를 낸다. 이 검사는 v15 객체를 만들기 전에 실행되고 `init_db`는 `schema_version`을 쓰기 전에 멈추므로, v14 DB에서는 v15 테이블·열·행을 하나도 쓰지 않고 `schema_version=14`가 남는다(`tests/test_schema_v15.py`의 `test_multiple_default_themes_fail_migration_without_changes`). `is_personal=1`을 계정마다 하나로 고친 뒤 다시 실행한다.
 - **[코드] 보조 파일**: `data/themes.json` 항목과 `data/auth/api_tokens.json` 항목에 `account_id`가 없으면 관리자(1)로 읽는다. 값이 정수가 아니면 테마는 `ValueError`, API 토큰은 그 항목을 무시한다.
 
 ## v16 (테마 번호와 레거시 호스트, P2)
@@ -91,8 +91,8 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 - **[코드] 버전 상수**: v16 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 16이었다(현재 값은 아래 "v17" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v16_theme_numbers`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등):
-  - 테이블 `legacy_hosts`: `(host TEXT PRIMARY KEY, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, activated_at REAL, sunset_at REAL, indefinitely INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL)`
-  - 인덱스 `idx_legacy_hosts_theme_id`
+  - 테이블 `legacy_hosts`: `(host TEXT PRIMARY KEY, kb_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, activated_at REAL, sunset_at REAL, indefinitely INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL)`
+  - 인덱스 `idx_legacy_hosts_kb_id`
   - 열 `themes.number`(INTEGER UNIQUE), `themes.visibility_epoch`(INTEGER NOT NULL DEFAULT 1), `themes.embed_provider`(TEXT NOT NULL DEFAULT ''), `themes.embed_model`(TEXT NOT NULL DEFAULT '')
 - **[코드] 테마 번호 백필**: `themes.number`가 비어 있는 행을 `timestamp_id("themes", salt, unix_ms)`로 채운다. `created_at=0`이거나 비어 있는 레거시 행은 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 하한을 고정하여 모든 이관 번호가 `>= 2^56`이 되도록 보장한다(A3).
 - **[코드] 레거시 호스트 이관**: 기존 `themes.fqdn` 값이 있는 행을 `legacy_hosts` 테이블로 복사하고, `sunset_at = NULL` 상태로 보존하여 관리자가 이관을 활성화할 때까지 일몰 시계를 유예한다(R23-2).
@@ -118,12 +118,12 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 - **[코드] 버전 상수**: v18 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 18이었다(현재 값은 아래 "v19" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v18_federation_publishing`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더한다, A3):
-  - 테이블 `federation_objects`: `(public_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, document_id TEXT NOT NULL, published_by_account_id INTEGER NOT NULL REFERENCES accounts(id), published_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (theme_id, document_id))`. `public_id`는 시간 정렬 번호이고 객체 ID이자 아웃박스 컬렉션 커서다.
+  - 테이블 `federation_objects`: `(public_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, kb_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, document_id TEXT NOT NULL, published_by_account_id INTEGER NOT NULL REFERENCES accounts(id), published_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (kb_id, document_id))`. `public_id`는 시간 정렬 번호이고 객체 ID이자 아웃박스 컬렉션 커서다.
   - 인덱스 `idx_federation_objects_account`(`account_id, public_id`). 옛 설계 초안에는 없던 인덱스다.
   - 테이블 `federation_outbox`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'update_actor', 'delete_actor')), object_public_id INTEGER, status TEXT NOT NULL CHECK (status IN ('pending', 'handed_off', 'rejected')), lease_until REAL, error_code TEXT, created_at REAL NOT NULL, handed_off_at REAL)`. `account_id`에는 기본값도 외래 키도 없다(설계 §8.3 항목 5, 퍼지 뒤에도 `delete_actor` 작업이 남아야 한다).
   - 인덱스 `idx_federation_outbox_ready`(`status, id`).
 - **[코드] 저장소 함수**: `src/claire/store/federation.py`의 `publish_document`, `retract_object`, `add_outbox_task`, `lease_outbox_tasks`, `ack_outbox_task`, `count_pending_tasks`, `list_objects`, `count_objects`. 커밋은 호출자가 한다. 객체 행과 작업 행은 한 트랜잭션에 쓴다.
-- **[테스트]** `tests/test_federation_publish.py`. `tests/test_theme_id_explicit.py`가 `federation_objects` 질의의 `theme_id` 명시를 검사한다.
+- **[테스트]** `tests/test_federation_publish.py`. `tests/test_kb_id_explicit.py`가 `federation_objects` 질의의 `kb_id` 명시를 검사한다.
 
 ## v19 (계정 인터페이스 언어, i18n IP1-2)
 
@@ -142,10 +142,10 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 - **[코드] 버전 상수**: v20 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 20이었다(현재 값은 아래 "v21" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 제거 객체**(`_migrate_v20_syndication_cleanup`, 멱등):
-  - 테이블 `syndication_items`, `syndication_targets`, `syndication_accounts`와 인덱스 `idx_synd_items_theme_collected`, `idx_synd_items_theme_canon`, `idx_synd_items_theme_doc`. 새 DB의 `SCHEMA`에도 없다.
-  - 저장소 함수 `create_syndication_account`, `get_syndication_account`, `list_syndication_accounts`, `save_syndication_account_token`, `load_syndication_account_token`. 테마 삭제(`store/theme.py`)와 계정 퍼지(`store/accounts.py`)의 정리 목록에서도 `syndication_items`를 뺐다.
-- **[코드] 재구성**: `syndication_dispatches`에서 `item_id`·`account_id` 열을 뺀다. 새 테이블을 만들고 모든 행을 같은 ID와 값으로 복사한 뒤 바꿔 넣는다(A3). 인덱스 `idx_synd_dispatches_theme`는 다시 만든다. 퍼지 없이 삭제된 테마의 행도 복사하도록 재구성 동안만 외래 키 검사를 끈다. `POST /syndication/dispatch`와 `GET /syndication/dispatches`의 동작은 같다. 목록 응답의 행에는 늘 NULL이던 `item_id`·`account_id` 키가 더 없다.
-- **[코드] 안전 규칙**: 서버 운영자는 DB를 직접 관리하지 않는다고 본다. 그래서 마이그레이션은 시작을 멈추지 않고 행도 지우지 않는다. 제거할 세 테이블 중 행이 있는 테이블은 지우지 않고 `<이름>_retired_v20`으로 이름만 바꾸어 남기며, 경고 로그에 테이블 이름과 행 수를 적는다(`_retire_v20_filled_tables`). 테마 삭제와 계정 퍼지는 이 테이블의 행도 `theme_id`로 지운다(`V20_RETIRED_SYNDICATION_TABLES`). 빈 테이블은 지운다.
+  - 테이블 `syndication_items`, `syndication_targets`, `syndication_accounts`와 인덱스 `idx_synd_items_kb_collected`, `idx_synd_items_kb_canon`, `idx_synd_items_kb_doc`. 새 DB의 `SCHEMA`에도 없다.
+  - 저장소 함수 `create_syndication_account`, `get_syndication_account`, `list_syndication_accounts`, `save_syndication_account_token`, `load_syndication_account_token`. 테마 삭제(`store/knowledge_base.py`)와 계정 퍼지(`store/accounts.py`)의 정리 목록에서도 `syndication_items`를 뺐다.
+- **[코드] 재구성**: `syndication_dispatches`에서 `item_id`·`account_id` 열을 뺀다. 새 테이블을 만들고 모든 행을 같은 ID와 값으로 복사한 뒤 바꿔 넣는다(A3). 인덱스 `idx_synd_dispatches_kb`는 다시 만든다. 퍼지 없이 삭제된 테마의 행도 복사하도록 재구성 동안만 외래 키 검사를 끈다. `POST /syndication/dispatch`와 `GET /syndication/dispatches`의 동작은 같다. 목록 응답의 행에는 늘 NULL이던 `item_id`·`account_id` 키가 더 없다.
+- **[코드] 안전 규칙**: 서버 운영자는 DB를 직접 관리하지 않는다고 본다. 그래서 마이그레이션은 시작을 멈추지 않고 행도 지우지 않는다. 제거할 세 테이블 중 행이 있는 테이블은 지우지 않고 `<이름>_retired_v20`으로 이름만 바꾸어 남기며, 경고 로그에 테이블 이름과 행 수를 적는다(`_retire_v20_filled_tables`). 테마 삭제와 계정 퍼지는 이 테이블의 행도 `kb_id`로 지운다(`V20_RETIRED_SYNDICATION_TABLES`). 빈 테이블은 지운다.
 - **[코드] 설계와 다른 점**: 설계는 version 20을 FP4-2 전체(이 정리와 `federation_following` 등)에 적었다. 코드에서는 이 정리만 version 20이다.
 - **[테스트]** `tests/test_schema_v20.py`.
 
@@ -157,7 +157,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 - **[코드] 추가 객체**(`_migrate_v21_account_feeds`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
   - 테이블 `feed_subscriptions`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, url TEXT NOT NULL, site_url TEXT, title TEXT NOT NULL DEFAULT '', folder TEXT NOT NULL DEFAULT '', format TEXT CHECK (format IS NULL OR format IN ('rss', 'atom', 'json')), etag TEXT, last_modified TEXT, websub_hub TEXT, websub_topic TEXT, last_polled_at REAL, last_success_at REAL, next_poll_at REAL, last_status INTEGER, last_error TEXT, failure_count INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (account_id, url))`. `folder`는 한 단계이고 빈 문자열은 폴더 없음이다. `format`은 첫 성공 폴링 전에는 NULL이다.
   - 인덱스 `idx_feed_subscriptions_next_poll`(`next_poll_at`): 스케줄러가 폴링할 피드를 찾는다.
-  - 테이블 `feed_items`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, feed_id INTEGER NOT NULL REFERENCES feed_subscriptions(id) ON DELETE CASCADE, item_key TEXT NOT NULL, url TEXT, title TEXT NOT NULL DEFAULT '', author TEXT, summary TEXT, content TEXT, categories TEXT NOT NULL DEFAULT '[]', published_at REAL, modified_at REAL, fetched_at REAL NOT NULL, unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)), starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)), linked_theme_id INTEGER, linked_doc_id TEXT, UNIQUE (feed_id, item_key))`. `categories`는 원문 태그의 JSON 배열이다. `linked_theme_id`·`linked_doc_id`에는 외래 키가 없다. 적재된 문서는 공유 자산이고 피드 자료를 지워도 문서는 지우지 않는다(설계 §10 규칙 5).
+  - 테이블 `feed_items`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, feed_id INTEGER NOT NULL REFERENCES feed_subscriptions(id) ON DELETE CASCADE, item_key TEXT NOT NULL, url TEXT, title TEXT NOT NULL DEFAULT '', author TEXT, summary TEXT, content TEXT, categories TEXT NOT NULL DEFAULT '[]', published_at REAL, modified_at REAL, fetched_at REAL NOT NULL, unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)), starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)), linked_kb_id INTEGER, linked_doc_id TEXT, UNIQUE (feed_id, item_key))`. `categories`는 원문 태그의 JSON 배열이다. `linked_kb_id`·`linked_doc_id`에는 외래 키가 없다. 적재된 문서는 공유 자산이고 피드 자료를 지워도 문서는 지우지 않는다(설계 §10 규칙 5).
   - 인덱스 `idx_feed_items_account`(`account_id, id`): 항목 목록의 커서 페이지.
 - **[코드] 데이터 이관**: 없다.
 - **[코드] 저장소 함수**: `src/claire/store/feeds.py`. 모든 함수가 호출자 계정을 질의에 넣는다. 계정 퍼지(`AccountStore.purge`)는 `delete_account_feed_data`로 그 계정의 두 테이블 행을 지운다. 계정 행은 퍼지 뒤에도 남으므로 `ON DELETE CASCADE`에 기대지 않는다.
@@ -192,13 +192,14 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 6`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 7`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
   - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`, `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
   - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
   - **v3 (FP4-7)**: `federation_media_cache`(원격 미디어 캐시 기록, 키 `url_hash`, 설계 §7.2). 계정 열이 없고 모든 계정이 함께 쓴다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v4 (FP4-8)**: `federation_object_reactions`(자기 객체에 대한 원격 `Like`·`Announce` 기록, 키 `(object_public_id, kind, actor_iri)`, 객체 소유 계정 `account_id`), `federation_auto_replies`(비공개 메시지 자동 안내 기록, 키 `(account_id, sender_iri)`, 내용은 저장하지 않음). 설계 §7.1. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v5 (FP4-9)**: `federation_notes`(계정이 쓴 노트, 키 `public_id`, 게시 문서와 같은 번호 공간, 설계 §5.4·§7.1)와 인덱스 `idx_federation_notes_account`. 삭제한 노트는 행을 두고 `deleted_at`만 채운다(객체 경로 410). 인용 열(`quote_of_iri`, `quote_state`, `quote_policy`)은 FP4-9Q에서 `ALTER TABLE ... ADD COLUMN`으로 더한다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v6 (FP4-9Q)**: `federation_notes`에 인용 열 `quote_of_iri`, `quote_author_iri`, `quote_state`(`pending`, `approved`, `refused`, `revoked` 또는 NULL), `quote_authorization_iri`, `quote_policy`(기본값 `public`)를 `ALTER TABLE ... ADD COLUMN`으로 더한다(열이 없을 때만, 재구성 없음). v5의 행은 인용이 없고 정책은 `public`이다. 새 테이블 `federation_quote_authorizations`(자기 객체에 대한 원격 인용 요청과 그 결과, 키 `id`, 유일 `(object_public_id, quoting_object_iri)`, 객체 소유 계정 `account_id`, 요청 활동 ID `request_iri`)와 인덱스 `idx_federation_quote_authorizations_account`. 설계 §5.4 규칙 5·6, §6.6 규칙 5, §7.1. 이관은 기동 때 스스로 끝나며, 모르는 테이블과 행은 그대로 둔다. 테스트: `tests/test_federation_quotes.py`.
+  - **v7 (CT-0)**: 열 `linked_theme_id`를 값과 함께 `linked_kb_id`로 바꾼다(`_migrate_v7_linked_kb_id`, `ALTER TABLE ... RENAME COLUMN`). 다른 단계가 새 이름을 쓰므로 이 단계를 맨 먼저 실행한다. 멱등이다. 테스트: `tests/test_schema_v27.py`.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 
@@ -252,9 +253,39 @@ The retired v12 recovery is described above. Other stores have their own version
 
 확인 기준: 엔티티 언어 구현 (2026-11-16).
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 26`.
+- **[코드] 버전 상수**: v26 도입 당시 `SCHEMA_VERSION`은 26이었다(현재 값은 아래 "v27" 절).
 - **[코드] 추가 객체**(`_migrate_v26_account_entity_language`, `_ensure_column`으로 멱등. NULL 허용 열 하나만 더한다, A3):
   - 열 `accounts.entity_language`: `TEXT`. NULL은 "설정 안 함"이며 응답은 저장된 대표 레이블을 그대로 싣는다. 기존 계정과 새 계정의 값은 NULL이다. 인터페이스 언어(`accounts.locale`)와 관계가 없다.
 - **[코드] 데이터 이관**: 없다. `entities.name`과 `entities.aliases`는 바뀌지 않는다.
 - **[코드] 저장소 함수**: `AccountStore.update_entity_language`. `None`과 `""`는 NULL을 쓰고, `en`·`ko`·`ja`·`zh`(`src/claire/ontology/label_language.py`의 `ENTITY_LANGUAGES`)가 아닌 값은 쓰기 전에 `ValueError("invalid_entity_language")`를 낸다. 열에 CHECK를 두지 않아 언어를 더할 때 이관이 필요 없다.
 - **[테스트]** `tests/test_entity_language.py`.
+
+## v27 (지식 베이스 이름, CT-0)
+
+확인 기준: 공유 지식 베이스 설계 단위 CT-0 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.1, §12.1. 이름만 바꾸고 동작은 바꾸지 않는다.
+
+- **[코드] 버전 상수**: v27 도입 당시 `SCHEMA_VERSION`은 27이었다(현재 값은 아래 "v28" 절).
+- **[코드] 이관**(`_migrate_v27_kb_names`, 멱등, 한 트랜잭션): 테이블 `themes` → `knowledge_bases`, 열 `is_default` → `is_personal`, 모든 테이블의 열 `theme_id` → `kb_id`, `syndication_dispatches.target_theme_id` → `target_kb_id`. `ALTER TABLE ... RENAME`이라 행과 다른 테이블의 외래키가 그대로 따라간다. 이름에 `theme`이 있는 인덱스는 지우고, `SCHEMA`와 뒤 단계가 새 이름(`idx_knowledge_bases_*`, `idx_<table>_kb_*`, `idx_knowledge_bases_account_personal`)으로 다시 만든다.
+- **[코드] 순서**: `init_db`는 저장된 버전이 27보다 작을 때만 이 단계를 `SCHEMA`보다 먼저 실행한다. 순서가 바뀌면 `SCHEMA`가 옛 `themes` 옆에 빈 `knowledge_bases`를 만든다. 버전 28은 컬렉션용 새 `themes` 테이블을 가지므로, 27 이상에서는 이 단계를 실행하지 않는다.
+- **[코드] 파일 재작성**: 같은 단계가 `claire.db` 옆의 작업 상태 파일(`active_ingest.json`, `active_jobs/*.json`)의 키 `theme_id`를 한 번 `kb_id`로 바꾼다. 읽을 수 없는 파일은 그대로 두고 경고 로그를 쓴다.
+- **[코드] `data/themes.json` 퇴역**: 쓰기 가능한 첫 적재(`KnowledgeBaseManager.reload`)가 파일에만 있는 항목을 예전처럼 DB에 넣고(`account_id`가 없으면 관리자), 파일을 `themes.json.retired`로 바꾼다. 그 뒤 어떤 코드도 이 파일을 읽거나 쓰지 않는다. 읽을 수 없는 파일은 그대로 두고 기동은 계속한다.
+- **[코드] 다른 형식**: 계정 백업 형식 2(스냅샷도 새 이름. 형식 1은 복원 때 꺼낸 사본에 같은 이름 바꾸기를 한다, `_upgrade_v1_snapshots`), 그래프 번들 형식 3(manifest 키 `kb_id`. 1과 2는 `theme_id`로 읽는다), 번들 sidecar 형식 2(형식 1의 `theme_id`도 읽는다). `client.db` v7은 위 절.
+- **[코드] 코드 이름**: `store/knowledge_base.py`, `KnowledgeBaseManager`, `KnowledgeBaseInfo`, `KnowledgeBaseNotFound`, `get_kb_manager`, 메서드 `get_kb`·`list_kbs`·`define_kb`·`update_kb`·`delete_kb`·`reset_kb`·`personal_kb_for` 등. 응답 JSON의 키도 `kb_id`·`is_personal`이다. 내부 설정 `CLAIRE_THEME_ID`는 `CLAIRE_KB_ID`다.
+- **[테스트]** `tests/test_schema_v27.py`.
+
+## v28 (공유 지식 베이스와 테마, CT-1)
+
+확인 기준: 공유 지식 베이스 설계 단위 CT-1의 스키마 부분 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.4, §11.2, §11.4.
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 28`.
+- **[코드] 스키마 단계**(`_migrate_v28_shared_kb_schema`, 멱등, 기동마다 실행): `knowledge_bases`에 `created_by_account_id`, `join_policy`(기본 `approval`), `state`(기본 `active`), `archived_at`, `knowledge_type`(CHECK `real`·`fictional`, 개인 지식 베이스는 NULL), `seed_entities`(기본 `[]`), `forked_from_kb_id`, `forked_at`을 더한다. 협업 테이블(`kb_memberships`, `kb_contributions`, `kb_contribution_revisions`, `kb_submissions`, `kb_submission_items`, `kb_auto_rules`, `kb_auto_rule_themes`, `kb_contribution_blocks`, `kb_mutual_collaborations`, `kb_moderation_log`, `account_reputation`)과 테마 테이블(`themes`(컬렉션), `theme_knowledge_bases`, `kb_signatures`, `kb_document_matches`)을 만든다.
+- **[코드] 퇴역 테이블**: 읽는 코드가 없는 v14 테이블 `theme_members`와 `users`는 행이 없으면 지우고, 행이 있으면 `<name>_retired_v28`로 이름만 바꾸고 경고 로그를 쓴다. 기동은 멈추지 않는다.
+- **[코드] 저장소 경계**: `store/kb_collab.py`만 협업 테이블을, `store/themes.py`만 테마 테이블을 읽고 쓴다. `kb_collab.kind_violations`는 개인·공유 두 종류에 맞지 않는 `knowledge_bases` 행을 찾는다.
+- **[코드] 번호(§5.4)**: `ids.insert_with_timestamp_id`의 `is_taken`으로, 테마 번호는 지식 베이스 번호를, 지식 베이스 번호는 테마 번호를 피해 다음 `seq`로 넘어간다.
+- **[코드] 변환**(`_migrate_v28_convert_knowledge_bases`, 설계 §12.2, 기동마다 옛 모양으로 남은 행에 실행): 개인이 아니고 소유자가 있는 지식 베이스마다 savepoint 하나로 공유 지식 베이스로 바꾼다. `created_by_account_id = 옛 소유자`, `account_id = NULL`, `is_public = 1`, `join_policy = 'approval'`, `state = 'active'`, `knowledge_type = 'real'`. **비공개였던 추가 테마도 공개가 된다(CT5·CT6).** 옛 소유자의 계정 상태가 `active`·`suspended`이거나 첫 설정 전 관리자(`setup_required`)이면 `moderator` 멤버십을 넣고, 아니면 넣지 않는다(관리자가 중재). 문서마다 기여 한 건(`origin 'migration'`, 크레딧은 옛 소유자, 루트 없음, `hidden=1`이면 `hidden` 아니면 `visible`, `approved_at` = 이관 시각). 그 문서들의 `watch_enabled = 0`, `refresh_queue`·`expand_queue`의 그 지식 베이스 행 삭제(CT10). 이미 있는 멤버십·기여는 다시 넣지 않는다.
+- **[코드] 실패한 변환**: savepoint가 실패한 행은 그대로 남고 경고 로그를 쓴다. 그 행은 두 종류(§11.2 표)에 맞지 않으므로 `KnowledgeBaseManager`가 서비스하지 않는다(모든 라우트 404, `unavailable_kbs()`가 사유와 함께 돌려준다). 다음 기동이 다시 시도한다. 기동은 멈추지 않는다.
+- **[코드] Credential scopes (CT-2, design Sections 6.6 and 11.3)**: `_migrate_v28_credential_scopes` runs at each start and is idempotent. It deletes the rows of `auth_sessions` with the scope `collaborator` and drops the column `knowledge_bases.is_collaborator_accessible`. The valid scopes are `owner`, `write`, and `readonly` (`store.accounts.SESSION_SCOPES`, `store.token_store.TOKEN_SCOPES`). `auth.db` has no scope column, so its version does not change. `data/auth/api_tokens.json`: `TokenStore.load` changes each token with the scope `collaborator` to `readonly`, adds `scope_notice: "collaborator_to_readonly"`, and writes the file; `GET /tokens` gives these tokens once in `scope_notices` (`take_scope_notices`). `CLAIRE_COLLABORATOR_TOKEN` is not read.
+- **[코드] Owner step of version 15 and shared knowledge bases**: `_migrate_v15_accounts` gives the admin as the owner only to rows without an owner and without a knowledge type. A shared knowledge base has no owner by design; without this condition each start would give it to the admin, and the conversion of version 28 would replace its founder and its knowledge type (`tests/test_shared_kb.py`).
+- **[코드] Contribution merge jobs (CT-4)**: no new table. A merge job is a row of `jobs` with `source_type = 'contribution_merge'`, the payload `{"contribution": <public ID>, "revision": <id of kb_contribution_revisions>?}`, and the states `pending`, `running`, `done`, `error`. `purge_document_cascade` sets the contribution of a purged copy to `removed`. Details: [`THEMES.md`](THEMES.md) §4.8.
+- **[미구현]** `/admin/kb` 화면의 경고 표시는 CT-9에서 한다.
+- **[테스트]** `tests/test_schema_v28.py`, `tests/test_shared_kb.py`.

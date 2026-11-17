@@ -26,7 +26,7 @@ from claire.store import db as dbm
 from claire.store import provider_keys
 from claire.store import usage_ledger
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import get_token_store, reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -64,20 +64,20 @@ def _upsert_account(conn, account_id: int, public_id: int, username: str, role: 
     conn.commit()
 
 
-def _insert_theme(tm: ThemeManager, settings: Settings, *, theme_id: int, seq: int, number: int, label: str, account_id: int, is_default: bool = True) -> ThemeInfo:
+def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, seq: int, number: int, label: str, account_id: int, is_personal: bool = True) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, 0, ?, ?, '', ?, ?)",
-            (theme_id, seq, number, label, f"Desc {label}", 1 if is_default else 0, account_id, str(settings.db_file), now, now),
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, ?, ?, '', ?, ?)",
+            (kb_id, seq, number, label, f"Desc {label}", 1 if is_personal else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 def _set_mode(db_file: Path, mode: str) -> None:
@@ -110,10 +110,10 @@ def env(tmp_path: Path):
         CLAIRE_PUBLIC_URL=PUBLIC_URL,
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
-    admin_theme = _insert_theme(tm, settings, theme_id=11, seq=1, number=(1 << 56) | 11, label="Admin Vault", account_id=1, is_default=False)
-    alice_theme = _insert_theme(tm, settings, theme_id=20, seq=2, number=(2 << 56) | 20, label="Alice Garden", account_id=2)
-    bob_theme = _insert_theme(tm, settings, theme_id=30, seq=3, number=(3 << 56) | 30, label="Bob Secret Lab", account_id=3)
+    tm = KnowledgeBaseManager(settings)
+    admin_theme = _insert_theme(tm, settings, kb_id=11, seq=1, number=(1 << 56) | 11, label="Admin Vault", account_id=1, is_personal=False)
+    alice_theme = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Garden", account_id=2)
+    bob_theme = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Secret Lab", account_id=3)
 
     tok_store = get_token_store(data_dir=data_dir)
     admin_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
@@ -153,7 +153,7 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     _set_mode(env.db_file, "network")
     conn = dbm.connect(env.db_file)
     try:
-        server_tier.save_server_tier(conn, ServerTier(provider="none", max_themes=7, max_documents=900, storage_mb=64, daily_ingests=12, monthly_tokens=5000), updated_by=1)
+        server_tier.save_server_tier(conn, ServerTier(provider="none", max_documents=900, storage_mb=64, daily_ingests=12, monthly_tokens=5000), updated_by=1)
     finally:
         conn.close()
     auth = _auth(env)
@@ -175,7 +175,6 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     assert "/admin/" not in html
     assert "console_admin.js" not in html
     # 할당량: 호출자 자신의 사용량과 서버 등급 상한만 나온다.
-    assert "1 / 7" in html
     assert "1,234 / 5,000" in html
     assert "777,777" not in html
     # 번들 내보내기 대상은 호출자 소유 테마뿐이다.
@@ -201,7 +200,8 @@ def test_account_page_single_mode_admin_hides_username_and_profile_public(env):
     assert 'data-account-field="profile_public"' not in html
     assert "data-profile-public-hint" not in html
     assert 'data-lifecycle="admin"' in html
-    assert "Admin Vault" in html
+    # "Admin Vault" is a shared knowledge base after version 28: the account page lists only the personal knowledge base of the account.
+    assert "Admin Vault" not in html
     assert ADMIN_USERNAME not in json.dumps(_bootstrap(html), ensure_ascii=False)
 
 
@@ -300,11 +300,12 @@ def test_themes_page_member_hosts_theme_manager_without_admin_markup(env):
     html = _get(env, "/settings/themes", env.alice).text
     assert 'id="settings-themes-host"' in html
     assert 'data-settings-panel-host="themes"' in html
-    assert "My themes: 1 /" in html
+    # No slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1).
+    assert "My themes:" not in html and "settings-themes-quota" not in html
     assert "/admin/" not in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html
-    assert _bootstrap(html)["settings_account"]["theme_slots"]["owned"] == 1
+    assert "theme_slots" not in _bootstrap(html)["settings_account"]
 
 
 def test_admin_theme_and_token_settings_still_redirect(env):

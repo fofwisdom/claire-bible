@@ -13,7 +13,7 @@ Account routes, for the owner of the account, in network mode only.
 - ``GET /api/federation/followers``: one cursor page of the followers of the account of the caller.
 - ``DELETE /api/federation/followers``: remove one follower of the account of the caller. The route deletes the row only. ``Reject(Follow)`` needs the outbox of phase FP3.
 
-Publishing routes, for the owner or a collaborator of the account, in network mode only (design Sections 8.3 item 4, 9.1 to 9.3).
+Publishing routes, for a credential of the account with the scope `owner` or `write`, in network mode only (design Sections 8.3 item 4, 9.1 to 9.3).
 
 - ``POST /api/federation/publish``: publish one document of a public theme, or publish it again. The object row and the outbox task are in one transaction.
 - ``POST /api/federation/retract``: delete one published object. The tombstone, the row removal, and the ``delete`` task are in one transaction.
@@ -411,7 +411,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             body_html, extra = admin_federation_body(ctx)
@@ -649,19 +649,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
     # --- Publishing routes (design Sections 9.1 to 9.3, unit FP3-1) ---
 
     def _publisher(request: Request) -> Principal | None:
-        """Return the principal when it can cause an outbound activity: owner or collaborator access with an account. A ``readonly`` credential cannot (design Section 8.3 item 4)."""
+        """Return the principal when it can cause an outbound activity: the scope ``owner`` or ``write`` with an account. A ``readonly`` credential cannot (design Section 8.3 item 4; SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6)."""
         principal = request_principal(request)
-        return principal if principal.scope in ("owner", "collaborator") and principal.account_id is not None else None
+        return principal if principal.scope in ("owner", "write") and principal.account_id is not None else None
 
-    def _own_theme(conn: Any, principal: Principal, *, theme_id: int | None = None, number: int | None = None) -> Any:
-        """Return the theme row when it is of the account of the caller and the caller can use it. All other conditions give ``None``, so that the response does not show that a theme of a different account exists."""
-        if theme_id is not None:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM themes WHERE id=?", (theme_id,)).fetchone()
+    def _own_theme(conn: Any, principal: Principal, *, kb_id: int | None = None, number: int | None = None) -> Any:
+        """Return the row of the personal knowledge base of the caller. A publish or a retract takes only documents of that knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review). All other conditions give ``None``, so that the response does not show that a knowledge base of a different account exists."""
+        if kb_id is not None:
+            row = conn.execute("SELECT id, account_id, is_public, is_personal FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
         else:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM themes WHERE number=?", (number,)).fetchone()
-        if row is None or row["account_id"] != principal.account_id:
-            return None
-        if principal.scope == "collaborator" and not row["is_collaborator_accessible"]:
+            row = conn.execute("SELECT id, account_id, is_public, is_personal FROM knowledge_bases WHERE number=?", (number,)).fetchone()
+        if row is None or row["account_id"] != principal.account_id or not row["is_personal"]:
             return None
         return row
 
@@ -676,14 +674,14 @@ def routes(ctx: AccountsContext) -> list[Route]:
         assert account_id is not None
         body = await read_json_body(request)
         document_id = body.get("document_id")
-        if set(body) != {"theme", "document_id"} or not isinstance(document_id, str) or not document_id or len(document_id) > DOCUMENT_ID_MAX_LENGTH:
-            return json_error(400, "invalid_request", fields=["theme", "document_id"])
+        if set(body) != {"kb", "document_id"} or not isinstance(document_id, str) or not document_id or len(document_id) > DOCUMENT_ID_MAX_LENGTH:
+            return json_error(400, "invalid_request", fields=["kb", "document_id"])
         try:
-            number = ids.parse_public_id(body["theme"]) if isinstance(body["theme"], str) else None
+            number = ids.parse_public_id(body["kb"]) if isinstance(body["kb"], str) else None
         except ValueError:
             number = None
         if number is None:
-            return json_error(400, "invalid_request", fields=["theme", "document_id"])
+            return json_error(400, "invalid_request", fields=["kb", "document_id"])
 
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
@@ -700,7 +698,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # Only a document of a public theme can be published (design Section 9.1).
                 if not theme["is_public"]:
                     return 409, {"error": "theme_not_public"}
-                document = dbm.get_document_row(conn, document_id, theme_id=int(theme["id"]))
+                document = dbm.get_document_row(conn, document_id, kb_id=int(theme["id"]))
                 if document is None:
                     return 404, {"error": "document_not_found"}
                 if document["hidden"]:
@@ -708,9 +706,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if not (document["detail"] or "").strip() and not (document["detail_html"] or "").strip():
                     return 409, {"error": "document_has_no_body"}
                 # The public page of the document is its share page. This call commits, so it comes before the transaction of the object and the task.
-                dbm.create_doc_share(conn, document_id, reuse_existing=True, theme_id=int(theme["id"]))
+                dbm.create_doc_share(conn, document_id, reuse_existing=True, kb_id=int(theme["id"]))
                 try:
-                    obj, task, created = federation_store.publish_document(conn, account_id=account_id, theme_id=int(theme["id"]), document_id=document_id, published_by_account_id=account_id, salt=store.id_salt(), now=time.time())
+                    obj, task, created = federation_store.publish_document(conn, account_id=account_id, kb_id=int(theme["id"]), document_id=document_id, published_by_account_id=account_id, salt=store.id_salt(), now=time.time())
                     conn.commit()
                 except BaseException:
                     conn.rollback()
@@ -743,7 +741,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return None
                 obj = federation_store.get_object(conn, object_id)
                 # An object of a different account gives the same answer as no object.
-                if obj is None or obj.account_id != principal.account_id or _own_theme(conn, principal, theme_id=obj.theme_id) is None:
+                if obj is None or obj.account_id != principal.account_id or _own_theme(conn, principal, kb_id=obj.kb_id) is None:
                     return 404, {"error": "object_not_found"}
                 try:
                     task = federation_store.retract_object(conn, obj, now=time.time())
@@ -796,7 +794,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             "unread": item.unread,
             "starred": item.starred,
             "mention": item.mention,
-            "linked": None if item.linked_doc_id is None else {"theme_id": item.linked_theme_id, "document_id": item.linked_doc_id},
+            "linked": None if item.linked_doc_id is None else {"kb_id": item.linked_kb_id, "document_id": item.linked_doc_id},
         }
         if detail:
             view["render_url"] = _render_url(item.account_id, item.id)
@@ -980,7 +978,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
+                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

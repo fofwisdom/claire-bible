@@ -17,7 +17,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db, provider_keys
 from claire.store import db as dbm
 from claire.store.secrets import BYOK_SEAL_COOKIE, clear_volatile_user_seals, reset_secret_service
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
@@ -83,7 +83,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_MULTI_THEME=True,
     )
-    ThemeManager(settings)
+    KnowledgeBaseManager(settings)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
 
     with TestClient(app, base_url=PUBLIC_URL) as client:

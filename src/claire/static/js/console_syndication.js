@@ -42,7 +42,7 @@
 
   function withTheme(href, ref) {
     var url = new URL(href, window.location.origin);
-    url.searchParams.set("theme", ref);
+    url.searchParams.set("kb", ref);
     return url.pathname + url.search + url.hash;
   }
 

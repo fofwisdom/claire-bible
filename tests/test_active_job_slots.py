@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
+
 from claire.api import server
 from claire.config import Settings
 from claire.extract.provider import MockProvider
@@ -38,7 +40,7 @@ from claire.ingest.active import (
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def test_active_job_context_manager_io(tmp_path: Path):
@@ -52,7 +54,7 @@ def test_active_job_context_manager_io(tmp_path: Path):
         data_dir,
         kind="reingest",
         payload="https://example.com/item1",
-        theme_id=1,
+        kb_id=1,
         theme_label="Network",
         doc_id="doc_net_1",
         title="Network Architecture Guide",
@@ -68,7 +70,7 @@ def test_active_job_context_manager_io(tmp_path: Path):
         assert sync_data["job_id"] == handle.job_id
         assert sync_data["active"] is True
         assert sync_data["kind"] == "reingest"
-        assert sync_data["theme_id"] == 1
+        assert sync_data["kb_id"] == 1
         assert sync_data["theme_label"] == "Network"
         assert sync_data["doc_id"] == "doc_net_1"
         assert sync_data["title"] == "Network Architecture Guide"
@@ -102,7 +104,7 @@ def test_active_job_reentrancy_protection(tmp_path: Path):
         data_dir,
         kind="reingest",
         payload="https://example.com/parent",
-        theme_id=2,
+        kb_id=2,
         theme_label="Security",
         doc_id="doc_parent",
         title="Parent Document",
@@ -114,7 +116,7 @@ def test_active_job_reentrancy_protection(tmp_path: Path):
             data_dir,
             kind="ingest",
             payload="https://example.com/child",
-            theme_id=0,
+            kb_id=0,
             theme_label="Default",
             title="Child Document",
         ) as inner_handle:
@@ -127,7 +129,7 @@ def test_active_job_reentrancy_protection(tmp_path: Path):
             assert cur is not None
             assert cur["job_id"] == outer_id
             assert cur["kind"] == "reingest"
-            assert cur["theme_id"] == 2
+            assert cur["kb_id"] == 2
             assert cur["theme_label"] == "Security"
             assert cur["msg"] == "Inner stage running"
 
@@ -153,12 +155,12 @@ def test_multi_slot_concurrent_jobs_and_cleanup(tmp_path: Path):
     barrier = threading.Barrier(3)
     results: list[str] = []
 
-    def worker(idx: int, theme_id: int, theme_name: str):
+    def worker(idx: int, kb_id: int, theme_name: str):
         with active_job(
             data_dir,
             kind="ingest",
             payload=f"https://example.com/task_{idx}",
-            theme_id=theme_id,
+            kb_id=kb_id,
             theme_label=theme_name,
             title=f"Task {idx}",
         ) as handle:
@@ -188,9 +190,9 @@ def test_multi_slot_concurrent_jobs_and_cleanup(tmp_path: Path):
     assert len(all_retained) == 3
 
     # Theme selection test
-    primary_theme1 = get_primary_active_job(data_dir, theme_id=1)
+    primary_theme1 = get_primary_active_job(data_dir, kb_id=1)
     assert primary_theme1 is not None
-    assert primary_theme1["theme_id"] == 1
+    assert primary_theme1["kb_id"] == 1
 
     # Stale cleanup test: simulate expired retention
     for jf in jobs_dir.glob("*.json"):
@@ -258,7 +260,7 @@ def test_service_regenerate_components_dry_run_vs_force(tmp_path: Path):
         data_dir=str(data_dir),
     )
     provider = MockProvider()
-    svc = IngestService(s, provider=provider, theme_id=0)
+    svc = IngestService(s, provider=provider, kb_id=0)
 
     # 1. Dry-run: force=False must not record active job
     res_dry = svc.regenerate_components(doc_id=doc_id, summary=True, force=False)
@@ -299,8 +301,8 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         readonly_token=read_tok,
         multi_theme=True,
     )
-    tm = ThemeManager(s)
-    theme1 = tm.define_theme("Network")
+    tm = KnowledgeBaseManager(s)
+    theme1 = tm.define_kb("Network", knowledge_type="real")
 
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")
@@ -323,7 +325,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
             data_dir,
             kind="ingest",
             payload="https://example.com/theme0",
-            theme_id=0,
+            kb_id=0,
             theme_label="Default",
             title="Default Theme Job",
         ):
@@ -335,7 +337,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
             data_dir,
             kind="reingest",
             payload="https://example.com/theme1",
-            theme_id=1,
+            kb_id=1,
             theme_label="Network",
             title="Network Theme Job",
         ) as job1:
@@ -351,29 +353,29 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
 
     try:
         # GET /stats for Theme 0
-        r0 = client.get("/stats?theme=0", headers=auth_header)
+        r0 = client.get("/stats", headers=auth_header)
         assert r0.status_code == 200
         d0 = r0.json()
         assert d0["ingesting"] is True
-        assert d0["active_ingest"]["theme_id"] == 0
+        assert d0["active_ingest"]["kb_id"] == 0
         assert d0["active_ingest"]["title"] == "Default Theme Job"
         assert len(d0["active_jobs"]) == 2
 
         # GET /stats for Theme 1
-        r1 = client.get("/stats?theme=1", headers=auth_header)
+        r1 = client.get(kb_url(s, 1, "/stats"), headers=auth_header)
         assert r1.status_code == 200
         d1 = r1.json()
         assert d1["ingesting"] is True
-        assert d1["active_ingest"]["theme_id"] == 1
+        assert d1["active_ingest"]["kb_id"] == 1
         assert d1["active_ingest"]["title"] == "Network Theme Job"
         assert d1["active_ingest"]["stage"] == "extract"
 
         # GET /ingest/active for Theme 1
-        ra1 = client.get("/ingest/active?theme=1", headers=auth_header)
+        ra1 = client.get(kb_url(s, 1, "/ingest/active"), headers=auth_header)
         assert ra1.status_code == 200
         act1 = ra1.json()
         assert act1["active"] is True
-        assert act1["theme_id"] == 1
+        assert act1["kb_id"] == 1
         assert act1["stage"] == "extract"
         assert len(act1["active_jobs"]) == 2
     finally:

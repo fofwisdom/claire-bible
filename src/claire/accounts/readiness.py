@@ -75,7 +75,7 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
         )
     )
 
-    # G2: theme_id 명시 AST 테스트가 통과한다 (S3, P0 완료, CI 성질)
+    # G2: kb_id 명시 AST 테스트가 통과한다 (S3, P0 완료, CI 성질)
     items.append(
         ReadinessItem(
             id="G2",

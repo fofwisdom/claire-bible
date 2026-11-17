@@ -114,8 +114,8 @@ def test_e2e_the_viewer_sees_labels_in_the_entity_language_and_the_stored_labels
     try:
         hero = Entity(type="Person", name="개척자", aliases=["Trailblazer"])
         tool = Entity(type="Tool", name="한글전용")
-        dbm.upsert_entity(conn, hero, theme_id=0)
-        dbm.upsert_entity(conn, tool, theme_id=0)
+        dbm.upsert_entity(conn, hero, kb_id=0)
+        dbm.upsert_entity(conn, tool, kb_id=0)
         conn.commit()
     finally:
         conn.close()
@@ -139,7 +139,7 @@ def test_e2e_the_viewer_sees_labels_in_the_entity_language_and_the_stored_labels
     # The stored main label did not change: a viewer with a different entity language gets its label from the same data.
     conn = dbm.connect_existing(settings.db_file)
     try:
-        assert dbm.get_entity(conn, hero.id, theme_id=0).name == "개척자"
+        assert dbm.get_entity(conn, hero.id, kb_id=0).name == "개척자"
     finally:
         conn.close()
 

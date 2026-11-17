@@ -316,34 +316,50 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/resolution/decisions",
         "/ingest/active",
         "/mcp",
+        "/kb",
+        "/members",
+        "/submissions",
+        "/api/reputation",
+        "/api/auto-rule",
+        "/api/auto-contributions",
+        "/api/contribution-blocks",
+        "/api/mutual-collaborations",
+        "/submissions/{number}",
+        "/contributions",
         "/themes",
         "/api/syndication/dispatches",
         "/syndication/dispatches",
         "/syndication",
     }
     read_post = {"/search", "/mcp", "/share"}
-    collaborator_post = {
+    # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
+    write_post = {
         "/ingest",
+        "/submissions",
+        "/contributions",
+        "/contributions/{number}/retry",
         "/ingest-stream",
         "/reingest",
         "/reingest-stream",
         "/regenerate",
         "/regenerate-stream",
         "/document/regenerate",
-        "/document/presentation/generate",
-        "/document/presentation/compose",
-        "/document/presentation/compile",
         "/api/syndication/dispatch",
         "/syndication/dispatch",
         "/api/federation/publish",
         "/api/federation/retract",
     }
-    collaborator_methods = {
-        ("PUT", "/document/presentation/adoc"),
+    write_methods = {
+        ("DELETE", "/contributions/{number}"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),
     }
     owner_post = {
+        "/api/auto-rule/dry-run",
+        "/api/mutual-collaborations",
+        "/document/presentation/generate",
+        "/document/presentation/compose",
+        "/document/presentation/compile",
         "/document/seen",
         "/document/pin",
         "/document/hide",
@@ -356,7 +372,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/dedup/merge",
         "/entity/primary-label",
         "/graph/bundle",
-        "/themes",
+        "/kb",
+        "/contributions/{number}/remove",
+        "/curations",
+        "/forks",
+        "/membership",
         "/resolution/rollback",
         "/document/matrix/purge",
         "/tokens",
@@ -366,8 +386,17 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/me/password",
     }
     owner_methods = {
-        ("PATCH", "/themes"),
-        ("DELETE", "/themes"),
+        ("PUT", "/api/auto-rule"),
+        ("PUT", "/api/contribution-blocks/{document}"),
+        ("DELETE", "/api/contribution-blocks/{document}"),
+        ("PUT", "/api/mutual-collaborations/{account}"),
+        ("DELETE", "/api/mutual-collaborations/{account}"),
+        ("PUT", "/document/presentation/adoc"),
+        ("PATCH", "/"),
+        ("DELETE", "/"),
+        ("DELETE", "/membership"),
+        ("PATCH", "/members/{account}"),
+        ("PATCH", "/contributions/{number}"),
         ("GET", "/tokens"),
         ("HEAD", "/tokens"),
         ("DELETE", "/tokens"),
@@ -468,6 +497,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((method, "/api/me/personal-cli") for method in ("GET", "HEAD", "PATCH")),
         ("POST", "/api/me/personal-cli/test"),
         ("POST", "/support/bundle"),
+        *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
+        *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),
+        *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
+        *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(
             (method, path)
             for path in (
@@ -535,8 +568,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD")
         },
         **{("POST", path): "read" for path in read_post},
-        **{("POST", path): "collaborator" for path in collaborator_post},
-        **{key: "collaborator" for key in collaborator_methods},
+        **{("POST", path): "write" for path in write_post},
+        **{key: "write" for key in write_methods},
         **{("POST", path): "owner" for path in owner_post},
         **{key: "owner" for key in owner_methods},
         **{key: "admin" for key in admin_methods},
@@ -644,7 +677,8 @@ async def test_public_read_and_owner_route_policy(tmp_path):
     assert owner_read.header("cache-control") == "no-store"
     assert readonly_read.header("cache-control") == "no-store"
     assert public.header("cache-control") is None
-    assert (await _call(app, "/ingest", method="POST", headers=readonly_headers)).status == 404
+    # A credential of the account whose scope is too small gets 403 on a knowledge base route (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
+    assert (await _call(app, "/ingest", method="POST", headers=readonly_headers)).status == 403
     assert (await _call(app, "/ingest", method="POST", headers=owner_headers)).status == 200
     assert (
         await _call(app, "/document/seen", method="POST", headers=owner_headers)
@@ -987,9 +1021,9 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
     }
     expected_owner = {
         "owner_bearer": {"none": 200, "same": 200, "cross": 200},
-        "readonly_bearer": {"none": 404, "same": 404, "cross": 404},
+        "readonly_bearer": {"none": 403, "same": 403, "cross": 403},
         "owner_session": {"none": 403, "same": 200, "cross": 403},
-        "readonly_session": {"none": 403, "same": 404, "cross": 403},
+        "readonly_session": {"none": 403, "same": 403, "cross": 403},
         "anonymous": {"none": 404, "same": 404, "cross": 403},
         "invalid": {"none": 404, "same": 404, "cross": 403},
     }
@@ -1540,7 +1574,7 @@ def _state_changing_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/document/presentation/adoc", _endpoint, methods=["PUT"]),
-            Route("/themes", _endpoint, methods=["PATCH", "DELETE"]),
+            Route("/", _endpoint, methods=["PATCH", "DELETE"]),
             Route("/tokens", _endpoint, methods=["DELETE"]),
             Route("/document/seen", _endpoint, methods=["POST"]),
         ]
@@ -1553,8 +1587,8 @@ def _state_changing_app() -> Starlette:
     [
         ("POST", "/document/seen"),
         ("PUT", "/document/presentation/adoc"),
-        ("PATCH", "/themes"),
-        ("DELETE", "/themes"),
+        ("PATCH", "/"),
+        ("DELETE", "/"),
         ("DELETE", "/tokens"),
     ],
 )
@@ -1577,12 +1611,17 @@ async def test_cookie_state_changing_methods_require_exact_same_origin(
         await _call(app, path, method=method, headers=[cookie, ("Origin", "null")])
     ).status == 403
     ok = await _call(app, path, method=method, headers=[cookie, ("Origin", DEV_ORIGIN)])
-    assert ok.status == 200
-    assert ok.json()["scope"] == "owner"
-    # bearer 채널은 Origin 없이도 된다(브라우저가 자동으로 싣는 자격증명이 아니다).
     bearer = await _call(
         app, path, method=method, headers=[("Authorization", f"Bearer {OWNER_TOKEN}")]
     )
+    if security.lookup_route_rule(method, path).step_up:
+        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.8: a step-up route needs a recent sign-in in a session; a bearer credential never passes.
+        assert (ok.status, ok.json()["error"]) == (401, "reauth_required")
+        assert (bearer.status, bearer.json()["error"]) == (403, "step_up_requires_session")
+        return
+    assert ok.status == 200
+    assert ok.json()["scope"] == "owner"
+    # bearer 채널은 Origin 없이도 된다(브라우저가 자동으로 싣는 자격증명이 아니다).
     assert bearer.status == 200
 
 

@@ -38,13 +38,13 @@ def test_media_url_resolution_with_and_without_media_host():
         roles=roles_with_media,
         is_public=False,
         account_id=5,
-        theme_id=10,
+        kb_id=10,
         visibility_epoch=2,
         secret_service=sec,
     )
     assert url_priv.startswith("https://media.example.com/media/secret.png?")
     assert "account_id=5" in url_priv
-    assert "theme_id=10" in url_priv
+    assert "kb_id=10" in url_priv
     assert "visibility_epoch=2" in url_priv
     assert "token=" in url_priv
 
@@ -58,7 +58,7 @@ def test_media_url_resolution_with_and_without_media_host():
         roles=roles_app_only,
         is_public=False,
         account_id=5,
-        theme_id=10,
+        kb_id=10,
         visibility_epoch=2,
         secret_service=sec,
     )

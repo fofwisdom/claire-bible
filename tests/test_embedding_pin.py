@@ -22,7 +22,7 @@ from claire.extract.resolver import resolve_or_create
 from claire.ontology.base import Entity
 from claire.retrieval.query import search
 from claire.store import db as dbm
-from claire.store.theme import ThemeInfo, embed_mismatch
+from claire.store.knowledge_base import KnowledgeBaseInfo, embed_mismatch
 from claire.store.vectors import (
     MOCK_EMBED_MODEL,
     EmbeddingModelMismatch,
@@ -50,19 +50,19 @@ def _conn(tmp_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _raw_put(conn: sqlite3.Connection, owner_id: str, vec: list[float], model: str | None, theme_id: int = 0) -> None:
+def _raw_put(conn: sqlite3.Connection, owner_id: str, vec: list[float], model: str | None, kb_id: int = 0) -> None:
     """고정 규칙을 거치지 않고 행을 넣는다(업그레이드 전 DB 재현용)."""
     conn.execute(
-        "INSERT OR REPLACE INTO embeddings(owner_id,theme_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?)",
-        (owner_id, theme_id, len(vec), pack_vector(vec), model, time.time()),
+        "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?)",
+        (owner_id, kb_id, len(vec), pack_vector(vec), model, time.time()),
     )
     conn.commit()
 
 
-def _models(conn: sqlite3.Connection, theme_id: int = 0) -> dict[str, str | None]:
+def _models(conn: sqlite3.Connection, kb_id: int = 0) -> dict[str, str | None]:
     return {
         r["owner_id"]: r["model"]
-        for r in conn.execute("SELECT owner_id, model FROM embeddings WHERE theme_id=?", (theme_id,))
+        for r in conn.execute("SELECT owner_id, model FROM embeddings WHERE kb_id=?", (kb_id,))
     }
 
 
@@ -126,11 +126,11 @@ def test_hybrid_search_falls_back_to_fts_on_model_mismatch(tmp_path: Path) -> No
     vs.put(ent.id, [1.0, 0.0], "model-a")
 
     same = search(conn, vs, _FakeProvider("gemini", "model-a", [1.0, 0.0]), "Ollama",
-                  summarize=False, theme_id=0)
+                  summarize=False, kb_id=0)
     assert same.hits and "vec" in same.hits[0].via
 
     other = search(conn, vs, _FakeProvider("openai", "model-b", [1.0, 0.0]), "Ollama",
-                   summarize=False, theme_id=0)
+                   summarize=False, kb_id=0)
     assert other.hits and other.hits[0].entity.id == ent.id
     assert other.hits[0].via == ["fts"]
 
@@ -164,11 +164,11 @@ def test_first_put_adopts_same_dim_legacy_rows(tmp_path: Path) -> None:
 def test_pin_is_per_theme(tmp_path: Path) -> None:
     conn = _conn(tmp_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, created_at, updated_at, account_id) VALUES (7, 7, 'T7', 0, 0, 1)"
+        "INSERT INTO knowledge_bases (id, seq, label, created_at, updated_at, account_id) VALUES (7, 7, 'T7', 0, 0, 1)"
     )
     conn.commit()
-    VectorStore(conn, "brute", theme_id=0).put("e0", [1.0, 0.0], "model-a")
-    VectorStore(conn, "brute", theme_id=7).put("e7", [1.0, 0.0], "model-b")
+    VectorStore(conn, "brute", kb_id=0).put("e0", [1.0, 0.0], "model-a")
+    VectorStore(conn, "brute", kb_id=7).put("e7", [1.0, 0.0], "model-b")
     assert read_embed_pin(conn, 0).model == "model-a"
     assert read_embed_pin(conn, 7).model == "model-b"
 
@@ -176,14 +176,14 @@ def test_pin_is_per_theme(tmp_path: Path) -> None:
 def test_backfill_is_idempotent_and_skips_unpinned(tmp_path: Path) -> None:
     conn = _conn(tmp_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, created_at, updated_at, account_id) VALUES (7, 7, 'T7', 0, 0, 1)"
+        "INSERT INTO knowledge_bases (id, seq, label, created_at, updated_at, account_id) VALUES (7, 7, 'T7', 0, 0, 1)"
     )
-    conn.execute("UPDATE themes SET embed_model='model-a', embed_provider='gemini' WHERE id=7")
+    conn.execute("UPDATE knowledge_bases SET embed_model='model-a', embed_provider='gemini' WHERE id=7")
     conn.commit()
-    _raw_put(conn, "p1", [1.0, 0.0], "model-a", theme_id=7)
-    _raw_put(conn, "p2", [0.0, 1.0], "claire", theme_id=7)
-    _raw_put(conn, "p3", [0.0, 1.0, 0.0], "claire", theme_id=7)  # 차원이 달라 다른 모델이 분명
-    _raw_put(conn, "u1", [1.0, 0.0], "claire", theme_id=0)       # 미고정 테마: 건드리지 않는다
+    _raw_put(conn, "p1", [1.0, 0.0], "model-a", kb_id=7)
+    _raw_put(conn, "p2", [0.0, 1.0], "claire", kb_id=7)
+    _raw_put(conn, "p3", [0.0, 1.0, 0.0], "claire", kb_id=7)  # 차원이 달라 다른 모델이 분명
+    _raw_put(conn, "u1", [1.0, 0.0], "claire", kb_id=0)       # 미고정 테마: 건드리지 않는다
 
     assert dbm.backfill_embedding_models(conn) == 1
     conn.commit()
@@ -202,7 +202,7 @@ def test_backfill_relabels_all_legacy_rows_when_pin_has_no_rows(tmp_path: Path) 
     conn = _conn(tmp_path)
     _raw_put(conn, "a", [1.0, 0.0], "claire")
     _raw_put(conn, "b", [1.0, 0.0], None)
-    conn.execute("UPDATE themes SET embed_model='model-a' WHERE id=0")
+    conn.execute("UPDATE knowledge_bases SET embed_model='model-a' WHERE id=0")
     conn.commit()
     dbm.init_db(conn)
     assert _models(conn) == {"a": "model-a", "b": "model-a"}
@@ -250,14 +250,14 @@ def test_resolve_embed_identity() -> None:
 
 
 def test_embed_mismatch_helper() -> None:
-    unpinned = ThemeInfo(id=0, seq=0, label="t")
+    unpinned = KnowledgeBaseInfo(id=0, seq=0, label="t")
     assert embed_mismatch(unpinned, "gemini", "anything") is False
-    pinned = ThemeInfo(id=0, seq=0, label="t", embed_provider="gemini", embed_model="m1")
+    pinned = KnowledgeBaseInfo(id=0, seq=0, label="t", embed_provider="gemini", embed_model="m1")
     assert embed_mismatch(pinned, "gemini", "m1") is False
     assert embed_mismatch(pinned, "gemini", "m2") is True
     assert embed_mismatch(pinned, "openai", "m1") is True
     assert embed_mismatch(pinned, "", "m1") is False
-    legacy_provider = ThemeInfo(id=0, seq=0, label="t", embed_model="m1")
+    legacy_provider = KnowledgeBaseInfo(id=0, seq=0, label="t", embed_model="m1")
     assert embed_mismatch(legacy_provider, "openai", "m1") is False
 
 

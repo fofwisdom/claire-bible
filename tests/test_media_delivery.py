@@ -62,25 +62,25 @@ async def test_private_media_capability_token_and_epoch_invalidation(media_env):
     await media_env.store.put(key, content, "application/pdf")
 
     account_id = 7
-    theme_id = 15
+    kb_id = 15
     visibility_epoch = 1
     now = time.time()
 
     # 1. Access without token is forbidden (403)
-    resp_no_token = media_env.client.get(f"/media/{key}?account_id={account_id}&theme_id={theme_id}")
+    resp_no_token = media_env.client.get(f"/media/{key}?account_id={account_id}&kb_id={kb_id}")
     assert resp_no_token.status_code == 403
 
     # 2. Access with valid capability token succeeds
     token = create_media_capability_token(
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key=key,
         secret_service=media_env.sec,
         now=now,
     )
     resp_valid = media_env.client.get(
-        f"/media/{key}?account_id={account_id}&theme_id={theme_id}&visibility_epoch={visibility_epoch}&token={token}"
+        f"/media/{key}?account_id={account_id}&kb_id={kb_id}&visibility_epoch={visibility_epoch}&token={token}"
     )
     assert resp_valid.status_code == 200
     assert resp_valid.content == content
@@ -90,7 +90,7 @@ async def test_private_media_capability_token_and_epoch_invalidation(media_env):
     # 3. Visibility epoch increment immediately invalidates the token
     bumped_epoch = visibility_epoch + 1
     resp_invalidated = media_env.client.get(
-        f"/media/{key}?account_id={account_id}&theme_id={theme_id}&visibility_epoch={bumped_epoch}&token={token}"
+        f"/media/{key}?account_id={account_id}&kb_id={kb_id}&visibility_epoch={bumped_epoch}&token={token}"
     )
     assert resp_invalidated.status_code == 403
 

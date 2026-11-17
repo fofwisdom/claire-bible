@@ -1,0 +1,71 @@
+"""Test helpers for the selection of a knowledge base by path (design Section 5.2, CT23).
+
+Tests know the internal ID of a knowledge base. The HTTP API takes only paths and numbers, so these helpers give the number, the pinned path, and a seed through the service (HTTP ingest writes only to the personal knowledge base).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from claire import ids
+from claire.store import db as dbm
+
+
+def kb_number(settings: Any, kb_id: int) -> str:
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        row = conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
+        if row is not None and row[0] is None:
+            # A test row without a number gets one, as the server does at the start.
+            dbm.backfill_theme_numbers(conn)
+            conn.commit()
+            row = conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None and row[0] is not None, f"knowledge base {kb_id} has no number"
+    return ids.format_public_id(int(row[0]))
+
+
+def kb_url(settings: Any, kb_id: int, route: str) -> str:
+    """The pinned path of a route in a shared knowledge base: ``/kb/{number}{route}`` (design Section 7)."""
+    return f"/kb/{kb_number(settings, kb_id)}{route}"
+
+
+def seed(settings: Any, kb_id: int, payload: str, **kwargs: Any) -> Any:
+    """Ingest into a knowledge base with its service and return the report."""
+    from claire.ingest.service import IngestService
+    from claire.store.knowledge_base import KnowledgeBaseManager
+
+    tm = KnowledgeBaseManager(settings)
+    return IngestService(tm.get_settings_for_kb(int(kb_id), settings), kb_id=int(kb_id)).ingest(payload, source="cli", expand_max=0, **kwargs)
+
+
+def kb_list(client: Any, *, headers: Any = None, path: str = "/kb") -> list[dict[str, Any]]:
+    """The knowledge bases of the collection ``/kb`` or ``/@{u}/kb`` (design Section 7): the personal knowledge base (when the collection gives it), then the shared ones."""
+    response = client.get(path, headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    return [kb for kb in (data["personal_kb"], *data["knowledge_bases"]) if kb is not None]
+
+
+def step_up_headers(settings: Any, *, account_id: int = 1) -> dict[str, str]:
+    """Headers of an ``owner`` session with a recent sign-in. A step-up route (design Section 6.8, for example ``DELETE /themes``) refuses a bearer credential."""
+    import time
+
+    from claire.store import accounts as accounts_store
+
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        token = accounts_store.create_account_session(conn, account_id=account_id, scope="owner", now=time.time())
+    finally:
+        conn.close()
+    return {"Cookie": f"claire_session={token}", "Origin": str(settings.public_url).rstrip("/")}
+
+
+def step_up_request(client: Any, settings: Any, method: str, url: str, *, account_id: int = 1, **kwargs: Any) -> Any:
+    """Send one request with an ``owner`` session that has a recent sign-in, and leave no cookie in the client (a cookie with a bearer credential in a later request is refused)."""
+    headers = step_up_headers(settings, account_id=account_id)
+    client.cookies.clear()
+    response = client.request(method, url, headers=headers, **kwargs)
+    client.cookies.clear()
+    return response

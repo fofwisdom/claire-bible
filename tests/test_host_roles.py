@@ -45,7 +45,7 @@ PROD_ORIGIN = f"https://{PROD_HOST}"
 LEGACY_HOSTS_DDL = """
 CREATE TABLE IF NOT EXISTS legacy_hosts (
     host TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     created_at REAL NOT NULL,
     activated_at REAL,
     sunset_at REAL
@@ -542,7 +542,7 @@ def test_direct_cookie_reads_go_through_read_session_cookie():
 class _FakeLegacy:
     rows: dict[str, LegacyHost] = field(default_factory=dict)
     policy_value: LegacyHostPolicy = field(default_factory=LegacyHostPolicy)
-    location: str | None = "/themes/72057594037927937/"
+    location: str | None = "/kb/72057594037927937/"
 
     def lookup(self, host: str) -> LegacyHost | None:
         return self.rows.get(host)
@@ -561,7 +561,7 @@ def _legacy_router(tmp_path, directory, *, now: float = 1000.0) -> HostRouter:
 
 
 def _row(host="ai.example.com", *, activated_at=None, sunset_at=None) -> LegacyHost:
-    return LegacyHost(host=host, theme_id=3, created_at=1.0, activated_at=activated_at, sunset_at=sunset_at)
+    return LegacyHost(host=host, kb_id=3, created_at=1.0, activated_at=activated_at, sunset_at=sunset_at)
 
 
 @pytest.mark.asyncio
@@ -572,10 +572,10 @@ async def test_legacy_host_redirects_get_head_and_refuses_other_methods(tmp_path
 
     get = await _call(router, "/documents", host="ai.example.com", query="q=1&x=%20y", headers=noisy)
     assert get.status == 308
-    assert get.header("location") == f"{PROD_ORIGIN}/themes/72057594037927937/documents?q=1&x=%20y"
+    assert get.header("location") == f"{PROD_ORIGIN}/kb/72057594037927937/documents?q=1&x=%20y"
     head = await _call(router, "/", host="ai.example.com:8443", method="HEAD")
     assert head.status == 308
-    assert head.header("location") == f"{PROD_ORIGIN}/themes/72057594037927937/"
+    assert head.header("location") == f"{PROD_ORIGIN}/kb/72057594037927937/"
     for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
         assert (await _call(router, "/documents", host="ai.example.com", method=method, headers=noisy)).status == 421
     for result in (get, head):
@@ -584,7 +584,7 @@ async def test_legacy_host_redirects_get_head_and_refuses_other_methods(tmp_path
 
     # 경로를 그대로 붙여도 정본 origin을 벗어나지 않는다.
     escaped = await _call(router, "//evil.example.net/a b", host="ai.example.com", raw_path=b"//evil.example.net/a%20b")
-    assert escaped.header("location") == f"{PROD_ORIGIN}/themes/72057594037927937/evil.example.net/a%20b"
+    assert escaped.header("location") == f"{PROD_ORIGIN}/kb/72057594037927937/evil.example.net/a%20b"
 
     directory.location = None  # 테마가 사라졌거나 번호가 아직 없다
     assert (await _call(router, "/", host="ai.example.com")).status == 421
@@ -617,19 +617,19 @@ def _legacy_db(tmp_path: Path) -> Path:
     try:
         dbm.init_db(conn)
         conn.execute(LEGACY_HOSTS_DDL)
-        conn.execute("INSERT OR IGNORE INTO themes (id, seq, label) VALUES (3, 3, 'AI')")
+        conn.execute("INSERT OR IGNORE INTO knowledge_bases (id, seq, label) VALUES (3, 3, 'AI')")
         conn.commit()
     finally:
         conn.close()
     return db_file
 
 
-def _insert(db_file: Path, host: str, *, theme_id: int = 3) -> None:
+def _insert(db_file: Path, host: str, *, kb_id: int = 3) -> None:
     conn = sqlite3.connect(db_file)
     try:
         conn.execute(
-            "INSERT INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) VALUES (?, ?, ?, NULL, NULL)",
-            (host, theme_id, time.time()),
+            "INSERT INTO legacy_hosts (host, kb_id, created_at, activated_at, sunset_at) VALUES (?, ?, ?, NULL, NULL)",
+            (host, kb_id, time.time()),
         )
         conn.commit()
     finally:
@@ -645,7 +645,7 @@ def test_sqlite_directory_caches_and_sees_external_changes(tmp_path):
     old_db = tmp_path / "old" / "claire.db"
     old_db.parent.mkdir()
     conn = sqlite3.connect(old_db)
-    conn.execute("CREATE TABLE themes (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE knowledge_bases (id INTEGER PRIMARY KEY)")
     conn.commit()
     conn.close()
     old_directory = lh.SqliteLegacyHostDirectory(old_db)
@@ -653,12 +653,12 @@ def test_sqlite_directory_caches_and_sees_external_changes(tmp_path):
     assert old_directory.policy() == LegacyHostPolicy()
 
     db_file = _legacy_db(tmp_path)
-    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: f"/themes/{row.theme_id}/")
+    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: f"/kb/{row.kb_id}/")
     assert directory.lookup("ai.example.com") is None
     _insert(db_file, "ai.example.com")  # 다른 연결(이관·다른 프로세스)이 쓴다
     found = directory.lookup("AI.Example.com")
-    assert found is not None and found.theme_id == 3 and found.sunset_at is None
-    assert directory.theme_location(found) == "/themes/3/"
+    assert found is not None and found.kb_id == 3 and found.sunset_at is None
+    assert directory.theme_location(found) == "/kb/3/"
     assert lh.SqliteLegacyHostDirectory(db_file).theme_location(found) is None
 
 
@@ -699,7 +699,7 @@ def test_sunset_clock_activation_extension_and_indefinite_hold(tmp_path):
         held = lh.keep_indefinitely(conn, "ai.example.com")
         assert held.sunset_at is None and held.activated_at == now
         assert directory.lookup("ai.example.com").sunset_at is None
-        assert [row.host for row in lh.list_legacy_hosts(conn, theme_id=3)] == ["ai.example.com", "finance.example.com"]
+        assert [row.host for row in lh.list_legacy_hosts(conn, kb_id=3)] == ["ai.example.com", "finance.example.com"]
 
         with pytest.raises(KeyError):
             lh.extend_sunset(conn, "absent.example.com", days=1)
@@ -720,7 +720,7 @@ def test_sunset_clock_activation_extension_and_indefinite_hold(tmp_path):
 async def test_legacy_router_end_to_end_with_sqlite_directory(tmp_path):
     db_file = _legacy_db(tmp_path)
     _insert(db_file, "ai.example.com")
-    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: "/themes/72057594037927939/")
+    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: "/kb/72057594037927939/")
     clock = {"now": 5_000_000.0}
     roles = _roles(_prod_settings(tmp_path))
     router = HostRouter(

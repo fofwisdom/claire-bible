@@ -128,11 +128,11 @@ def test_documents_page_null_fetched_at_is_last(tmp_path: Path) -> None:
 def test_get_documents_default_response_is_unchanged_plus_additive_fields(tmp_path: Path) -> None:
     settings, order = _seed(tmp_path)
     conn = dbm.connect(settings.db_file)
-    expected_owner = queries.documents_list(conn, limit=300, include_hidden=True, theme_id=0)
+    expected_owner = queries.documents_list(conn, limit=300, include_hidden=True, kb_id=0)
     conn.close()
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
         body = client.get("/documents", headers=OWNER_HEADERS).json()
-        assert set(body) == {"documents", "format_status", "theme_id", "theme_label", "next_before", "total"}
+        assert set(body) == {"documents", "format_status", "kb_id", "theme_label", "next_before", "total"}
         assert body["documents"] == expected_owner
         assert [d["id"] for d in body["documents"]] == order
         assert body["next_before"] is None and body["total"] == 10
@@ -206,12 +206,12 @@ def test_documents_page_cursor_id_with_colon_literal_like_characters_and_theme_s
         _add(conn, "b2", 7.0, title="backXslash title")
         # A document of another knowledge theme. The theme row is not necessary for this store test.
         conn.execute("PRAGMA foreign_keys = OFF")
-        dbm.insert_document(conn, Document(id="t7", url="https://example.test/t7", title="colon other theme", raw_text="text", source_type="web", content_hash="hash-t7", fetched_at=6000.0), theme_id=7)
+        dbm.insert_document(conn, Document(id="t7", url="https://example.test/t7", title="colon other theme", raw_text="text", source_type="web", content_hash="hash-t7", fetched_at=6000.0), kb_id=7)
         conn.commit()
         conn.execute("PRAGMA foreign_keys = ON")
 
         def page(limit, before, **filters):
-            return queries.documents_page(conn, limit, before=before, include_hidden=True, theme_id=0, **filters)
+            return queries.documents_page(conn, limit, before=before, include_hidden=True, kb_id=0, **filters)
 
         ids, pages = _all_pages(lambda limit, before: page(limit, before), 1)
         assert ids[:3] == ["x:3:z", "x:2", "x:1"]
@@ -227,7 +227,7 @@ def test_documents_page_cursor_id_with_colon_literal_like_characters_and_theme_s
         # theme scope on the q filter and the total.
         assert q_ids("colon") == ["x:3:z", "x:2", "x:1"]
         assert page(300, None, text="colon")["total"] == 3
-        other = queries.documents_page(conn, 300, include_hidden=True, theme_id=7)
+        other = queries.documents_page(conn, 300, include_hidden=True, kb_id=7)
         assert [d["id"] for d in other["documents"]] == ["t7"] and other["total"] == 1
     finally:
         conn.close()

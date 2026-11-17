@@ -27,6 +27,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number
+
 from claire.api.mcp_tools import build_mcp_app, current_principal
 from claire.api.oauth import (
     handle_authorize,
@@ -44,7 +46,7 @@ from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import TokenStore, reset_token_stores
 
 
@@ -87,7 +89,6 @@ def _create_test_config(tmp_path: Path, public_origin: str = "http://127.0.0.1:8
         anonymous_readonly=False,
         owner_token="",
         readonly_token="",
-        collaborator_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),
@@ -97,40 +98,18 @@ def _create_test_config(tmp_path: Path, public_origin: str = "http://127.0.0.1:8
 
 
 def _create_test_theme(
-    tm: ThemeManager,
+    tm: KnowledgeBaseManager,
     settings: Settings,
     label: str,
     *,
     account_id: int,
-    is_default: bool = False,
+    is_personal: bool = False,
     is_public: bool = True,
-    is_collaborator_accessible: bool = True,
-) -> ThemeInfo:
-    theme = tm.define_theme(
-        label,
-        is_public=is_public,
-        is_collaborator_accessible=is_collaborator_accessible,
-    )
-    conn = dbm.connect(settings.db_file)
-    try:
-        conn.execute(
-            "UPDATE themes SET account_id = ?, is_default = ? WHERE id = ?",
-            (account_id, 1 if is_default else 0, theme.id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    if tm.registry_path.is_file():
-        data = json.loads(tm.registry_path.read_text(encoding="utf-8"))
-        for entry in data.get("themes", []):
-            if entry.get("id") == theme.id:
-                entry["account_id"] = account_id
-                entry["is_default"] = is_default
-        tm.registry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    tm.reload()
-    return tm.get_theme(theme.id)
+) -> KnowledgeBaseInfo:
+    """``is_personal=True``: the personal knowledge base of the account (public or private). Else a shared knowledge base that the account made: no owner and always public (CT5), so ``is_public`` has no effect on it."""
+    if is_personal:
+        return tm.define_kb(label, is_personal=True, is_public=is_public, account_id=account_id)
+    return tm.define_kb(label, account_id=account_id, knowledge_type="real")
 
 
 def _build_oauth_test_app(config: WebRuntimeConfig, settings: Any = None) -> Starlette:
@@ -531,7 +510,7 @@ def test_oauth_telegram_push_restricted_to_admin(tmp_path: Path) -> None:
 # --- 3. MCP Tools Isolation & Readonly Tests -----------------------------------
 
 
-def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Path) -> None:
+def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> None:
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -545,7 +524,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     dbm.insert_document(
         conn,
         Document(id="doc_admin_0", url="https://ex.com/a0", title="Admin Default Doc", raw_text="Admin default content", source_type="web", content_hash="h_a0"),
-        theme_id=0,
+        kb_id=0,
     )
     conn.close()
 
@@ -554,38 +533,38 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
         CLAIRE_DATA_DIR=str(tmp_path),
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
 
     # Theme 1: Admin private theme
-    t1 = _create_test_theme(tm, settings, "Admin Private Theme", account_id=1, is_public=False, is_collaborator_accessible=False)
-    t1_s = tm.get_settings_for_theme(t1.id, settings)
+    t1 = _create_test_theme(tm, settings, "Admin Private Theme", account_id=1, is_public=False)
+    t1_s = tm.get_settings_for_kb(t1.id, settings)
     c1 = dbm.connect(t1_s.db_file)
     dbm.init_db(c1)
-    dbm.insert_document(c1, Document(id="doc_admin_1", url="https://ex.com/a1", title="Admin Priv Doc", raw_text="Admin private content", source_type="web", content_hash="h_a1"), theme_id=t1.id)
+    dbm.insert_document(c1, Document(id="doc_admin_1", url="https://ex.com/a1", title="Admin Priv Doc", raw_text="Admin private content", source_type="web", content_hash="h_a1"), kb_id=t1.id)
     c1.close()
 
-    # Theme 2: Member default theme (account_id = 2, is_default = True, is_public = False)
-    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_default=True, is_public=False, is_collaborator_accessible=False)
-    t2_s = tm.get_settings_for_theme(t2.id, settings)
+    # Theme 2: Member default theme (account_id = 2, is_personal = True, is_public = False)
+    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_personal=True, is_public=False)
+    t2_s = tm.get_settings_for_kb(t2.id, settings)
     c2 = dbm.connect(t2_s.db_file)
     dbm.init_db(c2)
-    dbm.insert_document(c2, Document(id="doc_bob_default", url="https://ex.com/b0", title="Bob Default Doc", raw_text="Bob default content", source_type="web", content_hash="h_b0"), theme_id=t2.id)
+    dbm.insert_document(c2, Document(id="doc_bob_default", url="https://ex.com/b0", title="Bob Default Doc", raw_text="Bob default content", source_type="web", content_hash="h_b0"), kb_id=t2.id)
     c2.close()
 
     # Theme 3: Member collab-accessible theme (account_id = 2, is_collaborator_accessible = True, is_public = False)
-    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_default=False, is_public=False, is_collaborator_accessible=True)
-    t3_s = tm.get_settings_for_theme(t3.id, settings)
+    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_personal=False, is_public=False)
+    t3_s = tm.get_settings_for_kb(t3.id, settings)
     c3 = dbm.connect(t3_s.db_file)
     dbm.init_db(c3)
-    dbm.insert_document(c3, Document(id="doc_bob_collab", url="https://ex.com/b1", title="Bob Collab Doc", raw_text="Bob collab content", source_type="web", content_hash="h_b1"), theme_id=t3.id)
+    dbm.insert_document(c3, Document(id="doc_bob_collab", url="https://ex.com/b1", title="Bob Collab Doc", raw_text="Bob collab content", source_type="web", content_hash="h_b1"), kb_id=t3.id)
     c3.close()
 
     # Theme 4: Member public theme (account_id = 2, is_public = True)
-    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_default=False, is_public=True, is_collaborator_accessible=False)
-    t4_s = tm.get_settings_for_theme(t4.id, settings)
+    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_personal=False, is_public=True)
+    t4_s = tm.get_settings_for_kb(t4.id, settings)
     c4 = dbm.connect(t4_s.db_file)
     dbm.init_db(c4)
-    dbm.insert_document(c4, Document(id="doc_bob_public", url="https://ex.com/b2", title="Bob Public Doc", raw_text="Bob public content", source_type="web", content_hash="h_b2"), theme_id=t4.id)
+    dbm.insert_document(c4, Document(id="doc_bob_public", url="https://ex.com/b2", title="Bob Public Doc", raw_text="Bob public content", source_type="web", content_hash="h_b2"), kb_id=t4.id)
     c4.close()
 
     mcp_app = build_mcp_app(settings, theme_mgr=tm)
@@ -596,13 +575,13 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
         tok = current_principal.set(p_admin)
         try:
             # Can read own Theme 0
-            r0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0"}}})
+            r0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
             assert r0.status_code == 200
             data0 = json.loads(r0.json()["result"]["content"][0]["text"])
             assert data0["id"] == "doc_admin_0"
 
             # Cannot read Member's Theme 2 (returns theme not found)
-            r_cross = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "theme": t2.id}}})
+            r_cross = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_cross.status_code == 200
             data_cross = json.loads(r_cross.json()["result"]["content"][0]["text"])
             assert data_cross == {"error": "theme not found"}
@@ -614,40 +593,40 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
         tok = current_principal.set(p_member)
         try:
             # Default theme (theme=None) resolves to Bob's default theme (Theme 2)
-            r_def = client.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default"}}})
+            r_def = client.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_def.status_code == 200
             data_def = json.loads(r_def.json()["result"]["content"][0]["text"])
             assert data_def["id"] == "doc_bob_default"
 
             # Cannot read Admin's Theme 0 (returns theme not found)
-            r_admin_0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0", "theme": 0}}})
+            r_admin_0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
             assert r_admin_0.status_code == 200
             assert json.loads(r_admin_0.json()["result"]["content"][0]["text"]) == {"error": "theme not found"}
 
-            # Cross-theme doc resolution does not leak admin documents
-            r_leak = client.post("/mcp", json={"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_1"}}})
+            # No search in other knowledge bases (CT23): the document of the admin is not in the knowledge base of Bob
+            r_leak = client.post("/mcp", json={"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_1", "kb": kb_number(settings, t2.id)}}})
             assert r_leak.status_code == 200
             assert json.loads(r_leak.json()["result"]["content"][0]["text"]) == {"error": "not found"}
         finally:
             current_principal.reset(tok)
 
-        # C. Collaborator Principal (Member collaborator scope)
-        p_collab = Principal(account_id=2, server_role="member", scope="collaborator", channel="bearer", credential_id="cred3")
+        # C. Write-scope Principal (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6: it reads as its account)
+        p_collab = Principal(account_id=2, server_role="member", scope="write", channel="bearer", credential_id="cred3")
         tok = current_principal.set(p_collab)
         try:
-            # Theme 2 is not public and not collaborator_accessible -> theme not found
-            r_t2 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "theme": t2.id}}})
+            # Theme 2 is the private personal knowledge base of the account -> allowed
+            r_t2 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_t2.status_code == 200
-            assert json.loads(r_t2.json()["result"]["content"][0]["text"]) == {"error": "theme not found"}
+            assert json.loads(r_t2.json()["result"]["content"][0]["text"])["id"] == "doc_bob_default"
 
-            # Theme 3 is collaborator_accessible -> allowed!
-            r_t3 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_collab", "theme": t3.id}}})
+            # Theme 3 is a shared knowledge base -> allowed
+            r_t3 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_collab", "kb": kb_number(settings, t3.id)}}})
             assert r_t3.status_code == 200
             data_t3 = json.loads(r_t3.json()["result"]["content"][0]["text"])
             assert data_t3["id"] == "doc_bob_collab"
 
             # Theme 4 is public -> allowed!
-            r_t4 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_public", "theme": t4.id}}})
+            r_t4 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_public", "kb": kb_number(settings, t4.id)}}})
             assert r_t4.status_code == 200
             data_t4 = json.loads(r_t4.json()["result"]["content"][0]["text"])
             assert data_t4["id"] == "doc_bob_public"
@@ -691,7 +670,7 @@ def test_mcp_tools_readonly_connection_and_allowed_hosts_port(tmp_path: Path) ->
 
         # Attempting write operation raises OperationalError
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
-            ro_conn.execute("INSERT INTO themes (id, seq, label, account_id) VALUES (999, 999, 'Write Test', 1)")
+            ro_conn.execute("INSERT INTO knowledge_bases (id, seq, label, account_id) VALUES (999, 999, 'Write Test', 1)")
     finally:
         ro_conn.close()
 
@@ -714,7 +693,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
     dbm.insert_document(
         conn,
         Document(id="doc_top_secret_admin", url="https://admin.internal/doc", title="Admin Classified", raw_text="Secret Admin Document", source_type="web", content_hash="hash_adm"),
-        theme_id=0,
+        kb_id=0,
     )
     conn.close()
 
@@ -724,17 +703,17 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
 
     # Member's private default theme
-    t_charlie = _create_test_theme(tm, settings, "Charlie Knowledge", account_id=2, is_default=True, is_public=False)
-    t_charlie_settings = tm.get_settings_for_theme(t_charlie.id, settings)
+    t_charlie = _create_test_theme(tm, settings, "Charlie Knowledge", account_id=2, is_personal=True, is_public=False)
+    t_charlie_settings = tm.get_settings_for_kb(t_charlie.id, settings)
     c_charlie = dbm.connect(t_charlie_settings.db_file)
     dbm.init_db(c_charlie)
     dbm.insert_document(
         c_charlie,
         Document(id="doc_charlie_notes", url="https://charlie.org/notes", title="Charlie Research Notes", raw_text="Charlie Quantum Computing Notes", source_type="notes", content_hash="hash_cha"),
-        theme_id=t_charlie.id,
+        kb_id=t_charlie.id,
     )
     c_charlie.close()
 
@@ -754,7 +733,6 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         anonymous_readonly=False,
         owner_token="",
         readonly_token="",
-        collaborator_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),
@@ -857,7 +835,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         mcp_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_charlie_notes"}}},
+            json={"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_charlie_notes", "kb": kb_number(settings, t_charlie.id)}}},
         )
         assert mcp_res.status_code == 200
         doc_data = json.loads(mcp_res.json()["result"]["content"][0]["text"])
@@ -868,7 +846,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         mcp_admin_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin"}}},
+            json={"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, t_charlie.id)}}},
         )
         assert mcp_admin_res.status_code == 200
         admin_doc_data = json.loads(mcp_admin_res.json()["result"]["content"][0]["text"])
@@ -878,7 +856,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         mcp_theme0_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin", "theme": 0}}},
+            json={"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, 0)}}},
         )
         assert mcp_theme0_res.status_code == 200
         theme0_data = json.loads(mcp_theme0_res.json()["result"]["content"][0]["text"])

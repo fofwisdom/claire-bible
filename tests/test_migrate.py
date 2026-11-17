@@ -10,7 +10,7 @@ import pytest
 from claire import cli
 from claire.config import Settings
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def _settings(monkeypatch, tmp_path):
@@ -110,9 +110,9 @@ def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, c
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("추가 테마")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("추가 테마", knowledge_type="real")
+    themed = manager.get_settings_for_kb(theme.id, s)
     for path in (s.db_file, themed.db_file):
         conn = dbm.connect(path)
         conn.execute(
@@ -147,9 +147,9 @@ def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, ca
     )
     conn.commit()
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("미래 스키마")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("미래 스키마", knowledge_type="real")
+    themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'",
@@ -377,9 +377,9 @@ def test_migrate_restores_v12_for_every_active_theme(
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("v12 테마")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("v12 테마", knowledge_type="real")
+    themed = manager.get_settings_for_kb(theme.id, s)
     _create_retired_support_v12(s.db_file)
     monkeypatch.setattr(cli, "get_settings", lambda: s)
 

@@ -98,13 +98,13 @@ def create_media_app(
     db_path_val = getattr(settings, "db_file", None) or getattr(settings, "CLAIRE_DB_PATH", "data/claire.db")
     db_path = Path(db_path_val) if db_path_val else None
 
-    def _get_current_epoch(theme_id: int) -> int:
+    def _get_current_epoch(kb_id: int) -> int:
         if not db_path or not db_path.exists():
             return 1
         try:
             conn = dbm.connect_existing(db_path, readonly=True)
             try:
-                row = conn.execute("SELECT visibility_epoch FROM themes WHERE id = ?", (theme_id,)).fetchone()
+                row = conn.execute("SELECT visibility_epoch FROM knowledge_bases WHERE id = ?", (kb_id,)).fetchone()
                 return int(row[0]) if row and row[0] is not None else 1
             finally:
                 conn.close()
@@ -122,20 +122,20 @@ def create_media_app(
         if not token and "sig" in request.query_params and "exp" in request.query_params:
             token = f"{request.query_params['exp']}.{request.query_params['sig']}"
 
-        is_private_req = "account_id" in request.query_params or "theme_id" in request.query_params or (token is not None)
+        is_private_req = "account_id" in request.query_params or "kb_id" in request.query_params or (token is not None)
 
         if is_private_req:
             if not token:
                 return PlainTextResponse("Forbidden: viewing token required for private media", status_code=403)
             try:
                 account_id = int(request.query_params.get("account_id", 1))
-                theme_id = int(request.query_params.get("theme_id", 0))
+                kb_id = int(request.query_params.get("kb_id", 0))
                 req_epoch = int(request.query_params.get("visibility_epoch", 1))
             except (ValueError, TypeError):
                 return PlainTextResponse("Bad Request", status_code=400)
 
             # Check if requested epoch matches current theme epoch in DB
-            cur_epoch = _get_current_epoch(theme_id)
+            cur_epoch = _get_current_epoch(kb_id)
             if req_epoch != cur_epoch:
                 return PlainTextResponse("Forbidden: invalid or expired viewing token", status_code=403)
 
@@ -143,7 +143,7 @@ def create_media_app(
             is_valid = verify_media_capability_token(
                 token=token,
                 account_id=account_id,
-                theme_id=theme_id,
+                kb_id=kb_id,
                 visibility_epoch=cur_epoch,
                 key=key,
                 secret_service=sec_svc,

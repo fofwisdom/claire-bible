@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from . import ids
 from .config import get_settings
 from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
@@ -126,29 +127,29 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
                 file=sys.stderr,
             )
             return s, None
-        from .store.theme import get_theme_manager
+        from .store.knowledge_base import get_kb_manager
 
-        tm = get_theme_manager(s)
+        tm = get_kb_manager(s)
         try:
-            theme = tm.get_theme(theme_ref, label_match="partial")
+            theme = tm.get_kb(theme_ref, label_match="partial")
         except Exception as exc:
             # 기본 테마로 대신 진행하면 다른 테마에 적재·수정하게 된다(PRINCIPLES C1).
             raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
-        return tm.get_settings_for_theme(theme.id, s), theme
+        return tm.get_settings_for_kb(theme.id, s), theme
 
     if getattr(s, "multi_theme", False):
         raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
         if raw_target and isinstance(raw_target, str) and raw_target.strip():
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
+            tm = get_kb_manager(s)
             try:
                 matches = tm.resolve_document_targets(target=raw_target.strip())
                 if matches:
-                    matched_tid = matches[0].get("theme_id")
+                    matched_tid = matches[0].get("kb_id")
                     if matched_tid is not None:
-                        theme = tm.get_theme(matched_tid)
-                        return tm.get_settings_for_theme(theme.id, s), theme
+                        theme = tm.get_kb(matched_tid)
+                        return tm.get_settings_for_kb(theme.id, s), theme
             except Exception:
                 pass
 
@@ -417,23 +418,23 @@ def cmd_untombstone(args) -> int:
     target_themes: list[tuple[Any, Any | None]] = []
     if theme_ref is not None:
         if getattr(s, "multi_theme", False):
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
+            tm = get_kb_manager(s)
             try:
-                t = tm.get_theme(theme_ref, label_match="partial")
+                t = tm.get_kb(theme_ref, label_match="partial")
             except KeyError as exc:
                 raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
-            target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+            target_themes.append((tm.get_settings_for_kb(t.id, s), t))
         else:
             target_themes.append((s, None))
     else:
         if getattr(s, "multi_theme", False):
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
-            for t in tm.list_themes():
-                target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+            tm = get_kb_manager(s)
+            for t in tm.list_kbs():
+                target_themes.append((tm.get_settings_for_kb(t.id, s), t))
         else:
             target_themes.append((s, None))
 
@@ -462,7 +463,7 @@ def cmd_untombstone(args) -> int:
             if res["removed_count"] > 0:
                 for item in res["removed_tombstones"]:
                     if theme:
-                        item["theme_id"] = theme.id
+                        item["kb_id"] = theme.id
                         item["theme_label"] = theme.label
                     all_removed.append(item)
                 total_removed += res["removed_count"]
@@ -724,14 +725,104 @@ def cmd_media(args) -> int:
     return 0
 
 
+def cmd_themes(args) -> int:
+    """``claire theme``: the themes (collections of knowledge bases with one subject): list, run the judgement, and adjust (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2, 8.3, 13.4)."""
+    import json
+
+    from . import ids, theme_judgement
+    from .store import themes as themes_store
+    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
+
+    s = get_settings()
+    action = getattr(args, "themes_action", None) or "list"
+    conn = dbm.connect(s.db_file)
+    try:
+        def _theme(reference: str):
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(reference)))
+            except ValueError:
+                theme = None
+            if theme is None:
+                print(f"[error] No theme has the number {reference}.", file=sys.stderr)
+            return theme
+
+        if action == "list":
+            rows = []
+            for theme in themes_store.list_themes(conn, include_merged=True):
+                members = themes_store.theme_members(conn, int(theme["id"]))
+                rows.append({"number": ids.format_public_id(int(theme["number"])), "label": theme["label"], "knowledge_type": theme["knowledge_type"], "state": theme["state"], "label_locked": bool(theme["label_locked"]), "knowledge_bases": len(members)})
+            if getattr(args, "json", False):
+                print(json.dumps({"themes": rows}, ensure_ascii=False, indent=2))
+            elif not rows:
+                print("There are no themes. Run: claire theme judge")
+            else:
+                for row in rows:
+                    print(f"{row['number']}  {row['knowledge_type']:<9} {row['state']:<7} {row['knowledge_bases']:>3} knowledge bases  {row['label']}")
+            return 0
+        if action == "judge":
+            report = theme_judgement.run_judgement(conn)
+            conn.commit()
+            print(f"The judgement is complete: {report.signatures} signatures, {report.themes_active} active themes ({report.themes_new} new), {report.memberships} memberships.")
+            return 0
+        theme = _theme(args.theme)
+        if theme is None:
+            return 1
+        if action == "rename":
+            label = str(args.label or "").strip()
+            if not label:
+                print("[error] The label is empty.", file=sys.stderr)
+                return 1
+            themes_store.update_theme(conn, int(theme["id"]), label=label, label_locked=1)
+            conn.commit()
+            print(f"Theme {args.theme} has the label '{label}'. The judgement does not change this label.")
+            return 0
+        if action == "unlock":
+            themes_store.update_theme(conn, int(theme["id"]), label_locked=0)
+            conn.commit()
+            print(f"The next judgement sets the label of theme {args.theme}.")
+            return 0
+        if action == "merge":
+            target = _theme(args.into)
+            if target is None:
+                return 1
+            try:
+                themes_store.merge_themes(conn, source_id=int(theme["id"]), target_id=int(target["id"]))
+            except ValueError as exc:
+                print(f"[error] The merge is not possible: {exc}", file=sys.stderr)
+                return 1
+            conn.commit()
+            print(f"Theme {args.theme} is merged into theme {args.into}.")
+            return 0
+        # pin, exclude, free: the membership of one knowledge base
+        try:
+            kb = get_kb_manager(s).get_kb_by_reference(args.kb)
+        except KnowledgeBaseNotFound:
+            print(f"[error] No knowledge base has the reference {args.kb}.", file=sys.stderr)
+            return 1
+        if theme["state"] == "merged":
+            print("[error] A merged theme has no members.", file=sys.stderr)
+            return 1
+        if action == "pin" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+            print("[error] The knowledge type of the knowledge base is not the knowledge type of the theme.", file=sys.stderr)
+            return 1
+        themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=action == "pin", excluded=action == "exclude")
+        if action == "pin":
+            themes_store.update_theme(conn, int(theme["id"]), state="active")
+        conn.commit()
+        print({"pin": "The knowledge base is pinned to the theme.", "exclude": "The knowledge base is excluded from the theme.", "free": "The judgement decides the membership of the knowledge base again."}[action])
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_theme(args) -> int:
     """테마(다중 DB 격리) 조회, 정의, 수정, 삭제."""
     import json
     from .store.queries import theme_summary
-    from .store.theme import get_theme_manager
+    from .store.knowledge_base import get_kb_manager
 
     s = get_settings()
-    tm = get_theme_manager(s)
+    tm = get_kb_manager(s)
     action = getattr(args, "theme_action", None) or "list"
 
     if action in ("define", "update", "delete"):
@@ -763,7 +854,7 @@ def cmd_theme(args) -> int:
                 "description": "General collected material and basic knowledge",
                 "icon": "📚",
                 "db_path": str(s.db_path),
-                "is_default": True,
+                "is_personal": True,
                 "stats": stats,
             }]
             if as_json:
@@ -781,11 +872,11 @@ def cmd_theme(args) -> int:
             print("  ※ To use multi-theme mode, set the environment variable CLAIRE_MULTI_THEME=1.")
             return 0
         tm.reload()
-        themes = tm.list_themes()
+        themes = tm.list_kbs()
         as_json = getattr(args, "json", False)
         out = []
         for t in themes:
-            t_settings = tm.get_settings_for_theme(t.id)
+            t_settings = tm.get_settings_for_kb(t.id)
             stats = {"documents": 0, "entities": 0, "relations": 0}
             if t_settings.db_file.is_file():
                 try:
@@ -806,21 +897,16 @@ def cmd_theme(args) -> int:
 
         print(f"Claire Bible themes ({len(out)} in total)")
         print("=" * 82)
-        print(f"{'ID':<4} {'Icon':<4} {'Label':<18} {'Docs/Entities/Rels':<16} {'Public':<8} {'Collab':<8} {'Slides':<6} {'Default'}")
+        print(f"{'ID':<4} {'Icon':<4} {'Label':<18} {'Docs/Entities/Rels':<16} {'Public':<8} {'Slides':<6} {'Default'}")
         print("-" * 82)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
-            is_def = "★ default" if d["is_default"] else ""
+            is_def = "★ default" if d["is_personal"] else ""
             pub_st = "public" if d.get("is_public", True) else "private 🔒"
-            collab_st = "open" if d.get("is_collaborator_accessible", True) else "blocked"
-            if d["is_default"]:
-                collab_st = "-"
             pres_st = "ON 📊" if d.get("presentation_enabled", False) else "OFF"
-            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
+            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {pres_st:<6} {is_def}")
             if d.get("description"):
                 print(f"     - Description: {d['description']}")
-            if d.get("default_focus"):
-                print(f"     - Default focus: {d['default_focus']}")
             print(f"     ㄴ DB  : {d['db_path']}")
         print("=" * 82)
         return 0
@@ -835,20 +921,15 @@ def cmd_theme(args) -> int:
         is_public = getattr(args, "is_public", True)
         if is_public is None:
             is_public = True
-        is_collab = getattr(args, "is_collaborator_accessible", True)
-        if is_collab is None:
-            is_collab = True
-        default_focus = str(getattr(args, "default_focus", "") or "").strip()
         pres_enabled = bool(getattr(args, "presentation_enabled", False))
         try:
-            theme = tm.define_theme(
+            theme = tm.define_kb(
                 label,
                 description=desc,
                 icon=icon,
                 is_public=is_public,
-                is_collaborator_accessible=is_collab,
-                default_focus=default_focus,
                 presentation_enabled=pres_enabled,
+                knowledge_type=getattr(args, "knowledge_type", None),
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
@@ -857,9 +938,7 @@ def cmd_theme(args) -> int:
                 print(f"  • ID         : {theme.id}")
                 print(f"  • Label        : {theme.icon} {theme.label}")
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
-                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
-                print(f"  • Default focus: {theme.default_focus or '(none)'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  • SQLite path  : {theme.db_path}")
             return 0
@@ -868,26 +947,22 @@ def cmd_theme(args) -> int:
             return 1
 
     elif action == "update":
-        theme_id = getattr(args, "id", None)
-        if theme_id is None:
+        kb_id = getattr(args, "id", None)
+        if kb_id is None:
             print("[error] Give the ID of the theme to change.", file=sys.stderr)
             return 1
         label = getattr(args, "label", None)
         desc = getattr(args, "desc", None) or getattr(args, "description", None)
         icon = getattr(args, "icon", None)
         is_public = getattr(args, "is_public", None)
-        is_collab = getattr(args, "is_collaborator_accessible", None)
-        default_focus = getattr(args, "default_focus", None)
         pres_enabled = getattr(args, "presentation_enabled", None)
         try:
-            theme = tm.update_theme(
-                theme_id,
+            theme = tm.update_kb(
+                kb_id,
                 label=label,
                 description=desc,
                 icon=icon,
                 is_public=is_public,
-                is_collaborator_accessible=is_collab,
-                default_focus=default_focus,
                 presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
@@ -896,9 +971,7 @@ def cmd_theme(args) -> int:
                 print(f"[done] The metadata of theme #{theme.id} is changed.")
                 print(f"  • Label        : {theme.icon} {theme.label}")
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
-                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
-                print(f"  • Default focus: {theme.default_focus or '(none)'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  (The directory path does not change: {theme.db_path})")
             return 0
@@ -907,19 +980,19 @@ def cmd_theme(args) -> int:
             return 1
 
     elif action in ("delete", "reset"):
-        theme_id = getattr(args, "id", None)
-        if theme_id is None:
+        kb_id = getattr(args, "id", None)
+        if kb_id is None:
             verb = "delete" if action == "delete" else "reset"
             print(f"[error] Give the ID of the theme to {verb}.", file=sys.stderr)
             return 1
         try:
-            target_theme = tm.get_theme(theme_id, label_match="partial")
+            target_theme = tm.get_kb(kb_id, label_match="partial")
         except Exception as exc:
             print(f"[error] The theme is not found: {exc}", file=sys.stderr)
             return 1
 
         if action == "delete":
-            if target_theme.is_default or target_theme.id == 0:
+            if target_theme.is_personal or target_theme.id == 0:
                 print(f"[error] You cannot delete the default theme (ID {target_theme.id}).", file=sys.stderr)
                 return 1
             if not getattr(tm.settings, "multi_theme", False):
@@ -928,7 +1001,7 @@ def cmd_theme(args) -> int:
 
         purge = action == "delete" and getattr(args, "purge", False)
         removes_data = action == "reset" or purge
-        counts = tm.theme_data_counts(target_theme.id) if removes_data else None
+        counts = tm.kb_data_counts(target_theme.id) if removes_data else None
 
         if not getattr(args, "apply", False):
             plan = {
@@ -947,18 +1020,18 @@ def cmd_theme(args) -> int:
                     print("  • Remove from the registry: yes")
                     print(f"  • Purge the data permanently: {'yes' if purge else 'no (--purge is not given)'}")
                 else:
-                    print(f"  • Theme ID / URI kept    : #{target_theme.id} (?theme={target_theme.id})")
+                    print(f"  • Theme ID / path kept   : #{target_theme.id} (/themes/{target_theme.number}/)")
                 if counts is not None:
                     print(f"  • Documents to purge     : {counts['documents']}")
                     print(f"  • Entities to purge      : {counts['entities']}")
                     print(f"  • Relations to purge     : {counts['relations']}")
-                print(f"To do it, add --apply: claire theme {action} {theme_id} --apply")
+                print(f"To do it, add --apply: claire kb {action} {kb_id} --apply")
             return 0
 
         if removes_data and not getattr(args, "yes", False):
             if not sys.stdin.isatty():
                 print(
-                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire theme {action} {theme_id} --apply --yes",
+                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire kb {action} {kb_id} --apply --yes",
                     file=sys.stderr,
                 )
                 return 2
@@ -968,7 +1041,7 @@ def cmd_theme(args) -> int:
                 else:
                     prompt = (
                         f"[warning] Reset all documents, knowledge nodes, and relations of theme #{target_theme.id} [{target_theme.label}]?\n"
-                        f"      The theme ID and its URI (?theme={target_theme.id}) stay. (y/N): "
+                        f"      The theme ID and its path (/themes/{target_theme.number}/) stay. (y/N): "
                     )
                 confirm = input(prompt)
                 if confirm.strip().lower() not in ("y", "yes"):
@@ -980,7 +1053,7 @@ def cmd_theme(args) -> int:
 
         if action == "delete":
             try:
-                theme = tm.delete_theme(target_theme.id, purge=purge)
+                theme = tm.delete_kb(target_theme.id, purge=purge)
                 if getattr(args, "json", False):
                     print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
                 else:
@@ -991,12 +1064,12 @@ def cmd_theme(args) -> int:
                 return 1
 
         try:
-            stats = tm.reset_theme(target_theme.id)
+            stats = tm.reset_kb(target_theme.id)
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
             else:
-                print(f"[done] All data of theme #{stats['theme_id']} [{stats['theme_label']}] is reset.")
-                print(f"  • Theme ID / URI    : #{stats['theme_id']} (?theme={stats['theme_id']}) (kept)")
+                print(f"[done] All data of theme #{stats['kb_id']} [{stats['theme_label']}] is reset.")
+                print(f"  • Theme ID           : #{stats['kb_id']} (kept)")
                 print(f"  • Documents purged  : {stats['deleted_documents']}")
                 print(f"  • Entities purged   : {stats['deleted_entities']}")
                 print(f"  • Relations purged  : {stats['deleted_relations']}")
@@ -1146,7 +1219,7 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
     s = get_settings()
     lines = [f"⛔ claire automatic recovery: {len(failed_items)} permanent failures (retry limit reached)"]
     for r in failed_items[:5]:
-        theme = f"theme#{r['_theme_id']} " if "_theme_id" in r else ""
+        theme = f"theme#{r['_kb_id']} " if "_kb_id" in r else ""
         lines.append(f"• {theme}inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
     if len(failed_items) > 5:
         lines.append(f"… and {len(failed_items) - 5} more")
@@ -1161,7 +1234,7 @@ class _ThemeLoopState:
     """상주 큐 루프의 서비스 캐시와 다음 round-robin 시작점을 보존한다."""
 
     services: dict[int, tuple[tuple[str, str], Any]] = field(default_factory=dict)
-    next_theme_id: int | None = None
+    next_kb_id: int | None = None
 
 
 def _close_theme_service(service: Any) -> None:
@@ -1211,13 +1284,13 @@ def _build_theme_service(
     if provider_context is not None:
         attempts.append(
             {
-                "theme_id": theme.id,
+                "kb_id": theme.id,
                 "account_id": account_id,
                 "provider_context": provider_context,
                 "provider_error": provider_error,
             }
         )
-    attempts += [{"theme_id": theme.id, "account_id": account_id}, {"theme_id": theme.id}]
+    attempts += [{"kb_id": theme.id, "account_id": account_id}, {"kb_id": theme.id}]
     for kwargs in attempts:
         try:
             return service_factory(theme_settings, **kwargs)
@@ -1232,11 +1305,14 @@ def _theme_services_for_cycle(
     service_factory: Callable[[Any], Any],
 ) -> list[tuple[Any, Any]]:
     """매 cycle 레지스트리를 재조회하고 활성 테마 서비스를 순환 순서로 반환."""
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
-    active = ThemeManager(
-        base_settings, create_registry=False
-    ).active_theme_settings(base_settings)
+    active = KnowledgeBaseManager(
+        base_settings, writable=False
+    ).active_kb_settings(base_settings)
+
+    # CT10: watch, refresh, expand, and recover run only in personal knowledge bases. A shared knowledge base has no owner, so no worker takes its rows (the server provider must not pay for them).
+    active = [(theme, theme_settings) for theme, theme_settings in active if not getattr(theme, "is_shared", False)]
 
     account_statuses: dict[int, str] | None = None
     db_file = getattr(base_settings, "db_file", None) or getattr(base_settings, "db_path", None)
@@ -1294,12 +1370,12 @@ def _theme_services_for_cycle(
     if not ordered:
         return []
     ids = [theme.id for theme, _ in ordered]
-    if state.next_theme_id in ids:
-        start = ids.index(state.next_theme_id)
+    if state.next_kb_id in ids:
+        start = ids.index(state.next_kb_id)
     else:
         start = 0
     rotated = ordered[start:] + ordered[:start]
-    state.next_theme_id = ids[(start + 1) % len(ids)]
+    state.next_kb_id = ids[(start + 1) % len(ids)]
     return rotated
 
 
@@ -1331,14 +1407,14 @@ def _run_queue_round_robin(
                 current = operation(service)
             except Exception as exc:  # noqa: BLE001
                 errors.append(
-                    {"theme_id": theme.id, "theme_label": theme.label, "error": _loop_error_text(exc)}
+                    {"kb_id": theme.id, "theme_label": theme.label, "error": _loop_error_text(exc)}
                 )
                 continue
             if not current:
                 continue
             progressed = True
             for item in current:
-                item["_theme_id"] = theme.id
+                item["_kb_id"] = theme.id
                 item["_theme_label"] = theme.label
             results.extend(current)
             remaining -= len(current)
@@ -1395,7 +1471,7 @@ def cmd_recover_loop(args) -> int:
                 print("[recover] Nothing to ingest again; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[recover] theme#{error['theme_id']} [{error['theme_label']}] error: "
+                    f"[recover] theme#{error['kb_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
@@ -1479,7 +1555,7 @@ def cmd_refresh_loop(args) -> int:
                 print("[refresh] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[refresh] theme#{error['theme_id']} [{error['theme_label']}] "
+                    f"[refresh] theme#{error['kb_id']} [{error['theme_label']}] "
                     f"{error['stage']} error: {error['error']}",
                     flush=True,
                 )
@@ -1499,11 +1575,11 @@ def _notify_expansion(results: list[dict]) -> None:
     total = sum(r["stored"] for r in stored)
     lines = [f"🔗 One-hop expansion: Claire followed {total} links and added them to the knowledge base."]
     for r in stored[:5]:
-        theme_id = r.get("_theme_id")
+        kb_id = r.get("_kb_id")
         theme_label = str(r.get("_theme_label") or "").strip()
-        if theme_id is not None:
+        if kb_id is not None:
             label = f" [{theme_label}]" if theme_label else ""
-            lines.append(f"theme#{theme_id}{label}: {r['stored']} ingested")
+            lines.append(f"theme#{kb_id}{label}: {r['stored']} ingested")
         for f in r.get("followed", []):
             if f.get("stored"):
                 lines.append(f"• {f.get('title') or f.get('url')}")
@@ -1565,7 +1641,7 @@ def _run_refresh_cycle(
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     {
-                        "theme_id": theme.id,
+                        "kb_id": theme.id,
                         "theme_label": theme.label,
                         "stage": "watch",
                         "error": _loop_error_text(exc),
@@ -1631,7 +1707,7 @@ def cmd_expand_loop(args) -> int:
                 print("[expand] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[expand] theme#{error['theme_id']} [{error['theme_label']}] error: "
+                    f"[expand] theme#{error['kb_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
@@ -1653,11 +1729,6 @@ def cmd_ingest(args) -> int:
     provider = get_provider(s)
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
-    focus = getattr(args, "focus", None)
-    if not focus and theme and not theme.is_default and getattr(theme, "default_focus", None):
-        focus = theme.default_focus.strip() or None
-        if focus:
-            print(f"  [Default focus applied: {focus}]")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -1665,11 +1736,13 @@ def cmd_ingest(args) -> int:
         data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
-        focus=focus,
         effort=effort,
         full_content=full_content,
     )
     print(report.telegram_summary())
+    # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
+    for notice_line in report.notice_lines():
+        print(f"NOTICE: {notice_line}")
 
     # 1홉 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
     if report.candidates and args.expand:
@@ -1678,7 +1751,7 @@ def cmd_ingest(args) -> int:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
-                         focus=focus, effort=effort, full_content=full_content)  # 2홉 방지
+                         effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] Candidate URLs (use --expand to ingest them):")
@@ -1716,7 +1789,6 @@ def cmd_reingest(args) -> int:
     dry_run = getattr(args, "dry_run", False)
     full_content = getattr(args, "full_content", False)
     effort = getattr(args, "effort", None)
-    focus = getattr(args, "focus", None)
     fmt = getattr(args, "format", None)
     is_json = getattr(args, "json", False)
 
@@ -1755,7 +1827,6 @@ def cmd_reingest(args) -> int:
                 "targets": matched_targets,
                 "full_content": full_content,
                 "effort": effort,
-                "focus": focus,
             }
             if is_json:
                 import json
@@ -1769,8 +1840,6 @@ def cmd_reingest(args) -> int:
             print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
                 print(f"• Effort                   : {effort}")
-            if focus:
-                print(f"• Focus                    : {focus}")
             print("-" * 60)
             print("Documents:")
             for m in matched_targets:
@@ -1782,8 +1851,6 @@ def cmd_reingest(args) -> int:
             extra = " --full-content" if full_content else ""
             if effort:
                 extra += f" --effort {effort}"
-            if focus:
-                extra += f" --focus '{focus}'"
             if untombstone:
                 extra += " --untombstone"
             print(f"  claire reingest '{query_target}' --apply{extra}")
@@ -1796,7 +1863,6 @@ def cmd_reingest(args) -> int:
                 "payload": query_target,
                 "full_content": full_content,
                 "effort": effort,
-                "focus": focus,
             }
             if is_json:
                 import json
@@ -1810,8 +1876,6 @@ def cmd_reingest(args) -> int:
             print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
                 print(f"• Effort                   : {effort}")
-            if focus:
-                print(f"• Focus                    : {focus}")
             print("=" * 60)
             print("[note] To ingest, add the option --apply:")
             print(f"  claire reingest '{query_target}' --apply")
@@ -1852,7 +1916,6 @@ def cmd_reingest(args) -> int:
             force=True,
             effort=effort,
             format=fmt,
-            focus=focus,
             on_progress=_on_progress,
         )
         if is_json:
@@ -1891,7 +1954,6 @@ def cmd_reingest(args) -> int:
                 source="cli-reingest",
                 expand_max=(0 if args.no_expand else s.expand_max),
                 format=fmt,
-                focus=focus,
                 effort=effort,
                 full_content=full_content,
             )
@@ -1971,14 +2033,12 @@ def cmd_backfill_detail(args) -> int:
         print("No document needs a detail backfill.")
         return 0
 
-    focus = getattr(args, "focus", None)
     try:
         with track_batch_progress(f"Detail backfill ({svc.provider.name})", total_docs) as reporter:
             out = svc.backfill_details(
                 limit=args.limit,
                 force=args.force,
                 format=fmt,
-                focus=focus,
                 tables_only=tables_only,
                 reporter=reporter,
             )
@@ -2067,7 +2127,6 @@ def cmd_regenerate(args) -> int:
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
-    focus = getattr(args, "focus", None)
 
     if not apply:
         # Dry-run 진단
@@ -2087,7 +2146,6 @@ def cmd_regenerate(args) -> int:
             force=False,
             effort=effort,
             format=fmt,
-            focus=focus,
         )
 
         if getattr(args, "json", False):
@@ -2143,7 +2201,6 @@ def cmd_regenerate(args) -> int:
         force=False,
         effort=effort,
         format=fmt,
-        focus=focus,
     )
     if diag.get("error"):
         print(f"[!] {diag['error']}")
@@ -2168,7 +2225,6 @@ def cmd_regenerate(args) -> int:
                 force=True,
                 effort=effort,
                 format=fmt,
-                focus=focus,
                 reporter=reporter,
             )
             reporter.print_summary()
@@ -2670,9 +2726,9 @@ def cmd_recompile_html(args) -> int:
         try:
             doc_id = target
             if getattr(s, "multi_theme", False):
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
+                tm = get_kb_manager(s)
                 matches = tm.resolve_document_targets(target=target)
                 if matches:
                     doc_id = matches[0]["id"]
@@ -2710,10 +2766,10 @@ def cmd_recompile_html(args) -> int:
 
     # 3. 테마 지정 없이 일괄 실행된 경우 (멀티 테마 시 모든 활성 테마 순회)
     if getattr(s, "multi_theme", False):
-        from .store.theme import ThemeManager
+        from .store.knowledge_base import KnowledgeBaseManager
 
         try:
-            targets = ThemeManager(s).active_theme_settings(s)
+            targets = KnowledgeBaseManager(s).active_kb_settings(s)
         except Exception as exc:
             print(f"recompile-html: registry error: {exc}", file=sys.stderr)
             return 1
@@ -2822,7 +2878,7 @@ def cmd_presentation(args) -> int:
                     ))
 
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -2887,7 +2943,7 @@ def cmd_presentation(args) -> int:
                     conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val
                 ))
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -3043,7 +3099,7 @@ def cmd_presentation(args) -> int:
                     conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val, focus=focus_val, slide_budget=slide_budget_val
                 ))
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -3112,7 +3168,7 @@ def cmd_presentation(args) -> int:
                 return 0
 
             base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-            meta["presentation_url"] = f"{base_url}/p/presentation?id={doc_id}"
+            meta["presentation_url"] = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
             meta["title"] = doc_info.get("title", "")
             adoc_path = svc.get_presentation_adoc_path(doc_id)
             meta["has_adoc"] = bool(meta.get("presentation_adoc") or adoc_path.exists())
@@ -3694,8 +3750,6 @@ def cmd_auth(args) -> int:
     import json
     s, theme = get_effective_settings(args)
     scope = getattr(args, "scope", "owner") or "owner"
-    if scope == "collab":
-        scope = "collaborator"
 
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -3708,7 +3762,7 @@ def cmd_auth(args) -> int:
             "token": tok,
             "scope": scope,
             "url": magic_url,
-            "theme_id": theme.id if theme else 0,
+            "kb_id": theme.id if theme else 0,
         }
         if getattr(args, "json", False):
             print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -3780,7 +3834,7 @@ def cmd_token(args) -> int:
             masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
             print(f"{tid:<4} {name:<22} {scope:<12} {status:<8} {exp_str:<18} {masked}")
         print("=" * 88)
-        print("※ New token: claire token create <name> [--scope owner|collab|readonly] [--expires-in DAYS]")
+        print("※ New token: claire token create <name> [--scope owner|write|readonly] [--expires-in DAYS]")
         print("※ Revoke a token: claire token revoke <ID or token>")
         return 0
 
@@ -3791,10 +3845,8 @@ def cmd_token(args) -> int:
             return 1
 
         scope = str(getattr(args, "scope", "readonly") or "readonly").strip().lower()
-        if scope == "collab":
-            scope = "collaborator"
-        if scope not in ("owner", "collaborator", "readonly"):
-            print(f"Error: The scope '{scope}' is not valid. (use owner, collaborator, or readonly)")
+        if scope not in ("owner", "write", "readonly"):
+            print(f"Error: The scope '{scope}' is not valid. (use owner, write, or readonly)")
             return 1
 
         expires_in = getattr(args, "expires_in", None)
@@ -4224,10 +4276,10 @@ def cmd_migrate(_args) -> int:
         )
         return 0
 
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
     try:
-        targets = ThemeManager(s).active_theme_settings(s)
+        targets = KnowledgeBaseManager(s).active_kb_settings(s)
     except Exception as exc:  # noqa: BLE001
         print(f"migrate: registry error: {exc}", file=sys.stderr)
         return 1
@@ -4247,13 +4299,13 @@ def cmd_migrate(_args) -> int:
             if conn is not None:
                 conn.close()
 
-    for theme_id, label, version in successes:
+    for kb_id, label, version in successes:
         print(
-            f"theme#{theme_id} [{label}]: schema_version={version} "
+            f"theme#{kb_id} [{label}]: schema_version={version} "
             f"expected={dbm.SCHEMA_VERSION} lineage={dbm.SCHEMA_LINEAGE}"
         )
-    for theme_id, label, exc in failures:
-        print(f"theme#{theme_id} [{label}]: error: {exc}", file=sys.stderr)
+    for kb_id, label, exc in failures:
+        print(f"theme#{kb_id} [{label}]: error: {exc}", file=sys.stderr)
     print(
         f"migrate: themes={len(targets)} succeeded={len(successes)} "
         f"failed={len(failures)}"
@@ -4447,14 +4499,14 @@ def cmd_reembed(args) -> int:
     from .store.vectors import make_vector_store, read_embed_pin, resolve_embed_identity
 
     s, theme = get_effective_settings(args)
-    tid = theme.id if theme is not None else int(getattr(s, "theme_id", 0) or 0)
+    tid = theme.id if theme is not None else int(getattr(s, "kb_id", 0) or 0)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    vstore = make_vector_store(conn, s.vector_backend, theme_id=tid)
+    vstore = make_vector_store(conn, s.vector_backend, kb_id=tid)
     svc = IngestService(s)
     provider = svc.provider
 
-    ents = dbm.all_entities(conn, theme_id=tid)
+    ents = dbm.all_entities(conn, kb_id=tid)
     if not ents:
         print("No entity to embed again.")
         conn.close()
@@ -4829,7 +4881,7 @@ def cmd_export_graph(args: Any) -> int:
     try:
         info = create_graph_bundle(
             settings=s,
-            theme_id=theme_ref,
+            kb_id=theme_ref,
             request_context={"channel": "cli"},
             output_path=output_path,
         )
@@ -4844,7 +4896,7 @@ def cmd_export_graph(args: Any) -> int:
     print("=" * 60)
     print("Graph Data Bundle Export Completed")
     print(f"• Bundle ID       : {info.bundle_id}")
-    print(f"• Theme ID        : {info.theme_id}")
+    print(f"• Theme ID        : {info.kb_id}")
     print(f"• Entities        : {info.entities_count}")
     print(f"• Relations       : {info.relations_count}")
     print(f"• Documents       : {info.documents_count}")
@@ -4877,10 +4929,10 @@ def cmd_import_graph(args: Any) -> int:
         target_db = s.db_file
         if getattr(s, "multi_theme", False) or (theme_ref and str(theme_ref) != "0"):
             try:
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
-                theme = tm.get_theme(theme_ref, label_match="partial")
+                tm = get_kb_manager(s)
+                theme = tm.get_kb(theme_ref, label_match="partial")
                 target_db = Path(theme.db_path)
             except Exception as exc:
                 raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
@@ -4908,6 +4960,21 @@ def cmd_import_graph(args: Any) -> int:
     return 0
 
 
+
+def _presentation_kb_query(s: Any) -> str:
+    """``/p/presentation`` has no namespace: the parameter ``kb`` (number) selects the knowledge base (design Section 5.2 rule 2)."""
+    try:
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (int(getattr(s, "kb_id", 0) or 0),)).fetchone()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return ""
+    if row is None or row[0] is None:
+        return ""
+    return "&kb=" + ids.format_public_id(int(row[0]))
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="claire",
@@ -4921,7 +4988,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  claire health                      # Check system health status (JSON)\n"
             "  claire reprocess <target> --apply  # Reprocess summary, detail, graph, and format\n"
             "  claire queue status                # Inspect asynchronous processing queues\n"
-            "  claire theme list                  # Manage multi-theme databases and sequences\n"
+            "  claire kb list                     # Manage the knowledge bases\n"
             "  claire presentation generate <doc> # Generate Asciidoctor reveal.js presentation\n"
             "\n"
             "Detailed Documentation: docs/implementation/COMMANDS.md"
@@ -5048,18 +5115,18 @@ def build_parser() -> argparse.ArgumentParser:
     pprov_test.set_defaults(func=cmd_providers)
     pprov.set_defaults(func=cmd_providers)
 
-    # Theme management subcommand
+    # Knowledge base management (design Section 5.3: "claire kb"; "claire theme" is for the theme collections)
     ptheme = sub.add_parser(
-        "theme",
-        help="manage themes (multi-database isolation by sequence)",
-        description="Manage knowledge themes with isolated database storage by sequence directory.",
+        "kb",
+        help="manage knowledge bases",
+        description="Manage the knowledge bases (partitions of claire.db): list, define, update, reset, delete.",
     )
     ptheme_sub = ptheme.add_subparsers(dest="theme_action")
 
     ptl = ptheme_sub.add_parser(
         "list",
         help="list registered themes and stats",
-        description="List all registered themes, visibility, permissions, default focus, and statistics.",
+        description="List all registered themes, visibility, permissions, and statistics.",
     )
     ptl.add_argument("--json", action="store_true", help="output in JSON format")
     ptl.set_defaults(func=cmd_theme)
@@ -5070,25 +5137,22 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register a new theme and provision isolated data storage directories.",
     )
     ptd.add_argument("--label", "-l", required=True, help="theme label (display name)")
+    ptd.add_argument("--type", dest="knowledge_type", required=True, choices=("real", "fictional"), help="knowledge type of the shared knowledge base: real (the real world) or fictional (an invented world)")
     ptd.add_argument("--desc", "--description", default="", help="theme description (shown in WebUI and Telegram bot)")
     ptd.add_argument("--icon", default="📁", help="theme emoji icon (default: 📁)")
     ptd_vis = ptd.add_mutually_exclusive_group()
     ptd_vis.add_argument("--public", dest="is_public", action="store_true", default=True, help="set theme as public (default)")
     ptd_vis.add_argument("--private", dest="is_public", action="store_false", help="set theme as private (blocks anonymous access)")
-    ptd_collab = ptd.add_mutually_exclusive_group()
-    ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="allow collaborator access (default)")
-    ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="block collaborator access")
     ptd_pres = ptd.add_mutually_exclusive_group()
     ptd_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=False, help="enable presentation feature for this theme")
     ptd_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", help="disable presentation feature for this theme (default)")
-    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="default focus instruction applied when ingesting documents into this theme")
     ptd.add_argument("--json", action="store_true", help="output newly created theme details in JSON format")
     ptd.set_defaults(func=cmd_theme)
 
     ptu = ptheme_sub.add_parser(
         "update",
-        help="update theme label, description, icon, focus, visibility, or presentation",
-        description="Update existing theme metadata, visibility, collaborator access, default focus, or presentation.",
+        help="update theme label, description, icon, visibility, or presentation",
+        description="Update existing theme metadata, visibility, or presentation.",
     )
     ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
@@ -5097,13 +5161,9 @@ def build_parser() -> argparse.ArgumentParser:
     ptu_vis = ptu.add_mutually_exclusive_group()
     ptu_vis.add_argument("--public", dest="is_public", action="store_true", default=None, help="change theme visibility to public")
     ptu_vis.add_argument("--private", dest="is_public", action="store_false", default=None, help="change theme visibility to private (block anonymous access)")
-    ptu_collab = ptu.add_mutually_exclusive_group()
-    ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="allow collaborator access")
-    ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="block collaborator access")
     ptu_pres = ptu.add_mutually_exclusive_group()
     ptu_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=None, help="enable presentation feature for this theme")
     ptu_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", default=None, help="disable presentation feature for this theme")
-    ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="update default focus instruction (pass empty string '' to remove)")
     ptu.add_argument("--json", action="store_true", help="output updated theme details in JSON format")
     ptu.set_defaults(func=cmd_theme)
 
@@ -5131,6 +5191,26 @@ def build_parser() -> argparse.ArgumentParser:
     ptres.set_defaults(func=cmd_theme)
 
     ptheme.set_defaults(func=cmd_theme, theme_action="list")
+
+    # Themes (design Section 13.4: "claire theme" for themes: list, run judgement, adjust)
+    pthemes = sub.add_parser("theme", help="manage themes", description="Manage the themes (collections of knowledge bases with one subject): list, run the judgement, adjust.")
+    pthemes_sub = pthemes.add_subparsers(dest="themes_action")
+    pth_list = pthemes_sub.add_parser("list", help="list the themes", description="List each theme with its number, knowledge type, state, and count of knowledge bases.")
+    pth_list.add_argument("--json", action="store_true", help="output in JSON format")
+    pthemes_sub.add_parser("judge", help="run the subject judgement now", description="Compute the signatures, the themes, and the memberships now. Admin adjustments stay.")
+    pth_rename = pthemes_sub.add_parser("rename", help="set and lock the label of a theme", description="Set the label of a theme. The judgement does not change a locked label.")
+    pth_rename.add_argument("theme", help="theme number")
+    pth_rename.add_argument("label", help="new label")
+    pth_unlock = pthemes_sub.add_parser("unlock", help="give the label back to the judgement", description="Remove the lock of the label. The next judgement sets the label.")
+    pth_unlock.add_argument("theme", help="theme number")
+    for name, text in (("pin", "pin a knowledge base to a theme"), ("exclude", "exclude a knowledge base from a theme"), ("free", "remove the pin or the exclusion of a knowledge base")):
+        pth_member = pthemes_sub.add_parser(name, help=text, description=f"Adjust a membership: {text}.")
+        pth_member.add_argument("theme", help="theme number")
+        pth_member.add_argument("kb", help="knowledge base number, ID, or label")
+    pth_merge = pthemes_sub.add_parser("merge", help="merge a theme into another theme", description="Merge a theme into another theme of the same knowledge type. The members are pinned to the other theme.")
+    pth_merge.add_argument("theme", help="number of the theme that goes")
+    pth_merge.add_argument("--into", required=True, help="number of the theme that stays")
+    pthemes.set_defaults(func=cmd_themes, themes_action="list")
     sub.add_parser(
         "bot",
         help="run Telegram long-polling bot daemon",
@@ -5338,8 +5418,6 @@ def build_parser() -> argparse.ArgumentParser:
                     help="skip 1-hop candidate link detection")
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
-    pi.add_argument("-f", "--focus", dest="focus", default=None,
-                    help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
@@ -5356,8 +5434,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="re-ingest full content without character limit (lossless ingestion)")
     pri.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"], default=None,
                      help="LLM reasoning effort level (validated against active provider capabilities)")
-    pri.add_argument("-f", "--focus", dest="focus", default=None,
-                     help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pri.add_argument("--format", choices=["adoc"], default=None,
                      help="detail render format (adoc only, RD23)")
     pri.add_argument("--expand", action="store_true", help="fetch and queue 1-hop related links found in content")
@@ -5406,8 +5482,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="backfill/regenerate only documents containing tables")
     pbd.add_argument("--format", choices=["adoc"], default=None,
                      help="detail render format (adoc only, RD23)")
-    pbd.add_argument("--focus", dest="focus", default=None,
-                     help="content focus guidance for detail rendering")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbs = sub.add_parser(
@@ -5441,7 +5515,6 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
     prep.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     prep.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
-    prep.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     prep.add_argument("--json", action="store_true", help="output result in JSON format")
     prep.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     prep.set_defaults(func=cmd_reprocess)
@@ -5479,7 +5552,6 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--yes", "-y", action="store_true", help="confirm regeneration operation without interactive prompt")
     preg.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
-    preg.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     preg.set_defaults(func=cmd_regenerate)
@@ -5609,8 +5681,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="mint one-time Web UI magic login link and session token",
         description="Generate a one-time magic login link and session token for direct WebUI access from the terminal.",
     )
-    pauth.add_argument("--scope", choices=["owner", "collab", "readonly"], default="owner",
-                       help="session scope: owner (default), collab (collaborator), readonly")
+    pauth.add_argument("--scope", choices=["owner", "readonly"], default="owner",
+                       help="session scope: owner (default) or readonly")
     pauth.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
@@ -5717,8 +5789,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create a persistent API and MCP access token for always-on access.",
     )
     ptok_create.add_argument("name", help="name or description of the token (e.g., 'Claude Desktop', 'Cursor')")
-    ptok_create.add_argument("--scope", choices=["owner", "collab", "readonly"], default="readonly",
-                             help="permission scope: readonly (default), collab (collaborator), owner")
+    ptok_create.add_argument("--scope", choices=["owner", "write", "readonly"], default="readonly",
+                             help="permission scope: readonly (default), write (the tools of the account: read, ingest, publish, contribute), owner")
     ptok_create.add_argument("--expires-in", type=int, default=None, dest="expires_in",
                              help="expiration in days (default: None for never expires / always-on)")
     ptok_create.add_argument("--json", action="store_true", help="output created token in JSON format")

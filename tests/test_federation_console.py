@@ -216,7 +216,7 @@ def test_status_counts_only_the_followers_of_the_caller(env):
 
 def test_account_routes_refuse_a_principal_that_is_not_an_account_owner(env):
     _follow(env.settings, env.alpha, BOB, at=100.0)
-    collaborator = _session(env.settings, env.alpha, scope="collaborator")
+    collaborator = _session(env.settings, env.alpha, scope="write")
 
     for session in (None, collaborator):
         for method, path, kwargs in (("GET", STATUS_PATH, {}), ("GET", FOLLOWERS_PATH, {}), ("DELETE", FOLLOWERS_PATH, {"json": {"actor_iri": BOB}})):

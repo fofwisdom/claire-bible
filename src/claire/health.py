@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import Settings
 from .store import db as dbm
-from .store.theme import ThemeInfo, ThemeManager
+from .store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
 RECOVER_MAX_ATTEMPTS = 5  # recover-loop 기본값과 동일(due 계산용)
 
@@ -47,15 +47,15 @@ def require_current_schema(conn: sqlite3.Connection) -> int:
     return dbm.require_current_schema(conn)
 
 
-def _active_databases(s: Settings) -> list[tuple[ThemeInfo, Settings]]:
+def _active_databases(s: Settings) -> list[tuple[KnowledgeBaseInfo, Settings]]:
     """읽기 전용 점검 대상 목록을 만든다(레지스트리 생성 금지)."""
-    manager = ThemeManager(s, create_registry=False)
-    return manager.active_theme_settings(s)
+    manager = KnowledgeBaseManager(s, writable=False)
+    return manager.active_kb_settings(s)
 
 
-def _check_database(theme: ThemeInfo, theme_settings: Settings) -> dict:
+def _check_database(theme: KnowledgeBaseInfo, theme_settings: Settings) -> dict:
     item: dict = {
-        "theme_id": theme.id,
+        "kb_id": theme.id,
         "theme_label": theme.label,
         "db_path": str(theme_settings.db_file),
         "ok": True,
@@ -136,15 +136,15 @@ def health_report(s: Settings, provider_name: str) -> dict:
             try:
                 conn = _connect_readonly(theme_settings.db_file)
                 try:
-                    item_inbox = dbm.inbox_status_counts(conn, theme_id=theme.id)
-                    item_refresh = len(dbm.pending_refresh(conn, theme_id=theme.id))
+                    item_inbox = dbm.inbox_status_counts(conn, kb_id=theme.id)
+                    item_refresh = len(dbm.pending_refresh(conn, kb_id=theme.id))
                     item_recover = len(
                         dbm.due_for_recovery(
-                            conn, max_attempts=RECOVER_MAX_ATTEMPTS, theme_id=theme.id
+                            conn, max_attempts=RECOVER_MAX_ATTEMPTS, kb_id=theme.id
                         )
                     )
-                    item_expand = len(dbm.pending_expand(conn, theme_id=theme.id))
-                    counts = dbm.counts(conn, theme_id=theme.id)
+                    item_expand = len(dbm.pending_expand(conn, kb_id=theme.id))
+                    counts = dbm.counts(conn, kb_id=theme.id)
                 finally:
                     conn.close()
                 item_graph = {

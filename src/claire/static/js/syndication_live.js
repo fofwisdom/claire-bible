@@ -51,7 +51,7 @@
   const cfg = window.__CLAIRE_CONFIG || {};
   const RAW_THEMES = Array.isArray(cfg.themes) && cfg.themes.length
     ? cfg.themes
-    : [{ id: 0, seq: 0, number: "0", label: tr("synd.kb.default_theme"), icon: "📚", is_default: true, is_public: true }];
+    : [{ id: 0, seq: 0, number: "0", label: tr("synd.kb.default_theme"), icon: "📚", is_personal: true, is_public: true }];
 
   const THEMES = {};
   RAW_THEMES.forEach((srv) => {
@@ -63,7 +63,7 @@
       icon: srv.icon || "📚",
       label: srv.label || tr("synd.kb.theme_number", { id: srv.id }),
       isPublic: srv.is_public !== false,
-      defaultFocus: srv.default_focus || "",
+      isPersonal: !!srv.is_personal,
       documents: [],
       entities: [],
       dispatches: [],
@@ -91,6 +91,13 @@
   function themeRefOf(themeKey) {
     const t = THEMES[String(themeKey)];
     return t && t.number != null ? String(t.number) : String(themeKey);
+  }
+
+  // Design Sections 5.2 and 7: the path selects the knowledge base. The personal knowledge base has the plain path; a shared one has "/kb/<number>" before the route.
+  function kbPath(themeKey, route) {
+    const t = THEMES[String(themeKey)];
+    if (!t || t.isPersonal || String(themeKey) === "0") return route;
+    return `/kb/${encodeURIComponent(themeRefOf(themeKey))}${route}`;
   }
 
   function slotKey(themeKey) {
@@ -133,7 +140,7 @@
 
   function resolveInitialThemeKey() {
     const urlParams = new URLSearchParams(window.location.search);
-    const reqTheme = urlParams.get("theme");
+    const reqTheme = urlParams.get("kb");
     if (reqTheme) {
       if (THEMES[reqTheme]) return reqTheme;
       const byNum = Object.keys(THEMES).find((k) => String(THEMES[k].number) === String(reqTheme));
@@ -286,9 +293,10 @@
     const menu2p = document.getElementById("menu-layout-2pane-label");
     if (menu2p) menu2p.textContent = `${state.layoutMode === "two-panel" ? "✓ " : "　"}${tr("synd.kb.layout.two_long")}`;
 
-    const themeQuery = `?theme=${encodeURIComponent(themeRefOf(state.themeId))}`;
+    const cur = THEMES[String(state.themeId)];
+    const kbQuery = cur && !cur.isPersonal && String(state.themeId) !== "0" ? `?kb=${encodeURIComponent(themeRefOf(state.themeId))}` : "";
     document.querySelectorAll("a[data-settings-path]").forEach((a) => {
-      a.href = `${a.getAttribute("data-settings-path")}${themeQuery}`;
+      a.href = `${a.getAttribute("data-settings-path")}${kbQuery}`;
     });
   }
 
@@ -384,7 +392,7 @@
     } else {
       const safeDetail = sanitizeContentHtml(doc.detailHtml || `<p>${esc(doc.summary || doc.title || "")}</p>`);
       const syndNote = doc.syndicationMeta
-        ? ` · ${esc(tr("synd.kb.reader.cross_source", { theme: doc.syndicationMeta.source_theme_id, document: doc.syndicationMeta.source_document_id }))}`
+        ? ` · ${esc(tr("synd.kb.reader.cross_source", { theme: doc.syndicationMeta.source_kb_id, document: doc.syndicationMeta.source_document_id }))}`
         : "";
       bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px">
         <div class="tt-summary-callout"><strong>${ic("pin")} ${esc(tr("synd.kb.reader.summary_title", { id: doc.id }))}</strong> — ${esc(doc.summary || doc.title)}<div style="margin-top:4px;font-size:11.5px;color:var(--muted)">${esc(tr("synd.kb.reader.summary_meta", { time: doc.timeAgo, entities: doc.entityCount || 0, relations: doc.relationCount || 0 }))}${syndNote}</div></div>
@@ -458,14 +466,14 @@
           <div class="tt-card-meta-left">
             ${statusBadge}
             <span class="tt-feed-pill proto-rss">${esc(d.mode || "cross_theme")}</span>
-            <span class="tt-card-feed-title">Theme #${esc(d.theme_id)} → Theme #${esc(d.target_theme_id)}</span>
+            <span class="tt-card-feed-title">Theme #${esc(d.kb_id)} → Theme #${esc(d.target_kb_id)}</span>
           </div>
           <div class="tt-card-meta-right">
             <span class="tt-card-time">${esc(formatTimestamp(d.created_at))}</span>
           </div>
         </div>
         <h3 class="tt-card-title">${esc(tr("synd.kb.dispatch.source_doc"))}: ${esc(d.document_id)} → ${esc(tr("synd.kb.dispatch.target_doc"))}: ${esc(d.remote_ref || "-")}</h3>
-        <p class="tt-card-snippet">${esc(tr("synd.kb.dispatch.applied_focus"))}: ${esc(d.applied_focus || tr("synd.kb.dispatch.default_focus"))}${d.error ? ` · ${esc(tr("synd.kb.error"))}: ${esc(d.error)}` : ""}</p>
+        <p class="tt-card-snippet">${d.error ? `${esc(tr("synd.kb.error"))}: ${esc(d.error)}` : ""}</p>
       </article>`;
     }).join("");
     readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">${esc(tr("synd.kb.dispatch.history_count", { count: dispatches.length }))}</div>`;
@@ -575,10 +583,10 @@
     doc.starred = nextPinned;
     renderAll();
     try {
-      await fetch("/document/pin", {
+      await fetch(kbPath(state.themeId, "/document/pin"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ id: doc.id, pinned: nextPinned, theme: themeRefOf(state.themeId) })
+        body: JSON.stringify({ id: doc.id, pinned: nextPinned })
       });
     } catch (_) {}
   }
@@ -587,10 +595,10 @@
     if (!doc || !doc.unread) return;
     doc.unread = false;
     try {
-      await fetch("/document/seen", {
+      await fetch(kbPath(state.themeId, "/document/seen"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ id: doc.id, theme: themeRefOf(state.themeId) })
+        body: JSON.stringify({ id: doc.id })
       });
     } catch (_) {}
   }
@@ -627,10 +635,6 @@
         <label for="dispatch-target-theme" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.target_theme"))}</label>
         <select id="dispatch-target-theme" class="tt-btn" style="width:100%;height:34px">${targetOptions}</select>
       </div>
-      <div>
-        <label for="dispatch-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.focus_label"))}</label>
-        <input id="dispatch-focus" type="text" class="tt-search" style="width:100%;height:34px" value="${esc(theme.defaultFocus || "")}" placeholder="${esc(tr("synd.kb.dispatch.focus_placeholder"))}"/>
-      </div>
       <div id="dispatch-status-msg" style="font-size:12px;color:var(--muted)"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
         <button type="button" id="btn-cancel-dispatch" class="tt-btn">${esc(tr("common.action.cancel"))}</button>
@@ -655,7 +659,7 @@
           const resp = await fetch("/api/federation/publish", {
             method: "POST",
             headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ theme: themeRefOf(theme.id), document_id: doc.id })
+            body: JSON.stringify({ kb: themeRefOf(theme.id), document_id: doc.id })
           });
           const data = await resp.json().catch(() => ({}));
           if (resp.status !== 202 || !data.object) {
@@ -683,7 +687,6 @@
     if (confirmBtn) {
       confirmBtn.addEventListener("click", async () => {
         const targetThemeId = document.getElementById("dispatch-target-theme").value;
-        const focusVal = document.getElementById("dispatch-focus").value.trim();
         const msgEl = document.getElementById("dispatch-status-msg");
         confirmBtn.disabled = true;
         if (msgEl) msgEl.textContent = tr("synd.kb.dispatch.sending");
@@ -693,9 +696,8 @@
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify({
               document_id: doc.id,
-              source_theme_id: Number(theme.id),
-              target_theme_id: Number(targetThemeId),
-              focus: focusVal || undefined
+              source_kb_id: Number(theme.id),
+              target_kb_id: Number(targetThemeId)
             })
           });
           const data = await resp.json().catch(() => ({}));
@@ -802,8 +804,7 @@
   async function hydrateLiveDocument(doc) {
     if (!doc || doc.hydrated) return;
     try {
-      const q = `?id=${encodeURIComponent(doc.id)}&theme=${encodeURIComponent(themeRefOf(state.themeId))}`;
-      const resp = await fetch(`/document${q}`, { headers: { Accept: "application/json" } });
+      const resp = await fetch(`${kbPath(state.themeId, "/document")}?id=${encodeURIComponent(doc.id)}`, { headers: { Accept: "application/json" } });
       if (!resp.ok) return;
       const d = await resp.json();
       doc.hydrated = true;
@@ -831,11 +832,10 @@
     state.loading = true;
     renderStreamAndReader();
     try {
-      const q = `?theme=${encodeURIComponent(ref)}`;
       const [gResp, dResp, dispResp] = await Promise.all([
-        fetch(`/graph${q}`, { headers: { Accept: "application/json" } }),
-        fetch(`/documents${q}`, { headers: { Accept: "application/json" } }),
-        fetch(`/api/syndication/dispatches?theme_id=${encodeURIComponent(theme.id)}`, { headers: { Accept: "application/json" } })
+        fetch(kbPath(state.themeId, "/graph"), { headers: { Accept: "application/json" } }),
+        fetch(kbPath(state.themeId, "/documents"), { headers: { Accept: "application/json" } }),
+        fetch(`/api/syndication/dispatches?kb_id=${encodeURIComponent(theme.id)}`, { headers: { Accept: "application/json" } })
       ]);
 
       if (gResp.ok) {

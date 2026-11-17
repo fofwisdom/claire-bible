@@ -501,7 +501,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 ### 7.6 Publishing Routes (Unit FP3-1)
 
-The routes need `collaborator` access or more, in network mode only (`ROUTE_POLICY`: `_any("collaborator", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the theme must be of that account: the admin cannot publish for a member. A collaborator can use only a theme with `is_collaborator_accessible`.
+The routes need the scope `write` or `owner`, in network mode only (`ROUTE_POLICY`: `_any("write", "write", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the knowledge base must be the personal knowledge base of that account (`_own_theme`): the admin cannot publish for a member, and a document of a shared knowledge base cannot be published (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
 
 `POST /api/federation/publish` with the body `{"theme": "<theme number>", "document_id": "..."}`:
 
@@ -583,8 +583,8 @@ A change of `profile_public` to 0, a suspension, and `federation` `off` make the
 
 | Event | Code | Transaction |
 | :--- | :--- | :--- |
-| A theme changes from public to private | `ThemeManager.update_theme` | The same transaction as the `is_public` change and the `visibility_epoch` increment. If a task insert fails, the theme stays public. |
-| A theme is deleted | `ThemeManager.delete_theme`, with and without `purge` | The same transaction as the delete of the theme row |
+| A theme changes from public to private | `KnowledgeBaseManager.update_kb` | The same transaction as the `is_public` change and the `visibility_epoch` increment. If a task insert fails, the theme stays public. |
+| A theme is deleted | `KnowledgeBaseManager.delete_kb`, with and without `purge` | The same transaction as the delete of the theme row |
 | A document is purged | `purge_document_cascade` | The same transaction as the delete of the document rows. The report has `federation_delete_tasks`. A dry run makes no task. |
 
 - A theme that changes back to public does not publish its documents again. The owner publishes them again, and each gets a new object ID.
@@ -832,7 +832,7 @@ Export: OPML 2.0. A feed with a folder is in a category outline of that name; ot
 
 ### 15.5 Data Deletion
 
-The account purge (`AccountStore.purge`) deletes the client data of the account in `client.db` (feeds, feed items, follows, reading settings, client outbox) with `store.client_db.purge_account_of_claire_db`, in its own transaction (no transaction crosses files, RD27). No feed action deletes a document (design Section 10 rule 5): `linked_theme_id` and `linked_doc_id` are values only.
+The account purge (`AccountStore.purge`) deletes the client data of the account in `client.db` (feeds, feed items, follows, reading settings, client outbox) with `store.client_db.purge_account_of_claire_db`, in its own transaction (no transaction crosses files, RD27). No feed action deletes a document (design Section 10 rule 5): `linked_kb_id` and `linked_doc_id` are values only.
 
 ### 15.6 Known Limits
 
@@ -945,8 +945,8 @@ All routes are for the owner of the account, in network mode only. An item of an
 | `GET` | `/api/federation/timeline` | `{"items", "next_max_id", "counts"}`. Query: `limit` (1 to 80, default 40), `max_id` (cursor: the items with a lower ID), and the filters `unread=1`, `starred=1`, `mention=1`. Only items with `in_timeline` = 1, newest first. |
 | `GET` | `/api/federation/timeline/{item_id}` | `{"item", "thread"}`. `thread` has all stored items of the thread, oldest first, also those with `in_timeline` = 0. Each entry has `render_url`. |
 | `PATCH` | `/api/federation/timeline/{item_id}` | Body: `unread` and `starred` (booleans, one or both). Answer `{"item", "counts"}`. |
-| `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`theme_id`, `document_id`). The item stays in the timeline. |
-| `GET` | `/api/federation/objects` | `{"total", "items": [{"id", "theme_id", "document_id", "published_at", "updated_at"}], "next_max_id"}`: the published documents of the caller, for the filter of stage 3. |
+| `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `kb_id` is the same value). Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`kb_id`, `document_id`). The item stays in the timeline. |
+| `GET` | `/api/federation/objects` | `{"total", "items": [{"id", "kb_id", "document_id", "published_at", "updated_at"}], "next_max_id"}`: the published documents of the caller, for the filter of stage 3. |
 | `GET` | `/render/remote/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
 - An item of the list has `id`, `object_iri`, `url`, `type`, `author`, `announced_by`, `name`, `summary`, `sensitive`, `text`, `language`, `attachments` (a number), `in_reply_to`, `in_timeline`, `published_at`, `updated_at`, `received_at`, `unread`, `starred`, `mention`, and `linked`. `text` is plain text (the tags are removed on the server, 600 characters at most). It is empty for an item with a content warning. The list has no remote HTML.
@@ -1177,7 +1177,7 @@ Tests: `tests/test_e2e_federation_interactions.py` (mentions, rate limit, reacti
 
 ## 23. Feed View (Unit FP4-F3)
 
-Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/claire/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_theme_id`, and `linked_doc_id`.
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/claire/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_kb_id`, and `linked_doc_id`.
 
 ### 23.1 Routes
 
@@ -1187,12 +1187,12 @@ All routes are for the owner of the account, in single mode and in network mode 
 | :--- | :--- | :--- |
 | `GET` | `/api/feeds/items/{item_id}` | `{"item"}`: the keys of the list, `has_body`, and `render_url`. |
 | `POST` | `/api/feeds/discover` | Body: `url`. `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}`. The address is a feed (one entry), or a page whose `<link rel="alternate">` elements with a feed type give the entries (20 at most). `error` is the reason when the address gave no body (for example `http_404`, `blocked_address`). 400 `invalid_url`. |
-| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `kb_id` is the same value). Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
 | `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
 Changes of the routes of Section 15.3:
 
-- An item of `GET /api/feeds/items` has three more keys: `text` (plain text of the summary, else of the content; the tags are removed on the server, 400 characters at most), `linked` (`{"theme_id", "document_id"}` or `null`), and `timeline_item_id`.
+- An item of `GET /api/feeds/items` has three more keys: `text` (plain text of the summary, else of the content; the tags are removed on the server, 400 characters at most), `linked` (`{"kb_id", "document_id"}` or `null`), and `timeline_item_id`.
 - `PATCH /api/feeds/items` also sets the state of the timeline items with the same address (Section 23.3).
 - `GET /media/remote/{url_hash}` on the app origin (Section 21.3) is open in single mode too, because the body of a feed item has media.
 
@@ -1404,9 +1404,9 @@ All routes of the owner are in network mode only (`ROUTE_POLICY`). A request or 
 | `PATCH` | `/api/federation/notes/{note_id}` | One more field: `quote_policy`. A request with `quote_policy` only does not set `edited_at`. |
 | `GET` | `/api/federation/quotes` | `{"requests", "authorizations", "counts"}`. `requests`: the requests that wait for the owner. `authorizations`: the approved requests. 100 of each at most, newest first. `counts`: `pending` and `approved`, the numbers of all rows. |
 | `PATCH` | `/api/federation/quotes/{quote_id}` | Body `{"state"}`: `approved` (from `pending` or `refused`), `refused` (from `pending`), or `revoked` (from `approved`). 200 `{"quote"}`. 404 `quote_not_found`, 409 `invalid_state` (with `state`), 409 `not_actor`, 400 `invalid_request`. |
-| `PATCH` | `/api/federation/objects/{object_id}` | Body `{"quote_policy"}`. 200 `{"object": {"id", "theme_id", "document_id", "quote_policy"}}`. 404 `object_not_found`, 400 `invalid_quote_policy`. |
+| `PATCH` | `/api/federation/objects/{object_id}` | Body `{"quote_policy"}`. 200 `{"object": {"id", "kb_id", "document_id", "quote_policy"}}`. 404 `object_not_found`, 400 `invalid_quote_policy`. |
 
-- One request of the list: `id`, `state`, `object` (`id`, `url`, `kind`: `note`, `document`, or `gone`; `text`: the start of the note or the title of the document; a document has `theme_id` and `document_id`), `quoting_object` and `quoting_actor` (addresses of the remote server), `authorization` (the public address of an approved request, else null), `created_at`, `updated_at`.
+- One request of the list: `id`, `state`, `object` (`id`, `url`, `kind`: `note`, `document`, or `gone`; `text`: the start of the note or the title of the document; a document has `kb_id` and `document_id`), `quoting_object` and `quoting_actor` (addresses of the remote server), `authorization` (the public address of an approved request, else null), `created_at`, `updated_at`.
 - `note` of an item has three more keys: `quote_policy`, `quotes` (the number of approved quotes of the note), and `quote` (`iri`, `state`, or null).
 - Each item of the timeline has `quote`: null, or `iri` (the quoted object), `item_id` (the item of the account with that object, or null), and `state` (the quote state of an own note; null for a post of a remote actor).
 - Each item of `GET /api/federation/objects` has `quote_policy` and `quotes`.

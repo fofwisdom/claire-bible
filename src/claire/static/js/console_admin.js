@@ -114,9 +114,9 @@
       var val = sel.value;
       var url = new URL(window.location.href);
       if (val) {
-        url.searchParams.set("theme", val);
+        url.searchParams.set("kb", val);
       } else {
-        url.searchParams.delete("theme");
+        url.searchParams.delete("kb");
       }
       window.location.assign(url.toString());
     });

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from claire import cli
 from claire import notify
-from claire.store import theme as theme_module
+from claire.store import knowledge_base as theme_module
 
 
 class FakeService:
@@ -39,16 +39,16 @@ def _install_registry(monkeypatch, active):
         def __init__(self, _settings, **_kwargs):
             pass
 
-        def active_theme_settings(self, _settings):
+        def active_kb_settings(self, _settings):
             return list(active)
 
-    monkeypatch.setattr(theme_module, "ThemeManager", FakeThemeManager)
+    monkeypatch.setattr(theme_module, "KnowledgeBaseManager", FakeThemeManager)
 
 
-def _entry(theme_id):
+def _entry(kb_id):
     return (
-        SimpleNamespace(id=theme_id, label=f"theme-{theme_id}"),
-        SimpleNamespace(db_file=f"/{theme_id}.db", data_dir=f"/{theme_id}-data"),
+        SimpleNamespace(id=kb_id, label=f"theme-{kb_id}"),
+        SimpleNamespace(db_file=f"/{kb_id}.db", data_dir=f"/{kb_id}-data"),
     )
 
 
@@ -67,9 +67,9 @@ def test_recover_cycle_has_global_batch_and_rotating_start(monkeypatch):
     first = cli._run_recover_cycle(SimpleNamespace(), args, state, factory)
     second = cli._run_recover_cycle(SimpleNamespace(), args, state, factory)
 
-    assert [item["_theme_id"] for item in first["results"]] == [0, 1, 2, 0]
+    assert [item["_kb_id"] for item in first["results"]] == [0, 1, 2, 0]
     assert len(first["results"]) == 4
-    assert [item["_theme_id"] for item in second["results"]] == [1, 2]
+    assert [item["_kb_id"] for item in second["results"]] == [1, 2]
 
 
 def test_recover_cycle_isolates_one_theme_failure(monkeypatch):
@@ -77,9 +77,9 @@ def test_recover_cycle_isolates_one_theme_failure(monkeypatch):
     _install_registry(monkeypatch, active)
 
     def factory(settings):
-        theme_id = int(settings.db_file[1])
-        failures = {"recover"} if theme_id == 1 else set()
-        return FakeService(settings, {"recover": [{"inbox_id": theme_id}]}, failures)
+        kb_id = int(settings.db_file[1])
+        failures = {"recover"} if kb_id == 1 else set()
+        return FakeService(settings, {"recover": [{"inbox_id": kb_id}]}, failures)
 
     cycle = cli._run_recover_cycle(
         SimpleNamespace(),
@@ -88,9 +88,9 @@ def test_recover_cycle_isolates_one_theme_failure(monkeypatch):
         factory,
     )
 
-    assert [item["_theme_id"] for item in cycle["results"]] == [0, 2]
+    assert [item["_kb_id"] for item in cycle["results"]] == [0, 2]
     assert cycle["errors"] == [
-        {"theme_id": 1, "theme_label": "theme-1", "error": "recover failed"}
+        {"kb_id": 1, "theme_label": "theme-1", "error": "recover failed"}
     ]
 
 
@@ -152,9 +152,9 @@ def test_refresh_and_expand_cycles_use_global_batch(monkeypatch):
 
     assert refresh["enqueued"] == 3
     assert len(refresh["results"]) == 3
-    assert [item["_theme_id"] for item in refresh["results"]] == [0, 1, 0]
+    assert [item["_kb_id"] for item in refresh["results"]] == [0, 1, 0]
     assert len(expand["results"]) == 3
-    assert [item["_theme_id"] for item in expand["results"]] == [0, 1, 0]
+    assert [item["_kb_id"] for item in expand["results"]] == [0, 1, 0]
 
 
 def test_expansion_notification_groups_links_by_theme(monkeypatch):
@@ -174,13 +174,13 @@ def test_expansion_notification_groups_links_by_theme(monkeypatch):
         [
             {
                 "stored": 1,
-                "_theme_id": 0,
+                "_kb_id": 0,
                 "_theme_label": "기본",
                 "followed": [{"stored": True, "title": "기본 링크"}],
             },
             {
                 "stored": 1,
-                "_theme_id": 2,
+                "_kb_id": 2,
                 "_theme_label": "연구",
                 "followed": [{"stored": True, "title": "연구 링크"}],
             },

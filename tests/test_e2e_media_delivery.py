@@ -12,7 +12,7 @@ from claire.api.usercontent import create_usercontent_app, create_viewing_token
 from claire.store import db as dbm
 from claire.store.media import LocalMediaStore, create_media_capability_token
 from claire.store.secrets import SecretService
-from claire.store.theme import bump_theme_visibility_epoch
+from claire.store.knowledge_base import bump_kb_visibility_epoch
 
 
 async def _call_asgi(app, path, host="127.0.0.1:8766", headers=None, method="GET"):
@@ -74,14 +74,14 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
     now = time.time()
     conn.execute(
         """
-        INSERT INTO themes (id, seq, label, db_path, is_default, is_public, account_id, number, visibility_epoch, created_at, updated_at)
+        INSERT INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, account_id, number, visibility_epoch, created_at, updated_at)
         VALUES (10, 10, 'Public Theme', ?, 0, 1, 1, 10000000000000010, 1, ?, ?)
         """,
         (str(db_file), now, now),
     )
     conn.execute(
         """
-        INSERT INTO themes (id, seq, label, db_path, is_default, is_public, account_id, number, visibility_epoch, created_at, updated_at)
+        INSERT INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, account_id, number, visibility_epoch, created_at, updated_at)
         VALUES (20, 20, 'Private Theme', ?, 0, 0, 1, 10000000000000020, 1, ?, ?)
         """,
         (str(db_file), now, now),
@@ -90,14 +90,14 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
     # Insert public document and private document
     conn.execute(
         """
-        INSERT INTO documents (id, title, url, theme_id, detail_html, hidden, fetched_at)
+        INSERT INTO documents (id, title, url, kb_id, detail_html, hidden, fetched_at)
         VALUES ('101', 'Public Doc', 'https://example.com/101', 10, '<p>Public doc with <img src="images/pub.png"></p>', 0, ?)
         """,
         (now,),
     )
     conn.execute(
         """
-        INSERT INTO documents (id, title, url, theme_id, detail_html, hidden, fetched_at)
+        INSERT INTO documents (id, title, url, kb_id, detail_html, hidden, fetched_at)
         VALUES ('201', 'Private Doc', 'https://example.com/201', 20, '<p>Private doc with <img src="images/priv.png"></p>', 0, ?)
         """,
         (now,),
@@ -167,7 +167,7 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
     # 4. Render Private Doc from Usercontent Host with Doc Viewing Token
     doc_token = create_viewing_token(
         account_id=1,
-        theme_id=20,
+        kb_id=20,
         doc_id=201,
         visibility_epoch=1,
         secret_service=sec,
@@ -195,7 +195,7 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
     assert media_priv_resp.headers["cache-control"] == "private, no-store"
 
     # 6. Bump visibility_epoch on Theme 20
-    bump_theme_visibility_epoch(conn, 20)
+    bump_kb_visibility_epoch(conn, 20)
 
     # 7. Old capability URL is immediately rejected (403)
     media_revoked_resp = await _call_asgi(wrapped_app, f"/media/priv.png?{media_query}", host=MEDIA_HOST)

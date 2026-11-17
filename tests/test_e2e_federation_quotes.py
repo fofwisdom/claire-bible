@@ -37,9 +37,9 @@ def env(tmp_path):
     _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     # Alpha has one published document in a public theme.
-    _db(settings, lambda conn: conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 0, 1, 1, ?, 516412345678901234)", (alpha,)))
-    _db(settings, lambda conn: conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-published', 11, 'Published', 'body', 'md', 0, 1)"))
-    _db(settings, lambda conn: conn.execute("INSERT INTO federation_objects (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 11, 'doc-published', ?, 1800000000.0, 1800000000.0)", (OBJECT_ID, alpha, alpha)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, 516412345678901234)", (alpha,)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-published', 11, 'Published', 'body', 'md', 0, 1)"))
+    _db(settings, lambda conn: conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 11, 'doc-published', ?, 1800000000.0, 1800000000.0)", (OBJECT_ID, alpha, alpha)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
@@ -286,7 +286,7 @@ def test_e2e_quote_policy_of_a_published_document(env):
     # A change of the policy and its ``update`` task are in one transaction of claire.db. The same value a second time makes no task.
     for _ in range(2):
         res = c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.alpha_session, json={"quote_policy": "public"})
-        assert res.status_code == 200 and res.json()["object"] == {"id": str(OBJECT_ID), "theme_id": 11, "document_id": "doc-published", "quote_policy": "public"}, res.text
+        assert res.status_code == 200 and res.json()["object"] == {"id": str(OBJECT_ID), "kb_id": 11, "document_id": "doc-published", "quote_policy": "public"}, res.text
     assert outbox() == [("update", OBJECT_ID, "pending")]
     assert sc.call("GET", f"/objects/{OBJECT_ID}").json()["quote_policy"] == "public"
     assert _quote_event(env, "QuoteRequest", YURI, OBJECT, instrument=f"{YURI}/notes/1")["state"] == "approved"
@@ -297,7 +297,7 @@ def test_e2e_quote_policy_of_a_published_document(env):
     # Refusals: an object of another account, a value outside the set, and an object that is not public now.
     assert c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.beta_session, json={"quote_policy": "nobody"}).json() == {"error": "object_not_found"}
     assert c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.alpha_session, json={"quote_policy": "all"}).json() == {"error": "invalid_quote_policy"}
-    _db(env.settings, lambda conn: conn.execute("UPDATE themes SET is_public=0 WHERE id=11"))
+    _db(env.settings, lambda conn: conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=11"))
     assert _quote_event(env, "QuoteRequest", YURI, OBJECT, instrument=f"{YURI}/notes/2")["reason"] == "no_object"
     # The authorization of an object that is not public now has no public form.
     assert sc.call("GET", f"/quote-authorizations/{task['ref_id']}").status_code == 404

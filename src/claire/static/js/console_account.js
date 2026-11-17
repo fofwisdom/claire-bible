@@ -549,7 +549,8 @@
         return Promise.resolve();
       }
       show(section, tr("console.js.account.bundle.making"), false);
-      return request("POST", "/graph/bundle", { theme: theme }).then(function (r) {
+      // Design Section 5.2: the path selects the knowledge base (the server sends 308 to the path of the owner).
+      return request("POST", "/kb/" + encodeURIComponent(theme) + "/graph/bundle", {}).then(function (r) {
         if (r.ok && r.body) {
           show(section, tr("console.js.account.bundle.made"), false);
           renderBundle(section, r.body);

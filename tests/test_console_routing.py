@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.api import server
@@ -20,7 +22,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.telemetry import record_mcp_telemetry
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import get_token_store, reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -80,20 +82,20 @@ def _upsert_account(conn, account_id: int, public_id: int, username: str, role: 
     conn.commit()
 
 
-def _insert_theme(tm: ThemeManager, settings: Settings, *, theme_id: int, seq: int, number: int, label: str, account_id: int, is_default: bool) -> ThemeInfo:
+def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, seq: int, number: int, label: str, account_id: int, is_personal: bool) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 1, 1, ?, ?, '', ?, ?)",
-            (theme_id, seq, number, label, f"Desc {label}", 1 if is_default else 0, account_id, str(settings.db_file), now, now),
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 1, ?, ?, '', ?, ?)",
+            (kb_id, seq, number, label, f"Desc {label}", 1 if is_personal else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 @pytest.fixture
@@ -120,17 +122,17 @@ def console_env(tmp_path: Path):
         CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
-    admin_extra = _insert_theme(tm, settings, theme_id=11, seq=1, number=(1 << 56) | 11, label="Admin Research", account_id=1, is_default=False)
-    alice_def = _insert_theme(tm, settings, theme_id=20, seq=2, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_default=True)
-    bob_def = _insert_theme(tm, settings, theme_id=30, seq=3, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_default=True)
+    tm = KnowledgeBaseManager(settings)
+    admin_extra = _insert_theme(tm, settings, kb_id=11, seq=1, number=(1 << 56) | 11, label="Admin Research", account_id=1, is_personal=False)
+    alice_def = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_personal=True)
+    bob_def = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_personal=True)
 
     tok_store = get_token_store(data_dir=data_dir)
     admin_owner_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    admin_collab_tok = tok_store.create_token(name="admin-collab", scope="collaborator", account_id=1)["token"]
+    admin_collab_tok = tok_store.create_token(name="admin-collab", scope="write", account_id=1)["token"]
     admin_ro_tok = tok_store.create_token(name="admin-ro", scope="readonly", account_id=1)["token"]
     alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="collaborator", account_id=2)["token"]
+    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="write", account_id=2)["token"]
 
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)
@@ -193,10 +195,10 @@ def test_prefixed_paths_return_404_for_settings_and_admin(console_env):
         f"/@{MEMBER_USERNAME}/settings",
         f"/@{MEMBER_USERNAME}/settings/account",
         f"/@{MEMBER_USERNAME}/settings/reader",
-        f"/themes/{console_env.alice_def.number}/settings/reader",
+        f"/kb/{console_env.alice_def.number}/settings/reader",
         f"/@{SECRET_ADMIN_USERNAME}/admin",
         f"/@{SECRET_ADMIN_USERNAME}/admin/providers",
-        f"/themes/{console_env.admin_extra.number}/admin/limits",
+        f"/kb/{console_env.admin_extra.number}/admin/limits",
     )
     for path in prefixed_paths:
         for headers in (console_env.admin_owner, console_env.alice_owner):
@@ -217,9 +219,9 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert r_settings.status_code == 302
     assert r_settings.headers["location"] == "/settings/account"
 
-    r_from_synd = client.get(f"/settings?from=syndication&theme={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    r_from_synd = client.get(f"/settings?from=syndication&kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert r_from_synd.status_code == 302
-    assert r_from_synd.headers["location"] == f"/settings/reader?theme={console_env.alice_def.number}"
+    assert r_from_synd.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
 
     # D3: Admin accessing /settings/themes or /settings/tokens redirects 302 to /admin/themes or /admin/tokens
     for slug in ("themes", "tokens"):
@@ -246,18 +248,18 @@ def test_strict_theme_query_validation_rejects_unknown_or_cross_account_theme(co
     client = console_env.client
 
     # Unknown theme ref -> 404 before any redirect or page render
-    assert client.get("/settings?theme=nonexistent", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings?theme=", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings/reader?theme=999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings/themes?theme=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
-    assert client.get("/admin/providers?theme=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings?kb=nonexistent", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings?kb=", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings/reader?kb=999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings/themes?kb=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
+    assert client.get("/admin/providers?kb=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
 
     # Cross-account theme ref (Alice requesting Bob's theme or Admin's theme) -> 404
-    assert client.get(f"/settings/reader?theme={console_env.bob_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get(f"/settings/reader?theme={console_env.admin_extra.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get(f"/settings/reader?kb={console_env.bob_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get(f"/settings/reader?kb={console_env.admin_extra.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
 
     # Own theme ref -> 200 and selector reflects theme
-    ok_resp = client.get(f"/settings/reader?theme={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    ok_resp = client.get(f"/settings/reader?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert ok_resp.status_code == 200
     assert str(console_env.alice_def.number) in ok_resp.text
 

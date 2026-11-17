@@ -44,7 +44,7 @@ def test_parse_caption_composite_variations():
         def __init__(self):
             self.settings = SimpleNamespace(multi_theme=True)
 
-        def get_theme(self, cand, *, label_match="exact"):
+        def get_kb(self, cand, *, label_match="exact"):
             return SimpleNamespace(id=int(cand) if str(cand).isdigit() else 1)
 
     url, focus, tid, full, effort = parse_caption_composite(
@@ -174,9 +174,8 @@ def test_compose_composite_document_web_and_pdf():
 
 def test_ingest_composite_service_end_to_end(tmp_path: Path):
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -212,13 +211,12 @@ def test_ingest_composite_service_end_to_end(tmp_path: Path):
             pdf_path,
             "test_presentation.pdf",
             "https://kubernetes.io/docs/concepts/scheduling-eviction/",
-            focus="스케줄링 플러그인 구조",
         )
 
     assert report.error is None
     assert report.document_id is not None
     assert report.presentation_pdfs == 1
-    assert "스케줄링 플러그인 구조" in (report.focus or "")
+    assert not report.focus  # CT28: the service gives no focus
     assert "발표자료 PDF 포함" in report.telegram_summary() or "STT×PDF" in report.telegram_summary() or "CC×PDF" in report.telegram_summary()
 
     # DB 저장 상태 검증
@@ -244,9 +242,8 @@ def test_ingest_composite_service_end_to_end(tmp_path: Path):
 
 def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -266,7 +263,7 @@ def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
         "focus": "장애 복구 검증",
         "effort": None,
         "full_content": False,
-        "theme_id": 0,
+        "kb_id": 0,
     }
     inbox_id = dbm.log_inbox(
         conn,
@@ -402,7 +399,7 @@ async def test_telegram_on_document_routes_to_composite(tmp_path: Path):
         call_args = mock_composite.call_args
         assert call_args[0][1] == "ai_infra.pdf"  # file_name
         assert call_args[0][2] == "https://youtube.com/watch?v=infra999"  # url
-        assert call_args[1]["focus"] == "인프라 구조 분석"
+        assert "focus" not in call_args[1]  # CT28
 
 
 @pytest.mark.asyncio
@@ -466,7 +463,7 @@ async def test_telegram_on_document_single_file_fallback(tmp_path: Path):
         assert not mock_composite.called
         assert mock_single.called
         assert mock_single.call_args[1]["file_name"] == "standalone.pdf"
-        assert mock_single.call_args[1]["focus"] == "단순 파일 초점: 성능 튜닝"
+        assert "focus" not in mock_single.call_args[1]  # CT28
 
 
 def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
@@ -474,9 +471,8 @@ def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
     from claire.ingest.fetchers.base import FetchError
 
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -522,9 +518,8 @@ def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
 def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
     """첨부 파일 파싱 실패(또는 빈 파일) 시 원격 링크만 단독 적재되는 것을 차단하고 전체 오류 처리."""
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -600,8 +595,8 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
     mock_msg.reply_text = AsyncMock(side_effect=fake_reply_text)
 
     # on_document 내부의 _prompt_theme_selection 호출 유도를 위해 multi_theme 설정
-    from claire.store.theme import ThemeManager
-    theme_mgr = ThemeManager(settings)
+    from claire.store.knowledge_base import KnowledgeBaseManager
+    theme_mgr = KnowledgeBaseManager(settings)
     themes = [
         SimpleNamespace(id=0, label="기본", icon="🌐", is_public=True),
         SimpleNamespace(id=1, label="연구_테마", icon="🔬", is_public=True),
@@ -628,7 +623,6 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
                 themes,
                 "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf",
                 kind_label="파일",
-                focus="특수_키워드_분석",
             )
             assert res is not None
             # 1회차 실패 후 2회차 fallback 호출로 총 2회 호출 확인
@@ -638,62 +632,5 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
             assert "parse_mode" not in second_call_kwargs
             assert "reply_markup" in second_call_kwargs
             break
-
-
-@pytest.mark.asyncio
-async def test_telegram_on_document_multi_theme_underscored_file(tmp_path: Path):
-    """다중 테마 모드에서 언더스코어가 포함된 파일명을 전송했을 때 예외 없이 테마 선택 프롬프트가 정상 동작."""
-    settings = Settings(
-        telegram_bot_token="12345:fake_token_for_test",
-        db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
-        provider="mock",
-        multi_theme=True,
-    )
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
-
-    # 2개 테마를 등록
-    from claire.store.theme import ThemeManager
-    tm = ThemeManager(settings)
-    tm.define_theme("보안_연구", icon="🔒")
-
-    app = build_app(settings)
-
-    async def fake_download(dest):
-        Path(dest).write_bytes(b"%PDF-1.4 dummy")
-
-    mock_file = AsyncMock()
-    mock_file.download_to_drive = fake_download
-
-    mock_doc = MagicMock()
-    mock_doc.file_name = "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf"
-    mock_doc.file_unique_id = "uniq_kotra_123"
-    mock_doc.get_file = AsyncMock(return_value=mock_file)
-
-    mock_msg = AsyncMock()
-    mock_msg.document = mock_doc
-    mock_msg.video = None
-    mock_msg.audio = None
-    mock_msg.caption = None
-    mock_msg.reply_text = AsyncMock()
-
-    update = MagicMock()
-    update.effective_user = MagicMock(id=100)
-    update.effective_chat = MagicMock(id=200)
-    update.message = mock_msg
-    update.update_id = 8888
-
-    for handler in app.handlers[0]:
-        if getattr(handler, "callback", None) and handler.callback.__name__ == "on_document":
-            await handler.callback(update, None)
-            break
-
-    # reply_text가 호출되어 테마 선택 프롬프트가 정상 표시되었는지 검증
-    assert mock_msg.reply_text.called
-    sent_text = mock_msg.reply_text.call_args[0][0]
-    assert "적재할 테마" in sent_text
-    assert "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf" in sent_text
 
 

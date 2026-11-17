@@ -146,8 +146,8 @@ class _Claire:
             store.set_federation_state("on", updated_by=1)
             conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
             self.account_id = store.find_by_username("alice").id
-            conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (self.account_id, THEME_NUMBER))
-            conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', 'The body stays on Claire.', 'adoc', 0, 1)")
+            conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, ?, ?)", (self.account_id, THEME_NUMBER))
+            conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', 'The body stays on Claire.', 'adoc', 0, 1)")
             # DrFed cannot send a Follow. The follower row is as if the DrFed actor followed alice: a published document and a note go to the followers.
             federation_store.upsert_follower(conn, account_id=self.account_id, actor_iri=target.iri, inbox_iri=target.inbox, shared_inbox_iri=None, salt=store.id_salt(), now=time.time())
             conn.commit()

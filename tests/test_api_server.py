@@ -183,9 +183,9 @@ def test_readonly_document_get_does_not_mark_document_seen(
     detail_calls: list[tuple[str, bool, int | None]] = []
 
     def fake_document_detail(
-        _conn: Any, document_id: str, include_hidden: bool = True, theme_id: int | None = None
+        _conn: Any, document_id: str, include_hidden: bool = True, kb_id: int | None = None
     ) -> dict[str, Any]:
-        detail_calls.append((document_id, include_hidden, theme_id))
+        detail_calls.append((document_id, include_hidden, kb_id))
         return {"id": document_id, "title": "stub"}
 
     monkeypatch.setattr(graphview, "document_detail", fake_document_detail)
@@ -213,14 +213,14 @@ def test_owner_document_seen_post_marks_document_seen(
     calls: list[tuple[str, bool, int | None]] = []
     row_calls: list[tuple[str, int | None]] = []
 
-    def fake_get_document_row(_conn: Any, document_id: str, theme_id: int | None = None) -> dict[str, Any]:
-        row_calls.append((document_id, theme_id))
+    def fake_get_document_row(_conn: Any, document_id: str, kb_id: int | None = None) -> dict[str, Any]:
+        row_calls.append((document_id, kb_id))
         return {"id": document_id}
 
     monkeypatch.setattr(dbm, "get_document_row", fake_get_document_row)
 
-    def record_seen(_conn: Any, document_id: str, *, seen: bool, theme_id: int | None = None) -> bool:
-        calls.append((document_id, seen, theme_id))
+    def record_seen(_conn: Any, document_id: str, *, seen: bool, kb_id: int | None = None) -> bool:
+        calls.append((document_id, seen, kb_id))
         return True
 
     monkeypatch.setattr(dbm, "set_document_seen", record_seen)
@@ -243,8 +243,8 @@ def test_owner_document_title_updates_title(
 ) -> None:
     calls: list[tuple[str, str | None, int | None]] = []
 
-    def record_title(_conn: Any, document_id: str, title: str | None, theme_id: int | None = None) -> bool:
-        calls.append((document_id, title, theme_id))
+    def record_title(_conn: Any, document_id: str, title: str | None, kb_id: int | None = None) -> bool:
+        calls.append((document_id, title, kb_id))
         return True
 
     monkeypatch.setattr(dbm, "set_document_title", record_title)
@@ -276,8 +276,8 @@ def test_owner_document_title_returns_404_when_document_missing(
 ) -> None:
     calls: list[int | None] = []
 
-    def missing_title(_conn: Any, _id: str, _t: str | None, theme_id: int | None = None) -> bool:
-        calls.append(theme_id)
+    def missing_title(_conn: Any, _id: str, _t: str | None, kb_id: int | None = None) -> bool:
+        calls.append(kb_id)
         return False
 
     monkeypatch.setattr(dbm, "set_document_title", missing_title)
@@ -305,10 +305,10 @@ def test_owner_dedup_scan_post_reaches_service(
 ) -> None:
     from claire import graphview
 
-    theme_ids: list[int | None] = []
+    kb_ids: list[int | None] = []
 
-    def fake_dedup_clusters(_conn: Any, scan: dict[str, Any], theme_id: int | None = None) -> dict[str, Any]:
-        theme_ids.append(theme_id)
+    def fake_dedup_clusters(_conn: Any, scan: dict[str, Any], kb_id: int | None = None) -> dict[str, Any]:
+        kb_ids.append(kb_id)
         return {"clusters": [], "scan": scan}
 
     monkeypatch.setattr(graphview, "dedup_clusters", fake_dedup_clusters)
@@ -321,7 +321,7 @@ def test_owner_dedup_scan_post_reaches_service(
         "scan": {"scan": "stub"},
     }
     assert service.dedup_scan_calls == 1
-    assert theme_ids == [REQUEST_THEME_ID]
+    assert kb_ids == [REQUEST_THEME_ID]
 
 
 @pytest.mark.parametrize(
@@ -799,15 +799,15 @@ def test_docs_static_asset_accessible(client: TestClient) -> None:
 def _patch_share_store(
     monkeypatch: pytest.MonkeyPatch, *, hidden: int, token_prefix: str
 ) -> list[tuple[str, str, int | None]]:
-    """/share 가 부르는 store 함수를 가짜로 바꾸고, 받은 (함수, 문서, theme_id) 호출 기록을 돌려준다."""
+    """/share 가 부르는 store 함수를 가짜로 바꾸고, 받은 (함수, 문서, kb_id) 호출 기록을 돌려준다."""
     calls: list[tuple[str, str, int | None]] = []
 
-    def fake_get_document_row(_conn: Any, doc_id: str, theme_id: int | None = None) -> dict[str, Any]:
-        calls.append(("get_document_row", doc_id, theme_id))
+    def fake_get_document_row(_conn: Any, doc_id: str, kb_id: int | None = None) -> dict[str, Any]:
+        calls.append(("get_document_row", doc_id, kb_id))
         return {"id": doc_id, "hidden": hidden}
 
-    def fake_create_doc_share(_conn: Any, doc_id: str, *, theme_id: int = 0) -> str:
-        calls.append(("create_doc_share", doc_id, theme_id))
+    def fake_create_doc_share(_conn: Any, doc_id: str, *, kb_id: int = 0) -> str:
+        calls.append(("create_doc_share", doc_id, kb_id))
         return f"{token_prefix}{doc_id}"
 
     monkeypatch.setattr(dbm, "get_document_row", fake_get_document_row)

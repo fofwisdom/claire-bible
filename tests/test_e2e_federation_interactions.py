@@ -35,9 +35,9 @@ def env(tmp_path):
     _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     # Alpha has one published document in a public theme.
-    _db(settings, lambda conn: conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 0, 1, 1, ?, 516412345678901234)", (alpha,)))
-    _db(settings, lambda conn: conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-published', 11, 'Published', 'body', 'md', 0, 1)"))
-    _db(settings, lambda conn: conn.execute("INSERT INTO federation_objects (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 11, 'doc-published', ?, 1800000000.0, 1800000000.0)", (OBJECT_ID, alpha, alpha)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, 516412345678901234)", (alpha,)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-published', 11, 'Published', 'body', 'md', 0, 1)"))
+    _db(settings, lambda conn: conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 11, 'doc-published', ?, 1800000000.0, 1800000000.0)", (OBJECT_ID, alpha, alpha)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:
         # Alpha follows carol. No account follows the other remote actors.
@@ -170,7 +170,7 @@ def test_e2e_like_and_announce_of_a_published_document_with_undo(env):
     assert _inbox(env, "Like", WALT, OBJECT)["reason"] == "blocked_domain"
     # An object that is not public now gets no new reaction, and an Undo still removes one.
     assert _inbox(env, "Like", ZED, OBJECT)["decision"] == "accepted"
-    _db(env.settings, lambda conn: conn.execute("UPDATE themes SET is_public=0 WHERE id=11"))
+    _db(env.settings, lambda conn: conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=11"))
     assert _inbox(env, "Like", YURI, OBJECT)["reason"] == "no_object"
     assert _inbox(env, "Undo", ZED, OBJECT, object_type="Like")["decision"] == "accepted"
     assert _counters(env) == (0, 0)

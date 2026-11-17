@@ -803,7 +803,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return missing
         if not undo:
             # A new reaction needs an object that is public now: its account is an actor and its theme is public. An ``Undo`` removes the row in all states.
-            theme = store.conn.execute("SELECT is_public FROM themes WHERE id=?", (obj.theme_id,)).fetchone()
+            theme = store.conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
             try:
                 owner = store.get(obj.account_id)
             except accounts_store.AccountNotFound:
@@ -1340,16 +1340,16 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 return _not_found()
             account = store.get(obj.account_id)
             # The object is public only while its account is an actor, its theme is public, and its document is not hidden.
-            theme = conn.execute("SELECT is_public FROM themes WHERE id=?", (obj.theme_id,)).fetchone()
-            document = dbm.get_document_row(conn, obj.document_id, theme_id=obj.theme_id)
+            theme = conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
+            document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
             if not _is_actor(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
                 return _not_found()
             share = conn.execute(
-                "SELECT token FROM doc_shares WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
-                (obj.document_id, obj.theme_id, now()),
+                "SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (obj.document_id, obj.kb_id, now()),
             ).fetchone()
             share_url = None if share is None else f"{origin}/p?s={share['token']}"
-            html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, theme_id=obj.theme_id), document["title"] or "", share_url)
+            html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), document["title"] or "", share_url)
             record = ObjectRecord(
                 public_id=str(obj.public_id),
                 actor_public_id=str(account.public_id),

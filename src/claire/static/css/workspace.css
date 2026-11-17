@@ -205,9 +205,9 @@
   #hiddenlist{max-height:40%;overflow-y:auto;overscroll-behavior:contain;flex-shrink:0;border-top:1px solid var(--border);background:rgba(128,128,128,.05)}
   #hiddenlist:empty{display:none}
 
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #addbtn,
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #reingestbtn,
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #regenbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #addbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #reingestbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #regenbtn,
   body:not([data-auth-scope="owner"]) #purgebtn,
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,

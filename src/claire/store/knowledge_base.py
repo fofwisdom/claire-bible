@@ -20,10 +20,12 @@ from typing import Any, Literal
 from .. import ids
 from ..config import ROOT, Settings, get_settings
 from . import db as dbm
+from . import themes as _themes_store
 
 log = logging.getLogger("claire.theme")
 
-THEMES_REGISTRY_FILENAME = "themes.json"
+# Retired by claire.db version 27. Only ``_retire_legacy_registry`` reads it, once.
+LEGACY_REGISTRY_FILENAME = "themes.json"
 # O5: 테마 FQDN 쓰기는 폐지됐다. 옛 호스트는 ``legacy_hosts``(v16)로 308 리다이렉트한다.
 THEME_FQDN_RETIRED_MESSAGE = "theme FQDN is retired; legacy hosts redirect via legacy_hosts"
 
@@ -71,7 +73,7 @@ def validate_ga_measurement_id(candidate: str | None) -> str:
     return cleaned
 
 
-class ThemeNotFound(KeyError):
+class KnowledgeBaseNotFound(KeyError):
     """테마를 찾지 못했거나 접근할 수 없다.
 
     비공개 테마의 존재를 드러내지 않도록 두 경우의 메시지를 구분하지 않는다. 기존 `except KeyError` 처리와 호환되도록 KeyError를 상속한다.
@@ -86,17 +88,15 @@ class ThemeNotFound(KeyError):
 
 
 @dataclass
-class ThemeInfo:
+class KnowledgeBaseInfo:
     id: int
     seq: int
     label: str
     description: str = ""
     icon: str = "📚"
     db_path: str = ""
-    is_default: bool = False
+    is_personal: bool = False
     is_public: bool = True
-    is_collaborator_accessible: bool = True
-    default_focus: str = ""
     fqdn: str = ""
     ga_measurement_id: str = ""
     sorcerer: str = ""
@@ -105,7 +105,16 @@ class ThemeInfo:
     updated_at: float = 0.0
     # 소유 계정(§13.1). v15 이전 항목과 기본값은 관리자(1)다. 새로 쓰는 themes.json 항목에는 항상 들어간다.
     # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
-    account_id: int = dbm.ADMIN_ACCOUNT_ID
+    # None for a shared knowledge base: it has no owner (CT2).
+    account_id: int | None = dbm.ADMIN_ACCOUNT_ID
+    # v28 (shared knowledge bases, design Section 11.2). ``knowledge_type`` is None for a personal knowledge base (CT18).
+    created_by_account_id: int | None = None
+    knowledge_type: str | None = None
+    join_policy: str = "approval"
+    state: str = "active"
+    archived_at: float | None = None
+    # Seed entities (design Section 8.5): names, at most ``MAX_SEED_ENTITIES``.
+    seed_entities: tuple[str, ...] = ()
     # v16(§13.2). 외부 번호(항상 >= 2^56, §7.2). 내부 ``id``는 내부 키로 남는다(K9).
     number: int | None = None
     # 공개 상태 변경·문서 purge 때 올린다. 열람 capability URL을 즉시 무효화한다(§5.2).
@@ -118,6 +127,11 @@ class ThemeInfo:
     def knowledge_manager(self) -> str:
         return self.sorcerer
 
+    @property
+    def is_shared(self) -> bool:
+        """A shared knowledge base: not personal and without an owner (design Section 11.2)."""
+        return not self.is_personal and self.account_id is None
+
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["knowledge_manager"] = self.sorcerer
@@ -126,10 +140,10 @@ class ThemeInfo:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ThemeInfo:
+    def from_legacy_registry_entry(cls, data: dict[str, Any]) -> KnowledgeBaseInfo:
+        """An entry of the retired ``themes.json``. The file has the names before version 27 (``is_default``)."""
         is_def = bool(data.get("is_default", False))
         tid = int(data.get("id", 0))
-        default_collab = not is_def
         return cls(
             id=tid,
             seq=int(data.get("seq", data.get("id", 0))),
@@ -137,19 +151,8 @@ class ThemeInfo:
             description=str(data.get("description", "")),
             icon=str(data.get("icon", "📁")),
             db_path=str(data.get("db_path", "")),
-            is_default=is_def,
+            is_personal=is_def,
             is_public=bool(data.get("is_public", data.get("public", True))),
-            is_collaborator_accessible=bool(
-                data.get(
-                    "is_collaborator_accessible",
-                    data.get("collaborator_accessible", data.get("collaborator", default_collab)),
-                )
-            ),
-            default_focus=(
-                ""
-                if is_def
-                else str(data.get("default_focus") or "").strip()
-            ),
             fqdn=validate_fqdn(data.get("fqdn")),
             ga_measurement_id=validate_ga_measurement_id(
                 data.get("ga_measurement_id", data.get("ga_id"))
@@ -169,12 +172,12 @@ class ThemeInfo:
         )
 
 
-def embed_mismatch(theme: ThemeInfo, embed_provider: str | None, embed_model: str | None) -> bool:
+def embed_mismatch(theme: KnowledgeBaseInfo, embed_provider: str | None, embed_model: str | None) -> bool:
     """현재 임베딩 설정이 테마의 고정 임베딩 공간과 다른가(§10.4). 화면의 re-embed 필요 표시용.
 
     아직 고정되지 않은 테마는 첫 저장이 고정하므로 False다. 모델이 다르면 True. 프로바이더는 양쪽 모두 알려져 있고 다를 때만 True다.
     프로바이더 이름은 ``store.vectors.resolve_embed_identity``가 돌려주는 임베딩 백엔드 이름(codex·antigravity → gemini)으로 넘긴다.
-    ``theme``은 DB에서 다시 읽은 값이어야 한다. 고정은 첫 임베딩 저장 때 DB에서 일어나므로 캐시된 ``ThemeInfo``는 늦을 수 있다.
+    ``theme``은 DB에서 다시 읽은 값이어야 한다. 고정은 첫 임베딩 저장 때 DB에서 일어나므로 캐시된 ``KnowledgeBaseInfo``는 늦을 수 있다.
     """
     pinned_model = (theme.embed_model or "").strip()
     if not pinned_model:
@@ -186,50 +189,85 @@ def embed_mismatch(theme: ThemeInfo, embed_provider: str | None, embed_model: st
     return bool(pinned_provider and current_provider and pinned_provider != current_provider)
 
 
-def _theme_number(raw: Any, source: str, theme_id: Any) -> int | None:
+def _theme_number(raw: Any, source: str, kb_id: Any) -> int | None:
     """번호는 10진 문자열·정수 모두 받는다(O4). 없으면 None(v16 이관 전). 형식이 틀리면 추측하지 않고 실패한다(C1)."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
     try:
         return ids.parse_public_id(raw.strip() if isinstance(raw, str) else raw)
     except ValueError as exc:
-        raise ValueError(f"{source}: theme {theme_id!r} has invalid number {raw!r}") from exc
+        raise ValueError(f"{source}: theme {kb_id!r} has invalid number {raw!r}") from exc
 
 
-def _visibility_epoch(raw: Any, source: str, theme_id: Any) -> int:
+def _visibility_epoch(raw: Any, source: str, kb_id: Any) -> int:
     if raw is None:
         return 1
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
-        raise ValueError(f"{source}: theme {theme_id!r} has invalid visibility_epoch {raw!r}")
+        raise ValueError(f"{source}: theme {kb_id!r} has invalid visibility_epoch {raw!r}")
     return raw
 
 
-def _owner_account_id(data: dict[str, Any], source: str) -> int:
-    """``account_id``가 없는 항목은 v15 이전 관리자 것(1)이다. 값이 NULL·비정수면 추측하지 않고 실패한다(C1)."""
+def _owner_account_id(data: dict[str, Any], source: str, *, allow_none: bool = False) -> int | None:
+    """``account_id``가 없는 항목은 v15 이전 관리자 것(1)이다. 값이 비정수면 추측하지 않고 실패한다(C1). NULL은 공유 지식 베이스의 행에서만 받는다(``allow_none``)."""
     if "account_id" not in data:
         return dbm.ADMIN_ACCOUNT_ID
     raw = data["account_id"]
+    if raw is None and allow_none:
+        return None
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise ValueError(f"{source}: theme {data.get('id')!r} has invalid account_id {raw!r}")
     return raw
 
 
-def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
+JOIN_POLICIES = ("open", "approval")
+KB_STATES = ("active", "archived")
+MAX_SEED_ENTITIES = 20
+MAX_SEED_ENTITY_LENGTH = 200
+
+
+def validate_seed_entities(value: Any) -> tuple[str, ...]:
+    """Seed entities of a shared knowledge base (design Sections 8.5 and 10.1): a list of names, at most 20, without duplicates. Else ``ValueError`` with a code."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("seed_entities_invalid")
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("seed_entities_invalid")
+        name = item.strip()
+        if not name or len(name) > MAX_SEED_ENTITY_LENGTH:
+            raise ValueError("seed_entities_invalid")
+        if name not in names:
+            names.append(name)
+    if len(names) > MAX_SEED_ENTITIES:
+        raise ValueError("seed_entities_too_many")
+    return tuple(names)
+
+
+def _stored_seed_entities(raw: Any) -> tuple[str, ...]:
+    """The stored JSON list. A value that is not a list of strings is a defect of the data: it reads as no seed entity and the log gets a warning."""
+    if raw in (None, "", "[]"):
+        return ()
+    try:
+        return validate_seed_entities(json.loads(raw))
+    except (ValueError, TypeError):
+        log.warning("knowledge_bases.seed_entities has a value that is not a list of names; it reads as empty")
+        return ()
+
+
+def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
     d = dict(row)
     tid = int(d.get("id", 0))
-    is_def = bool(d.get("is_default", tid == 0))
+    is_def = bool(d.get("is_personal", tid == 0))
     db_p = str(d.get("db_path") or "").strip() or default_db_path
-    return ThemeInfo(
+    return KnowledgeBaseInfo(
         id=tid,
         seq=int(d.get("seq", tid)),
         label=str(d.get("label", "")),
         description=str(d.get("description", "")),
         icon=str(d.get("icon", "📁")),
         db_path=db_p,
-        is_default=is_def,
+        is_personal=is_def,
         is_public=bool(d.get("is_public", 1)),
-        is_collaborator_accessible=bool(d.get("is_collaborator_accessible", not is_def)),
-        default_focus="" if is_def else str(d.get("default_focus") or "").strip(),
         fqdn=validate_fqdn(d.get("fqdn")),
         ga_measurement_id=validate_ga_measurement_id(d.get("ga_measurement_id")),
         sorcerer=str(d.get("sorcerer") or "").strip(),
@@ -237,7 +275,13 @@ def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
         created_at=float(d.get("created_at", 0.0)),
         updated_at=float(d.get("updated_at", 0.0)),
         # 열이 없는 행은 v15 이전 DB(관리자 것)다. v15 DB의 NULL은 이관 결함이므로 거부한다.
-        account_id=_owner_account_id(d, "themes table"),
+        account_id=_owner_account_id(d, "knowledge_bases table", allow_none=True),
+        created_by_account_id=d.get("created_by_account_id"),
+        knowledge_type=d.get("knowledge_type"),
+        join_policy=str(d.get("join_policy") or "approval"),
+        state=str(d.get("state") or "active"),
+        archived_at=d.get("archived_at"),
+        seed_entities=_stored_seed_entities(d.get("seed_entities")),
         # 열이 없는 행은 v16 이전 DB(읽기 전용 점검)다.
         number=_theme_number(d.get("number"), "themes table", tid),
         visibility_epoch=_visibility_epoch(d.get("visibility_epoch"), "themes table", tid),
@@ -246,14 +290,7 @@ def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedThemeRef:
-    theme: ThemeInfo
-    # 기존 내부 ID로 들어왔다. 응답에 ``Deprecation``·``Sunset`` 헤더를 붙이고 호출 수를 센다(§7.3, R23-5).
-    via_internal_id: bool
-
-
-class ThemeManager:
+class KnowledgeBaseManager:
     """테마 레지스트리 및 단일 데이터베이스 기반 테마 분할 관리자."""
 
     # 새 테마 번호의 밀리초 시계. None이면 현재 시각이다. 테스트가 같은 밀리초 충돌을 재현할 때만 바꾼다.
@@ -263,16 +300,16 @@ class ThemeManager:
         self,
         base_settings: Settings | None = None,
         *,
-        create_registry: bool = True,
+        writable: bool = True,
     ) -> None:
         self.settings = base_settings or get_settings()
-        self.create_registry = create_registry
-        self.registry_path = self.settings.data_dir / THEMES_REGISTRY_FILENAME
-        self._themes: dict[int, ThemeInfo] = {}
-        self._fqdn_to_theme_id: dict[str, int] = {}
+        self.writable = writable
+        self._themes: dict[int, KnowledgeBaseInfo] = {}
+        self._fqdn_to_kb_id: dict[str, int] = {}
         self._next_seq: int = 1
-        self._default_theme_id: int = 0
-        if self.create_registry:
+        # Rows that are neither a personal nor a shared knowledge base (design Section 12.2 step 3): no route serves them; the admin page lists them.
+        self._unavailable: dict[int, tuple[KnowledgeBaseInfo, str]] = {}
+        if self.writable:
             self._init_db_file()
         self.reload()
 
@@ -291,9 +328,9 @@ class ThemeManager:
         for t in self._themes.values():
             if t.fqdn:
                 idx[t.fqdn.lower()] = t.id
-        self._fqdn_to_theme_id = idx
+        self._fqdn_to_kb_id = idx
 
-    def get_theme_by_fqdn(self, fqdn: str | None) -> ThemeInfo | None:
+    def get_kb_by_fqdn(self, fqdn: str | None) -> KnowledgeBaseInfo | None:
         """FQDN 호스트명으로 등록된 테마를 검색. 미등록 시 None."""
         if not fqdn:
             return None
@@ -301,7 +338,7 @@ class ThemeManager:
         cleaned = str(fqdn).strip().lower()
         if ":" in cleaned:
             cleaned = cleaned.split(":", 1)[0]
-        tid = self._fqdn_to_theme_id.get(cleaned)
+        tid = self._fqdn_to_kb_id.get(cleaned)
         if tid is not None and tid in self._themes:
             return self._themes[tid]
         return None
@@ -309,7 +346,7 @@ class ThemeManager:
     def get_registered_fqdns(self) -> set[str]:
         """현재 등록된 모든 테마의 FQDN 호스트명 집합 반환."""
         self.reload()
-        return set(self._fqdn_to_theme_id.keys())
+        return set(self._fqdn_to_kb_id.keys())
 
     def has_registered_fqdn(self, fqdn: str | None) -> bool:
         """해당 FQDN이 특정 테마의 서비스 도메인으로 등록되어 있는지 여부."""
@@ -319,7 +356,7 @@ class ThemeManager:
         cleaned = str(fqdn).strip().lower()
         if ":" in cleaned:
             cleaned = cleaned.split(":", 1)[0]
-        return cleaned in self._fqdn_to_theme_id
+        return cleaned in self._fqdn_to_kb_id
 
     def has_any_ga_enabled(self) -> bool:
         """등록된 테마 중 하나라도 GA4 측정 ID를 사용하는지 확인."""
@@ -327,53 +364,19 @@ class ThemeManager:
         return any(bool(t.ga_measurement_id) for t in self._themes.values())
 
     def reload(self) -> None:
-        """themes 테이블(SQLite) 및 themes.json 레지스트리를 동기화하고 메모리에 적재한다.
+        """Load the knowledge bases from the table ``knowledge_bases`` of ``claire.db``. The database is the only source.
 
-        싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서 레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가 손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
+        ``data/themes.json`` is retired (claire.db version 27, design Section 12.1 step 3): the first writable load inserts the entries that are only in the file, as the old code did, and then renames the file to ``themes.json.retired``. No code reads or writes it after that.
         """
         if not getattr(self.settings, "multi_theme", False):
-            # 싱글 테마 모드: themes.json은 읽지도 쓰지도 않는다. Theme 0은 claire.db themes 행에서 한 번 읽어 고정한다(§4.2, K8).
+            # 싱글 테마 모드: Theme 0은 claire.db 행에서 한 번 읽어 고정한다(§4.2, K8).
             if not self._themes or 0 not in self._themes:
                 self._themes = {0: self._load_single_mode_theme0()}
             self._rebuild_fqdn_index()
             return
 
-        raw_themes_from_json: list[dict[str, Any]] = []
-        json_next_seq = 1
-        json_default_theme_id = 0
-        registry_exists = self.registry_path.is_file()
-
-        if registry_exists:
-            try:
-                raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
-                if not isinstance(raw, dict):
-                    raise ValueError("registry root must be an object")
-                themes_data = raw.get("themes", [])
-                json_next_seq = int(raw.get("next_seq", 1))
-                json_default_theme_id = int(raw.get("default_theme_id", 0))
-
-                if isinstance(themes_data, list):
-                    for item in themes_data:
-                        if not isinstance(item, dict):
-                            raise ValueError("theme entry must be an object")
-                        raw_themes_from_json.append(item)
-                elif isinstance(themes_data, dict):
-                    for item in themes_data.values():
-                        if not isinstance(item, dict):
-                            raise ValueError("theme entry must be an object")
-                        raw_themes_from_json.append(item)
-                else:
-                    raise ValueError("themes must be a list or object")
-            except Exception as exc:
-                raise RuntimeError(
-                    f"테마 레지스트리를 읽을 수 없습니다: {self.registry_path}: {exc}"
-                ) from exc
-        else:
-            if not self.create_registry:
-                raise FileNotFoundError(f"테마 레지스트리가 없습니다: {self.registry_path}")
-
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
-        if not self.create_registry:
+        if not self.writable:
             if not Path(db_file).is_file():
                 if not self._themes or 0 not in self._themes:
                     self._themes = {0: self._build_default_theme()}
@@ -382,24 +385,15 @@ class ThemeManager:
             conn = dbm.connect_existing(db_file, readonly=True)
             try:
                 try:
-                    rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+                    rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
                 except (sqlite3.OperationalError, sqlite3.DatabaseError):
                     rows = []
-                loaded = {}
-                for r in rows:
-                    t = _row_to_theme(r, default_db_path=str(db_file))
-                    loaded[t.id] = t
-                if raw_themes_from_json:
-                    for item in raw_themes_from_json:
-                        t_info = ThemeInfo.from_dict(item)
-                        if t_info.id not in loaded:
-                            loaded[t_info.id] = t_info
-                if 0 not in loaded:
+                loaded, unavailable = self._split_by_kind(rows, str(db_file))
+                if 0 not in loaded and 0 not in unavailable:
                     loaded[0] = self._build_default_theme()
                 self._themes = loaded
-                max_seq = max((t.seq for t in self._themes.values()), default=0)
-                self._next_seq = max(max_seq + 1, json_next_seq)
-                self._default_theme_id = json_default_theme_id if json_default_theme_id in self._themes else 0
+                self._unavailable = unavailable
+                self._next_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0) + 1
                 self._rebuild_fqdn_index()
                 return
             finally:
@@ -407,6 +401,7 @@ class ThemeManager:
 
         Path(db_file).parent.mkdir(parents=True, exist_ok=True)
         conn = dbm.connect(db_file)
+        legacy_next_seq = 1
         try:
             dbm.init_db(conn)
 
@@ -420,60 +415,104 @@ class ThemeManager:
                 except Exception as e:
                     log.warning("Auto-migration of theme databases failed: %s", e)
 
-            rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+            rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
             existing_ids = {r["id"] for r in rows}
-
-            if raw_themes_from_json:
-                for item in raw_themes_from_json:
-                    t_info = ThemeInfo.from_dict(item)
-                    if t_info.id not in existing_ids:
-                        self._insert_theme_row(conn, t_info, db_path=str(db_file))
-                        existing_ids.add(t_info.id)
+            legacy_next_seq = self._retire_legacy_registry(conn, existing_ids, db_file=str(db_file))
 
             if 0 not in existing_ids:
                 self._insert_theme_row(conn, self._build_default_theme(), db_path=str(db_file))
 
+            # Rows from the legacy paths have the old shape (an owner and not personal): convert them now (design Section 12.2).
+            dbm._migrate_v28_convert_knowledge_bases(conn)
             # 레거시 경로(themes.json·다중 DB 가져오기)로 들어온 행에도 번호를 준다. DB가 번호의 원천이다.
             dbm.backfill_theme_numbers(conn)
             conn.commit()
-            rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+            rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
 
-            loaded: dict[int, ThemeInfo] = {}
-            for r in rows:
-                t = _row_to_theme(r, default_db_path=str(db_file))
-                loaded[t.id] = t
-
+            loaded, unavailable = self._split_by_kind(rows, str(db_file))
             self._themes = loaded
-            max_seq = max((t.seq for t in self._themes.values()), default=0)
-            self._next_seq = max(max_seq + 1, json_next_seq)
-            self._default_theme_id = json_default_theme_id if json_default_theme_id in self._themes else 0
+            self._unavailable = unavailable
+            max_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0)
+            self._next_seq = max(max_seq + 1, legacy_next_seq)
             self._rebuild_fqdn_index()
         finally:
             conn.close()
 
-        if not registry_exists and getattr(self.settings, "multi_theme", False) and self.create_registry:
-            self._save_registry()
+    @staticmethod
+    def _split_by_kind(rows: Any, default_db_path: str) -> tuple[dict[int, KnowledgeBaseInfo], dict[int, tuple[KnowledgeBaseInfo, str]]]:
+        """Rows of the two kinds (personal, shared) and the rows that break the kinds (unavailable, with the reason)."""
+        from . import kb_collab
+
+        loaded: dict[int, KnowledgeBaseInfo] = {}
+        unavailable: dict[int, tuple[KnowledgeBaseInfo, str]] = {}
+        for r in rows:
+            t = _row_to_theme(r, default_db_path=default_db_path)
+            reason = kb_collab.kind_violation_reason(t.is_personal, t.account_id, t.is_public, t.knowledge_type)
+            if reason:
+                unavailable[t.id] = (t, reason)
+            else:
+                loaded[t.id] = t
+        return loaded, unavailable
+
+    def unavailable_kbs(self) -> list[tuple[KnowledgeBaseInfo, str]]:
+        """The rows that no route serves, with the reason (for the admin page)."""
+        self.reload()
+        return [self._unavailable[k] for k in sorted(self._unavailable)]
+
+    def _retire_legacy_registry(self, conn: sqlite3.Connection, existing_ids: set[int], *, db_file: str) -> int:
+        """Insert the entries that are only in ``data/themes.json`` (the admin owns an entry without ``account_id``), then rename the file to ``themes.json.retired``. Return the ``next_seq`` of the file (1 when there is no file).
+
+        A file that cannot be read stays where it is, and the start continues without it (operator rule); the log gets a warning.
+        """
+        path = self.settings.data_dir / LEGACY_REGISTRY_FILENAME
+        if not path.is_file():
+            return 1
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("registry root must be an object")
+            entries = raw.get("themes", [])
+            if isinstance(entries, dict):
+                entries = list(entries.values())
+            if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+                raise ValueError("themes must be a list of objects")
+            next_seq = int(raw.get("next_seq", 1))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("legacy registry %s cannot be read; it stays as it is: %s", path, exc)
+            return 1
+        for item in entries:
+            t_info = KnowledgeBaseInfo.from_legacy_registry_entry(item)
+            if t_info.id not in existing_ids:
+                self._insert_theme_row(conn, t_info, db_path=db_file)
+                existing_ids.add(t_info.id)
+        conn.commit()
+        target = path.with_name(LEGACY_REGISTRY_FILENAME + ".retired")
+        if target.exists():
+            target = path.with_name(f"{LEGACY_REGISTRY_FILENAME}.retired.{int(time.time())}")
+        os.replace(path, target)
+        log.info("legacy registry %s is retired as %s", path, target.name)
+        return next_seq
 
     @staticmethod
-    def _insert_theme_row(conn: sqlite3.Connection, theme: ThemeInfo, *, db_path: str) -> None:
+    def _insert_theme_row(conn: sqlite3.Connection, theme: KnowledgeBaseInfo, *, db_path: str) -> None:
         """레지스트리에만 있던 테마(또는 Theme 0)를 themes 행으로 넣는다. 이미 있으면 그대로 둔다.
 
         항목에 번호가 있고 아직 쓰이지 않았으면 그 번호를 지킨다. 없거나 이미 쓰였으면 NULL로 두고 ``backfill_theme_numbers``가 채운다.
         """
         number = theme.number
         if number is not None and conn.execute(
-            "SELECT 1 FROM themes WHERE number=?", (number,)
+            "SELECT 1 FROM knowledge_bases WHERE number=?", (number,)
         ).fetchone() is not None:
             number = None
         conn.execute(
             """
-            INSERT OR IGNORE INTO themes (
+            INSERT OR IGNORE INTO knowledge_bases (
                 id, seq, label, description, icon, db_path,
-                is_default, is_public, is_collaborator_accessible,
-                default_focus, fqdn, ga_measurement_id, sorcerer,
+                is_personal, is_public,
+                fqdn, ga_measurement_id, sorcerer,
                 presentation_enabled, created_at, updated_at, account_id,
                 number, visibility_epoch, embed_provider, embed_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 theme.id,
@@ -482,10 +521,8 @@ class ThemeManager:
                 theme.description,
                 theme.icon,
                 db_path,
-                int(theme.is_default),
+                int(theme.is_personal),
                 int(theme.is_public),
-                int(theme.is_collaborator_accessible),
-                theme.default_focus,
                 theme.fqdn,
                 theme.ga_measurement_id,
                 theme.sorcerer,
@@ -500,11 +537,11 @@ class ThemeManager:
             ),
         )
 
-    def _load_single_mode_theme0(self) -> ThemeInfo:
+    def _load_single_mode_theme0(self) -> KnowledgeBaseInfo:
         """싱글 테마 모드의 Theme 0을 claire.db themes 행에서 읽는다(§4.2). 행이 없으면 만들어 기록한다.
 
         설정에서 오는 값(``presentation_enabled``, 지식 관리자, ``db_path``)은 지금까지처럼 설정을 따른다.
-        읽기 전용(``create_registry=False``)이고 DB가 없거나 아직 themes 테이블이 없으면 기록하지 않고 기본값을 쓴다.
+        읽기 전용(``writable=False``)이고 DB가 없거나 아직 themes 테이블이 없으면 기록하지 않고 기본값을 쓴다.
         """
         default = self._build_default_theme()
         db_file = getattr(self.settings, "db_file", None)
@@ -512,27 +549,27 @@ class ThemeManager:
             return default
         path = Path(db_file)
         row = None
-        if self.create_registry:
+        if self.writable:
             path.parent.mkdir(parents=True, exist_ok=True)
             conn = dbm.connect(path)
             try:
                 # 생성자가 이미 init_db를 돌렸다. 그 뒤 파일이 바뀐 경우에만 다시 맞춘다.
                 if dbm.stored_schema_version(conn) != dbm.SCHEMA_VERSION:
                     dbm.init_db(conn)
-                row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+                row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
                 if row is None or row["number"] is None:
                     if row is None:
                         self._insert_theme_row(conn, default, db_path=str(path))
                     dbm.backfill_theme_numbers(conn)
                     conn.commit()
-                    row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+                    row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
             finally:
                 conn.close()
         elif path.is_file():
             conn = dbm.connect_existing(path, readonly=True)
             try:
                 try:
-                    row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+                    row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
                 except (sqlite3.OperationalError, sqlite3.DatabaseError):
                     row = None
             finally:
@@ -545,7 +582,7 @@ class ThemeManager:
         theme.presentation_enabled = default.presentation_enabled
         return theme
 
-    def _build_default_theme(self) -> ThemeInfo:
+    def _build_default_theme(self) -> KnowledgeBaseInfo:
         now = time.time()
         db_path = getattr(self.settings, "db_path", None)
         if db_path is None:
@@ -557,16 +594,15 @@ class ThemeManager:
             "effective_sorcerer",
             getattr(self.settings, "sorcerer", "owner"),
         )
-        return ThemeInfo(
+        return KnowledgeBaseInfo(
             id=0,
             seq=0,
             label="기본 지식베이스",
             description="일반 수집 자료 및 기본 지식",
             icon="📚",
             db_path=str(db_path),
-            is_default=True,
+            is_personal=True,
             is_public=True,
-            is_collaborator_accessible=False,
             sorcerer=str(default_sorcerer).strip() or "owner",
             presentation_enabled=bool(getattr(self.settings, "presentation_enabled", False)),
             created_at=now,
@@ -574,41 +610,15 @@ class ThemeManager:
             account_id=dbm.ADMIN_ACCOUNT_ID,
         )
 
-    def _init_default_registry(self) -> None:
-        default_theme = self._build_default_theme()
-        self._themes = {0: default_theme}
-        self._next_seq = 1
-        self._default_theme_id = 0
-        if getattr(self.settings, "multi_theme", False):
-            self._save_registry()
-
-    def _save_registry(self) -> None:
-        """원자적(atomic write)으로 themes.json 파일 갱신."""
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "version": 1,
-            "next_seq": self._next_seq,
-            "default_theme_id": self._default_theme_id,
-            "themes": [t.to_dict() for t in sorted(self._themes.values(), key=lambda x: x.id)],
-        }
-        raw_json = json.dumps(data, ensure_ascii=False, indent=2)
-        dir_path = self.registry_path.parent
-        with tempfile.NamedTemporaryFile("w", dir=dir_path, delete=False, encoding="utf-8") as tf:
-            tf.write(raw_json)
-            tmp_name = tf.name
-        os.replace(tmp_name, self.registry_path)
-        self._rebuild_fqdn_index()
-
-    def list_themes(
+    def list_kbs(
         self,
         *,
         include_private: bool = True,
-        collaborator: bool = False,
         host: str | None = None,
-    ) -> list[ThemeInfo]:
+    ) -> list[KnowledgeBaseInfo]:
         """등록된 테마 목록을 일련번호 순서로 반환.
 
-        include_private=True 인 경우 모든 테마 반환. collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환. include_private=False 및 collaborator=False 인 경우 (익명 사용자):
+        include_private=True 인 경우 모든 테마 반환. include_private=False 인 경우 (익명 사용자):
           - host가 특정 테마의 전용 FQDN인 경우: 해당 FQDN 테마만 반환 (is_public=True).
           - host가 기본 도메인(또는 미지정)인 경우: FQDN이 설정되지 않은 공개 테마만 반환 (기본 지식베이스 및 일반 공개 테마).
         """
@@ -616,8 +626,6 @@ class ThemeManager:
         themes = sorted(self._themes.values(), key=lambda t: t.id)
         if include_private:
             return themes
-        if collaborator:
-            return [t for t in themes if t.is_public or t.is_collaborator_accessible]
 
         cleaned_host = ""
         if host:
@@ -625,38 +633,37 @@ class ThemeManager:
             if ":" in cleaned_host:
                 cleaned_host = cleaned_host.split(":", 1)[0].strip()
 
-        if cleaned_host and cleaned_host in self._fqdn_to_theme_id:
-            dedicated_tid = self._fqdn_to_theme_id[cleaned_host]
+        if cleaned_host and cleaned_host in self._fqdn_to_kb_id:
+            dedicated_tid = self._fqdn_to_kb_id[cleaned_host]
             if dedicated_tid is not None:
                 return [t for t in themes if t.id == dedicated_tid and t.is_public]
 
-        return [t for t in themes if t.is_public and (not t.fqdn or t.is_default)]
+        return [t for t in themes if t.is_public and (not t.fqdn or t.is_personal)]
 
-    def get_theme(
+    def get_kb(
         self,
         theme_ref: int | str | None,
         *,
         include_private: bool = True,
-        collaborator: bool = False,
         label_match: Literal["exact", "partial"] = "exact",
-    ) -> ThemeInfo:
+    ) -> KnowledgeBaseInfo:
         """일련번호(int/str) 또는 레이블로 테마를 검색. 찾지 못하면 다른 테마로 대신하지 않는다(PRINCIPLES C1).
 
         - theme_ref 가 None 이거나 빈 문자열이면 기본 테마. 참조를 생략한 경우의 기본값이다.
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
         - label_match="partial" 이면 마지막으로 레이블 부분 일치(처음 걸린 테마)를 시도한다. 사람이 직접 입력하는 CLI `--theme`과 텔레그램 `/theme`만 쓴다.
-        - 찾지 못했거나 접근할 수 없으면 ThemeNotFound. include_private=False 이면 비공개 테마, collaborator=True 이면 협업 비허용 비공개 테마가 접근 불가다. 두 경우의 메시지는 같다.
+        - 찾지 못했거나 접근할 수 없으면 KnowledgeBaseNotFound. include_private=False 이면 비공개 테마가 접근 불가다.
         """
         if label_match not in ("exact", "partial"):
             raise ValueError(f"알 수 없는 label_match 값입니다: {label_match!r}")
         self.reload()
-        found: ThemeInfo | None = None
+        found: KnowledgeBaseInfo | None = None
         if theme_ref is None or str(theme_ref).strip() == "":
             try:
-                found = self.default_theme_for(dbm.ADMIN_ACCOUNT_ID)
-            except ThemeNotFound:
-                found = next((t for t in self._themes.values() if t.is_default), self._themes.get(0, self._build_default_theme()))
+                found = self.personal_kb_for(dbm.ADMIN_ACCOUNT_ID)
+            except KnowledgeBaseNotFound:
+                found = next((t for t in self._themes.values() if t.is_personal), self._themes.get(0, self._build_default_theme()))
         else:
             ref_str = str(theme_ref).strip()
             # 1. 정수 일련번호 매칭
@@ -682,59 +689,36 @@ class ThemeManager:
                         break
 
         if found is None:
-            raise ThemeNotFound(theme_ref)
+            raise KnowledgeBaseNotFound(theme_ref)
         if not include_private:
-            accessible = (found.is_public or found.is_collaborator_accessible) if collaborator else found.is_public
-            if not accessible:
-                raise ThemeNotFound(theme_ref)
+            if not found.is_public:
+                raise KnowledgeBaseNotFound(theme_ref)
         return found
 
-    def get_theme_by_number(self, number: int) -> ThemeInfo:
-        """외부 번호로 찾는다. 없으면 ``ThemeNotFound``. 가시성 판정은 호출자 몫이다(§6.3)."""
+    def get_kb_by_number(self, number: int) -> KnowledgeBaseInfo:
+        """외부 번호로 찾는다. 없으면 ``KnowledgeBaseNotFound``. 가시성 판정은 호출자 몫이다(§6.3)."""
         if isinstance(number, bool) or not isinstance(number, int):
-            raise ThemeNotFound(number)
+            raise KnowledgeBaseNotFound(number)
         self.reload()
         for theme in self._themes.values():
             if theme.number == number:
                 return theme
-        raise ThemeNotFound(number)
+        raise KnowledgeBaseNotFound(number)
 
-    def resolve_theme_ref(self, theme_ref: int | str | None, *, account_id: int) -> ResolvedThemeRef:
-        """요청 입력(``?theme=``, 본문 ``theme``, ``X-Claire-Theme``, MCP ``theme``)을 계정 안에서 엄격하게 해석한다(§6.3, §7.3).
+    def get_kb_by_reference(self, raw: str | int | None) -> KnowledgeBaseInfo:
+        """The parameter ``kb``: the external number only (CT23). No internal ID, no label, no default. Else ``KnowledgeBaseNotFound``. The caller checks the access."""
+        if raw is None or isinstance(raw, bool):
+            raise KnowledgeBaseNotFound(raw)
+        text = str(raw).strip()
+        if not text or not text.isascii() or not text.isdigit():
+            raise KnowledgeBaseNotFound(raw)
+        try:
+            number = ids.parse_public_id(text)
+        except ValueError:
+            raise KnowledgeBaseNotFound(raw) from None
+        return self.get_kb_by_number(number)
 
-        순서: None·빈 값 → 그 계정의 ``is_default=1`` 테마. ``0 <= 정수 < 2^31`` → 내부 ID(``via_internal_id=True``, ``parse_public_id`` 호출 전에 판정). 그 밖의 정수·숫자열 → 번호. 나머지 → 레이블 정확 일치(``(account_id, label)``).
-        다른 계정의 테마이거나 없으면 ``ThemeNotFound``(부분 일치 없음, D7).
-        레이블은 ``get_theme``과 같이 대소문자를 무시한 정확 일치다(레이블 중복 검사도 대소문자를 무시한다).
-        """
-        if theme_ref is None or (isinstance(theme_ref, str) and not theme_ref.strip()):
-            return ResolvedThemeRef(theme=self.default_theme_for(account_id), via_internal_id=False)
-        if isinstance(theme_ref, bool) or not isinstance(theme_ref, (int, str)):
-            raise ThemeNotFound(theme_ref)
-
-        raw: int | str = theme_ref.strip() if isinstance(theme_ref, str) else theme_ref
-        numeric = isinstance(raw, int) or all("0" <= ch <= "9" for ch in raw)
-        if numeric:
-            try:
-                is_internal, value = ids.parse_internal_id_or_number(raw)
-            except ValueError:
-                raise ThemeNotFound(theme_ref) from None
-            self.reload()
-            if is_internal:
-                found = self._themes.get(value)
-            else:
-                found = next((t for t in self._themes.values() if t.number == value), None)
-            if found is None or found.account_id != account_id:
-                raise ThemeNotFound(theme_ref)
-            return ResolvedThemeRef(theme=found, via_internal_id=is_internal)
-
-        self.reload()
-        wanted = raw.lower()
-        for theme in self._themes.values():
-            if theme.account_id == account_id and theme.label.strip().lower() == wanted:
-                return ResolvedThemeRef(theme=theme, via_internal_id=False)
-        raise ThemeNotFound(theme_ref)
-
-    def list_account_themes(self, account_id: int) -> list[ThemeInfo]:
+    def list_account_kbs(self, account_id: int) -> list[KnowledgeBaseInfo]:
         """그 계정의 테마를 번호 내림차순으로. 가시성 필터는 호출자 몫이다(§7.6)."""
         self.reload()
         owned = [t for t in self._themes.values() if t.account_id == account_id]
@@ -745,32 +729,69 @@ class ThemeManager:
             reverse=True,
         )
 
-    def default_theme_for(self, account_id: int) -> ThemeInfo:
-        """그 계정의 ``is_default=1`` 테마. 없으면 ``ThemeNotFound``(C1)."""
+    def list_shared_kbs(self, *, knowledge_type: str | None = None) -> list[KnowledgeBaseInfo]:
+        """The shared knowledge bases that routes serve, newest first. ``knowledge_type`` selects one type (design Section 7, ``/kb?type=``)."""
+        if knowledge_type is not None and knowledge_type not in _themes_store.KNOWLEDGE_TYPES:
+            raise ValueError(f"invalid knowledge type: {knowledge_type!r}")
+        self.reload()
+        shared = [t for t in self._themes.values() if t.is_shared and (knowledge_type is None or t.knowledge_type == knowledge_type)]
+        return sorted(shared, key=lambda t: (t.number is not None, t.number or 0, t.id), reverse=True)
+
+    def list_selectable_kbs(self, account_id: int) -> list[KnowledgeBaseInfo]:
+        """The knowledge bases that the selector of an account shows: its personal knowledge base, then all shared knowledge bases (they are public, CT5), newest first."""
+        self.reload()
+        shared = sorted(
+            (t for t in self._themes.values() if t.is_shared),
+            key=lambda t: (t.number is not None, t.number or 0, t.id),
+            reverse=True,
+        )
+        return [*self.list_account_kbs(account_id), *shared]
+
+    def personal_kb_for(self, account_id: int) -> KnowledgeBaseInfo:
+        """그 계정의 ``is_personal=1`` 테마. 없으면 ``KnowledgeBaseNotFound``(C1)."""
         self.reload()
         for theme in sorted(self._themes.values(), key=lambda t: t.id):
-            if theme.account_id == account_id and theme.is_default:
+            if theme.account_id == account_id and theme.is_personal:
                 return theme
-        raise ThemeNotFound(f"default theme of account {account_id}")
+        raise KnowledgeBaseNotFound(f"default theme of account {account_id}")
 
-    def define_theme(
+    def define_kb(
         self,
         label: str,
         *,
         description: str = "",
         icon: str = "📁",
-        is_default: bool = False,
+        is_personal: bool = False,
         is_public: bool = True,
-        is_collaborator_accessible: bool = True,
-        default_focus: str = "",
         fqdn: str = "",
         ga_measurement_id: str = "",
         sorcerer: str = "",
         knowledge_manager: str = "",
         presentation_enabled: bool = False,
         account_id: int = dbm.ADMIN_ACCOUNT_ID,
-    ) -> ThemeInfo:
-        """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
+        knowledge_type: str | None = None,
+        seed_entities: Any = None,
+    ) -> KnowledgeBaseInfo:
+        """Make a knowledge base.
+
+        ``seed_entities``: at most 20 names, for a shared knowledge base only (design Section 10.1).
+
+        - ``is_personal=True``: the one personal knowledge base of ``account_id`` (CT1). It has no knowledge type.
+        - Else a shared knowledge base (CT2, CT3): it has no owner, is public, and needs ``knowledge_type`` (``real`` or ``fictional``, CT12; there is no default). ``account_id`` is the founder: it becomes ``created_by_account_id`` and the first moderator (CT8). Labels need not be unique.
+        """
+        seeds: tuple[str, ...] = ()
+        if is_personal:
+            if knowledge_type is not None:
+                raise ValueError("a personal knowledge base has no knowledge type")
+            if seed_entities:
+                raise ValueError("kb_shared_only")
+        else:
+            if knowledge_type not in ("real", "fictional"):
+                raise ValueError("knowledge_type_required")
+            if not is_public:
+                raise ValueError("a shared knowledge base is always public")
+            if seed_entities is not None:
+                seeds = validate_seed_entities(seed_entities)
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -787,10 +808,6 @@ class ThemeManager:
         self.reload()
 
         # 동일 계정 내 동일 레이블 중복 방지 (account_id, label)
-        for t in self._themes.values():
-            if t.account_id == account_id and t.label.strip().lower() == cleaned_label.lower():
-                raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
-
         seq = self._next_seq
         self._next_seq += 1
 
@@ -799,24 +816,25 @@ class ThemeManager:
 
         now = time.time()
         mgr = str(sorcerer or knowledge_manager or "").strip()
-        theme = ThemeInfo(
+        theme = KnowledgeBaseInfo(
             id=seq,
             seq=seq,
             label=cleaned_label,
             description=str(description or "").strip(),
             icon=str(icon or "📁").strip(),
             db_path=db_path,
-            is_default=bool(is_default),
+            is_personal=bool(is_personal),
             is_public=bool(is_public),
-            is_collaborator_accessible=False if is_default else bool(is_collaborator_accessible),
-            default_focus="" if is_default else str(default_focus or "").strip(),
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
             sorcerer=mgr,
             presentation_enabled=bool(presentation_enabled),
             created_at=now,
             updated_at=now,
-            account_id=account_id,
+            account_id=account_id if is_personal else None,
+            created_by_account_id=None if is_personal else account_id,
+            knowledge_type=None if is_personal else knowledge_type,
+            seed_entities=seeds,
         )
 
         conn = dbm.connect(db_file)
@@ -826,13 +844,13 @@ class ThemeManager:
             def _insert(number: int) -> None:
                 conn.execute(
                     """
-                    INSERT INTO themes (
+                    INSERT INTO knowledge_bases (
                         id, seq, label, description, icon, db_path,
-                        is_default, is_public, is_collaborator_accessible,
-                        default_focus, fqdn, ga_measurement_id, sorcerer,
+                        is_personal, is_public,
+                        fqdn, ga_measurement_id, sorcerer,
                         presentation_enabled, created_at, updated_at, account_id,
-                        number, visibility_epoch
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        number, visibility_epoch, created_by_account_id, knowledge_type, seed_entities
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         theme.id,
@@ -841,10 +859,8 @@ class ThemeManager:
                         theme.description,
                         theme.icon,
                         theme.db_path,
-                        int(theme.is_default),
+                        int(theme.is_personal),
                         int(theme.is_public),
-                        int(theme.is_collaborator_accessible),
-                        theme.default_focus,
                         theme.fqdn,
                         theme.ga_measurement_id,
                         theme.sorcerer,
@@ -854,18 +870,28 @@ class ThemeManager:
                         theme.account_id,
                         number,
                         theme.visibility_epoch,
+                        theme.created_by_account_id,
+                        theme.knowledge_type,
+                        json.dumps(list(theme.seed_entities), ensure_ascii=False),
                     ),
                 )
 
             # DB가 번호의 원천이다. 같은 밀리초 충돌은 UNIQUE 제약으로 잡고 seq를 올린다(§7.2).
             theme.number = ids.insert_with_timestamp_id(
                 conn,
-                table="themes",
+                table="knowledge_bases",
                 column="number",
                 salt=salt,
                 insert=_insert,
                 now_ms=self._number_clock,
+                # Section 5.4: a knowledge base number is never a theme number.
+                is_taken=lambda n: _themes_store.number_is_theme_number(conn, n),
             )
+            if not is_personal:
+                # CT8: the founder is the first moderator.
+                from . import kb_collab
+
+                kb_collab.add_membership(conn, kb_id=theme.id, account_id=account_id, role="moderator", state="active", now=now)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -874,38 +900,40 @@ class ThemeManager:
             conn.close()
 
         self._themes[seq] = theme
-        self._save_registry()
+        self._rebuild_fqdn_index()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s, FQDN: %s) 정의 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, FQDN: %s) 정의 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
-            theme.is_collaborator_accessible,
-            theme.default_focus,
             norm_fqdn or "(없음)",
             db_path,
         )
         return theme
 
-    def update_theme(
+    def update_kb(
         self,
-        theme_id: int | str,
+        kb_id: int | str,
         *,
         label: str | None = None,
         description: str | None = None,
         icon: str | None = None,
         is_public: bool | None = None,
-        is_collaborator_accessible: bool | None = None,
-        default_focus: str | None = None,
         fqdn: str | None = None,
         ga_measurement_id: str | None = None,
         sorcerer: str | None = None,
         knowledge_manager: str | None = None,
         presentation_enabled: bool | None = None,
-    ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음).
+        join_policy: str | None = None,
+        knowledge_type: str | None = None,
+        seed_entities: Any = None,
+        state: str | None = None,
+    ) -> KnowledgeBaseInfo:
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음).
 
-        ``fqdn``은 폐지됐다(O5). 비어 있지 않으면 ``ValueError``, 빈 값은 아무것도 바꾸지 않는다. 기존 ``themes.fqdn`` 열은 ``legacy_hosts``의 원본이므로 지우지 않는다(A3).
+        Settings of a shared knowledge base only (design Section 10.1): ``join_policy`` (``open`` or ``approval``), ``knowledge_type``, ``seed_entities`` (at most 20 names), and ``state`` (``active`` or ``archived``). For a personal knowledge base each of them raises ``ValueError("kb_shared_only")``. A new knowledge type takes the knowledge base out of its themes: a theme has one type (CT18).
+
+        ``fqdn``은 폐지됐다(O5). 비어 있지 않으면 ``ValueError``, 빈 값은 아무것도 바꾸지 않는다. 기존 ``knowledge_bases.fqdn`` 열은 ``legacy_hosts``의 원본이므로 지우지 않는다(A3).
         """
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
@@ -914,12 +942,12 @@ class ThemeManager:
 
         self.reload()
         try:
-            tid = int(theme_id)
+            tid = int(kb_id)
             if tid not in self._themes:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
             # 문자열 레이블/이름으로 지정된 경우 get_theme로 검색
-            target = self.get_theme(theme_id)
+            target = self.get_kb(kb_id)
             tid = target.id
 
         theme = self._themes[tid]
@@ -929,9 +957,6 @@ class ThemeManager:
             if not cleaned_label:
                 raise ValueError("테마 레이블은 비어 있을 수 없습니다.")
             # 동일 계정의 다른 테마와 레이블 중복 검사
-            for other in self._themes.values():
-                if other.id != tid and other.account_id == theme.account_id and other.label.strip().lower() == cleaned_label.lower():
-                    raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
             theme.label = cleaned_label
 
         if description is not None:
@@ -943,6 +968,8 @@ class ThemeManager:
         became_private = False
         if is_public is not None:
             new_public = bool(is_public)
+            if theme.is_shared and not new_public:
+                raise ValueError("a shared knowledge base is always public")
             if new_public != theme.is_public:
                 became_private = not new_public
                 theme.is_public = new_public
@@ -953,18 +980,6 @@ class ThemeManager:
                     trigger_cdn_invalidation([f"theme_{tid}"])
                 except Exception:
                     pass
-
-        if is_collaborator_accessible is not None:
-            if theme.is_default:
-                theme.is_collaborator_accessible = False
-            else:
-                theme.is_collaborator_accessible = bool(is_collaborator_accessible)
-
-        if default_focus is not None:
-            if theme.is_default:
-                theme.default_focus = ""
-            else:
-                theme.default_focus = str(default_focus or "").strip()
 
         if ga_measurement_id is not None:
             theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
@@ -978,24 +993,48 @@ class ThemeManager:
             theme.presentation_enabled = bool(presentation_enabled)
 
         theme.updated_at = time.time()
+        type_changed = False
+        if any(v is not None for v in (join_policy, knowledge_type, seed_entities, state)):
+            if not theme.is_shared:
+                raise ValueError("kb_shared_only")
+            if join_policy is not None:
+                if join_policy not in JOIN_POLICIES:
+                    raise ValueError("join_policy_invalid")
+                theme.join_policy = join_policy
+            if knowledge_type is not None:
+                if knowledge_type not in _themes_store.KNOWLEDGE_TYPES:
+                    raise ValueError("knowledge_type_invalid")
+                type_changed = knowledge_type != theme.knowledge_type
+                theme.knowledge_type = knowledge_type
+            if seed_entities is not None:
+                theme.seed_entities = validate_seed_entities(seed_entities)
+            if state is not None:
+                if state not in KB_STATES:
+                    raise ValueError("state_invalid")
+                if state != theme.state:
+                    theme.state = state
+                    theme.archived_at = theme.updated_at if state == "archived" else None
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         conn = dbm.connect(db_file)
         try:
             conn.execute(
                 """
-                UPDATE themes SET
+                UPDATE knowledge_bases SET
                     label = ?,
                     description = ?,
                     icon = ?,
                     is_public = ?,
-                    is_collaborator_accessible = ?,
-                    default_focus = ?,
                     fqdn = ?,
                     ga_measurement_id = ?,
                     sorcerer = ?,
                     presentation_enabled = ?,
                     visibility_epoch = ?,
+                    join_policy = ?,
+                    knowledge_type = ?,
+                    seed_entities = ?,
+                    state = ?,
+                    archived_at = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -1004,47 +1043,52 @@ class ThemeManager:
                     theme.description,
                     theme.icon,
                     int(theme.is_public),
-                    int(theme.is_collaborator_accessible),
-                    theme.default_focus,
                     theme.fqdn,
                     theme.ga_measurement_id,
                     theme.sorcerer,
                     int(theme.presentation_enabled),
                     theme.visibility_epoch,
+                    theme.join_policy,
+                    theme.knowledge_type,
+                    json.dumps(list(theme.seed_entities), ensure_ascii=False),
+                    theme.state,
+                    theme.archived_at,
                     theme.updated_at,
                     tid,
                 ),
             )
+            if type_changed:
+                conn.execute("DELETE FROM theme_knowledge_bases WHERE kb_id=?", (tid,))
             if became_private:
                 # Fedify 사이드카 설계 §9.4: 비공개 전환은 발행된 객체마다 Delete 작업을 만든다. visibility_epoch 증가와 같은 트랜잭션이다.
                 from . import federation as federation_store
 
-                federation_store.retract_objects(conn, theme_id=tid, now=theme.updated_at)
+                federation_store.retract_objects(conn, kb_id=tid, now=theme.updated_at)
             conn.commit()
         finally:
             conn.close()
 
-        self._save_registry()
+        self._rebuild_fqdn_index()
         log.info("테마 #%d 메타데이터 수정 완료 (레이블: %s, FQDN: %s)", tid, theme.label, theme.fqdn or "(없음)")
         return theme
 
-    def delete_theme(self, theme_id: int | str, *, purge: bool = False) -> ThemeInfo:
+    def delete_kb(self, kb_id: int | str, *, purge: bool = False) -> KnowledgeBaseInfo:
         """지식 관리자: 테마 삭제 (기본 테마 id 0은 삭제 불가)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
         self.reload()
         try:
-            tid = int(theme_id)
+            tid = int(kb_id)
             if tid not in self._themes:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
-            target = self.get_theme(theme_id)
+            target = self.get_kb(kb_id)
             tid = target.id
 
         theme = self._themes[tid]
 
-        if theme.is_default:
+        if theme.is_personal:
             raise ValueError(f"기본 테마(ID {tid})는 삭제할 수 없습니다.")
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
@@ -1054,8 +1098,8 @@ class ThemeManager:
             from . import federation as federation_store
 
             if purge:
-                dbm.reset_graph(conn, theme_id=tid)
-                federation_store.retract_objects(conn, theme_id=tid, now=time.time())
+                dbm.reset_graph(conn, kb_id=tid)
+                federation_store.retract_objects(conn, kb_id=tid, now=time.time())
                 for tbl in (
                     "documents",
                     "document_snapshots",
@@ -1072,56 +1116,56 @@ class ThemeManager:
                     *dbm.V20_RETIRED_SYNDICATION_TABLES,
                 ):
                     try:
-                        conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))
+                        conn.execute(f"DELETE FROM {tbl} WHERE kb_id = ?", (tid,))
                     except sqlite3.OperationalError:
                         pass
-                conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
+                conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (tid,))
                 conn.commit()
             else:
                 # The PRAGMA has no effect in a transaction, so it comes before the first write.
                 conn.execute("PRAGMA foreign_keys = OFF;")
-                federation_store.retract_objects(conn, theme_id=tid, now=time.time())
-                conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
+                federation_store.retract_objects(conn, kb_id=tid, now=time.time())
+                conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (tid,))
                 conn.commit()
                 conn.execute("PRAGMA foreign_keys = ON;")
         finally:
             conn.close()
 
         self._themes.pop(tid, None)
-        self._save_registry()
+        self._rebuild_fqdn_index()
 
         log.info("테마 #%d [%s] 삭제 완료 (purge=%s)", tid, theme.label, purge)
         return theme
 
-    def theme_data_counts(self, theme_id: int) -> dict[str, int]:
+    def kb_data_counts(self, kb_id: int) -> dict[str, int]:
         """테마에 속한 문서·엔티티·관계 수. 삭제·리셋 dry-run 보고용(읽기 전용)."""
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         conn = dbm.connect(db_file)
         try:
             return {
-                key: conn.execute(f"SELECT COUNT(*) FROM {tbl} WHERE theme_id = ?", (theme_id,)).fetchone()[0]
+                key: conn.execute(f"SELECT COUNT(*) FROM {tbl} WHERE kb_id = ?", (kb_id,)).fetchone()[0]
                 for key, tbl in (("documents", "documents"), ("entities", "entities"), ("relations", "relations"))
             }
         finally:
             conn.close()
 
-    def reset_theme(self, theme_id: int | str) -> dict[str, Any]:
+    def reset_kb(self, kb_id: int | str) -> dict[str, Any]:
         """지식 관리자: 테마 고유 식별자(?theme=id) 및 메타데이터는 보존하고 내부 수집/그래프 데이터를 완전 초기화."""
         import sqlite3
 
         self.reload()
         try:
-            tid = int(theme_id)
+            tid = int(kb_id)
             if tid not in self._themes:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
-            target = self.get_theme(theme_id)
+            target = self.get_kb(kb_id)
             tid = target.id
 
         theme = self._themes[tid]
 
         stats: dict[str, Any] = {
-            "theme_id": tid,
+            "kb_id": tid,
             "theme_label": theme.label,
             "theme_icon": theme.icon,
             "db_cleared": False,
@@ -1134,13 +1178,13 @@ class ThemeManager:
         conn = dbm.connect(db_file)
         try:
             try:
-                stats["deleted_documents"] = conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id = ?", (tid,)).fetchone()[0]
-                stats["deleted_entities"] = conn.execute("SELECT COUNT(*) FROM entities WHERE theme_id = ?", (tid,)).fetchone()[0]
-                stats["deleted_relations"] = conn.execute("SELECT COUNT(*) FROM relations WHERE theme_id = ?", (tid,)).fetchone()[0]
+                stats["deleted_documents"] = conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id = ?", (tid,)).fetchone()[0]
+                stats["deleted_entities"] = conn.execute("SELECT COUNT(*) FROM entities WHERE kb_id = ?", (tid,)).fetchone()[0]
+                stats["deleted_relations"] = conn.execute("SELECT COUNT(*) FROM relations WHERE kb_id = ?", (tid,)).fetchone()[0]
             except Exception:
                 pass
 
-            dbm.reset_graph(conn, theme_id=tid)
+            dbm.reset_graph(conn, kb_id=tid)
 
             for tbl in (
                 "documents",
@@ -1158,14 +1202,14 @@ class ThemeManager:
                 *dbm.V20_RETIRED_SYNDICATION_TABLES,
             ):
                 try:
-                    conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))
+                    conn.execute(f"DELETE FROM {tbl} WHERE kb_id = ?", (tid,))
                 except sqlite3.OperationalError:
                     pass
 
             now = time.time()
             # 임베딩이 모두 지워졌으므로 고정도 푼다. 다음 첫 저장이 그때의 모델로 다시 고정한다(§10.4).
             conn.execute(
-                "UPDATE themes SET updated_at = ?, embed_provider = NULL, embed_model = NULL WHERE id = ?",
+                "UPDATE knowledge_bases SET updated_at = ?, embed_provider = NULL, embed_model = NULL WHERE id = ?",
                 (now, tid),
             )
             conn.commit()
@@ -1176,7 +1220,7 @@ class ThemeManager:
         theme.updated_at = now
         theme.embed_provider = ""
         theme.embed_model = ""
-        self._save_registry()
+        self._rebuild_fqdn_index()
 
         log.info(
             "테마 #%d [%s] 데이터 완전 초기화 완료 (URI: ?theme=%d, 문서: %d건, 엔티티: %d건, 관계: %d건 삭제)",
@@ -1189,19 +1233,19 @@ class ThemeManager:
         )
         return stats
 
-    def get_settings_for_theme(
+    def get_settings_for_kb(
         self,
         theme_ref: int | str | None = None,
         base_settings: Settings | Any | None = None,
     ) -> Any:
-        """지정된 테마의 db_path 가 적용된 Settings 인스턴스를 반환. 없는(삭제된) 테마면 ThemeNotFound."""
-        theme = self.get_theme(theme_ref)
+        """지정된 테마의 db_path 가 적용된 Settings 인스턴스를 반환. 없는(삭제된) 테마면 KnowledgeBaseNotFound."""
+        theme = self.get_kb(theme_ref)
         base = base_settings or self.settings
 
         return self._settings_for_theme_info(theme, base)
 
     @staticmethod
-    def _settings_for_theme_info(theme: ThemeInfo, base: Settings | Any) -> Any:
+    def _settings_for_theme_info(theme: KnowledgeBaseInfo, base: Settings | Any) -> Any:
         """글로벌 설정을 유지하고 테마별 저장 경로 및 테마 설정을 적용한다."""
         db_file = getattr(base, "db_file", Path("data/claire.db"))
         db_path = str(db_file)
@@ -1210,8 +1254,7 @@ class ThemeManager:
             override = {
                 "db_path": db_path,
                 "db_file": db_file,
-                "theme_id": theme.id,
-                "default_focus": theme.default_focus,
+                "kb_id": theme.id,
             }
             if theme.sorcerer:
                 override["sorcerer"] = theme.sorcerer
@@ -1225,14 +1268,13 @@ class ThemeManager:
             st.db_path = db_path
         if theme.sorcerer and hasattr(st, "sorcerer"):
             st.sorcerer = theme.sorcerer
-        st.theme_id = theme.id
-        st.default_focus = theme.default_focus
+        st.kb_id = theme.id
         return st
 
-    def active_theme_settings(
+    def active_kb_settings(
         self,
         base_settings: Settings | Any | None = None,
-    ) -> list[tuple[ThemeInfo, Any]]:
+    ) -> list[tuple[KnowledgeBaseInfo, Any]]:
         """활성 테마와 경로가 적용된 설정을 테마 ID 순서로 반환한다.
 
         멀티 테마가 꺼져 있으면 레지스트리 I/O 없이 기본 설정 한 개만 반환한다. 멀티 테마가 켜져 있으면 레지스트리를 매번 다시 읽어 신규/삭제 테마를 반영하며, 손상된 레지스트리 오류는 호출자에게 그대로 전파한다.
@@ -1256,7 +1298,7 @@ class ThemeManager:
     def resolve_share_token(
         self, token: str, *, include_hidden: bool = True
     ) -> tuple[int, str, dict[str, Any]] | None:
-        """단일 통합 SQLite DB에서 공유 토큰의 (theme_id, document_id, doc_dict)를 단일 쿼리로 자동 해소."""
+        """단일 통합 SQLite DB에서 공유 토큰의 (kb_id, document_id, doc_dict)를 단일 쿼리로 자동 해소."""
         from .queries import document_detail
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
@@ -1267,22 +1309,22 @@ class ThemeManager:
             conn = dbm.connect_existing(Path(db_file), readonly=True)
             try:
                 row = conn.execute(
-                    "SELECT theme_id, document_id FROM doc_shares WHERE token = ?",
+                    "SELECT kb_id, document_id FROM doc_shares WHERE token = ?",
                     (token,),
                 ).fetchone()
                 if row:
-                    tid = row["theme_id"]
+                    tid = row["kb_id"]
                     doc_id = row["document_id"]
-                    tdoc = document_detail(conn, doc_id, include_hidden=include_hidden, theme_id=tid)
+                    tdoc = document_detail(conn, doc_id, include_hidden=include_hidden, kb_id=tid)
                     if tdoc:
                         return (tid, doc_id, tdoc)
                     # Cross-theme self-healing fallback
                     targets = self.resolve_document_targets(doc_id=doc_id)
                     for target in targets:
-                        target_tid = target.get("theme_id", 0)
+                        target_tid = target.get("kb_id", 0)
                         if target_tid != tid:
                             tdoc_fallback = document_detail(
-                                conn, doc_id, include_hidden=include_hidden, theme_id=target_tid
+                                conn, doc_id, include_hidden=include_hidden, kb_id=target_tid
                             )
                             if tdoc_fallback:
                                 return (target_tid, doc_id, tdoc_fallback)
@@ -1305,7 +1347,7 @@ class ThemeManager:
     ) -> list[dict[str, Any]]:
         """등록된 테마 DB들을 검색하여 입력값(target, doc_id, url, token 등)과 일치하는 문서 목록을 반환.
 
-        각 결과 딕셔너리에는 theme_id, theme_label, db_file 정보가 함께 포함된다. 정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
+        각 결과 딕셔너리에는 kb_id, theme_label, db_file 정보가 함께 포함된다. 정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
         """
         self.reload()
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
@@ -1330,10 +1372,10 @@ class ThemeManager:
                 pattern_matches: list[dict[str, Any]] = []
 
                 for m in matched:
-                    tid = m.get("theme_id", 0)
+                    tid = m.get("kb_id", 0)
                     t_info = self._themes.get(tid)
-                    m["theme_id"] = tid
-                    m["theme_label"] = t_info.label if t_info else ("기본 지식베이스" if (t_info and t_info.is_default) or tid == 0 else f"테마 #{tid}")
+                    m["kb_id"] = tid
+                    m["theme_label"] = t_info.label if t_info else ("기본 지식베이스" if (t_info and t_info.is_personal) or tid == 0 else f"테마 #{tid}")
                     m["db_file"] = str(db_file)
 
                     mb = m.get("matched_by", "")
@@ -1361,19 +1403,19 @@ class ThemeManager:
         return pattern_matches[:limit]
 
 
-def bump_theme_visibility_epoch(
+def bump_kb_visibility_epoch(
     conn: sqlite3.Connection,
-    theme_id: int,
+    kb_id: int,
     *,
     invalidated_keys: list[str] | None = None,
 ) -> int:
     """Increment visibility_epoch of a theme and invoke CDN invalidation hook (설계 §5.4)."""
     conn.execute(
-        "UPDATE themes SET visibility_epoch = visibility_epoch + 1, updated_at = ? WHERE id = ?",
-        (time.time(), int(theme_id)),
+        "UPDATE knowledge_bases SET visibility_epoch = visibility_epoch + 1, updated_at = ? WHERE id = ?",
+        (time.time(), int(kb_id)),
     )
     conn.commit()
-    row = conn.execute("SELECT visibility_epoch FROM themes WHERE id = ?", (int(theme_id),)).fetchone()
+    row = conn.execute("SELECT visibility_epoch FROM knowledge_bases WHERE id = ?", (int(kb_id),)).fetchone()
     epoch = row[0] if row else 1
     if invalidated_keys:
         try:
@@ -1386,13 +1428,13 @@ def bump_theme_visibility_epoch(
 
 
 
-_default_manager: ThemeManager | None = None
+_default_manager: KnowledgeBaseManager | None = None
 
 
-def get_theme_manager(settings: Settings | None = None) -> ThemeManager:
+def get_kb_manager(settings: Settings | None = None) -> KnowledgeBaseManager:
     global _default_manager
     if settings is not None:
-        return ThemeManager(settings)
+        return KnowledgeBaseManager(settings)
     if _default_manager is None:
-        _default_manager = ThemeManager()
+        _default_manager = KnowledgeBaseManager()
     return _default_manager

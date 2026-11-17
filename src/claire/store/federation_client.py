@@ -570,7 +570,7 @@ def count_private_messages(conn: sqlite3.Connection, account_id: int) -> int:
 
 # --- Timeline of the owner (Sections 5.3 and 8, unit FP4-5) ----------------
 
-_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_theme_id, linked_doc_id, mention, quote_of_iri"
+_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_kb_id, linked_doc_id, mention, quote_of_iri"
 TimelineFilter = Literal["unread", "starred", "mention"]
 # The thread view shows this number of items at most. The thread fetch of FP4-6 has its own limit (``context_max_items``).
 TIMELINE_THREAD_MAX = 200
@@ -601,7 +601,7 @@ class TimelineItem:
     received_at: float
     unread: bool
     starred: bool
-    linked_theme_id: int | None
+    linked_kb_id: int | None
     linked_doc_id: str | None
     mention: bool
     quote_of_iri: str | None = None
@@ -612,7 +612,7 @@ def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
     return TimelineItem(
         id=int(v[0]), account_id=int(v[1]), object_iri=str(v[2]), url=v[3], object_type=str(v[4]), author_iri=str(v[5]), author=json.loads(v[6]), announced_by_iri=v[7], announced_by=None if v[8] is None else json.loads(v[8]),
         name=v[9], summary=v[10], sensitive=bool(v[11]), content_html=str(v[12]), language=v[13], attachments=json.loads(v[14]), context_iri=v[15], in_reply_to_iri=v[16], in_timeline=bool(v[17]),
-        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_theme_id=v[23], linked_doc_id=v[24], mention=bool(v[25]), quote_of_iri=v[26],
+        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_kb_id=v[23], linked_doc_id=v[24], mention=bool(v[25]), quote_of_iri=v[26],
     )
 
 
@@ -656,9 +656,9 @@ def set_timeline_flags(conn: sqlite3.Connection, account_id: int, item_id: int, 
     return get_timeline_item(conn, account_id, item_id)
 
 
-def link_timeline_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, theme_id: int, doc_id: str) -> bool:
+def link_timeline_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, kb_id: int, doc_id: str) -> bool:
     """Record the document that the owner made from the item (Section 4.1, P2). The item stays in the timeline. The caller commits."""
-    return conn.execute("UPDATE federation_timeline_items SET linked_theme_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (theme_id, doc_id, item_id, account_id)).rowcount == 1
+    return conn.execute("UPDATE federation_timeline_items SET linked_kb_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (kb_id, doc_id, item_id, account_id)).rowcount == 1
 
 
 def timeline_thread(conn: sqlite3.Connection, account_id: int, item_id: int) -> list[TimelineItem]:

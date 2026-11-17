@@ -319,7 +319,7 @@ def _shared_html_for(locale: str) -> str:
 def render_ga_tag(
     measurement_id: str,
     doc_id: str = "",
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     theme_label: str = "",
 ) -> str:
     """Google Analytics 4 (GA4 / gtag.js) 태그 스니펫을 생성한다.
@@ -336,9 +336,9 @@ def render_ga_tag(
         loc_expr = "window.location.origin + window.location.pathname"
 
     extra_params = ""
-    if theme_id is not None:
+    if kb_id is not None:
         safe_label = _html.escape(theme_label, quote=True)
-        extra_params = f',\n    theme_id: {theme_id},\n    theme_label: "{safe_label}"'
+        extra_params = f',\n    kb_id: {kb_id},\n    theme_label: "{safe_label}"'
 
     return (
         "<!-- Google Analytics (GA4) -->\n"
@@ -494,7 +494,6 @@ def render_open_graph_tags(
     raw_desc = (
         (doc or {}).get("summary")
         or (doc or {}).get("detail")
-        or (doc or {}).get("focus")
         or ""
     )
     desc = sanitize_preview_text(raw_desc, max_chars=220)
@@ -682,7 +681,6 @@ def render_graph_html(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     request: Any | None = None,
@@ -716,9 +714,9 @@ def render_graph_html(
             "effective_ga_measurement_id",
             getattr(s, "ga_measurement_id", ""),
         )
-    theme_id = getattr(theme, "id", None) if theme else None
+    kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
-    ga_tag = render_ga_tag(ga_id, theme_id=theme_id, theme_label=theme_label)
+    ga_tag = render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
     sorcerer = getattr(
         s,
         "effective_sorcerer",
@@ -758,14 +756,12 @@ def render_graph_html(
     is_multi = bool(getattr(s, "multi_theme", False))
     theme_mode = "multi" if is_multi else "single"
     if is_multi:
-        from .store.theme import get_theme_manager
+        from .store.knowledge_base import get_kb_manager
 
-        tm = get_theme_manager(s)
-        owned = tm.list_account_themes(account_id)
+        tm = get_kb_manager(s)
+        owned = tm.list_selectable_kbs(account_id)
         if include_private:
             filtered = owned
-        elif collaborator:
-            filtered = [t for t in owned if t.is_public or t.is_collaborator_accessible]
         else:
             cleaned_host = ""
             if host:
@@ -773,14 +769,14 @@ def render_graph_html(
                 if ":" in cleaned_host:
                     cleaned_host = cleaned_host.split(":", 1)[0].strip()
 
-            if cleaned_host and cleaned_host in getattr(tm, "_fqdn_to_theme_id", {}):
-                dedicated_tid = tm._fqdn_to_theme_id[cleaned_host]
+            if cleaned_host and cleaned_host in getattr(tm, "_fqdn_to_kb_id", {}):
+                dedicated_tid = tm._fqdn_to_kb_id[cleaned_host]
                 if dedicated_tid is not None:
                     filtered = [t for t in owned if t.id == dedicated_tid and t.is_public]
                 else:
-                    filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_default)]
+                    filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_personal)]
             else:
-                filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_default)]
+                filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_personal)]
         themes_list = [t.to_dict() for t in filtered]
     else:
         themes_list = [
@@ -791,9 +787,8 @@ def render_graph_html(
                 "label": "기본 지식베이스",
                 "description": "일반 수집 자료 및 기본 지식",
                 "icon": "📚",
-                "is_default": True,
+                "is_personal": True,
                 "is_public": True,
-                "is_collaborator_accessible": False,
                 "sorcerer": safe_sorcerer,
                 "knowledge_manager": safe_sorcerer,
                 "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
@@ -882,11 +877,11 @@ def render_graph_html(
 def _theme_zero_number(settings: Any) -> str | None:
     """단일 테마 모드에서 테마 0의 외부 번호(10진 문자열). 테마 행이 없으면 None(콘솔도 내부 id로 참조한다)."""
     from . import ids
-    from .store.theme import ThemeNotFound, get_theme_manager
+    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
     try:
-        number = get_theme_manager(settings).get_theme(0).number
-    except ThemeNotFound:
+        number = get_kb_manager(settings).get_kb(0).number
+    except KnowledgeBaseNotFound:
         return None
     return ids.format_public_id(number) if number is not None else None
 
@@ -896,7 +891,6 @@ def _render_syndication_bundle(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
@@ -917,9 +911,9 @@ def _render_syndication_bundle(
         ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip()
     else:
         ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
-    theme_id = getattr(theme, "id", None) if theme else None
+    kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
-    ga_tag = render_ga_tag(ga_id, theme_id=theme_id, theme_label=theme_label)
+    ga_tag = render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
     sorcerer = getattr(s, "effective_sorcerer", getattr(s, "sorcerer", getattr(s, "effective_owner", getattr(s, "owner", "owner"))))
     raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
     if not raw_sorcerer:
@@ -952,10 +946,10 @@ def _render_syndication_bundle(
     is_multi = bool(getattr(s, "multi_theme", False))
     theme_mode = "multi" if is_multi else "single"
     if is_multi:
-        from .store.theme import get_theme_manager
+        from .store.knowledge_base import get_kb_manager
 
-        tm = get_theme_manager(s)
-        raw_themes = tm.list_themes(include_private=include_private, collaborator=collaborator, host=host)
+        tm = get_kb_manager(s)
+        raw_themes = tm.list_kbs(include_private=include_private, host=host)
         if is_network_mode and caller_account_id is not None:
             raw_themes = [t for t in raw_themes if getattr(t, "account_id", 1) == caller_account_id]
         themes_list = [t.to_dict() for t in raw_themes]
@@ -967,9 +961,8 @@ def _render_syndication_bundle(
                 "label": "기본 지식베이스",
                 "description": "일반 수집 자료 및 기본 지식",
                 "icon": "📚",
-                "is_default": True,
+                "is_personal": True,
                 "is_public": True,
-                "is_collaborator_accessible": False,
                 "sorcerer": safe_sorcerer,
                 "knowledge_manager": safe_sorcerer,
                 "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
@@ -979,7 +972,7 @@ def _render_syndication_bundle(
         ]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)
     themes_json_safe = themes_json.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    active_theme_id = str(theme_id if theme_id is not None else (themes_list[0]["id"] if themes_list else 0))
+    active_kb_id = str(kb_id if kb_id is not None else (themes_list[0]["id"] if themes_list else 0))
     safe_scope = _html.escape(str(auth_scope or "owner"), quote=True)
     # 설정 슬롯 계정 키(``a{public_id}``). /settings/* 콘솔과 같은 값이며 USERNAME을 쓰지 않는다(S9).
     bootstrap: dict[str, str] | None = None
@@ -1013,7 +1006,7 @@ def _render_syndication_bundle(
         .replace("__OWNER__", safe_sorcerer)
         .replace("__KNOWLEDGE_MANAGER__", safe_sorcerer)
         .replace("__THEME_MODE__", theme_mode)
-        .replace("__ACTIVE_THEME_ID__", active_theme_id)
+        .replace("__ACTIVE_THEME_ID__", active_kb_id)
         .replace("__AUTH_SCOPE__", safe_scope)
         .replace("__THEMES_JSON__", themes_json_safe)
         .replace("__CLAIRE_STORAGE_KEY__", storage_key)
@@ -1038,7 +1031,6 @@ def render_syndication_html(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
@@ -1049,7 +1041,6 @@ def render_syndication_html(
         _syndication_html_for(get_locale()),
         settings,
         include_private=include_private,
-        collaborator=collaborator,
         theme=theme,
         host=host,
         auth_scope=auth_scope,

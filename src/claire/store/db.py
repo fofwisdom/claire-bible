@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 28
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -54,30 +54,15 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT
 );
 
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seq INTEGER UNIQUE,
-    email TEXT UNIQUE,
-    display_name TEXT,
-    role TEXT DEFAULT 'user',
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    approved_at REAL,
-    delete_after REAL,
-    quota_json TEXT
-);
-
-CREATE TABLE IF NOT EXISTS themes (
+CREATE TABLE IF NOT EXISTS knowledge_bases (
     id INTEGER PRIMARY KEY,
     seq INTEGER UNIQUE,
     label TEXT NOT NULL,
     description TEXT DEFAULT '',
     icon TEXT DEFAULT '📁',
     db_path TEXT DEFAULT '',
-    is_default INTEGER DEFAULT 0,
+    is_personal INTEGER DEFAULT 0,
     is_public INTEGER DEFAULT 1,
-    is_collaborator_accessible INTEGER DEFAULT 1,
     default_focus TEXT DEFAULT '',
     fqdn TEXT DEFAULT '',
     ga_measurement_id TEXT DEFAULT '',
@@ -87,18 +72,9 @@ CREATE TABLE IF NOT EXISTS themes (
     updated_at REAL NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS theme_members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'member',
-    created_at REAL NOT NULL,
-    UNIQUE(theme_id, user_id)
-);
-
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     url TEXT,
     canonical_url TEXT,
     title TEXT,
@@ -128,7 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
 
 CREATE TABLE IF NOT EXISTS entities (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
     name TEXT NOT NULL,
     norm_name TEXT NOT NULL,
@@ -145,7 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 
 CREATE TABLE IF NOT EXISTS relations (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
     source_id TEXT NOT NULL,
     target_id TEXT NOT NULL,
@@ -154,24 +130,24 @@ CREATE TABLE IF NOT EXISTS relations (
     confidence REAL DEFAULT 1.0,
     provisional INTEGER DEFAULT 0,
     created_at REAL,
-    UNIQUE(theme_id, type, source_id, target_id)
+    UNIQUE(kb_id, type, source_id, target_id)
 );
 CREATE INDEX IF NOT EXISTS idx_relations_src ON relations(source_id);
 CREATE INDEX IF NOT EXISTS idx_relations_tgt ON relations(target_id);
 
 CREATE TABLE IF NOT EXISTS embeddings (
     owner_id TEXT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     dim INTEGER,
     vector BLOB,
     model TEXT,
     updated_at REAL,
-    PRIMARY KEY (owner_id, theme_id)
+    PRIMARY KEY (owner_id, kb_id)
 );
 
 CREATE TABLE IF NOT EXISTS proposals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     kind TEXT,                   -- 'entity_type' | 'relation_type'
     proposed TEXT,
     context TEXT,
@@ -181,10 +157,10 @@ CREATE TABLE IF NOT EXISTS proposals (
 
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     payload TEXT,
     source_type TEXT,
-    status TEXT DEFAULT 'pending',   -- pending | done | error
+    status TEXT DEFAULT 'pending',   -- pending | running | done | error
     error TEXT,
     created_at REAL,
     updated_at REAL
@@ -194,7 +170,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 -- 이것만으로 전체 파이프라인을 처음부터 재생할 수 있다(작고 저렴).
 CREATE TABLE IF NOT EXISTS raw_inbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     received_at REAL,
     source TEXT,                  -- 'telegram' | 'cli' | 'test'
     user_id INTEGER,
@@ -217,7 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_raw_inbox_status ON raw_inbox(status);
 -- [재적재 LLM tier] 모델이 반환한 raw 출력 보관. 후처리만 바뀌면 재호출 없이 재생.
 CREATE TABLE IF NOT EXISTS extractions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT,
     provider TEXT,
     model TEXT,
@@ -231,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_extractions_doc ON extractions(document_id);
 -- refresh-loop(주기 실행)이 원본 payload 로 재fetch→재추출→문서 in-place 갱신.
 CREATE TABLE IF NOT EXISTS refresh_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT,             -- 갱신 대상 문서(없으면 신규 적재)
     payload TEXT NOT NULL,        -- 재적재용 원본(url/text) — raw_inbox/documents 에서
     reason TEXT,                  -- 'thin' | 'algo-change' | 'manual'
@@ -241,7 +217,7 @@ CREATE TABLE IF NOT EXISTS refresh_queue (
     error TEXT,
     created_at REAL,
     updated_at REAL,
-    UNIQUE(theme_id, document_id)
+    UNIQUE(kb_id, document_id)
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_status ON refresh_queue(status);
 
@@ -262,7 +238,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 -- 인증된 UI 에서만(/share), 열람은 게이트 예외(/p?s=token)로 토큰 자체가 인증을 대신한다.
 CREATE TABLE IF NOT EXISTS doc_shares (
     token TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT NOT NULL,
     created_at REAL,
     expires_at REAL          -- NULL=무기한. 향후 만료 정책 시 사용.
@@ -316,7 +292,7 @@ CREATE TABLE IF NOT EXISTS oauth_auth_requests (
 -- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
 CREATE TABLE IF NOT EXISTS expand_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT,              -- 확장 출발(부모) 문서
     status TEXT DEFAULT 'pending', -- pending | done | error
     attempts INTEGER DEFAULT 0,
@@ -325,7 +301,7 @@ CREATE TABLE IF NOT EXISTS expand_queue (
     result TEXT,                   -- 처리 요약 JSON(선별/적재/스킵 수)
     created_at REAL,
     updated_at REAL,
-    UNIQUE(theme_id, document_id)
+    UNIQUE(kb_id, document_id)
 );
 CREATE INDEX IF NOT EXISTS idx_expand_status ON expand_queue(status);
 
@@ -334,7 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_expand_status ON expand_queue(status);
 -- 최신 in-place 갱신만 하고, 과거 상태는 여기 원문으로만 남는다(추세는 나중에 스냅샷 종합).
 CREATE TABLE IF NOT EXISTS document_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT NOT NULL,     -- 어느 문서의 과거 상태인지
     captured_at REAL,              -- 이 스냅샷(=변경 직전 상태)을 보존한 시각
     content_hash TEXT,             -- 그 시점 본문 해시
@@ -347,7 +323,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_doc ON document_snapshots(document_id, 
 -- [Asciidoctor reveal.js 프레젠테이션 AOT 메타데이터 및 캐시 추적]
 CREATE TABLE IF NOT EXISTS document_presentations (
     document_id TEXT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     content_hash TEXT NOT NULL,
     adoc_hash TEXT,
     cache_key TEXT NOT NULL,
@@ -366,7 +342,7 @@ CREATE TABLE IF NOT EXISTS document_presentations (
     compile_duration_ms INTEGER DEFAULT 0,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    PRIMARY KEY(document_id, theme_id),
+    PRIMARY KEY(document_id, kb_id),
     FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_doc_pres_status ON document_presentations(status);
@@ -382,13 +358,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 -- [소각 툼스톤] 폐기/소각된 오염 문서의 지문(URL/해시)을 초경량 보존하여 재수집 및 재생산 영구 차단.
 CREATE TABLE IF NOT EXISTS purged_tombstones (
     id TEXT,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     url TEXT,
     canonical_url TEXT,
     content_hash TEXT,
     reason TEXT NOT NULL,
     purged_at REAL NOT NULL,
-    PRIMARY KEY(id, theme_id)
+    PRIMARY KEY(id, kb_id)
 );
 CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url);
 CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash);
@@ -396,8 +372,8 @@ CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash
 -- [신디케이션 발행 기록] 테마 간 문서 발행(/syndication/dispatch). v20에서 syndication_accounts·targets·items를 제거했다.
 CREATE TABLE IF NOT EXISTS syndication_dispatches (
     id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-    target_theme_id INTEGER DEFAULT 0,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    target_kb_id INTEGER DEFAULT 0,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
     target_url TEXT,
     mode TEXT NOT NULL DEFAULT 'post',
@@ -412,7 +388,7 @@ CREATE TABLE IF NOT EXISTS syndication_dispatches (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status);
+CREATE INDEX IF NOT EXISTS idx_synd_dispatches_kb ON syndication_dispatches(kb_id, status);
 """
 
 
@@ -431,18 +407,18 @@ def checkpoint_database(src: str | Path, dest: str | Path) -> Path:
     return dest
 
 
-def reset_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> None:
+def reset_graph(conn: sqlite3.Connection, kb_id: int | None = None) -> None:
     """추출 산출물(엔티티/관계/임베딩/추출/제안/FTS)을 비운다 — documents·raw_inbox· artifact 는 보존. 저장된 raw_text 로부터 그래프를 깨끗이 재구축(reextract)할 때 사용.
 
     문서/원본을 남기므로 재추출의 입력은 그대로다. 파괴적이라 호출 전 백업 권장 (CLI reextract 가 강제). FTS 는 트리거가 아니라 수동 관리라 함께 비운다.
     """
-    if theme_id is not None:
+    if kb_id is not None:
         conn.execute(
-            "DELETE FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE theme_id=?)",
-            (theme_id,),
+            "DELETE FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE kb_id=?)",
+            (kb_id,),
         )
         for tbl in ("entities", "relations", "embeddings", "extractions", "proposals"):
-            conn.execute(f"DELETE FROM {tbl} WHERE theme_id=?", (theme_id,))
+            conn.execute(f"DELETE FROM {tbl} WHERE kb_id=?", (kb_id,))
     else:
         for tbl in ("entities", "entities_fts", "relations", "embeddings",
                     "extractions", "proposals"):
@@ -637,36 +613,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             (_pres_purge_key, "1"),
         )
-    # v14: users, themes, and theme_members
+    # v14: knowledge_bases (users and theme_members are retired by v28)
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seq INTEGER UNIQUE,
-            email TEXT UNIQUE,
-            display_name TEXT,
-            role TEXT DEFAULT 'user',
-            status TEXT NOT NULL DEFAULT 'active',
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            approved_at REAL,
-            delete_after REAL,
-            quota_json TEXT
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS themes (
+        CREATE TABLE IF NOT EXISTS knowledge_bases (
             id INTEGER PRIMARY KEY,
             seq INTEGER UNIQUE,
             label TEXT NOT NULL,
             description TEXT DEFAULT '',
             icon TEXT DEFAULT '📁',
             db_path TEXT DEFAULT '',
-            is_default INTEGER DEFAULT 0,
+            is_personal INTEGER DEFAULT 0,
             is_public INTEGER DEFAULT 1,
-            is_collaborator_accessible INTEGER DEFAULT 1,
             default_focus TEXT DEFAULT '',
             fqdn TEXT DEFAULT '',
             ga_measurement_id TEXT DEFAULT '',
@@ -677,21 +635,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS theme_members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            role TEXT NOT NULL DEFAULT 'member',
-            created_at REAL NOT NULL,
-            UNIQUE(theme_id, user_id)
-        )
-        """
-    )
     # v14: ``syndication_dispatches`` comes from ``SCHEMA``. Version 20 removed the other ``syndication_*`` tables.
 
-    # v14: Add theme_id column to all knowledge, queue, and cache tables
+    # v14: Add kb_id column to all knowledge, queue, and cache tables
     _theme_partitioned_tables = (
         "documents",
         "entities",
@@ -710,47 +656,47 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "syndication_dispatches",
     )
     for tbl in _theme_partitioned_tables:
-        _ensure_column(conn, tbl, "theme_id", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, tbl, "kb_id", "INTEGER NOT NULL DEFAULT 0")
 
-    _ensure_column(conn, "syndication_dispatches", "target_theme_id", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "syndication_dispatches", "target_kb_id", "INTEGER DEFAULT 0")
     _ensure_column(conn, "syndication_dispatches", "dispatched_by_user_id", "INTEGER")
     _ensure_column(conn, "syndication_dispatches", "dispatched_by_account_id", "INTEGER")
     _ensure_column(conn, "syndication_dispatches", "applied_focus", "TEXT")
 
-    # v14: Insert default theme #0 into themes if empty
+    # v14: Insert default theme #0 into knowledge_bases if empty
     conn.execute(
-        "INSERT OR IGNORE INTO themes (id, seq, label, description, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (0, 0, '기본 지식베이스', '일반 수집 자료 및 기본 지식', 1, 1, 0, unixepoch(), unixepoch())"
+        "INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at) "
+        "VALUES (0, 0, '기본 지식베이스', '일반 수집 자료 및 기본 지식', 1, 1, unixepoch(), unixepoch())"
     )
 
-    # v14: Composite indexes with theme_id
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_theme_hash ON documents(theme_id, content_hash)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_theme_canon ON documents(theme_id, canonical_url)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_theme_watch ON documents(theme_id, watch_enabled, last_watched_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_theme_hidden ON documents(theme_id, hidden)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_theme_norm ON entities(theme_id, norm_name)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_theme_type ON entities(theme_id, type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_relations_theme_src ON relations(theme_id, source_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_relations_theme_tgt ON relations(theme_id, target_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_theme ON embeddings(theme_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_theme_status ON raw_inbox(theme_id, status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_theme_retry ON raw_inbox(theme_id, status, next_retry_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_extractions_theme_doc ON extractions(theme_id, document_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_theme_doc ON proposals(theme_id, document_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_theme_status ON jobs(theme_id, status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_theme_status ON refresh_queue(theme_id, status)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_queue_theme_doc ON refresh_queue(theme_id, document_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_expand_theme_status ON expand_queue(theme_id, status)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_expand_queue_theme_doc ON expand_queue(theme_id, document_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_theme_doc ON document_snapshots(theme_id, document_id, captured_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_theme_status ON document_presentations(theme_id, status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_theme_key ON document_presentations(theme_id, cache_key)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_pres_theme_doc ON document_presentations(document_id, theme_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_shares_theme_doc ON doc_shares(theme_id, document_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_theme_canon ON purged_tombstones(theme_id, canonical_url)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_theme_hash ON purged_tombstones(theme_id, content_hash)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tombstones_theme_id ON purged_tombstones(id, theme_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status)")
+    # v14: Composite indexes with kb_id
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_hash ON documents(kb_id, content_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_canon ON documents(kb_id, canonical_url)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_watch ON documents(kb_id, watch_enabled, last_watched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_hidden ON documents(kb_id, hidden)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_kb_norm ON entities(kb_id, norm_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_kb_type ON entities(kb_id, type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_relations_kb_src ON relations(kb_id, source_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_relations_kb_tgt ON relations(kb_id, target_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_kb ON embeddings(kb_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_kb_status ON raw_inbox(kb_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_kb_retry ON raw_inbox(kb_id, status, next_retry_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_extractions_kb_doc ON extractions(kb_id, document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_kb_doc ON proposals(kb_id, document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kb_status ON jobs(kb_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_refresh_kb_status ON refresh_queue(kb_id, status)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_queue_kb_doc ON refresh_queue(kb_id, document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_expand_kb_status ON expand_queue(kb_id, status)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_expand_queue_kb_doc ON expand_queue(kb_id, document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_kb_doc ON document_snapshots(kb_id, document_id, captured_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_kb_status ON document_presentations(kb_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_kb_key ON document_presentations(kb_id, cache_key)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_pres_kb_doc ON document_presentations(document_id, kb_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_shares_kb_doc ON doc_shares(kb_id, document_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_kb_canon ON purged_tombstones(kb_id, canonical_url)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_kb_hash ON purged_tombstones(kb_id, content_hash)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tombstones_kb_id ON purged_tombstones(id, kb_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_kb ON syndication_dispatches(kb_id, status)")
 
     # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
     _legacy_key = "dir" + "ective"
@@ -806,6 +752,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v23_object_content_digest(conn)
     _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
+    _migrate_v28_shared_kb_schema(conn)
+    _migrate_v28_credential_scopes(conn)
+    _migrate_v28_convert_knowledge_bases(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -815,21 +764,21 @@ _V15_CREDENTIAL_TABLES = ("auth_sessions", "oauth_codes", "oauth_tokens", "oauth
 
 
 def _check_single_default_theme_per_account(conn: sqlite3.Connection) -> None:
-    """``idx_themes_account_default``를 만들 수 없는 상태면 이관 전에 실패한다(C1).
+    """``idx_knowledge_bases_account_personal``를 만들 수 없는 상태면 이관 전에 실패한다(C1).
 
-    계정마다 ``is_default=1`` 테마가 하나여야 한다. 둘 이상이면 어느 쪽이 기본인지 추측하지 않는다.
+    계정마다 ``is_personal=1`` 테마가 하나여야 한다. 둘 이상이면 어느 쪽이 기본인지 추측하지 않는다.
     """
-    account_expr = "COALESCE(account_id, ?)" if "account_id" in _column_names(conn, "themes") else "?"
+    account_expr = "COALESCE(account_id, ?)" if "account_id" in _column_names(conn, "knowledge_bases") else "?"
     rows = conn.execute(
         f"SELECT {account_expr} AS acc, GROUP_CONCAT(id) AS ids, COUNT(*) AS n "
-        "FROM themes WHERE is_default = 1 GROUP BY acc HAVING COUNT(*) > 1",
+        "FROM knowledge_bases WHERE is_personal = 1 GROUP BY acc HAVING COUNT(*) > 1",
         (ADMIN_ACCOUNT_ID,),
     ).fetchall()
     if rows:
-        detail = "; ".join(f"account_id={r['acc']} themes.id=[{r['ids']}]" for r in rows)
+        detail = "; ".join(f"account_id={r['acc']} knowledge_bases.id=[{r['ids']}]" for r in rows)
         raise RuntimeError(
-            "schema v15 migration stopped: more than one default theme (themes.is_default=1) "
-            f"for one account: {detail}. Keep is_default=1 on exactly one theme per account, "
+            "schema v15 migration stopped: more than one default theme (knowledge_bases.is_personal=1) "
+            f"for one account: {detail}. Keep is_personal=1 on exactly one theme per account, "
             "then run the migration again."
         )
 
@@ -908,7 +857,7 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
         """
     )
 
-    _ensure_column(conn, "themes", "account_id", "INTEGER REFERENCES accounts(id)")
+    _ensure_column(conn, "knowledge_bases", "account_id", "INTEGER REFERENCES accounts(id)")
     _ensure_column(conn, "auth_sessions", "account_id", "INTEGER")
     _ensure_column(conn, "auth_sessions", "authenticated_at", "REAL")
     for tbl in ("oauth_codes", "oauth_tokens", "oauth_auth_requests"):
@@ -938,12 +887,16 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
             f"(found {dict(admin) if admin is not None else 'no row'})"
         )
 
-    conn.execute("UPDATE themes SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
+    # A row from before version 15 has no owner: the admin owns it. A shared knowledge base (version 28) has no owner by design and has a knowledge type: this step leaves it. Without this condition each start would give it to the admin, and the conversion of version 28 would then replace its founder and its knowledge type.
+    if "knowledge_type" in _table_columns(conn, "knowledge_bases"):
+        conn.execute("UPDATE knowledge_bases SET account_id=? WHERE account_id IS NULL AND knowledge_type IS NULL", (ADMIN_ACCOUNT_ID,))
+    else:
+        conn.execute("UPDATE knowledge_bases SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
     for tbl in _V15_CREDENTIAL_TABLES:
         conn.execute(f"UPDATE {tbl} SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
 
     conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_account_default ON themes(account_id) WHERE is_default = 1"
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bases_account_personal ON knowledge_bases(account_id) WHERE is_personal = 1"
     )
 
 
@@ -980,34 +933,34 @@ def backfill_theme_numbers(conn: sqlite3.Connection, *, now: float | None = None
     v16 이관과, 이관 뒤 레거시 경로(``themes.json``·다중 DB 가져오기)로 들어온 행이 함께 쓴다. 채운 행 수를 반환한다. 커밋은 호출자 몫이다.
     """
     rows = conn.execute(
-        "SELECT id, created_at, fqdn FROM themes WHERE number IS NULL ORDER BY id"
+        "SELECT id, created_at, fqdn FROM knowledge_bases WHERE number IS NULL ORDER BY id"
     ).fetchall()
     if not rows:
         return 0
     salt = read_id_salt(conn)
     stamp = time.time() if now is None else now
     for row in rows:
-        theme_id = int(row["id"])
+        kb_id = int(row["id"])
         base_ms = legacy_theme_number_unix_ms(row["created_at"])
         number: int | None = None
         for probe in range(_LEGACY_THEME_NUMBER_PROBES):
-            candidate = legacy_timestamp_id("themes", salt=salt, unix_ms=base_ms + probe, row_id=theme_id)
-            taken = conn.execute("SELECT 1 FROM themes WHERE number=?", (candidate,)).fetchone()
+            candidate = legacy_timestamp_id("themes", salt=salt, unix_ms=base_ms + probe, row_id=kb_id)
+            taken = conn.execute("SELECT 1 FROM knowledge_bases WHERE number=?", (candidate,)).fetchone()
             if taken is None:
                 number = candidate
                 break
         if number is None:
             raise RuntimeError(
-                f"schema v16 migration stopped: no free number for themes.id={theme_id} "
+                f"schema v16 migration stopped: no free number for knowledge_bases.id={kb_id} "
                 f"after {_LEGACY_THEME_NUMBER_PROBES} probes"
             )
-        conn.execute("UPDATE themes SET number=? WHERE id=? AND number IS NULL", (number, theme_id))
+        conn.execute("UPDATE knowledge_bases SET number=? WHERE id=? AND number IS NULL", (number, kb_id))
         host = str(row["fqdn"] or "").strip().lower()
         if host:
             conn.execute(
-                "INSERT OR IGNORE INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) "
+                "INSERT OR IGNORE INTO legacy_hosts (host, kb_id, created_at, activated_at, sunset_at) "
                 "VALUES (?, ?, ?, NULL, NULL)",
-                (host, theme_id, stamp),
+                (host, kb_id, stamp),
             )
     return len(rows)
 
@@ -1015,17 +968,17 @@ def backfill_theme_numbers(conn: sqlite3.Connection, *, now: float | None = None
 def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
     """v16 (설계 §13.2): 테마 번호, 공개 epoch, 테마 고정 임베딩, 레거시 호스트, 공개 디렉터리 카운터. 멱등(A3).
 
-    ``themes.fqdn`` 열은 지우지 않는다(A3). 새 쓰기는 ``store.theme``이 막는다(O5).
+    ``knowledge_bases.fqdn`` 열은 지우지 않는다(A3). 새 쓰기는 ``store.knowledge_base``이 막는다(O5).
     """
-    _ensure_column(conn, "themes", "number", "INTEGER")
-    _ensure_column(conn, "themes", "visibility_epoch", "INTEGER NOT NULL DEFAULT 1")
-    _ensure_column(conn, "themes", "embed_provider", "TEXT")
-    _ensure_column(conn, "themes", "embed_model", "TEXT")
+    _ensure_column(conn, "knowledge_bases", "number", "INTEGER")
+    _ensure_column(conn, "knowledge_bases", "visibility_epoch", "INTEGER NOT NULL DEFAULT 1")
+    _ensure_column(conn, "knowledge_bases", "embed_provider", "TEXT")
+    _ensure_column(conn, "knowledge_bases", "embed_model", "TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS legacy_hosts (
             host TEXT PRIMARY KEY,
-            theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+            kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
             created_at REAL NOT NULL,
             activated_at REAL,
             sunset_at REAL
@@ -1043,9 +996,9 @@ def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
         """
     )
     # UNIQUE 인덱스를 먼저 만들어, 채우는 도중의 중복을 제약이 바로 잡게 한다.
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_number ON themes(number)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bases_number ON knowledge_bases(number)")
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_themes_account_number ON themes(account_id, number DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_account_number ON knowledge_bases(account_id, number DESC)"
     )
     backfill_theme_numbers(conn)
 
@@ -1112,12 +1065,12 @@ def _migrate_v18_federation_publishing(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS federation_objects (
             public_id INTEGER PRIMARY KEY,
             account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+            kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
             document_id TEXT NOT NULL,
             published_by_account_id INTEGER NOT NULL REFERENCES accounts(id),
             published_at REAL NOT NULL,
             updated_at REAL NOT NULL,
-            UNIQUE (theme_id, document_id)
+            UNIQUE (kb_id, document_id)
         )
         """
     )
@@ -1146,7 +1099,7 @@ _V20_DROPPED_SYNDICATION_TABLES = ("syndication_items", "syndication_targets", "
 _V20_DROPPED_SYNDICATION_INDEXES = ("idx_synd_items_theme_collected", "idx_synd_items_theme_canon", "idx_synd_items_theme_doc")
 # The columns of ``syndication_dispatches`` from version 20. The rebuild copies these columns. It removes ``item_id`` and ``account_id``.
 _SYNDICATION_DISPATCH_COLUMNS = (
-    "id", "theme_id", "target_theme_id", "document_id", "target_url", "mode", "status", "remote_ref", "payload", "error",
+    "id", "kb_id", "target_kb_id", "document_id", "target_url", "mode", "status", "remote_ref", "payload", "error",
     "dispatched_by_user_id", "dispatched_by_account_id", "applied_focus", "dispatched_at", "created_at", "updated_at",
 )
 
@@ -1161,7 +1114,7 @@ V20_RETIRED_SYNDICATION_TABLES = tuple(f"{t}_retired_v20" for t in _V20_DROPPED_
 def _retire_v20_filled_tables(conn: sqlite3.Connection) -> list[str]:
     """Rename each table that v20 drops and that has rows to ``<name>_retired_v20``. Returns the renamed tables.
 
-    An operator of the server does not manage the database directly. Thus the migration never stops the start and never deletes rows: a filled table is kept under a new name, and theme deletion and account purge delete its rows by ``theme_id`` (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3).
+    An operator of the server does not manage the database directly. Thus the migration never stops the start and never deletes rows: a filled table is kept under a new name, and theme deletion and account purge delete its rows by ``kb_id`` (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3).
     """
     retired = []
     for table in _V20_DROPPED_SYNDICATION_TABLES:
@@ -1195,8 +1148,8 @@ def _migrate_v20_syndication_cleanup(conn: sqlite3.Connection) -> None:
                     """
                     CREATE TABLE syndication_dispatches_v20 (
                         id TEXT PRIMARY KEY,
-                        theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-                        target_theme_id INTEGER DEFAULT 0,
+                        kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                        target_kb_id INTEGER DEFAULT 0,
                         document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
                         target_url TEXT,
                         mode TEXT NOT NULL DEFAULT 'post',
@@ -1217,7 +1170,7 @@ def _migrate_v20_syndication_cleanup(conn: sqlite3.Connection) -> None:
                 conn.execute(f"INSERT INTO syndication_dispatches_v20 ({columns}) SELECT {columns} FROM syndication_dispatches")
                 conn.execute("DROP TABLE syndication_dispatches")
                 conn.execute("ALTER TABLE syndication_dispatches_v20 RENAME TO syndication_dispatches")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_kb ON syndication_dispatches(kb_id, status)")
             retired = _retire_v20_filled_tables(conn)
             for index in _V20_DROPPED_SYNDICATION_INDEXES:
                 conn.execute(f"DROP INDEX IF EXISTS {index}")
@@ -1269,6 +1222,381 @@ def _main_file(conn: sqlite3.Connection) -> Path | None:
         if row[1] == "main" and row[2]:
             return Path(row[2])
     return None
+
+
+# v28 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 11.2, unit CT-1): shared knowledge bases, collaboration, and themes as collections.
+_V28_KB_COLUMNS = (
+    ("created_by_account_id", "INTEGER"),
+    ("join_policy", "TEXT NOT NULL DEFAULT 'approval'"),
+    ("state", "TEXT NOT NULL DEFAULT 'active'"),
+    ("archived_at", "REAL"),
+    ("knowledge_type", "TEXT CHECK (knowledge_type IN ('real', 'fictional'))"),
+    ("seed_entities", "TEXT NOT NULL DEFAULT '[]'"),
+    ("forked_from_kb_id", "INTEGER"),
+    ("forked_at", "REAL"),
+)
+_V28_RETIRED_TABLES = ("theme_members", "users")  # theme_members refers to users: drop it first
+_V28_TABLES = """
+CREATE TABLE IF NOT EXISTS kb_memberships (
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    public_id INTEGER UNIQUE NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('member', 'collaborator', 'moderator')),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'banned')),
+    requested_at REAL NOT NULL,
+    decided_at REAL,
+    decided_by_account_id INTEGER,
+    PRIMARY KEY (kb_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_memberships_account ON kb_memberships(account_id, state);
+
+CREATE TABLE IF NOT EXISTS kb_contributions (
+    public_id INTEGER PRIMARY KEY,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    document_id TEXT,
+    origin TEXT NOT NULL CHECK (origin IN ('direct', 'bulk', 'auto', 'curation', 'fork', 'migration')),
+    contributor_account_id INTEGER,
+    curator_account_id INTEGER,
+    source_kb_id INTEGER,
+    source_document_id TEXT,
+    root_kb_id INTEGER,
+    root_document_id TEXT,
+    submission_item_id INTEGER,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'merging', 'visible', 'hidden', 'failed', 'rejected', 'removed')),
+    decision_reason TEXT NOT NULL DEFAULT '',
+    approved_at REAL,
+    approved_by_account_id INTEGER,
+    updates_frozen INTEGER NOT NULL DEFAULT 0,
+    revised_at REAL,
+    decided_at REAL,
+    contributed_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (kb_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_kb ON kb_contributions(kb_id, state, public_id);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_contributor ON kb_contributions(contributor_account_id, decided_at);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_root ON kb_contributions(root_document_id, kb_id);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_item ON kb_contributions(submission_item_id);
+
+CREATE TABLE IF NOT EXISTS kb_contribution_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contribution_public_id INTEGER NOT NULL REFERENCES kb_contributions(public_id) ON DELETE CASCADE,
+    previous_document_id TEXT,
+    document_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('merging', 'done', 'failed')),
+    created_at REAL NOT NULL,
+    completed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS kb_submissions (
+    public_id INTEGER PRIMARY KEY,
+    account_id INTEGER,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_submission_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    submission_public_id INTEGER NOT NULL REFERENCES kb_submissions(public_id) ON DELETE CASCADE,
+    source_document_id TEXT NOT NULL,
+    theme_id INTEGER,
+    routed_by TEXT NOT NULL CHECK (routed_by IN ('server', 'account')),
+    match_score REAL,
+    target_kb_ids TEXT NOT NULL DEFAULT '[]',
+    skipped TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_kb_submission_items_submission ON kb_submission_items(submission_public_id);
+
+CREATE TABLE IF NOT EXISTS kb_auto_rules (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('active', 'paused')),
+    to_memberships INTEGER NOT NULL DEFAULT 0,
+    to_mutual INTEGER NOT NULL DEFAULT 0,
+    include_uploads INTEGER NOT NULL DEFAULT 0,
+    activated_at REAL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_auto_rule_themes (
+    account_id INTEGER NOT NULL REFERENCES kb_auto_rules(account_id) ON DELETE CASCADE,
+    theme_id INTEGER NOT NULL,
+    PRIMARY KEY (account_id, theme_id)
+);
+
+CREATE TABLE IF NOT EXISTS kb_contribution_blocks (
+    document_id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_mutual_collaborations (
+    account_low INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_high INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    requested_by_account_id INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'active')),
+    created_at REAL NOT NULL,
+    decided_at REAL,
+    PRIMARY KEY (account_low, account_high),
+    CHECK (account_low < account_high)
+);
+
+CREATE TABLE IF NOT EXISTS kb_moderation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    actor_account_id INTEGER,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_moderation_log_kb ON kb_moderation_log(kb_id, id);
+
+CREATE TABLE IF NOT EXISTS account_reputation (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    level TEXT NOT NULL CHECK (level IN ('good', 'limited', 'low')),
+    fiction_share REAL NOT NULL,
+    fiction_like_documents INTEGER NOT NULL,
+    approval_rate REAL,
+    decisions INTEGER NOT NULL,
+    computed_at REAL NOT NULL,
+    campaign_day TEXT                           -- the UTC day of the last standing message of the campaign (Section 8.7 rule 3)
+);
+
+CREATE TABLE IF NOT EXISTS themes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number INTEGER UNIQUE NOT NULL,
+    label TEXT NOT NULL,
+    label_locked INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
+    knowledge_type TEXT NOT NULL CHECK (knowledge_type IN ('real', 'fictional')),
+    state TEXT NOT NULL CHECK (state IN ('active', 'empty', 'merged')),
+    merged_into_theme_id INTEGER REFERENCES themes(id),
+    top_entities TEXT NOT NULL DEFAULT '[]',
+    signature TEXT NOT NULL DEFAULT '[]',
+    last_activity_at REAL,
+    computed_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS theme_knowledge_bases (
+    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK (source IN ('computed', 'admin', 'created', 'fork')),
+    score REAL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    excluded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (theme_id, kb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_theme_knowledge_bases_kb ON theme_knowledge_bases(kb_id);
+
+CREATE TABLE IF NOT EXISTS kb_signatures (
+    kb_id INTEGER PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    knowledge_type TEXT NOT NULL,
+    embed_model TEXT NOT NULL DEFAULT '',
+    entities TEXT NOT NULL,
+    centroid BLOB,
+    visible_documents INTEGER NOT NULL,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_document_matches (
+    document_id TEXT PRIMARY KEY,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    theme_id INTEGER,
+    knowledge_type TEXT,
+    score REAL,
+    computed_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_document_matches_kb ON kb_document_matches(kb_id, knowledge_type);
+"""
+
+
+def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
+    """v28 schema (Section 11.2, 11.4): new columns of ``knowledge_bases``, the collaboration and theme tables, and the retired tables. Idempotent (A3); it runs at each start.
+
+    A retired table without rows is dropped. A retired table with rows becomes ``<name>_retired_v28`` and the log gets a warning: no row is lost and the start continues (operator rule). The conversion of the knowledge bases is a separate step.
+    """
+    if _table_exists(conn, "knowledge_bases"):
+        for column, decl in _V28_KB_COLUMNS:
+            _ensure_column(conn, "knowledge_bases", column, decl)
+    for statement in _V28_TABLES.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+    _ensure_column(conn, "account_reputation", "campaign_day", "TEXT")  # a database of an earlier state of this schema has the table without the column
+    for table in _V28_RETIRED_TABLES:
+        if not _table_exists(conn, table):
+            continue
+        rows = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+        if not rows:
+            conn.execute(f'DROP TABLE "{table}"')
+            continue
+        retired = f"{table}_retired_v28"
+        if _table_exists(conn, retired):
+            logger.warning("schema v28: table %s has %d row(s) and %s exists; the table stays", table, rows, retired)
+            continue
+        conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
+        logger.warning("schema v28: table %s had %d row(s); it is kept as %s", table, rows, retired)
+
+
+def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:
+    """v28 credential scopes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 6.6 and 11.3). Idempotent (A3); it runs at each start.
+
+    The scope ``collaborator`` is not valid any more: its sessions (from the Telegram command ``/webco``, CT27) are deleted. The column ``is_collaborator_accessible`` has no function and is dropped. API tokens are in ``data/auth/api_tokens.json``; ``store.token_store`` converts them.
+    """
+    if _table_exists(conn, "auth_sessions") and "scope" in _table_columns(conn, "auth_sessions"):
+        deleted = conn.execute("DELETE FROM auth_sessions WHERE scope='collaborator'").rowcount
+        if deleted:
+            logger.info("schema v28: %d session(s) with the scope collaborator ended", deleted)
+    if _table_exists(conn, "knowledge_bases") and "is_collaborator_accessible" in _table_columns(conn, "knowledge_bases"):
+        conn.execute("ALTER TABLE knowledge_bases DROP COLUMN is_collaborator_accessible")
+
+
+def _migrate_v28_convert_knowledge_bases(conn: sqlite3.Connection) -> None:
+    """v28 conversion (Section 12.2 step 2, CT6): each knowledge base that is not personal and has an owner becomes a shared knowledge base. Idempotent (A3); it runs at each start for the rows that still have the old shape.
+
+    One savepoint for each knowledge base. In it: the owner becomes ``created_by_account_id`` and the row gets no owner, is public, and has the type ``real``; the old owner gets the membership ``moderator`` when its account is ``active`` or ``suspended``, or is the admin before its first setup (``setup_required``); else the admin moderates; each document gets one contribution with the origin ``migration`` and the credit to the old owner; watch stops and the refresh and expand queues lose the rows of the knowledge base (CT10).
+    A knowledge base whose savepoint fails stays as it was: its row breaks the kinds of Section 11.2, the store treats it as unavailable, and the next start tries again (step 3). The start continues (operator rule).
+    """
+    if not _table_exists(conn, "knowledge_bases") or not _table_exists(conn, "accounts"):
+        return
+    rows = conn.execute(
+        "SELECT id, account_id FROM knowledge_bases WHERE COALESCE(is_personal, 0) = 0 AND account_id IS NOT NULL ORDER BY id"
+    ).fetchall()
+    if not rows:
+        return
+    from . import kb_collab
+
+    now = time.time()
+    clock = [time.time_ns() // 1_000_000]
+
+    def _next_ms() -> int:
+        clock[0] += 1
+        return clock[0]
+
+    for row in rows:
+        kb_id, owner = int(row[0]), int(row[1])
+        conn.execute("SAVEPOINT v28_convert_kb")
+        try:
+            conn.execute(
+                "UPDATE knowledge_bases SET created_by_account_id=?, account_id=NULL, is_public=1, join_policy='approval', state='active', knowledge_type='real' WHERE id=?",
+                (owner, kb_id),
+            )
+            account = conn.execute("SELECT status FROM accounts WHERE id=?", (owner,)).fetchone()
+            if account is not None and str(account[0]) in ("setup_required", "active", "suspended") and kb_collab.get_membership(conn, kb_id, owner) is None:
+                kb_collab.add_membership(conn, kb_id=kb_id, account_id=owner, role="moderator", state="active", now=now, now_ms=_next_ms())
+            for doc in conn.execute("SELECT id, COALESCE(hidden, 0) FROM documents WHERE kb_id=? ORDER BY id", (kb_id,)).fetchall():
+                if kb_collab.get_contribution_for_document(conn, kb_id, str(doc[0])) is not None:
+                    continue
+                kb_collab.add_contribution(
+                    conn,
+                    kb_id=kb_id,
+                    document_id=str(doc[0]),
+                    origin="migration",
+                    state="hidden" if int(doc[1]) == 1 else "visible",
+                    contributor_account_id=owner,
+                    approved_at=now,
+                    now=now,
+                    now_ms=_next_ms(),
+                )
+            conn.execute("UPDATE documents SET watch_enabled=0 WHERE kb_id=?", (kb_id,))
+            for queue in ("refresh_queue", "expand_queue"):
+                if _table_exists(conn, queue):
+                    conn.execute(f"DELETE FROM {queue} WHERE kb_id=?", (kb_id,))
+            conn.execute("RELEASE SAVEPOINT v28_convert_kb")
+        except Exception:  # noqa: BLE001
+            conn.execute("ROLLBACK TO SAVEPOINT v28_convert_kb")
+            conn.execute("RELEASE SAVEPOINT v28_convert_kb")
+            logger.warning("schema v28: knowledge base %d was not converted to a shared knowledge base; it is unavailable until the next start", kb_id, exc_info=True)
+
+
+# v27 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1, 12.1): names only, no change of behavior.
+_V27_COLUMN_RENAMES = (("theme_id", "kb_id"), ("target_theme_id", "target_kb_id"))
+_V27_STATE_FILES = ("active_ingest.json",)
+_V27_STATE_DIRS = ("active_jobs",)
+
+
+def _migrate_v27_kb_names(conn: sqlite3.Connection) -> None:
+    """v27: ``themes`` becomes ``knowledge_bases``, ``is_default`` becomes ``is_personal``, and each ``theme_id`` column becomes ``kb_id``. Idempotent (A3).
+
+    The step runs before ``SCHEMA`` and only for a database before version 27, because a version 28 database has a new table ``themes`` (collections). All renames are in one transaction. ``ALTER TABLE ... RENAME`` keeps the rows and changes the foreign keys of the other tables. The indexes with the old names are dropped; ``SCHEMA`` and the later steps make them again with the new names. Then the job state files of ``data/`` get the new key once.
+    """
+    own_tx = not conn.in_transaction
+    if own_tx:
+        conn.execute("BEGIN")
+    try:
+        if _table_exists(conn, "themes") and not _table_exists(conn, "knowledge_bases"):
+            conn.execute("ALTER TABLE themes RENAME TO knowledge_bases")
+        if _table_exists(conn, "knowledge_bases"):
+            cols = _v27_columns(conn, "knowledge_bases")
+            if "is_default" in cols and "is_personal" not in cols:
+                conn.execute("ALTER TABLE knowledge_bases RENAME COLUMN is_default TO is_personal")
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()]
+        for table in tables:
+            cols = _v27_columns(conn, table)
+            for old, new in _V27_COLUMN_RENAMES:
+                if old in cols and new not in cols:
+                    conn.execute(f'ALTER TABLE "{table}" RENAME COLUMN {old} TO {new}')
+        old_indexes = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' AND (name LIKE 'idx\\_themes\\_%' ESCAPE '\\' OR name LIKE '%\\_theme%' ESCAPE '\\')"
+            ).fetchall()
+        ]
+        for name in old_indexes:
+            conn.execute(f'DROP INDEX IF EXISTS "{name}"')
+        if own_tx:
+            conn.commit()
+    except Exception:
+        if own_tx:
+            conn.rollback()
+        raise
+    _rewrite_v27_state_files(conn)
+
+
+def _v27_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """Column names without the row factory: the step also runs on a plain connection to a backup snapshot."""
+    return {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+
+
+def _rewrite_v27_state_files(conn: sqlite3.Connection) -> None:
+    """Rewrite the key ``theme_id`` as ``kb_id`` in the job state files next to ``claire.db``, once. A file that cannot be read stays as it is (operator rule)."""
+    main = _main_file(conn)
+    if main is None:
+        return
+    paths = [main.parent / name for name in _V27_STATE_FILES]
+    for dirname in _V27_STATE_DIRS:
+        d = main.parent / dirname
+        if d.is_dir():
+            paths.extend(sorted(d.glob("*.json")))
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.warning("schema v27: state file %s cannot be read; it stays as it is", path)
+            continue
+        changed = _v27_rename_keys(data)
+        if changed:
+            tmp = path.with_suffix(path.suffix + ".v27tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+
+
+def _v27_rename_keys(value: Any) -> bool:
+    changed = False
+    if isinstance(value, dict):
+        for old, new in _V27_COLUMN_RENAMES:
+            if old in value and new not in value:
+                value[new] = value.pop(old)
+                changed = True
+        for v in value.values():
+            changed = _v27_rename_keys(v) or changed
+    elif isinstance(value, list):
+        for v in value:
+            changed = _v27_rename_keys(v) or changed
+    return changed
 
 
 def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
@@ -1359,30 +1687,30 @@ def backfill_embedding_models(conn: sqlite3.Connection) -> int:
     """
     from .vectors import LEGACY_EMBED_MODELS
 
-    if "embed_model" not in _column_names(conn, "themes") or "model" not in _column_names(
+    if "embed_model" not in _column_names(conn, "knowledge_bases") or "model" not in _column_names(
         conn, "embeddings"
     ):
         return 0
     marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
     legacy = f"(model IS NULL OR model='' OR model IN ({marks}))"
     pinned = conn.execute(
-        "SELECT id, embed_model FROM themes WHERE embed_model IS NOT NULL AND embed_model != ''"
+        "SELECT id, embed_model FROM knowledge_bases WHERE embed_model IS NOT NULL AND embed_model != ''"
     ).fetchall()
     changed = 0
     for row in pinned:
-        theme_id, model = int(row[0]), str(row[1])
+        kb_id, model = int(row[0]), str(row[1])
         if conn.execute(
-            f"SELECT 1 FROM embeddings WHERE theme_id=? AND {legacy} LIMIT 1",
-            (theme_id, *LEGACY_EMBED_MODELS),
+            f"SELECT 1 FROM embeddings WHERE kb_id=? AND {legacy} LIMIT 1",
+            (kb_id, *LEGACY_EMBED_MODELS),
         ).fetchone() is None:
             continue
         dim_row = conn.execute(
-            "SELECT dim, COUNT(*) AS n FROM embeddings WHERE theme_id=? AND model=? "
+            "SELECT dim, COUNT(*) AS n FROM embeddings WHERE kb_id=? AND model=? "
             "GROUP BY dim ORDER BY n DESC LIMIT 1",
-            (theme_id, model),
+            (kb_id, model),
         ).fetchone()
-        sql = f"UPDATE embeddings SET model=? WHERE theme_id=? AND {legacy}"
-        params: list[Any] = [model, theme_id, *LEGACY_EMBED_MODELS]
+        sql = f"UPDATE embeddings SET model=? WHERE kb_id=? AND {legacy}"
+        params: list[Any] = [model, kb_id, *LEGACY_EMBED_MODELS]
         if dim_row is not None:
             sql += " AND dim=?"
             params.append(dim_row[0])
@@ -1601,6 +1929,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         existing_version = stored_schema_version(conn)
         existing_lineage = stored_schema_lineage(conn)
     _validate_migration_source(existing_version, existing_lineage)
+    if existing_version is not None and existing_version < 27:
+        # The renames come before SCHEMA: else SCHEMA makes an empty ``knowledge_bases`` next to the old ``themes``.
+        _migrate_v27_kb_names(conn)
     conn.executescript(SCHEMA)
     _migrate(conn)
     conn.execute(
@@ -1624,9 +1955,9 @@ def migrate_multi_db_to_single_db(
     """Migrate multiple physical theme databases to unified single database.
 
     Follows ASD-STE100 guidelines:
-    - Reads theme definitions from themes.json into themes table.
+    - Reads theme definitions from themes.json into knowledge_bases table.
     - Searches for theme directories with claire.db files.
-    - Attaches each database and copies table rows with the theme_id set to seq.
+    - Attaches each database and copies table rows with the kb_id set to seq.
     - Renames copied claire.db files to claire.db.migrated.
     """
     base_dir = Path(data_dir)
@@ -1653,9 +1984,8 @@ def migrate_multi_db_to_single_db(
                 desc = str(t.get("description", ""))
                 icon = str(t.get("icon", "📁"))
                 db_p = str(t.get("db_path", ""))
-                is_def = int(bool(t.get("is_default", tid == 0)))
+                is_def = int(bool(t.get("is_personal", tid == 0)))
                 is_pub = int(bool(t.get("is_public", True)))
-                is_collab = int(bool(t.get("is_collaborator_accessible", True)))
                 default_focus = str(t.get("default_focus", ""))
                 fqdn = str(t.get("fqdn", ""))
                 ga_id = str(t.get("ga_measurement_id", t.get("ga_id", "")))
@@ -1668,20 +1998,19 @@ def migrate_multi_db_to_single_db(
                 owner_id = int(t.get("account_id", ADMIN_ACCOUNT_ID))
                 conn.execute(
                     """
-                    INSERT INTO themes (
-                        id, seq, label, description, icon, db_path, is_default, is_public,
-                        is_collaborator_accessible, default_focus, fqdn, ga_measurement_id,
+                    INSERT INTO knowledge_bases (
+                        id, seq, label, description, icon, db_path, is_personal, is_public,
+                        default_focus, fqdn, ga_measurement_id,
                         sorcerer, presentation_enabled, created_at, updated_at, account_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         seq = excluded.seq,
                         label = excluded.label,
                         description = excluded.description,
                         icon = excluded.icon,
                         db_path = excluded.db_path,
-                        is_default = excluded.is_default,
+                        is_personal = excluded.is_personal,
                         is_public = excluded.is_public,
-                        is_collaborator_accessible = excluded.is_collaborator_accessible,
                         default_focus = excluded.default_focus,
                         fqdn = excluded.fqdn,
                         ga_measurement_id = excluded.ga_measurement_id,
@@ -1689,7 +2018,7 @@ def migrate_multi_db_to_single_db(
                         presentation_enabled = excluded.presentation_enabled,
                         updated_at = excluded.updated_at
                     """,
-                    (tid, seq, label, desc, icon, db_p, is_def, is_pub, is_collab,
+                    (tid, seq, label, desc, icon, db_p, is_def, is_pub,
                      default_focus, fqdn, ga_id, sorcerer, pres_enabled, c_at, u_at, owner_id),
                 )
             conn.commit()
@@ -1739,26 +2068,26 @@ def migrate_multi_db_to_single_db(
             if subdir.name.isdigit():
                 seq = int(subdir.name)
                 row = conn.execute(
-                    "SELECT id FROM themes WHERE id=? OR seq=? LIMIT 1",
+                    "SELECT id FROM knowledge_bases WHERE id=? OR seq=? LIMIT 1",
                     (seq, seq),
                 ).fetchone()
-                theme_id = int(row["id"]) if row else seq
+                kb_id = int(row["id"]) if row else seq
             else:
                 row = conn.execute(
-                    "SELECT id, seq FROM themes WHERE label=? OR db_path LIKE ? LIMIT 1",
+                    "SELECT id, seq FROM knowledge_bases WHERE label=? OR db_path LIKE ? LIMIT 1",
                     (subdir.name, f"%{subdir.name}%"),
                 ).fetchone()
-                theme_id = int(row["id"]) if row else (int(row["seq"]) if row else 0)
-                seq = int(row["seq"]) if row else theme_id
+                kb_id = int(row["id"]) if row else (int(row["seq"]) if row else 0)
+                seq = int(row["seq"]) if row else kb_id
 
             # Ensure theme record exists in themes table
             conn.execute(
                 """
-                INSERT OR IGNORE INTO themes (id, seq, label, description, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id)
-                VALUES (?, ?, ?, '', ?, 1, 1, unixepoch(), unixepoch(), ?)
+                INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at, account_id)
+                VALUES (?, ?, ?, '', ?, 1, unixepoch(), unixepoch(), ?)
                 """,
                 # v15 이전 물리 테마 DB는 관리자 것이다(§8.4-1).
-                (theme_id, seq, f"Theme {seq}" if seq != 0 else "기본 지식베이스", 1 if seq == 0 else 0,
+                (kb_id, seq, f"Theme {seq}" if seq != 0 else "기본 지식베이스", 1 if seq == 0 else 0,
                  ADMIN_ACCOUNT_ID),
             )
             conn.commit()
@@ -1777,16 +2106,16 @@ def migrate_multi_db_to_single_db(
                     src_cols = {r["name"] for r in conn.execute(f"PRAGMA src_db.table_info({tbl})").fetchall()}
                     main_cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tbl})").fetchall()}
                     if tbl in autoincrement_tables:
-                        common_cols = [c for c in src_cols if c in main_cols and c not in ("theme_id", "id")]
+                        common_cols = [c for c in src_cols if c in main_cols and c not in ("kb_id", "id")]
                     else:
-                        common_cols = [c for c in src_cols if c in main_cols and c != "theme_id"]
+                        common_cols = [c for c in src_cols if c in main_cols and c != "kb_id"]
                     if not common_cols:
                         continue
 
                     cols_str = ", ".join(common_cols)
                     conn.execute(
-                        f"INSERT OR IGNORE INTO main.{tbl} (theme_id, {cols_str}) "
-                        f"SELECT {theme_id}, {cols_str} FROM src_db.{tbl}"
+                        f"INSERT OR IGNORE INTO main.{tbl} (kb_id, {cols_str}) "
+                        f"SELECT {kb_id}, {cols_str} FROM src_db.{tbl}"
                     )
                     copied_tables.append(tbl)
 
@@ -1816,8 +2145,8 @@ def migrate_multi_db_to_single_db(
                         logger.warning("FTS sync warning during theme migration: %s", fts_err)
 
                 conn.commit()
-                migrated_themes.append(theme_id)
-                migrated_tables[theme_id] = copied_tables
+                migrated_themes.append(kb_id)
+                migrated_tables[kb_id] = copied_tables
                 try:
                     conn.execute("PRAGMA src_db.wal_checkpoint(TRUNCATE)")
                 except Exception:
@@ -1867,14 +2196,14 @@ def _document_minhash_json(doc: Document) -> str | None:
     return json.dumps(sig) if sig else None
 
 
-def insert_document(conn: sqlite3.Connection, doc: Document, theme_id: int = 0) -> None:
+def insert_document(conn: sqlite3.Connection, doc: Document, kb_id: int = 0) -> None:
     conn.execute(
         """INSERT OR REPLACE INTO documents
-        (id,theme_id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
+        (id,kb_id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
          source_type,content_hash,lang,partial,meta,minhash,seen)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
         (
-            doc.id, theme_id, doc.url, doc.canonical_url, doc.title, doc.author,
+            doc.id, kb_id, doc.url, doc.canonical_url, doc.title, doc.author,
             doc.published_at, doc.fetched_at, doc.raw_text, doc.source_type,
             doc.content_hash, doc.lang, int(doc.partial), json.dumps(doc.meta),
             _document_minhash_json(doc),
@@ -1886,7 +2215,7 @@ def insert_document(conn: sqlite3.Connection, doc: Document, theme_id: int = 0) 
 def near_duplicate_document(
     conn: sqlite3.Connection, doc: Document, *,
     threshold: float = 0.90, min_len: int = 500, exclude_id: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> tuple[str, float] | None:
     """근사 중복 게이트(3차): MinHash Jaccard 추정이 임계 이상인 기존 문서를 찾는다.
 
@@ -1901,9 +2230,9 @@ def near_duplicate_document(
         return None
     q = "SELECT id, minhash FROM documents WHERE minhash IS NOT NULL AND partial=0 AND length(raw_text) >= ?"
     params: list[Any] = [min_len]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     rows = conn.execute(q, params).fetchall()
     best_id, best_score = None, 0.0
     for r in rows:
@@ -1921,13 +2250,13 @@ def near_duplicate_document(
     return None
 
 
-def find_document_by_hash(conn: sqlite3.Connection, content_hash: str, theme_id: int | None = None) -> str | None:
+def find_document_by_hash(conn: sqlite3.Connection, content_hash: str, kb_id: int | None = None) -> str | None:
     if not content_hash:
         return None
-    if theme_id is not None:
+    if kb_id is not None:
         row = conn.execute(
-            "SELECT id FROM documents WHERE content_hash=? AND theme_id=? LIMIT 1",
-            (content_hash, theme_id),
+            "SELECT id FROM documents WHERE content_hash=? AND kb_id=? LIMIT 1",
+            (content_hash, kb_id),
         ).fetchone()
     else:
         row = conn.execute(
@@ -1936,10 +2265,10 @@ def find_document_by_hash(conn: sqlite3.Connection, content_hash: str, theme_id:
     return row["id"] if row else None
 
 
-def get_document_row(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> sqlite3.Row | None:
-    if theme_id is not None:
+def get_document_row(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> sqlite3.Row | None:
+    if kb_id is not None:
         return conn.execute(
-            "SELECT * FROM documents WHERE id=? AND theme_id=?", (document_id, theme_id)
+            "SELECT * FROM documents WHERE id=? AND kb_id=?", (document_id, kb_id)
         ).fetchone()
     return conn.execute(
         "SELECT * FROM documents WHERE id=?", (document_id,)
@@ -1951,39 +2280,39 @@ def get_document_row(conn: sqlite3.Connection, document_id: str, theme_id: int |
 def save_document_snapshot(
     conn: sqlite3.Connection, document_id: str, *, captured_at: float,
     content_hash: str | None, title: str | None, raw_text: str | None,
-    meta: dict | None = None, theme_id: int = 0,
+    meta: dict | None = None, kb_id: int = 0,
 ) -> None:
     """watch 문서의 '변경 전' 상태를 시계열로 보존(데이터 보존 — 추세 살림)."""
     conn.execute(
-        "INSERT INTO document_snapshots(theme_id,document_id,captured_at,content_hash,title,raw_text,meta) "
+        "INSERT INTO document_snapshots(kb_id,document_id,captured_at,content_hash,title,raw_text,meta) "
         "VALUES(?,?,?,?,?,?,?)",
-        (theme_id, document_id, captured_at, content_hash, title, raw_text,
+        (kb_id, document_id, captured_at, content_hash, title, raw_text,
          json.dumps(meta) if meta is not None else None),
     )
     conn.commit()
 
 
 def document_snapshots(
-    conn: sqlite3.Connection, document_id: str, limit: int = 0, theme_id: int | None = None,
+    conn: sqlite3.Connection, document_id: str, limit: int = 0, kb_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """한 문서의 과거 스냅샷(최신순)."""
     q = ("SELECT id,document_id,captured_at,content_hash,title,raw_text "
          "FROM document_snapshots WHERE document_id=?")
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY captured_at DESC"
     if limit:
         q += f" LIMIT {int(limit)}"
     return conn.execute(q, params).fetchall()
 
 
-def set_document_seen(conn: sqlite3.Connection, document_id: str, seen: bool = True, theme_id: int | None = None) -> None:
+def set_document_seen(conn: sqlite3.Connection, document_id: str, seen: bool = True, kb_id: int | None = None) -> None:
     """문서 열람 상태 설정(UI 에서 열어보면 seen=1, watch 갱신 시 0=다시 봐야 함)."""
-    if theme_id is not None:
-        conn.execute("UPDATE documents SET seen=? WHERE id=? AND theme_id=?",
-                     (1 if seen else 0, document_id, theme_id))
+    if kb_id is not None:
+        conn.execute("UPDATE documents SET seen=? WHERE id=? AND kb_id=?",
+                     (1 if seen else 0, document_id, kb_id))
     else:
         conn.execute("UPDATE documents SET seen=? WHERE id=?",
                      (1 if seen else 0, document_id))
@@ -1992,14 +2321,14 @@ def set_document_seen(conn: sqlite3.Connection, document_id: str, seen: bool = T
 
 def set_document_watch(
     conn: sqlite3.Connection, document_id: str, *, enabled: bool | None,
-    interval: float | None = None, reason: str | None = None, theme_id: int | None = None,
+    interval: float | None = None, reason: str | None = None, kb_id: int | None = None,
 ) -> None:
     """watch(주기 재크롤) 설정 — LLM 자동판단 또는 사용자 수동 on/off. enabled None=미판단."""
     where = "WHERE id=?"
     params: list[Any] = [None if enabled is None else (1 if enabled else 0), interval, reason, document_id]
-    if theme_id is not None:
-        where += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(kb_id)
     conn.execute(
         f"UPDATE documents SET watch_enabled=?, watch_interval=COALESCE(?,watch_interval), "
         f"watch_reason=COALESCE(?,watch_reason) {where}",
@@ -2008,41 +2337,45 @@ def set_document_watch(
     conn.commit()
 
 
+# Watch, refresh, and expand take no row of a shared knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md CT10, Section 13.1 rule 4): a shared knowledge base gets its content only from contributions.
+_NOT_SHARED_KB = " AND kb_id NOT IN (SELECT id FROM knowledge_bases WHERE COALESCE(is_personal, 0)=0 AND account_id IS NULL) "
+
+
 def watch_due_documents(
-    conn: sqlite3.Connection, now: float, *, default_interval: float, limit: int = 0, theme_id: int | None = None,
+    conn: sqlite3.Connection, now: float, *, default_interval: float, limit: int = 0, kb_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """재크롤할 때가 된 watch 문서: enabled=1 AND (last_watched_at NULL 또는 now - last_watched_at >= interval). interval 없으면 default_interval 적용."""
     q = ("SELECT id, url FROM documents WHERE watch_enabled=1 AND url IS NOT NULL AND ("
-         "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) ")
+         "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) " + _NOT_SHARED_KB)
     params: list[Any] = [now, default_interval]
-    if theme_id is not None:
-        q += " AND theme_id=? "
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=? "
+        params.append(kb_id)
     q += "ORDER BY COALESCE(last_watched_at, 0)"
     if limit:
         q += f" LIMIT {int(limit)}"
     return conn.execute(q, params).fetchall()
 
 
-def mark_document_watched(conn: sqlite3.Connection, document_id: str, when: float, theme_id: int | None = None) -> None:
+def mark_document_watched(conn: sqlite3.Connection, document_id: str, when: float, kb_id: int | None = None) -> None:
     """watch 재크롤을 수행한 시각 기록(다음 due 계산 기준)."""
-    if theme_id is not None:
-        conn.execute("UPDATE documents SET last_watched_at=? WHERE id=? AND theme_id=?", (when, document_id, theme_id))
+    if kb_id is not None:
+        conn.execute("UPDATE documents SET last_watched_at=? WHERE id=? AND kb_id=?", (when, document_id, kb_id))
     else:
         conn.execute("UPDATE documents SET last_watched_at=? WHERE id=?", (when, document_id))
     conn.commit()
 
 
 def find_document_by_canonical_url(
-    conn: sqlite3.Connection, canonical_url: str | None, theme_id: int | None = None,
+    conn: sqlite3.Connection, canonical_url: str | None, kb_id: int | None = None,
 ) -> str | None:
     """같은 canonical_url 의 기존 문서 id(최신 fetched_at). 내용 갱신 감지용."""
     if not canonical_url:
         return None
-    if theme_id is not None:
+    if kb_id is not None:
         row = conn.execute(
-            "SELECT id FROM documents WHERE canonical_url=? AND theme_id=? ORDER BY fetched_at DESC LIMIT 1",
-            (canonical_url, theme_id),
+            "SELECT id FROM documents WHERE canonical_url=? AND kb_id=? ORDER BY fetched_at DESC LIMIT 1",
+            (canonical_url, kb_id),
         ).fetchone()
     else:
         row = conn.execute(
@@ -2077,7 +2410,7 @@ def _documents_filter(
     since: float | None,
     query: str | None,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     *,
     before: tuple[float | None, str] | None = None,
     pinned: bool | None = None,
@@ -2092,9 +2425,9 @@ def _documents_filter(
     The keyword filters are for GET /documents (unit LP-5). before: only the rows after this cursor in the order of DOCUMENTS_ORDER_SQL (a NULL fetched_at is last). pinned / hidden: only the rows with this flag value. ids: only these identifiers. text: the title or the summary of the latest extraction contains this text. detail: "missing" (no detail text) or "mismatched" (a detail text with a format that is not detail_format).
     """
     where, params = [], []
-    if theme_id is not None:
-        where.append("theme_id = ?")
-        params.append(theme_id)
+    if kb_id is not None:
+        where.append("kb_id = ?")
+        params.append(kb_id)
     if not include_hidden:
         where.append("hidden = 0")
     if since is not None:
@@ -2115,7 +2448,7 @@ def _documents_filter(
         params.extend(ids)
     if text:
         # The summary is in the JSON text of the latest extraction row. A row with JSON that is not valid has no summary.
-        where.append("(title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM extractions e WHERE e.id = (SELECT max(e2.id) FROM extractions e2 WHERE e2.document_id = documents.id AND e2.theme_id = documents.theme_id) AND CASE WHEN json_valid(e.raw_response) THEN json_extract(e.raw_response, '$.summary') END LIKE ? ESCAPE '\\'))")
+        where.append("(title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM extractions e WHERE e.id = (SELECT max(e2.id) FROM extractions e2 WHERE e2.document_id = documents.id AND e2.kb_id = documents.kb_id) AND CASE WHEN json_valid(e.raw_response) THEN json_extract(e.raw_response, '$.summary') END LIKE ? ESCAPE '\\'))")
         like = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         params.extend([like, like])
     if detail == "missing":
@@ -2142,13 +2475,13 @@ def documents_timeline(
     since: float | None = None,
     query: str | None = None,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     **filters: Any,
 ) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다.
 
     since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수 있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로). include_hidden=False 면 hidden=0 인 공개 문서만 조회한다. filters: the keyword filters of _documents_filter() (before, pinned, hidden, ids, text, detail, detail_format)."""
-    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id, **filters)
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, kb_id=kb_id, **filters)
     params.append(limit)
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
@@ -2165,30 +2498,30 @@ def documents_count(
     since: float | None = None,
     query: str | None = None,
     include_hidden: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     **filters: Any,
 ) -> int:
     """documents_timeline과 동일한 필터의 총 개수(잘림 여부 판단용)."""
-    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id, **filters)
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, kb_id=kb_id, **filters)
     return conn.execute(
         f"SELECT COUNT(*) c FROM documents {where_sql}", params
     ).fetchone()["c"]
 
 
-def hidden_document_ids(conn: sqlite3.Connection, theme_id: int | None = None) -> set[str]:
+def hidden_document_ids(conn: sqlite3.Connection, kb_id: int | None = None) -> set[str]:
     """숨김 처리된(hidden=1) 모든 문서의 ID 집합을 반환한다."""
-    if theme_id is not None:
-        rows = conn.execute("SELECT id FROM documents WHERE hidden=1 AND theme_id=?", (theme_id,)).fetchall()
+    if kb_id is not None:
+        rows = conn.execute("SELECT id FROM documents WHERE hidden=1 AND kb_id=?", (kb_id,)).fetchall()
     else:
         rows = conn.execute("SELECT id FROM documents WHERE hidden=1").fetchall()
     return {row["id"] for row in rows}
 
 
-def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool, theme_id: int | None = None) -> bool:
+def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool, kb_id: int | None = None) -> bool:
     """즐겨찾기 토글. 존재하지 않는 id 면 False."""
-    if theme_id is not None:
+    if kb_id is not None:
         cur = conn.execute(
-            "UPDATE documents SET pinned=? WHERE id=? AND theme_id=?", (1 if pinned else 0, document_id, theme_id))
+            "UPDATE documents SET pinned=? WHERE id=? AND kb_id=?", (1 if pinned else 0, document_id, kb_id))
     else:
         cur = conn.execute(
             "UPDATE documents SET pinned=? WHERE id=?", (1 if pinned else 0, document_id))
@@ -2196,11 +2529,11 @@ def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool
     return cur.rowcount > 0
 
 
-def set_document_hidden(conn: sqlite3.Connection, document_id: str, hidden: bool, theme_id: int | None = None) -> bool:
+def set_document_hidden(conn: sqlite3.Connection, document_id: str, hidden: bool, kb_id: int | None = None) -> bool:
     """숨기기 토글(목록 전용 — 그래프 엔티티/관계는 안 건드림). 존재하지 않는 id 면 False."""
-    if theme_id is not None:
+    if kb_id is not None:
         cur = conn.execute(
-            "UPDATE documents SET hidden=? WHERE id=? AND theme_id=?", (1 if hidden else 0, document_id, theme_id))
+            "UPDATE documents SET hidden=? WHERE id=? AND kb_id=?", (1 if hidden else 0, document_id, kb_id))
     else:
         cur = conn.execute(
             "UPDATE documents SET hidden=? WHERE id=?", (1 if hidden else 0, document_id))
@@ -2208,12 +2541,12 @@ def set_document_hidden(conn: sqlite3.Connection, document_id: str, hidden: bool
     return cur.rowcount > 0
 
 
-def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | None, theme_id: int | None = None) -> bool:
+def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | None, kb_id: int | None = None) -> bool:
     """문서 제목 갱신 및 MinHash 서명 재계산. 존재하지 않는 id 면 False."""
     from ..ingest.normalize import minhash_signature
 
-    if theme_id is not None:
-        row = conn.execute("SELECT raw_text FROM documents WHERE id=? AND theme_id=?", (document_id, theme_id)).fetchone()
+    if kb_id is not None:
+        row = conn.execute("SELECT raw_text FROM documents WHERE id=? AND kb_id=?", (document_id, kb_id)).fetchone()
     else:
         row = conn.execute("SELECT raw_text FROM documents WHERE id=?", (document_id,)).fetchone()
     if row is None:
@@ -2224,10 +2557,10 @@ def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | 
     sig = minhash_signature((clean_title or "") + " " + raw_text)
     sig_json = json.dumps(sig) if sig else None
 
-    if theme_id is not None:
+    if kb_id is not None:
         cur = conn.execute(
-            "UPDATE documents SET title=?, minhash=? WHERE id=? AND theme_id=?",
-            (clean_title, sig_json, document_id, theme_id),
+            "UPDATE documents SET title=?, minhash=? WHERE id=? AND kb_id=?",
+            (clean_title, sig_json, document_id, kb_id),
         )
     else:
         cur = conn.execute(
@@ -2238,9 +2571,9 @@ def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | 
     return cur.rowcount > 0
 
 
-def get_document(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> Document | None:
+def get_document(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> Document | None:
     """documents 행을 Document 모델로 복원(자동복구의 extract 재시도 등에서 사용)."""
-    row = get_document_row(conn, document_id, theme_id=theme_id)
+    row = get_document_row(conn, document_id, kb_id=kb_id)
     if row is None:
         return None
     return Document(
@@ -2255,15 +2588,15 @@ def get_document(conn: sqlite3.Connection, document_id: str, theme_id: int | Non
 
 # --- entities ---
 
-def upsert_entity(conn: sqlite3.Connection, ent: Entity, theme_id: int = 0) -> None:
+def upsert_entity(conn: sqlite3.Connection, ent: Entity, kb_id: int = 0) -> None:
     ent.updated_at = time.time()
     conn.execute(
         """INSERT OR REPLACE INTO entities
-        (id,theme_id,type,name,norm_name,aliases,props,observations,sources,provisional,
+        (id,kb_id,type,name,norm_name,aliases,props,observations,sources,provisional,
          created_at,updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
-            ent.id, theme_id, ent.type, ent.name, ent.norm_name,
+            ent.id, kb_id, ent.type, ent.name, ent.norm_name,
             json.dumps(ent.aliases, ensure_ascii=False), json.dumps(ent.props, ensure_ascii=False),
             json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False),
             int(ent.provisional), ent.created_at, ent.updated_at,
@@ -2285,18 +2618,18 @@ def upsert_entity(conn: sqlite3.Connection, ent: Entity, theme_id: int = 0) -> N
     conn.commit()
 
 
-def get_entity(conn: sqlite3.Connection, entity_id: str, theme_id: int | None = None) -> Entity | None:
-    if theme_id is not None:
-        row = conn.execute("SELECT * FROM entities WHERE id=? AND theme_id=?", (entity_id, theme_id)).fetchone()
+def get_entity(conn: sqlite3.Connection, entity_id: str, kb_id: int | None = None) -> Entity | None:
+    if kb_id is not None:
+        row = conn.execute("SELECT * FROM entities WHERE id=? AND kb_id=?", (entity_id, kb_id)).fetchone()
     else:
         row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
     return _row_to_entity(row) if row else None
 
 
-def find_entities_by_norm(conn: sqlite3.Connection, norm_name: str, theme_id: int | None = None) -> list[Entity]:
-    if theme_id is not None:
+def find_entities_by_norm(conn: sqlite3.Connection, norm_name: str, kb_id: int | None = None) -> list[Entity]:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT * FROM entities WHERE norm_name=? AND theme_id=?", (norm_name, theme_id)
+            "SELECT * FROM entities WHERE norm_name=? AND kb_id=?", (norm_name, kb_id)
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2306,7 +2639,7 @@ def find_entities_by_norm(conn: sqlite3.Connection, norm_name: str, theme_id: in
 
 
 def find_entities_by_name_or_alias(
-    conn: sqlite3.Connection, norm_name: str, theme_id: int | None = None
+    conn: sqlite3.Connection, norm_name: str, kb_id: int | None = None
 ) -> list[Entity]:
     """norm_name 정확 매칭(인덱스) + alias 정확 매칭(스캔).
 
@@ -2316,8 +2649,8 @@ def find_entities_by_name_or_alias(
 
     target = normalize_name(norm_name)
     out: dict[str, Entity] = {}
-    if theme_id is not None:
-        norm_rows = conn.execute("SELECT * FROM entities WHERE norm_name=? AND theme_id=?", (target, theme_id)).fetchall()
+    if kb_id is not None:
+        norm_rows = conn.execute("SELECT * FROM entities WHERE norm_name=? AND kb_id=?", (target, kb_id)).fetchall()
     else:
         norm_rows = conn.execute("SELECT * FROM entities WHERE norm_name=?", (target,)).fetchall()
     for r in norm_rows:
@@ -2327,10 +2660,10 @@ def find_entities_by_name_or_alias(
     like_raw = f"%{target}%"
     escaped_target = json.dumps(target, ensure_ascii=True)[1:-1]
     if escaped_target != target:
-        if theme_id is not None:
+        if kb_id is not None:
             rows = conn.execute(
-                "SELECT * FROM entities WHERE (aliases LIKE ? COLLATE NOCASE OR aliases LIKE ? COLLATE NOCASE) AND theme_id=?",
-                (like_raw, f"%{escaped_target}%", theme_id),
+                "SELECT * FROM entities WHERE (aliases LIKE ? COLLATE NOCASE OR aliases LIKE ? COLLATE NOCASE) AND kb_id=?",
+                (like_raw, f"%{escaped_target}%", kb_id),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -2338,10 +2671,10 @@ def find_entities_by_name_or_alias(
                 (like_raw, f"%{escaped_target}%"),
             ).fetchall()
     else:
-        if theme_id is not None:
+        if kb_id is not None:
             rows = conn.execute(
-                "SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE AND theme_id=?",
-                (like_raw, theme_id),
+                "SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE AND kb_id=?",
+                (like_raw, kb_id),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -2357,20 +2690,20 @@ def find_entities_by_name_or_alias(
     return list(out.values())
 
 
-def all_entities(conn: sqlite3.Connection, theme_id: int | None = None) -> list[Entity]:
-    if theme_id is not None:
-        rows = conn.execute("SELECT * FROM entities WHERE theme_id=?", (theme_id,)).fetchall()
+def all_entities(conn: sqlite3.Connection, kb_id: int | None = None) -> list[Entity]:
+    if kb_id is not None:
+        rows = conn.execute("SELECT * FROM entities WHERE kb_id=?", (kb_id,)).fetchall()
     else:
         rows = conn.execute("SELECT * FROM entities").fetchall()
     return [_row_to_entity(r) for r in rows]
 
 
-def document_entities(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> list[Entity]:
+def document_entities(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> list[Entity]:
     """한 문서에서 유래된(sources 에 document_id 가 포함된) 엔티티 목록."""
-    if theme_id is not None:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT * FROM entities WHERE sources LIKE ? AND theme_id=?",
-            (f"%{document_id}%", theme_id),
+            "SELECT * FROM entities WHERE sources LIKE ? AND kb_id=?",
+            (f"%{document_id}%", kb_id),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2402,7 +2735,7 @@ def select_entity_primary_label(
     conn: sqlite3.Connection,
     entity_id: str,
     new_name: str,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> Entity:
     """기존 별칭(aliases) 중 하나를 선택하여 대표 레이블(name)로 승격/전환.
 
@@ -2412,9 +2745,9 @@ def select_entity_primary_label(
     """
     from ..ontology.base import normalize_name
 
-    ent = get_entity(conn, entity_id, theme_id=theme_id)
+    ent = get_entity(conn, entity_id, kb_id=kb_id)
     if ent is None:
-        cands = find_entities_by_name_or_alias(conn, entity_id, theme_id=theme_id)
+        cands = find_entities_by_name_or_alias(conn, entity_id, kb_id=kb_id)
         if len(cands) == 1:
             ent = cands[0]
         elif len(cands) > 1:
@@ -2450,7 +2783,7 @@ def select_entity_primary_label(
 
     ent.name = matched_alias
     ent.aliases = sorted(set(new_aliases))
-    upsert_entity(conn, ent, theme_id=0 if theme_id is None else theme_id)
+    upsert_entity(conn, ent, kb_id=0 if kb_id is None else kb_id)
     return ent
 
 
@@ -2459,7 +2792,7 @@ def batch_select_primary_labels(
     mappings: dict[str, str],
     *,
     dry_run: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """대량 매핑(dict: target_id_or_name -> chosen_alias)으로 대표 레이블 일괄 전환.
 
@@ -2476,9 +2809,9 @@ def batch_select_primary_labels(
             errors.append({"target": target, "chosen": chosen, "error": "빈 문자열은 대표 레이블이 될 수 없습니다."})
             continue
 
-        ent = get_entity(conn, target, theme_id=theme_id)
+        ent = get_entity(conn, target, kb_id=kb_id)
         if ent is None:
-            cands = find_entities_by_name_or_alias(conn, target, theme_id=theme_id)
+            cands = find_entities_by_name_or_alias(conn, target, kb_id=kb_id)
             if len(cands) == 1:
                 ent = cands[0]
             elif len(cands) > 1:
@@ -2527,11 +2860,11 @@ def batch_select_primary_labels(
     if not dry_run and plan:
         with conn:
             for item in plan:
-                e = get_entity(conn, item["id"], theme_id=theme_id)
+                e = get_entity(conn, item["id"], kb_id=kb_id)
                 if e:
                     e.name = item["new_name"]
                     e.aliases = item["aliases_after"]
-                    upsert_entity(conn, e, theme_id=0 if theme_id is None else theme_id)
+                    upsert_entity(conn, e, kb_id=0 if kb_id is None else kb_id)
 
     return {
         "dry_run": dry_run,
@@ -2545,13 +2878,13 @@ def batch_select_primary_labels(
 
 # --- relations ---
 
-def upsert_relation(conn: sqlite3.Connection, rel: Relation, theme_id: int = 0) -> None:
+def upsert_relation(conn: sqlite3.Connection, rel: Relation, kb_id: int = 0) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO relations
-        (id,theme_id,type,source_id,target_id,props,sources,confidence,provisional,created_at)
+        (id,kb_id,type,source_id,target_id,props,sources,confidence,provisional,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (
-            rel.id, theme_id, rel.type, rel.source_id, rel.target_id,
+            rel.id, kb_id, rel.type, rel.source_id, rel.target_id,
             json.dumps(rel.props, ensure_ascii=False), json.dumps(rel.sources, ensure_ascii=False),
             rel.confidence, int(rel.provisional), rel.created_at,
         ),
@@ -2569,11 +2902,11 @@ def _row_to_relation(r: sqlite3.Row) -> Relation:
     )
 
 
-def neighbors(conn: sqlite3.Connection, entity_id: str, theme_id: int | None = None) -> list[Relation]:
-    if theme_id is not None:
+def neighbors(conn: sqlite3.Connection, entity_id: str, kb_id: int | None = None) -> list[Relation]:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT * FROM relations WHERE (source_id=? OR target_id=?) AND theme_id=?",
-            (entity_id, entity_id, theme_id),
+            "SELECT * FROM relations WHERE (source_id=? OR target_id=?) AND kb_id=?",
+            (entity_id, entity_id, kb_id),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2583,20 +2916,20 @@ def neighbors(conn: sqlite3.Connection, entity_id: str, theme_id: int | None = N
     return [_row_to_relation(r) for r in rows]
 
 
-def all_relations(conn: sqlite3.Connection, theme_id: int | None = None) -> list[Relation]:
-    if theme_id is not None:
-        rows = conn.execute("SELECT * FROM relations WHERE theme_id=?", (theme_id,)).fetchall()
+def all_relations(conn: sqlite3.Connection, kb_id: int | None = None) -> list[Relation]:
+    if kb_id is not None:
+        rows = conn.execute("SELECT * FROM relations WHERE kb_id=?", (kb_id,)).fetchall()
     else:
         rows = conn.execute("SELECT * FROM relations").fetchall()
     return [_row_to_relation(r) for r in rows]
 
 
-def document_relations(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> list[Relation]:
+def document_relations(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> list[Relation]:
     """한 문서에서 유래된(sources 에 document_id 가 포함된) 관계 목록."""
-    if theme_id is not None:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT * FROM relations WHERE sources LIKE ? AND theme_id=?",
-            (f"%{document_id}%", theme_id),
+            "SELECT * FROM relations WHERE sources LIKE ? AND kb_id=?",
+            (f"%{document_id}%", kb_id),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2611,14 +2944,14 @@ def document_relations(conn: sqlite3.Connection, document_id: str, theme_id: int
     return out
 
 
-def has_relation_between(conn: sqlite3.Connection, id1: str, id2: str, theme_id: int | None = None) -> bool:
+def has_relation_between(conn: sqlite3.Connection, id1: str, id2: str, kb_id: int | None = None) -> bool:
     """id1과 id2 사이에 어떤 방향이든 관계가 존재하는지 확인."""
-    if theme_id is not None:
+    if kb_id is not None:
         row = conn.execute(
             """SELECT 1 FROM relations
-            WHERE ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?)) AND theme_id=?
+            WHERE ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?)) AND kb_id=?
             LIMIT 1""",
-            (id1, id2, id2, id1, theme_id),
+            (id1, id2, id2, id1, kb_id),
         ).fetchone()
     else:
         row = conn.execute(
@@ -2640,12 +2973,12 @@ def add_edge(
     props: dict | None = None,
     sources: list[str] | None = None,
     provisional: bool = False,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> Relation | None:
     """GraphStore를 통한 엣지 추가/갱신 편의 함수."""
     from .graph import GraphStore
 
-    return GraphStore(conn, theme_id=theme_id).add_edge(
+    return GraphStore(conn, kb_id=kb_id).add_edge(
         source_id=source_id,
         target_id=target_id,
         rel_type=rel_type,
@@ -2660,22 +2993,22 @@ def add_edge(
 
 def log_proposal(
     conn: sqlite3.Connection, kind: str, proposed: str, context: str,
-    document_id: str | None = None, theme_id: int = 0,
+    document_id: str | None = None, kb_id: int = 0,
 ) -> None:
     conn.execute(
-        "INSERT INTO proposals(theme_id,kind,proposed,context,document_id,created_at) "
+        "INSERT INTO proposals(kb_id,kind,proposed,context,document_id,created_at) "
         "VALUES (?,?,?,?,?,?)",
-        (theme_id, kind, proposed, context, document_id, time.time()),
+        (kb_id, kind, proposed, context, document_id, time.time()),
     )
     conn.commit()
 
 
-def document_proposals(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> list[dict[str, Any]]:
+def document_proposals(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> list[dict[str, Any]]:
     """한 문서에서 제안된 신규 엔티티/관계 타입 목록."""
-    if theme_id is not None:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT * FROM proposals WHERE document_id = ? AND theme_id = ? ORDER BY id ASC",
-            (document_id, theme_id),
+            "SELECT * FROM proposals WHERE document_id = ? AND kb_id = ? ORDER BY id ASC",
+            (document_id, kb_id),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2697,13 +3030,13 @@ def log_inbox(
     chat_id: int | None = None,
     file_name: str | None = None,
     file_ref: str | None = None,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> int:
     """[Layer 1] inbound 원본 기록. 처리 전에 무조건 먼저 호출. row id 반환."""
     cur = conn.execute(
-        "INSERT INTO raw_inbox(theme_id,received_at,source,user_id,chat_id,kind,payload,"
+        "INSERT INTO raw_inbox(kb_id,received_at,source,user_id,chat_id,kind,payload,"
         "file_name,file_ref,status) VALUES (?,?,?,?,?,?,?,?,?, 'received')",
-        (theme_id, time.time(), source, user_id, chat_id, kind, payload, file_name, file_ref),
+        (kb_id, time.time(), source, user_id, chat_id, kind, payload, file_name, file_ref),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -2712,12 +3045,12 @@ def log_inbox(
 def update_inbox(
     conn: sqlite3.Connection, inbox_id: int, *,
     status: str, document_id: str | None = None, error: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
-    if theme_id is not None:
+    if kb_id is not None:
         conn.execute(
-            "UPDATE raw_inbox SET status=?, document_id=?, error=? WHERE id=? AND theme_id=?",
-            (status, document_id, error, inbox_id, theme_id),
+            "UPDATE raw_inbox SET status=?, document_id=?, error=? WHERE id=? AND kb_id=?",
+            (status, document_id, error, inbox_id, kb_id),
         )
     else:
         conn.execute(
@@ -2727,16 +3060,16 @@ def update_inbox(
     conn.commit()
 
 
-def all_inbox(conn: sqlite3.Connection, theme_id: int | None = None) -> list[sqlite3.Row]:
-    if theme_id is not None:
-        return conn.execute("SELECT * FROM raw_inbox WHERE theme_id=? ORDER BY id", (theme_id,)).fetchall()
+def all_inbox(conn: sqlite3.Connection, kb_id: int | None = None) -> list[sqlite3.Row]:
+    if kb_id is not None:
+        return conn.execute("SELECT * FROM raw_inbox WHERE kb_id=? ORDER BY id", (kb_id,)).fetchall()
     return conn.execute("SELECT * FROM raw_inbox ORDER BY id").fetchall()
 
 
-def inbox_by_status(conn: sqlite3.Connection, status: str, theme_id: int | None = None) -> list[sqlite3.Row]:
-    if theme_id is not None:
+def inbox_by_status(conn: sqlite3.Connection, status: str, kb_id: int | None = None) -> list[sqlite3.Row]:
+    if kb_id is not None:
         return conn.execute(
-            "SELECT * FROM raw_inbox WHERE status=? AND theme_id=? ORDER BY id", (status, theme_id)
+            "SELECT * FROM raw_inbox WHERE status=? AND kb_id=? ORDER BY id", (status, kb_id)
         ).fetchall()
     return conn.execute(
         "SELECT * FROM raw_inbox WHERE status=? ORDER BY id", (status,)
@@ -2744,24 +3077,24 @@ def inbox_by_status(conn: sqlite3.Connection, status: str, theme_id: int | None 
 
 
 def inbox_by_statuses(
-    conn: sqlite3.Connection, statuses: tuple[str, ...] | list[str], theme_id: int | None = None
+    conn: sqlite3.Connection, statuses: tuple[str, ...] | list[str], kb_id: int | None = None
 ) -> list[sqlite3.Row]:
     if not statuses:
         return []
     placeholders = ",".join("?" for _ in statuses)
     params = list(statuses)
     query = f"SELECT * FROM raw_inbox WHERE status IN ({placeholders})"
-    if theme_id is not None:
-        query += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id=?"
+        params.append(kb_id)
     query += " ORDER BY id"
     return conn.execute(query, tuple(params)).fetchall()
 
 
-def get_inbox(conn: sqlite3.Connection, inbox_id: int, theme_id: int | None = None) -> sqlite3.Row | None:
-    if theme_id is not None:
+def get_inbox(conn: sqlite3.Connection, inbox_id: int, kb_id: int | None = None) -> sqlite3.Row | None:
+    if kb_id is not None:
         return conn.execute(
-            "SELECT * FROM raw_inbox WHERE id=? AND theme_id=?", (inbox_id, theme_id)
+            "SELECT * FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id)
         ).fetchone()
     return conn.execute(
         "SELECT * FROM raw_inbox WHERE id=?", (inbox_id,)
@@ -2771,25 +3104,25 @@ def get_inbox(conn: sqlite3.Connection, inbox_id: int, theme_id: int | None = No
 get_raw_inbox = get_inbox
 
 
-def pending_inbox(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[sqlite3.Row]:
+def pending_inbox(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[sqlite3.Row]:
     q = "SELECT * FROM raw_inbox WHERE status IN ('received', 'pending')"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY id"
     if limit:
         q += f" LIMIT {int(limit)}"
     return conn.execute(q, params).fetchall()
 
 
-def inbox_failures(conn: sqlite3.Connection, limit: int = 10, theme_id: int | None = None) -> list[sqlite3.Row]:
+def inbox_failures(conn: sqlite3.Connection, limit: int = 10, kb_id: int | None = None) -> list[sqlite3.Row]:
     """error/failed(영구실패) 항목을 최신순으로(텔레그램 /failed 용)."""
     q = "SELECT * FROM raw_inbox WHERE status IN ('error','failed')"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     return conn.execute(q, params).fetchall()
@@ -2797,7 +3130,7 @@ def inbox_failures(conn: sqlite3.Connection, limit: int = 10, theme_id: int | No
 
 def due_for_recovery(
     conn: sqlite3.Connection, *, max_attempts: int, now: float | None = None,
-    limit: int = 0, theme_id: int | None = None,
+    limit: int = 0, kb_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """자동 재적재 대상: status='error' AND attempts<max AND 재시도시각 도래.
 
@@ -2806,9 +3139,9 @@ def due_for_recovery(
     now = time.time() if now is None else now
     q = "SELECT * FROM raw_inbox WHERE status='error' AND attempts < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)"
     params: list[Any] = [max_attempts, now]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY id"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -2819,15 +3152,15 @@ def record_recovery_attempt(
     conn: sqlite3.Connection, inbox_id: int, *, status: str,
     document_id: str | None = None, error: str | None = None,
     next_retry_at: float | None = None, now: float | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     """재적재 1회 시도 결과 기록(attempts+1, last_attempt, next_retry_at 갱신)."""
     now = time.time() if now is None else now
     where = "WHERE id=?"
     params: list[Any] = [status, document_id, error, now, next_retry_at, inbox_id]
-    if theme_id is not None:
-        where += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(kb_id)
     conn.execute(
         f"UPDATE raw_inbox SET status=?, document_id=?, error=?, "
         f"attempts=attempts+1, last_attempt=?, next_retry_at=? {where}",
@@ -2838,50 +3171,50 @@ def record_recovery_attempt(
 
 # --- status / 집계 (claire status 용) ---
 
-def inbox_status_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> dict[str, int]:
+def inbox_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, int]:
     """raw_inbox 의 status 별 개수."""
     q = "SELECT status, COUNT(*) n FROM raw_inbox"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     q += " GROUP BY status"
     rows = conn.execute(q, tuple(params)).fetchall()
     return {r["status"]: r["n"] for r in rows}
 
 
-def entity_type_counts(conn: sqlite3.Connection, limit: int = 12, theme_id: int | None = None) -> list[tuple[str, int]]:
+def entity_type_counts(conn: sqlite3.Connection, limit: int = 12, kb_id: int | None = None) -> list[tuple[str, int]]:
     """엔티티 타입별 개수(많은 순)."""
     q = "SELECT type, COUNT(*) n FROM entities"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     q += " GROUP BY type ORDER BY n DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(q, tuple(params)).fetchall()
     return [(r["type"], r["n"]) for r in rows]
 
 
-def source_type_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> list[tuple[str, int]]:
+def source_type_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> list[tuple[str, int]]:
     """문서 소스 타입별 개수(web/youtube/pdf/text...)."""
     q = "SELECT source_type, COUNT(*) n FROM documents"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     q += " GROUP BY source_type ORDER BY n DESC"
     rows = conn.execute(q, tuple(params)).fetchall()
     return [(r["source_type"], r["n"]) for r in rows]
 
 
 def top_connected_entities(
-    conn: sqlite3.Connection, limit: int = 8, theme_id: int | None = None
+    conn: sqlite3.Connection, limit: int = 8, kb_id: int | None = None
 ) -> list[tuple[str, str, int]]:
     """연결(degree) 많은 엔티티 상위 — (name, type, degree)."""
-    where_e = "WHERE e.theme_id=?" if theme_id is not None else ""
-    on_r = " AND r.theme_id=e.theme_id" if theme_id is not None else ""
-    params: list[Any] = [theme_id, limit] if theme_id is not None else [limit]
+    where_e = "WHERE e.kb_id=?" if kb_id is not None else ""
+    on_r = " AND r.kb_id=e.kb_id" if kb_id is not None else ""
+    params: list[Any] = [kb_id, limit] if kb_id is not None else [limit]
     rows = conn.execute(
         f"""
         SELECT e.name, e.type, COUNT(r.id) deg
@@ -2896,7 +3229,7 @@ def top_connected_entities(
 
 
 def most_merged_entities(
-    conn: sqlite3.Connection, limit: int = 8, theme_id: int | None = None
+    conn: sqlite3.Connection, limit: int = 8, kb_id: int | None = None
 ) -> list[tuple[str, str, int]]:
     """여러 자료에서 수렴된(sources 많은) 엔티티 — (name, type, source_count).
 
@@ -2904,9 +3237,9 @@ def most_merged_entities(
     """
     q = "SELECT name, type, sources FROM entities"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     rows = conn.execute(q, tuple(params)).fetchall()
     out = []
     for r in rows:
@@ -2920,23 +3253,23 @@ def most_merged_entities(
     return out[:limit]
 
 
-def last_inbox_activity(conn: sqlite3.Connection, theme_id: int | None = None) -> float | None:
+def last_inbox_activity(conn: sqlite3.Connection, kb_id: int | None = None) -> float | None:
     """가장 최근 inbound 수신 시각(epoch). 없으면 None."""
     q = "SELECT MAX(received_at) m FROM raw_inbox"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     return row["m"] if row and row["m"] else None
 
 
-def _sync_published_object(conn: sqlite3.Connection, theme_id: int, document_id: str) -> None:
+def _sync_published_object(conn: sqlite3.Connection, kb_id: int, document_id: str) -> None:
     """A new summary or a new share link of a published document makes an ``update`` task (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5). The caller commits. A failure here must not stop the write of the caller."""
     from . import federation as federation_store
 
     try:
-        federation_store.sync_object_content(conn, theme_id=theme_id, document_id=document_id, now=time.time())
+        federation_store.sync_object_content(conn, kb_id=kb_id, document_id=document_id, now=time.time())
     except sqlite3.Error as exc:
         logger.warning("The published object of document %s was not compared with its new content: %s", document_id, exc)
 
@@ -2945,15 +3278,15 @@ def log_extraction(
     conn: sqlite3.Connection, *,
     document_id: str, provider: str, model: str,
     prompt_version: str, raw_response: str,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> None:
     """[LLM tier] 모델 원본 출력 보관."""
     conn.execute(
-        "INSERT INTO extractions(theme_id,document_id,provider,model,prompt_version,"
+        "INSERT INTO extractions(kb_id,document_id,provider,model,prompt_version,"
         "raw_response,created_at) VALUES (?,?,?,?,?,?,?)",
-        (theme_id, document_id, provider, model, prompt_version, raw_response, time.time()),
+        (kb_id, document_id, provider, model, prompt_version, raw_response, time.time()),
     )
-    _sync_published_object(conn, theme_id, document_id)
+    _sync_published_object(conn, kb_id, document_id)
     conn.commit()
 
 
@@ -3095,7 +3428,7 @@ def validate_session_scope(
     token: str,
     *,
     ttl: float = SESSION_TTL,
-    scopes: tuple[str, ...] = ("owner", "collaborator", "readonly"),
+    scopes: tuple[str, ...] = ("owner", "write", "readonly"),
 ) -> str | None:
     """유효한 전체 세션 토큰의 scope를 반환한다.
 
@@ -3446,7 +3779,6 @@ def migrate_env_tokens(
     conn: Any = None,
     env_inject_token: str = "",
     env_readonly_token: str = "",
-    env_collab_token: str = "",
 ) -> list[dict[str, Any]]:
     """Migrate environment variable tokens into the decoupled token store."""
     from .token_store import get_token_store
@@ -3455,7 +3787,6 @@ def migrate_env_tokens(
     return store.migrate_env_tokens(
         env_inject_token=env_inject_token,
         env_readonly_token=env_readonly_token,
-        env_collab_token=env_collab_token,
     )
 
 
@@ -3490,7 +3821,7 @@ def plausible_share_token(token: str) -> bool:
 def create_doc_share(conn: sqlite3.Connection, document_id: str,
                      *, ttl: float | None = None,
                      reuse_existing: bool = True,
-                     theme_id: int = 0) -> str:
+                     kb_id: int = 0) -> str:
     """문서 1개의 읽기 공유 토큰을 발급(세션과 분리). ttl=None 이면 무기한.
 
     reuse_existing=True 이면 문서에 이미 유효한(미만료) 토큰이 있는 경우 이를 재사용하여 URL 파편화를 방지하고 분석/참조수 집계를 단일 정규 URL로 통합한다."""
@@ -3498,9 +3829,9 @@ def create_doc_share(conn: sqlite3.Connection, document_id: str,
     if reuse_existing:
         row = conn.execute(
             "SELECT token, expires_at FROM doc_shares "
-            "WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) "
+            "WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) "
             "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            (document_id, theme_id, now),
+            (document_id, kb_id, now),
         ).fetchone()
         if row and row["token"]:
             return str(row["token"])
@@ -3508,21 +3839,21 @@ def create_doc_share(conn: sqlite3.Connection, document_id: str,
     token = _short_token(_SHARE_TOKEN_LEN)
     expires = (now + ttl) if ttl else None
     conn.execute(
-        "INSERT INTO doc_shares(token, theme_id, document_id, created_at, expires_at) "
-        "VALUES (?,?,?,?,?)", (token, theme_id, document_id, now, expires))
-    _sync_published_object(conn, theme_id, document_id)
+        "INSERT INTO doc_shares(token, kb_id, document_id, created_at, expires_at) "
+        "VALUES (?,?,?,?,?)", (token, kb_id, document_id, now, expires))
+    _sync_published_object(conn, kb_id, document_id)
     conn.commit()
     return token
 
 
-def resolve_doc_share(conn: sqlite3.Connection, token: str, theme_id: int | None = None) -> str | None:
+def resolve_doc_share(conn: sqlite3.Connection, token: str, kb_id: int | None = None) -> str | None:
     """공유 토큰 → document_id(미만료). 없거나 만료면 None. 전체 일치만(프리픽스 불가)."""
     t = token or ""
     if not plausible_share_token(t):
         return None
-    if theme_id is not None:
+    if kb_id is not None:
         row = conn.execute(
-            "SELECT document_id, expires_at FROM doc_shares WHERE token=? AND theme_id=?", (t, theme_id)).fetchone()
+            "SELECT document_id, expires_at FROM doc_shares WHERE token=? AND kb_id=?", (t, kb_id)).fetchone()
     else:
         row = conn.execute(
             "SELECT document_id, expires_at FROM doc_shares WHERE token=?", (t,)).fetchone()
@@ -3537,7 +3868,7 @@ def list_public_sitemap_documents(
     conn: sqlite3.Connection,
     *,
     ensure_shares: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """사이트맵 색인을 위한 비숨김(hidden=0) 공개 문서 및 공유 토큰 목록을 조회한다.
 
@@ -3547,9 +3878,9 @@ def list_public_sitemap_documents(
     now = time.time()
     doc_query = "SELECT id, fetched_at, published_at FROM documents WHERE hidden = 0"
     doc_params: list[Any] = []
-    if theme_id is not None:
-        doc_query += " AND theme_id = ?"
-        doc_params.append(theme_id)
+    if kb_id is not None:
+        doc_query += " AND kb_id = ?"
+        doc_params.append(kb_id)
     doc_query += " ORDER BY fetched_at DESC"
     docs = conn.execute(doc_query, tuple(doc_params)).fetchall()
     if not docs:
@@ -3557,9 +3888,9 @@ def list_public_sitemap_documents(
 
     share_query = "SELECT token, document_id, expires_at FROM doc_shares WHERE (expires_at IS NULL OR expires_at > ?)"
     share_params: list[Any] = [now]
-    if theme_id is not None:
-        share_query += " AND theme_id = ?"
-        share_params.append(theme_id)
+    if kb_id is not None:
+        share_query += " AND kb_id = ?"
+        share_params.append(kb_id)
     share_query += " ORDER BY created_at DESC, rowid DESC"
     share_rows = conn.execute(share_query, tuple(share_params)).fetchall()
 
@@ -3589,7 +3920,7 @@ def list_public_sitemap_documents(
         try:
             for d in missing_docs:
                 doc_id = str(d["id"])
-                tok = create_doc_share(conn, doc_id, reuse_existing=True, theme_id=theme_id if theme_id is not None else 0)
+                tok = create_doc_share(conn, doc_id, reuse_existing=True, kb_id=kb_id if kb_id is not None else 0)
                 results.append({
                     "token": tok,
                     "document_id": doc_id,
@@ -3612,7 +3943,7 @@ def resolve_document_targets(
     token: str | None = None,
     pattern: str | None = None,
     limit: int = 50,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """입력값(target, doc_id, url, token, pattern 등)을 4단계 표준에 따라 분석하여 문서 목록을 반환."""
     from urllib.parse import parse_qs, urlsplit
@@ -3628,7 +3959,7 @@ def resolve_document_targets(
             seen_ids.add(did)
             results.append({
                 "id": did,
-                "theme_id": d.get("theme_id", 0),
+                "kb_id": d.get("kb_id", 0),
                 "url": d.get("url"),
                 "canonical_url": d.get("canonical_url"),
                 "title": d.get("title"),
@@ -3640,33 +3971,33 @@ def resolve_document_targets(
 
     # 1. 명시적 doc_id
     if doc_id:
-        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+        q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
         params: list[Any] = [doc_id]
-        if theme_id is not None:
-            q += " AND theme_id=?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id=?"
+            params.append(kb_id)
         row = conn.execute(q, tuple(params)).fetchone()
         if row:
             _add_doc(row, matched_by="doc_id")
 
     # 2. 명시적 token
     if token:
-        shared_id = resolve_doc_share(conn, token, theme_id=theme_id)
+        shared_id = resolve_doc_share(conn, token, kb_id=kb_id)
         if not shared_id:
             q_share = "SELECT document_id FROM doc_shares WHERE token=?"
             p_share: list[Any] = [token]
-            if theme_id is not None:
-                q_share += " AND theme_id=?"
-                p_share.append(theme_id)
+            if kb_id is not None:
+                q_share += " AND kb_id=?"
+                p_share.append(kb_id)
             row_share = conn.execute(q_share, tuple(p_share)).fetchone()
             if row_share:
                 shared_id = row_share["document_id"]
         if shared_id:
-            q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+            q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
             params = [shared_id]
-            if theme_id is not None:
-                q += " AND theme_id=?"
-                params.append(theme_id)
+            if kb_id is not None:
+                q += " AND kb_id=?"
+                params.append(kb_id)
             row = conn.execute(q, tuple(params)).fetchone()
             if row:
                 _add_doc(row, matched_by="token", is_from_share_token=True)
@@ -3674,21 +4005,21 @@ def resolve_document_targets(
     # 3. 명시적 url / canonical_url
     if url:
         c_url = canonicalize_url(url)
-        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (url=? OR canonical_url=?)"
+        q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (url=? OR canonical_url=?)"
         params = [url, c_url]
-        if theme_id is not None:
-            q += " AND theme_id=?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id=?"
+            params.append(kb_id)
         rows = conn.execute(q, tuple(params)).fetchall()
         for r in rows:
             _add_doc(r, matched_by="url")
 
     if canonical_url:
-        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE canonical_url=?"
+        q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE canonical_url=?"
         params = [canonical_url]
-        if theme_id is not None:
-            q += " AND theme_id=?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id=?"
+            params.append(kb_id)
         rows = conn.execute(q, tuple(params)).fetchall()
         for r in rows:
             _add_doc(r, matched_by="canonical_url")
@@ -3696,11 +4027,11 @@ def resolve_document_targets(
     # 4. 명시적 pattern
     if pattern:
         patt = f"%{pattern}%"
-        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ?)"
+        q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ?)"
         params = [patt, patt, patt, patt]
-        if theme_id is not None:
-            q += " AND theme_id=?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id=?"
+            params.append(kb_id)
         q += " LIMIT ?"
         params.append(limit)
         rows = conn.execute(q, tuple(params)).fetchall()
@@ -3712,11 +4043,11 @@ def resolve_document_targets(
         raw_target = target.strip()
 
         # 5-1. 정확한 ID 일치
-        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+        q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
         params = [raw_target]
-        if theme_id is not None:
-            q += " AND theme_id=?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id=?"
+            params.append(kb_id)
         row = conn.execute(q, tuple(params)).fetchone()
         if row:
             _add_doc(row, matched_by="id")
@@ -3735,22 +4066,22 @@ def resolve_document_targets(
             resolved_token = raw_target
 
         if resolved_token:
-            shared_id = resolve_doc_share(conn, resolved_token, theme_id=theme_id)
+            shared_id = resolve_doc_share(conn, resolved_token, kb_id=kb_id)
             if not shared_id:
                 q_share = "SELECT document_id FROM doc_shares WHERE token=?"
                 p_share = [resolved_token]
-                if theme_id is not None:
-                    q_share += " AND theme_id=?"
-                    p_share.append(theme_id)
+                if kb_id is not None:
+                    q_share += " AND kb_id=?"
+                    p_share.append(kb_id)
                 row_share = conn.execute(q_share, tuple(p_share)).fetchone()
                 if row_share:
                     shared_id = row_share["document_id"]
             if shared_id:
-                q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+                q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
                 params = [shared_id]
-                if theme_id is not None:
-                    q += " AND theme_id=?"
-                    params.append(theme_id)
+                if kb_id is not None:
+                    q += " AND kb_id=?"
+                    params.append(kb_id)
                 row = conn.execute(q, tuple(params)).fetchone()
                 if row:
                     _add_doc(row, matched_by="share_token", is_from_share_token=True)
@@ -3762,14 +4093,14 @@ def resolve_document_targets(
         c_raw = canonicalize_url(raw_target)
 
         q = """
-            SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at
+            SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at
             FROM documents
             WHERE (url = ? OR canonical_url = ? OR url = ? OR canonical_url = ? OR url = ? OR canonical_url = ?)
         """
         params = [raw_target, raw_target, test_url, c_url, test_url.replace("https://", "http://"), c_raw]
-        if theme_id is not None:
-            q += " AND theme_id = ?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id = ?"
+            params.append(kb_id)
         rows = conn.execute(q, tuple(params)).fetchall()
         for r in rows:
             _add_doc(r, matched_by="url")
@@ -3780,14 +4111,14 @@ def resolve_document_targets(
         # 5-4. 제목 / URL 부분 검색 (Fallback)
         patt = f"%{raw_target}%"
         q = """
-            SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at
+            SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at
             FROM documents
             WHERE (title LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR id LIKE ?)
         """
         params = [patt, patt, patt, patt]
-        if theme_id is not None:
-            q += " AND theme_id = ?"
-            params.append(theme_id)
+        if kb_id is not None:
+            q += " AND kb_id = ?"
+            params.append(kb_id)
         q += " ORDER BY fetched_at DESC LIMIT ?"
         params.append(limit)
         rows = conn.execute(q, tuple(params)).fetchall()
@@ -3804,10 +4135,10 @@ def resolve_single_document_target(
     doc_id: str | None = None,
     url: str | None = None,
     token: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any] | None:
     """단일 문서를 요구하는 명령어에서 안전하게 1건을 식별. 다건 매칭 시 ValueError 발생."""
-    targets = resolve_document_targets(conn, target, doc_id=doc_id, url=url, token=token, limit=5, theme_id=theme_id)
+    targets = resolve_document_targets(conn, target, doc_id=doc_id, url=url, token=token, limit=5, kb_id=kb_id)
     if not targets:
         return None
     if len(targets) == 1:
@@ -3825,10 +4156,10 @@ def resolve_single_document_target(
     )
 
 
-def latest_extraction_model(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> tuple[str | None, str | None]:
+def latest_extraction_model(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> tuple[str | None, str | None]:
     """The provider and the model of the latest extraction of a document (``extractions.provider``, ``extractions.model``). A document without an extraction row gives ``(None, None)``."""
-    if theme_id is not None:
-        row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND theme_id=? ORDER BY id DESC LIMIT 1", (document_id, theme_id)).fetchone()
+    if kb_id is not None:
+        row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (document_id, kb_id)).fetchone()
     else:
         row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1", (document_id,)).fetchone()
     if row is None:
@@ -3836,14 +4167,14 @@ def latest_extraction_model(conn: sqlite3.Connection, document_id: str, theme_id
     return (row["provider"] or None), (row["model"] or None)
 
 
-def latest_extraction_summary(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
+def latest_extraction_summary(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str | None:
     """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고 extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
     from ..extract.prompts import clean_plain_summary
 
-    if theme_id is not None:
+    if kb_id is not None:
         row = conn.execute(
-            "SELECT raw_response FROM extractions WHERE document_id=? AND theme_id=? ORDER BY id DESC LIMIT 1",
-            (document_id, theme_id),
+            "SELECT raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1",
+            (document_id, kb_id),
         ).fetchone()
     else:
         row = conn.execute(
@@ -3881,7 +4212,7 @@ def set_document_detail(
     detail: str,
     format: str = "adoc",
     html: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     """문서의 가독 렌더(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
     from ..extract.prompts import remove_leading_original_link
@@ -3897,14 +4228,14 @@ def set_document_detail(
     else:
         html_content = html or ""
 
-    if theme_id is not None:
+    if kb_id is not None:
         conn.execute(
-            "UPDATE documents SET detail=?, detail_format=?, detail_html=? WHERE id=? AND theme_id=?",
-            (detail, fmt, html_content, document_id, theme_id),
+            "UPDATE documents SET detail=?, detail_format=?, detail_html=? WHERE id=? AND kb_id=?",
+            (detail, fmt, html_content, document_id, kb_id),
         )
         conn.execute(
-            "UPDATE document_presentations SET status='stale', updated_at=strftime('%s', 'now') WHERE document_id=? AND theme_id=?",
-            (document_id, theme_id),
+            "UPDATE document_presentations SET status='stale', updated_at=strftime('%s', 'now') WHERE document_id=? AND kb_id=?",
+            (document_id, kb_id),
         )
     else:
         conn.execute(
@@ -3918,7 +4249,7 @@ def set_document_detail(
     conn.commit()
 
 
-def get_document_presentation(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> dict | None:
+def get_document_presentation(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> dict | None:
     """문서의 프레젠테이션 메타데이터를 반환. 없으면 None."""
     query = """
         SELECT document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
@@ -3930,22 +4261,22 @@ def get_document_presentation(conn: sqlite3.Connection, document_id: str, theme_
         WHERE document_id = ?
     """
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        query += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id = ?"
+        params.append(kb_id)
     row = conn.execute(query, tuple(params)).fetchone()
     if row is None:
         return None
     return dict(row)
 
 
-def get_presentation_adoc(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
+def get_presentation_adoc(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str | None:
     """문서의 프레젠테이션 AsciiDoc 소스코드 반환. 없으면 None."""
     query = "SELECT presentation_adoc FROM document_presentations WHERE document_id = ?"
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        query += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id = ?"
+        params.append(kb_id)
     row = conn.execute(query, tuple(params)).fetchone()
     if row is None or not row["presentation_adoc"]:
         return None
@@ -3969,20 +4300,20 @@ def save_presentation_adoc(
     cache_key: str = "",
     file_path: str = "",
     status: str = "authored",
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> None:
     """LLM이 저작한 프레젠테이션 AsciiDoc 원문 및 메타데이터를 저장하거나 갱신."""
     now = time.time()
     conn.execute(
         """
         INSERT INTO document_presentations (
-            document_id, theme_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            document_id, kb_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
             file_path, file_size, status, presentation_adoc,
             authoring_provider, authoring_model, prompt_version,
             compose_duration_ms, compile_duration_ms,
             created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(document_id, theme_id) DO UPDATE SET
+        ON CONFLICT(document_id, kb_id) DO UPDATE SET
             content_hash = excluded.content_hash,
             adoc_hash = excluded.adoc_hash,
             cache_key = excluded.cache_key,
@@ -3999,7 +4330,7 @@ def save_presentation_adoc(
             updated_at = excluded.updated_at
         """,
         (
-            document_id, theme_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            document_id, kb_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
             file_path, 0, status, presentation_adoc,
             authoring_provider, authoring_model, prompt_version,
             compose_duration_ms, 0,
@@ -4028,20 +4359,20 @@ def save_document_presentation(
     prompt_version: str = "pres-v2",
     compose_duration_ms: int = 0,
     compile_duration_ms: int = 0,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> None:
     """프레젠테이션 메타데이터를 저장하거나 갱신."""
     now = time.time()
     conn.execute(
         """
         INSERT INTO document_presentations (
-            document_id, theme_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            document_id, kb_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
             file_path, file_size, status, error_message, presentation_adoc,
             authoring_provider, authoring_model, prompt_version,
             compose_duration_ms, compile_duration_ms,
             created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(document_id, theme_id) DO UPDATE SET
+        ON CONFLICT(document_id, kb_id) DO UPDATE SET
             content_hash = excluded.content_hash,
             adoc_hash = COALESCE(excluded.adoc_hash, document_presentations.adoc_hash),
             cache_key = excluded.cache_key,
@@ -4061,7 +4392,7 @@ def save_document_presentation(
             updated_at = excluded.updated_at
         """,
         (
-            document_id, theme_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            document_id, kb_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
             file_path, file_size, status, error_message, presentation_adoc,
             authoring_provider, authoring_model, prompt_version,
             compose_duration_ms, compile_duration_ms,
@@ -4076,15 +4407,15 @@ def update_document_presentation_status(
     document_id: str,
     status: str,
     error_message: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     """프레젠테이션 컴파일 상태만 갱신."""
     now = time.time()
     where = "WHERE document_id = ?"
     params: list[Any] = [status, error_message, now, document_id]
-    if theme_id is not None:
-        where += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id = ?"
+        params.append(kb_id)
     conn.execute(
         f"""
         UPDATE document_presentations
@@ -4096,14 +4427,14 @@ def update_document_presentation_status(
     conn.commit()
 
 
-def invalidate_document_presentation(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> bool:
+def invalidate_document_presentation(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> bool:
     """문서의 프레젠테이션 상태를 'stale'로 변경."""
     now = time.time()
     where = "WHERE document_id = ? AND status != 'stale'"
     params: list[Any] = [now, document_id]
-    if theme_id is not None:
-        where += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id = ?"
+        params.append(kb_id)
     cur = conn.execute(
         f"""
         UPDATE document_presentations
@@ -4116,13 +4447,13 @@ def invalidate_document_presentation(conn: sqlite3.Connection, document_id: str,
     return cur.rowcount > 0
 
 
-def delete_document_presentation(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> bool:
+def delete_document_presentation(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> bool:
     """문서의 프레젠테이션 레코드 삭제."""
     where = "WHERE document_id = ?"
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        where += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id = ?"
+        params.append(kb_id)
     cur = conn.execute(
         f"DELETE FROM document_presentations {where}",
         tuple(params),
@@ -4131,35 +4462,35 @@ def delete_document_presentation(conn: sqlite3.Connection, document_id: str, the
     return cur.rowcount > 0
 
 
-def get_document_detail(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
+def get_document_detail(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str | None:
     """문서의 detail(가독 렌더 원본 텍스트). 없으면 None."""
     query = "SELECT detail FROM documents WHERE id=?"
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        query += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(query, tuple(params)).fetchone()
     return (row["detail"] if row else None) or None
 
 
-def get_document_detail_format(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str:
+def get_document_detail_format(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str:
     """문서의 detail_format. 값이 없으면 'adoc'(RD25: 본문 형식은 AsciiDoc 하나다)."""
     query = "SELECT detail_format FROM documents WHERE id=?"
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        query += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(query, tuple(params)).fetchone()
     return (row["detail_format"] if row and row["detail_format"] else "adoc")
 
 
-def get_document_detail_html(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
+def get_document_detail_html(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str | None:
     """문서의 detail_html(AOT 사전 컴파일된 HTML). 없으면 detail 로부터 실시간 생성 및 캐싱."""
     query = "SELECT detail, detail_format, detail_html FROM documents WHERE id=?"
     params: list[Any] = [document_id]
-    if theme_id is not None:
-        query += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(query, tuple(params)).fetchone()
     if not row:
         return None
@@ -4174,9 +4505,9 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str, theme_i
             try:
                 upd_query = "UPDATE documents SET detail_html=? WHERE id=?"
                 upd_params: list[Any] = [rendered, document_id]
-                if theme_id is not None:
-                    upd_query += " AND theme_id=?"
-                    upd_params.append(theme_id)
+                if kb_id is not None:
+                    upd_query += " AND kb_id=?"
+                    upd_params.append(kb_id)
                 conn.execute(upd_query, tuple(upd_params))
                 conn.commit()
             except Exception:  # noqa: BLE001
@@ -4185,7 +4516,7 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str, theme_i
     return None
 
 
-def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = None, theme_id: int | None = None) -> int:
+def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = None, kb_id: int | None = None) -> int:
     """모든 문서(또는 지정된 doc_id)의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
     from ..extract.prompts import remove_leading_original_link
     from ..render import render_to_html
@@ -4195,9 +4526,9 @@ def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = Non
     if doc_id:
         query += " AND id=?"
         params.append(doc_id)
-    if theme_id is not None:
-        query += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id=?"
+        params.append(kb_id)
     rows = conn.execute(query, tuple(params)).fetchall()
     count = 0
     for r in rows:
@@ -4206,22 +4537,22 @@ def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = Non
         html_out = render_to_html(detail, format=fmt)
         upd = "UPDATE documents SET detail=?, detail_html=? WHERE id=?"
         upd_params: list[Any] = [detail, html_out, r["id"]]
-        if theme_id is not None:
-            upd += " AND theme_id=?"
-            upd_params.append(theme_id)
+        if kb_id is not None:
+            upd += " AND kb_id=?"
+            upd_params.append(kb_id)
         conn.execute(upd, tuple(upd_params))
         count += 1
     conn.commit()
     return count
 
 
-def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[str]:
+def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[str]:
     """detail 이 비어있는 문서 id(최신순). 백필 대상."""
     q = "SELECT id FROM documents WHERE (detail IS NULL OR detail='')"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY fetched_at DESC"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -4232,7 +4563,7 @@ def documents_needing_detail_format(
     conn: sqlite3.Connection,
     target_format: str,
     limit: int = 0,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[str]:
     """목표 포맷(target_format)으로 detail 생성이 필요한 문서 id(최신순).
 
@@ -4245,9 +4576,9 @@ def documents_needing_detail_format(
         "OR lower(coalesce(detail_format, 'adoc')) != ?)"
     )
     params: list[Any] = [fmt]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY fetched_at DESC"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -4258,7 +4589,7 @@ def documents_with_tables(
     conn: sqlite3.Connection,
     limit: int = 0,
     check_detail: bool = True,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """raw_text 또는 detail 에 표(Table)가 포함된 문서 목록을 반환.
 
@@ -4274,9 +4605,9 @@ def documents_with_tables(
            OR (detail LIKE '%|%' OR detail LIKE '%<table%'))
     """
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY fetched_at DESC"
     rows = conn.execute(q, tuple(params)).fetchall()
 
@@ -4313,7 +4644,7 @@ def get_format_status(
     configured_format: str,
     *,
     sample_limit: int = 10,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """DB 내 문서들의 포맷 상태(총 문서, 포맷 일치, 포맷 불일치, detail 누락)를 상세 진단."""
     # RD23: the only target format is adoc.
@@ -4321,34 +4652,34 @@ def get_format_status(
 
     where_base = ""
     params_base: list[Any] = []
-    if theme_id is not None:
-        where_base = "WHERE theme_id=?"
-        params_base = [theme_id]
+    if kb_id is not None:
+        where_base = "WHERE kb_id=?"
+        params_base = [kb_id]
 
     row_total_docs = conn.execute(f"SELECT COUNT(*) as c FROM documents {where_base}", tuple(params_base)).fetchone()
     total_docs = row_total_docs["c"] if row_total_docs else 0
 
     q_match = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) = ?"
     p_match: list[Any] = [target]
-    if theme_id is not None:
-        q_match += " AND theme_id=?"
-        p_match.append(theme_id)
+    if kb_id is not None:
+        q_match += " AND kb_id=?"
+        p_match.append(kb_id)
     row_matching = conn.execute(q_match, tuple(p_match)).fetchone()
     matching_docs = row_matching["c"] if row_matching else 0
 
     q_mismatch = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) != ?"
     p_mismatch: list[Any] = [target]
-    if theme_id is not None:
-        q_mismatch += " AND theme_id=?"
-        p_mismatch.append(theme_id)
+    if kb_id is not None:
+        q_mismatch += " AND kb_id=?"
+        p_mismatch.append(kb_id)
     row_mismatched = conn.execute(q_mismatch, tuple(p_mismatch)).fetchone()
     mismatched_docs = row_mismatched["c"] if row_mismatched else 0
 
     q_miss = "SELECT COUNT(*) as c FROM documents WHERE detail IS NULL OR trim(detail) = ''"
     p_miss: list[Any] = []
-    if theme_id is not None:
-        q_miss += " AND theme_id=?"
-        p_miss.append(theme_id)
+    if kb_id is not None:
+        q_miss += " AND kb_id=?"
+        p_miss.append(kb_id)
     row_missing = conn.execute(q_miss, tuple(p_miss)).fetchone()
     missing_detail_docs = row_missing["c"] if row_missing else 0
 
@@ -4359,9 +4690,9 @@ def get_format_status(
     if missing_detail_docs > 0 and sample_limit > 0:
         q_samp = "SELECT id, title, url, source_type, fetched_at FROM documents WHERE (detail IS NULL OR trim(detail) = '')"
         p_samp: list[Any] = []
-        if theme_id is not None:
-            q_samp += " AND theme_id=?"
-            p_samp.append(theme_id)
+        if kb_id is not None:
+            q_samp += " AND kb_id=?"
+            p_samp.append(kb_id)
         q_samp += " ORDER BY fetched_at DESC, id DESC LIMIT ?"
         p_samp.append(sample_limit)
         rows = conn.execute(q_samp, tuple(p_samp)).fetchall()
@@ -4371,9 +4702,9 @@ def get_format_status(
     if mismatched_docs > 0 and sample_limit > 0:
         q_samp = "SELECT id, title, url, coalesce(detail_format, 'adoc') AS detail_format, source_type, fetched_at FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) != ?"
         p_samp = [target]
-        if theme_id is not None:
-            q_samp += " AND theme_id=?"
-            p_samp.append(theme_id)
+        if kb_id is not None:
+            q_samp += " AND kb_id=?"
+            p_samp.append(kb_id)
         q_samp += " ORDER BY fetched_at DESC, id DESC LIMIT ?"
         p_samp.append(sample_limit)
         rows = conn.execute(q_samp, tuple(p_samp)).fetchall()
@@ -4400,47 +4731,47 @@ def check_format_mismatch(
     configured_format: str,
     *,
     sample_limit: int = 10,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """설정된 포맷(Settings.render_format)과 DB에 저장된 detail 포맷 불일치 여부를 진단."""
-    return get_format_status(conn, configured_format, sample_limit=sample_limit, theme_id=theme_id)
+    return get_format_status(conn, configured_format, sample_limit=sample_limit, kb_id=kb_id)
 
 
 # --- refresh queue (복원 메커니즘) ---
 
 def enqueue_refresh(
     conn: sqlite3.Connection, *, document_id: str | None, payload: str, reason: str,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> bool:
     """갱신 대기열에 등록. document_id 중복이면 pending 으로 되살린다. 신규면 True."""
     now = time.time()
     if document_id:
         row = conn.execute(
-            "SELECT id FROM refresh_queue WHERE document_id=? AND theme_id=?", (document_id, theme_id)
+            "SELECT id FROM refresh_queue WHERE document_id=? AND kb_id=?", (document_id, kb_id)
         ).fetchone()
         if row:
             conn.execute(
                 "UPDATE refresh_queue SET status='pending', payload=?, reason=?, "
-                "updated_at=? WHERE document_id=? AND theme_id=?",
-                (payload, reason, now, document_id, theme_id),
+                "updated_at=? WHERE document_id=? AND kb_id=?",
+                (payload, reason, now, document_id, kb_id),
             )
             conn.commit()
             return False
     conn.execute(
-        "INSERT INTO refresh_queue(theme_id,document_id,payload,reason,status,created_at,updated_at)"
+        "INSERT INTO refresh_queue(kb_id,document_id,payload,reason,status,created_at,updated_at)"
         " VALUES (?,?,?,?, 'pending', ?, ?)",
-        (theme_id, document_id, payload, reason, now, now),
+        (kb_id, document_id, payload, reason, now, now),
     )
     conn.commit()
     return True
 
 
-def pending_refresh(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[sqlite3.Row]:
-    q = "SELECT * FROM refresh_queue WHERE status='pending'"
+def pending_refresh(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[sqlite3.Row]:
+    q = "SELECT * FROM refresh_queue WHERE status='pending'" + _NOT_SHARED_KB
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY id"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -4449,13 +4780,13 @@ def pending_refresh(conn: sqlite3.Connection, limit: int = 0, theme_id: int | No
 
 def update_refresh(
     conn: sqlite3.Connection, rid: int, *, status: str, error: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     where = "WHERE id=?"
     params: list[Any] = [status, error, time.time(), time.time(), rid]
-    if theme_id is not None:
-        where += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(kb_id)
     conn.execute(
         f"UPDATE refresh_queue SET status=?, error=?, attempts=attempts+1, "
         f"last_attempt=?, updated_at=? {where}",
@@ -4464,10 +4795,10 @@ def update_refresh(
     conn.commit()
 
 
-def refresh_status_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> dict[str, int]:
-    if theme_id is not None:
+def refresh_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, int]:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT status, COUNT(*) n FROM refresh_queue WHERE theme_id=? GROUP BY status", (theme_id,)
+            "SELECT status, COUNT(*) n FROM refresh_queue WHERE kb_id=? GROUP BY status", (kb_id,)
         ).fetchall()
     else:
         rows = conn.execute(
@@ -4478,34 +4809,34 @@ def refresh_status_counts(conn: sqlite3.Connection, theme_id: int | None = None)
 
 # --- 1홉 자동확장 큐 (expand_queue) — refresh_queue 와 동일 패턴 ---
 
-def enqueue_expand(conn: sqlite3.Connection, document_id: str, theme_id: int = 0) -> bool:
+def enqueue_expand(conn: sqlite3.Connection, document_id: str, kb_id: int = 0) -> bool:
     """문서를 1홉 확장 대기열에 등록. 이미 있으면 pending 으로 되살린다(중복 무해). 신규면 True."""
     now = time.time()
     row = conn.execute(
-        "SELECT id FROM expand_queue WHERE document_id=? AND theme_id=?", (document_id, theme_id)
+        "SELECT id FROM expand_queue WHERE document_id=? AND kb_id=?", (document_id, kb_id)
     ).fetchone()
     if row:
         conn.execute(
-            "UPDATE expand_queue SET status='pending', updated_at=? WHERE document_id=? AND theme_id=?",
-            (now, document_id, theme_id),
+            "UPDATE expand_queue SET status='pending', updated_at=? WHERE document_id=? AND kb_id=?",
+            (now, document_id, kb_id),
         )
         conn.commit()
         return False
     conn.execute(
-        "INSERT INTO expand_queue(theme_id,document_id,status,created_at,updated_at)"
+        "INSERT INTO expand_queue(kb_id,document_id,status,created_at,updated_at)"
         " VALUES (?,?, 'pending', ?, ?)",
-        (theme_id, document_id, now, now),
+        (kb_id, document_id, now, now),
     )
     conn.commit()
     return True
 
 
-def pending_expand(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[sqlite3.Row]:
-    q = "SELECT * FROM expand_queue WHERE status='pending'"
+def pending_expand(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[sqlite3.Row]:
+    q = "SELECT * FROM expand_queue WHERE status='pending'" + _NOT_SHARED_KB
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY id"
     if limit:
         q += f" LIMIT {int(limit)}"
@@ -4515,13 +4846,13 @@ def pending_expand(conn: sqlite3.Connection, limit: int = 0, theme_id: int | Non
 def update_expand(
     conn: sqlite3.Connection, eid: int, *, status: str,
     error: str | None = None, result: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     where = "WHERE id=?"
     params: list[Any] = [status, error, result, time.time(), time.time(), eid]
-    if theme_id is not None:
-        where += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(kb_id)
     conn.execute(
         f"UPDATE expand_queue SET status=?, error=?, result=?, attempts=attempts+1, "
         f"last_attempt=?, updated_at=? {where}",
@@ -4530,10 +4861,10 @@ def update_expand(
     conn.commit()
 
 
-def expand_status_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> dict[str, int]:
-    if theme_id is not None:
+def expand_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, int]:
+    if kb_id is not None:
         rows = conn.execute(
-            "SELECT status, COUNT(*) n FROM expand_queue WHERE theme_id=? GROUP BY status", (theme_id,)
+            "SELECT status, COUNT(*) n FROM expand_queue WHERE kb_id=? GROUP BY status", (kb_id,)
         ).fetchall()
     else:
         rows = conn.execute(
@@ -4545,7 +4876,7 @@ def expand_status_counts(conn: sqlite3.Connection, theme_id: int | None = None) 
 def thin_documents(
     conn: sqlite3.Connection, *, max_len: int, host: str | None = None,
     include_partial: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """본문이 빈약한 문서. host 지정 시 해당 호스트만.
 
@@ -4559,9 +4890,9 @@ def thin_documents(
     if host:
         q += " AND url LIKE ?"
         args.append(f"%{host}%")
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        args.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        args.append(kb_id)
     return conn.execute(q, tuple(args)).fetchall()
 
 
@@ -4570,7 +4901,7 @@ def update_document_content(
     title: str | None, raw_text: str, content_hash: str, fetched_at: float,
     source_type: str | None = None, partial: bool | None = None,
     meta: dict | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존.
 
@@ -4592,20 +4923,20 @@ def update_document_content(
         vals.append(json.dumps(meta))
     where = "WHERE id=?"
     vals.append(doc_id)
-    if theme_id is not None:
-        where += " AND theme_id=?"
-        vals.append(theme_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        vals.append(kb_id)
     conn.execute(f"UPDATE documents SET {', '.join(cols)} {where}", tuple(vals))
     conn.commit()
 
 
-def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict], theme_id: int | None = None) -> None:
+def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict], kb_id: int | None = None) -> None:
     """문서 meta 에 본문 이미지 목록만 갱신(다른 meta 키 보존). 재fetch 백필용."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return
@@ -4613,9 +4944,9 @@ def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict
     meta["images"] = images or []
     upd = "UPDATE documents SET meta=? WHERE id=?"
     upd_params: list[Any] = [json.dumps(meta), doc_id]
-    if theme_id is not None:
-        upd += " AND theme_id=?"
-        upd_params.append(theme_id)
+    if kb_id is not None:
+        upd += " AND kb_id=?"
+        upd_params.append(kb_id)
     conn.execute(upd, tuple(upd_params))
     conn.commit()
 
@@ -4625,13 +4956,13 @@ def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict
 # 발견한 그 프로젝트의 github)를 새 Document 로 안 만들고 부모 문서에 흡수할 때, 원문 링크
 # 계보를 보존하기 위한 목록.
 
-def set_document_extra_sources(conn: sqlite3.Connection, doc_id: str, sources: list[dict], theme_id: int | None = None) -> None:
+def set_document_extra_sources(conn: sqlite3.Connection, doc_id: str, sources: list[dict], kb_id: int | None = None) -> None:
     """문서 meta 에 병합된 부가 출처 목록만 갱신(다른 meta 키 보존)."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return
@@ -4639,32 +4970,32 @@ def set_document_extra_sources(conn: sqlite3.Connection, doc_id: str, sources: l
     meta["extra_sources"] = sources or []
     upd = "UPDATE documents SET meta=? WHERE id=?"
     upd_params: list[Any] = [json.dumps(meta), doc_id]
-    if theme_id is not None:
-        upd += " AND theme_id=?"
-        upd_params.append(theme_id)
+    if kb_id is not None:
+        upd += " AND kb_id=?"
+        upd_params.append(kb_id)
     conn.execute(upd, tuple(upd_params))
     conn.commit()
 
 
-def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str, theme_id: int | None = None) -> list[dict]:
+def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str, kb_id: int | None = None) -> list[dict]:
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return []
     return json.loads(row["meta"] or "{}").get("extra_sources") or []
 
 
-def set_document_focus(conn: sqlite3.Connection, doc_id: str, focus: str | None, theme_id: int | None = None) -> None:
+def set_document_focus(conn: sqlite3.Connection, doc_id: str, focus: str | None, kb_id: int | None = None) -> None:
     """문서 meta에 가독 렌더링 작성 초점(focus)을 기록/갱신(다른 meta 키 보존)."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return
@@ -4676,20 +5007,20 @@ def set_document_focus(conn: sqlite3.Connection, doc_id: str, focus: str | None,
     meta.pop("dir" + "ective", None)
     upd = "UPDATE documents SET meta=? WHERE id=?"
     upd_params: list[Any] = [json.dumps(meta, ensure_ascii=False), doc_id]
-    if theme_id is not None:
-        upd += " AND theme_id=?"
-        upd_params.append(theme_id)
+    if kb_id is not None:
+        upd += " AND kb_id=?"
+        upd_params.append(kb_id)
     conn.execute(upd, tuple(upd_params))
     conn.commit()
 
 
-def get_document_focus(conn: sqlite3.Connection, doc_id: str, theme_id: int | None = None) -> str | None:
+def get_document_focus(conn: sqlite3.Connection, doc_id: str, kb_id: int | None = None) -> str | None:
     """문서 meta에서 가독 렌더링 작성 초점(focus) 조회."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return None
@@ -4697,13 +5028,13 @@ def get_document_focus(conn: sqlite3.Connection, doc_id: str, theme_id: int | No
     return meta.get("focus")
 
 
-def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict, theme_id: int | None = None) -> None:
+def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict, kb_id: int | None = None) -> None:
     """문서 meta 를 갱신(기존 키 유지하며 meta 내용 병합 반영)."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return
@@ -4711,20 +5042,20 @@ def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict, them
     current.update(meta)
     upd = "UPDATE documents SET meta=? WHERE id=?"
     upd_params: list[Any] = [json.dumps(current), doc_id]
-    if theme_id is not None:
-        upd += " AND theme_id=?"
-        upd_params.append(theme_id)
+    if kb_id is not None:
+        upd += " AND kb_id=?"
+        upd_params.append(kb_id)
     conn.execute(upd, tuple(upd_params))
     conn.commit()
 
 
-def purge_document_matrix(conn: sqlite3.Connection, doc_id: str, theme_id: int | None = None) -> bool:
+def purge_document_matrix(conn: sqlite3.Connection, doc_id: str, kb_id: int | None = None) -> bool:
     """문서 meta 에서 heatmap_matrix 키를 물리적으로 삭제(소각)."""
     q = "SELECT meta FROM documents WHERE id=?"
     params: list[Any] = [doc_id]
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     row = conn.execute(q, tuple(params)).fetchone()
     if row is None:
         return False
@@ -4733,15 +5064,15 @@ def purge_document_matrix(conn: sqlite3.Connection, doc_id: str, theme_id: int |
         del current["heatmap_matrix"]
         upd = "UPDATE documents SET meta=? WHERE id=?"
         upd_params: list[Any] = [json.dumps(current, ensure_ascii=False), doc_id]
-        if theme_id is not None:
-            upd += " AND theme_id=?"
-            upd_params.append(theme_id)
+        if kb_id is not None:
+            upd += " AND kb_id=?"
+            upd_params.append(kb_id)
         conn.execute(upd, tuple(upd_params))
         conn.commit()
     return True
 
 
-def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None, theme_id: int | None = None) -> str | None:
+def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None, kb_id: int | None = None) -> str | None:
     """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용 (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
 
     documents.meta 는 색인 없는 JSON 이라 파이썬 측 스캔 — near_duplicate_document 와 동일한 절충(개인용 규모라 전체 스캔으로 충분히 빠름). 대략적인 LIKE 로 후보를 먼저 좁혀 스캔 대상을 줄인다."""
@@ -4749,9 +5080,9 @@ def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str |
         return None
     q = "SELECT id, meta FROM documents WHERE meta LIKE '%extra_sources%'"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     rows = conn.execute(q, tuple(params)).fetchall()
     for r in rows:
         for s in (json.loads(r["meta"] or "{}").get("extra_sources") or []):
@@ -4760,15 +5091,15 @@ def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str |
     return None
 
 
-def documents_missing_images(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[str]:
+def documents_missing_images(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[str]:
     """본문 이미지가 아직 없는(재fetch 안 한) 문서 id — 최신순. 이미지 백필 대상.
 
     meta 에 'images' 키 자체가 없는(이미지 수집 전 적재) url 보유 문서만. 빈 목록([])은 '재fetch 했으나 콘텐츠 이미지가 없었음'이라 재대상에서 제외(불필요한 재호출 방지)."""
     q = "SELECT id, url, meta FROM documents"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     q += " ORDER BY fetched_at DESC, rowid DESC"
     rows = conn.execute(q, tuple(params)).fetchall()
     out: list[str] = []
@@ -4783,31 +5114,31 @@ def documents_missing_images(conn: sqlite3.Connection, limit: int = 0, theme_id:
     return out
 
 
-def documents_missing_minhash(conn: sqlite3.Connection, limit: int = 0, theme_id: int | None = None) -> list[str]:
+def documents_missing_minhash(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[str]:
     """minhash 가 비어있는 문서 id(백필 대상). partial/짧은 글도 채워 비교 모집단 일관."""
     q = "SELECT id FROM documents WHERE minhash IS NULL"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
     if limit:
         q += f" LIMIT {int(limit)}"
     return [r["id"] for r in conn.execute(q, tuple(params)).fetchall()]
 
 
-def set_document_minhash(conn: sqlite3.Connection, doc_id: str, sig_json: str | None, theme_id: int | None = None) -> None:
+def set_document_minhash(conn: sqlite3.Connection, doc_id: str, sig_json: str | None, kb_id: int | None = None) -> None:
     upd = "UPDATE documents SET minhash=? WHERE id=?"
     params: list[Any] = [sig_json, doc_id]
-    if theme_id is not None:
-        upd += " AND theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        upd += " AND kb_id=?"
+        params.append(kb_id)
     conn.execute(upd, tuple(params))
     conn.commit()
 
 
 def _repoint_sources_json(conn: sqlite3.Connection, table: str,
                           keeper_id: str, losers: set[str],
-                          theme_id: int | None = None) -> int:
+                          kb_id: int | None = None) -> int:
     """entities/relations 의 sources(JSON 배열)에서 loser id 를 keeper 로 치환·dedupe.
 
     근사중복 문서 병합 시 호출. 순서 보존하며 중복 제거. 변경된 행 수 반환.
@@ -4815,9 +5146,9 @@ def _repoint_sources_json(conn: sqlite3.Connection, table: str,
     changed = 0
     q = f"SELECT id, sources FROM {table}"
     params: list[Any] = []
-    if theme_id is not None:
-        q += " WHERE theme_id=?"
-        params.append(theme_id)
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
     for r in conn.execute(q, tuple(params)).fetchall():
         try:
             srcs = json.loads(r["sources"] or "[]")
@@ -4832,16 +5163,16 @@ def _repoint_sources_json(conn: sqlite3.Connection, table: str,
                 new.append(s2)
         upd = f"UPDATE {table} SET sources=? WHERE id=?"
         upd_params: list[Any] = [json.dumps(new), r["id"]]
-        if theme_id is not None:
-            upd += " AND theme_id=?"
-            upd_params.append(theme_id)
+        if kb_id is not None:
+            upd += " AND kb_id=?"
+            upd_params.append(kb_id)
         conn.execute(upd, tuple(upd_params))
         changed += 1
     return changed
 
 
 def merge_documents(conn: sqlite3.Connection, keeper_id: str,
-                    loser_ids: list[str], theme_id: int | None = None) -> dict:
+                    loser_ids: list[str], kb_id: int | None = None) -> dict:
     """[파괴적] 근사중복 문서를 keeper 로 합치고 loser 문서 행을 삭제한다.
 
     데이터 보존: 삭제 전에 loser 를 가리키는 **모든 참조**(엔티티/관계 sources, proposals·extractions·raw_inbox 의 document_id)를 keeper 로 재배치한다. 큐 (refresh/expand)는 document_id UNIQUE 제약이 있어 loser 행은 삭제(전이적 작업이라 재생성 가능). 단일 트랜잭션으로 원자 처리. 반환: 재배치/삭제 카운트.
@@ -4853,9 +5184,9 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
     lo = list(losers)
     out = {"keeper": keeper_id, "losers": lo}
     try:
-        out["entities_repointed"] = _repoint_sources_json(conn, "entities", keeper_id, losers, theme_id=theme_id)
-        out["relations_repointed"] = _repoint_sources_json(conn, "relations", keeper_id, losers, theme_id=theme_id)
-        where_theme = f" AND theme_id={theme_id}" if theme_id is not None else ""
+        out["entities_repointed"] = _repoint_sources_json(conn, "entities", keeper_id, losers, kb_id=kb_id)
+        out["relations_repointed"] = _repoint_sources_json(conn, "relations", keeper_id, losers, kb_id=kb_id)
+        where_theme = f" AND kb_id={kb_id}" if kb_id is not None else ""
         out["proposals"] = conn.execute(
             f"UPDATE proposals SET document_id=? WHERE document_id IN ({ph}){where_theme}",
             (keeper_id, *lo)).rowcount
@@ -4894,19 +5225,19 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in toks)
 
 
-def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20, theme_id: int | None = None) -> list[str]:
+def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20, kb_id: int | None = None) -> list[str]:
     """Search entity FTS and return list of entity IDs."""
     match = _fts_query(query)
     if not match:
         return []
     try:
-        if theme_id is not None:
+        if kb_id is not None:
             rows = conn.execute(
                 "SELECT f.entity_id FROM entities_fts f "
                 "JOIN entities e ON f.entity_id = e.id "
-                "WHERE e.theme_id = ? AND entities_fts MATCH ? "
+                "WHERE e.kb_id = ? AND entities_fts MATCH ? "
                 "ORDER BY rank LIMIT ?",
-                (theme_id, match, limit),
+                (kb_id, match, limit),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -4943,7 +5274,7 @@ def counts(
     conn: sqlite3.Connection,
     include_hidden: bool = True,
     include_oauth: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, int]:
     tables = [
         "documents",
@@ -4979,18 +5310,18 @@ def counts(
             params: list[Any] = []
             if not include_hidden:
                 q += " AND hidden=0"
-            if theme_id is not None:
-                q += " AND theme_id=?"
-                params.append(theme_id)
+            if kb_id is not None:
+                q += " AND kb_id=?"
+                params.append(kb_id)
             out[tbl] = conn.execute(q, tuple(params)).fetchone()["c"]
-        elif theme_id is not None and tbl in partitioned_tables:
-            out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl} WHERE theme_id=?", (theme_id,)).fetchone()["c"]
+        elif kb_id is not None and tbl in partitioned_tables:
+            out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl} WHERE kb_id=?", (kb_id,)).fetchone()["c"]
         else:
             out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl}").fetchone()["c"]
     return out
 
 
-def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dict[str, Any]:
+def diagnose_graph(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, Any]:
     """지식그래프 및 DB 무결성 상태 진단."""
     import json as _json
     import re as _re
@@ -5003,26 +5334,26 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
            OR r.target_id NOT IN (SELECT id FROM entities))
     """
     dangling_params: list[Any] = []
-    if theme_id is not None:
-        dangling_query += " AND r.theme_id = ?"
-        dangling_params.append(theme_id)
+    if kb_id is not None:
+        dangling_query += " AND r.kb_id = ?"
+        dangling_params.append(kb_id)
     dangling_rels = conn.execute(dangling_query, tuple(dangling_params)).fetchall()
 
     # 2. 유효하지 않은 문서 참조 (stale sources in entities & relations)
     doc_q = "SELECT id FROM documents"
     doc_p: list[Any] = []
-    if theme_id is not None:
-        doc_q += " WHERE theme_id = ?"
-        doc_p.append(theme_id)
+    if kb_id is not None:
+        doc_q += " WHERE kb_id = ?"
+        doc_p.append(kb_id)
     doc_ids = {row[0] for row in conn.execute(doc_q, tuple(doc_p)).fetchall()}
 
     stale_entity_sources = []
     ghost_entities = []
     ent_q = "SELECT id, name, sources FROM entities"
     ent_p: list[Any] = []
-    if theme_id is not None:
-        ent_q += " WHERE theme_id = ?"
-        ent_p.append(theme_id)
+    if kb_id is not None:
+        ent_q += " WHERE kb_id = ?"
+        ent_p.append(kb_id)
     entities_rows = conn.execute(ent_q, tuple(ent_p)).fetchall()
 
     for r in entities_rows:
@@ -5042,9 +5373,9 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
     stale_relation_sources = []
     rel_q = "SELECT id, type, sources FROM relations"
     rel_p: list[Any] = []
-    if theme_id is not None:
-        rel_q += " WHERE theme_id = ?"
-        rel_p.append(theme_id)
+    if kb_id is not None:
+        rel_q += " WHERE kb_id = ?"
+        rel_p.append(kb_id)
     for r in conn.execute(rel_q, tuple(rel_p)).fetchall():
         try:
             srcs = _json.loads(r["sources"] or "[]")
@@ -5059,24 +5390,24 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
     # 3. 고아 임베딩
     emb_q = "SELECT owner_id FROM embeddings WHERE owner_id NOT IN (SELECT id FROM entities)"
     emb_p: list[Any] = []
-    if theme_id is not None:
-        emb_q += " AND theme_id = ?"
-        emb_p.append(theme_id)
+    if kb_id is not None:
+        emb_q += " AND kb_id = ?"
+        emb_p.append(kb_id)
     orphan_embeddings = conn.execute(emb_q, tuple(emb_p)).fetchall()
 
     # 4. 임베딩 누락 엔티티
     miss_q = "SELECT id, name FROM entities WHERE id NOT IN (SELECT owner_id FROM embeddings)"
     miss_p: list[Any] = []
-    if theme_id is not None:
-        miss_q += " AND theme_id = ?"
-        miss_p.append(theme_id)
+    if kb_id is not None:
+        miss_q += " AND kb_id = ?"
+        miss_p.append(kb_id)
     missing_embeddings = conn.execute(miss_q, tuple(miss_p)).fetchall()
 
     # 5. FTS 동기화 여부
     total_entities = len(entities_rows)
     has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
     total_fts = conn.execute("SELECT COUNT(*) FROM entities_fts").fetchone()[0] if has_fts else 0
-    fts_desync = (theme_id is None) and (total_entities != total_fts)
+    fts_desync = (kb_id is None) and (total_entities != total_fts)
 
     # 6. ADOC 오염 요약 검사
     def _is_corrupted(s: str | None) -> bool:
@@ -5096,9 +5427,9 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
     if has_ext:
         ext_q = "SELECT document_id, raw_response FROM extractions"
         ext_p: list[Any] = []
-        if theme_id is not None:
-            ext_q += " WHERE theme_id = ?"
-            ext_p.append(theme_id)
+        if kb_id is not None:
+            ext_q += " WHERE kb_id = ?"
+            ext_p.append(kb_id)
         ext_q += " ORDER BY id DESC"
         for r in conn.execute(ext_q, tuple(ext_p)).fetchall():
             try:
@@ -5116,9 +5447,9 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
     ).fetchone()
     tomb_q = "SELECT COUNT(*) FROM purged_tombstones"
     tomb_p: list[Any] = []
-    if theme_id is not None:
-        tomb_q += " WHERE theme_id = ?"
-        tomb_p.append(theme_id)
+    if kb_id is not None:
+        tomb_q += " WHERE kb_id = ?"
+        tomb_p.append(kb_id)
     purged_tombstones_count = conn.execute(tomb_q, tuple(tomb_p)).fetchone()[0] if has_tomb else 0
     tombstone_violations = []
     if has_tomb and purged_tombstones_count > 0:
@@ -5129,9 +5460,9 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
                OR (d.content_hash = t.content_hash AND t.content_hash IS NOT NULL))
         """
         viol_p: list[Any] = []
-        if theme_id is not None:
-            viol_q += " WHERE d.theme_id = ? AND t.theme_id = ?"
-            viol_p.extend([theme_id, theme_id])
+        if kb_id is not None:
+            viol_q += " WHERE d.kb_id = ? AND t.kb_id = ?"
+            viol_p.extend([kb_id, kb_id])
         tombstone_violations = [
             dict(r) for r in conn.execute(viol_q, tuple(viol_p)).fetchall()
         ]
@@ -5148,9 +5479,9 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
 
     rel_cnt_q = "SELECT COUNT(*) FROM relations"
     rel_cnt_p: list[Any] = []
-    if theme_id is not None:
-        rel_cnt_q += " WHERE theme_id = ?"
-        rel_cnt_p.append(theme_id)
+    if kb_id is not None:
+        rel_cnt_q += " WHERE kb_id = ?"
+        rel_cnt_p.append(kb_id)
 
     return {
         "is_healthy": is_healthy,
@@ -5180,7 +5511,7 @@ def diagnose_graph(conn: sqlite3.Connection, theme_id: int | None = None) -> dic
 def heal_graph(
     conn: sqlite3.Connection,
     progress_callback: Callable[[str], None] | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, int]:
     """지식그래프 참조 무결성 및 인덱스를 원클릭으로 자동 수복."""
     import json as _json
@@ -5199,9 +5530,9 @@ def heal_graph(
 
     doc_q = "SELECT id FROM documents"
     doc_p: list[Any] = []
-    if theme_id is not None:
-        doc_q += " WHERE theme_id = ?"
-        doc_p.append(theme_id)
+    if kb_id is not None:
+        doc_q += " WHERE kb_id = ?"
+        doc_p.append(kb_id)
     doc_ids = {row[0] for row in conn.execute(doc_q, tuple(doc_p)).fetchall()}
 
     # 0. 문서가 0건인 경우: 온톨로지 성립 근거가 전무하므로 지식 그래프 전량 소각
@@ -5209,12 +5540,12 @@ def heal_graph(
         ent_q = "SELECT COUNT(*) FROM entities"
         rel_q = "SELECT COUNT(*) FROM relations"
         emb_q = "SELECT COUNT(*) FROM embeddings"
-        cnt_p = (theme_id,) if theme_id is not None else ()
-        where_th = " WHERE theme_id = ?" if theme_id is not None else ""
+        cnt_p = (kb_id,) if kb_id is not None else ()
+        where_th = " WHERE kb_id = ?" if kb_id is not None else ""
         ent_count = conn.execute(ent_q + where_th, cnt_p).fetchone()[0]
         rel_count = conn.execute(rel_q + where_th, cnt_p).fetchone()[0]
         emb_count = conn.execute(emb_q + where_th, cnt_p).fetchone()[0]
-        reset_graph(conn, theme_id=theme_id)
+        reset_graph(conn, kb_id=kb_id)
         healed["ghost_entities_pruned"] = ent_count
         healed["dangling_relations_removed"] = rel_count
         healed["orphan_embeddings_removed"] = emb_count
@@ -5224,9 +5555,9 @@ def heal_graph(
     # 1. 엔티티 stale sources 정제 및 고아 엔티티 선별
     ent_q = "SELECT id, name, sources FROM entities"
     ent_p: list[Any] = []
-    if theme_id is not None:
-        ent_q += " WHERE theme_id = ?"
-        ent_p.append(theme_id)
+    if kb_id is not None:
+        ent_q += " WHERE kb_id = ?"
+        ent_p.append(kb_id)
     entities_rows = conn.execute(ent_q, tuple(ent_p)).fetchall()
     ghost_ids = []
     for r in entities_rows:
@@ -5238,9 +5569,9 @@ def heal_graph(
         if len(valid_srcs) != len(srcs):
             upd = "UPDATE entities SET sources=? WHERE id=?"
             upd_p = [_json.dumps(valid_srcs, ensure_ascii=False), r["id"]]
-            if theme_id is not None:
-                upd += " AND theme_id=?"
-                upd_p.append(theme_id)
+            if kb_id is not None:
+                upd += " AND kb_id=?"
+                upd_p.append(kb_id)
             conn.execute(upd, tuple(upd_p))
             healed["stale_entity_sources_cleaned"] += 1
         # 출처 문서가 완전히 소멸한 엔티티는 관계 유무에 관계없이 고아로 판정
@@ -5250,10 +5581,10 @@ def heal_graph(
     # 2. 고아 엔티티 삭제
     if ghost_ids:
         for gid in ghost_ids:
-            if theme_id is not None:
-                conn.execute("DELETE FROM entities WHERE id=? AND theme_id=?", (gid, theme_id))
+            if kb_id is not None:
+                conn.execute("DELETE FROM entities WHERE id=? AND kb_id=?", (gid, kb_id))
                 conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (gid,))
-                conn.execute("DELETE FROM embeddings WHERE owner_id=? AND theme_id=?", (gid, theme_id))
+                conn.execute("DELETE FROM embeddings WHERE owner_id=? AND kb_id=?", (gid, kb_id))
             else:
                 conn.execute("DELETE FROM entities WHERE id=?", (gid,))
                 conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (gid,))
@@ -5263,9 +5594,9 @@ def heal_graph(
     # 3. 관계 stale sources 정제
     rel_q = "SELECT id, sources FROM relations"
     rel_p: list[Any] = []
-    if theme_id is not None:
-        rel_q += " WHERE theme_id = ?"
-        rel_p.append(theme_id)
+    if kb_id is not None:
+        rel_q += " WHERE kb_id = ?"
+        rel_p.append(kb_id)
     for r in conn.execute(rel_q, tuple(rel_p)).fetchall():
         try:
             srcs = _json.loads(r["sources"] or "[]")
@@ -5275,9 +5606,9 @@ def heal_graph(
         if len(valid_srcs) != len(srcs):
             upd = "UPDATE relations SET sources=? WHERE id=?"
             upd_p = [_json.dumps(valid_srcs, ensure_ascii=False), r["id"]]
-            if theme_id is not None:
-                upd += " AND theme_id=?"
-                upd_p.append(theme_id)
+            if kb_id is not None:
+                upd += " AND kb_id=?"
+                upd_p.append(kb_id)
             conn.execute(upd, tuple(upd_p))
             healed["stale_relation_sources_cleaned"] += 1
 
@@ -5290,34 +5621,34 @@ def heal_graph(
            OR sources IS NULL)
     """
     del_rels_p: list[Any] = []
-    if theme_id is not None:
-        del_rels_q += " AND theme_id = ?"
-        del_rels_p.append(theme_id)
+    if kb_id is not None:
+        del_rels_q += " AND kb_id = ?"
+        del_rels_p.append(kb_id)
     del_rels = conn.execute(del_rels_q, tuple(del_rels_p))
     healed["dangling_relations_removed"] = del_rels.rowcount if del_rels.rowcount > 0 else 0
 
     # 5. 고아 임베딩 삭제
     del_emb_q = "DELETE FROM embeddings WHERE owner_id NOT IN (SELECT id FROM entities)"
     del_emb_p: list[Any] = []
-    if theme_id is not None:
-        del_emb_q += " AND theme_id = ?"
-        del_emb_p.append(theme_id)
+    if kb_id is not None:
+        del_emb_q += " AND kb_id = ?"
+        del_emb_p.append(kb_id)
     del_emb = conn.execute(del_emb_q, tuple(del_emb_p))
     healed["orphan_embeddings_removed"] = del_emb.rowcount if del_emb.rowcount > 0 else 0
 
-    # 6. FTS 재색인 (theme_id=None 일 때 전체 rebuild, theme_id 지정 시 해당 테마 entity FTS 갱신)
+    # 6. FTS 재색인 (kb_id=None 일 때 전체 rebuild, kb_id 지정 시 해당 테마 entity FTS 갱신)
     has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
     if has_fts:
         curr_entities_q = "SELECT id, name, aliases, observations FROM entities"
         curr_p: list[Any] = []
-        if theme_id is not None:
-            curr_entities_q += " WHERE theme_id = ?"
-            curr_p.append(theme_id)
+        if kb_id is not None:
+            curr_entities_q += " WHERE kb_id = ?"
+            curr_p.append(kb_id)
         curr_entities = conn.execute(curr_entities_q, tuple(curr_p)).fetchall()
         if progress_callback:
             progress_callback(f"FTS5 전문 검색 색인 일괄 재구축 중 ({len(curr_entities)}개 엔티티)...")
-        if theme_id is not None:
-            conn.execute("DELETE FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE theme_id=?)", (theme_id,))
+        if kb_id is not None:
+            conn.execute("DELETE FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE kb_id=?)", (kb_id,))
         else:
             conn.execute("DELETE FROM entities_fts")
         from ..retrieval.tokenizer import get_search_tokenizer
@@ -5363,7 +5694,7 @@ def is_tombstoned(
     url: str | None = None,
     canonical_url: str | None = None,
     content_hash: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> bool:
     """주어진 URL, Canonical URL, 또는 Content Hash가 툼스톤(소각된 지문)에 존재하는지 확인."""
     has_tbl = conn.execute(
@@ -5388,9 +5719,9 @@ def is_tombstoned(
         return False
 
     query = f"SELECT 1 FROM purged_tombstones WHERE ({' OR '.join(conditions)})"
-    if theme_id is not None:
-        query += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        query += " AND kb_id = ?"
+        params.append(kb_id)
     query += " LIMIT 1"
     row = conn.execute(query, tuple(params)).fetchone()
     return row is not None
@@ -5404,7 +5735,7 @@ def remove_tombstones(
     url: str | None = None,
     canonical_url: str | None = None,
     pattern: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """등록된 소각 툼스톤을 해제(삭제)하여 문서 재수집 및 재적재를 허용."""
     from ..ingest.normalize import canonicalize_url
@@ -5450,12 +5781,12 @@ def remove_tombstones(
         return {"removed_count": 0, "removed_tombstones": [], "reset_inbox_count": 0}
 
     where_clause = "(" + " OR ".join(conditions) + ")"
-    if theme_id is not None:
-        where_clause += " AND theme_id = ?"
-        params.append(theme_id)
+    if kb_id is not None:
+        where_clause += " AND kb_id = ?"
+        params.append(kb_id)
 
     matched = conn.execute(
-        f"SELECT id, theme_id, url, canonical_url, content_hash, reason, purged_at FROM purged_tombstones WHERE {where_clause}",
+        f"SELECT id, kb_id, url, canonical_url, content_hash, reason, purged_at FROM purged_tombstones WHERE {where_clause}",
         params,
     ).fetchall()
     matched_tombstones = [dict(r) for r in matched]
@@ -5466,9 +5797,9 @@ def remove_tombstones(
     ph = ",".join("?" for _ in matched_ids)
     del_q = f"DELETE FROM purged_tombstones WHERE id IN ({ph})"
     del_p: list[Any] = list(matched_ids)
-    if theme_id is not None:
-        del_q += " AND theme_id = ?"
-        del_p.append(theme_id)
+    if kb_id is not None:
+        del_q += " AND kb_id = ?"
+        del_p.append(kb_id)
     conn.execute(del_q, tuple(del_p))
 
     reset_count = 0
@@ -5478,7 +5809,7 @@ def remove_tombstones(
     if has_inbox:
         for t in matched_tombstones:
             candidates = set(filter(None, [t.get("url"), t.get("canonical_url"), t.get("id")]))
-            t_theme = t.get("theme_id", 0)
+            t_theme = t.get("kb_id", 0)
             for cand in candidates:
                 upd_inbox = """
                     UPDATE raw_inbox
@@ -5488,9 +5819,9 @@ def remove_tombstones(
                       AND error LIKE '%tombstone%'
                 """
                 inbox_p: list[Any] = [cand, f"%{cand}%"]
-                if theme_id is not None or t_theme is not None:
-                    upd_inbox += " AND theme_id = ?"
-                    inbox_p.append(theme_id if theme_id is not None else t_theme)
+                if kb_id is not None or t_theme is not None:
+                    upd_inbox += " AND kb_id = ?"
+                    inbox_p.append(kb_id if kb_id is not None else t_theme)
                 cur = conn.execute(upd_inbox, tuple(inbox_p))
                 reset_count += cur.rowcount
 
@@ -5510,15 +5841,15 @@ def record_tombstone(
     url: str | None = None,
     canonical_url: str | None = None,
     content_hash: str | None = None,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> None:
     now = time.time()
     conn.execute(
         """
-        INSERT OR REPLACE INTO purged_tombstones (id, theme_id, url, canonical_url, content_hash, reason, purged_at)
+        INSERT OR REPLACE INTO purged_tombstones (id, kb_id, url, canonical_url, content_hash, reason, purged_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (identifier, theme_id, url, canonical_url, content_hash, reason, now),
+        (identifier, kb_id, url, canonical_url, content_hash, reason, now),
     )
     conn.commit()
 
@@ -5531,7 +5862,7 @@ def rollback_document_graph_contributions(
     target_ids: list[str],
     *,
     prune_orphans: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, int]:
     """Undo entity merges and optionally prune orphan graph nodes for the specified documents."""
     if not target_ids:
@@ -5546,9 +5877,9 @@ def rollback_document_graph_contributions(
     for did in target_ids:
         doc_q = "SELECT meta FROM documents WHERE id=?"
         doc_p: list[Any] = [did]
-        if theme_id is not None:
-            doc_q += " AND theme_id=?"
-            doc_p.append(theme_id)
+        if kb_id is not None:
+            doc_q += " AND kb_id=?"
+            doc_p.append(kb_id)
         row = conn.execute(doc_q, tuple(doc_p)).fetchone()
         if not row or not row["meta"]:
             continue
@@ -5566,9 +5897,9 @@ def rollback_document_graph_contributions(
         target_set = set(target_ids)
         ent_q = "SELECT id, sources FROM entities"
         ent_p: list[Any] = []
-        if theme_id is not None:
-            ent_q += " WHERE theme_id=?"
-            ent_p.append(theme_id)
+        if kb_id is not None:
+            ent_q += " WHERE kb_id=?"
+            ent_p.append(kb_id)
         for r in conn.execute(ent_q, tuple(ent_p)).fetchall():
             try:
                 srcs = json.loads(r["sources"] or "[]")
@@ -5579,31 +5910,31 @@ def rollback_document_graph_contributions(
                 if not remaining:
                     del_ent = "DELETE FROM entities WHERE id=?"
                     del_ent_p: list[Any] = [r["id"]]
-                    if theme_id is not None:
-                        del_ent += " AND theme_id=?"
-                        del_ent_p.append(theme_id)
+                    if kb_id is not None:
+                        del_ent += " AND kb_id=?"
+                        del_ent_p.append(kb_id)
                     conn.execute(del_ent, tuple(del_ent_p))
                     conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (r["id"],))
                     del_emb = "DELETE FROM embeddings WHERE owner_id=?"
                     del_emb_p: list[Any] = [r["id"]]
-                    if theme_id is not None:
-                        del_emb += " AND theme_id=?"
-                        del_emb_p.append(theme_id)
+                    if kb_id is not None:
+                        del_emb += " AND kb_id=?"
+                        del_emb_p.append(kb_id)
                     conn.execute(del_emb, tuple(del_emb_p))
                     pruned_entities += 1
                 else:
                     upd_ent = "UPDATE entities SET sources=? WHERE id=?"
                     upd_ent_p: list[Any] = [json.dumps(remaining, ensure_ascii=False), r["id"]]
-                    if theme_id is not None:
-                        upd_ent += " AND theme_id=?"
-                        upd_ent_p.append(theme_id)
+                    if kb_id is not None:
+                        upd_ent += " AND kb_id=?"
+                        upd_ent_p.append(kb_id)
                     conn.execute(upd_ent, tuple(upd_ent_p))
 
         rel_q = "SELECT id, sources FROM relations"
         rel_p: list[Any] = []
-        if theme_id is not None:
-            rel_q += " WHERE theme_id=?"
-            rel_p.append(theme_id)
+        if kb_id is not None:
+            rel_q += " WHERE kb_id=?"
+            rel_p.append(kb_id)
         for r in conn.execute(rel_q, tuple(rel_p)).fetchall():
             try:
                 srcs = json.loads(r["sources"] or "[]")
@@ -5614,17 +5945,17 @@ def rollback_document_graph_contributions(
                 if not remaining:
                     del_rel = "DELETE FROM relations WHERE id=?"
                     del_rel_p: list[Any] = [r["id"]]
-                    if theme_id is not None:
-                        del_rel += " AND theme_id=?"
-                        del_rel_p.append(theme_id)
+                    if kb_id is not None:
+                        del_rel += " AND kb_id=?"
+                        del_rel_p.append(kb_id)
                     conn.execute(del_rel, tuple(del_rel_p))
                     pruned_relations += 1
                 else:
                     upd_rel = "UPDATE relations SET sources=? WHERE id=?"
                     upd_rel_p: list[Any] = [json.dumps(remaining, ensure_ascii=False), r["id"]]
-                    if theme_id is not None:
-                        upd_rel += " AND theme_id=?"
-                        upd_rel_p.append(theme_id)
+                    if kb_id is not None:
+                        upd_rel += " AND kb_id=?"
+                        upd_rel_p.append(kb_id)
                     conn.execute(upd_rel, tuple(upd_rel_p))
 
         del_dang = """
@@ -5635,9 +5966,9 @@ def rollback_document_graph_contributions(
                OR sources IS NULL)
         """
         del_dang_p: list[Any] = []
-        if theme_id is not None:
-            del_dang += " AND theme_id=?"
-            del_dang_p.append(theme_id)
+        if kb_id is not None:
+            del_dang += " AND kb_id=?"
+            del_dang_p.append(kb_id)
         del_rels = conn.execute(del_dang, tuple(del_dang_p))
         if del_rels.rowcount and del_rels.rowcount > 0:
             pruned_relations += del_rels.rowcount
@@ -5655,7 +5986,7 @@ def purge_document_cascade(
     dry_run: bool = False,
     tombstone: bool = True,
     progress_callback: Callable[[str], None] | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
     import time
@@ -5669,11 +6000,11 @@ def purge_document_cascade(
         return {"purged_count": 0, "target_documents": [], "tombstone_recorded": tombstone}
 
     ph = ",".join("?" for _ in target_ids)
-    doc_q = f"SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id IN ({ph})"
+    doc_q = f"SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id IN ({ph})"
     doc_p: list[Any] = list(target_ids)
-    if theme_id is not None:
-        doc_q += " AND theme_id = ?"
-        doc_p.append(theme_id)
+    if kb_id is not None:
+        doc_q += " AND kb_id = ?"
+        doc_p.append(kb_id)
 
     # 1. 대상 문서 상세 조회
     docs = conn.execute(doc_q, tuple(doc_p)).fetchall()
@@ -5726,23 +6057,23 @@ def purge_document_cascade(
         "purged_tombstones_registered": len(matched_ids) if tombstone else 0,
     }
 
-    stats["graph_rollback"] = rollback_document_graph_contributions(conn, matched_ids, prune_orphans=False, theme_id=theme_id)
+    stats["graph_rollback"] = rollback_document_graph_contributions(conn, matched_ids, prune_orphans=False, kb_id=kb_id)
 
     try:
         conn.execute("BEGIN IMMEDIATE")
         now = time.time()
         if tombstone:
             for d in target_docs:
-                row_theme = theme_id if theme_id is not None else d.get("theme_id", 0)
+                row_theme = kb_id if kb_id is not None else d.get("kb_id", 0)
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO purged_tombstones (id, theme_id, url, canonical_url, content_hash, reason, purged_at)
+                    INSERT OR REPLACE INTO purged_tombstones (id, kb_id, url, canonical_url, content_hash, reason, purged_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (d["id"], row_theme, d.get("url"), d.get("canonical_url"), d.get("content_hash"), reason, now),
                 )
 
-        where_th = f" AND theme_id = {theme_id}" if theme_id is not None else ""
+        where_th = f" AND kb_id = {kb_id}" if kb_id is not None else ""
         # 8개 DB 테이블 연쇄 삭제
         stats["deleted_expand_queue"] = conn.execute(
             f"DELETE FROM expand_queue WHERE document_id IN ({ph_matched}){where_th}", matched_ids
@@ -5768,14 +6099,20 @@ def purge_document_cascade(
         stats["deleted_documents"] = conn.execute(
             f"DELETE FROM documents WHERE id IN ({ph_matched}){where_th}", matched_ids
         ).rowcount
+        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.6: a purged copy in a shared knowledge base is a removed contribution. ``contributions`` sets the state itself (and clears ``document_id``) before it purges, so this step only takes a purge from another entry point.
+        if _table_exists(conn, "kb_contributions"):
+            stats["removed_contributions"] = conn.execute(
+                f"UPDATE kb_contributions SET state='removed', document_id=NULL, decision_reason='other', decided_at=?, updated_at=? WHERE document_id IN ({ph_matched}){where_th}",
+                (now, now, *matched_ids),
+            ).rowcount
 
         # Fedify sidecar design Section 9.4: a purged document that was published gets a tombstone and a Delete task, in this transaction.
         from . import federation as federation_store
 
         by_theme: dict[int, list[str]] = {}
         for d in target_docs:
-            by_theme.setdefault(int(d["theme_id"]), []).append(str(d["id"]))
-        stats["federation_delete_tasks"] = sum(len(federation_store.retract_objects(conn, theme_id=tid_, document_ids=doc_ids, now=now)) for tid_, doc_ids in by_theme.items())
+            by_theme.setdefault(int(d["kb_id"]), []).append(str(d["id"]))
+        stats["federation_delete_tasks"] = sum(len(federation_store.retract_objects(conn, kb_id=tid_, document_ids=doc_ids, now=now)) for tid_, doc_ids in by_theme.items())
 
         conn.commit()
     except Exception:
@@ -5814,7 +6151,7 @@ def purge_document_cascade(
     if progress_callback:
         progress_callback("지식그래프 참조 무결성 수복 및 FTS 재구축 중...")
 
-    heal_stats = heal_graph(conn, progress_callback=progress_callback, theme_id=theme_id)
+    heal_stats = heal_graph(conn, progress_callback=progress_callback, kb_id=kb_id)
     stats["graph_healed"] = heal_stats
 
     # 6. DB 공간 회수 (VACUUM)
@@ -5835,7 +6172,7 @@ def audit_residuals(
     conn: sqlite3.Connection,
     data_dir: Path,
     pattern_or_id: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any]:
     """오염 잔재 0건 여부 및 시스템 스토리지 무결성 전수 감사."""
     from .raw import _artifacts_dir, _images_dir
@@ -5865,9 +6202,9 @@ def audit_residuals(
     if has_tomb:
         tomb_q = "SELECT COUNT(*) FROM purged_tombstones"
         tomb_p: list[Any] = []
-        if theme_id is not None:
-            tomb_q += " WHERE theme_id = ?"
-            tomb_p.append(theme_id)
+        if kb_id is not None:
+            tomb_q += " WHERE kb_id = ?"
+            tomb_p.append(kb_id)
         report["purged_tombstones_count"] = conn.execute(tomb_q, tuple(tomb_p)).fetchone()[0]
         viol_q = """
             SELECT d.id, d.url FROM documents d
@@ -5876,9 +6213,9 @@ def audit_residuals(
                OR (d.content_hash = t.content_hash AND t.content_hash IS NOT NULL))
         """
         viol_p: list[Any] = []
-        if theme_id is not None:
-            viol_q += " WHERE d.theme_id = ? AND t.theme_id = ?"
-            viol_p.extend([theme_id, theme_id])
+        if kb_id is not None:
+            viol_q += " WHERE d.kb_id = ? AND t.kb_id = ?"
+            viol_p.extend([kb_id, kb_id])
         violations = conn.execute(viol_q, tuple(viol_p)).fetchall()
         report["tombstone_violations_count"] = len(violations)
         if len(violations) > 0:
@@ -5889,9 +6226,9 @@ def audit_residuals(
         # 2. documents 매칭
         doc_q = "SELECT id, url, title FROM documents WHERE (id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ? OR raw_text LIKE ?)"
         doc_p: list[Any] = [patt, patt, patt, patt, patt]
-        if theme_id is not None:
-            doc_q += " AND theme_id = ?"
-            doc_p.append(theme_id)
+        if kb_id is not None:
+            doc_q += " AND kb_id = ?"
+            doc_p.append(kb_id)
         docs = conn.execute(doc_q, tuple(doc_p)).fetchall()
         report["matching_documents_count"] = len(docs)
         report["matching_documents"] = [dict(d) for d in docs[:20]]
@@ -5899,40 +6236,40 @@ def audit_residuals(
         # 3. raw_inbox 매칭
         inbox_q = "SELECT COUNT(*) FROM raw_inbox WHERE (document_id LIKE ? OR payload LIKE ?)"
         inbox_p: list[Any] = [patt, patt]
-        if theme_id is not None:
-            inbox_q += " AND theme_id = ?"
-            inbox_p.append(theme_id)
+        if kb_id is not None:
+            inbox_q += " AND kb_id = ?"
+            inbox_p.append(kb_id)
         report["matching_inbox_count"] = conn.execute(inbox_q, tuple(inbox_p)).fetchone()[0]
 
         # 4. extractions 매칭
         ext_q = "SELECT COUNT(*) FROM extractions WHERE (document_id LIKE ? OR raw_response LIKE ?)"
         ext_p: list[Any] = [patt, patt]
-        if theme_id is not None:
-            ext_q += " AND theme_id = ?"
-            ext_p.append(theme_id)
+        if kb_id is not None:
+            ext_q += " AND kb_id = ?"
+            ext_p.append(kb_id)
         report["matching_extractions_count"] = conn.execute(ext_q, tuple(ext_p)).fetchone()[0]
 
         # 5. snapshots 매칭
         snap_q = "SELECT COUNT(*) FROM document_snapshots WHERE (document_id LIKE ? OR raw_text LIKE ?)"
         snap_p: list[Any] = [patt, patt]
-        if theme_id is not None:
-            snap_q += " AND theme_id = ?"
-            snap_p.append(theme_id)
+        if kb_id is not None:
+            snap_q += " AND kb_id = ?"
+            snap_p.append(kb_id)
         report["matching_snapshots_count"] = conn.execute(snap_q, tuple(snap_p)).fetchone()[0]
 
         # 6. entities / relations sources 매칭
         ent_q = "SELECT COUNT(*) FROM entities WHERE sources LIKE ?"
         ent_p: list[Any] = [patt]
-        if theme_id is not None:
-            ent_q += " AND theme_id = ?"
-            ent_p.append(theme_id)
+        if kb_id is not None:
+            ent_q += " AND kb_id = ?"
+            ent_p.append(kb_id)
         report["matching_entity_sources_count"] = conn.execute(ent_q, tuple(ent_p)).fetchone()[0]
 
         rel_q = "SELECT COUNT(*) FROM relations WHERE sources LIKE ?"
         rel_p: list[Any] = [patt]
-        if theme_id is not None:
-            rel_q += " AND theme_id = ?"
-            rel_p.append(theme_id)
+        if kb_id is not None:
+            rel_q += " AND kb_id = ?"
+            rel_p.append(kb_id)
         report["matching_relation_sources_count"] = conn.execute(rel_q, tuple(rel_p)).fetchone()[0]
 
         # 7. 디스크 파일 매칭
@@ -5970,7 +6307,7 @@ def audit_residuals(
 def scan_truncation_status(
     conn: sqlite3.Connection,
     doc_id: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict:
     """데이터베이스 내 문서들의 원문 절단(슬라이싱) 현황 및 메타데이터 기록 상태 스캔.
 
@@ -5986,9 +6323,9 @@ def scan_truncation_status(
     if doc_id:
         where_clauses.append("id = ?")
         params.append(doc_id)
-    if theme_id is not None:
-        where_clauses.append("theme_id = ?")
-        params.append(theme_id)
+    if kb_id is not None:
+        where_clauses.append("kb_id = ?")
+        params.append(kb_id)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -6079,13 +6416,13 @@ def backfill_truncation_metadata(
     doc_id: str | None = None,
     force: bool = False,
     mark_refresh: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict:
     """메타데이터를 누락한 절단 문서의 documents.meta에 raw_truncated를 소급 갱신."""
     from ..extract.table_budget import extract_tables_from_text
     from ..ingest.normalize import content_hash
 
-    scan = scan_truncation_status(conn, doc_id=doc_id, theme_id=theme_id)
+    scan = scan_truncation_status(conn, doc_id=doc_id, kb_id=kb_id)
     targets = scan["unmarked_items"]
 
     if force:
@@ -6094,9 +6431,9 @@ def backfill_truncation_metadata(
         if doc_id:
             where_clauses.append("id = ?")
             params.append(doc_id)
-        if theme_id is not None:
-            where_clauses.append("theme_id = ?")
-            params.append(theme_id)
+        if kb_id is not None:
+            where_clauses.append("kb_id = ?")
+            params.append(kb_id)
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         rows = conn.execute(
             f"SELECT id, title, url, source_type, raw_text, content_hash, meta "
@@ -6153,15 +6490,15 @@ def backfill_truncation_metadata(
 
         upd = "UPDATE documents SET meta=? WHERE id=?"
         upd_p: list[Any] = [json.dumps(meta, ensure_ascii=False), doc_id_val]
-        if theme_id is not None:
-            upd += " AND theme_id=?"
-            upd_p.append(theme_id)
+        if kb_id is not None:
+            upd += " AND kb_id=?"
+            upd_p.append(kb_id)
         conn.execute(upd, tuple(upd_p))
         updated_count += 1
 
         if mark_refresh and is_trunc:
             payload = item.get("url") or item.get("title") or doc_id_val
-            enqueue_refresh(conn, document_id=doc_id_val, payload=payload, reason="truncated_backfill", theme_id=theme_id if theme_id is not None else 0)
+            enqueue_refresh(conn, document_id=doc_id_val, payload=payload, reason="truncated_backfill", kb_id=kb_id if kb_id is not None else 0)
             refreshed_count += 1
 
     conn.commit()
@@ -6242,7 +6579,7 @@ def extract_stt_transcript(raw_text: str | None, meta: dict | None = None) -> di
 def scan_stt_documents(
     conn: sqlite3.Connection,
     doc_id: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict:
     """데이터베이스 내 문서들 중 STT(음성 인식/전사) 적용 문서 및 절단/본문 작성 상태 스캔.
 
@@ -6259,9 +6596,9 @@ def scan_stt_documents(
     if doc_id:
         where_clauses.append("id = ?")
         params.append(doc_id)
-    if theme_id is not None:
-        where_clauses.append("theme_id = ?")
-        params.append(theme_id)
+    if kb_id is not None:
+        where_clauses.append("kb_id = ?")
+        params.append(kb_id)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -6399,10 +6736,10 @@ def backfill_stt_metadata(
     *,
     doc_id: str | None = None,
     force: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict:
     """STT가 적용되었으나 메타데이터(is_stt, stt_truncated)가 누락된 문서에 메타데이터를 소급 갱신."""
-    scan = scan_stt_documents(conn, doc_id=doc_id, theme_id=theme_id)
+    scan = scan_stt_documents(conn, doc_id=doc_id, kb_id=kb_id)
     targets = scan["stt_documents"] if force else scan["unmarked_items"]
 
     updated_count = 0
@@ -6415,9 +6752,9 @@ def backfill_stt_metadata(
 
         upd = "UPDATE documents SET meta=? WHERE id=?"
         upd_p: list[Any] = [json.dumps(meta, ensure_ascii=False), doc_id_val]
-        if theme_id is not None:
-            upd += " AND theme_id=?"
-            upd_p.append(theme_id)
+        if kb_id is not None:
+            upd += " AND kb_id=?"
+            upd_p.append(kb_id)
         conn.execute(upd, tuple(upd_p))
         updated_count += 1
 
@@ -6438,8 +6775,8 @@ def backfill_stt_metadata(
 def create_syndication_dispatch(
     conn: sqlite3.Connection,
     *,
-    theme_id: int = 0,
-    target_theme_id: int | None = None,
+    kb_id: int = 0,
+    target_kb_id: int | None = None,
     document_id: str | None = None,
     target_url: str | None = None,
     mode: str = "cross_theme",
@@ -6461,14 +6798,14 @@ def create_syndication_dispatch(
         disp_at = now
     conn.execute(
         """INSERT INTO syndication_dispatches
-        (id, theme_id, target_theme_id, document_id,
+        (id, kb_id, target_kb_id, document_id,
          target_url, mode, status, remote_ref, payload, error,
          dispatched_by_user_id, dispatched_by_account_id, applied_focus, dispatched_at, created_at, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             did,
-            theme_id,
-            target_theme_id if target_theme_id is not None else 0,
+            kb_id,
+            target_kb_id if target_kb_id is not None else 0,
             document_id,
             target_url,
             mode,
@@ -6492,14 +6829,14 @@ def get_syndication_dispatch(
     conn: sqlite3.Connection,
     dispatch_id: str,
     *,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> dict[str, Any] | None:
     """Retrieve a syndication dispatch record by ID."""
     query = "SELECT * FROM syndication_dispatches WHERE id = ?"
     params: list[Any] = [dispatch_id]
-    if theme_id is not None:
-        query += " AND (theme_id = ? OR target_theme_id = ?)"
-        params.extend([theme_id, theme_id])
+    if kb_id is not None:
+        query += " AND (kb_id = ? OR target_kb_id = ?)"
+        params.extend([kb_id, kb_id])
     row = conn.execute(query, tuple(params)).fetchone()
     if row is None:
         return None
@@ -6549,8 +6886,8 @@ def update_syndication_dispatch(
 def list_syndication_dispatches(
     conn: sqlite3.Connection,
     *,
-    theme_id: int | None = None,
-    target_theme_id: int | None = None,
+    kb_id: int | None = None,
+    target_kb_id: int | None = None,
     document_id: str | None = None,
     status: str | None = None,
     mode: str | None = None,
@@ -6562,12 +6899,12 @@ def list_syndication_dispatches(
     query = "SELECT * FROM syndication_dispatches"
     conditions: list[str] = []
     params: list[Any] = []
-    if theme_id is not None:
-        conditions.append("theme_id = ?")
-        params.append(theme_id)
-    if target_theme_id is not None:
-        conditions.append("target_theme_id = ?")
-        params.append(target_theme_id)
+    if kb_id is not None:
+        conditions.append("kb_id = ?")
+        params.append(kb_id)
+    if target_kb_id is not None:
+        conditions.append("target_kb_id = ?")
+        params.append(target_kb_id)
     if document_id is not None:
         conditions.append("document_id = ?")
         params.append(document_id)

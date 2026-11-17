@@ -6,11 +6,14 @@ Starlette는 라우팅/응답 계층만 담당하고 Uvicorn은 단일 worker로
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import dataclasses
 import hashlib
 import html
 import json
 import logging
 import re
+import sqlite3
 import string
 import time
 from collections.abc import AsyncIterator
@@ -48,18 +51,26 @@ from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
+from .. import contributions
+from .. import theme_judgement
+from .. import reputation
+from .. import auto_contribution
+from .. import kb_access
 from ..store import accounts as accounts_store
+from ..store import auth_db
+from ..store import kb_collab
+from ..store import themes as themes_store
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
-from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
+from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound, get_kb_manager
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
-from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
+from .namespace import SqliteNamespaceDirectory, _public_origin, kb_base_path, namespace_link, request_namespace
 from .principal import request_principal
 from ..ontology.label_language import display_label
 from .mcp_tools import build_mcp_app
@@ -76,14 +87,18 @@ from ..presentation.favicon import inject_favicon_head_tags
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
+    lookup_route_rule,
     read_json_body,
     read_session_cookie,
     request_auth_scope,
     request_id,
+    step_up_response,
     wrap_web_app,
 )
 
 log = logging.getLogger("claire.api")
+# The account of the requester in a shared knowledge base, for the provider context of the request (set by ``_get_theme_ctx``).
+_kb_acting_account: contextvars.ContextVar[int | None] = contextvars.ContextVar("claire_kb_acting_account", default=None)
 # 계정 자동 백업 주기 검사(초). 백업 주기 자체는 계정 정책(매일·매주)이 정한다.
 ACCOUNT_BACKUP_SCHEDULER_START_DELAY = 60.0
 ACCOUNT_BACKUP_SCHEDULER_INTERVAL = 600.0
@@ -125,7 +140,7 @@ _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
 
-# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 테마별 화면이라 ?theme=를 넘긴다.
+# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 지식 베이스별 화면이라 ?kb=를 넘긴다.
 _LEGACY_PREFS_SETTINGS_TABS = {
     "reader": "/settings/reader",
     "accounts": "/settings/connections",
@@ -256,7 +271,6 @@ def create_app(
     token_store.migrate_env_tokens(
         getattr(s, "inject_token", ""),
         getattr(s, "readonly_token", ""),
-        getattr(s, "collaborator_token", ""),
     )
     if not getattr(s, "inject_token", ""):
         owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
@@ -269,73 +283,80 @@ def create_app(
                 pass
     account_routes = build_account_routes(s, WebRuntimeConfig.from_settings(s))
     svc = service or IngestService(s)
-    theme_mgr = ThemeManager(s)
+    theme_mgr = KnowledgeBaseManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
     namespace_directory = SqliteNamespaceDirectory(s.db_file)
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
 
-    def _extract_theme_ref(
-        request: Request, body: dict[str, Any] | None = None
-    ) -> int | str | None:
-        raw = request.query_params.get("theme")
-        body_theme = body.get("theme") if body else None
-        hdr = request.headers.get("x-claire-theme")
-        explicit: int | str | None = None
-        if raw is not None and str(raw).strip():
-            explicit = str(raw).strip()
-        elif body_theme is not None and str(body_theme).strip():
-            explicit = str(body_theme).strip()
-        elif hdr is not None and hdr.strip():
-            explicit = hdr.strip()
-
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-
-        if ns is not None and ns.pinned_theme_id is not None:
-            if explicit is not None:
-                account_id = ns.account_id if ns.account_id is not None else 1
-                try:
-                    resolved = theme_mgr.resolve_theme_ref(explicit, account_id=account_id)
-                    if resolved.theme.id != ns.pinned_theme_id:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="explicit theme parameter contradicts pinned theme in path",
-                        )
-                except ThemeNotFound:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="explicit theme parameter contradicts pinned theme in path",
-                    )
-            return ns.pinned_theme_id
-
-        return explicit
-
-    def _theme_accessible(request: Request, theme: ThemeInfo) -> bool:
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-
+    def _kb_actor(request: Request, kb: KnowledgeBaseInfo) -> kb_access.Actor:
+        """The requester for the capability matrix (design Sections 6.2 and 6.6)."""
         principal = request_principal(request)
-        if ns is not None and ns.mode == "network" and ns.account_id is not None:
-            if principal.account_id != ns.account_id:
-                # O20: Cross-account visitor can only read public themes
-                if not theme.is_public:
-                    return False
-                is_search = request.method == "POST" and request.url.path.rstrip("/").endswith("/search")
-                if request.method not in ("GET", "HEAD") and not is_search:
-                    return False
+        membership: tuple[str, str] | None = None
+        if kb.is_shared and principal.account_id is not None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_membership(conn, kb.id, principal.account_id)
+            finally:
+                conn.close()
+            if row is not None:
+                membership = (str(row["role"]), str(row["state"]))
+        scope = principal.scope if principal.scope in ("owner", "write", "readonly") else None
+        return kb_access.Actor(
+            account_id=principal.account_id if scope is not None else None,
+            scope=scope,
+            is_admin=principal.server_role == "admin",
+            membership=membership,
+        )
 
-        scope = request_auth_scope(request)
-        if scope == "anonymous":
-            if not theme.is_public:
-                return False
-        elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
-            return False
-        return True
+    def _kb_decide(request: Request, kb: KnowledgeBaseInfo, capability: str) -> str:
+        """One function decides each capability (design Section 6.9 rule 1). ``capability`` is a route capability (Section 6.2 rule 5)."""
+        if capability == kb_access.NO_KB:
+            raise RuntimeError("the route declares no knowledge base capability")
+        if kb.is_personal:
+            capability = kb_access.personal_capability(capability)
+        elif capability == "write":
+            # A write into the content is for the personal knowledge base only (CT4). Shared knowledge bases are public; contributions come with unit CT-4.
+            return "forbidden"
+        return kb_access.decide(
+            is_personal=kb.is_personal,
+            owner_account_id=kb.account_id,
+            is_public=kb.is_public,
+            capability=capability,
+            actor=_kb_actor(request, kb),
+            single_mode=request_namespace(request).mode == "single",
+            archived=kb.is_shared and kb.state == "archived",
+        )
+
+    def _require_kb(request: Request, kb: KnowledgeBaseInfo, capability: str) -> None:
+        decision = _kb_decide(request, kb, capability)
+        if decision == "not_found":
+            raise HTTPException(status_code=404, detail="theme not found")
+        if decision == "forbidden":
+            if kb.is_shared and capability == "write":
+                detail = "kb_ingest_by_contribution"
+            elif kb.is_shared and kb.state == "archived" and capability in kb_access.ARCHIVED_BLOCKED:
+                detail = "kb_archived"
+            else:
+                detail = "kb_capability_required"
+            raise HTTPException(status_code=403, detail=detail)
+
+    def _request_capability(request: Request) -> str:
+        """The capability that the route of ``request`` declares in ``ROUTE_POLICY`` (design Section 6.2 rule 5)."""
+        rule = lookup_route_rule(request.method, str(request.scope.get("path") or request.url.path))
+        if rule is None:
+            raise RuntimeError("request without a route rule")
+        return rule.capability
+
+    def _sees_hidden(request: Request, kb: KnowledgeBaseInfo) -> bool:
+        """Hidden documents: in a personal knowledge base only for its account; in a shared knowledge base only for reviewers (design Section 6.2 ``review``)."""
+        if kb.is_shared:
+            return _kb_decide(request, kb, "review") == "allow"
+        principal = request_principal(request)
+        return principal.account_id is not None and principal.account_id == kb.account_id and request_auth_scope(request) != "anonymous"
+
+    def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
+        return _kb_decide(request, theme, _request_capability(request)) == "allow"
 
     def _visible_active_jobs(request: Request, data_dir: Path) -> list[dict[str, Any]]:
         """요청자가 접근할 수 있는 테마의 작업만 돌려준다 (단일 DB 이후 작업 디렉터리는 모든 테마 공용)."""
@@ -347,78 +368,95 @@ def create_app(
         visible = []
         for job in jobs:
             try:
-                job_theme = theme_mgr.get_theme(int(job.get("theme_id") or 0))
+                job_theme = theme_mgr.get_kb(int(job.get("kb_id") or 0))
             except Exception:  # noqa: BLE001
                 continue
             if _theme_accessible(request, job_theme):
                 visible.append(job)
         return visible
 
-    def _job_theme_id(request: Request, theme: ThemeInfo) -> int:
-        """작업 조회 대상 테마. 멀티 테마에서는 권한 검사를 거친 테마만 쓴다."""
-        if getattr(s, "multi_theme", False):
-            return theme.id
-        raw_theme = request.query_params.get("theme")
-        try:
-            return int(raw_theme) if raw_theme is not None else theme.id
-        except ValueError:
-            return theme.id
+    def _job_kb_id(request: Request, theme: KnowledgeBaseInfo) -> int:
+        """작업 조회 대상 지식 베이스: 선택 규칙(``_get_theme_ctx``)이 정한 것이다."""
+        return theme.id
 
-    def _get_theme_ctx(
-        request: Request, body: dict[str, Any] | None = None
-    ) -> tuple[ThemeInfo, Settings, IngestService]:
+    def _select_kb(request: Request) -> KnowledgeBaseInfo:
+        """Select the knowledge base of the request and check the capability of the route (design Sections 5.2 and 6.9, CT23).
+
+        1. A namespaced route: only the path selects. A pinned path selects that knowledge base; else the personal knowledge base of the account of the namespace.
+        2. A route without a namespace (surface ``any`` or ``system``): the parameter ``kb`` (number) is required, else 400 ``kb_required``.
+        The query ``theme``, the body ``theme``, and the header ``X-Claire-Theme`` are unknown fields and are ignored.
+        """
         try:
             ns = request_namespace(request)
         except Exception:
             ns = None
-
-        principal = request_principal(request)
-        if ns is not None and ns.account_id is not None:
-            account_id = ns.account_id
-        elif principal.account_id is not None:
-            account_id = principal.account_id
-        else:
-            account_id = 1
-        ref = _extract_theme_ref(request, body)
-
+        rule = lookup_route_rule(request.method, str(request.scope.get("path") or request.url.path))
+        surface = rule.surface if rule is not None else "namespaced"
         try:
-            if ns is not None and ns.pinned_theme_id is not None:
-                theme = theme_mgr.get_theme(ns.pinned_theme_id)
-                via_internal = False
+            if surface in ("any", "system"):
+                raw = request.query_params.get("kb")
+                if raw is None or not str(raw).strip():
+                    raise HTTPException(status_code=400, detail="kb_required")
+                theme = theme_mgr.get_kb_by_reference(raw)
+            elif ns is not None and ns.pinned_kb_id is not None:
+                theme = theme_mgr.get_kb(ns.pinned_kb_id)
             else:
-                resolved = theme_mgr.resolve_theme_ref(ref, account_id=account_id)
-                theme = resolved.theme
-                via_internal = resolved.via_internal_id
-                if not getattr(s, "multi_theme", False):
-                    if theme.id != 0:
-                        raise ThemeNotFound(ref)
+                if ns is None or ns.account_id is None:
+                    raise HTTPException(status_code=404, detail="theme not found")
+                theme = theme_mgr.personal_kb_for(ns.account_id)
+            if not getattr(s, "multi_theme", False) and theme.id != 0:
+                raise KnowledgeBaseNotFound(theme.id)
+        except KnowledgeBaseNotFound as exc:
+            # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
+            raise HTTPException(status_code=404, detail="theme not found") from exc
+        if theme.is_shared:
+            _require_kb(request, theme, _request_capability(request))
+        elif not _theme_accessible(request, theme):
+            raise HTTPException(status_code=404, detail="theme not found")
+        return theme
 
-            if not _theme_accessible(request, theme):
-                raise HTTPException(status_code=404, detail="theme not found")
-
-            if via_internal:
-                request.state.claire_theme_deprecated = True
-
-            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
-            theme_svc = service_pool.get_service(theme.id)
-        except ThemeNotFound as exc:
-            # 없는 테마를 테마 0으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 테마의 존재가 드러나지 않는다.
+    def _get_theme_ctx(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
+        """The knowledge base of the request (``_select_kb``), its settings, and its ingest service. ``body`` is not read: no body field selects a knowledge base."""
+        del body
+        theme = _select_kb(request)
+        try:
+            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
+            if theme.is_shared:
+                # Design Section 13.1 rule 5: work in a shared knowledge base runs with the provider context of the requester, never with the one of the server.
+                acting = request_principal(request).account_id
+                _kb_acting_account.set(acting)
+                if acting is not None and hasattr(theme_settings, "model_copy"):
+                    theme_settings = theme_settings.model_copy(update={"account_id": acting})
+                theme_svc = service_pool.get_service(theme.id, acting_account_id=acting)
+            else:
+                theme_svc = service_pool.get_service(theme.id)
+        except KnowledgeBaseNotFound as exc:
             raise HTTPException(status_code=404, detail="theme not found") from exc
         return theme, theme_settings, theme_svc
 
-    def _first_live_target(
-        targets: list[dict[str, Any]],
-    ) -> tuple[dict[str, Any], ThemeInfo] | None:
-        """문서 후보 중 테마가 아직 있는 첫 후보와 그 테마. 삭제된 테마에 남은 후보는 건너뛴다(테마 0으로 바꾸지 않는다)."""
-        for target in targets:
-            tid = target.get("theme_id")
-            if tid is None:
-                continue
-            try:
-                return target, theme_mgr.get_theme(tid)
-            except ThemeNotFound:
-                continue
-        return None
+    def _get_personal_kb_ctx(request: Request) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
+        """Ingest writes only to the personal knowledge base of the account of the credential (design Section 5.2 rule 3, CT4). The route takes no knowledge base reference; a path that pins another knowledge base gets 403."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+        if ns is not None and ns.account_id is not None and ns.account_id != principal.account_id:
+            # A write in the namespace of another account stays hidden (404), as before.
+            raise HTTPException(status_code=404, detail="theme not found")
+        try:
+            theme = theme_mgr.personal_kb_for(principal.account_id)
+            if ns is not None and ns.pinned_kb_id is not None and ns.pinned_kb_id != theme.id:
+                raise HTTPException(status_code=403, detail="kb_ingest_by_contribution")
+            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
+            theme_svc = service_pool.get_service(theme.id)
+        except KnowledgeBaseNotFound as exc:
+            raise HTTPException(status_code=404, detail="theme not found") from exc
+        return theme, theme_settings, theme_svc
 
     def _validate_request_effort(
         theme_svc: IngestService, theme_settings: Settings, effort: str | None
@@ -472,40 +510,50 @@ def create_app(
             tier=tier,
         )
 
-    def _theme_provider_context(theme: ThemeInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
+    def _provider_account_of(theme: KnowledgeBaseInfo) -> int | None:
+        """The account whose provider context pays the work: the owner of a personal knowledge base; in a shared knowledge base the requester (design Section 13.1 rule 5). A shared knowledge base without a requester account is refused."""
+        if not theme.is_shared:
+            return getattr(theme, "account_id", None)
+        acting = _kb_acting_account.get()
+        if acting is None:
+            raise policy.ProviderNotAllowed("shared knowledge base: no requester account", remedy="Sign in to use this function.")
+        return acting
+
+    def _theme_provider_context(theme: KnowledgeBaseInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
         """테마 작업의 프로바이더 컨텍스트. 서비스가 붙인 컨텍스트(L4-a2i)를 먼저 쓰고, 없으면 테마 소유 계정으로 정한다."""
         ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
         if isinstance(ctx, policy.ProviderContext):
             return ctx
-        account_id = getattr(theme, "account_id", None)
+        account_id = _provider_account_of(theme)
         if _account_limits_context(account_id) is None:
             return None
         return policy.resolve_provider_context(account_id, settings=s)
 
-    def _require_theme_feature_sync(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+    def _require_theme_feature_sync(theme: KnowledgeBaseInfo, theme_svc: Any | None, feature: str) -> None:
         if feature in policy.ADMIN_ONLY_FEATURES:
             # 관리자 전용 기능은 키 상태를 보기 전에 거부한다(멤버 키 복호화 불필요).
             ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
             if isinstance(ctx, policy.ProviderContext):
                 policy.require_feature(ctx, feature)
                 return
-            policy.require_feature(_account_limits_context(getattr(theme, "account_id", None)), feature)
+            policy.require_feature(_account_limits_context(_provider_account_of(theme)), feature)
             return
         policy.require_feature(_theme_provider_context(theme, theme_svc), feature)
 
-    async def _require_theme_feature(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+    async def _require_theme_feature(theme: KnowledgeBaseInfo, theme_svc: Any | None, feature: str) -> None:
         """멤버 테마에서 기능이 허용되지 않으면 ``ProviderNotAllowed``(→ 403). 관리자 테마는 그대로 통과한다."""
         await asyncio.to_thread(_require_theme_feature_sync, theme, theme_svc, feature)
 
-    def _reembed_required(theme: ThemeInfo) -> bool:
+    def _reembed_required(theme: KnowledgeBaseInfo) -> bool:
         """테마의 고정 임베딩 공간과 지금 소유 계정 컨텍스트의 임베딩이 다른가(§10.4). 판정할 수 없으면 False."""
         from types import SimpleNamespace
 
-        from ..store.theme import embed_mismatch
+        from ..store.knowledge_base import embed_mismatch
         from ..store.vectors import resolve_embed_identity
 
         try:
-            ctx = _theme_provider_context(theme)
+            # The embeddings of a shared knowledge base use the provider of the server (CT24).
+            ctx = None if theme.is_shared else _theme_provider_context(theme)
         except policy.ProviderPolicyError:
             return False
         if ctx is None:
@@ -517,7 +565,7 @@ def create_app(
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             row = conn.execute(
-                "SELECT embed_provider, embed_model FROM themes WHERE id=?", (theme.id,)
+                "SELECT embed_provider, embed_model FROM knowledge_bases WHERE id=?", (theme.id,)
             ).fetchone()
         except Exception:  # noqa: BLE001 - 열이 없는 레거시 DB
             row = None
@@ -595,7 +643,7 @@ def create_app(
 
     async def whoami(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
-        if scope not in {"owner", "collaborator", "readonly", "anonymous"}:
+        if scope not in {"owner", "write", "readonly", "anonymous"}:
             raise HTTPException(status_code=401, detail="authentication required")
         # §9.1 O10: 주체 범위(호환), 서버 모드, 네임스페이스와의 관계. USERNAME은 싣지 않는다(S9).
         namespace = request_namespace(request)
@@ -612,21 +660,21 @@ def create_app(
         )
 
     async def stats(request: Request) -> JSONResponse:
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, theme_svc = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _counts() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                c = dict(dbm.counts(conn, include_hidden=include_hidden, theme_id=theme.id))
-                c["theme_id"] = theme.id
+                c = dict(dbm.counts(conn, include_hidden=include_hidden, kb_id=theme.id))
+                c["kb_id"] = theme.id
                 c["theme_label"] = theme.label
                 return c
             finally:
                 conn.close()
 
         res = await asyncio.to_thread(_counts)
-        if request_auth_scope(request) in ("owner", "collaborator"):
+        if request_auth_scope(request) in ("owner", "write"):
             res["ingest_effort"] = policy.describe_ingest_effort_options(
                 getattr(theme_svc, "s", theme_settings),
                 ctx=getattr(theme_svc, "provider_context", None),
@@ -636,7 +684,7 @@ def create_app(
 
         jobs = _visible_active_jobs(request, theme_settings.data_dir)
         primary = get_primary_active_job(
-            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+            theme_settings.data_dir, kb_id=_job_kb_id(request, theme), jobs=jobs
         )
 
         res["active_jobs"] = jobs
@@ -654,165 +702,184 @@ def create_app(
 
         jobs = _visible_active_jobs(request, theme_settings.data_dir)
         primary = get_primary_active_job(
-            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+            theme_settings.data_dir, kb_id=_job_kb_id(request, theme), jobs=jobs
         )
         res = dict(primary) if primary else {"active": False}
         res["active_jobs"] = jobs
         return JSONResponse(res)
 
-    async def themes_list_route(request: Request) -> Response:
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
+    def _collection_filter(request: Request, name: str, allowed: tuple[str, ...]) -> str | None:
+        """A filter of a collection (design Section 7). An unknown value gets 400; the filter is not guessed."""
+        raw = request.query_params.get(name)
+        if raw is None:
+            return None
+        if raw not in allowed:
+            raise HTTPException(status_code=400, detail=f"invalid_{name}")
+        return raw
 
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        origin = _public_origin(request)
-        if ns is not None and ns.mode == "network" and ns.username:
-            collection_url = f"{origin}/@{ns.username}/themes"
-        else:
-            collection_url = f"{origin}/themes"
-
-        scope = request_auth_scope(request)
-        principal = request_principal(request)
-        if ns is not None and ns.mode == "network" and principal.account_id != account_id:
-            visible_scope = "anonymous"
-        else:
-            visible_scope = scope
-
-        if collections.wants_html(request):
-            return public_kb_routes.render_public_kb_page(request, view="themes_list", title="Public Themes", ctx=account_routes.context)
-
-        def _fetch_themes_data() -> tuple[list[ThemeInfo], list[ThemeInfo]]:
-            owned = theme_mgr.list_account_themes(account_id)
-            if not getattr(s, "multi_theme", False):
-                owned = [t for t in owned if t.id == 0]
-            if visible_scope in {"owner", "readonly"}:
-                vis = owned
-            elif visible_scope == "collaborator":
-                vis = [t for t in owned if t.is_public or t.is_collaborator_accessible]
-            else:
-                vis = [t for t in owned if t.is_public]
-            return owned, vis
-
-        owned_themes, visible_themes = await asyncio.to_thread(_fetch_themes_data)
-        total_items = len(visible_themes)
-
-        query = collections.parse_collection_query(request.query_params)
-        legacy_dir = SqliteLegacyHostDirectory(s.db_file)
-
-        def _build_theme_stats(t: ThemeInfo) -> dict[str, int]:
-            abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
-            t_stats = {"documents": 0, "entities": 0, "relations": 0}
-            if abs_db.is_file():
+    def _kb_collection_item(request: Request, kb: KnowledgeBaseInfo, *, role: str | None, origin: str) -> dict[str, Any]:
+        """One knowledge base of a collection. The settings view (legacy hosts, re-embed state) only goes to a requester with the capability ``settings``."""
+        is_settings_view = _kb_decide(request, kb, "settings") == "allow"
+        include_hidden = (request_principal(request).account_id == kb.account_id) if kb.is_personal else _kb_decide(request, kb, "review") == "allow"
+        t_stats = {"documents": 0, "entities": 0, "relations": 0}
+        abs_db = theme_mgr.get_settings_for_kb(kb.id, s).db_file
+        if abs_db.is_file():
+            conn = dbm.connect_existing(abs_db, readonly=True)
+            try:
+                t_stats = theme_summary(conn, include_hidden=include_hidden, kb_id=kb.id)
+            finally:
+                conn.close()
+        item = kb.to_dict()
+        eff_sorcerer = (kb.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
+        item["sorcerer"] = (kb.sorcerer or "").strip()
+        item["effective_sorcerer"] = eff_sorcerer
+        item["knowledge_manager"] = eff_sorcerer
+        item["stats"] = t_stats
+        item["url"] = f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None
+        if role is not None:
+            item["role"] = role
+        if is_settings_view:
+            item["legacy_hosts"] = [
+                {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
+                for h in SqliteLegacyHostDirectory(s.db_file).list_hosts_for_theme(kb.id)
+            ]
+            item["reembed_required"] = _reembed_required(kb)
+            if kb.is_shared:
+                # A shared knowledge base without an active moderator has the admin as its only moderator (design Section 10.2). The admin console shows these first.
+                conn = dbm.connect_existing(s.db_file, readonly=True)
                 try:
-                    conn = dbm.connect_existing(abs_db, readonly=True)
-                    try:
-                        t_stats = theme_summary(conn, include_hidden=(visible_scope != "anonymous"), theme_id=t.id)
-                    finally:
-                        conn.close()
-                except Exception:
-                    pass
-            return t_stats
+                    item["active_moderators"] = len(kb_collab.active_moderators(conn, kb.id))
+                finally:
+                    conn.close()
+        return item
 
+    def _collection_response(request: Request, *, collection_url: str, items: list[dict[str, Any]], extra: dict[str, Any]) -> Response:
+        """A collection with pages (namespace design Section 6.5). ``items`` are newest first and each has the string ``number``."""
+        query = collections.parse_collection_query(request.query_params)
+        anonymous = request_auth_scope(request) == "anonymous"
         if query.page:
-            filtered = list(visible_themes)
+            filtered = list(items)
             if query.max_id is not None:
-                filtered = [t for t in filtered if t.number is not None and t.number < query.max_id]
+                filtered = [i for i in filtered if int(i["number"]) < query.max_id]
             elif query.min_id is not None:
-                candidates = [t for t in filtered if t.number is not None and t.number > query.min_id]
-                candidates.sort(key=lambda t: t.number or 0)
-                candidates = candidates[:query.limit]
-                candidates.reverse()
-                filtered = candidates
+                filtered = sorted((i for i in filtered if int(i["number"]) > query.min_id), key=lambda i: int(i["number"]))[: query.limit]
+                filtered.reverse()
             elif query.since_id is not None:
-                filtered = [t for t in filtered if t.number is not None and t.number > query.since_id]
-
-            page_slice = filtered[:query.limit] if query.min_id is None else filtered
-
-            items = []
-            etag_parts = []
-            for t in page_slice:
-                num_str = str(t.number) if t.number is not None else str(t.id)
-                t_stats = await asyncio.to_thread(_build_theme_stats, t)
-                item_dict: dict[str, Any] = {
-                    "number": num_str,
-                    "url": f"{collection_url}/{num_str}/",
-                    "label": t.label,
-                    "is_default": t.is_default,
-                    "is_public": t.is_public,
-                    "stats": t_stats,
-                }
-                if visible_scope in {"owner", "readonly"}:
-                    hosts = legacy_dir.list_hosts_for_theme(t.id)
-                    item_dict["legacy_hosts"] = [
-                        {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
-                        for h in hosts
-                    ]
-                etag_part = f"{num_str}:{t.updated_at}"
-                if visible_scope == "owner":
-                    # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
-                    item_dict["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
-                    etag_part += f":r{int(item_dict['reembed_required'])}"
-                items.append(item_dict)
-                etag_parts.append(etag_part)
-
-            is_first_page = (query.max_id is None and query.min_id is None and query.since_id is None)
-            page_data = collections.collection_page(
+                filtered = [i for i in filtered if int(i["number"]) > query.since_id]
+            page_items = filtered[: query.limit] if query.min_id is None else filtered
+            data = collections.collection_page(
                 collection_url=collection_url,
                 query=query,
-                items=items,
+                items=page_items,
                 item_number="number",
-                is_first_page=is_first_page,
+                is_first_page=query.max_id is None and query.min_id is None and query.since_id is None,
             )
-            etag = collections.collection_etag(etag_parts)
-            hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
-            if request.headers.get("if-none-match") == etag:
-                return Response(status_code=304, headers=hdrs)
-            return JSONResponse(page_data, headers=hdrs)
-
-        root_data = collections.collection_root(collection_url=collection_url, total_items=total_items)
-
-        legacy_theme_list = []
-        etag_parts = []
-        for t in visible_themes:
-            t_stats = await asyncio.to_thread(_build_theme_stats, t)
-            td = t.to_dict()
-            eff_sorcerer = (t.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
-            td["sorcerer"] = (t.sorcerer or "").strip()
-            td["effective_sorcerer"] = eff_sorcerer
-            td["knowledge_manager"] = eff_sorcerer
-            td["stats"] = t_stats
-            if visible_scope in {"owner", "readonly"}:
-                hosts = legacy_dir.list_hosts_for_theme(t.id)
-                td["legacy_hosts"] = [
-                    {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
-                    for h in hosts
-                ]
-            num_str = str(t.number) if t.number is not None else str(t.id)
-            etag_part = f"{num_str}:{t.updated_at}"
-            if visible_scope == "owner":
-                # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
-                td["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
-                etag_part += f":r{int(td['reembed_required'])}"
-            legacy_theme_list.append(td)
-            etag_parts.append(etag_part)
-
-        root_data["themes"] = legacy_theme_list
-        try:
-            def_theme = theme_mgr.default_theme_for(account_id)
-            root_data["default_theme_id"] = def_theme.id
-            root_data["default_theme_number"] = str(def_theme.number) if def_theme.number is not None else None
-        except ThemeNotFound:
-            root_data["default_theme_id"] = 0
-            root_data["default_theme_number"] = None
-        root_data["multi_theme"] = bool(getattr(s, "multi_theme", False))
-
-        etag = collections.collection_etag(etag_parts)
-        hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
+        else:
+            data = collections.collection_root(collection_url=collection_url, total_items=len(items))
+            data.update(extra)
+        etag = collections.collection_etag([json.dumps(data, sort_keys=True, default=str)])
+        hdrs = collections.collection_cache_headers(anonymous=anonymous, etag=etag)
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=hdrs)
-        return JSONResponse(root_data, headers=hdrs)
+        return JSONResponse(data, headers=hdrs)
+
+    async def kb_collection_route(request: Request) -> Response:
+        """``/kb`` and ``/@{u}/kb`` (design Section 7, CT9).
+
+        - ``/kb``: the shared knowledge bases of the server. ``?joined=true``: only those where the requester is an active member. ``personal_kb``: the personal knowledge base of the requester.
+        - ``/@{u}/kb``: the shared knowledge bases where ``u`` is an active member. ``personal_kb``: the personal knowledge base of ``u`` when the requester can read it.
+        - ``?type=real`` or ``?type=fictional`` selects one knowledge type.
+        """
+        ns = request_namespace(request)
+        principal = request_principal(request)
+        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        joined = _collection_filter(request, "joined", ("true", "false")) == "true"
+        origin = _public_origin(request)
+        # The roles shown are those of the requester at the root, and those of ``u`` under ``/@{u}/``.
+        role_account = principal.account_id if ns.account_id is None else ns.account_id
+        personal_account = role_account
+        if ns.account_id is None:
+            collection_url = f"{origin}/kb"
+        else:
+            collection_url = f"{origin}{ns.prefix}/kb"
+            if collections.wants_html(request):
+                from ..graphview import render_graph_html
+
+                return HTMLResponse(
+                    render_graph_html(
+                        s,
+                        include_private=principal.account_id == ns.account_id and principal.scope in ("owner", "readonly"),
+                        theme=None,
+                        host=request.headers.get("host"),
+                        request=request,
+                        account_id=ns.account_id,
+                    )
+                )
+
+        def _build() -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+            # ``CLAIRE_MULTI_THEME=0``: only the knowledge base 0 is served, so the collection has no shared knowledge base.
+            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(s, "multi_theme", False) else []
+            roles: dict[int, str] = {}
+            if role_account is not None:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    roles = kb_collab.account_memberships(conn, role_account, state="active")
+                finally:
+                    conn.close()
+            if ns.account_id is not None or joined:
+                shared = [t for t in shared if t.id in roles]
+            items = [_kb_collection_item(request, t, role=roles.get(t.id), origin=origin) for t in shared]
+            personal: dict[str, Any] | None = None
+            if personal_account is not None:
+                try:
+                    kb = theme_mgr.personal_kb_for(personal_account)
+                except KnowledgeBaseNotFound:
+                    kb = None
+                if kb is not None and _kb_decide(request, kb, "read") == "allow":
+                    personal = _kb_collection_item(request, kb, role=None, origin=origin)
+            return items, personal
+
+        items, personal = await asyncio.to_thread(_build)
+        return _collection_response(
+            request,
+            collection_url=collection_url,
+            items=items,
+            extra={"knowledge_bases": items, "personal_kb": personal, "multi_theme": bool(getattr(s, "multi_theme", False))},
+        )
+
+    async def themes_collection_route(request: Request) -> Response:
+        """``/themes``: the collection of themes (design Section 7). The old ``/@{u}/themes`` gets 308 to ``/@{u}/kb``."""
+        ns = request_namespace(request)
+        if ns.account_id is not None:
+            location = f"{ns.prefix}/kb"
+            if request.url.query:
+                location += f"?{request.url.query}"
+            return Response(status_code=308, headers={"Location": location})
+        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        origin = _public_origin(request)
+
+        def _build() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                rows = themes_store.list_themes(conn, knowledge_type=knowledge_type)
+                out = []
+                for row in rows:
+                    number = ids.format_public_id(int(row["number"]))
+                    out.append({
+                        "number": number,
+                        "url": f"{origin}/themes/{number}",
+                        "label": row["label"],
+                        "description": row["description"],
+                        "knowledge_type": row["knowledge_type"],
+                        "state": row["state"],
+                        "knowledge_bases": len(themes_store.theme_members(conn, int(row["id"]))),
+                    })
+                return out
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_build)
+        return _collection_response(request, collection_url=f"{origin}/themes", items=items, extra={"themes": items})
 
     async def explore_accounts_route(request: Request, *, force_html: bool = False) -> Response:
         query = collections.parse_collection_query(request.query_params)
@@ -909,6 +976,16 @@ def create_app(
                     )
                     cards.append(card)
                 content_html = "".join(cards)
+            if force_html and not query.page:
+                # Design Section 8.4: the root page of network mode shows the themes first, the one with the most recent activity first, with a link to the collection.
+                theme_views = await asyncio.to_thread(lambda: _active_theme_views(origin=base_origin))
+                if theme_views:
+                    content_html = (
+                        f'<h2>{html.escape(_t("themes.section_title"))} <a href="/themes" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
+                        + _theme_cards_html(theme_views)
+                        + f'<h2>{html.escape(_t("themes.accounts_title"))}</h2>'
+                        + content_html
+                    )
 
             pagination_parts = []
             if query.page:
@@ -933,7 +1010,7 @@ def create_app(
             rendered = inject_favicon_head_tags(rendered)
 
             # The page text follows the interface language, thus the locale is a part of the entity tag.
-            etag_parts = [get_locale()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
+            etag_parts = [get_locale(), hashlib.sha256(content_html.encode("utf-8")).hexdigest()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
             etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
             headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
             headers["Vary"] += ", Accept-Language"
@@ -973,7 +1050,7 @@ def create_app(
                         "number": str(t.number) if t.number is not None else str(t.id),
                         "url": f"{base_origin}/@{a.username}/themes/{t.number}/" if t.number else f"{base_origin}/@{a.username}/",
                         "label": t.label,
-                        "is_default": t.is_default,
+                        "is_personal": t.is_personal,
                         "documents": t.documents,
                     }
                     for t in a.themes
@@ -997,240 +1074,1464 @@ def create_app(
             return Response(status_code=200, headers=headers, media_type="application/json")
         return JSONResponse(page_data, headers=headers)
 
-    async def theme_define_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body = await _json_object(request)
+    # Knowledge base lifecycle (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.1). The body field and its type of each setting. A field with another name is unknown and is ignored (CT23).
+    _KB_TEXT_FIELDS = ("label", "description", "icon", "ga_measurement_id", "sorcerer")
+    _KB_BOOL_FIELDS = ("is_public", "presentation_enabled")
+    _KB_SHARED_FIELDS = ("join_policy", "knowledge_type", "state")
+
+    def _kb_settings_from_body(body: dict[str, Any]) -> dict[str, Any]:
+        """The settings of a request body, with the types checked. A wrong type gets 400 with the name of the field."""
         if "fqdn" in body and body["fqdn"]:
-            raise HTTPException(
-                status_code=400,
-                detail="FQDN assignment is deprecated and no longer supported",
-            )
-        label = str(body.get("label") or "").strip()
+            raise HTTPException(status_code=400, detail="FQDN assignment is deprecated and no longer supported")
+        values: dict[str, Any] = {}
+        for name in (*_KB_TEXT_FIELDS, *_KB_SHARED_FIELDS):
+            if name in body:
+                if not isinstance(body[name], str):
+                    raise HTTPException(status_code=400, detail=f"{name}_invalid")
+                values[name] = body[name]
+        for name in _KB_BOOL_FIELDS:
+            if name in body:
+                if not isinstance(body[name], bool):
+                    raise HTTPException(status_code=400, detail=f"{name}_invalid")
+                values[name] = body[name]
+        if "seed_entities" in body:
+            values["seed_entities"] = body["seed_entities"]
+        return values
+
+    def _require_multi_kb() -> None:
+        if not getattr(s, "multi_theme", False):
+            raise HTTPException(status_code=403, detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+
+    async def kb_create_route(request: Request) -> JSONResponse:
+        """``POST /kb``: each active account makes shared knowledge bases, without a limit (CT3). The founder selects the knowledge type (required, CT12), can give seed entities, and becomes the first moderator (CT8)."""
+        _require_multi_kb()
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        values = _kb_settings_from_body(await _json_object(request))
+        label = str(values.get("label") or "").strip()
         if not label:
             raise HTTPException(status_code=400, detail="label is required")
-        desc = str(body.get("description") or "").strip()
-        icon = str(body.get("icon") or "📁").strip()
-        is_pub = bool(body.get("is_public", body.get("public", True)))
-        is_collab = bool(
-            body.get(
-                "is_collaborator_accessible",
-                body.get("collaborator_accessible", body.get("collaborator", True)),
-            )
-        )
-        def_focus = str(
-            body.get("default_focus")
-            or body.get("focus")
-            or ""
-        ).strip()
-        ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
-        sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
-        pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
-        principal = request_principal(request)
-        target_account_id = principal.account_id if principal.account_id is not None else 1
-
-        def _check_theme_quota() -> None:
-            lim = _account_limits_context(target_account_id)
-            if lim is None:
-                return
-            conn = dbm.connect_existing(s.db_file, readonly=True)
-            try:
-                server_tier.check_theme_quota(conn, lim)
-            finally:
-                conn.close()
-
-        # 멤버는 서버 등급의 max_themes를 넘겨 만들 수 없다(§10.3, 자기 키가 있어도 적용).
-        await asyncio.to_thread(_check_theme_quota)
+        if values.get("knowledge_type") not in ("real", "fictional"):
+            raise HTTPException(status_code=400, detail="knowledge_type_required")
+        for name in ("join_policy", "state"):
+            if name in values:
+                # A new shared knowledge base is ``active`` with the join policy ``approval`` (design Section 10.1). The settings route changes them.
+                raise HTTPException(status_code=400, detail=f"{name}_not_at_create")
         try:
-            theme = theme_mgr.define_theme(
+            kb = await asyncio.to_thread(
+                theme_mgr.define_kb,
                 label,
-                description=desc,
-                icon=icon,
-                is_public=is_pub,
-                is_collaborator_accessible=is_collab,
-                default_focus=def_focus,
-                ga_measurement_id=ga_id,
-                sorcerer=sorcerer,
-                presentation_enabled=pres_enabled,
-                account_id=target_account_id,
+                description=str(values.get("description") or "").strip(),
+                icon=str(values.get("icon") or "📁").strip(),
+                is_public=values.get("is_public", True),
+                ga_measurement_id=str(values.get("ga_measurement_id") or "").strip(),
+                sorcerer=str(values.get("sorcerer") or "").strip(),
+                presentation_enabled=values.get("presentation_enabled", False),
+                account_id=principal.account_id,
+                knowledge_type=values["knowledge_type"],
+                seed_entities=values.get("seed_entities"),
             )
-            return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err
         except Exception as exc:
-            _log_operation_failure(request, "theme define", exc)
-            raise HTTPException(status_code=500, detail="failed to define theme") from exc
+            _log_operation_failure(request, "kb create", exc)
+            raise HTTPException(status_code=500, detail="failed to make the knowledge base") from exc
+        await asyncio.to_thread(_after_kb_founded, kb.id, int(principal.account_id))
+        return JSONResponse({"ok": True, "knowledge_base": kb.to_dict()}, status_code=201)
 
-    async def theme_update_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body = await _json_object(request)
-        if "fqdn" in body and body["fqdn"]:
-            raise HTTPException(
-                status_code=400,
-                detail="FQDN assignment is deprecated and no longer supported",
-            )
-        theme_id = (
-            request.query_params.get("id")
-            or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("theme_id", "")
-        )
-        if not theme_id:
-            raise HTTPException(status_code=400, detail="id is required")
+    def _after_kb_founded(kb_id: int, founder_account_id: int) -> None:
+        """A new shared knowledge base: each mutual collaborator of the founder becomes a collaborator at once (design Section 9.10 rule 2), then the automatic rules run (Section 9.9 rule 4: a new shared knowledge base with seed entities)."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            auto_contribution.grant_mutual_collaborators(conn, kb_id=kb_id, founder_account_id=founder_account_id)
+            conn.commit()
+        finally:
+            conn.close()
+        _auto_run_all()
 
+    async def kb_settings_route(request: Request) -> JSONResponse:
+        """``PATCH /kb/{number}/`` and ``PATCH /@{u}/`` (``PATCH /`` under the prefix): change the settings of the knowledge base that the path selects. A shared one needs the capability ``settings``; a personal one takes its account."""
+        _require_multi_kb()
+        values = _kb_settings_from_body(await _json_object(request))
+        kb = _select_kb(request)
+        principal = request_principal(request)
         try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        try:
-            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
-            target_theme = resolved.theme
-        except ThemeNotFound:
-            raise HTTPException(status_code=404, detail="theme not found")
-
-        label = body.get("label")
-        desc = body.get("description") if "description" in body else body.get("desc")
-        icon = body.get("icon")
-        is_pub = (
-            body.get("is_public")
-            if "is_public" in body
-            else (body.get("public") if "public" in body else None)
-        )
-        if is_pub is not None:
-            is_pub = bool(is_pub)
-        is_collab = (
-            body.get("is_collaborator_accessible")
-            if "is_collaborator_accessible" in body
-            else (
-                body.get("collaborator_accessible")
-                if "collaborator_accessible" in body
-                else (body.get("collaborator") if "collaborator" in body else None)
-            )
-        )
-        if is_collab is not None:
-            is_collab = bool(is_collab)
-        def_focus = (
-            body.get("default_focus")
-            if "default_focus" in body
-            else (body.get("focus") if "focus" in body else None)
-        )
-        ga_id = (
-            body.get("ga_measurement_id")
-            if "ga_measurement_id" in body
-            else (body.get("ga_id") if "ga_id" in body else None)
-        )
-        sorcerer = (
-            body.get("sorcerer")
-            if "sorcerer" in body
-            else (body.get("knowledge_manager") if "knowledge_manager" in body else None)
-        )
-        pres_enabled = (
-            body.get("presentation_enabled")
-            if "presentation_enabled" in body
-            else (body.get("is_presentation_enabled") if "is_presentation_enabled" in body else None)
-        )
-        if pres_enabled is not None:
-            pres_enabled = bool(pres_enabled)
-        try:
-            theme = theme_mgr.update_theme(
-                target_theme.id,
-                label=label,
-                description=desc,
-                icon=icon,
-                is_public=is_pub,
-                is_collaborator_accessible=is_collab,
-                default_focus=def_focus,
-                ga_measurement_id=ga_id,
-                sorcerer=sorcerer,
-                presentation_enabled=pres_enabled,
-            )
-            return JSONResponse({"ok": True, "theme": theme.to_dict()})
+            updated = await asyncio.to_thread(theme_mgr.update_kb, kb.id, **values)
         except KeyError as k_err:
-            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+            raise HTTPException(status_code=404, detail="theme not found") from k_err
         except ValueError as v_err:
             raise HTTPException(status_code=400, detail=str(v_err)) from v_err
         except Exception as exc:
-            _log_operation_failure(request, "theme update", exc)
-            raise HTTPException(status_code=500, detail="failed to update theme") from exc
+            _log_operation_failure(request, "kb settings", exc)
+            raise HTTPException(status_code=500, detail="failed to change the knowledge base") from exc
+        if updated.is_shared:
+            def _log() -> None:
+                conn = dbm.connect_existing(s.db_file)
+                try:
+                    kb_collab.log_moderation(conn, kb_id=updated.id, actor_account_id=principal.account_id, action="settings", target=",".join(sorted(values)))
+                    conn.commit()
+                finally:
+                    conn.close()
 
-    async def theme_delete_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body: dict[str, Any] = {}
-        if request.headers.get("content-type") == "application/json":
+            await asyncio.to_thread(_log)
+            if "seed_entities" in values:
+                await asyncio.to_thread(_auto_run_all)  # design Section 9.9 rule 4: a shared knowledge base gets seed entities
+        return JSONResponse({"ok": True, "knowledge_base": updated.to_dict()})
+
+    async def kb_delete_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/``: delete a shared knowledge base with its documents and graph (design Section 10.1: admin only, step-up). Without ``?apply=true`` the answer is the plan only (PRINCIPLES D3)."""
+        _require_multi_kb()
+        kb = _select_kb(request)
+        raw_apply = request.query_params.get("apply")
+        if raw_apply not in (None, "true", "false"):
+            raise HTTPException(status_code=400, detail="invalid_apply")
+        if kb.is_personal:
+            raise HTTPException(status_code=400, detail="kb_personal_cannot_delete")
+
+        def _plan() -> dict[str, int]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                raw_body = await _json_object(request)
-                if isinstance(raw_body, dict):
-                    body = raw_body
-            except Exception:
-                pass
+                plan = dict(theme_summary(conn, include_hidden=True, kb_id=kb.id))
+                plan["members"] = conn.execute("SELECT COUNT(*) FROM kb_memberships WHERE kb_id=?", (kb.id,)).fetchone()[0]
+                plan["contributions"] = conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=?", (kb.id,)).fetchone()[0]
+                return plan
+            finally:
+                conn.close()
 
-        theme_id = (
-            request.query_params.get("id")
-            or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("theme_id", "")
-        )
-        if not theme_id:
-            raise HTTPException(status_code=400, detail="id is required")
-
-        purge = (
-            request.query_params.get("purge", "0").strip().lower()
-            in ("1", "true", "yes")
-        )
-        if not purge and isinstance(body, dict):
-            purge = bool(body.get("purge", False))
-
+        plan = await asyncio.to_thread(_plan)
+        if raw_apply != "true":
+            return JSONResponse({"ok": True, "applied": False, "knowledge_base": kb.to_dict(), "would_delete": plan})
         try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        try:
-            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
-            target_theme = resolved.theme
-        except ThemeNotFound:
-            raise HTTPException(status_code=404, detail="theme not found")
-
-        try:
-            deleted = theme_mgr.delete_theme(target_theme.id, purge=purge)
-            if hasattr(service_pool, "remove_service"):
-                service_pool.remove_service(deleted.id)
-            return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
-        except KeyError as k_err:
-            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+            deleted = await asyncio.to_thread(theme_mgr.delete_kb, kb.id, purge=True)
         except ValueError as v_err:
             raise HTTPException(status_code=400, detail=str(v_err)) from v_err
         except Exception as exc:
-            _log_operation_failure(request, "theme delete", exc)
-            raise HTTPException(status_code=500, detail="failed to delete theme") from exc
+            _log_operation_failure(request, "kb delete", exc)
+            raise HTTPException(status_code=500, detail="failed to delete the knowledge base") from exc
+        if hasattr(service_pool, "remove_service"):
+            service_pool.remove_service(deleted.id)
+        principal = request_principal(request)
+        if principal.account_id is not None:
+            def _audit() -> None:
+                auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(s.data_dir))
+                try:
+                    auth_db.record_admin_audit(auth_conn, actor_account_id=int(principal.account_id), action="kb_delete", detail={"kb_number": deleted.to_dict()["number"], "deleted": plan})
+                finally:
+                    auth_conn.close()
+
+            await asyncio.to_thread(_audit)
+        return JSONResponse({"ok": True, "applied": True, "deleted": deleted.to_dict(), "would_delete": plan})
+
+    # --- Membership and moderation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.2) ---
+
+    _MEMBER_ACTIONS = ("approve", "ban", "remove")
+    _MEMBER_ROLES = ("member", "collaborator")  # the role ``moderator`` has its own admin route
+    _MAX_REASON_LENGTH = 500
+
+    def _shared_kb_of_path(request: Request) -> KnowledgeBaseInfo:
+        """The shared knowledge base that the path pins. A personal knowledge base has no members: 404."""
+        kb = _select_kb(request)
+        if not kb.is_shared:
+            raise HTTPException(status_code=404, detail="theme not found")
+        return kb
+
+    def _member_view(row: dict[str, Any], *, mode: str) -> dict[str, Any]:
+        """One member for a response. The account is its public number. The username goes only in network mode and for a public profile (S9, N1)."""
+        view: dict[str, Any] = {
+            "number": ids.format_public_id(int(row["membership_public_id"])),
+            "account": ids.format_public_id(int(row["account_public_id"])),
+            "display_name": row["display_name"],
+            "role": row["role"],
+            "state": row["state"],
+            "requested_at": row["requested_at"],
+            "decided_at": row["decided_at"],
+        }
+        if mode == "network" and row["profile_public"] and row["username"]:
+            view["username"] = row["username"]
+        return view
+
+    def _member_row(conn: sqlite3.Connection, kb_id: int, account_id: int) -> dict[str, Any] | None:
+        rows = [r for r in kb_collab.members_with_accounts(conn, kb_id, states=kb_collab.MEMBERSHIP_STATES) if r["account_id"] == account_id]
+        return rows[0] if rows else None
+
+    def _account_of_path(conn: sqlite3.Connection, request: Request) -> accounts_store.Account:
+        """The account of the path parameter ``account`` (its public number). An account that is not there, or is not ``active``, gets 404."""
+        try:
+            public_id = ids.parse_public_id(str(request.path_params.get("account") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="account_not_found") from None
+        account = accounts_store.AccountStore(conn).find_by_public_id(public_id)
+        if account is None or account.status != "active":
+            raise HTTPException(status_code=404, detail="account_not_found")
+        return account
+
+    def _reason_of(body: dict[str, Any]) -> str:
+        reason = body.get("reason", "")
+        if not isinstance(reason, str) or len(reason) > _MAX_REASON_LENGTH:
+            raise HTTPException(status_code=400, detail="reason_invalid")
+        return reason.strip()
+
+    async def kb_join_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/membership``: ``open`` makes an active member, ``approval`` a pending one. A banned account and an archived knowledge base get 403."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        if kb.state == "archived":
+            raise HTTPException(status_code=403, detail="kb_archived")
+        mode = request_namespace(request).mode
+
+        def _join() -> tuple[dict[str, Any], bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                account_id = int(principal.account_id)
+                current = kb_collab.get_membership(conn, kb.id, account_id)
+                created = current is None
+                if created:
+                    kb_collab.add_membership(conn, kb_id=kb.id, account_id=account_id, role="member", state="active" if kb.join_policy == "open" else "pending")
+                    conn.commit()
+                row = _member_row(conn, kb.id, account_id)
+                assert row is not None
+                return _member_view(row, mode=mode), created
+            finally:
+                conn.close()
+
+        member, created = await asyncio.to_thread(_join)
+        return JSONResponse({"ok": True, "membership": member}, status_code=201 if created else 200)
+
+    async def kb_leave_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/membership``: leave, or withdraw a join request. The last moderator cannot leave (409)."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+
+        def _leave() -> None:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                account_id = int(principal.account_id)
+                current = kb_collab.get_membership(conn, kb.id, account_id)
+                if current is None:
+                    raise HTTPException(status_code=404, detail="membership_not_found")
+                if current["role"] == "moderator" and current["state"] == "active" and kb_collab.active_moderators(conn, kb.id) == [account_id]:
+                    raise HTTPException(status_code=409, detail="last_moderator")
+                kb_collab.delete_membership(conn, kb.id, account_id)
+                if current["state"] == "active" and current["role"] != "member":
+                    # A role ends: a role change (design Section 6.8 rule 3).
+                    kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=account_id, action="leave", target=str(request_principal_public_id(conn, account_id)), reason=current["role"])
+                conn.commit()
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(_leave)
+        return JSONResponse({"ok": True})
+
+    def request_principal_public_id(conn: sqlite3.Connection, account_id: int) -> str:
+        return ids.format_public_id(accounts_store.AccountStore(conn).get(account_id).public_id)
+
+    async def kb_members_route(request: Request) -> Response:
+        """``GET /kb/{number}/members``: the active members with their roles, for each reader. An account with the capability ``people`` also gets the pending and the banned entries."""
+        kb = _shared_kb_of_path(request)
+        sees_all = _kb_decide(request, kb, "people") == "allow"
+        mode = request_namespace(request).mode
+
+        def _members() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                states = kb_collab.MEMBERSHIP_STATES if sees_all else ("active",)
+                return [_member_view(r, mode=mode) for r in kb_collab.members_with_accounts(conn, kb.id, states=states)]
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_members)
+        collection_url = f"{_public_origin(request)}{kb_base_path(kb.number)}members"
+        return _collection_response(request, collection_url=collection_url, items=items, extra={"members": items})
+
+    async def kb_member_change_route(request: Request) -> Response:
+        """``PATCH /kb/{number}/members/{account}`` (capability ``people``): ``{"action": "approve" | "ban" | "remove"}``, or ``{"role": "collaborator" | "member"}``. A role change needs a recent sign-in in a session (design Section 6.8). A moderator cannot change another moderator."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        action, role = body.get("action"), body.get("role")
+        if (action is None) == (role is None):
+            raise HTTPException(status_code=400, detail="action_or_role_required")
+        if action is not None and action not in _MEMBER_ACTIONS:
+            raise HTTPException(status_code=400, detail="action_invalid")
+        if role is not None and role not in _MEMBER_ROLES:
+            raise HTTPException(status_code=400, detail="role_invalid")
+        reason = _reason_of(body)
+        if role is not None:
+            refused = step_up_response(principal)
+            if refused is not None:
+                return refused
+        mode = request_namespace(request).mode
+
+        def _change() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                actor_id = int(principal.account_id)
+                target = _account_of_path(conn, request)
+                if target.id == actor_id:
+                    raise HTTPException(status_code=400, detail="self_not_allowed")
+                current = kb_collab.get_membership(conn, kb.id, target.id)
+                if current is not None and current["role"] == "moderator" and current["state"] == "active" and (role is not None or principal.server_role != "admin"):
+                    # Only the admin changes a moderator, and the role itself only by the admin route.
+                    raise HTTPException(status_code=403, detail="moderator_protected")
+                log_action = action if action is not None else f"role_{role}"
+                if action == "approve":
+                    if current is None or current["state"] != "pending":
+                        raise HTTPException(status_code=409, detail="not_pending")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="active", decided_by_account_id=actor_id)
+                elif action == "ban":
+                    if current is None:
+                        kb_collab.add_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="banned", decided_by_account_id=actor_id)
+                    else:
+                        kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="banned", decided_by_account_id=actor_id)
+                elif action == "remove":
+                    if current is None:
+                        raise HTTPException(status_code=404, detail="membership_not_found")
+                    kb_collab.delete_membership(conn, kb.id, target.id)
+                else:
+                    # Design Section 6.2 rule 4: a collaborator must be an active member first. To remove the role makes it a member again.
+                    if current is None or current["state"] != "active":
+                        raise HTTPException(status_code=409, detail="not_active_member")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role=role, decided_by_account_id=actor_id)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action=log_action, target=ids.format_public_id(target.public_id), reason=reason)
+                conn.commit()
+                row = _member_row(conn, kb.id, target.id)
+                return None if row is None else _member_view(row, mode=mode)
+            finally:
+                conn.close()
+
+        member = await asyncio.to_thread(_change)
+        return JSONResponse({"ok": True, "member": member})
+
+    async def admin_kb_moderator_route(request: Request) -> JSONResponse:
+        """``PUT`` and ``DELETE /api/admin/kb/{number}/moderators/{account}``: the admin gives or removes the role ``moderator`` (design Section 10.2; step-up by ``ROUTE_POLICY``). The log of the knowledge base and ``admin_audit`` get a row."""
+        principal = request_principal(request)
+        try:
+            kb = theme_mgr.get_kb_by_reference(request.path_params.get("number"))
+        except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found") from None
+        if not kb.is_shared:
+            raise HTTPException(status_code=404, detail="theme not found")
+        _require_kb(request, kb, _request_capability(request))
+        give = request.method == "PUT"
+        mode = request_namespace(request).mode
+
+        def _change() -> tuple[dict[str, Any], int]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                actor_id = int(principal.account_id)
+                target = _account_of_path(conn, request)
+                current = kb_collab.get_membership(conn, kb.id, target.id)
+                if give:
+                    if current is None:
+                        kb_collab.add_membership(conn, kb_id=kb.id, account_id=target.id, role="moderator", state="active", decided_by_account_id=actor_id)
+                    else:
+                        kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="moderator", state="active", decided_by_account_id=actor_id)
+                else:
+                    if current is None or current["role"] != "moderator":
+                        raise HTTPException(status_code=404, detail="not_a_moderator")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", decided_by_account_id=actor_id)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action="moderator_give" if give else "moderator_remove", target=ids.format_public_id(target.public_id))
+                conn.commit()
+                row = _member_row(conn, kb.id, target.id)
+                assert row is not None
+                return _member_view(row, mode=mode), target.id
+            finally:
+                conn.close()
+
+        member, target_id = await asyncio.to_thread(_change)
+
+        def _audit() -> None:
+            auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(s.data_dir))
+            try:
+                auth_db.record_admin_audit(auth_conn, actor_account_id=int(principal.account_id), action="kb_moderator_give" if give else "kb_moderator_remove", target_account_id=target_id, detail={"kb_number": kb.to_dict()["number"]})
+            finally:
+                auth_conn.close()
+
+        await asyncio.to_thread(_audit)
+        return JSONResponse({"ok": True, "member": member})
+
+    # --- Contributions (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.1, 9.4 to 9.6) ---
+
+    _REVIEW_ACTIONS = ("approve", "reject", "hide", "unhide", "stop_updates", "restart_updates")
+
+    def _contribution_error(exc: contributions.ContributionError, *, kb: KnowledgeBaseInfo, origin: str) -> JSONResponse:
+        body: dict[str, Any] = {"error": exc.code}
+        if "document" in exc.extra:
+            # Design Section 9.1: a duplicate gets 409 with the URL of the document that K has.
+            body["url"] = f"{origin}{kb_base_path(kb.number)}?doc={exc.extra['document']}"
+        return JSONResponse(body, status_code=exc.status)
+
+    def _contribution_number(request: Request) -> int:
+        try:
+            return ids.parse_public_id(str(request.path_params.get("number") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="contribution_not_found") from None
+
+    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool, review_help: bool = False) -> dict[str, Any]:
+        """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document."""
+        contributor = None
+        if row["contributor_account_id"] is not None:
+            try:
+                account = accounts_store.AccountStore(conn).get(int(row["contributor_account_id"]))
+                contributor = {"account": ids.format_public_id(account.public_id), "display_name": account.display_name}
+            except accounts_store.AccountNotFound:
+                contributor = None
+        view: dict[str, Any] = {
+            "number": ids.format_public_id(int(row["public_id"])),
+            "document": row["document_id"],
+            "origin": row["origin"],
+            "state": row["state"],
+            "contributor": contributor,
+            "approved": row["approved_at"] is not None,
+            "approved_at": row["approved_at"],
+            "updates_stopped": bool(row["updates_frozen"]),
+            "contributed_at": row["contributed_at"],
+            "revised_at": row["revised_at"],
+        }
+        if full:
+            view["reason"] = row["decision_reason"]
+            view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
+        if review_help and row["contributor_account_id"] is not None:
+            # Reviewers see the level and the approval rate of the contributor (design Section 8.6).
+            contributor_reputation = reputation.compute(conn, int(row["contributor_account_id"]))
+            view["contributor_reputation"] = {"level": contributor_reputation.level, "approval_rate": contributor_reputation.approval_rate}
+        if review_help and row["submission_item_id"] is not None:
+            # Help for the decision of a reviewer (design Section 9.3 rule 2). The server never decides for a reviewer.
+            item = conn.execute("SELECT theme_id, match_score, routed_by FROM kb_submission_items WHERE id=?", (int(row["submission_item_id"]),)).fetchone()
+            others = [
+                {**_kb_ref(int(other["kb_id"])), "decision": contributions.decision_of(other), "reason": other["decision_reason"]}
+                for other in kb_collab.contributions_of_item(conn, int(row["submission_item_id"]))
+                if int(other["kb_id"]) != int(row["kb_id"])
+            ]
+            kb_score = None
+            signature = next((sig for sig in themes_store.load_signatures(conn) if int(sig["kb_id"]) == int(row["kb_id"])), None)
+            if signature is not None and row["document_id"]:
+                matcher = theme_judgement.DocumentMatcher.load(conn)
+                keys = theme_judgement.document_keys(conn, int(row["source_kb_id"]), str(row["source_document_id"])) if row["source_kb_id"] is not None else set()
+                kb_keys = {(str(e[0]), str(e[1])) for e in json.loads(signature["entities"] or "[]")}
+                kb_score = matcher.score(keys, kb_keys) if keys else None
+            view["review_help"] = {"other_decisions": others, "theme_score": None if item is None else item["match_score"], "routed_by": None if item is None else item["routed_by"], "kb_score": kb_score}
+        return view
+
+    def _run_merge_jobs_of(kb: KnowledgeBaseInfo) -> None:
+        """Run the merge jobs of K that wait, with the provider of the server (CT24): the pool gives the server context for a shared knowledge base without an acting account."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s), kb_id=kb.id)
+        finally:
+            conn.close()
+
+    async def kb_contribute_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions`` with ``{"document": "<document ID>"}``: a direct contribution of a document of the personal knowledge base of the requester (design Section 9.1). The merge job runs in this request; the answer has the state after it."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        document_id = body.get("document")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise HTTPException(status_code=400, detail="document_required")
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
+        origin = _public_origin(request)
+
+        def _contribute() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(int(principal.account_id))
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    # The reputation ``low`` makes the contribution wait for approval (design Section 8.6).
+                    approved, pending = contributions.direct_mode(conn, kb_id=kb.id, account_id=int(principal.account_id), is_reviewer=is_reviewer, is_admin=principal.server_role == "admin")
+                    row = contributions.contribute_direct(conn, kb_id=kb.id, source_kb_id=personal.id, source_document_id=document_id.strip(), contributor_account_id=int(principal.account_id), approved=approved, pending=pending)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return _contribution_error(exc, kb=kb, origin=origin)
+                conn.commit()
+                public_id = int(row["public_id"])
+            finally:
+                conn.close()
+            _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return JSONResponse({"ok": True, "contribution": _contribution_view(conn, kb_collab.get_contribution(conn, public_id) or row, full=True)}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_contribute)
+
+    async def kb_curations_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/curations`` with ``{"source": "<number of S>", "documents": [...]}``: a reviewer of K copies visible documents of another knowledge base S of a theme of K (design Section 9.7). Each document has its own result; the merge jobs run in this request."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not documents or not all(isinstance(d, str) and d.strip() for d in documents) or len(set(documents)) != len(documents):
+            raise HTTPException(status_code=400, detail="documents_invalid")
+        origin = _public_origin(request)
+
+        def _curate() -> JSONResponse:
+            try:
+                source_kb = theme_mgr.get_kb_by_number(ids.parse_public_id(str(body.get("source") or "")))
+            except (ValueError, KnowledgeBaseNotFound):
+                return JSONResponse({"error": "source_not_found"}, status_code=404)
+            results: list[dict[str, Any]] = []
+            made: dict[str, int] = {}
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    source = contributions.curation_source(conn, kb_id=kb.id, source_kb_id=source_kb.id)
+                except contributions.ContributionError as exc:
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                limit = contributions.read_limits(conn)["submission_max_documents"]
+                if len(documents) > limit:
+                    return JSONResponse({"error": "documents_invalid", "limit": limit}, status_code=400)
+                for document_id in (d.strip() for d in documents):
+                    try:
+                        row = contributions.curate(conn, kb_id=kb.id, source=source, document_id=document_id, curator_account_id=int(principal.account_id))
+                    except contributions.ContributionError as exc:
+                        conn.rollback()
+                        results.append({"document": document_id, **json.loads(_contribution_error(exc, kb=kb, origin=origin).body)})
+                        continue
+                    conn.commit()
+                    made[document_id] = int(row["public_id"])
+                    results.append({"document": document_id})
+            finally:
+                conn.close()
+            if made:
+                _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                for result in results:
+                    if result["document"] in made:
+                        row = kb_collab.get_contribution(conn, made[result["document"]])
+                        if row is not None:
+                            result["contribution"] = _contribution_view(conn, row, full=True)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True, "curations": results}, status_code=201 if made else 200)
+
+        return await asyncio.to_thread(_curate)
+
+    async def kb_forks_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/forks``: an active account forks a shared knowledge base into a new shared knowledge base (design Section 9.8). The copy runs in this request, without an LLM call and without a new embedding. A personal knowledge base that the requester reads gets 403 ``kb_fork_shared_only`` (CT15)."""
+        _require_multi_kb()
+        kb = _select_kb(request)
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if kb.is_personal:
+            return JSONResponse({"error": "kb_fork_shared_only"}, status_code=403)
+        decision = _kb_decide(request, kb, "fork")
+        if decision != "allow":
+            raise HTTPException(status_code=403 if decision == "forbidden" else 404, detail="kb_capability_required" if decision == "forbidden" else "theme not found")
+        account_id = int(principal.account_id)
+
+        def _fork() -> JSONResponse:
+            try:
+                fork = theme_mgr.define_kb(f"{kb.label} (fork)", description=kb.description, icon=kb.icon, account_id=account_id, knowledge_type=kb.knowledge_type, seed_entities=list(kb.seed_entities) or None)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    counts = contributions.fork_copy(conn, Path(s.data_dir), source_kb_id=kb.id, target_kb_id=fork.id, account_id=account_id)
+                    conn.commit()
+                except Exception as exc:  # noqa: BLE001 - a fork that did not complete must not stay as an empty knowledge base
+                    conn.rollback()
+                    _log_operation_failure(request, "kb fork", exc)
+                    conn.close()
+                    theme_mgr.delete_kb(fork.id, purge=True)
+                    return JSONResponse({"error": "fork_failed"}, status_code=500)
+            finally:
+                conn.close()
+            theme_mgr.reload()
+            _after_kb_founded(fork.id, account_id)
+            return JSONResponse({"ok": True, "knowledge_base": theme_mgr.get_kb(fork.id).to_dict(), "forked_from": ids.format_public_id(kb.number), **counts}, status_code=201)
+
+        return await asyncio.to_thread(_fork)
+
+    async def kb_contributions_route(request: Request) -> Response:
+        """``GET /kb/{number}/contributions``: the visible contributions for each reader; each state for a reviewer; the own contributions of the requester in each state."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
+        state = _collection_filter(request, "state", kb_collab.CONTRIBUTION_STATES)
+
+        def _list() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                items = []
+                for row in reversed(kb_collab.list_contributions(conn, kb.id, state=state)):
+                    own = principal.account_id is not None and row["contributor_account_id"] == principal.account_id
+                    if row["state"] == "visible" or is_reviewer or own:
+                        items.append(_contribution_view(conn, row, full=is_reviewer or own, review_help=is_reviewer))
+                if is_reviewer and state == "pending":
+                    # The review queue (design Section 8.6): the level ``good`` first, ``low`` last; in one level the oldest first.
+                    items.sort(key=lambda item: (reputation.queue_rank((item.get("contributor_reputation") or {}).get("level")), item["contributed_at"]))
+                return items
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_list)
+        return _collection_response(request, collection_url=f"{_public_origin(request)}{kb_base_path(kb.number)}contributions", items=items, extra={"contributions": items})
+
+    async def kb_contribution_withdraw_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/contributions/{contribution}``: the contributor withdraws while the contribution is not approved (CT7). After the approval: 409 ``contribution_approved``."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="contribution_not_found")
+
+        def _withdraw() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                contributions.withdraw(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id))
+            except contributions.ContributionError as exc:
+                return JSONResponse({"error": exc.code}, status_code=exc.status)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True})
+
+        return await asyncio.to_thread(_withdraw)
+
+    async def kb_contribution_review_route(request: Request) -> JSONResponse:
+        """``PATCH /kb/{number}/contributions/{contribution}`` (capability ``review``): ``{"action": "approve" | "reject" | "hide" | "unhide" | "stop_updates" | "restart_updates", "reason"?}``. A reject needs a reason code."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        body = await _json_object(request)
+        action = body.get("action")
+        if action not in _REVIEW_ACTIONS:
+            raise HTTPException(status_code=400, detail="action_invalid")
+        reason = body.get("reason", "")
+        actor = int(principal.account_id)
+
+        def _review() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    if action == "approve":
+                        contributions.approve(conn, kb_id=kb.id, contribution=number, account_id=actor)
+                    elif action == "reject":
+                        contributions.reject(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=actor, reason=reason)
+                    elif action in ("hide", "unhide"):
+                        contributions.set_hidden(conn, kb_id=kb.id, contribution=number, account_id=actor, hidden=action == "hide")
+                    else:
+                        contributions.set_updates_frozen(conn, kb_id=kb.id, contribution=number, account_id=actor, frozen=action == "stop_updates")
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                conn.commit()
+            finally:
+                conn.close()
+            if action == "approve":
+                _run_merge_jobs_of(kb)  # the approval of a pending contribution starts its merge job
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                return JSONResponse({"ok": True, "contribution": None if row is None else _contribution_view(conn, row, full=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_review)
+
+    async def kb_contribution_remove_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions/{contribution}/remove`` (capability ``remove``) with ``{"reason": "<code>"}``: purge the copy in K and leave a tombstone."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        body = await _json_object(request)
+
+        def _remove() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                contributions.remove(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id), reason=body.get("reason", ""))
+            except contributions.ContributionError as exc:
+                return JSONResponse({"error": exc.code}, status_code=exc.status)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True})
+
+        return await asyncio.to_thread(_remove)
+
+    async def kb_contribution_retry_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions/{contribution}/retry``: the contributor or a reviewer starts the merge job of a failed contribution again (design Section 9.1 step 3)."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
+
+        def _retry() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                if row is None or int(row["kb_id"]) != kb.id or not (is_reviewer or (principal.account_id is not None and row["contributor_account_id"] == principal.account_id)):
+                    return JSONResponse({"error": "contribution_not_found"}, status_code=404)
+                try:
+                    contributions.retry_merge(conn, contribution=number)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                conn.commit()
+            finally:
+                conn.close()
+            _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                return JSONResponse({"ok": True, "contribution": None if row is None else _contribution_view(conn, row, full=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_retry)
+
+    # --- Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.2 and 9.3) ---
+
+    def _kb_ref(kb_id: int) -> dict[str, Any]:
+        try:
+            kb = theme_mgr.get_kb(int(kb_id))
+        except KnowledgeBaseNotFound:
+            return {"knowledge_base": None, "label": None}
+        return {"knowledge_base": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label}
+
+    def _submission_view(conn: sqlite3.Connection, submission: dict[str, Any]) -> dict[str, Any]:
+        """One submission for its account: the theme, the score, and the state of each target of each item (design Section 9.2 rule 8)."""
+        items = []
+        for item in kb_collab.submission_items(conn, int(submission["public_id"])):
+            theme = themes_store.get_theme(conn, int(item["theme_id"])) if item["theme_id"] is not None else None
+            made = {int(c["kb_id"]): c for c in kb_collab.contributions_of_item(conn, int(item["id"]))}
+            reasons = {int(entry["kb_id"]): entry["reason"] for entry in item["skipped"]}
+            targets = []
+            for kb_id in item["target_kb_ids"]:
+                target = _kb_ref(kb_id)
+                if kb_id in made:
+                    target.update({"state": made[kb_id]["state"], "contribution": ids.format_public_id(int(made[kb_id]["public_id"])), "approved": made[kb_id]["approved_at"] is not None})
+                elif kb_id in reasons:
+                    target.update({"state": "skipped", "reason": reasons[kb_id]})
+                else:
+                    target.update({"state": "withdrawn"})  # the contributor deleted the pending contribution
+                targets.append(target)
+            view: dict[str, Any] = {
+                "document": item["source_document_id"],
+                "theme": None if theme is None else ids.format_public_id(int(theme["number"])),
+                "theme_label": None if theme is None else theme["label"],
+                "routed_by": item["routed_by"],
+                "score": item["match_score"],
+                "targets": targets,
+            }
+            if theme is None:
+                # No theme: the account selects a theme, contributes directly to a shared knowledge base where it is a member, or makes a shared knowledge base (Section 9.2 rule 3).
+                view["code"] = "no_theme"
+            items.append(view)
+        return {"number": ids.format_public_id(int(submission["public_id"])), "created_at": submission["created_at"], "items": items}
+
+    async def submissions_route(request: Request) -> Response:
+        """``POST /submissions`` with ``{"documents": [...], "theme"?: "<number>"}``: contribute documents of the personal knowledge base of the requester to themes. ``GET /submissions``: the submissions of the requester."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        account_id = int(principal.account_id)
+        if request.method != "POST":
+            def _list() -> list[dict[str, Any]]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return [_submission_view(conn, sub) for sub in kb_collab.list_submissions(conn, account_id)]
+                finally:
+                    conn.close()
+
+            items = await asyncio.to_thread(_list)
+            return _collection_response(request, collection_url=f"{_public_origin(request)}/submissions", items=items, extra={"submissions": items})
+        body = await _json_object(request)
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not all(isinstance(d, str) and d.strip() for d in documents):
+            raise HTTPException(status_code=400, detail="documents_invalid")
+
+        def _submit() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(account_id)
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme_id = None
+                if "theme" in body:
+                    try:
+                        theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(body["theme"])))
+                    except ValueError:
+                        theme = None
+                    if theme is None or theme["state"] != "active":
+                        return JSONResponse({"error": "theme_not_found"}, status_code=404)
+                    theme_id = int(theme["id"])
+                try:
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=principal.server_role == "admin", personal_kb_id=personal.id, documents=[d.strip() for d in documents], theme_id=theme_id)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code, **exc.extra}, status_code=exc.status)
+                conn.commit()
+                # A contribution of a reviewer needs no approval: its merge job runs now, with the provider of the server.
+                contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s))
+                return JSONResponse({"ok": True, "submission": _submission_view(conn, kb_collab.get_submission(conn, number) or {"public_id": number, "created_at": None})}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_submit)
+
+    async def submission_route(request: Request) -> JSONResponse:
+        """``GET /submissions/{number}``: one submission of the requester. A submission of another account gets 404."""
+        principal = request_principal(request)
+        try:
+            number = ids.parse_public_id(str(request.path_params.get("number") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="not found") from None
+
+        def _load() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                submission = kb_collab.get_submission(conn, number)
+                if submission is None or principal.account_id is None or submission["account_id"] != principal.account_id:
+                    return None
+                return _submission_view(conn, submission)
+            finally:
+                conn.close()
+
+        view = await asyncio.to_thread(_load)
+        if view is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return JSONResponse(view)
+
+    # --- Themes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2 to 8.4) ---
+
+    def _theme_view(conn: sqlite3.Connection, theme: dict[str, Any], *, origin: str, admin: bool = False) -> dict[str, Any]:
+        """One theme with its knowledge bases: the shared ones first, then the attached personal ones (design Section 8.4). ``admin``: also the excluded rows and the flags of the adjustments."""
+        number = ids.format_public_id(int(theme["number"]))
+        rows = themes_store.all_members(conn)
+        knowledge_bases = []
+        contributions_visible = 0
+        for member in rows:
+            if int(member["theme_id"]) != int(theme["id"]) or (member["excluded"] and not admin):
+                continue
+            try:
+                kb = theme_mgr.get_kb(int(member["kb_id"]))
+            except KnowledgeBaseNotFound:
+                continue
+            if kb.is_personal and not kb.is_public:
+                continue
+            owner_level = reputation.level(conn, int(kb.account_id)) if kb.is_personal and kb.account_id is not None else None
+            if owner_level is not None and not reputation.attaches_to_themes(owner_level) and not admin:
+                continue  # Section 8.6: the level ``low`` has no theme attachment
+            entry: dict[str, Any] = {"number": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label, "is_personal": kb.is_personal, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None}
+            if kb.is_shared and not member["excluded"]:
+                contributions_visible += len(kb_collab.list_contributions(conn, kb.id, state="visible"))
+            if owner_level is not None:
+                # Section 8.6: the level ``limited`` is listed after the others with a mark.
+                entry["limited"] = owner_level != "good"
+            if admin:
+                entry.update({"pinned": bool(member["pinned"]), "excluded": bool(member["excluded"]), "source": member["source"], "score": member["score"]})
+            knowledge_bases.append(entry)
+        knowledge_bases.sort(key=lambda e: (e["is_personal"], bool(e.get("limited")), e["label"]))
+        try:
+            top_entities = json.loads(theme["top_entities"] or "[]")
+        except ValueError:
+            top_entities = []
+        view = {
+            "number": number,
+            "url": f"{origin}/themes/{number}/",
+            "label": theme["label"],
+            "description": theme["description"],
+            "knowledge_type": theme["knowledge_type"],
+            "state": theme["state"],
+            "top_entities": top_entities,
+            "shared_knowledge_bases": sum(1 for e in knowledge_bases if not e["is_personal"] and not e.get("excluded")),
+            "visible_contributions": contributions_visible,
+            "last_activity_at": theme["last_activity_at"],
+            "knowledge_bases": knowledge_bases,
+        }
+        if admin:
+            view["label_locked"] = bool(theme["label_locked"])
+            view["computed_at"] = theme["computed_at"]
+        return view
+
+    def _theme_cards_html(views: list[dict[str, Any]]) -> str:
+        """The themes of a public page as cards: the label, the knowledge type, the counts, and the top entities."""
+        cards = []
+        for view in views:
+            entities = ", ".join(html.escape(str(name)) for name in view["top_entities"][:5])
+            items = "".join(
+                f'<li>{f"""<a href="{html.escape(kb["url"])}">{html.escape(kb["label"])}</a>""" if kb["url"] else html.escape(kb["label"])}'
+                f'<span class="themes-count">({html.escape(_t("themes.kb_personal") if kb["is_personal"] else _t("themes.kb_shared"))})</span></li>'
+                for kb in view["knowledge_bases"]
+            )
+            cards.append(
+                '<article class="account-card">'
+                '<div class="account-header">'
+                f'<a class="account-name" href="/themes/{html.escape(view["number"])}/">{html.escape(view["label"])}</a>'
+                f'<span class="badge">{html.escape(_t("themes.type_" + view["knowledge_type"]))} · {html.escape(_t("themes.counts", knowledge_bases=view["shared_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
+                "</div>"
+                + (f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{entities}</p>' if entities else "")
+                + (f'<ul class="themes-list">{items}</ul>' if items else "")
+                + "</article>"
+            )
+        return "".join(cards)
+
+    def _active_theme_views(*, origin: str, knowledge_type: str | None = None) -> list[dict[str, Any]]:
+        """The active themes, the one with the most recent activity first (design Section 8.4)."""
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            themes = [t for t in themes_store.list_themes(conn, knowledge_type=knowledge_type) if t["state"] == "active"]
+            themes.sort(key=lambda t: (-(t["last_activity_at"] or 0.0), -int(t["number"])))
+            return [_theme_view(conn, t, origin=origin) for t in themes]
+        finally:
+            conn.close()
+
+    async def theme_page_route(request: Request, number: int) -> Response:
+        """``/themes/{number}/``: the page of one theme, as HTML or as JSON (content negotiation of the namespace design Section 6.5)."""
+        origin = _public_origin(request)
+
+        def _load() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                theme = themes_store.get_theme_by_number(conn, number)
+                return None if theme is None or theme["state"] != "active" else _theme_view(conn, theme, origin=origin)
+            finally:
+                conn.close()
+
+        view = await asyncio.to_thread(_load)
+        if view is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if not collections.wants_html(request):
+            return JSONResponse(view)
+        template_text = (Path(__file__).resolve().parent.parent / "templates" / "explore_accounts.html").read_text(encoding="utf-8")
+        rendered = string.Template(template_text).substitute(
+            title=html.escape(view["label"]),
+            html_lang=get_locale(),
+            nav_label=html.escape(_t("themes.nav_label")),
+            subtitle=html.escape(_t("themes.page_subtitle", type=_t("themes.type_" + view["knowledge_type"]))),
+            nav_auth=f'<a href="/themes">{html.escape(_t("themes.all"))}</a>',
+            content=_theme_cards_html([view]),
+            pagination="",
+        )
+        return HTMLResponse(inject_favicon_head_tags(rendered))
+
+    def _admin_themes_payload(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:
+        last = conn.execute("SELECT value FROM server_settings WHERE key=?", (theme_judgement.LAST_RUN_KEY,)).fetchone()
+        return {
+            "settings": theme_judgement.read_settings(conn),
+            "last_run_at": float(last[0]) if last is not None else None,
+            "themes": [_theme_view(conn, t, origin=origin, admin=True) for t in themes_store.list_themes(conn, include_merged=True)],
+            # Design Section 9.3 rule 5: the agreement of the decisions of each shared knowledge base with the majority of the others.
+            "decision_agreement": [{**_kb_ref(entry["kb_id"]), "decisions": entry["decisions"], "agreement": entry["agreement"]} for entry in contributions.decision_agreement(conn)],
+        }
+
+    def _admin_theme_of_path(conn: sqlite3.Connection, request: Request, name: str = "number") -> dict[str, Any]:
+        try:
+            theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(request.path_params.get(name) or "")))
+        except ValueError:
+            theme = None
+        if theme is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        return theme
+
+    async def admin_themes_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/themes``: each theme with its members and adjustments, the thresholds, and the time of the last run. ``POST``: the admin makes a theme (the split of design Section 8.3: then it pins knowledge bases to it)."""
+        origin = _public_origin(request)
+        body = await _json_object(request) if request.method == "POST" else {}
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if request.method == "POST":
+                    label, knowledge_type = body.get("label"), body.get("knowledge_type")
+                    if not isinstance(label, str) or not label.strip():
+                        return JSONResponse({"error": "label_required"}, status_code=400)
+                    if knowledge_type not in themes_store.KNOWLEDGE_TYPES:
+                        return JSONResponse({"error": "knowledge_type_required"}, status_code=400)
+                    theme = themes_store.create_theme(conn, label=label.strip(), knowledge_type=knowledge_type)
+                    themes_store.update_theme(conn, int(theme["id"]), label_locked=1)
+                    conn.commit()
+                    return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)}, status_code=201)
+                return JSONResponse(_admin_themes_payload(conn, origin=origin))
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_themes_settings_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/themes/settings``: the thresholds of the judgement (CT25): ``theme_match_threshold``, ``document_match_threshold``, ``seed_match_threshold``, each from 0 to 1."""
+        body = await _json_object(request)
+        principal = request_principal(request)
+        unknown = set(body) - set(theme_judgement.SETTINGS)
+        if unknown or not body:
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    for key, value in body.items():
+                        theme_judgement.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400)
+                conn.commit()
+                return JSONResponse({"ok": True, "settings": theme_judgement.read_settings(conn)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    # --- Automatic contribution and mutual collaboration (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.9, 9.10) ---
+
+    def _run_all_merge_jobs() -> None:
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s))
+        finally:
+            conn.close()
+
+    def _auto_run_all() -> int:
+        """A run of each active rule, and the merge jobs of the new contributions. For the events of design Section 9.9 rule 4."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            made = auto_contribution.run_all(conn)
+        finally:
+            conn.close()
+        if made:
+            _run_all_merge_jobs()
+        return made
+
+    def _account_id_of(request: Request) -> int:
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return int(principal.account_id)
+
+    def _rule_view(conn: sqlite3.Connection, rule: dict[str, Any] | None) -> dict[str, Any] | None:
+        if rule is None:
+            return None
+        themes = [themes_store.get_theme(conn, theme_id) for theme_id in rule["theme_ids"]]
+        return {
+            "state": rule["state"],
+            "memberships": bool(rule["to_memberships"]),
+            "mutual": bool(rule["to_mutual"]),
+            "include_uploads": bool(rule["include_uploads"]),
+            "themes": [{"number": ids.format_public_id(int(t["number"])), "label": t["label"]} for t in themes if t is not None],
+            "activated_at": rule["activated_at"],
+        }
+
+    def _rule_from_body(conn: sqlite3.Connection, body: dict[str, Any]) -> dict[str, Any]:
+        """The rule that a body gives: ``{"state": "active" | "paused", "memberships", "mutual", "include_uploads": bool, "themes": ["<number>", ...]}``. Each field is required: there is no default for a rule that sends documents."""
+        if set(body) != {"state", "memberships", "mutual", "include_uploads", "themes"} or body["state"] not in ("active", "paused"):
+            raise HTTPException(status_code=400, detail="rule_invalid")
+        if not all(isinstance(body[name], bool) for name in ("memberships", "mutual", "include_uploads")) or not isinstance(body["themes"], list):
+            raise HTTPException(status_code=400, detail="rule_invalid")
+        theme_ids = []
+        for number in body["themes"]:
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(number)))
+            except ValueError:
+                theme = None
+            if theme is None or theme["state"] != "active":
+                raise HTTPException(status_code=404, detail="theme_not_found")
+            theme_ids.append(int(theme["id"]))
+        return {"state": body["state"], "to_memberships": body["memberships"], "to_mutual": body["mutual"], "include_uploads": body["include_uploads"], "theme_ids": sorted(set(theme_ids))}
+
+    def _is_wider(new: dict[str, Any], old: dict[str, Any] | None) -> bool:
+        """True when the new rule turns on, or sends to more targets or more documents than the old rule (design Section 9.9 rule 6)."""
+        if new["state"] != "active":
+            return False
+        if old is None or old["state"] != "active":
+            return True
+        return any(new[name] and not old[name] for name in ("to_memberships", "to_mutual", "include_uploads")) or bool(set(new["theme_ids"]) - set(old["theme_ids"]))
+
+    async def auto_rule_route(request: Request) -> Response:
+        """``GET /api/auto-rule``: the automatic rule of the requester and the server switch. ``PUT``: set the rule. To turn the rule on or to make it wider needs an ``owner`` session with a recent sign-in."""
+        account_id = _account_id_of(request)
+        if request.method != "PUT":
+            def _load() -> dict[str, Any]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return {"server_switch": auto_contribution.switch_on(conn), "rule": _rule_view(conn, kb_collab.get_auto_rule(conn, account_id))}
+                finally:
+                    conn.close()
+
+            return JSONResponse(await asyncio.to_thread(_load))
+        body = await _json_object(request)
+        principal = request_principal(request)
+
+        def _save() -> Response:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                rule = _rule_from_body(conn, body)
+                if _is_wider(rule, kb_collab.get_auto_rule(conn, account_id)):
+                    refused = step_up_response(principal)
+                    if refused is not None:
+                        return refused
+                kb_collab.save_auto_rule(conn, account_id=account_id, **rule)
+                conn.commit()
+                made = auto_contribution.run_account(conn, account_id)  # rule 4: when the rule is turned on
+                view = _rule_view(conn, kb_collab.get_auto_rule(conn, account_id))
+                switch = auto_contribution.switch_on(conn)
+            finally:
+                conn.close()
+            if made:
+                _run_all_merge_jobs()
+            return JSONResponse({"ok": True, "server_switch": switch, "rule": view, "contributions": made})
+
+        return await asyncio.to_thread(_save)
+
+    async def auto_rule_dry_run_route(request: Request) -> JSONResponse:
+        """``POST /api/auto-rule/dry-run`` with the body of a rule: the documents that the rule would send now to each target (design Section 9.9 rule 6). It writes nothing."""
+        account_id = _account_id_of(request)
+        body = await _json_object(request)
+
+        def _plan() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                rule = _rule_from_body(conn, body)
+                targets = [{**_kb_ref(t["kb_id"]), "mode": t["mode"], "documents": t["documents"]} for t in auto_contribution.plan(conn, account_id, rule)]
+                return {"server_switch": auto_contribution.switch_on(conn), "targets": targets}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_plan))
+
+    async def auto_contributions_route(request: Request) -> Response:
+        """``GET /api/auto-contributions``: each automatic contribution of the requester, the newest first."""
+        account_id = _account_id_of(request)
+
+        def _list() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin="auto")]
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_list)
+        return _collection_response(request, collection_url=f"{_public_origin(request)}/api/auto-contributions", items=items, extra={"contributions": items})
+
+    async def contribution_blocks_route(request: Request) -> JSONResponse:
+        """``GET /api/contribution-blocks``: the documents of the requester with the flag "never contribute"."""
+        account_id = _account_id_of(request)
+
+        def _list() -> list[str]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return sorted(kb_collab.contribution_blocks(conn, account_id))
+            finally:
+                conn.close()
+
+        return JSONResponse({"documents": await asyncio.to_thread(_list)})
+
+    async def contribution_block_route(request: Request) -> JSONResponse:
+        """``PUT`` / ``DELETE /api/contribution-blocks/{document}``: set or remove the flag "never contribute" of a document of the personal knowledge base of the requester."""
+        account_id = _account_id_of(request)
+        document_id = str(request.path_params.get("document") or "")
+
+        def _set() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(account_id)
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=?", (document_id, personal.id)).fetchone() is None:
+                    return JSONResponse({"error": "document_not_found"}, status_code=404)
+                kb_collab.set_contribution_block(conn, account_id=account_id, document_id=document_id, blocked=request.method == "PUT")
+                conn.commit()
+                return JSONResponse({"ok": True, "document": document_id, "blocked": request.method == "PUT"})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_set)
+
+    def _mutual_view(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
+        out = []
+        store = accounts_store.AccountStore(conn)
+        for row in kb_collab.mutual_rows(conn, account_id):
+            try:
+                other = store.get(int(row["account_id"]))
+            except accounts_store.AccountNotFound:
+                continue
+            out.append({"account": ids.format_public_id(other.public_id), "display_name": other.display_name, "state": row["state"], "requested_by_me": row["requested_by_me"], "created_at": row["created_at"], "decided_at": row["decided_at"]})
+        return out
+
+    def _other_account(conn: sqlite3.Connection, reference: Any, account_id: int) -> int | None:
+        """The active account that a public number names, when it is not the requester."""
+        try:
+            other = accounts_store.AccountStore(conn).find_by_public_id(ids.parse_public_id(str(reference or "")))
+        except ValueError:
+            return None
+        return int(other.id) if other is not None and other.status == "active" and int(other.id) != account_id else None
+
+    async def mutual_collaborations_route(request: Request) -> Response:
+        """``GET /api/mutual-collaborations``: the mutual collaborations and requests of the requester. ``POST`` with ``{"account": "<number>"}``: request one (a recent sign-in)."""
+        account_id = _account_id_of(request)
+        if request.method != "POST":
+            def _list() -> list[dict[str, Any]]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return _mutual_view(conn, account_id)
+                finally:
+                    conn.close()
+
+            return JSONResponse({"mutual_collaborations": await asyncio.to_thread(_list)})
+        body = await _json_object(request)
+        refused = step_up_response(request_principal(request))
+        if refused is not None:
+            return refused
+
+        def _request() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                other = _other_account(conn, body.get("account"), account_id)
+                if other is None:
+                    return JSONResponse({"error": "account_not_found"}, status_code=404)
+                try:
+                    kb_collab.request_mutual(conn, requester=account_id, other=other)
+                except ValueError:
+                    return JSONResponse({"error": "mutual_exists"}, status_code=409)
+                conn.commit()
+                return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_request)
+
+    async def mutual_collaboration_route(request: Request) -> Response:
+        """``PUT /api/mutual-collaborations/{account}``: accept the request of that account (a recent sign-in). ``DELETE``: end the mutual collaboration, or remove the request. The end does not change roles that it gave (design Section 9.10 rule 3)."""
+        account_id = _account_id_of(request)
+        accept = request.method == "PUT"
+        if accept:
+            refused = step_up_response(request_principal(request))
+            if refused is not None:
+                return refused
+
+        def _change() -> tuple[JSONResponse, bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                other = _other_account(conn, request.path_params.get("account"), account_id)
+                changed = other is not None and (kb_collab.accept_mutual(conn, account_id=account_id, other=other) if accept else kb_collab.end_mutual(conn, account_id, other))
+                if not changed:
+                    return JSONResponse({"error": "mutual_not_found"}, status_code=404), False
+                conn.commit()
+                made = 0
+                if accept:
+                    # Section 9.9 rule 4: when a mutual collaboration starts, the rules of the two accounts run.
+                    made = auto_contribution.run_account(conn, account_id) + auto_contribution.run_account(conn, int(other))
+                return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}), bool(made)
+            finally:
+                conn.close()
+
+        def _work() -> JSONResponse:
+            response, made = _change()
+            if made:
+                _run_all_merge_jobs()
+            return response
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_auto_contribution_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/auto-contribution``: the server switch and its settings. ``PUT`` with ``{"state": "on" | "off"}`` and the settings ``auto_match_threshold``, ``auto_run_documents``. While the switch is off, no run starts and each rule keeps its settings."""
+        principal = request_principal(request)
+        body = await _json_object(request) if request.method == "PUT" else {}
+        if request.method == "PUT" and (not body or set(body) - {"state", *auto_contribution.SETTINGS} or ("state" in body and body["state"] not in ("on", "off"))):
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> tuple[JSONResponse, bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                turned_on = False
+                try:
+                    for key, value in body.items():
+                        if key == "state":
+                            turned_on = value == "on" and not auto_contribution.switch_on(conn)
+                            auto_contribution.set_switch(conn, value == "on", updated_by=principal.account_id)
+                        else:
+                            auto_contribution.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400), False
+                conn.commit()
+                return JSONResponse({"ok": True, "state": "on" if auto_contribution.switch_on(conn) else "off", "settings": auto_contribution.read_settings(conn)}), turned_on
+            finally:
+                conn.close()
+
+        def _run() -> JSONResponse:
+            response, turned_on = _work()
+            if turned_on:
+                _auto_run_all()
+            return response
+
+        return await asyncio.to_thread(_run)
+
+    # --- Reputation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6) ---
+
+    async def reputation_route(request: Request) -> JSONResponse:
+        """``GET /api/reputation``: the account sees its level, its signals, and each fiction-like document that counts, with its matched theme. No other account sees it."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        account_id = int(principal.account_id)
+
+        def _load() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                current = reputation.refresh(conn, account_id)
+                conn.commit()
+                documents = []
+                for document_id in current.fiction_like_documents:
+                    match = themes_store.get_document_match(conn, document_id)
+                    theme = themes_store.get_theme(conn, int(match["theme_id"])) if match is not None and match["theme_id"] is not None else None
+                    title = conn.execute("SELECT title FROM documents WHERE id=?", (document_id,)).fetchone()
+                    documents.append({"document": document_id, "title": None if title is None else title[0], "theme": None if theme is None else ids.format_public_id(int(theme["number"])), "theme_label": None if theme is None else theme["label"]})
+                return {**current.to_dict(), "documents": documents}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_load))
+
+    async def admin_reputations_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/reputations``: the admin sees the level of each active account, and the settings."""
+
+        def _load() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                rows = []
+                for account in conn.execute("SELECT id, public_id, display_name FROM accounts WHERE status='active' ORDER BY id").fetchall():
+                    current = reputation.refresh(conn, int(account["id"]))
+                    rows.append({"account": ids.format_public_id(int(account["public_id"])), "display_name": account["display_name"], **current.to_dict()})
+                conn.commit()
+                return {"settings": reputation.read_settings(conn), "accounts": rows}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_load))
+
+    async def admin_reputation_settings_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/reputations/settings``: the numbers of the reputation (the keys of ``reputation.SETTINGS``)."""
+        body = await _json_object(request)
+        principal = request_principal(request)
+        if not body or set(body) - set(reputation.SETTINGS):
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    for key, value in body.items():
+                        reputation.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400)
+                conn.commit()
+                return JSONResponse({"ok": True, "settings": reputation.read_settings(conn)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_themes_judge_route(request: Request) -> JSONResponse:
+        """``POST /api/admin/themes/judge``: the admin starts a run of the judgement (design Section 8.2 rule 10)."""
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                report = theme_judgement.run_judgement(conn)
+                conn.commit()
+            finally:
+                conn.close()
+            _auto_run_all()  # design Section 9.9 rule 4: after each judgement run
+            return JSONResponse({"ok": True, "report": dataclasses.asdict(report)})
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_route(request: Request) -> JSONResponse:
+        """``PATCH /api/admin/themes/{number}``: ``{"label": "..."}`` renames the theme and locks the label; ``{"label_locked": false}`` gives the label back to the judgement (design Section 8.3)."""
+        body = await _json_object(request)
+        origin = _public_origin(request)
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme = _admin_theme_of_path(conn, request)
+                changes: dict[str, Any] = {}
+                if "label" in body:
+                    if not isinstance(body["label"], str) or not body["label"].strip():
+                        return JSONResponse({"error": "label_invalid"}, status_code=400)
+                    changes.update({"label": body["label"].strip(), "label_locked": 1})
+                if "label_locked" in body:
+                    if not isinstance(body["label_locked"], bool):
+                        return JSONResponse({"error": "label_locked_invalid"}, status_code=400)
+                    changes["label_locked"] = 1 if body["label_locked"] else 0
+                if not changes:
+                    return JSONResponse({"error": "label_required"}, status_code=400)
+                themes_store.update_theme(conn, int(theme["id"]), **changes)
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_member_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/themes/{number}/knowledge-bases/{kb}`` with ``{"membership": "pinned" | "excluded" | "computed"}`` (design Section 8.3): pin a knowledge base to the theme, exclude it from the theme, or give the decision back to the judgement."""
+        body = await _json_object(request)
+        membership = body.get("membership")
+        if membership not in ("pinned", "excluded", "computed"):
+            raise HTTPException(status_code=400, detail="membership_invalid")
+        origin = _public_origin(request)
+        try:
+            kb = theme_mgr.get_kb_by_reference(request.path_params.get("kb"))
+        except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found") from None
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme = _admin_theme_of_path(conn, request)
+                if theme["state"] == "merged":
+                    return JSONResponse({"error": "theme_merged"}, status_code=409)
+                if membership == "pinned" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+                    # A theme has one knowledge type (CT18).
+                    return JSONResponse({"error": "knowledge_type_mismatch"}, status_code=409)
+                themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=membership == "pinned", excluded=membership == "excluded")
+                if membership == "pinned":
+                    themes_store.update_theme(conn, int(theme["id"]), state="active")
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_merge_route(request: Request) -> JSONResponse:
+        """``POST /api/admin/themes/{number}/merge`` with ``{"into": "<number>"}`` (design Section 8.3): the theme gets the state ``merged``, its members are pinned to the other theme, and its page gives 308 to the other theme."""
+        body = await _json_object(request)
+        origin = _public_origin(request)
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                source = _admin_theme_of_path(conn, request)
+                try:
+                    target = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(body.get("into") or "")))
+                except ValueError:
+                    target = None
+                if target is None:
+                    return JSONResponse({"error": "into_invalid"}, status_code=400)
+                try:
+                    themes_store.merge_themes(conn, source_id=int(source["id"]), target_id=int(target["id"]))
+                except ValueError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": str(exc)}, status_code=409)
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(target["id"])) or target, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
 
     def _load_server_tier_payload() -> dict[str, Any]:
         """Read current ServerTier configuration for /providers responses."""
@@ -1417,8 +2718,11 @@ def create_app(
             item = dict(t)
             item["token_masked"] = masked
             del item["token"]
+            item.pop("scope_notice", None)
             sanitized.append(item)
-        return JSONResponse({"tokens": sanitized})
+        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 rule 2: the tokens whose scope ``collaborator`` became ``readonly`` are listed once.
+        notices = store.take_scope_notices(target_account_id) if request.method == "GET" else []
+        return JSONResponse({"tokens": sanitized, "scope_notices": notices})
 
     async def tokens_create_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -1482,33 +2786,17 @@ def create_app(
 
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
-        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus:
-            from ..telegram_bot import parse_message_focus
+        # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
+        from ..telegram_bot import parse_message_focus
 
-            payload, parsed_focus = parse_message_focus(payload)
-            if parsed_focus:
-                focus = parsed_focus
-            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                focus = theme.default_focus.strip() or None
+        payload, _sealed_focus = parse_message_focus(payload)
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
@@ -1523,8 +2811,6 @@ def create_app(
             ingest_kwargs["effort"] = effort
         if format_arg is not None:
             ingest_kwargs["format"] = format_arg
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(
                 theme_svc.ingest,
@@ -1541,7 +2827,7 @@ def create_app(
                 status_code=500,
             )
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         return JSONResponse(rep_dict)
 
@@ -1562,12 +2848,8 @@ def create_app(
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
         body = await _json_object(request)
-        # ``theme`` is a theme reference, as for ``POST /ingest``. ``theme_id`` is the name of the design; the two are the same value.
-        if body.get("theme") is None and body.get("theme_id") is not None:
-            body["theme"] = body["theme_id"]
-        if body.get("theme") is None or not str(body["theme"]).strip():
-            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        # Ingest writes only to the personal knowledge base of the caller (design Section 5.2 rule 3). A ``theme`` or ``kb_id`` field is ignored.
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         # The owner must be able to write to the theme: the theme is of the account of the caller.
         if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
@@ -1583,12 +2865,7 @@ def create_app(
         item = await asyncio.to_thread(_load)
         if item is None:
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
         ingest_kwargs: dict[str, Any] = {"source": "federation"}
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(theme_svc.ingest, item.url or item.object_iri, **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -1597,7 +2874,7 @@ def create_app(
             _log_operation_failure(request, "federation_timeline_ingest", exc)
             return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         document_id = getattr(report, "document_id", None)
         if document_id and not getattr(report, "error", None):
@@ -1605,15 +2882,15 @@ def create_app(
             def _link() -> None:
                 client = client_db.connect_client_existing(client_path)
                 try:
-                    federation_client_store.link_timeline_item(client, account_id, item.id, theme_id=theme.id, doc_id=str(document_id))
+                    federation_client_store.link_timeline_item(client, account_id, item.id, kb_id=theme.id, doc_id=str(document_id))
                     # Merge by URL (unit FP4-F3): a feed item with the address of this post gets the link too.
-                    feeds_store.link_by_url(client, account_id, [item.url, item.object_iri], theme_id=theme.id, doc_id=str(document_id), timeline=False)
+                    feeds_store.link_by_url(client, account_id, [item.url, item.object_iri], kb_id=theme.id, doc_id=str(document_id), timeline=False)
                     client.commit()
                 finally:
                     client.close()
 
             await asyncio.to_thread(_link)
-            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+            rep_dict["linked"] = {"kb_id": theme.id, "document_id": str(document_id)}
         else:
             rep_dict["linked"] = None
         return JSONResponse(rep_dict)
@@ -1633,12 +2910,9 @@ def create_app(
         raw_id = request.path_params["item_id"]
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        body = await _json_object(request)
-        if body.get("theme") is None and body.get("theme_id") is not None:
-            body["theme"] = body["theme_id"]
-        if body.get("theme") is None or not str(body["theme"]).strip():
-            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        await _json_object(request)
+        # Ingest writes only to the personal knowledge base of the caller (design Section 5.2 rule 3). A ``theme`` or ``kb_id`` field is ignored.
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
         client_path = client_db.client_db_path(s.db_file)
@@ -1656,12 +2930,7 @@ def create_app(
         # The URL ingest needs an address. An item without a link stays in the feed only.
         if not item["url"]:
             return JSONResponse({"error": "item_without_url"}, status_code=409)
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
         ingest_kwargs: dict[str, Any] = {"source": "feed"}
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(theme_svc.ingest, item["url"], **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -1670,7 +2939,7 @@ def create_app(
             _log_operation_failure(request, "feed_item_ingest", exc)
             return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         document_id = getattr(report, "document_id", None)
         if document_id and not getattr(report, "error", None):
@@ -1678,14 +2947,14 @@ def create_app(
             def _link() -> None:
                 client = client_db.connect_client_existing(client_path)
                 try:
-                    feeds_store.link_item(client, account_id, item["id"], theme_id=theme.id, doc_id=str(document_id))
-                    feeds_store.link_by_url(client, account_id, [item["url"]], theme_id=theme.id, doc_id=str(document_id), timeline=True)
+                    feeds_store.link_item(client, account_id, item["id"], kb_id=theme.id, doc_id=str(document_id))
+                    feeds_store.link_by_url(client, account_id, [item["url"]], kb_id=theme.id, doc_id=str(document_id), timeline=True)
                     client.commit()
                 finally:
                     client.close()
 
             await asyncio.to_thread(_link)
-            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+            rep_dict["linked"] = {"kb_id": theme.id, "document_id": str(document_id)}
         else:
             rep_dict["linked"] = None
         return JSONResponse(rep_dict)
@@ -1694,25 +2963,11 @@ def create_app(
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="target or payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
@@ -1722,7 +2977,7 @@ def create_app(
             def _lift():
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    return dbm.remove_tombstones(conn, target=target, theme_id=theme.id)
+                    return dbm.remove_tombstones(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
             await asyncio.to_thread(_lift)
@@ -1730,7 +2985,7 @@ def create_app(
         def _run() -> Any:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -1744,7 +2999,6 @@ def create_app(
                     force=True,
                     effort=effort,
                     format=format_arg,
-                    focus=focus,
                 )
                 t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
                 return {
@@ -1758,8 +3012,7 @@ def create_app(
                     "relations_added": t_info.get("relations_added", 0),
                     "full_content": full_content,
                     "effort": effort,
-                    "focus": focus,
-                    "theme_id": theme.id,
+                    "kb_id": theme.id,
                     "theme_label": theme.label,
                 }
             else:
@@ -1773,11 +3026,9 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                if focus is not None:
-                    ingest_kwargs["focus"] = focus
                 rep = theme_svc.ingest(target, **ingest_kwargs)
                 rep_dict = report_to_dict(rep)
-                rep_dict["theme_id"] = theme.id
+                rep_dict["kb_id"] = theme.id
                 rep_dict["theme_label"] = theme.label
                 return rep_dict
 
@@ -1799,38 +3050,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        theme_ref = _extract_theme_ref(request, body)
-        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets,
-                target=target or None,
-                doc_id=doc_id,
-                token=token,
-            )
-            live = _first_live_target(targets)
-            if live is not None:
-                cand_theme = live[1]
-                if cand_theme.id != theme.id:
-                    try:
-                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
-                            theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
-                            theme_svc = service_pool.get_service(theme.id)
-                    except Exception:
-                        pass
-
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False
@@ -1865,9 +3084,6 @@ def create_app(
         refetch_full = bool(body.get("refetch_full", False))
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         def _run() -> Any:
             res = theme_svc.regenerate_components(
@@ -1883,10 +3099,9 @@ def create_app(
                 force=force,
                 effort=effort,
                 format=format_arg,
-                focus=focus,
             )
             if isinstance(res, dict) and theme.id != 0:
-                res["theme_id"] = theme.id
+                res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
             return res
 
@@ -1917,7 +3132,7 @@ def create_app(
             principal.account_id is not None
             and getattr(theme, "account_id", None) is not None
             and principal.account_id != theme.account_id
-        )
+        ) or (theme.is_shared and _kb_decide(request, theme, "review") != "allow")
         include_hidden = (scope != "anonymous") and not is_cross_account
         requested_mode = str(body.get("mode") or "").strip().lower()
         if scope == "anonymous" or is_cross_account:
@@ -1925,7 +3140,7 @@ def create_app(
             limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
             summarize = False
             runner = _run_anonymous_search
-        elif scope in {"owner", "collaborator", "readonly"}:
+        elif scope in {"owner", "write", "readonly"}:
             if requested_mode == "fts":
                 mode = "fts"
                 limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
@@ -1960,7 +3175,7 @@ def create_app(
                 "query": result.query,
                 "mode": mode,
                 "answer": result.answer,
-                "theme_id": theme.id,
+                "kb_id": theme.id,
                 "theme_label": theme.label,
                 "hits": [
                     {
@@ -1979,14 +3194,14 @@ def create_app(
         from ..store.queries import graph_json
 
         _graph_json = _resolve_query_func("graph_json", graph_json)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                g = _graph_json(conn, include_hidden=include_hidden, theme_id=theme.id, **_entity_language_kwargs(request))
-                g["theme_id"] = theme.id
+                g = _graph_json(conn, include_hidden=include_hidden, kb_id=theme.id, **_entity_language_kwargs(request))
+                g["kb_id"] = theme.id
                 g["theme_label"] = theme.label
                 return g
             finally:
@@ -2004,6 +3219,10 @@ def create_app(
             ns = request_namespace(request)
         except Exception:
             ns = None
+
+        if ns is not None and ns.account_id is None and ns.pinned_kb_id is None and ns.prefix.startswith("/themes/"):
+            # ``/themes/{number}/``: the page of a theme. The namespace middleware checked that the number is an active theme.
+            return await theme_page_route(request, int(ns.prefix[len("/themes/"):]))
 
         if ns is not None and ns.mode == "network" and not ns.via_prefix:
             params = request.query_params
@@ -2076,11 +3295,10 @@ def create_app(
             visible_scope = "anonymous"
         else:
             visible_scope = scope
-        include_private = visible_scope in {"owner", "readonly"}
-        is_collaborator = visible_scope == "collaborator"
+        include_private = visible_scope in {"owner", "write", "readonly"}
         theme = None
 
-        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_theme_id is not None):
+        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_kb_id is not None):
             try:
                 theme, _, _ = _get_theme_ctx(request)
             except HTTPException:
@@ -2090,7 +3308,6 @@ def create_app(
         html_text = render_graph_html(
             s,
             include_private=include_private,
-            collaborator=is_collaborator,
             theme=theme,
             host=request.headers.get("host"),
             request=request,
@@ -2098,7 +3315,7 @@ def create_app(
         )
         # The profile page of a federation actor points to the actor ID (Fedify sidecar design Section 5.1 rule 2). The path has no content negotiation.
         headers: dict[str, str] = {}
-        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_theme_id is None:
+        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_kb_id is None:
             actor_url = await asyncio.to_thread(_profile_actor_url, account_id)
             if actor_url is not None:
                 link_tag = f'<link rel="alternate" type="application/activity+json" href="{html.escape(actor_url, quote=True)}">'
@@ -2123,7 +3340,7 @@ def create_app(
             return None
         return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
 
-    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, ThemeInfo | None]:
+    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, KnowledgeBaseInfo | None]:
         try:
             ns = request_namespace(request)
         except Exception:
@@ -2132,8 +3349,7 @@ def create_app(
         if ns is not None and ns.mode == "network" and principal.account_id is None:
             raise HTTPException(status_code=404, detail="not found")
         scope = request_auth_scope(request)
-        include_private = scope in {"owner", "readonly"}
-        is_collaborator = scope == "collaborator"
+        include_private = scope in {"owner", "write", "readonly"}
         theme = None
         if getattr(s, "multi_theme", False):
             try:
@@ -2141,23 +3357,22 @@ def create_app(
                 if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
                     theme = None
             except HTTPException:
-                # 명시한 테마가 없거나 접근할 수 없으면 404다 (첫 테마로 바꿔 보여 주지 않는다)
-                if _extract_theme_ref(request) is not None:
+                # A given ``kb`` that is not there or not readable is 404 (no other knowledge base is shown in its place).
+                if request.query_params.get("kb") is not None:
                     raise
                 theme = None
             except Exception:
                 theme = None
-        return scope, include_private, is_collaborator, theme
+        return scope, include_private, theme
 
     async def syndication_ui_route(request: Request) -> HTMLResponse:
         from ..graphview import render_syndication_html
 
-        scope, include_private, is_collaborator, theme = _resolve_syndication_ui_context(request)
+        scope, include_private, theme = _resolve_syndication_ui_context(request)
         return HTMLResponse(
             render_syndication_html(
                 s,
                 include_private=include_private,
-                collaborator=is_collaborator,
                 theme=theme,
                 host=request.headers.get("host"),
                 auth_scope=scope,
@@ -2168,11 +3383,15 @@ def create_app(
     async def syndication_preferences_ui_route(request: Request) -> Response:
         """D4 호환 302: 옛 ``/syndication/preferences?tab=``를 ``/settings/*``(또는 관리자의 ``/admin/*``)로 보낸다 (설계 §2.2).
 
-        ``?theme=``를 먼저 엄격히 검증한다(없거나 접근할 수 없으면 404, C1). 모르는 ``?tab=``도 404다. ``/settings/*``는 루트 경로라 위치에 ``/@USERNAME``을 붙이지 않는다(D1, S9).
+        ``?kb=``(번호)가 있으면 먼저 엄격히 검증한다(없거나 접근할 수 없으면 404, C1). 모르는 ``?tab=``도 404다. ``/settings/*``는 루트 경로라 위치에 ``/@USERNAME``을 붙이지 않는다(D1, S9).
         """
         theme_query: str | None = None
-        if _extract_theme_ref(request) is not None:
+        raw_kb = request.query_params.get("kb")
+        if raw_kb is not None:
             theme, _, _ = _get_theme_ctx(request)
+            # The settings are of the account of the caller: a knowledge base of another account is 404 (C1).
+            if theme.account_id != request_principal(request).account_id:
+                raise HTTPException(status_code=404, detail="theme not found")
             theme_query = ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
         tab = request.query_params.get("tab") if "tab" in request.query_params else None
         principal = request_principal(request)
@@ -2182,12 +3401,12 @@ def create_app(
         elif tab in _LEGACY_PREFS_SETTINGS_TABS:
             target = _LEGACY_PREFS_SETTINGS_TABS[tab]
         elif tab in _LEGACY_PREFS_ACCOUNT_TABS:
-            # 관리자 화면은 테마와 무관하다. ?theme=를 넘기지 않는다.
+            # 관리자 화면은 테마와 무관하다. ?kb=를 넘기지 않는다.
             target = _LEGACY_PREFS_ACCOUNT_TABS[tab] if caller_is_admin else "/settings/account"
             theme_query = None
         else:
             raise HTTPException(status_code=404, detail="unknown preferences tab")
-        location = f"{target}?{urlencode({'theme': theme_query})}" if theme_query else target
+        location = f"{target}?{urlencode({'kb': theme_query})}" if theme_query else target
         return Response(
             status_code=302,
             headers={"Location": location, "Cache-Control": "no-store", "Referrer-Policy": "same-origin"},
@@ -2204,38 +3423,38 @@ def create_app(
             raise HTTPException(status_code=400, detail="document_id is required")
 
         target_theme_ref = (
-            body.get("target_theme_id")
-            if body.get("target_theme_id") is not None
+            body.get("target_kb_id")
+            if body.get("target_kb_id") is not None
             else body.get("target_theme")
         )
         if target_theme_ref is None:
-            raise HTTPException(status_code=400, detail="target_theme_id is required")
+            raise HTTPException(status_code=400, detail="target_kb_id is required")
 
         if not getattr(s, "multi_theme", False) and theme_mgr is None:
             try:
                 target_tid = int(target_theme_ref)
             except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail="invalid target_theme_id")
+                raise HTTPException(status_code=400, detail="invalid target_kb_id")
             if target_tid != 0:
                 raise HTTPException(status_code=400, detail="multi_theme is not enabled")
-            target_theme = ThemeInfo(
+            target_theme = KnowledgeBaseInfo(
                 id=0,
                 seq=0,
                 label="기본 지식베이스",
                 description="일반 수집 자료 및 기본 지식",
                 icon="📚",
                 db_path=str(getattr(s, "db_path", "data/claire.db")),
-                is_default=True,
+                is_personal=True,
                 is_public=True,
             )
         else:
             try:
-                target_theme = theme_mgr.get_theme(target_theme_ref)
+                target_theme = theme_mgr.get_kb(target_theme_ref)
             except Exception:
                 raise HTTPException(status_code=404, detail="target theme not found")
 
-        if not _theme_accessible(request, target_theme):
-            raise HTTPException(status_code=404, detail="target theme not found")
+        # The copy is an ingest: its target is the personal knowledge base of the caller (capability ``write`` of the route, CT4). A shared knowledge base gets 403 ``kb_ingest_by_contribution``; documents go there by contribution.
+        _require_kb(request, target_theme, _request_capability(request))
 
         principal = request_principal(request)
         is_network = False
@@ -2248,32 +3467,9 @@ def create_app(
         if getattr(s, "server_mode", None) == "network":
             is_network = True
 
-        caller_account_id = principal.account_id if (principal and principal.account_id is not None) else (1 if not is_network else None)
-        target_account_id = getattr(target_theme, "account_id", None)
-
-        if is_network or target_account_id is not None:
-            if target_account_id is not None and caller_account_id != target_account_id:
-                if getattr(principal, "server_role", None) != "admin":
-                    raise HTTPException(
-                        status_code=403,
-                        detail="다른 계정의 테마에 적재할 권한이 없습니다.",
-                    )
-
-        if scope == "collaborator":
-            if target_theme.is_default or target_theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다.",
-                )
-            if not target_theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 대상 테마입니다.",
-                )
-
         source_theme_ref = (
-            body.get("source_theme_id")
-            if body.get("source_theme_id") is not None
+            body.get("source_kb_id")
+            if body.get("source_kb_id") is not None
             else body.get("source_theme")
         )
         if source_theme_ref is not None:
@@ -2281,48 +3477,27 @@ def create_app(
                 src_theme = target_theme
             else:
                 try:
-                    src_theme = theme_mgr.get_theme(source_theme_ref)
+                    src_theme = theme_mgr.get_kb(source_theme_ref)
                 except Exception:
                     raise HTTPException(status_code=404, detail="source theme not found")
         else:
-            try:
-                src_theme, _, _ = _get_theme_ctx(request, body)
-            except HTTPException:
-                # 요청에 테마를 명시했는데 없거나 접근할 수 없으면 404다 (대상 테마로 바꾸지 않는다)
-                if _extract_theme_ref(request, body) is not None:
-                    raise
-                src_theme = target_theme
-            except Exception:
-                src_theme = target_theme
+            # No default: the source is required (design Section 5.2, CT23).
+            raise HTTPException(status_code=400, detail="source_kb_id is required")
 
-        if not _theme_accessible(request, src_theme):
+        # The target is the personal knowledge base of the caller (capability ``write`` of the route); the source only needs ``read``.
+        if _kb_decide(request, src_theme, "read") != "allow":
             raise HTTPException(status_code=404, detail="source theme not found")
 
         conn = dbm.connect_existing(s.db_file)
         try:
-            src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
-            if src_doc is None and theme_mgr is not None:
-                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
-                live = _first_live_target(targets)
-                if live is not None:
-                    src_theme = live[1]
-                    if not _theme_accessible(request, src_theme):
-                        raise HTTPException(status_code=404, detail="source theme not found")
-                    src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
+            src_doc = dbm.get_document(conn, document_id, kb_id=src_theme.id)
         finally:
             conn.close()
 
         if src_doc is None:
             raise HTTPException(status_code=404, detail=f"document {document_id} not found")
 
-        if scope == "collaborator" and not (src_theme.is_public or src_theme.is_collaborator_accessible):
-            raise HTTPException(status_code=403, detail="접근 권한이 없는 소스 테마입니다.")
 
-        applied_focus = (
-            str(body.get("focus") or body.get("applied_focus") or "").strip() or None
-        )
-        if not applied_focus and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
-            applied_focus = target_theme.default_focus.strip() or None
 
         from ..ontology.base import Document, new_id
 
@@ -2342,11 +3517,11 @@ def create_app(
             meta=dict(src_doc.meta or {}),
         )
         target_doc.meta["syndication"] = {
-            "source_theme_id": src_theme.id,
+            "source_kb_id": src_theme.id,
             "source_document_id": src_doc.id,
         }
-        if applied_focus:
-            target_doc.meta["focus"] = applied_focus
+        # CT28: the copy takes no focus, also not the stored focus of the source.
+        target_doc.meta.pop("focus", None)
 
         target_svc = service_pool.get_service(target_theme.id)
         payload = src_doc.url or src_doc.raw_text or src_doc.title or "cross_theme_dispatch"
@@ -2356,7 +3531,6 @@ def create_app(
                 payload,
                 prefetched=target_doc,
                 source=f"syndication:{src_theme.id}",
-                focus=applied_focus,
             )
         except (HTTPException, policy.ProviderPolicyError):
             raise
@@ -2382,15 +3556,14 @@ def create_app(
             try:
                 return dbm.create_syndication_dispatch(
                     c,
-                    theme_id=src_theme.id,
-                    target_theme_id=target_theme.id,
+                    kb_id=src_theme.id,
+                    target_kb_id=target_theme.id,
                     document_id=src_doc.id,
                     mode="cross_theme",
                     status=status,
                     remote_ref=remote_ref,
                     payload=payload,
                     error=error_msg,
-                    applied_focus=applied_focus,
                     dispatched_by_account_id=dispatched_by_account_id,
                 )
             finally:
@@ -2402,11 +3575,10 @@ def create_app(
                 "ok": status == "done",
                 "dispatch_id": dispatch_id,
                 "status": status,
-                "source_theme_id": src_theme.id,
-                "target_theme_id": target_theme.id,
+                "source_kb_id": src_theme.id,
+                "target_kb_id": target_theme.id,
                 "document_id": src_doc.id,
                 "target_document_id": remote_ref,
-                "applied_focus": applied_focus,
                 "dispatched_by_account_id": dispatched_by_account_id,
                 "error": error_msg,
             }
@@ -2417,8 +3589,8 @@ def create_app(
         if scope in {"anonymous", "public"}:
             raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
-        theme_id_param = request.query_params.get("theme_id")
-        target_theme_id_param = request.query_params.get("target_theme_id")
+        kb_id_param = request.query_params.get("kb_id")
+        target_kb_id_param = request.query_params.get("target_kb_id")
         document_id = (
             request.query_params.get("document_id")
             or request.query_params.get("doc_id")
@@ -2434,14 +3606,14 @@ def create_app(
         except (ValueError, TypeError):
             offset = 0
 
-        theme_id = (
-            int(theme_id_param)
-            if theme_id_param is not None and theme_id_param != ""
+        kb_id = (
+            int(kb_id_param)
+            if kb_id_param is not None and kb_id_param != ""
             else None
         )
-        target_theme_id = (
-            int(target_theme_id_param)
-            if target_theme_id_param is not None and target_theme_id_param != ""
+        target_kb_id = (
+            int(target_kb_id_param)
+            if target_kb_id_param is not None and target_kb_id_param != ""
             else None
         )
         account_id_param = request.query_params.get("account_id") or request.query_params.get("dispatched_by_account_id")
@@ -2456,8 +3628,8 @@ def create_app(
             try:
                 return dbm.list_syndication_dispatches(
                     c,
-                    theme_id=theme_id,
-                    target_theme_id=target_theme_id,
+                    kb_id=kb_id,
+                    target_kb_id=target_kb_id,
                     document_id=document_id,
                     status=status,
                     mode=mode,
@@ -2481,9 +3653,9 @@ def create_app(
         host_header = request.headers.get("host") or ""
         req_host = host_header.split(":", 1)[0].strip().lower()
 
-        theme: ThemeInfo | None = None
+        theme: KnowledgeBaseInfo | None = None
         if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_theme_by_fqdn(req_host)
+            theme = theme_mgr.get_kb_by_fqdn(req_host)
 
         is_private = (
             not getattr(s, "anonymous_readonly", True)
@@ -2572,9 +3744,9 @@ def create_app(
         host_header = request.headers.get("host") or ""
         req_host = host_header.split(":", 1)[0].strip().lower()
 
-        theme: ThemeInfo | None = None
+        theme: KnowledgeBaseInfo | None = None
         if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_theme_by_fqdn(req_host)
+            theme = theme_mgr.get_kb_by_fqdn(req_host)
 
         if theme is not None and not getattr(theme, "is_public", True):
             return PlainTextResponse("Not Found", status_code=404)
@@ -2603,12 +3775,12 @@ def create_app(
         # (DB 파일, 테마 ID). 모든 테마가 한 DB를 쓰므로 테마 ID로 범위를 정한다.
         target_dbs: list[tuple[Path, int]] = []
         if theme is not None:
-            t_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+            t_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             target_dbs = [(t_settings.db_file, theme.id)]
         elif getattr(s, "multi_theme", False) and theme_mgr is not None:
-            for t in theme_mgr.list_themes():
+            for t in theme_mgr.list_kbs():
                 if getattr(t, "is_public", True):
-                    t_settings = theme_mgr.get_settings_for_theme(t.id, s)
+                    t_settings = theme_mgr.get_settings_for_kb(t.id, s)
                     target_dbs.append((t_settings.db_file, t.id))
         else:
             target_dbs = [(s.db_file, 0)]
@@ -2620,7 +3792,7 @@ def create_app(
             try:
                 conn = dbm.connect_existing(db_file)
                 try:
-                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True, theme_id=target_tid)
+                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True, kb_id=target_tid)
                     all_doc_entries.extend(entries)
                 finally:
                     conn.close()
@@ -2792,8 +3964,8 @@ def create_app(
         from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
         render_format = getattr(theme_settings, "render_format", "adoc")
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
@@ -2844,12 +4016,12 @@ def create_app(
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                format_status = dbm.check_format_mismatch(conn, render_format, theme_id=theme.id)
-                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, theme_id=theme.id, list_func=_documents_list, **filters)
+                format_status = dbm.check_format_mismatch(conn, render_format, kb_id=theme.id)
+                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
                 return {
                     "documents": page["documents"],
                     "format_status": format_status,
-                    "theme_id": theme.id,
+                    "kb_id": theme.id,
                     "theme_label": theme.label,
                     "next_before": page["next_before"],
                     "total": page["total"],
@@ -2867,8 +4039,8 @@ def create_app(
         if not node_id:
             raise HTTPException(status_code=400, detail="id required")
 
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
         # docs=brief: the source documents have no detail text (the WebUI sends it). The keyword is sent only in this mode, thus the default call does not change.
         detail_kwargs: dict[str, Any] = {"docs_brief": True} if request.query_params.get("docs", "") == "brief" else {}
         detail_kwargs.update(_entity_language_kwargs(request))
@@ -2876,9 +4048,9 @@ def create_app(
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                rep = _detail(conn, node_id, include_hidden=include_hidden, theme_id=theme.id, **detail_kwargs)
+                rep = _detail(conn, node_id, include_hidden=include_hidden, kb_id=theme.id, **detail_kwargs)
                 if rep is not None:
-                    rep["theme_id"] = theme.id
+                    rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
                 return rep
             finally:
@@ -2902,13 +4074,13 @@ def create_app(
         fmt = request.query_params.get("format", "markdown").strip().lower()
         if fmt not in ("markdown", "md"):
             return JSONResponse({"error": "unsupported_format", "formats": ["markdown"]}, status_code=400)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                return document_detail(conn, document_id, include_hidden=include_hidden, theme_id=theme.id)
+                return document_detail(conn, document_id, include_hidden=include_hidden, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -2938,48 +4110,21 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
         language_kwargs = _entity_language_kwargs(request)
-        theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _load(settings: Settings, t_info: ThemeInfo) -> dict[str, Any] | None:
+        def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
-                rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id, **language_kwargs)
+                rep = _document_detail(conn, document_id, include_hidden=include_hidden, kb_id=t_info.id, **language_kwargs)
                 if rep is not None:
-                    rep["theme_id"] = t_info.id
+                    rep["kb_id"] = t_info.id
                     rep["theme_label"] = t_info.label
                 return rep
             finally:
                 conn.close()
 
         report = await asyncio.to_thread(_load, theme_settings, theme)
-
-        if report is None and theme_ref is None and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=document_id
-            )
-            for target in targets:
-                tid = target.get("theme_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_theme(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
-                cand_report = await asyncio.to_thread(_load, cand_settings, cand_theme)
-                if cand_report is not None:
-                    report = cand_report
-                    break
 
         if report is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -2995,23 +4140,22 @@ def create_app(
         if not doc_id:
             return PlainTextResponse("Missing document id", status_code=400, headers=raw_security_headers)
 
-        theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _find_raw(t_settings: Settings, t_theme_id: int) -> tuple[str, str] | None:
+        def _find_raw(t_settings: Settings, t_kb_id: int) -> tuple[str, str] | None:
             conn = dbm.connect_existing(t_settings.db_file, readonly=True)
             try:
                 try:
                     row = conn.execute(
-                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND theme_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
-                        (doc_id, t_theme_id),
+                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND kb_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
+                        (doc_id, t_kb_id),
                     ).fetchone()
                     if row and row["file_ref"]:
                         return str(row["file_ref"]), str(row["file_name"] or "")
                 except Exception:
                     pass
 
-                row_doc = dbm.get_document_row(conn, doc_id, theme_id=t_theme_id)
+                row_doc = dbm.get_document_row(conn, doc_id, kb_id=t_kb_id)
                 if row_doc:
                     raw_meta = None
                     try:
@@ -3034,33 +4178,6 @@ def create_app(
 
         resolved = await asyncio.to_thread(_find_raw, theme_settings, theme.id)
         active_settings = theme_settings
-
-        if resolved is None and theme_ref is None and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=doc_id
-            )
-            for target in targets:
-                tid = target.get("theme_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_theme(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
-                cand_res = await asyncio.to_thread(_find_raw, cand_settings, cand_theme.id)
-                if cand_res is not None:
-                    resolved = cand_res
-                    active_settings = cand_settings
-                    break
 
         if resolved is None:
             return PlainTextResponse("Not Found", status_code=404, headers=raw_security_headers)
@@ -3152,10 +4269,10 @@ def create_app(
         def _mark() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=theme.id)
                 if row is None:
                     return False
-                dbm.set_document_seen(conn, document_id, seen=True, theme_id=theme.id)
+                dbm.set_document_seen(conn, document_id, seen=True, kb_id=theme.id)
                 return True
             finally:
                 conn.close()
@@ -3164,7 +4281,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "seen": True}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_pin_route(request: Request) -> JSONResponse:
@@ -3178,7 +4295,7 @@ def create_app(
         def _pin() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_pinned(conn, document_id, pinned, theme_id=theme.id)
+                return dbm.set_document_pinned(conn, document_id, pinned, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3186,7 +4303,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "pinned": pinned}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_hide_route(request: Request) -> JSONResponse:
@@ -3197,10 +4314,22 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
         hidden = bool(body.get("hidden", True))
 
+        actor_id = request_principal(request).account_id
+
         def _hide() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_hidden(conn, document_id, hidden, theme_id=theme.id)
+                if theme.is_shared:
+                    # The copy of a contribution: hide and unhide change the state of the contribution too (design Section 9.6). A copy that waits for its merge or its approval stays hidden.
+                    row = kb_collab.get_contribution_for_document(conn, theme.id, document_id)
+                    if row is not None:
+                        try:
+                            contributions.set_hidden(conn, kb_id=theme.id, contribution=int(row["public_id"]), account_id=actor_id, hidden=hidden)
+                        except contributions.ContributionError as exc:
+                            raise HTTPException(status_code=exc.status, detail=exc.code) from exc
+                        conn.commit()
+                        return True
+                return dbm.set_document_hidden(conn, document_id, hidden, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3208,7 +4337,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "hidden": hidden}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_title_route(request: Request) -> JSONResponse:
@@ -3223,7 +4352,7 @@ def create_app(
         def _update_title() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_title(conn, document_id, title, theme_id=theme.id)
+                return dbm.set_document_title(conn, document_id, title, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3231,7 +4360,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "title": title}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_matrix_purge_route(request: Request) -> JSONResponse:
@@ -3244,10 +4373,10 @@ def create_app(
         def _purge() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=theme.id)
                 if row is None:
                     return False
-                return dbm.purge_document_matrix(conn, document_id, theme_id=theme.id)
+                return dbm.purge_document_matrix(conn, document_id, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3259,7 +4388,7 @@ def create_app(
 
         resp = {"id": document_id, "purged": True}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_purge_route(request: Request) -> JSONResponse:
@@ -3283,7 +4412,7 @@ def create_app(
         def _do_purge() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
                 if not matched:
                     return {"count": 0, "targets": [], "error": f"일치하는 소각 대상 문서를 찾을 수 없습니다: {target}"}
                 target_ids = [m["id"] for m in matched]
@@ -3294,7 +4423,7 @@ def create_app(
                     reason=reason,
                     dry_run=dry_run,
                     tombstone=tombstone,
-                    theme_id=theme.id,
+                    kb_id=theme.id,
                 )
                 if not dry_run:
                     from ..ingest.active import purge_active_matrix
@@ -3304,7 +4433,7 @@ def create_app(
                         except Exception:
                             pass
                 report["targets"] = matched
-                report["theme_id"] = theme.id
+                report["kb_id"] = theme.id
                 return report
             finally:
                 conn.close()
@@ -3329,8 +4458,8 @@ def create_app(
         def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _synthesize(conn, theme_svc.provider, entity_ids, query, theme_id=theme.id)
-                res["theme_id"] = theme.id
+                res = _synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id)
+                res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
                 return res
             finally:
@@ -3342,7 +4471,7 @@ def create_app(
         from ..expand.research import contextual_research
 
         body = await _json_object(request)
-        # 요청 테마의 설정(theme_id)으로 맥락을 읽고 적재한다
+        # 요청 테마의 설정(kb_id)으로 맥락을 읽고 적재한다
         research_theme, research_settings, research_svc = _get_theme_ctx(request, body)
         # research(allow_tools=True)는 관리자 전용이다(§10.1). 멤버 테마면 프로바이더에 닿기 전에 403.
         await _require_theme_feature(research_theme, research_svc, "research")
@@ -3425,33 +4554,17 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
-        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus:
-            from ..telegram_bot import parse_message_focus
+        # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
+        from ..telegram_bot import parse_message_focus
 
-            payload, parsed_focus = parse_message_focus(payload)
-            if parsed_focus:
-                focus = parsed_focus
-            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                focus = theme.default_focus.strip() or None
+        payload, _sealed_focus = parse_message_focus(payload)
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
@@ -3491,8 +4604,6 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                if focus is not None:
-                    ingest_kwargs["focus"] = focus
                 return theme_svc.ingest(
                     payload,
                     **ingest_kwargs,
@@ -3523,7 +4634,7 @@ def create_app(
                 try:
                     result = report_to_dict(task.result())
                     if theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except policy.ProviderPolicyError as exc:
                     result = _failure_result(exc, "ingest")
@@ -3549,25 +4660,11 @@ def create_app(
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="target or payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
@@ -3577,7 +4674,7 @@ def create_app(
             def _lift():
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    return dbm.remove_tombstones(conn, target=target, theme_id=theme.id)
+                    return dbm.remove_tombstones(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
             await asyncio.to_thread(_lift)
@@ -3609,7 +4706,7 @@ def create_app(
             try:
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                    matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
 
@@ -3623,7 +4720,6 @@ def create_app(
                         force=True,
                         effort=effort,
                         format=format_arg,
-                        focus=focus,
                         on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
                     )
                     t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
@@ -3638,8 +4734,7 @@ def create_app(
                         "relations_added": t_info.get("relations_added", 0),
                         "full_content": full_content,
                         "effort": effort,
-                        "focus": focus,
-                        "theme_id": theme.id,
+                        "kb_id": theme.id,
                         "theme_label": theme.label,
                     }
                 else:
@@ -3653,11 +4748,9 @@ def create_app(
                         ingest_kwargs["effort"] = effort
                     if format_arg is not None:
                         ingest_kwargs["format"] = format_arg
-                    if focus is not None:
-                        ingest_kwargs["focus"] = focus
                     rep = theme_svc.ingest(target, **ingest_kwargs)
                     rep_dict = report_to_dict(rep)
-                    rep_dict["theme_id"] = theme.id
+                    rep_dict["kb_id"] = theme.id
                     rep_dict["theme_label"] = theme.label
                     return rep_dict
             finally:
@@ -3688,7 +4781,7 @@ def create_app(
                     if isinstance(result, IngestReport):
                         result = report_to_dict(result)
                     if isinstance(result, dict) and theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "reingest stream", exc)
@@ -3717,38 +4810,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        theme_ref = _extract_theme_ref(request, body)
-        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets,
-                target=target or None,
-                doc_id=doc_id,
-                token=token,
-            )
-            live = _first_live_target(targets)
-            if live is not None:
-                cand_theme = live[1]
-                if cand_theme.id != theme.id:
-                    try:
-                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
-                            theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
-                            theme_svc = service_pool.get_service(theme.id)
-                    except Exception:
-                        pass
-
-        if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False
@@ -3783,9 +4844,6 @@ def create_app(
         refetch_full = bool(body.get("refetch_full", False))
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -3825,11 +4883,10 @@ def create_app(
                     force=force,
                     effort=effort,
                     format=format_arg,
-                    focus=focus,
                     on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
                 )
                 if isinstance(res, dict) and theme.id != 0:
-                    res["theme_id"] = theme.id
+                    res["kb_id"] = theme.id
                     res["theme_label"] = theme.label
                 return res
             finally:
@@ -3860,7 +4917,7 @@ def create_app(
                     if isinstance(result, IngestReport):
                         result = report_to_dict(result)
                     if isinstance(result, dict) and theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "regenerate stream", exc)
@@ -3888,9 +4945,9 @@ def create_app(
             scan = theme_svc.dedup_scan()
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _dedup_clusters(conn, scan, theme_id=theme.id)
+                res = _dedup_clusters(conn, scan, kb_id=theme.id)
                 if theme.id != 0:
-                    res["theme_id"] = theme.id
+                    res["kb_id"] = theme.id
                     res["theme_label"] = theme.label
                 return res
             finally:
@@ -3936,7 +4993,7 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 try:
-                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name, theme_id=theme.id)
+                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name, kb_id=theme.id)
                 except KeyError as e:
                     raise HTTPException(status_code=404, detail=scrub_exception(e))
                 except ValueError as e:
@@ -3945,9 +5002,9 @@ def create_app(
                 from ..store.queries import node_detail as _detail
 
                 _detail_fn = _resolve_query_func("node_detail", _detail)
-                rep = _detail_fn(conn, updated.id, theme_id=theme.id, **language_kwargs)
+                rep = _detail_fn(conn, updated.id, kb_id=theme.id, **language_kwargs)
                 if rep is not None and theme.id != 0:
-                    rep["theme_id"] = theme.id
+                    rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
                 return rep or {
                     "id": updated.id,
@@ -3976,7 +5033,7 @@ def create_app(
         def _do_rollback() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                doc = dbm.get_document(conn, doc_id, theme_id=theme.id)
+                doc = dbm.get_document(conn, doc_id, kb_id=theme.id)
                 if not doc:
                     raise HTTPException(status_code=404, detail="document not found")
                 decisions = get_resolution_log_from_meta(doc.meta)
@@ -3988,7 +5045,7 @@ def create_app(
                 if not target_dec:
                     return {"ok": False, "error": "no eligible merge decision found to rollback"}
 
-                success = rollback_resolution(conn, target_dec, theme_id=theme.id)
+                success = rollback_resolution(conn, target_dec, kb_id=theme.id)
                 if success:
                     raw_log = (doc.meta or {}).get("resolution_log") or []
                     for item in raw_log:
@@ -3996,7 +5053,7 @@ def create_app(
                             item["rolled_back"] = True
                             item["decision"] = "ROLLED_BACK"
                             item["reason"] = (item.get("reason", "") + " (롤백됨)").strip()
-                    dbm.update_document_meta(conn, doc_id, doc.meta, theme_id=theme.id)
+                    dbm.update_document_meta(conn, doc_id, doc.meta, kb_id=theme.id)
                     return {"ok": True, "entity": entity_name}
                 return {"ok": False, "error": "rollback execution failed"}
             finally:
@@ -4021,7 +5078,7 @@ def create_app(
         def _fetch() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return get_all_resolution_decisions(conn, limit=limit, offset=offset, theme_id=theme.id)
+                return get_all_resolution_decisions(conn, limit=limit, offset=offset, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -4035,53 +5092,26 @@ def create_app(
         if not document_id:
             raise HTTPException(status_code=400, detail="doc_id required")
 
-        include_hidden = request_auth_scope(request) != "anonymous"
+        include_hidden = _sees_hidden(request, theme)
 
-        def _share(settings: Settings, target_theme_info: ThemeInfo) -> str | None:
+        def _share(settings: Settings, target_theme_info: KnowledgeBaseInfo) -> str | None:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=target_theme_info.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=target_theme_info.id)
                 if row is None:
                     return None
                 if not include_hidden and bool(row["hidden"]):
                     return None
-                return dbm.create_doc_share(conn, document_id, theme_id=target_theme_info.id)
+                return dbm.create_doc_share(conn, document_id, kb_id=target_theme_info.id)
             finally:
                 conn.close()
 
         token = await asyncio.to_thread(_share, theme_settings, theme)
-        target_theme_id = theme.id
-
-        if not token and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=document_id
-            )
-            for target in targets:
-                tid = target.get("theme_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    candidate_theme = theme_mgr.get_theme(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and candidate_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, candidate_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_theme(candidate_theme.id, s)
-                cand_token = await asyncio.to_thread(_share, cand_settings, candidate_theme)
-                if cand_token:
-                    token = cand_token
-                    target_theme_id = candidate_theme.id
-                    break
+        target_kb_id = theme.id
 
         if not token:
             raise HTTPException(status_code=404, detail="document not found")
-        return JSONResponse({"token": token, "path": "/p?s=" + token, "theme_id": target_theme_id})
+        return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
 
     async def shared_doc_page(request: Request) -> Response:
         from ..graphview import shared_html
@@ -4104,10 +5134,10 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             document_id = None
             try:
-                document_id = dbm.resolve_doc_share(conn, token, theme_id=0)
+                document_id = dbm.resolve_doc_share(conn, token, kb_id=0)
                 if not document_id:
                     return None
-                doc = _document_detail(conn, document_id, include_hidden=False, theme_id=0)
+                doc = _document_detail(conn, document_id, include_hidden=False, kb_id=0)
                 if doc is not None and not doc.get("hidden"):
                     return doc
             finally:
@@ -4125,7 +5155,7 @@ def create_app(
                     try:
                         t_conn = dbm.connect_existing(Path(target_db), readonly=True)
                         try:
-                            doc = _document_detail(t_conn, document_id, include_hidden=False, theme_id=target["theme_id"])
+                            doc = _document_detail(t_conn, document_id, include_hidden=False, kb_id=target["kb_id"])
                             if doc is not None and not doc.get("hidden"):
                                 return doc
                         finally:
@@ -4150,7 +5180,7 @@ def create_app(
                 base_url = str(request.base_url).rstrip("/")
 
         scope = request_auth_scope(request)
-        if scope not in ("owner", "collaborator"):
+        if scope not in ("owner", "write"):
             auth_hdr = request.headers.get("authorization", "")
             if auth_hdr.lower().startswith("bearer "):
                 bearer_tok = auth_hdr[7:].strip()
@@ -4158,14 +5188,17 @@ def create_app(
                     getattr(s, "owner_token", None) and bearer_tok == s.owner_token
                 ):
                     scope = "owner"
-                elif getattr(s, "collaborator_token", None) and bearer_tok == s.collaborator_token:
-                    scope = "collaborator"
+                else:
+                    # A stored API token (design Section 6.6): ``owner`` and ``write`` read the raw file.
+                    entry = get_token_store(data_dir=s.data_dir).validate_api_token(bearer_tok)
+                    if entry is not None:
+                        scope = str(entry.get("scope") or "")
             elif (cookie_token := read_session_cookie(request.scope)[1]) is not None:
                 try:
                     conn_sess = dbm.connect_existing(s.db_file, readonly=True)
                     try:
                         sess_scope = dbm.validate_session_scope(
-                            conn_sess, cookie_token, scopes=("owner", "collaborator")
+                            conn_sess, cookie_token, scopes=("owner", "write")
                         )
                         if sess_scope:
                             scope = sess_scope
@@ -4174,7 +5207,7 @@ def create_app(
                 except Exception:
                     pass
 
-        can_access_raw = scope in ("owner", "collaborator")
+        can_access_raw = scope in ("owner", "write")
         return HTMLResponse(
             shared_html(
                 document,
@@ -4187,74 +5220,34 @@ def create_app(
 
     def _resolve_presentation_target(
         request: Request, doc_id: str = "", token: str = ""
-    ) -> tuple[ThemeInfo, Settings, Path, Path, str, str]:
-        target_theme, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
-        resolved_doc_id = doc_id
-        resolved_doc_title = ""
+    ) -> tuple[KnowledgeBaseInfo, Settings, Path, Path, str, str]:
+        """The knowledge base of a presentation request.
 
+        A share token selects its own knowledge base (the token is the capability). Else the selection rules apply (design Section 5.2): the path, or ``kb`` on a route without a namespace. There is no search in other knowledge bases.
+        """
         if token:
             resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
-            resolved_theme: ThemeInfo | None = None
-            if resolved is not None:
-                try:
-                    resolved_theme = theme_mgr.get_theme(resolved[0])
-                except ThemeNotFound:
-                    # 삭제된 테마의 공유 토큰은 찾지 못한 것으로 본다 (테마 0으로 바꾸지 않는다)
-                    resolved = None
-            if resolved is not None and resolved_theme is not None:
-                target_theme = resolved_theme
-                theme_settings = theme_mgr.get_settings_for_theme(target_theme.id, s)
-                active_db = theme_settings.db_file
-                active_data_dir = theme_settings.data_dir
-                doc_obj = resolved[2]
-                if not doc_obj.get("hidden"):
-                    resolved_doc_id = doc_obj.get("id", "")
-                    resolved_doc_title = doc_obj.get("title", "")
-            else:
-                conn = dbm.connect_existing(active_db, readonly=True)
-                try:
-                    cand_id = dbm.resolve_doc_share(conn, token, theme_id=target_theme.id) or ""
-                    if cand_id:
-                        d_obj = dbm.get_document(conn, cand_id, theme_id=target_theme.id)
-                        if d_obj and not bool(d_obj.hidden):
-                            resolved_doc_id = cand_id
-                            resolved_doc_title = d_obj.title or ""
-                finally:
-                    conn.close()
-        elif getattr(s, "multi_theme", False) and resolved_doc_id:
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = theme_mgr.resolve_document_targets(doc_id=resolved_doc_id)
-            live: tuple[dict[str, Any], ThemeInfo] | None = None
-            for target in targets:
-                tid = target.get("theme_id")
-                if tid is None:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_theme(tid)
-                except ThemeNotFound:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                live = (target, cand_theme)
-                break
-            if targets and live is None:
-                # 접근 불가 또는 삭제된 테마에만 남은 문서는 찾지 못한 것으로 본다 (테마 0 설정으로 다루지 않는다)
+            if resolved is None:
                 raise HTTPException(status_code=404, detail="not found")
-            if live is not None and live[0].get("db_file"):
-                live_target, target_theme = live
-                active_db = Path(live_target["db_file"])
-                theme_settings = theme_mgr.get_settings_for_theme(target_theme.id, s)
-                if live_target.get("data_dir"):
-                    active_data_dir = Path(live_target["data_dir"])
-
-        return target_theme, theme_settings, active_db, active_data_dir, resolved_doc_id, resolved_doc_title
+            try:
+                target_theme = theme_mgr.get_kb(resolved[0])
+            except KnowledgeBaseNotFound:
+                # 삭제된 지식 베이스의 공유 토큰은 찾지 못한 것으로 본다
+                raise HTTPException(status_code=404, detail="not found") from None
+            theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
+            doc_obj = resolved[2]
+            if doc_obj.get("hidden"):
+                raise HTTPException(status_code=404, detail="not found")
+            return (
+                target_theme,
+                theme_settings,
+                theme_settings.db_file,
+                theme_settings.data_dir,
+                doc_obj.get("id", ""),
+                doc_obj.get("title", ""),
+            )
+        target_theme, theme_settings, _ = _get_theme_ctx(request, None)
+        return target_theme, theme_settings, theme_settings.db_file, theme_settings.data_dir, doc_id, ""
 
     async def presentation_page(request: Request) -> Response:
         from starlette.responses import FileResponse, HTMLResponse
@@ -4285,11 +5278,11 @@ def create_app(
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
         transition = request.query_params.get("transition", "slide")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             if not doc_title:
-                d_obj = dbm.get_document(conn, doc_id, theme_id=target_theme.id)
+                d_obj = dbm.get_document(conn, doc_id, kb_id=target_theme.id)
                 if d_obj:
                     doc_title = d_obj.title or ""
             # Option A: allow_compose=False -> Never trigger heavy LLM generation on GET
@@ -4364,7 +5357,7 @@ def create_app(
                 status_code=403,
             )
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db, readonly=True)
         try:
             meta = svc.get_presentation_metadata(conn, doc_id)
@@ -4419,12 +5412,12 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
 
         if not wait_for_completion:
             conn = dbm.connect_existing(active_db, readonly=True)
             try:
-                if dbm.get_document_row(conn, doc_id, theme_id=target_theme.id) is None:
+                if dbm.get_document_row(conn, doc_id, kb_id=target_theme.id) is None:
                     return JSONResponse({"error": "document not found"}, status_code=404)
                 meta = svc.get_presentation_metadata(conn, doc_id)
                 if not force and meta and meta.get("is_ready") and meta.get("status") == "ready":
@@ -4514,7 +5507,7 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.compose_presentation(
@@ -4574,7 +5567,7 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.compile_presentation(
@@ -4619,12 +5612,12 @@ def create_app(
         if request.method == "PUT":
             await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
 
         if request.method == "GET":
             conn = dbm.connect_existing(active_db, readonly=True)
             try:
-                adoc = dbm.get_presentation_adoc(conn, doc_id, theme_id=target_theme.id)
+                adoc = dbm.get_presentation_adoc(conn, doc_id, kb_id=target_theme.id)
                 if not adoc:
                     adoc_path = svc.get_presentation_adoc_path(doc_id)
                     if adoc_path.exists():
@@ -4659,7 +5652,7 @@ def create_app(
                 dbm.save_presentation_adoc(
                     conn,
                     document_id=doc_id,
-                    theme_id=target_theme.id,
+                    kb_id=target_theme.id,
                     presentation_adoc=adoc_content,
                     content_hash=content_hash,
                     adoc_hash=adoc_hash,
@@ -4817,7 +5810,7 @@ def create_app(
             body = {}
 
         theme, _, _ = _get_theme_ctx(request, body)
-        theme_id = theme.id
+        kb_id = theme.id
 
         source_channel = str(body.get("source_channel") or "api")
         if source_channel not in {"api", "telegram_command", "telegram_callback"}:
@@ -4826,7 +5819,7 @@ def create_app(
         def _generate() -> dict[str, Any]:
             info = create_graph_bundle(
                 s,
-                theme_id=theme_id,
+                kb_id=kb_id,
                 request_context={"channel": source_channel},
             )
             return info.to_dict()
@@ -4960,10 +5953,43 @@ def create_app(
         ),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
-        Route("/themes", themes_list_route, methods=["GET", "HEAD"]),
-        Route("/themes", theme_define_route, methods=["POST"]),
-        Route("/themes", theme_update_route, methods=["PATCH"]),
-        Route("/themes", theme_delete_route, methods=["DELETE"]),
+        Route("/kb", kb_collection_route, methods=["GET", "HEAD"]),
+        Route("/kb", kb_create_route, methods=["POST"]),
+        Route("/", kb_settings_route, methods=["PATCH"]),
+        Route("/", kb_delete_route, methods=["DELETE"]),
+        Route("/membership", kb_join_route, methods=["POST"]),
+        Route("/membership", kb_leave_route, methods=["DELETE"]),
+        Route("/members", kb_members_route, methods=["GET", "HEAD"]),
+        Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/api/auto-rule", auto_rule_route, methods=["GET", "HEAD", "PUT"]),
+        Route("/api/auto-rule/dry-run", auto_rule_dry_run_route, methods=["POST"]),
+        Route("/api/auto-contributions", auto_contributions_route, methods=["GET", "HEAD"]),
+        Route("/api/contribution-blocks", contribution_blocks_route, methods=["GET", "HEAD"]),
+        Route("/api/contribution-blocks/{document}", contribution_block_route, methods=["PUT", "DELETE"]),
+        Route("/api/mutual-collaborations", mutual_collaborations_route, methods=["GET", "HEAD", "POST"]),
+        Route("/api/mutual-collaborations/{account}", mutual_collaboration_route, methods=["PUT", "DELETE"]),
+        Route("/api/admin/auto-contribution", admin_auto_contribution_route, methods=["GET", "HEAD", "PUT"]),
+        Route("/api/reputation", reputation_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/reputations", admin_reputations_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/reputations/settings", admin_reputation_settings_route, methods=["PUT"]),
+        Route("/api/admin/themes", admin_themes_route, methods=["GET", "HEAD", "POST"]),
+        Route("/api/admin/themes/settings", admin_themes_settings_route, methods=["PUT"]),
+        Route("/api/admin/themes/judge", admin_themes_judge_route, methods=["POST"]),
+        Route("/api/admin/themes/{number}", admin_theme_route, methods=["PATCH"]),
+        Route("/api/admin/themes/{number}/knowledge-bases/{kb}", admin_theme_member_route, methods=["PUT"]),
+        Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
+        Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
+        Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
+        Route("/curations", kb_curations_route, methods=["POST"]),
+        Route("/forks", kb_forks_route, methods=["POST"]),
+        Route("/contributions", kb_contribute_route, methods=["POST"]),
+        Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),
+        Route("/contributions/{number}", kb_contribution_withdraw_route, methods=["DELETE"]),
+        Route("/contributions/{number}", kb_contribution_review_route, methods=["PATCH"]),
+        Route("/contributions/{number}/remove", kb_contribution_remove_route, methods=["POST"]),
+        Route("/contributions/{number}/retry", kb_contribution_retry_route, methods=["POST"]),
+        Route("/api/admin/kb/{number}/moderators/{account}", admin_kb_moderator_route, methods=["PUT", "DELETE"]),
+        Route("/themes", themes_collection_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
         Route("/providers/test", providers_test_route, methods=["POST"]),
@@ -5073,21 +6099,23 @@ def create_app(
     def _legacy_theme_location(legacy: LegacyHost) -> str | None:
         """레거시 호스트의 정본 테마 경로(§5.3). 테마가 없거나 번호가 아직 없으면 None(421)."""
         try:
-            theme = theme_mgr.get_theme(legacy.theme_id)
-        except ThemeNotFound:
+            theme = theme_mgr.get_kb(legacy.kb_id)
+        except KnowledgeBaseNotFound:
             return None
-        if theme.id != legacy.theme_id or theme.number is None:
+        if theme.id != legacy.kb_id or theme.number is None:
             return None
+        if theme.is_shared:
+            return kb_base_path(theme.number)
         mode = namespace_directory.mode()
         if mode == "single":
-            return theme_base_path(mode, None, theme.number)
+            return "/"
         try:
             owner = namespace_directory.account(theme.account_id)
         except accounts_store.AccountNotFound:
             return None
         if owner.status != "active" or not owner.username:
             return None
-        return theme_base_path(mode, owner.username, theme.number)
+        return f"/@{owner.username}/"
 
     legacy_hosts = SqliteLegacyHostDirectory(s.db_file, theme_location=_legacy_theme_location)
     # GateMiddleware는 없앴다(§5.1 Rev. 2.3). 정적 자산도 HostRouter와 보안 헤더 안쪽을 지난다.
@@ -5119,7 +6147,6 @@ def run_api() -> int:
         token_store.migrate_env_tokens(
             getattr(s, "inject_token", ""),
             getattr(s, "readonly_token", ""),
-            getattr(s, "collaborator_token", ""),
         )
         if not getattr(s, "inject_token", ""):
             owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))

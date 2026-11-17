@@ -71,11 +71,11 @@
 
 **[코드]** `AuthenticationMiddleware`가 요청마다 `request.state`에 `Principal` 하나를 둔다. 새 코드는 `request_principal(request)`을 쓴다. 미들웨어를 거치지 않은 요청에서 부르면 익명으로 대체하지 않고 `PrincipalMissing`을 낸다. `request_auth_scope`는 호환용으로 남아 있다.
 
-`Principal` 필드: `account_id`(None = 익명), `server_role`, `scope`(`owner`·`collaborator`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
+`Principal` 필드: `account_id`(None = 익명), `server_role`, `scope`(`owner`·`write`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
 
 | 자격증명 | 저장 위치 | `account_id` 결정 | `credential_id` | `authenticated_at` |
 | :--- | :--- | :--- | :--- | :--- |
-| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` | None |
+| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` | None |
 | 상시 API·MCP 토큰 | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 그 항목을 무시한다(경고 로그) | `api:<id>` | None |
 | OAuth 액세스 토큰 | `oauth_tokens.account_id` | 행 값. NULL이면 거부 | 토큰 SHA-256 hex 앞 16자 | None |
 | 세션(쿠키·`X-Session`·Bearer로 보낸 세션 토큰) | `auth_sessions.account_id`, `authenticated_at` | 행 값. NULL이면 거부 | `nonce` SHA-256 hex 앞 16자(토큰 회전에도 유지) | cookie·x-session 채널에서만 행 값. Bearer로 보낸 세션은 None |
@@ -85,7 +85,7 @@
 - **[코드] 익명**: 자격증명 없이 `read` 규칙 라우트에 익명 대체가 일어나면 `ANONYMOUS`.
 - **[코드] [결정] public 라우트**: 자격증명을 검증하지 않고 `ANONYMOUS`를 둔다. 정적 자산 요청마다 DB를 열지 않기 위해서다(설계 §16.3 (e)). 그래서 계정을 알아야 하는 화면(`/setup`, `GET /`)은 public이 아닌 규칙이고, `/login`·`/logout` 핸들러는 쿠키 값을 검증 없이 읽기만 한다(`common.cookie_session_token`).
 - **[코드] v15 이관**은 `account_id`가 NULL인 `themes`, `auth_sessions`, `oauth_codes`, `oauth_tokens`, `oauth_auth_requests` 행을 1로 채운다. `authenticated_at`은 채우지 않는다.
-- **[코드] 테마 소유**: `ThemeInfo.account_id`. `themes.json` 항목에 키가 없으면 1, 값이 정수가 아니면 `ValueError`(`src/claire/store/theme.py`의 `_owner_account_id`).
+- **[코드] 테마 소유**: `KnowledgeBaseInfo.account_id`. `themes.json` 항목에 키가 없으면 1, 값이 정수가 아니면 `ValueError`(`src/claire/store/knowledge_base.py`의 `_owner_account_id`).
 
 ## 5. 라우트 동작
 
@@ -147,7 +147,7 @@
 
 ### 5.5 `/me`, `/api/me`, `/api/me/password`
 
-- **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
+- **[코드]** 모두 규칙 `_any("owner")`. `write`·`readonly` 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale, entity_language}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다.
 - **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`, `entity_language`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
@@ -189,7 +189,7 @@
      WHERE id = :id AND revoked_at IS NULL AND expires_at > :now AND uses_count < max_uses;
      ```
      영향받은 행이 1개인지 원자적으로 확인 후 `invitation_redemptions(status='pending')` 기록. 동시 다중 요청 시에도 조건부 UPDATE에 의해 정확히 잔여 횟수만큼만 성공한다.
-  2. `claire.db`에 신규 계정(`role='member'`, `status='active'`) 및 기본 테마(`is_default=1`) 생성.
+  2. `claire.db`에 신규 계정(`role='member'`, `status='active'`) 및 기본 테마(`is_personal=1`) 생성.
   3. `invitation_redemptions`를 `completed`로 전환하고 `account_id` 기록. 2단계 실패 시 `uses_count`를 롤백하고 `failed` 마킹.
 - **GET/HEAD 무부작용 (Safe Links & Robots Policy)**:
   - 메신저 링크 미리보기 봇이나 정찰 요청의 `GET /invite/{code}` 또는 `HEAD /invite/{code}`는 일절 `uses_count`를 차감하거나 실패 카운트를 올리지 않는다 (No side-effects).
@@ -237,7 +237,7 @@
 - **권한 및 주체**:
   - 규칙 `owner`. `account_id` 필수.
   - 관리자(`server_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
-  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, collaborator, readonly 등)는 404 Not Found다.
+  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, `write`, `readonly` 등)는 404 Not Found다.
 - **쓰기 전용 API 키 및 키 미노출 원칙 (Write-only Secrets, §11.2, §11.3, D8)**:
   - 등록 시 전달받은 `api_key`는 요청 본문에서 읽자마자 `register_secret`으로 등록되어 메모리 내 등록 이후의 모든 로그와 예외 출력(`SecretScrubFilter`, `scrub_text`, `scrub_exception`)에서 마스킹된다.
   - 마스터 키(`CLAIRE_SECRET_KEY` 또는 `data/auth/master.key`)에서 용도별로 파생된 암호화 키를 사용해 AES-256-GCM(`provider_keys.put_key`, AAD: `account_id|provider|key_id`)으로 암호화하여 `auth.db`의 `provider_keys` 테이블에 보관한다.
@@ -279,7 +279,7 @@
 
 | 경로 | 동작 |
 | :--- | :--- |
-| `/admin` | 302 `/admin/server`. `?theme=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
+| `/admin` | 302 `/admin/server`. `?kb=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
 | `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`server.py`) |
 | `/admin/accounts` | §5.4 (`admin.py`) |
 | `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
@@ -298,24 +298,24 @@
   - `/admin/idp`: `admin-idp-login-policy`(prototype, 로그인 방식·가입 처리·허용 도메인·`email_verified`·Back-Channel Logout 칸은 저장 API가 없는 고정 예시), `admin-idp-login-simulator`(simulation, 실행 결과는 선택값을 문장으로 보여 줄 뿐이다. 미리보기의 공급자 버튼은 실제 `/auth/oidc/{id}/start` 링크).
   - `/admin/tokens`: `admin-token-policy-summary`(static, 코드 기본값을 옮겨 적은 안내문).
   - `/admin/mcp`: `admin-mcp-rbac-table`(static, 판정 칸까지 고정 문구), `admin-webmcp-global-switch`(client_only, `localStorage["claire_admin_webmcp_enabled"]`에만 기억하고 `Permissions-Policy` 헤더나 서버 설정을 바꾸지 않는다).
-- **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 collaborator·readonly·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
+- **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 `write`·`readonly`·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
 
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
-| `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?theme=`를 붙인다 |
+| `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
 | `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 네트워크 모드이고 `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 화면은 만든 직후에만 이 주소를 "주소 복사"·"받기"와 함께 보인다. 목록 응답에는 토큰이 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
 | `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
 | `/settings/federation` | 1 | 내 핸들, 액터 ID와 상태, 팔로워 목록과 제거, 계정의 읽기 보존 설정([FEDERATION.md](FEDERATION.md)) |
 | `/settings/keys` | 1 | §5.8 WebUI |
-| `/settings/themes` | 1 | 본인 테마 관리(`/themes`)와 슬롯 수(`내 테마 수 / 서버 등급 max_themes`) |
+| `/settings/themes` | 1 | 본인 지식 베이스 관리(목록 `GET /kb?joined=true`, 변경 `POST /kb`·`PATCH /kb/{number}/`). 슬롯 수 표시는 없다(서버 등급의 `max_themes`는 폐지, CT-3) |
 | `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
 | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
 | `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | MCP 연결 안내와 WebMCP 설정 |
 
-- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?theme=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?theme=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
-- **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `ThemeManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
+- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
+- **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)와 계정 검사`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
 - **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
 - **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
 - **콘솔 셸 레이아웃과 내비게이션 (`console_shell.html`, `console_shell.js`, `command_palette.js`)**:
@@ -332,9 +332,9 @@
 
 **[코드]** `server.py:syndication_preferences_ui_route`. 규칙 `_system("owner")`(루트에서만 받으며 접두 경로 `/@{username}/syndication/preferences` 등은 404. owner가 아니면 404, 위치 헤더 없음).
 
-1. `?theme=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
+1. `?kb=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
 2. `?tab=`을 아래 표로 바꾼다. 빈 값, 대소문자가 다른 값, 모르는 값은 404다. `?tab=`이 없으면 `reader`와 같다.
-3. `/settings/*` 대상에는 검증한 테마의 공개 참조를 `?theme=`로 붙인다. `/admin/*`와 `/settings/account` 대상에는 `?theme=`를 붙이지 않는다.
+3. `/settings/*` 대상에는 검증한 테마의 공개 참조를 `?kb=`로 붙인다. `/admin/*`와 `/settings/account` 대상에는 `?kb=`를 붙이지 않는다.
 4. 응답은 302, `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 위치는 항상 루트 경로다(접두 아래 요청도 `/@{username}`을 붙이지 않는다).
 
 | `?tab=` | 관리자 | 그 밖의 owner |
@@ -421,7 +421,7 @@
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 테이블 제거**: 쓰이지 않던 `syndication_accounts`(토큰 암호화 함수 포함), `syndication_targets`, `syndication_items`는 `claire.db` v20에서 제거했다([SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) "v20" 절).
 - **[코드] 계정 격리**: 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?kb=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트
@@ -470,7 +470,7 @@
 - **[코드]** `BotSupervisor` reads the wanted bots every 15 seconds (`POLL_INTERVAL_SECONDS`): the server bot when `TELEGRAM_BOT_TOKEN` is set (it runs as the administrator account), and each enabled account bot of an `active` account. It starts new bots, stops removed or disabled bots, and restarts a bot when its settings change. A bot that fails to start is not started again for 120 seconds (`RETRY_BACKOFF_SECONDS`) while its settings stay the same. It writes `running` or `error` to auth.db. Thus the console can show a state that is up to 15 seconds old.
 - **[코드]** An account bot uses only the themes of its account (`AccountThemeScope`).
 - **[코드]** The allowed user list (Telegram user IDs) of an account bot must not be empty (at most 20, `MAX_ALLOWED_USERS`). Only the server bot accepts an empty list (old behavior).
-- **[코드]** A bot whose account is not the administrator account refuses the commands in `ADMIN_ONLY_COMMANDS` (`/web`, `/webco`, `/webro`, `/token`, `/status`) and the callbacks in `ADMIN_ONLY_CALLBACK_PREFIXES` (`auth:`, `oauth_appr:`, `oauth_deny:`). Its `/support` makes an account-scope bundle (§14.4). Its command menu does not show the refused commands.
+- **[코드]** A bot whose account is not the administrator account refuses the commands in `ADMIN_ONLY_COMMANDS` (`/web`, `/webro`, `/token`, `/status`) and the callbacks in `ADMIN_ONLY_CALLBACK_PREFIXES` (`auth:`, `oauth_appr:`, `oauth_deny:`). Its `/support` makes an account-scope bundle (§14.4). Its command menu does not show the refused commands.
 - **[코드]** The token is a write-only secret. API responses contain only metadata: `bot_id`, `bot_username`, `fingerprint`, allowed users, `enabled`, `status`, `last_error`. Only the runner reads the plain token (`load_enabled_bots`). Registration is refused when the same bot is already registered for another account or as the server bot (`TelegramBotConflict`).
 - **[코드]** The Compose service `bot` always runs (`docker-compose.yml`). When no bot is configured, it waits.
 
@@ -482,7 +482,7 @@
 
 ### 14.5 Account backup and restore
 
-- **[코드]** A backup contains `manifest.json` (format version, account public ID, schema version and lineage of the knowledge DB, theme list and row counts, SHA-256 of each member file) and one SQLite snapshot for each owned theme (`themes/<theme_id>.db`). A snapshot has the theme row, the rows of that theme in each table with a `theme_id` column, and the `entities_fts` rows of the theme entities. One read transaction reads all themes, thus the snapshots agree with each other.
+- **[코드]** A backup contains `manifest.json` (format version, account public ID, schema version and lineage of the knowledge DB, theme list and row counts, SHA-256 of each member file) and one SQLite snapshot for each owned theme (`themes/<kb_id>.db`). A snapshot has the theme row, the rows of that theme in each table with a `kb_id` column, and the `entities_fts` rows of the theme entities. One read transaction reads all themes, thus the snapshots agree with each other.
 - **[코드]** A backup does not contain auth.db, `master.key`, rows of other accounts, or files in `data/raw` and `data/images`. Document text is in the DB.
 - **[코드]** A manual backup is refused less than 60 seconds after the last backup (`MANUAL_BACKUP_COOLDOWN_SECONDS`). After each backup, the backups above `keep` are deleted, oldest first (`prune_account_backups`).
 - **[코드]** The API process runs `run_due_backups` every 10 minutes (`ACCOUNT_BACKUP_SCHEDULER_INTERVAL` in `src/claire/api/server.py`). The first run is one minute after start.

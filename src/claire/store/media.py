@@ -171,7 +171,7 @@ def derive_media_key(
 
 def create_media_capability_token(
     account_id: int,
-    theme_id: int,
+    kb_id: int,
     visibility_epoch: int,
     key: str,
     expires_in: int = DEFAULT_MEDIA_TOKEN_TTL,
@@ -181,13 +181,13 @@ def create_media_capability_token(
 ) -> str:
     """Create a 1-hour capability token for accessing private media (설계 §5.2, §5.4).
 
-    Binds (account_id, theme_id, visibility_epoch, key, exp) via HMAC-SHA256.
+    Binds (account_id, kb_id, visibility_epoch, key, exp) via HMAC-SHA256.
     """
     current_time = int(now if now is not None else time.time())
     exp = current_time + int(expires_in)
     svc = secret_service or get_secret_service()
     derived_key = svc.derive_hmac_key("media_capability_token")
-    message = f"{int(account_id)}:{int(theme_id)}:{int(visibility_epoch)}:{key}:{exp}"
+    message = f"{int(account_id)}:{int(kb_id)}:{int(visibility_epoch)}:{key}:{exp}"
     sig = hmac.new(derived_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{exp}.{sig}"
 
@@ -195,14 +195,14 @@ def create_media_capability_token(
 def verify_media_capability_token(
     token: str,
     account_id: int,
-    theme_id: int,
+    kb_id: int,
     visibility_epoch: int,
     key: str,
     *,
     secret_service: SecretService | None = None,
     now: float | None = None,
 ) -> bool:
-    """Verify a capability token against binding (account_id, theme_id, visibility_epoch, key)."""
+    """Verify a capability token against binding (account_id, kb_id, visibility_epoch, key)."""
     if not token or not isinstance(token, str):
         return False
     if "token=" in token:
@@ -223,7 +223,7 @@ def verify_media_capability_token(
         return False
     svc = secret_service or get_secret_service()
     derived_key = svc.derive_hmac_key("media_capability_token")
-    message = f"{int(account_id)}:{int(theme_id)}:{int(visibility_epoch)}:{key}:{exp}"
+    message = f"{int(account_id)}:{int(kb_id)}:{int(visibility_epoch)}:{key}:{exp}"
     expected_sig = hmac.new(derived_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
     return hmac.compare_digest(sig, expected_sig)
 

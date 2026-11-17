@@ -15,7 +15,7 @@
     invalid_request: tr("console.js.common.error.invalid_request")
   };
   var INT_FIELDS = [
-    "monthly_tokens", "daily_ingests", "storage_mb", "max_themes", "max_documents"
+    "monthly_tokens", "daily_ingests", "storage_mb", "max_documents"
   ];
 
   function show(out, text, isError) {

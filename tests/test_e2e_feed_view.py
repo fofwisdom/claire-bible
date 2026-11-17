@@ -188,9 +188,8 @@ def test_e2e_single_mode_subscribe_read_and_ingest(tmp_path, site, monkeypatch, 
         starred = _call(tc, "GET", "/api/feeds/items?starred=1", owner).json()["items"]
         assert [(i["id"], i["unread"]) for i in starred] == [(item["id"], False)]
 
-        # Ingest of one item into a theme of the owner.
+        # Ingest of one item into the personal knowledge base of the owner (CT23); a ``theme`` field is ignored.
         path = f"/api/feeds/items/{item['id']}/ingest"
-        assert _call(tc, "POST", path, owner, json={}).status_code == 400
         assert _call(tc, "POST", "/api/feeds/items/999999/ingest", owner, json={"theme": "0"}).status_code == 404
         assert _call(tc, "POST", f"/api/feeds/items/{listed[0]['id']}/ingest", owner, json={"theme": "0"}).status_code == 409
         assert calls == []
@@ -212,7 +211,7 @@ def test_e2e_network_mode_merge_by_url_and_account_isolation(tmp_path, site, mon
     alice_id = members["alice_feeds"]
     conn = dbm.connect_existing(settings.db_file)
     try:
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alice theme', 1, 1, 0, 1, 1, ?, 523456789012345)", (alice_id,))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alice theme', 1, 1, 1, 1, ?, 523456789012345)", (alice_id,))
         conn.commit()
     finally:
         conn.close()
@@ -258,6 +257,6 @@ def test_e2e_network_mode_merge_by_url_and_account_isolation(tmp_path, site, mon
         # The ingest of the feed item gives the document link to the timeline item too.
         res = _call(tc, "POST", f"/api/feeds/items/{item['id']}/ingest", alice, json={"theme": "523456789012345"})
         assert res.status_code == 200, res.text
-        assert res.json()["linked"] == {"theme_id": 11, "document_id": "doc_from_feed"}
+        assert res.json()["linked"] == {"kb_id": 11, "document_id": "doc_from_feed"}
         assert calls == [(item_url, {"source": "feed"})]
-        assert _call(tc, "GET", f"/api/federation/timeline/{timeline_id}", alice).json()["item"]["linked"] == {"theme_id": 11, "document_id": "doc_from_feed"}
+        assert _call(tc, "GET", f"/api/federation/timeline/{timeline_id}", alice).json()["item"]["linked"] == {"kb_id": 11, "document_id": "doc_from_feed"}

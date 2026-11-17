@@ -61,7 +61,7 @@ def is_admin(principal: Principal) -> bool:
 
 def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
     rows = conn.execute(
-        "SELECT account_id, COUNT(*) FROM themes WHERE account_id IS NOT NULL GROUP BY account_id"
+        "SELECT account_id, COUNT(*) FROM knowledge_bases WHERE account_id IS NOT NULL GROUP BY account_id"
     ).fetchall()
     return {int(r[0]): int(r[1]) for r in rows}
 
@@ -275,7 +275,6 @@ def _render_admin_accounts_html(
 
     storage_mb = int(tier_dict.get("storage_mb", 0))
     max_docs = int(tier_dict.get("max_documents", 0))
-    max_themes = int(tier_dict.get("max_themes", 1))
     monthly_tokens = int(tier_dict.get("monthly_tokens", 0))
     daily_ingests = int(tier_dict.get("daily_ingests", 0))
     active_count = sum(1 for i in items if i.get("status") == "active")
@@ -330,7 +329,6 @@ def _render_admin_accounts_html(
         <div class="pref-quota-grid">
           <label>{escape(t("console.admin.accounts.userdb.quota_storage"))}<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_docs"))}<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
-          <label>{escape(t("console.admin.accounts.field.themes"))}<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_tokens"))}<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_ingests"))}<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
           <label class="pref-quota-switch"><span>{escape(t("console.admin.accounts.userdb.byok_switch"))} {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
@@ -354,7 +352,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             from ...accounts import server_tier
@@ -502,7 +500,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         if not federation_readiness.heartbeat_is_recent(heartbeat):
                             return json_error(409, "federation_sidecar_unavailable", detail="The federation sidecar is not available, so the followers of this actor cannot get the Delete activity. Start the sidecar and try again, or send skip_federated_delete: true.")
                     try:
-                        updated = store.purge(target.id, data_dir=data_dir, skip_federated_delete=skip_federated_delete)
+                        # The option "Delete my activity records" of the purge confirmation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2, CT19).
+                        updated = store.purge(target.id, data_dir=data_dir, skip_federated_delete=skip_federated_delete, delete_activity_records=body.get("delete_activity_records") is True)
                     except accounts_store.AccountStateError as exc:
                         return json_error(400, "invalid_state_transition", detail=str(exc))
                     # The keys stay only while a delete_actor task waits for the sidecar. The acknowledgement of that task deletes them.

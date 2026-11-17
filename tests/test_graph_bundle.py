@@ -178,7 +178,7 @@ def test_non_blocking_readonly_export(tmp_path: Path) -> None:
     write_conn.execute("PRAGMA journal_mode=WAL;")
 
     # Export while source db writer connection is open
-    info = create_graph_bundle(settings, theme_id=0)
+    info = create_graph_bundle(settings, kb_id=0)
 
     assert info.bundle_id.startswith("gb_")
     assert info.entities_count == 2
@@ -201,7 +201,7 @@ def test_table_filtering_and_sanitization(tmp_path: Path) -> None:
     _seed_source_database(db_file)
 
     settings = StubSettings(db_file=db_file, data_dir=tmp_path)
-    info = create_graph_bundle(settings, theme_id=0)
+    info = create_graph_bundle(settings, kb_id=0)
 
     # Decompress bundle archive
     dctx = zstd.ZstdDecompressor()
@@ -297,7 +297,7 @@ def test_ttl_and_token_verification(tmp_path: Path) -> None:
     settings = StubSettings(db_file=db_file, data_dir=tmp_path)
 
     # 1. Create bundle
-    info = create_graph_bundle(settings, theme_id=0, now_epoch=t0)
+    info = create_graph_bundle(settings, kb_id=0, now_epoch=t0)
     token = info.token
 
     assert token.startswith(_GRAPH_BUNDLE_TOKEN_PREFIX)
@@ -349,7 +349,7 @@ def test_import_graph_bundle_restoration(tmp_path: Path) -> None:
     _seed_source_database(src_db)
 
     settings = StubSettings(db_file=src_db, data_dir=tmp_path)
-    info = create_graph_bundle(settings, theme_id=0)
+    info = create_graph_bundle(settings, kb_id=0)
 
     # Prepare fresh target database
     target_db = tmp_path / "target.db"

@@ -143,7 +143,6 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
           {num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))}
           {num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)}
           {num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)}
-          {num("max_themes", t("console.admin.tier.max_themes"), tier.max_themes, 1)}
           {num("max_documents", t("console.admin.tier.max_documents"), tier.max_documents, 0)}
           {num("byok_max_concurrency", t("console.admin.tier.byok_concurrency"), tier.byok_max_concurrency, 1)}
           <button type="submit">{escape(t("console.admin.tier.submit"))}</button>
@@ -160,7 +159,7 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
 def _legacy_host_to_dict(h: LegacyHost) -> dict[str, Any]:
     return {
         "host": h.host,
-        "theme_id": h.theme_id,
+        "kb_id": h.kb_id,
         "created_at": h.created_at,
         "activated_at": h.activated_at,
         "sunset_at": h.sunset_at,
@@ -238,7 +237,7 @@ def _render_server_html(
     for h in hosts:
         activated = format_ts(h.activated_at) if h.activated_at is not None else t("console.admin.server.legacy.not_started")
         sunset = format_ts(h.sunset_at) if h.sunset_at is not None else t("console.admin.server.legacy.no_limit")
-        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
+        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.kb_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
     hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.server.legacy.empty"))}</td></tr>'
 
     readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.server.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.server.readiness_not_passed"))}</span>'
@@ -303,7 +302,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             conn = open_db(ctx)

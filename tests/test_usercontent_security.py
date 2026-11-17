@@ -1,7 +1,7 @@
 """Tests for usercontent sub-application, capability viewing tokens, nh3 sanitization, and CSP (설계 §5.1–§5.2, §15 S1, §16.4).
 
 Requirements tested:
-1. Capability viewing tokens (1-hour / 3600s TTL, bound to account_id, theme_id, doc_id, visibility_epoch, exp).
+1. Capability viewing tokens (1-hour / 3600s TTL, bound to account_id, kb_id, doc_id, visibility_epoch, exp).
 2. nh3 HTML sanitization (stripping user inline scripts, event handlers onerror/onload/onclick, iframes, etc.).
 3. Static profile (/render/doc/{id}) rendering and CSP (frame-ancestors, sandbox allow-popups...).
 4. Deck profile (/p/presentation) rendering and CSP (script-src {usercontent} 'nonce-{nonce}', frame-ancestors).
@@ -179,7 +179,7 @@ def test_viewing_token_creation_and_verification():
 
     token = create_viewing_token(
         account_id=1,
-        theme_id=10,
+        kb_id=10,
         doc_id=42,
         visibility_epoch=1,
         expires_in=DEFAULT_VIEWING_TOKEN_TTL,
@@ -192,23 +192,23 @@ def test_viewing_token_creation_and_verification():
     assert len(sig_part) == 64
 
     # Valid token verification
-    assert verify_viewing_token(token, account_id=1, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is True
+    assert verify_viewing_token(token, account_id=1, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is True
 
     # Expired token verification (now > exp)
-    assert verify_viewing_token(token, account_id=1, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=5000.0) is False
+    assert verify_viewing_token(token, account_id=1, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=5000.0) is False
 
     # Visibility epoch mismatch verification (e.g. changed from 1 to 2)
-    assert verify_viewing_token(token, account_id=1, theme_id=10, doc_id=42, visibility_epoch=2, secret_service=sec, now=2000.0) is False
+    assert verify_viewing_token(token, account_id=1, kb_id=10, doc_id=42, visibility_epoch=2, secret_service=sec, now=2000.0) is False
 
     # Mismatched IDs verification
-    assert verify_viewing_token(token, account_id=2, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is False
-    assert verify_viewing_token(token, account_id=1, theme_id=11, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is False
-    assert verify_viewing_token(token, account_id=1, theme_id=10, doc_id=43, visibility_epoch=1, secret_service=sec, now=2000.0) is False
+    assert verify_viewing_token(token, account_id=2, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is False
+    assert verify_viewing_token(token, account_id=1, kb_id=11, doc_id=42, visibility_epoch=1, secret_service=sec, now=2000.0) is False
+    assert verify_viewing_token(token, account_id=1, kb_id=10, doc_id=43, visibility_epoch=1, secret_service=sec, now=2000.0) is False
 
     # Tampered or invalid token verification
-    assert verify_viewing_token("invalid-format", account_id=1, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
-    assert verify_viewing_token(f"{exp_part}.tampered_signature_000000000000000000000000000000000000000000000000", account_id=1, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
-    assert verify_viewing_token("", account_id=1, theme_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
+    assert verify_viewing_token("invalid-format", account_id=1, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
+    assert verify_viewing_token(f"{exp_part}.tampered_signature_000000000000000000000000000000000000000000000000", account_id=1, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
+    assert verify_viewing_token("", account_id=1, kb_id=10, doc_id=42, visibility_epoch=1, secret_service=sec) is False
 
 
 # --- 3. Static 프로필 렌더링 및 CSP 검증 (I/O & 통합) ----------------------------
@@ -222,10 +222,10 @@ async def test_static_profile_rendering_and_csp(tmp_path: Path):
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('10', 1, 'Article 10', '<p>Hello <script>alert(1)</script><img src=x onerror=alert(2)></p>', 0)"
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('10', 1, 'Article 10', '<p>Hello <script>alert(1)</script><img src=x onerror=alert(2)></p>', 0)"
     )
     conn.commit()
     conn.close()
@@ -259,10 +259,10 @@ async def test_deck_profile_rendering_and_nonce_csp(tmp_path: Path):
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('20', 1, 'Presentation Title', '<p>Slide content</p>', 0)"
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('20', 1, 'Presentation Title', '<p>Slide content</p>', 0)"
     )
     conn.commit()
     conn.close()
@@ -300,10 +300,10 @@ async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     conn = dbm.connect(db_path)
     # Theme 2 is private (is_public=0)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (2, 2, 'Private Theme', 1, 1, 0, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (2, 2, 'Private Theme', 1, 1, 0, 1000.0, 1000.0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('30', 2, 'Confidential Report', '<p>Classified</p>', 0)"
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('30', 2, 'Confidential Report', '<p>Classified</p>', 0)"
     )
     conn.commit()
     conn.close()
@@ -320,19 +320,19 @@ async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     assert status == 403
 
     # 3. Expired token -> 403 Forbidden
-    expired_token = create_viewing_token(account_id=1, theme_id=2, doc_id=30, visibility_epoch=1, expires_in=-60, secret_service=sec)
+    expired_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=-60, secret_service=sec)
     status, _, _ = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={expired_token}")
     assert status == 403
 
     # 4. Valid token -> 200 OK
-    valid_token = create_viewing_token(account_id=1, theme_id=2, doc_id=30, visibility_epoch=1, expires_in=3600, secret_service=sec)
+    valid_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=3600, secret_service=sec)
     status, _, body = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={valid_token}")
     assert status == 200
     assert "Classified" in body.decode("utf-8")
 
     # 5. Visibility epoch bumped (theme visibility changed / doc purged) -> old token invalidated (403)
     conn = dbm.connect(db_path)
-    conn.execute("UPDATE themes SET visibility_epoch = 2 WHERE id = 2")
+    conn.execute("UPDATE knowledge_bases SET visibility_epoch = 2 WHERE id = 2")
     conn.commit()
     conn.close()
 
@@ -340,7 +340,7 @@ async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     assert status == 403
 
     # 6. New token matching visibility_epoch=2 -> 200 OK
-    new_token = create_viewing_token(account_id=1, theme_id=2, doc_id=30, visibility_epoch=2, expires_in=3600, secret_service=sec)
+    new_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=2, expires_in=3600, secret_service=sec)
     status, _, body = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={new_token}")
     assert status == 200
     assert "Classified" in body.decode("utf-8")
@@ -357,10 +357,10 @@ async def test_cookieless_boundary_and_cookie_ignore(tmp_path: Path):
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('40', 1, 'Doc 40', '<p>Body</p>', 0)"
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('40', 1, 'Doc 40', '<p>Body</p>', 0)"
     )
     conn.commit()
     conn.close()
@@ -410,10 +410,10 @@ async def test_opaque_sandbox_origin_null_allowed(tmp_path: Path):
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (1, 1, 'Public Theme', 1, 1, 1, 1000.0, 1000.0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('50', 1, 'Doc 50', '<p>Body</p>', 0)"
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('50', 1, 'Doc 50', '<p>Body</p>', 0)"
     )
     conn.commit()
     conn.close()
@@ -488,7 +488,7 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (5, 5, 'E2E Private Theme', 1, 1, 0, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (5, 5, 'E2E Private Theme', 1, 1, 0, 1000.0, 1000.0)"
     )
     evil_html = (
         "<h1>Project Roadmap</h1>"
@@ -497,7 +497,7 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
         "<img src=\"chart.png\" onerror=\"maliciousCode()\">"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, detail_html, hidden) VALUES ('100', 5, 'E2E Roadmap', ?, 0)",
+        "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('100', 5, 'E2E Roadmap', ?, 0)",
         (evil_html,),
     )
     conn.commit()
@@ -514,7 +514,7 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
     # Step 2: Issue 1-hour capability token
     token = create_viewing_token(
         account_id=1,
-        theme_id=5,
+        kb_id=5,
         doc_id=100,
         visibility_epoch=1,
         expires_in=3600,
@@ -564,7 +564,7 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
 
     # Step 7: Bump visibility epoch and verify instant invalidation
     conn = dbm.connect(db_path)
-    conn.execute("UPDATE themes SET visibility_epoch = 2 WHERE id = 5")
+    conn.execute("UPDATE knowledge_bases SET visibility_epoch = 2 WHERE id = 5")
     conn.commit()
     conn.close()
 

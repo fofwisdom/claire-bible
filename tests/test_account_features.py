@@ -22,6 +22,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.kb_paths import kb_number
 import zstandard as zstd
 from starlette.testclient import TestClient
 
@@ -33,7 +35,7 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import telegram_bots
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
@@ -135,13 +137,13 @@ def _add_member(settings: _Settings, username: str, public_id: int) -> int:
 
 
 def _seed_theme(settings: _Settings, account_id: int, label: str, *, prefix: str) -> int:
-    theme = get_theme_manager(settings).define_theme(label, account_id=account_id, is_default=True)
+    theme = get_kb_manager(settings).define_kb(label, account_id=account_id, is_personal=True)
     conn = dbm.connect_existing(settings.db_file)
     try:
-        dbm.insert_document(conn, Document(id=f"{prefix}-d1", url=f"https://x/{prefix}/1", raw_text=f"body {prefix}", source_type="web", content_hash=f"h-{prefix}"), theme_id=theme.id)
-        dbm.upsert_entity(conn, Entity(id=f"{prefix}-e1", type="Tool", name=f"Tool {prefix}", sources=[f"{prefix}-d1"]), theme_id=theme.id)
+        dbm.insert_document(conn, Document(id=f"{prefix}-d1", url=f"https://x/{prefix}/1", raw_text=f"body {prefix}", source_type="web", content_hash=f"h-{prefix}"), kb_id=theme.id)
+        dbm.upsert_entity(conn, Entity(id=f"{prefix}-e1", type="Tool", name=f"Tool {prefix}", sources=[f"{prefix}-d1"]), kb_id=theme.id)
         conn.execute(
-            "INSERT INTO raw_inbox (theme_id, received_at, source, kind, payload, status, error, attempts, last_attempt) VALUES (?, ?, 'test', 'url', ?, 'failed', 'boom', 3, ?)",
+            "INSERT INTO raw_inbox (kb_id, received_at, source, kind, payload, status, error, attempts, last_attempt) VALUES (?, ?, 'test', 'url', ?, 'failed', 'boom', 3, ?)",
             (theme.id, time.time(), f"https://x/{prefix}/fail", time.time()),
         )
         conn.commit()
@@ -310,10 +312,13 @@ def test_account_support_bundle_is_scoped_to_caller(env):
 def test_data_bundle_lifecycle_and_isolation(env):
     c = env.client
     listing = c.request("GET", "/api/me/data-bundles", session=env.sa).json()
-    assert [t["theme_id"] for t in listing["themes"]] == [env.theme_a]
-    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"theme": str(env.theme_b)})
-    assert r.status_code == 404
+    assert [t["kb_id"] for t in listing["themes"]] == [env.theme_a]
+    # ``kb`` is required (CT23); a knowledge base of another account is 404.
     r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={})
+    assert r.status_code == 400 and r.json()["error"] == "kb_required"
+    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"kb": kb_number(env.settings, env.theme_b)})
+    assert r.status_code == 404
+    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"kb": kb_number(env.settings, env.theme_a)})
     assert r.status_code == 200, r.text
     created = r.json()["bundle"]
     assert created["entities_count"] == 1 and created["documents_count"] == 1
@@ -329,10 +334,10 @@ def test_data_bundle_lifecycle_and_isolation(env):
 # --- 백업 -------------------------------------------------------------------------------------------
 
 
-def _doc_count(settings: _Settings, theme_id: int) -> int:
+def _doc_count(settings: _Settings, kb_id: int) -> int:
     conn = sqlite3.connect(settings.db_file)
     try:
-        return conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id=?", (theme_id,)).fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=?", (kb_id,)).fetchone()[0]
     finally:
         conn.close()
 
@@ -368,7 +373,7 @@ def test_backup_restore_round_trip_requires_admin(env):
     # 백업 뒤 데이터가 사라졌다고 하자.
     conn = dbm.connect_existing(s.db_file)
     try:
-        conn.execute("DELETE FROM documents WHERE theme_id=?", (env.theme_a,))
+        conn.execute("DELETE FROM documents WHERE kb_id=?", (env.theme_a,))
         conn.commit()
     finally:
         conn.close()
@@ -404,7 +409,7 @@ def test_restore_refuses_theme_now_owned_by_other_account(env):
     record = account_backup.create_account_backup(s, account_id=env.a)
     conn = dbm.connect_existing(s.db_file)
     try:
-        conn.execute("UPDATE themes SET account_id=?, is_default=0 WHERE id=?", (env.b, env.theme_a))
+        conn.execute("UPDATE knowledge_bases SET account_id=?, is_personal=0 WHERE id=?", (env.b, env.theme_a))
         conn.commit()
     finally:
         conn.close()

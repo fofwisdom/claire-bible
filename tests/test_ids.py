@@ -25,27 +25,27 @@ def test_generate_id_salt_is_32_random_bytes() -> None:
 
 
 def test_number_layout_and_determinism() -> None:
-    n = ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS)
-    assert n == ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS)
+    n = ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS)
+    assert n == ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS)
     assert n >> 16 == UNIX_MS
     # 테이블과 salt가 하위 비트를 바꾼다.
     assert ids.timestamp_id("accounts", salt=SALT, unix_ms=UNIX_MS) >> 16 == UNIX_MS
-    other_salt = ids.timestamp_id("themes", salt=b"\x01" * 32, unix_ms=UNIX_MS)
+    other_salt = ids.timestamp_id("knowledge_bases", salt=b"\x01" * 32, unix_ms=UNIX_MS)
     assert other_salt >> 16 == UNIX_MS
     # seq는 하위 16비트에만 더해지고 0xFFFF에서 감싼다.
     low = n & 0xFFFF
-    assert ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS, seq=1) & 0xFFFF == (low + 1) & 0xFFFF
-    assert ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS, seq=0x10000) == n
+    assert ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS, seq=1) & 0xFFFF == (low + 1) & 0xFFFF
+    assert ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS, seq=0x10000) == n
 
 
 def test_monotonic_across_milliseconds() -> None:
-    numbers = [ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS + i) for i in range(500)]
+    numbers = [ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS + i) for i in range(500)]
     assert numbers == sorted(numbers)
     assert len(set(numbers)) == len(numbers)
 
 
 def test_current_numbers_exceed_two_to_56() -> None:
-    n = ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS)
+    n = ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS)
     assert n > ids.MIN_CURRENT_NUMBER == 1 << 56
     conn = sqlite3.connect(":memory:")
     _table(conn)
@@ -131,7 +131,7 @@ def test_other_constraint_violation_is_not_retried() -> None:
 
 
 def test_format_and_parse_public_id() -> None:
-    n = ids.timestamp_id("themes", salt=SALT, unix_ms=UNIX_MS)
+    n = ids.timestamp_id("knowledge_bases", salt=SALT, unix_ms=UNIX_MS)
     s = ids.format_public_id(n)
     assert s == str(n)
     assert ids.parse_public_id(s) == n

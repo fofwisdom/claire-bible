@@ -1,6 +1,6 @@
 """테마 FQDN 검증, 테마별 GA4, 레거시 테마 호스트 리다이렉트(설계 §5.3).
 
-P2부터 테마 FQDN은 호스트로 테마를 서빙하지 않고 새로 쓸 수도 없다(O5). v16 이관이 ``themes.fqdn``을 ``legacy_hosts``로 옮기고, ``HostRouter``는 그 호스트만 정본 테마 경로로 308 리다이렉트한다. 나머지 호스트는 421이다.
+P2부터 테마 FQDN은 호스트로 테마를 서빙하지 않고 새로 쓸 수도 없다(O5). v16 이관이 ``knowledge_bases.fqdn``을 ``legacy_hosts``로 옮기고, ``HostRouter``는 그 호스트만 정본 테마 경로로 308 리다이렉트한다. 나머지 호스트는 421이다.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed, step_up_request  # noqa: F401
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -22,8 +24,8 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import db as dbm
 from claire.store import legacy_hosts as lh
-from claire.store.theme import (
-    ThemeManager,
+from claire.store.knowledge_base import (
+    KnowledgeBaseManager,
     validate_fqdn,
     validate_ga_measurement_id,
 )
@@ -112,14 +114,14 @@ def test_theme_manager_rejects_new_fqdn_but_keeps_ga(tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(base_settings=settings)
+    tm = KnowledgeBaseManager(base_settings=settings)
     with pytest.raises(ValueError):
-        tm.define_theme("AI 테마", fqdn="ai.example.com")
-    t = tm.define_theme("AI 테마", ga_measurement_id="G-AI12345678")
+        tm.define_kb("AI 테마", fqdn="ai.example.com", knowledge_type="real")
+    t = tm.define_kb("AI 테마", ga_measurement_id="G-AI12345678", knowledge_type="real")
     assert t.ga_measurement_id == "G-AI12345678" and tm.has_any_ga_enabled() is True
     with pytest.raises(ValueError):
-        tm.update_theme(t.id, fqdn="ai.example.com")
-    tm.update_theme(t.id, fqdn="", ga_measurement_id="")
+        tm.update_kb(t.id, fqdn="ai.example.com")
+    tm.update_kb(t.id, fqdn="", ga_measurement_id="")
     assert tm.has_any_ga_enabled() is False
 
 
@@ -144,18 +146,18 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
     )
 
 
-def _theme_manager(db_file: Path) -> ThemeManager:
-    return ThemeManager(
+def _theme_manager(db_file: Path) -> KnowledgeBaseManager:
+    return KnowledgeBaseManager(
         base_settings=Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_MULTI_THEME=True)
     )
 
 
-def _set_legacy_fqdn(db_file: Path, theme_id: int, fqdn: str) -> None:
-    """P2 이전 설치처럼 ``themes.fqdn``을 직접 쓰고, v16 이관이 ``legacy_hosts``로 옮기게 한다."""
+def _set_legacy_fqdn(db_file: Path, kb_id: int, fqdn: str) -> None:
+    """P2 이전 설치처럼 ``knowledge_bases.fqdn``을 직접 쓰고, v16 이관이 ``legacy_hosts``로 옮기게 한다."""
     conn = dbm.connect(db_file)
     try:
-        conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (theme_id,))
-        conn.execute("UPDATE themes SET fqdn=?, number=NULL WHERE id=?", (fqdn, theme_id))
+        conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (kb_id,))
+        conn.execute("UPDATE knowledge_bases SET fqdn=?, number=NULL WHERE id=?", (fqdn, kb_id))
         conn.commit()
         dbm.init_db(conn)
         conn.commit()
@@ -172,7 +174,7 @@ async def test_theme_origin_and_host_are_not_trusted_without_legacy_directory(tm
 
     inner_app = Starlette(routes=[Route("/health", _inner_test_endpoint)])
     tm = _theme_manager(s.db_file)
-    theme = tm.define_theme("AI 테마")
+    theme = tm.define_kb("AI 테마", knowledge_type="real")
     _set_legacy_fqdn(s.db_file, theme.id, "ai.example.com")
     tm.reload()
     assert tm.has_registered_fqdn("ai.example.com") is True
@@ -203,12 +205,12 @@ async def test_dynamic_csp_headers_on_theme_ga(tmp_path):
     assert "googletagmanager.com" not in csp
     assert "google-analytics.com" not in csp
 
-    t = tm.define_theme("GA 테마", ga_measurement_id="G-DYNAMICTEST1")
+    t = tm.define_kb("GA 테마", ga_measurement_id="G-DYNAMICTEST1", knowledge_type="real")
     csp = client.get("/health").headers.get("content-security-policy", "")
     assert "https://*.googletagmanager.com" in csp
     assert "https://*.google-analytics.com" in csp
 
-    tm.update_theme(t.id, ga_measurement_id="")
+    tm.update_kb(t.id, ga_measurement_id="")
     csp = client.get("/health").headers.get("content-security-policy", "")
     assert "googletagmanager.com" not in csp
     assert "google-analytics.com" not in csp
@@ -243,55 +245,55 @@ def multi_theme_server_env(tmp_path):
 
 
 def _create_theme(client: TestClient, label: str, **extra) -> tuple[int, str]:
-    r = client.post("/themes", json={"label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
+    r = client.post("/kb", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
     assert r.status_code == 201, r.text
-    theme = r.json()["theme"]
+    theme = r.json()["knowledge_base"]
     return theme["id"], theme["number"]
 
 
-def _theme_number(settings: Settings, theme_id: int) -> int:
+def _theme_number(settings: Settings, kb_id: int) -> int:
     conn = dbm.connect(settings.db_file)
     try:
-        return int(conn.execute("SELECT number FROM themes WHERE id=?", (theme_id,)).fetchone()[0])
+        return int(conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()[0])
     finally:
         conn.close()
 
 
 def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
-    theme_id, _ = _create_theme(client, "AI 전용")
-    _set_legacy_fqdn(settings.db_file, theme_id, " AI.Example.com ")
-    number = _theme_number(settings, theme_id)
+    kb_id, _ = _create_theme(client, "AI 전용")
+    _set_legacy_fqdn(settings.db_file, kb_id, " AI.Example.com ")
+    number = _theme_number(settings, kb_id)
 
     noisy = {"Cookie": "claire_session=" + "s" * 43, "Origin": "http://ai.example.com"}
     resp = client.get(
         "/documents?theme=2&q=x", headers={"Host": "ai.example.com", **noisy}, follow_redirects=False
     )
     assert resp.status_code == 308
-    assert resp.headers["location"] == f"{APP_ORIGIN}/themes/{number}/documents?theme=2&q=x"
+    assert resp.headers["location"] == f"{APP_ORIGIN}/kb/{number}/documents?theme=2&q=x"
     assert "set-cookie" not in resp.headers
     assert "access-control-allow-origin" not in resp.headers
 
     root = client.head("/", headers={"Host": "AI.example.com:8765"}, follow_redirects=False)
     assert root.status_code == 308
-    assert root.headers["location"] == f"{APP_ORIGIN}/themes/{number}/"
+    assert root.headers["location"] == f"{APP_ORIGIN}/kb/{number}/"
 
     # 쓰기 메서드는 리다이렉트하지 않는다.
     assert client.post("/search", json={"q": "x"}, headers={"Host": "ai.example.com"}).status_code == 421
     assert (
-        client.post("/themes", json={"label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
+        client.post("/kb", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
         == 421
     )
     # 정적 자산도 레거시 호스트에서 직접 열리지 않고 정본 경로로 간다.
     static = client.get("/static/js/app.js", headers={"Host": "ai.example.com"}, follow_redirects=False)
     assert static.status_code == 308
-    assert static.headers["location"] == f"{APP_ORIGIN}/themes/{number}/static/js/app.js"
+    assert static.headers["location"] == f"{APP_ORIGIN}/kb/{number}/static/js/app.js"
 
 
 def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
-    theme_id, _ = _create_theme(client, "일몰 테마")
-    _set_legacy_fqdn(settings.db_file, theme_id, "old.example.com")
+    kb_id, _ = _create_theme(client, "일몰 테마")
+    _set_legacy_fqdn(settings.db_file, kb_id, "old.example.com")
 
     def status(host: str = "old.example.com") -> int:
         return client.get("/", headers={"Host": host}, follow_redirects=False).status_code
@@ -311,13 +313,13 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
         conn.close()
 
     # 테마를 지우면 legacy_hosts 행도 사라져 421이다.
-    assert client.request("DELETE", "/themes", json={"id": theme_id}, headers=OWNER_HEADERS).status_code == 200
+    assert step_up_request(client, settings, "DELETE", kb_url(settings, kb_id, "/") + "?apply=true").status_code == 200
     assert status() == 421
 
 
 def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env):
     client, _, _ = multi_theme_server_env
-    _create_theme(client, "기밀 테마", is_public=False)
+    _create_theme(client, "기밀 테마")
     for host in ("ai.example.com", "secret.example.com"):
         for path in ("/", "/documents", "/themes"):
             anon = client.get(path, headers={"Host": host})
@@ -328,31 +330,31 @@ def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env)
 
 def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
     """POST·PATCH /themes: FQDN 입력은 폐지됐고(O5) GA4 설정은 그대로다."""
-    client, _, _ = multi_theme_server_env
+    client, settings, _ = multi_theme_server_env
 
     for fqdn in ("research.example.com", "http://invalid-fqdn/"):
-        assert client.post("/themes", json={"label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
+        assert client.post("/kb", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
 
     r_bad_ga = client.post(
-        "/themes",
-        json={"label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
+        "/kb",
+        json={"knowledge_type": "real", "label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
         headers=OWNER_HEADERS,
     )
     assert r_bad_ga.status_code == 400
     assert "유효하지 않은 Google Analytics 측정 ID 형식입니다" in r_bad_ga.json().get("error", "")
 
-    theme_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
+    kb_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
     r_patch_fqdn = client.patch(
-        "/themes", json={"id": theme_id, "fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
     )
     assert r_patch_fqdn.status_code == 400
 
     r_patch = client.patch(
-        "/themes", json={"id": theme_id, "ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
     )
     assert r_patch.status_code == 200
-    assert r_patch.json()["theme"]["ga_measurement_id"] == "G-RESEARCH02"
+    assert r_patch.json()["knowledge_base"]["ga_measurement_id"] == "G-RESEARCH02"
 
-    r_clear = client.patch("/themes", json={"id": theme_id, "ga_measurement_id": ""}, headers=OWNER_HEADERS)
+    r_clear = client.patch(f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": ""}, headers=OWNER_HEADERS)
     assert r_clear.status_code == 200
-    assert not r_clear.json()["theme"].get("ga_measurement_id")
+    assert not r_clear.json()["knowledge_base"].get("ga_measurement_id")

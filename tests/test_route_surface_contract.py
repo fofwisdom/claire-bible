@@ -1,6 +1,6 @@
 """라우트 표면 계약 (설계 §9.1, §18.6).
 
-- ``ROUTE_POLICY``의 모든 값은 표면별 생성 헬퍼(``_root``·``_system``·``_namespaced``·``_any``)로 만든다(기본값에 기대지 않는다).
+- ``ROUTE_POLICY``의 모든 값은 표면별 생성 헬퍼(``_root``·``_system``·``_namespaced``·``_any``·``_collection``)로 만든다(기본값에 기대지 않는다). Each value gives the access level and the capability as literals (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.9 rule 3).
 - 표면·모드·접근 수준이 §9.1 표와 같다.
 - 경로 매개변수 키는 Starlette ``compile_path``로 정확 키 다음에 찾는다.
 - ``create_app``에 마운트된 라우트(Mount 포함) 하나에 정책 항목이 정확히 하나, 모든 정책 항목이 마운트된 라우트에 대응한다.
@@ -22,7 +22,9 @@ from starlette.routing import Mount, Route, compile_path
 from claire.api import security, server
 from claire.store.token_store import reset_token_stores
 
-SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any"}
+SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any", "_collection": "collection"}
+# SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: ``/kb`` and ``/themes`` are collections of the server at the root and of the account under ``/@{u}/``.
+COLLECTION_KEYS = {("GET", "/kb"), ("HEAD", "/kb"), ("GET", "/themes"), ("HEAD", "/themes")}
 
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
@@ -43,7 +45,9 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items",
        # Feed view (FP4-F3)
-       "/api/feeds/items/{item_id}", "/api/feeds/items/{item_id}/ingest", "/api/feeds/discover", "/render/feed/{item_id}"}
+       "/api/feeds/items/{item_id}", "/api/feeds/items/{item_id}/ingest", "/api/feeds/discover", "/render/feed/{item_id}",
+       # Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.2)
+       "/submissions", "/submissions/{number}"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -78,14 +82,23 @@ SYSTEM = {
     "/syndication", "/syndication/preferences",
     "/api/syndication/dispatch", "/syndication/dispatch",
     "/api/syndication/dispatches", "/syndication/dispatches",
+    # Reputation of the account of the credential (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6)
+    "/api/reputation",
+    # Automatic contribution and mutual collaboration (Sections 9.9, 9.10)
+    "/api/auto-rule", "/api/auto-rule/dry-run", "/api/auto-contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
+    "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
 }
+# The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2).
+SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge")}
 ADMIN_KEYS = {
+    *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/providers/test"),
     ("POST", "/providers/check"),
     *((m, "/api/me/personal-cli") for m in ("GET", "HEAD", "PATCH")),
     ("POST", "/api/me/personal-cli/test"),
     ("POST", "/support/bundle"),
+    *SYSTEM_KEYS,
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/server", "/api/admin/server") for m in ("GET", "HEAD")),
     ("PATCH", "/api/admin/accounts"),
     ("GET", "/api/admin/usernames/retired"),
@@ -143,12 +156,21 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
 
 
 # The download of a data bundle uses only the token. Thus the address at the root works in each mode. POST /graph/bundle stays namespaced.
-ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle")}
+# ``POST /kb`` makes a shared knowledge base for the account of the credential (design Section 10.1); the prefix is ignored.
+ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle"), ("POST", "/kb")}
+# ``PATCH /`` and ``DELETE /`` act on the knowledge base that the path selects; only ``GET /`` and ``HEAD /`` have the surface ``root``.
+NAMESPACED_ROOT_KEYS = {("PATCH", "/"), ("DELETE", "/")}
 
 
 def _expected_surface(path: str, method: str = "") -> str:
+    if (method, path) in COLLECTION_KEYS:
+        return "collection"
     if (method, path) in ANY_KEYS:
         return "any"
+    if (method, path) in NAMESPACED_ROOT_KEYS:
+        return "namespaced"
+    if (method, path) in SYSTEM_KEYS:
+        return "system"
     if path in ROOT:
         return "root"
     if path in ANY:
@@ -174,8 +196,11 @@ def test_every_policy_value_uses_an_explicit_surface_helper():
         label = ast.unparse(key)
         assert isinstance(value, ast.Call) and isinstance(value.func, ast.Name), label
         assert value.func.id in SURFACE_HELPERS, label
-        assert len(value.args) == 1 and isinstance(value.args[0], ast.Constant), label
+        assert len(value.args) == 2 and all(isinstance(arg, ast.Constant) for arg in value.args), label
         for keyword in value.keywords:
+            if keyword.arg == "step_up":
+                assert value.func.id in ("_namespaced", "_system") and ast.literal_eval(keyword.value) is True, label
+                continue
             assert keyword.arg == "modes" and ast.unparse(keyword.value) in {"ALL_MODES", "NETWORK_ONLY"}, label
 
 
@@ -186,11 +211,13 @@ def test_surface_helpers_pass_surface_and_modes_explicitly(helper):
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "RouteRule"]
     assert len(calls) == 1
     keywords = {k.arg: k.value for k in calls[0].keywords}
-    assert set(keywords) == {"access", "surface", "modes"}
+    assert set(keywords) - {"step_up"} == {"access", "capability", "surface", "modes"}
     assert ast.literal_eval(keywords["surface"]) == SURFACE_HELPERS[helper]
-    rule = func("read")
-    assert rule.surface == SURFACE_HELPERS[helper] and rule.modes == security.ALL_MODES
-    assert func("read", modes=security.NETWORK_ONLY).modes == security.NETWORK_ONLY
+    rule = func("read", "read")
+    assert rule.surface == SURFACE_HELPERS[helper] and rule.modes == security.ALL_MODES and rule.step_up is False
+    assert func("read", "read", modes=security.NETWORK_ONLY).modes == security.NETWORK_ONLY
+    with pytest.raises(ValueError):
+        func("read", "unknown-capability")
 
 
 def test_surfaces_modes_and_admin_access_match_design_table():

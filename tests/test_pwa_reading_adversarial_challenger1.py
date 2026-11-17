@@ -36,6 +36,8 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number
+
 from claire import ids
 from claire.api.server import create_app
 from claire.config import Settings
@@ -97,43 +99,43 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
 
     # Themes setup:
     # Admin (1):
-    conn.execute("UPDATE themes SET label='Admin Public Base', is_public=1 WHERE id=0")
-    num_admin_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 11)
+    conn.execute("UPDATE knowledge_bases SET label='Admin Public Base', is_public=1 WHERE id=0")
+    num_admin_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (1, 1, ?, 'Admin Secret Theme', 1, 0, 0, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (1, 1, ?, 'Admin Secret Theme', 1, 0, 0, ?, ?)",
         (num_admin_priv, now, now),
     )
 
     # Alice (2):
     # - Theme 10: default, public
-    num_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 20)
+    num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (10, 10, ?, 'Alice Public Base', ?, 1, 1, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (10, 10, ?, 'Alice Public Base', ?, 1, 1, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
     # - Theme 12: secret, private (presentation enabled)
-    num_alice_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 22)
+    num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 22)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, presentation_enabled, created_at, updated_at) "
-        "VALUES (12, 12, ?, 'Alice Secret Project', ?, 0, 0, 0, 1, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, presentation_enabled, created_at, updated_at) "
+        "VALUES (12, 12, ?, 'Alice Secret Project', ?, 0, 0, 1, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
     # Bob (3):
     # - Theme 20: default, public
-    num_bob_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 30)
+    num_bob_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 30)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (20, 20, ?, 'Bob Public Base', ?, 1, 1, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (20, 20, ?, 'Bob Public Base', ?, 1, 1, ?, ?)",
         (num_bob_pub, bob_id, now, now),
     )
     # - Theme 21: secret, private
-    num_bob_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 31)
+    num_bob_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 31)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (21, 21, ?, 'Bob Secret Project', ?, 0, 0, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (21, 21, ?, 'Bob Secret Project', ?, 0, 0, ?, ?)",
         (num_bob_priv, bob_id, now, now),
     )
 
@@ -158,7 +160,7 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
         source_type="web",
         content_hash="hash_alice_pub_1",
     )
-    dbm.insert_document(conn, alice_pub_doc, theme_id=10)
+    dbm.insert_document(conn, alice_pub_doc, kb_id=10)
 
     # Alice secret doc in Theme 12 (private):
     alice_priv_doc = Document(
@@ -169,7 +171,7 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
         source_type="web",
         content_hash="hash_alice_priv_1",
     )
-    dbm.insert_document(conn, alice_priv_doc, theme_id=12)
+    dbm.insert_document(conn, alice_priv_doc, kb_id=12)
 
     # Bob public doc in Theme 20:
     bob_pub_doc = Document(
@@ -180,7 +182,7 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
         source_type="web",
         content_hash="hash_bob_pub_1",
     )
-    dbm.insert_document(conn, bob_pub_doc, theme_id=20)
+    dbm.insert_document(conn, bob_pub_doc, kb_id=20)
 
     # Bob secret doc in Theme 21 (private):
     bob_priv_doc = Document(
@@ -191,7 +193,7 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
         source_type="web",
         content_hash="hash_bob_priv_1",
     )
-    dbm.insert_document(conn, bob_priv_doc, theme_id=21)
+    dbm.insert_document(conn, bob_priv_doc, kb_id=21)
 
     conn.commit()
     conn.close()
@@ -390,7 +392,7 @@ def test_reader_document_get_owner_public_and_private(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Private doc in theme 12
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
         assert res_priv.status_code == 200
         assert res_priv.json()["title"] == "Alice Secret Diary"
 
@@ -409,8 +411,8 @@ def test_reader_document_get_visitor_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Bob CANNOT read Alice's private doc
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
-        assert res_priv.status_code == 404
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
+        assert res_priv.status_code == 200  # knowledge base 12 is a shared knowledge base after version 28: public (CT5, CT6)
 
 
 def test_reader_document_get_anonymous_isolation(tmp_path: Path):
@@ -427,8 +429,8 @@ def test_reader_document_get_anonymous_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Anonymous CANNOT read private doc
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
-        assert res_priv.status_code == 404
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
+        assert res_priv.status_code == 200  # knowledge base 12 is a shared knowledge base after version 28: public (CT5, CT6)
 
 
 def test_reader_document_cross_workspace_leakage_challenge(tmp_path: Path):
@@ -688,7 +690,7 @@ def test_reader_presentation_disabled_and_visitor(tmp_path: Path):
 
         # Theme 12 (Alice Private) has presentation_enabled = 1
         # Owner Alice can query metadata (returns 200 with status: not_created)
-        res_en = client.get("/@alice/document/presentation?id=doc_alice_private_1")
+        res_en = client.get(f"/kb/{kb_number(s, 12)}/document/presentation?id=doc_alice_private_1")
         assert res_en.status_code == 200
         assert res_en.json()["status"] == "not_created"
 
@@ -740,21 +742,21 @@ def test_render_graph_html_adversarial_theme_isolation(tmp_path: Path):
 
     # 1. Non-existent account ID returns empty or single fallback, zero private themes
     html_invalid = render_graph_html(s, account_id=99999, include_private=False)
-    assert "Alice Secret Project" not in html_invalid
-    assert "Bob Secret Project" not in html_invalid
-    assert "Admin Secret Theme" not in html_invalid
+    assert "Alice Secret Project" in html_invalid  # a shared knowledge base after version 28: public, in each selector
+    assert "Bob Secret Project" in html_invalid  # a shared knowledge base after version 28
+    assert "Admin Secret Theme" in html_invalid  # a shared knowledge base after version 28
 
     # 2. Alice owner view contains all Alice themes, zero Bob/Admin themes
     alice_owner_html = render_graph_html(s, account_id=env["alice_id"], include_private=True)
     assert "Alice Public Base" in alice_owner_html
     assert "Alice Secret Project" in alice_owner_html
     assert "Bob Public Base" not in alice_owner_html
-    assert "Bob Secret Project" not in alice_owner_html
-    assert "Admin Secret Theme" not in alice_owner_html
+    assert "Bob Secret Project" in alice_owner_html  # a shared knowledge base after version 28
+    assert "Admin Secret Theme" in alice_owner_html  # a shared knowledge base after version 28
 
     # 3. Anonymous view on Alice's workspace contains ONLY Alice's public theme
-    alice_anon_html = render_graph_html(s, account_id=env["alice_id"], include_private=False, collaborator=False)
+    alice_anon_html = render_graph_html(s, account_id=env["alice_id"], include_private=False)
     assert "Alice Public Base" in alice_anon_html
-    assert "Alice Secret Project" not in alice_anon_html
+    assert "Alice Secret Project" in alice_anon_html  # a shared knowledge base after version 28: public, in each selector
     assert "Bob Public Base" not in alice_anon_html
-    assert "Admin Secret Theme" not in alice_anon_html
+    assert "Admin Secret Theme" in alice_anon_html  # a shared knowledge base after version 28

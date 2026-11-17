@@ -637,7 +637,7 @@ class AntigravityProvider:
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        focus_val = focus or (doc.meta or {}).get("focus")
+        focus_val = focus
         doc_id = getattr(doc, "id", None)
         target_effort = effort or self.effort
 
@@ -720,7 +720,7 @@ class AntigravityProvider:
         title = (doc.title or doc.url or "Claire Bible Presentation").strip()
         author = doc.author
         published_at = doc.published_at
-        focus_val = focus or (doc.meta or {}).get("focus")
+        focus_val = focus
         images_val = (doc.meta or {}).get("images")
         doc_id = getattr(doc, "id", None)
 

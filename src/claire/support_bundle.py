@@ -125,7 +125,7 @@ class SupportBundleInfo:
     download_url: str
     target_doc_id: str | None = None
     target_matched_by: str | None = None
-    target_theme_id: int | None = None
+    target_kb_id: int | None = None
     target_resolution_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,7 +141,7 @@ class SupportBundleInfo:
             "download_url": self.download_url,
             "target_doc_id": self.target_doc_id,
             "target_matched_by": self.target_matched_by,
-            "target_theme_id": self.target_theme_id,
+            "target_kb_id": self.target_kb_id,
             "target_resolution_status": self.target_resolution_status,
         }
 
@@ -166,7 +166,7 @@ class SupportBundleInfo:
             download_url=str(value["download_url"]),
             target_doc_id=value.get("target_doc_id"),
             target_matched_by=value.get("target_matched_by"),
-            target_theme_id=value.get("target_theme_id"),
+            target_kb_id=value.get("target_kb_id"),
             target_resolution_status=value.get("target_resolution_status"),
         )
 
@@ -537,7 +537,6 @@ def _collect_storage_diagnostics(
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     data_dir = Path(settings.data_dir)
     configured_db = Path(settings.db_file)
-    registry_path = Path(theme_manager.registry_path)
     telemetry_path = get_telemetry_db_path(data_dir)
     mounts = _read_mountinfo()
     named_paths = {
@@ -545,7 +544,6 @@ def _collect_storage_diagnostics(
         "process_cwd": Path.cwd(),
         "data_dir": data_dir,
         "configured_db": configured_db,
-        "themes_registry": registry_path,
         "telemetry_db": telemetry_path,
     }
     path_reports = {name: _path_metadata(path) for name, path in named_paths.items()}
@@ -562,14 +560,14 @@ def _collect_storage_diagnostics(
         if not is_admin_theme and not is_theme_public and safe_theme_label is not None:
             safe_theme_label = "[REDACTED_PRIVATE_THEME]"
         try:
-            theme_settings = theme_manager.get_settings_for_theme(theme.id, settings)
+            theme_settings = theme_manager.get_settings_for_kb(theme.id, settings)
             db_file = Path(theme_settings.db_file)
             resolved_themes.append(
                 {
                     "id": theme.id,
                     "seq": theme.seq,
                     "label": safe_theme_label,
-                    "is_default": theme.is_default,
+                    "is_personal": theme.is_personal,
                     "declared_db_path": theme.db_path,
                     "database": _inspect_database_candidate(db_file),
                     "database_mount": _enclosing_mount(db_file, mounts),
@@ -669,10 +667,7 @@ def _collect_storage_diagnostics(
             },
             "paths": path_reports,
             "enclosing_mounts": enclosing_mounts,
-            "theme_registry": {
-                "path": str(registry_path),
-                "metadata": _path_metadata(registry_path),
-                "default_theme_id": getattr(theme_manager, "_default_theme_id", None),
+            "kb_registry": {
                 "next_seq": getattr(theme_manager, "_next_seq", None),
             },
             "resolved_themes": resolved_themes,
@@ -878,11 +873,9 @@ class _FallbackThemeManager:
 
     def __init__(self, settings: Settings | Any) -> None:
         self.settings = settings
-        self.registry_path = Path(settings.data_dir) / "themes.json"
-        self._default_theme_id = 0
         self._next_seq = None
 
-    def get_settings_for_theme(
+    def get_settings_for_kb(
         self,
         _theme_ref: int | str | None = None,
         base_settings: Settings | Any | None = None,
@@ -893,24 +886,24 @@ class _FallbackThemeManager:
 def _support_theme_inventory(
     settings: Settings | Any,
 ) -> tuple[Any, list[Any], list[dict[str, str]]]:
-    from .store.theme import ThemeInfo, ThemeManager
+    from .store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
     try:
-        manager = ThemeManager(settings, create_registry=False)
+        manager = KnowledgeBaseManager(settings, writable=False)
         themes = (
-            manager.list_themes(include_private=True)
+            manager.list_kbs(include_private=True)
             if getattr(settings, "multi_theme", False)
-            else [manager.get_theme(0)]
+            else [manager.get_kb(0)]
         )
         return manager, themes, []
     except Exception as exc:  # noqa: BLE001
         fallback = _FallbackThemeManager(settings)
-        theme = ThemeInfo(
+        theme = KnowledgeBaseInfo(
             id=0,
             seq=0,
             label="기본 지식베이스 (registry fallback)",
             db_path=str(getattr(settings, "db_path", settings.db_file)),
-            is_default=True,
+            is_personal=True,
             is_public=False,
         )
         warning = {
@@ -1027,16 +1020,16 @@ def _collect_active_ingest_snapshot(data_dir: Path | str | None) -> dict[str, An
 
 
 def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
     themes = (
-        tm.list_themes(include_private=True)
+        tm.list_kbs(include_private=True)
         if getattr(settings, "multi_theme", False)
-        else [tm.get_theme(0)]
+        else [tm.get_kb(0)]
     )
     return [
-        (theme.id, theme.label, Path(tm.get_settings_for_theme(theme.id).db_file))
+        (theme.id, theme.label, Path(tm.get_settings_for_kb(theme.id).db_file))
         for theme in themes
     ]
 
@@ -1049,7 +1042,7 @@ def _find_exact_inbox_matches(settings: Settings, target: str) -> list[dict[str,
     is_url = raw_target.startswith(("http://", "https://"))
     target_canonical = canonicalize_url(raw_target) if is_url else None
     matches: list[dict[str, Any]] = []
-    for theme_id, theme_label, db_file in _theme_databases(settings):
+    for kb_id, theme_label, db_file in _theme_databases(settings):
         if not db_file.is_file():
             continue
         try:
@@ -1074,7 +1067,7 @@ def _find_exact_inbox_matches(settings: Settings, target: str) -> list[dict[str,
                             rows.append(row)
                 for row in rows:
                     item = dict(row)
-                    item["theme_id"] = theme_id
+                    item["kb_id"] = kb_id
                     item["theme_label"] = theme_label
                     item["_db_file"] = str(db_file)
                     matches.append(item)
@@ -1089,9 +1082,9 @@ def _resolve_support_target(
     settings: Settings, target: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
     """진단용 strict resolver: 모호하거나 미적재인 대상을 임의 문서로 치환하지 않는다."""
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
     candidates = tm.resolve_document_targets(target=target)
     exact_candidates = [
         candidate
@@ -1127,7 +1120,7 @@ def _resolve_support_target(
         "candidate_count": len(candidates),
         "candidate_documents": public_candidates,
         "matching_inbox_ids": [
-            {"theme_id": item["theme_id"], "inbox_id": item["id"]}
+            {"kb_id": item["kb_id"], "inbox_id": item["id"]}
             for item in inbox_matches
         ],
     }
@@ -1135,7 +1128,7 @@ def _resolve_support_target(
         resolution.update(
             {
                 "matched_by": selected.get("matched_by", "unknown"),
-                "theme_id": selected.get("theme_id", 0),
+                "kb_id": selected.get("kb_id", 0),
                 "theme_label": selected.get("theme_label", "기본 지식베이스"),
                 "document_id": selected["id"],
                 "url": selected.get("url"),
@@ -1272,7 +1265,7 @@ def create_support_bundle(
     target_info: dict[str, Any] | None = None
     target_doc_id: str | None = None
     target_matched_by: str | None = None
-    target_theme_id: int | None = None
+    target_kb_id: int | None = None
     target_db_file: Path = Path(s.db_file)
     target_inbox_matches: list[dict[str, Any]] = []
     target_resolution_status: str | None = None
@@ -1284,10 +1277,10 @@ def create_support_bundle(
             if primary is not None:
                 target_doc_id = primary["id"]
                 target_matched_by = primary.get("matched_by", "unknown")
-                target_theme_id = primary.get("theme_id", 0)
+                target_kb_id = primary.get("kb_id", 0)
                 target_db_file = Path(primary.get("db_file", s.db_file))
             elif target_inbox_matches:
-                target_theme_id = target_inbox_matches[0].get("theme_id", 0)
+                target_kb_id = target_inbox_matches[0].get("kb_id", 0)
                 target_db_file = Path(
                     target_inbox_matches[0].get("_db_file", s.db_file)
                 )
@@ -1433,7 +1426,7 @@ def create_support_bundle(
                     is_admin_theme = (theme_account_id == dbm.ADMIN_ACCOUNT_ID)
                     is_theme_public = getattr(t, "is_public", True)
                     safe_theme_label = t.label if (is_admin_theme or is_theme_public) else "[REDACTED_PRIVATE_THEME]"
-                    theme_db = Path(tm.get_settings_for_theme(t.id).db_file)
+                    theme_db = Path(tm.get_settings_for_kb(t.id).db_file)
                     theme_entry: dict[str, Any] = {
                         "label": safe_theme_label,
                         "path": str(theme_db),
@@ -1452,7 +1445,7 @@ def create_support_bundle(
                             # 상태별 카운트 합산
                             if getattr(s, "multi_theme", False):
                                 rows = conn.execute(
-                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE theme_id = ? AND received_at >= ? GROUP BY status",
+                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE kb_id = ? AND received_at >= ? GROUP BY status",
                                     (t.id, cutoff_epoch),
                                 ).fetchall()
                             else:
@@ -1470,7 +1463,7 @@ def create_support_bundle(
                                     """
                                     SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
                                     FROM raw_inbox
-                                    WHERE theme_id = ?
+                                    WHERE kb_id = ?
                                       AND status IN ('error', 'failed', 'stalled')
                                       AND (received_at >= ? OR last_attempt >= ?)
                                     ORDER BY received_at DESC LIMIT 100
@@ -1491,7 +1484,7 @@ def create_support_bundle(
                             for er in err_rows:
                                 item = dict(er)
                                 if getattr(s, "multi_theme", False):
-                                    item["theme_id"] = t.id
+                                    item["kb_id"] = t.id
                                     item["theme_label"] = safe_theme_label
                                 if not is_admin_theme:
                                     item["payload"] = "[REDACTED]"
@@ -1503,7 +1496,7 @@ def create_support_bundle(
                                     """
                                     SELECT token, document_id, created_at, expires_at
                                     FROM doc_shares
-                                    WHERE theme_id = ?
+                                    WHERE kb_id = ?
                                       AND (created_at >= ? OR expires_at IS NULL OR expires_at >= ?)
                                     ORDER BY created_at DESC
                                     """,
@@ -1522,7 +1515,7 @@ def create_support_bundle(
                             for sr in share_rows:
                                 s_dict = dict(sr)
                                 if getattr(s, "multi_theme", False):
-                                    s_dict["theme_id"] = t.id
+                                    s_dict["kb_id"] = t.id
                                     s_dict["theme_label"] = safe_theme_label
                                 if not is_admin_theme:
                                     s_dict["token"] = "***REDACTED***"
@@ -1535,7 +1528,7 @@ def create_support_bundle(
                             cnts = dbm.counts(
                                 conn,
                                 include_oauth=True,
-                                theme_id=t.id if getattr(s, "multi_theme", False) else None,
+                                kb_id=t.id if getattr(s, "multi_theme", False) else None,
                             )
                             schema_version = dbm.stored_schema_version(conn)
                             schema_lineage = dbm.stored_schema_lineage(conn)
@@ -1687,7 +1680,7 @@ def create_support_bundle(
                             ).fetchall()
                             for row in document_inbox_rows:
                                 item = dict(row)
-                                item["theme_id"] = target_theme_id or 0
+                                item["kb_id"] = target_kb_id or 0
                                 item["theme_label"] = target_info.get("theme_label")
                                 inbox_map[(str(target_db_file), int(item["id"]))] = item
                             doc_shares = conn.execute(
@@ -1709,7 +1702,7 @@ def create_support_bundle(
 
                     target_theme = None
                     try:
-                        target_theme = tm.get_theme(target_theme_id)
+                        target_theme = tm.get_kb(target_kb_id)
                     except Exception:
                         pass
                     target_account_id = getattr(target_theme, "account_id", dbm.ADMIN_ACCOUNT_ID) if target_theme else dbm.ADMIN_ACCOUNT_ID
@@ -1941,7 +1934,7 @@ def create_support_bundle(
         download_url=download_url,
         target_doc_id=target_doc_id,
         target_matched_by=target_matched_by,
-        target_theme_id=target_theme_id,
+        target_kb_id=target_kb_id,
         target_resolution_status=target_resolution_status,
     )
 

@@ -167,9 +167,9 @@
       const result = await api("GET", `/api/federation/objects?limit=80${maxId ? `&max_id=${encodeURIComponent(maxId)}` : ""}`);
       if (!result.ok || !Array.isArray(result.data.items)) break;
       result.data.items.forEach((item) => {
-        keys.add(`${item.theme_id}:${item.document_id}`);
-        reactions[`${item.theme_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
-        objects[`${item.theme_id}:${item.document_id}`] = { id: item.id, quote_policy: item.quote_policy };
+        keys.add(`${item.kb_id}:${item.document_id}`);
+        reactions[`${item.kb_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
+        objects[`${item.kb_id}:${item.document_id}`] = { id: item.id, quote_policy: item.quote_policy };
       });
       maxId = result.data.next_max_id;
       if (!maxId) break;
@@ -498,7 +498,6 @@
     const select = $("item-ingest-theme");
     const current = String(bridge.state.themeId);
     select.innerHTML = Object.values(bridge.themes).map((t) => `<option value="${esc(t.id)}" ${String(t.id) === current ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
-    $("item-ingest-focus").value = "";
     $("item-ingest-msg").textContent = "";
     $("item-ingest-source").textContent = `${authorName(item.author)} — ${item.url || item.object_iri}`;
     $("btn-item-ingest").disabled = false;
@@ -508,12 +507,11 @@
   async function submitIngest() {
     const id = C.ingestItemId;
     const themeKey = $("item-ingest-theme").value;
-    const focus = $("item-ingest-focus").value.trim();
     const msg = $("item-ingest-msg");
     const button = $("btn-item-ingest");
     button.disabled = true;
     msg.textContent = tr("synd.ingest.running");
-    const result = await api("POST", `/api/federation/timeline/${encodeURIComponent(id)}/ingest`, { theme: bridge.themeRefOf(themeKey), focus: focus || undefined });
+    const result = await api("POST", `/api/federation/timeline/${encodeURIComponent(id)}/ingest`, {});
     button.disabled = false;
     if (!result.ok || result.data.error || !result.data.linked) {
       msg.textContent = tr("synd.ingest.failed", { error: errorText(result) });
@@ -535,7 +533,7 @@
     const item = findItem(id);
     if (!item || !item.linked) return;
     setStage(thenPublish ? "publish" : "ingest");
-    bridge.showDocument(item.linked.theme_id, item.linked.document_id).then(() => {
+    bridge.showDocument(item.linked.kb_id, item.linked.document_id).then(() => {
       // The publish dialog of the knowledge base (FP3-5), reached from the client.
       if (thenPublish) bridge.openDispatchModal(item.linked.document_id);
     });

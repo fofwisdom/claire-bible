@@ -321,13 +321,13 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     app = server.create_app(s, svc)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
 
-    # 1. 읽기 전용 사용자(권한 없음)는 파기 불가 (보안 미들웨어 정책에 의해 404 Not Found 로 마스킹 거부)
+    # 1. 읽기 전용 사용자(권한 없음)는 파기 불가 (scope가 모자란 계정 자격증명은 지식 베이스 경로에서 403)
     r_ro = client.post(
         "/document/matrix/purge",
         json={"id": doc_id},
         headers={"Authorization": f"Bearer {read_tok}"},
     )
-    assert r_ro.status_code == 404
+    assert r_ro.status_code == 403
 
     # 2. 관리자(owner) 호출 시 성공 (200 OK)
     r_owner = client.post(

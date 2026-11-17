@@ -122,7 +122,7 @@ def test_token_exchange_valid_bound_session_token_member(tmp_path: Path) -> None
     s = _settings(tmp_path)
     conn = dbm.connect(s.db_file)
     _add_member(conn, 2, "alice", status="active")
-    member_session = accounts_store.create_account_session(conn, account_id=2, scope="collaborator")
+    member_session = accounts_store.create_account_session(conn, account_id=2, scope="write")
     conn.close()
 
     with TestClient(_app(s), base_url="http://127.0.0.1:8765") as client:
@@ -252,8 +252,8 @@ def test_token_exchange_inactive_or_suspended_account_rejected(tmp_path: Path) -
     conn = dbm.connect(s.db_file)
     _add_member(conn, 3, "charlie", status="suspended")
     _add_member(conn, 4, "dave", status="disabled")
-    suspended_tok = accounts_store.create_account_session(conn, account_id=3, scope="collaborator")
-    disabled_tok = accounts_store.create_account_session(conn, account_id=4, scope="collaborator")
+    suspended_tok = accounts_store.create_account_session(conn, account_id=3, scope="write")
+    disabled_tok = accounts_store.create_account_session(conn, account_id=4, scope="write")
     conn.close()
 
     with TestClient(_app(s), base_url="http://127.0.0.1:8765") as client:
@@ -286,7 +286,7 @@ def test_token_exchange_deleted_account_rejected(tmp_path: Path) -> None:
     s = _settings(tmp_path)
     conn = dbm.connect(s.db_file)
     _add_member(conn, 5, "eve", status="active")
-    eve_tok = accounts_store.create_account_session(conn, account_id=5, scope="collaborator")
+    eve_tok = accounts_store.create_account_session(conn, account_id=5, scope="write")
     conn.execute("DELETE FROM accounts WHERE id=5")
     conn.commit()
     conn.close()
@@ -311,7 +311,7 @@ def test_token_exchange_non_admin_never_acquires_admin_account_id(tmp_path: Path
     for account_id, username in ((10, "user10"), (11, "user11"), (12, "user12")):
         _add_member(conn, account_id, username, status="active")
     tokens = {
-        account_id: accounts_store.create_account_session(conn, account_id=account_id, scope="collaborator")
+        account_id: accounts_store.create_account_session(conn, account_id=account_id, scope="write")
         for account_id in (10, 11, 12)
     }
     conn.close()

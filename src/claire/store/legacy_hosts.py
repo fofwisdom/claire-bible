@@ -36,7 +36,7 @@ __all__ = [
 LEGACY_HOST_POLICY_KEY = "legacy_host_policy"
 SECONDS_PER_DAY = 86400
 _MAX_SUNSET_DAYS = 3650
-_COLUMNS = "host, theme_id, created_at, activated_at, sunset_at"
+_COLUMNS = "host, kb_id, created_at, activated_at, sunset_at"
 
 # 이 프로세스의 쓰기 세대. 파일 시각이 같은 틱 안에서 바뀌어도 캐시가 곧바로 무효화되게 한다.
 _generation = 0
@@ -56,7 +56,7 @@ def _normalize_host(host: str) -> str:
 def _row(row: Any) -> LegacyHost:
     return LegacyHost(
         host=str(row[0]),
-        theme_id=int(row[1]),
+        kb_id=int(row[1]),
         created_at=float(row[2]),
         activated_at=None if row[3] is None else float(row[3]),
         sunset_at=None if row[4] is None else float(row[4]),
@@ -135,13 +135,13 @@ def write_legacy_host_policy(
 # --- 행 -----------------------------------------------------------------------
 
 
-def list_legacy_hosts(conn: sqlite3.Connection, *, theme_id: int | None = None) -> list[LegacyHost]:
+def list_legacy_hosts(conn: sqlite3.Connection, *, kb_id: int | None = None) -> list[LegacyHost]:
     """호스트 이름 순. 테이블이 없으면 빈 목록."""
     sql = f"SELECT {_COLUMNS} FROM legacy_hosts"
     params: tuple[Any, ...] = ()
-    if theme_id is not None:
-        sql += " WHERE theme_id=?"
-        params = (int(theme_id),)
+    if kb_id is not None:
+        sql += " WHERE kb_id=?"
+        params = (int(kb_id),)
     try:
         rows = conn.execute(sql + " ORDER BY host", params).fetchall()
     except sqlite3.OperationalError as exc:
@@ -286,10 +286,10 @@ class SqliteLegacyHostDirectory:
             self._refresh()
             return self._hosts.get(_normalize_host(host))
 
-    def list_hosts_for_theme(self, theme_id: int) -> list[LegacyHost]:
+    def list_hosts_for_theme(self, kb_id: int) -> list[LegacyHost]:
         with self._lock:
             self._refresh()
-            return [h for h in self._hosts.values() if h.theme_id == theme_id]
+            return [h for h in self._hosts.values() if h.kb_id == kb_id]
 
     def policy(self) -> LegacyHostPolicy:
         with self._lock:

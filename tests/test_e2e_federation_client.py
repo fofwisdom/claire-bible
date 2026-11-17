@@ -33,7 +33,7 @@ def _make_env(tmp_path, *, usercontent_host: bool):
         settings.usercontent_fqdn = USERCONTENT
     _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
-    _db(settings, lambda conn: conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 0, 1, 1, ?, ?)", (alpha, ALPHA_THEME)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, ?)", (alpha, ALPHA_THEME)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     return settings, alpha, beta, app
 
@@ -175,18 +175,17 @@ def test_e2e_ingest_of_one_item_links_the_document(env, monkeypatch):
     monkeypatch.setattr(IngestServicePool, "get_service", lambda self, *args, **kwargs: _Service())
     item_id = _client_rows(env.settings, "SELECT id FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (env.alpha, f"{CAROL}/notes/1"))[0][0]
     path = f"{TIMELINE}/{item_id}/ingest"
-    # The theme is necessary, and it must be a theme of the caller.
-    assert env.client.request("POST", path, session=env.alpha_session, json={}).status_code == 400
-    assert env.client.request("POST", path, session=env.beta_session, json={"theme": str(ALPHA_THEME)}).status_code == 404
-    assert env.client.request("POST", f"{TIMELINE}/999999/ingest", session=env.alpha_session, json={"theme": str(ALPHA_THEME)}).status_code == 404
+    # The ingest writes to the personal knowledge base of the caller (CT23); a ``theme`` field is ignored. Another account does not see the item.
+    assert env.client.request("POST", path, session=env.beta_session, json={}).status_code == 404
+    assert env.client.request("POST", f"{TIMELINE}/999999/ingest", session=env.alpha_session, json={}).status_code == 404
     assert calls == []
 
-    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": str(ALPHA_THEME)})
+    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": "ignored"})
     assert res.status_code == 200, res.text
-    assert res.json()["document_id"] == "doc_from_item" and res.json()["linked"] == {"theme_id": 11, "document_id": "doc_from_item"}
+    assert res.json()["document_id"] == "doc_from_item" and res.json()["linked"] == {"kb_id": 11, "document_id": "doc_from_item"}
     # The existing URL ingest got the address of the post.
     assert calls == [(f"{CAROL}/notes/1", {"source": "federation"})]
     # The item stays in the timeline and has the link to the document.
     item = _get(env, f"{TIMELINE}/{item_id}").json()["item"]
-    assert item["linked"] == {"theme_id": 11, "document_id": "doc_from_item"}
+    assert item["linked"] == {"kb_id": 11, "document_id": "doc_from_item"}
     assert _get(env, TIMELINE).json()["counts"]["ingested"] == 1

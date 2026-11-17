@@ -75,7 +75,7 @@ A child that is stored as a new document does not go into the queue again, becau
 
 ## 6. Tests
 
-`tests/test_onehop_merge.py`, `tests/test_expand.py`, `tests/test_expand_follow.py`, `tests/test_expand_theme_focus.py`, `tests/test_research.py`. The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
+`tests/test_onehop_merge.py`, `tests/test_expand.py`, `tests/test_expand_follow.py`, `tests/test_research.py`. The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
 
 ## 7. Known limits
 

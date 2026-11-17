@@ -176,7 +176,7 @@ def test_e2e_graph_bundle_api_export_and_verification(tmp_path: Path):
         resp = client.post(
             "/graph/bundle",
             headers=OWNER_HEADERS,
-            json={"theme_id": 0},
+            json={"kb_id": 0},
         )
         assert resp.status_code == 200
         bundle_meta = resp.json()
@@ -377,7 +377,7 @@ async def test_e2e_telegram_bot_large_bundle_fallback_to_url(tmp_path: Path, mon
         token="gb3_huge_token_123456789012345678",
         filename="graph_bundle_huge.tar.zst",
         filepath=fake_file,
-        theme_id=0,
+        kb_id=0,
         entities_count=100000,
         relations_count=200000,
         documents_count=50000,

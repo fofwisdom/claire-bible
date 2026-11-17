@@ -25,7 +25,7 @@ from ...i18n import SUPPORTED_LOCALES, get_locale, t
 from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store import accounts as accounts_store
 from ...store.telemetry import query_mcp_telemetry
-from ...store.theme import ThemeInfo, ThemeManager, ThemeNotFound
+from ...store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
 from ..principal import Principal, request_principal
 from .admin import is_admin
 from .common import (
@@ -373,7 +373,7 @@ def _redirect(location: str) -> Response:
 def _append_theme_query(path: str, theme_query: str | None) -> str:
     if not theme_query:
         return path
-    return f"{path}?{urlencode({'theme': theme_query})}"
+    return f"{path}?{urlencode({'kb': theme_query})}"
 
 
 def _resolve_caller_theme_and_list(
@@ -381,8 +381,8 @@ def _resolve_caller_theme_and_list(
     *,
     account_id: int,
     raw_theme: str | None,
-) -> tuple[ThemeInfo | None, list[ThemeInfo], str | None] | None:
-    """``?theme=``가 주어졌으면 호출자 계정의 테마인지 엄격히 검증한다(C1).
+) -> tuple[KnowledgeBaseInfo | None, list[KnowledgeBaseInfo], str | None] | None:
+    """``?kb=``(번호)가 주어졌으면 호출자 계정의 지식 베이스인지 엄격히 검증한다(C1, CT23). 없으면 콘솔의 주인인 계정의 개인 지식 베이스다: ``/settings/*``는 그 계정의 콘솔이다.
 
     유효하지 않거나 다른 계정의 테마면 ``None``을 돌려줘 호출자가 404를 내게 한다.
     """
@@ -393,20 +393,22 @@ def _resolve_caller_theme_and_list(
         data_dir=data_dir,
         multi_theme=True,
     )
-    tm = ThemeManager(tm_settings)
-    owned = tm.list_account_themes(account_id)
+    tm = KnowledgeBaseManager(tm_settings)
+    owned = tm.list_account_kbs(account_id)
     if raw_theme is not None:
         cleaned = raw_theme.strip()
         if not cleaned:
             return None
         try:
-            resolved = tm.resolve_theme_ref(cleaned, account_id=account_id)
-        except ThemeNotFound:
+            resolved = tm.get_kb_by_reference(cleaned)
+        except KnowledgeBaseNotFound:
             return None
-        return resolved.theme, owned, cleaned
+        if resolved.account_id != account_id:
+            return None
+        return resolved, owned, cleaned
     default_theme = owned[0] if owned else None
     for t in owned:
-        if t.is_default:
+        if t.is_personal:
             default_theme = t
             break
     return default_theme, owned, None
@@ -470,8 +472,8 @@ def _build_sidebar_html(
 def _build_theme_selector_html(
     *,
     spec: ConsoleSectionSpec,
-    owned_themes: list[ThemeInfo],
-    selected_theme: ThemeInfo | None,
+    owned_themes: list[KnowledgeBaseInfo],
+    selected_theme: KnowledgeBaseInfo | None,
 ) -> str:
     if not spec.theme_scoped or not owned_themes:
         return ""
@@ -538,8 +540,8 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         conn = open_db(ctx)
         try:
             total_accounts = int(conn.execute("SELECT COUNT(*) FROM accounts WHERE status != 'purged'").fetchone()[0])
-            total_themes = int(conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0])
-            admin_themes = int(conn.execute("SELECT COUNT(*) FROM themes WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
+            total_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases").fetchone()[0])
+            admin_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
         finally:
             conn.close()
         body = (
@@ -631,7 +633,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<h2><span data-icon="shield"></span> {escape(t("console.admin.tokens.policy_title"))} {prototype_badge("admin-token-policy-summary", "static")}</h2>'
             f'{prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note"))}'
             '<dl>'
-            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", collaborator="collaborator", readonly="readonly", revoke="/tokens/revoke")}</dd>'
+            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", write="write", readonly="readonly", revoke="/tokens/revoke")}</dd>'
             f'<dt>{escape(t("console.admin.tokens.policy_oauth"))}</dt><dd>{t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")}</dd>'
             f'<dt>{escape(t("console.admin.tokens.policy_session"))}</dt><dd>{t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")}</dd>'
             "</dl>"
@@ -681,7 +683,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<thead><tr><th>{escape(t("console.admin.mcp.rbac_col_scope"))}</th><th>{escape(t("console.admin.mcp.rbac_col_design"))}</th><th>{escape(t("console.admin.mcp.rbac_col_current"))}</th><th>{escape(t("console.admin.mcp.rbac_col_result"))}</th></tr></thead>'
             '<tbody id="pref-mcp-rbac-tbody">'
             f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
-            f'<tr><td><code class="pref-mono">collaborator</code></td><td>{escape(t("console.admin.mcp.rbac_collaborator_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
+            f'<tr><td><code class="pref-mono">write</code></td><td>{escape(t("console.admin.mcp.rbac_write_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
             f'<tr><td><code class="pref-mono">readonly</code></td><td>{escape(t("console.admin.mcp.rbac_readonly_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
             f'<tr><td><code class="pref-mono">anonymous</code></td><td>{escape(t("console.admin.mcp.rbac_anonymous_design"))}</td><td>{escape(t("console.admin.mcp.rbac_anonymous_current"))}</td><td><span class="pref-pill">{escape(t("console.admin.mcp.rbac_stricter"))}</span></td></tr>'
             "</tbody>"
@@ -736,7 +738,7 @@ def _build_settings_account_section(
     principal: Principal,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
     notice: str | None = None,
 ) -> SettingsSectionRender:
     """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
@@ -810,7 +812,6 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
     conn = open_db(ctx)
     try:
         tier = server_tier_mod.load_server_tier(conn)
-        themes = server_tier_mod.account_theme_count(conn, account_id)
         documents = server_tier_mod.account_document_count(conn, account_id)
         storage_bytes = server_tier_mod.account_storage_bytes(conn, account_id)
     finally:
@@ -822,7 +823,6 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
         auth.close()
     return {
         "tier": tier,
-        "themes": themes,
         "documents": documents,
         "storage_bytes": storage_bytes,
         "period": usage.period,
@@ -842,7 +842,6 @@ def _settings_tier_rows_html(tier: ServerTier) -> str:
         (t("console.tier.max_effort"), tier.max_effort),
         (t("console.tier.features"), features),
         (t("console.tier.storage"), f"{tier.storage_mb:,} MB"),
-        (t("console.tier.max_themes"), f"{tier.max_themes:,}"),
         (t("console.tier.max_documents"), f"{tier.max_documents:,}"),
         (t("console.tier.byok_concurrency"), f"{tier.byok_max_concurrency:,}"),
     )
@@ -853,13 +852,11 @@ def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> 
     tier: ServerTier = usage["tier"]
     if admin_viewer:
         stats = (
-            ("themes", f"{usage['themes']:,}", t("console.usage.themes_own")),
             ("documents", f"{usage['documents']:,}", t("console.usage.documents_own")),
             ("storage", _settings_format_bytes(usage["storage_bytes"]), t("console.usage.storage_own")),
         )
     else:
         stats = (
-            ("themes", f"{usage['themes']:,} / {tier.max_themes:,}", t("console.usage.themes")),
             ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", t("console.usage.documents")),
             ("storage", f"{_settings_format_bytes(usage['storage_bytes'])} / {tier.storage_mb:,} MB", t("console.usage.storage")),
             ("tokens", f"{usage['tokens_total']:,} / {tier.monthly_tokens:,}", t("console.usage.tokens", period=usage['period'])),
@@ -909,7 +906,7 @@ def _settings_account_body(
     principal: Principal,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
     admin_viewer: bool,
     notice: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
@@ -1208,24 +1205,17 @@ def _settings_themes_body(
     ctx: AccountsContext,
     *,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
 ) -> tuple[str, dict[str, Any]]:
-    conn = open_db(ctx)
-    try:
-        tier = server_tier_mod.load_server_tier(conn)
-    finally:
-        conn.close()
+    """The knowledge base manager of the account. There is no slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1)."""
     body = (
-        f'<section class="console-subcard" id="settings-themes-quota" aria-label="{escape(t("console.settings.themes.slots_label"))}">'
-        f'<p class="hint" data-theme-slots>{escape(t("console.settings.themes.slots", owned=f"{len(owned_themes):,}", limit=f"{tier.max_themes:,}"))}</p>'
-        "</section>"
         f'<section class="console-subcard" id="settings-themes-manager-card" aria-label="{escape(t("console.settings.themes.manager_label"))}">'
         '<div id="settings-themes-host" data-settings-panel-host="themes">'
         f'<p class="hint">{escape(t("console.settings.themes.loading"))}</p>'
         "</div>"
         "</section>"
     )
-    return body, {"theme_slots": {"owned": len(owned_themes), "max_themes": tier.max_themes}}
+    return body, {}
 
 
 def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
@@ -1426,7 +1416,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         if raw_theme is not None:
             assert principal.account_id is not None
             if _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme) is None:
@@ -1438,7 +1428,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if not _is_owner(principal):
             return not_found()
         assert principal.account_id is not None
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         validated_theme: str | None = None
         if raw_theme is not None:
             resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -1455,7 +1445,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         spec = ADMIN_CONSOLE_BY_PATH.get(request.url.path)
         if spec is None:
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         return await asyncio.to_thread(
             _render_console_section,
             ctx,
@@ -1504,7 +1494,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if spec is None:
             return not_found()
         assert principal.account_id is not None
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         # D3: admin accessing /settings/tokens redirects 302 to /admin/tokens.
         if is_admin(principal) and spec.slug == "tokens":
             validated_theme: str | None = None

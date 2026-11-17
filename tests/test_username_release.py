@@ -51,10 +51,10 @@ def _isolate_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def _patch_admin_route_policies(monkeypatch):
     new_policies = dict(security.ROUTE_POLICY)
-    new_policies[("PATCH", "/api/admin/accounts")] = security._system("admin")
-    new_policies[("GET", "/api/admin/usernames/retired")] = security._system("admin")
-    new_policies[("HEAD", "/api/admin/usernames/retired")] = security._system("admin")
-    new_policies[("POST", "/api/admin/usernames/release")] = security._system("admin")
+    new_policies[("PATCH", "/api/admin/accounts")] = security._system("admin", "none")
+    new_policies[("GET", "/api/admin/usernames/retired")] = security._system("admin", "none")
+    new_policies[("HEAD", "/api/admin/usernames/retired")] = security._system("admin", "none")
+    new_policies[("POST", "/api/admin/usernames/release")] = security._system("admin", "none")
     monkeypatch.setattr(security, "ROUTE_POLICY", new_policies)
     monkeypatch.setattr(security, "_EXACT_ROUTE_POLICY", {
         k: v for k, v in new_policies.items() if "{" not in k[1]
@@ -228,15 +228,15 @@ def test_disk_gc_on_account_purge(conn: sqlite3.Connection, tmp_path: Path):
 
     now = time.time()
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) VALUES (20, 20, 'theme_gc', ?, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) VALUES (20, 20, 'theme_gc', ?, ?, ?)",
         (member.id, now, now),
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, url, fetched_at) VALUES ('doc_gc_orphan', 20, 'Orphan Doc', 'http://a.com', ?)",
+        "INSERT INTO documents (id, kb_id, title, url, fetched_at) VALUES ('doc_gc_orphan', 20, 'Orphan Doc', 'http://a.com', ?)",
         (now,),
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, url, fetched_at) VALUES ('doc_admin_keep', 0, 'Admin Doc', 'http://b.com', ?)",
+        "INSERT INTO documents (id, kb_id, title, url, fetched_at) VALUES ('doc_admin_keep', 0, 'Admin Doc', 'http://b.com', ?)",
         (now,),
     )
 
@@ -268,15 +268,15 @@ def test_disk_gc_on_account_purge(conn: sqlite3.Connection, tmp_path: Path):
     shared_raw.write_bytes(b"shared raw pdf")
 
     conn.execute(
-        "INSERT INTO raw_inbox (theme_id, file_ref, received_at) VALUES (20, ?, ?)",
+        "INSERT INTO raw_inbox (kb_id, file_ref, received_at) VALUES (20, ?, ?)",
         (str(orphan_raw), now),
     )
     conn.execute(
-        "INSERT INTO raw_inbox (theme_id, file_ref, received_at) VALUES (20, ?, ?)",
+        "INSERT INTO raw_inbox (kb_id, file_ref, received_at) VALUES (20, ?, ?)",
         (str(shared_raw), now),
     )
     conn.execute(
-        "INSERT INTO raw_inbox (theme_id, file_ref, received_at) VALUES (0, ?, ?)",
+        "INSERT INTO raw_inbox (kb_id, file_ref, received_at) VALUES (0, ?, ?)",
         (str(shared_raw), now),
     )
     conn.commit()
@@ -290,8 +290,8 @@ def test_disk_gc_on_account_purge(conn: sqlite3.Connection, tmp_path: Path):
     assert not orphan_raw.exists()
     assert admin_art.exists()
     assert shared_raw.exists()
-    assert conn.execute("SELECT COUNT(*) FROM themes WHERE id=20").fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id=20").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE id=20").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=20").fetchone()[0] == 0
 
 
 def test_retired_username_rejected_until_release(conn: sqlite3.Connection, auth_conn: sqlite3.Connection):

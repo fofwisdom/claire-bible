@@ -56,20 +56,21 @@ def _isolate(monkeypatch):
     reset_secret_service()
 
 
-def _add_theme(conn, theme_id: int, number: int, account_id: int, *, is_public: int = 1, collaborator: int = 1) -> None:
+def _add_theme(conn, kb_id: int, number: int, account_id: int, *, is_public: int = 1, personal: int = 0) -> None:
+    """``personal=1``: the personal knowledge base of the account (it publishes from this one). Else a row with the shape before version 28: the next start converts it to a shared knowledge base."""
     conn.execute(
-        "INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, 0, ?, ?, 1, 1, ?, ?)",
-        (theme_id, theme_id, f"theme-{theme_id}", is_public, collaborator, account_id, number),
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)",
+        (kb_id, kb_id, f"theme-{kb_id}", personal, is_public, account_id, number),
     )
 
 
-def _add_document(conn, document_id: str, theme_id: int, *, detail: str = "# Title\n\nBody text.", hidden: int = 0) -> None:
-    conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, ?, ?, ?, 'md', ?, 1)", (document_id, theme_id, f"Title of {document_id}", detail, hidden))
+def _add_document(conn, document_id: str, kb_id: int, *, detail: str = "# Title\n\nBody text.", hidden: int = 0) -> None:
+    conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, ?, ?, ?, 'md', ?, 1)", (document_id, kb_id, f"Title of {document_id}", detail, hidden))
 
 
 @pytest.fixture
 def env(tmp_path):
-    """A network-mode server with federation on. ``alpha`` is an actor with a public theme, a private theme, and a theme that a collaborator cannot use. ``beta`` is an actor with one public theme."""
+    """A network-mode server with federation on. ``alpha`` is an actor with its personal knowledge base and two old themes that the start converts to shared knowledge bases. ``beta`` is an actor with its personal knowledge base."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -83,10 +84,10 @@ def env(tmp_path):
             cur = conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 0, 0)", (public_id, username, username))
             members.append(int(cur.lastrowid))
         alpha, beta = members
-        _add_theme(conn, 11, ALPHA_THEME, alpha)
+        _add_theme(conn, 11, ALPHA_THEME, alpha, personal=1)
         _add_theme(conn, 12, ALPHA_PRIVATE_THEME, alpha, is_public=0)
-        _add_theme(conn, 13, ALPHA_OWNER_ONLY_THEME, alpha, collaborator=0)
-        _add_theme(conn, 21, BETA_THEME, beta)
+        _add_theme(conn, 13, ALPHA_OWNER_ONLY_THEME, alpha)
+        _add_theme(conn, 21, BETA_THEME, beta, personal=1)
         _add_document(conn, "doc-a", 11)
         _add_document(conn, "doc-hidden", 11, hidden=1)
         _add_document(conn, "doc-empty", 11, detail="  ")
@@ -130,7 +131,7 @@ def _rows(settings: _Settings, sql: str, params: tuple = ()) -> list[tuple]:
 
 
 def _objects(settings: _Settings) -> list[tuple]:
-    return _rows(settings, "SELECT account_id, theme_id, document_id, published_by_account_id FROM federation_objects ORDER BY public_id")
+    return _rows(settings, "SELECT account_id, kb_id, document_id, published_by_account_id FROM federation_objects ORDER BY public_id")
 
 
 def _tasks(settings: _Settings) -> list[tuple]:
@@ -139,7 +140,7 @@ def _tasks(settings: _Settings) -> list[tuple]:
 
 def _publish(env, document_id: str = "doc-a", theme: int = ALPHA_THEME, **kwargs):
     kwargs.setdefault("session_token", env.alpha_session)
-    return env.post("/api/federation/publish", {"theme": str(theme), "document_id": document_id}, **kwargs)
+    return env.post("/api/federation/publish", {"kb": str(theme), "document_id": document_id}, **kwargs)
 
 
 # --- Schema (I/O) ---
@@ -163,10 +164,12 @@ def test_v17_database_migrates_and_the_migration_is_idempotent(tmp_path, monkeyp
         assert {"federation_objects", "federation_outbox"} <= tables()
         salt = accounts_store.AccountStore(conn).id_salt()
         _add_theme(conn, 11, ALPHA_THEME, 1)
-        obj, _task, _made = fed.publish_document(conn, account_id=1, theme_id=11, document_id="d", published_by_account_id=1, salt=salt, now=100.0)
+        obj, _task, _made = fed.publish_document(conn, account_id=1, kb_id=11, document_id="d", published_by_account_id=1, salt=salt, now=100.0)
         fed.retract_object(conn, obj, now=101.0)
-        fed.publish_document(conn, account_id=1, theme_id=11, document_id="e", published_by_account_id=1, salt=salt, now=102.0)
+        fed.publish_document(conn, account_id=1, kb_id=11, document_id="e", published_by_account_id=1, salt=salt, now=102.0)
         conn.commit()
+        # The first start after the insert converts the row of the old shape to a shared knowledge base (version 28); the next starts change nothing.
+        dbm.init_db(conn)
         first = list(conn.iterdump())
         dbm.init_db(conn)
         dbm.init_db(conn)
@@ -239,7 +242,7 @@ def test_publish_makes_the_object_and_a_create_task_and_a_second_publish_makes_a
     assert _objects(env.settings) == [(env.alpha, 11, "doc-a", env.alpha)]
     assert _tasks(env.settings) == [(env.alpha, "create", object_id, "pending")]
     # The document has a public share page for the ``url`` of the object.
-    assert len(_rows(env.settings, "SELECT token FROM doc_shares WHERE document_id='doc-a' AND theme_id=11")) == 1
+    assert len(_rows(env.settings, "SELECT token FROM doc_shares WHERE document_id='doc-a' AND kb_id=11")) == 1
 
     second = _publish(env)
     assert second.status_code == 202 and second.json()["created"] is False
@@ -273,7 +276,8 @@ def test_object_row_and_task_row_are_in_one_transaction(env, monkeypatch):
 @pytest.mark.parametrize(
     "document_id, theme, status, error",
     [
-        ("doc-private", ALPHA_PRIVATE_THEME, 409, "theme_not_public"),
+        # A knowledge base that is not personal is a shared knowledge base after version 28: an account publishes only from its personal knowledge base.
+        ("doc-private", ALPHA_PRIVATE_THEME, 404, "theme_not_found"),
         ("doc-hidden", ALPHA_THEME, 409, "document_not_public"),
         ("doc-empty", ALPHA_THEME, 409, "document_has_no_body"),
         ("no-such-doc", ALPHA_THEME, 404, "document_not_found"),
@@ -314,18 +318,21 @@ def test_each_task_has_the_account_of_the_caller_and_the_admin_cannot_publish_fo
     assert [(row[0], row[3]) for row in _objects(env.settings)] == [(env.beta, env.beta), (env.alpha, env.alpha)]
 
 
-def test_collaborator_can_publish_only_in_a_theme_that_it_can_use_and_readonly_cannot_publish(env):
-    collaborator = env.session(env.alpha, "collaborator")
-    assert _publish(env, session_token=collaborator).status_code == 202
-    hidden = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME, session_token=collaborator)
+def test_write_scope_publishes_only_from_the_personal_knowledge_base_and_readonly_cannot_publish(env):
+    # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6: the scope ``write`` publishes, and only documents of the personal knowledge base of its account.
+    writer = env.session(env.alpha, "write")
+    assert _publish(env, session_token=writer).status_code == 202
+    hidden = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME, session_token=writer)
     assert (hidden.status_code, hidden.json()) == (404, {"error": "theme_not_found"})
-    assert _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME).status_code == 202
+    # A shared knowledge base (version 28) is not a knowledge base of the account: also the owner session gets 404.
+    shared = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME)
+    assert (shared.status_code, shared.json()) == (404, {"error": "theme_not_found"})
 
     readonly = env.session(env.alpha, "readonly")
     for token in (readonly, None):
         refused = _publish(env, session_token=token)
         assert refused.status_code in (401, 403, 404), refused.status_code
-    assert len(_tasks(env.settings)) == 2
+    assert len(_tasks(env.settings)) == 1
 
 
 def test_publish_with_a_cookie_needs_the_same_origin(env):
@@ -333,7 +340,7 @@ def test_publish_with_a_cookie_needs_the_same_origin(env):
     assert _objects(env.settings) == []
 
 
-@pytest.mark.parametrize("body", [{}, {"theme": str(ALPHA_THEME)}, {"theme": ALPHA_THEME, "document_id": "doc-a"}, {"theme": "0316", "document_id": "doc-a"}, {"theme": str(ALPHA_THEME), "document_id": ""}, {"theme": str(ALPHA_THEME), "document_id": "x" * 201}, {"theme": str(ALPHA_THEME), "document_id": "doc-a", "account_id": 1}])
+@pytest.mark.parametrize("body", [{}, {"kb": str(ALPHA_THEME)}, {"kb": ALPHA_THEME, "document_id": "doc-a"}, {"kb": "0316", "document_id": "doc-a"}, {"kb": str(ALPHA_THEME), "document_id": ""}, {"kb": str(ALPHA_THEME), "document_id": "x" * 201}, {"kb": str(ALPHA_THEME), "document_id": "doc-a", "account_id": 1}])
 def test_publish_refuses_a_body_outside_the_model(env, body):
     response = env.post("/api/federation/publish", body, session_token=env.alpha_session)
     assert (response.status_code, response.json()["error"]) == (400, "invalid_request")
@@ -380,7 +387,7 @@ def test_single_mode_has_no_publishing_routes(env):
     store.set_federation_state("off", updated_by=1)
     store.set_setting("mode", "single", updated_by=1)
     conn.close()
-    for path, body in (("/api/federation/publish", {"theme": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
+    for path, body in (("/api/federation/publish", {"kb": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
         assert env.post(path, body, session_token=env.admin_session).status_code == 404
     assert _tasks(env.settings) == []
 
@@ -411,8 +418,8 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         store.set_federation_state("on", updated_by=1)
         alpha = int(conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'member_alpha', 'member', 'active', 'Alpha', 1, 0, 0, 0)", (ALPHA_PUBLIC_ID,)).lastrowid)
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 0, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))
         _add_document(conn, "doc-a", 11)
         _add_document(conn, "doc-private", 12)
         conn.commit()
@@ -457,7 +464,7 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
                 assert published.value.status == 202
                 assert published.value.json()["created"] is True
                 page.locator("#modal-dispatch").wait_for(state="hidden")
-                assert rows("SELECT account_id, theme_id, document_id FROM federation_objects") == [(alpha, 11, "doc-a")]
+                assert rows("SELECT account_id, kb_id, document_id FROM federation_objects") == [(alpha, 11, "doc-a")]
                 assert rows("SELECT account_id, kind, status FROM federation_outbox") == [(alpha, "create", "pending")]
 
                 # A second publish from the dialog is an update of the same object.
@@ -503,25 +510,25 @@ def test_a_new_summary_or_share_link_makes_an_update_task_and_a_new_body_makes_n
     conn = dbm.connect_existing(env.settings.db_file)
     try:
         # A change of the body alone sends nothing.
-        conn.execute("UPDATE documents SET detail='A different body.' WHERE id='doc-a' AND theme_id=11")
+        conn.execute("UPDATE documents SET detail='A different body.' WHERE id='doc-a' AND kb_id=11")
         conn.commit()
-        assert fed.sync_object_content(conn, theme_id=11, document_id="doc-a", now=2000.0) is None
+        assert fed.sync_object_content(conn, kb_id=11, document_id="doc-a", now=2000.0) is None
         # A new extraction with a summary changes the object. The same summary a second time changes nothing.
         for expected in ([create, update], [create, update]):
-            dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The first summary."}), theme_id=11)
+            dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The first summary."}), kb_id=11)
             assert _tasks(env.settings) == expected
         # A new share link changes the object.
-        dbm.create_doc_share(conn, "doc-a", reuse_existing=False, theme_id=11)
+        dbm.create_doc_share(conn, "doc-a", reuse_existing=False, kb_id=11)
         assert _tasks(env.settings) == [create, update, update]
         # An extraction of a document that is not published makes no task.
-        dbm.log_extraction(conn, document_id="doc-b", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "Other."}), theme_id=11)
+        dbm.log_extraction(conn, document_id="doc-b", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "Other."}), kb_id=11)
         assert len(_tasks(env.settings)) == 3
         # An object from before version 23 has no digest: the first comparison stores the digest and sends nothing (rule 7).
         conn.execute("UPDATE federation_objects SET content_digest=NULL")
         conn.commit()
-        dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The second summary."}), theme_id=11)
+        dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The second summary."}), kb_id=11)
         assert len(_tasks(env.settings)) == 3 and _rows(env.settings, "SELECT content_digest IS NOT NULL FROM federation_objects") == [(1,)]
-        dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The third summary."}), theme_id=11)
+        dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The third summary."}), kb_id=11)
         assert len(_tasks(env.settings)) == 4
     finally:
         conn.close()

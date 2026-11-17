@@ -125,7 +125,7 @@ def test_graph_html_self_contained_markers():
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
-    assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
+    assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='write'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "updateCenterSearchMode" in GRAPH_HTML
     assert "ClaireAppBar.setConsoleLink" in GRAPH_HTML and "ws.bar.my_settings" in GRAPH_HTML
@@ -1274,8 +1274,8 @@ def test_document_detail_gives_provider_and_model_of_latest_extraction():
     conn.execute("DELETE FROM extractions WHERE document_id='d1'")
     before = store_queries.document_detail(conn, "d1")
     assert before["extraction_provider"] is None and before["extraction_model"] is None
-    conn.execute("INSERT INTO extractions(theme_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-old','v1','{}',1.0)")
-    conn.execute("INSERT INTO extractions(theme_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-new','v1','{}',2.0)")
+    conn.execute("INSERT INTO extractions(kb_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-old','v1','{}',1.0)")
+    conn.execute("INSERT INTO extractions(kb_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-new','v1','{}',2.0)")
     conn.commit()
     after = store_queries.document_detail(conn, "d1")
     assert after["extraction_provider"] == "gemini"

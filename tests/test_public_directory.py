@@ -78,31 +78,31 @@ def _setup_network_env(tmp_path: Path):
     )
     dave_id = int(cur.lastrowid)
 
-    num_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 10)
+    num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Public Theme', ?, 1, 1, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
 
-    num_alice_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 11)
+    num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (11, 11, ?, 'Alice Private Theme', ?, 0, 0, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
     conn.execute(
-        "INSERT INTO documents (id, theme_id, url, title, raw_text, hidden) VALUES ('doc1', 10, 'http://example.com/1', 'Doc 1', 'Text', 0)"
+        "INSERT INTO documents (id, kb_id, url, title, raw_text, hidden) VALUES ('doc1', 10, 'http://example.com/1', 'Doc 1', 'Text', 0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, url, title, raw_text, hidden) VALUES ('doc2', 10, 'http://example.com/2', 'Doc 2', 'Text', 0)"
+        "INSERT INTO documents (id, kb_id, url, title, raw_text, hidden) VALUES ('doc2', 10, 'http://example.com/2', 'Doc 2', 'Text', 0)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, url, title, raw_text, hidden) VALUES ('doc3', 10, 'http://example.com/3', 'Doc 3 (hidden)', 'Text', 1)"
+        "INSERT INTO documents (id, kb_id, url, title, raw_text, hidden) VALUES ('doc3', 10, 'http://example.com/3', 'Doc 3 (hidden)', 'Text', 1)"
     )
     conn.execute(
-        "INSERT INTO documents (id, theme_id, url, title, raw_text, hidden) VALUES ('doc4', 11, 'http://example.com/4', 'Doc 4 (private theme)', 'Text', 0)"
+        "INSERT INTO documents (id, kb_id, url, title, raw_text, hidden) VALUES ('doc4', 11, 'http://example.com/4', 'Doc 4 (private theme)', 'Text', 0)"
     )
 
     store = accounts_store.AccountStore(conn)

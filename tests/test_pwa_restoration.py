@@ -22,7 +22,7 @@ from claire.graphview import render_graph_html
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.token_store import reset_token_stores
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -75,15 +75,15 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
     bob_id = int(cur.lastrowid)
 
     # Themes
-    alice_theme_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 10)
+    alice_theme_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Personal Theme', ?, 1, 1, ?, ?)",
         (alice_theme_pub, alice_id, now, now),
     )
-    bob_theme_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 20)
+    bob_theme_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (20, 20, ?, 'Bob Secret Theme', ?, 1, 0, ?, ?)",
         (bob_theme_pub, bob_id, now, now),
     )
@@ -97,7 +97,7 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
         source_type="web",
         content_hash="hash_alice_1",
     )
-    dbm.insert_document(conn, doc_alice, theme_id=10)
+    dbm.insert_document(conn, doc_alice, kb_id=10)
 
     doc_bob = Document(
         id="doc_bob_private",
@@ -107,7 +107,7 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
         source_type="web",
         content_hash="hash_bob_1",
     )
-    dbm.insert_document(conn, doc_bob, theme_id=20)
+    dbm.insert_document(conn, doc_bob, kb_id=20)
 
     # Set network mode
     store = accounts_store.AccountStore(conn)

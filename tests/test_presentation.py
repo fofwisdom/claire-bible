@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.config import Settings
@@ -276,7 +278,7 @@ A test slide for API routes.
             assert status_res.json()["status"] == "ready"
 
             # 4. Access presentation page (public route)
-            page_res = client.get(f"/p/presentation?id={doc_id}")
+            page_res = client.get(f"/p/presentation?id={doc_id}&kb={kb_number(s, 0)}")
             assert page_res.status_code == 200
             assert "Slide Test" in page_res.text
 
@@ -772,7 +774,7 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         mock_compile.return_value = (target_file, 120)
         # 1. Option A: GET /p/presentation on ungenerated document MUST return 404 guidance HTML
         # and MUST NOT trigger LLM authoring or file generation
-        page_res = client.get(f"/p/presentation?id={doc_id}")
+        page_res = client.get(f"/p/presentation?id={doc_id}&kb={kb_number(s, 0)}")
         assert page_res.status_code == 404
         assert "프레젠테이션이 아직 생성되지 않았습니다" in page_res.text
         assert "Option A Test Doc" in page_res.text

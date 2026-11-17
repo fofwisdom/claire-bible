@@ -6,6 +6,8 @@ import argparse
 from pathlib import Path
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire import cli
@@ -13,7 +15,7 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 
 
 def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
@@ -59,23 +61,23 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
     conn0.close()
 
     # 2. Define Theme 1 (presentation_enabled=True) and Theme 2 (presentation_enabled=False)
-    mgr = get_theme_manager(s)
-    t1 = mgr.define_theme(label="Theme One Slides", presentation_enabled=True)
-    t2 = mgr.define_theme(label="Theme Two Docs", presentation_enabled=False)
+    mgr = get_kb_manager(s)
+    t1 = mgr.define_kb(label="Theme One Slides", presentation_enabled=True, knowledge_type="real")
+    t2 = mgr.define_kb(label="Theme Two Docs", presentation_enabled=False, knowledge_type="real")
 
     conn1 = dbm.connect(t1.db_path)
     dbm.init_db(conn1)
     doc1 = Document(id="doc-1", url="https://example.com/doc1", title="Theme 1 Doc")
-    dbm.insert_document(conn1, doc1, theme_id=t1.id)
-    dbm.set_document_detail(conn1, "doc-1", detail="= Title 1\n== Slide\nBody 1", format="adoc", theme_id=t1.id)
+    dbm.insert_document(conn1, doc1, kb_id=t1.id)
+    dbm.set_document_detail(conn1, "doc-1", detail="= Title 1\n== Slide\nBody 1", format="adoc", kb_id=t1.id)
     conn1.commit()
     conn1.close()
 
     conn2 = dbm.connect(t2.db_path)
     dbm.init_db(conn2)
     doc2 = Document(id="doc-2", url="https://example.com/doc2", title="Theme 2 Doc")
-    dbm.insert_document(conn2, doc2, theme_id=t2.id)
-    dbm.set_document_detail(conn2, "doc-2", detail="= Title 2\n== Slide\nBody 2", format="adoc", theme_id=t2.id)
+    dbm.insert_document(conn2, doc2, kb_id=t2.id)
+    dbm.set_document_detail(conn2, "doc-2", detail="= Title 2\n== Slide\nBody 2", format="adoc", kb_id=t2.id)
     conn2.commit()
     conn2.close()
 
@@ -88,7 +90,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert "비활성화" in res0.json()["detail"]
 
         # Theme 1 -> 200 OK (auto-resolved to Theme 1 database)
-        res1 = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1 = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1.status_code == 200
         assert res1.json()["status"] == "not_created"
 
@@ -98,11 +100,11 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert "비활성화" in res2.json()["detail"]
 
         # Step 4: Verify HTML guidance pages (/p/presentation)
-        page0 = client.get("/p/presentation?id=doc-0")
+        page0 = client.get(f"/p/presentation?id=doc-0&kb={kb_number(s, 0)}")
         assert page0.status_code == 403
         assert "기능 비활성" in page0.text
 
-        page1 = client.get("/p/presentation?id=doc-1")
+        page1 = client.get(f"/p/presentation?id=doc-1&kb={kb_number(s, 1)}")
         assert page1.status_code == 404
         assert "프레젠테이션이 아직 생성되지 않았습니다" in page1.text
 
@@ -111,7 +113,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert share_res0.status_code == 200
         token0 = share_res0.json()["token"]
 
-        share_res1 = client.post("/share", json={"doc_id": "doc-1"}, headers=owner_headers)
+        share_res1 = client.post(kb_url(s, 1, "/share"), json={"doc_id": "doc-1"}, headers=owner_headers)
         assert share_res1.status_code == 200
         token1 = share_res1.json()["token"]
 
@@ -128,28 +130,28 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Step 6: Runtime toggle via API
         # Enable Theme 0
         patch0 = client.patch(
-            "/themes",
-            json={"id": 0, "presentation_enabled": True},
+            "/",
+            json={"presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch0.status_code == 200
-        assert patch0.json()["theme"]["presentation_enabled"] is True
+        assert patch0.json()["knowledge_base"]["presentation_enabled"] is True
 
         # Disable Theme 1
         patch1 = client.patch(
-            "/themes",
-            json={"id": t1.id, "presentation_enabled": False},
+            f"/kb/{kb_number(s, t1.id)}/",
+            json={"presentation_enabled": False},
             headers=owner_headers,
         )
         assert patch1.status_code == 200
-        assert patch1.json()["theme"]["presentation_enabled"] is False
+        assert patch1.json()["knowledge_base"]["presentation_enabled"] is False
 
         # Verify inverted access
         res0_after = client.get("/document/presentation?id=doc-0", headers=owner_headers)
         assert res0_after.status_code == 200
         assert res0_after.json()["status"] == "not_created"
 
-        res1_after = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1_after = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1_after.status_code == 403
 
         share_page1_after = client.get(f"/p/presentation?s={token1}")
@@ -158,11 +160,11 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Step 7: CLI command verification
         # Re-enable Theme 1 via CLI
         monkeypatch.setattr("claire.cli.get_settings", lambda: s)
-        monkeypatch.setattr("claire.store.theme.get_theme_manager", lambda _s=None: mgr)
-        rc = cli.main(["theme", "update", str(t1.id), "--presentation"])
+        monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda _s=None: mgr)
+        rc = cli.main(["kb", "update", str(t1.id), "--presentation"])
         assert rc == 0
 
         # Verify access restored via client
-        res1_restored = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1_restored = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1_restored.status_code == 200
         assert res1_restored.json()["status"] == "not_created"

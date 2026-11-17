@@ -22,7 +22,7 @@ from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import get_token_store, reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -80,20 +80,20 @@ def _upsert_account(conn, account_id: int, public_id: int, username: str, role: 
     conn.commit()
 
 
-def _insert_theme(tm: ThemeManager, settings: Settings, *, theme_id: int, number: int, label: str, account_id: int, is_default: bool, is_public: bool = True) -> ThemeInfo:
+def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, number: int, label: str, account_id: int, is_personal: bool, is_public: bool = True) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, ?, 1, ?, ?, '', ?, ?)",
-            (theme_id, theme_id, number, label, f"Desc {label}", 1 if is_default else 0, 1 if is_public else 0, account_id, str(settings.db_file), now, now),
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, '', ?, ?)",
+            (kb_id, kb_id, number, label, f"Desc {label}", 1 if is_personal else 0, 1 if is_public else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 @pytest.fixture
@@ -118,11 +118,11 @@ def env(tmp_path: Path):
         CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
-    admin_theme = _insert_theme(tm, settings, theme_id=11, number=(1 << 56) | 11, label="Admin Research", account_id=1, is_default=False)
-    alice_def = _insert_theme(tm, settings, theme_id=20, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_default=True)
-    alice_private = _insert_theme(tm, settings, theme_id=21, number=(2 << 56) | 21, label="Alice <Private>", account_id=2, is_default=False, is_public=False)
-    bob_def = _insert_theme(tm, settings, theme_id=30, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_default=True)
+    tm = KnowledgeBaseManager(settings)
+    admin_theme = _insert_theme(tm, settings, kb_id=11, number=(1 << 56) | 11, label="Admin Research", account_id=1, is_personal=False)
+    alice_def = _insert_theme(tm, settings, kb_id=20, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_personal=True)
+    alice_private = _insert_theme(tm, settings, kb_id=21, number=(2 << 56) | 21, label="Alice <Private>", account_id=2, is_personal=False, is_public=False)
+    bob_def = _insert_theme(tm, settings, kb_id=30, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_personal=True)
 
     tok_store = get_token_store(data_dir=data_dir)
     admin_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
@@ -186,7 +186,7 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
     assert "Baseline of the ActivityPub client functions: Mastodon 5.0 or later." in connections
     assert "Client functions of the Mastodon 5.0 baseline" in connections
     assert 'id="pref-accounts-tbody"' in connections
-    assert f'href="/syndication?tab=client&amp;theme={env.alice_def.number}"' in connections
+    assert f'href="/syndication?tab=client&amp;kb={env.alice_def.number}"' in connections
     assert f"/@{MEMBER_USERNAME}/syndication" not in connections
 
     feeds = get("feeds")
@@ -222,26 +222,23 @@ def test_admin_viewer_mcp_section_links_to_admin_tokens(env):
     assert 'href="/settings/tokens" id="pref-mcp-tokens-link"' not in resp.text
 
 
-def test_theme_query_scopes_section_to_selected_owned_theme(env):
+def test_kb_query_scopes_section_to_the_personal_knowledge_base(env):
+    """The settings of ``/settings/*`` are of the account: ``?kb=`` takes only the personal knowledge base of the caller (CT1). A shared knowledge base and a knowledge base of another account give 404."""
     _set_mode(env.db_file, "network")
-    ref = str(env.alice_private.number)
-    resp = env.client.get(f"/settings/webmcp?theme={ref}", headers=env.alice_owner)
+    ref = str(env.alice_def.number)
+    resp = env.client.get(f"/settings/webmcp?kb={ref}", headers=env.alice_owner)
     assert resp.status_code == 200
     body = resp.text
     assert f'data-theme-ref="{ref}"' in body
-    assert 'data-theme-public="false"' in body
-    # 시드 순번은 소유 테마 목록 안의 위치다. 두 테마가 서로 다른 슬롯을 받아야 한다.
-    other = env.client.get(f"/settings/webmcp?theme={env.alice_def.number}", headers=env.alice_owner).text
-    seeds = {re.search(r'data-theme-seed="(\d+)"', html).group(1) for html in (body, other)}
-    assert len(seeds) == 2
-    # 테마 라벨은 이스케이프된 data 속성으로만 들어간다.
-    assert 'data-theme-label="Alice &lt;Private&gt;"' in body
+    assert 'data-theme-label="Alice Default"' in body
     boot = _bootstrap(body)
     assert boot["syndication"]["theme_ref"] == ref
-    assert sorted(boot["syndication"]["owned_theme_refs"]) == sorted([str(env.alice_def.number), ref])
+    assert boot["syndication"]["owned_theme_refs"] == [ref]
     assert str(env.bob_def.number) not in body
     assert str(env.admin_theme.number) not in body
-    assert env.client.get(f"/settings/webmcp?theme={env.bob_def.number}", headers=env.alice_owner).status_code == 404
+    # ``Alice <Private>`` had an owner before version 28; now it is a shared knowledge base and not of the account.
+    assert env.client.get(f"/settings/webmcp?kb={env.alice_private.number}", headers=env.alice_owner).status_code == 404
+    assert env.client.get(f"/settings/webmcp?kb={env.bob_def.number}", headers=env.alice_owner).status_code == 404
 
 
 def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
@@ -254,7 +251,7 @@ def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
         assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values()), slug
     connections = env.client.get("/settings/connections", headers=env.admin_owner).text
     admin_ref = _bootstrap(connections)["syndication"]["theme_ref"]
-    assert f'href="/syndication?tab=client&amp;theme={admin_ref}"' in connections
+    assert f'href="/syndication?tab=client&amp;kb={admin_ref}"' in connections
 
 
 def test_build_syndication_section_interface(env, tmp_path: Path):

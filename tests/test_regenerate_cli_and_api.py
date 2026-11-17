@@ -47,7 +47,6 @@ def test_cli_regenerate_parser_options():
         "--apply",
         "-y",
         "--effort", "high",
-        "--focus", "Security focus",
         "--format", "adoc",
         "--json",
     ])
@@ -56,7 +55,6 @@ def test_cli_regenerate_parser_options():
     assert args_alias.apply is True
     assert args_alias.yes is True
     assert args_alias.effort == "high"
-    assert args_alias.focus == "Security focus"
     assert args_alias.format == "adoc"
     assert args_alias.json is True
 
@@ -184,9 +182,9 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
-    # 1. Readonly user must be rejected with 404 (non-public route hidden)
+    # 1. Readonly user must be rejected with 403 (the scope is too small)
     res_ro = client.post("/regenerate", json={"target": doc_id}, headers=READONLY_HEADERS)
-    assert res_ro.status_code == 404
+    assert res_ro.status_code == 403
 
     # 2. Owner dry-run
     res_dry = client.post(
@@ -212,7 +210,7 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     # 4. Streaming regeneration via /regenerate-stream
     res_stream = client.post(
         "/regenerate-stream",
-        json={"target": doc_id, "component": "detail", "dry_run": False, "focus": "Architecture"},
+        json={"target": doc_id, "component": "detail", "dry_run": False},
         headers=OWNER_HEADERS,
     )
     assert res_stream.status_code == 200
@@ -222,97 +220,4 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     assert last_event.get("done") is True
     assert last_event["result"].get("count") == 1
 
-
-def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch):
-    """Verify API endpoints /regenerate and /regenerate-stream auto-resolve to the owning theme
-    when theme is omitted in the request body."""
-    data_dir = tmp_path / "data"
-    data_dir.mkdir(parents=True)
-    t0_db = data_dir / "claire.db"
-    vault_dir = tmp_path / "vault"
-    vault_dir.mkdir(parents=True)
-
-    monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("CLAIRE_DB_PATH", str(t0_db))
-    monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
-    monkeypatch.setenv("CLAIRE_MULTI_THEME", "true")
-    monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
-    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
-
-    from claire.config import get_settings
-    get_settings.cache_clear()
-    settings = get_settings()
-
-    # Initialize theme 0
-    c0 = dbm.connect(t0_db)
-    dbm.init_db(c0)
-    c0.close()
-
-    app = create_app(settings)
-    client = TestClient(app, base_url=settings.public_url)
-
-    # Register additional theme in ThemeManager
-    t_create = client.post(
-        "/themes",
-        json={"label": "R1999", "icon": "🪐", "is_public": True},
-        headers=OWNER_HEADERS,
-    )
-    assert t_create.status_code == 201
-    new_theme_id = t_create.json()["theme"]["id"]
-
-    # Ingest document into this new theme's database
-    from claire.store.theme import ThemeManager
-    theme_mgr = ThemeManager(settings)
-    theme_settings = theme_mgr.get_settings_for_theme(new_theme_id)
-    c_theme = dbm.connect(theme_settings.db_file)
-    dbm.init_db(c_theme)
-    prov = MockProvider()
-    vstore = make_vector_store(c_theme, "brute")
-
-    doc = Document(
-        url="https://example.com/theme-voyager",
-        canonical_url="https://example.com/theme-voyager",
-        title="Voyager | Reverse: 1999",
-        raw_text="Voyager celestial entity in Reverse 1999.",
-        source_type="web",
-        content_hash=content_hash("Voyager celestial entity in Reverse 1999."),
-    )
-    rep = ingest(
-        payload="https://example.com/theme-voyager",
-        conn=c_theme,
-        provider=prov,
-        vstore=vstore,
-        data_dir=theme_settings.data_dir,
-        source="test",
-        fetch_fn=lambda _: doc,
-        theme_id=new_theme_id,
-    )
-    doc_id = rep.document_id
-    c_theme.close()
-
-    # Call /regenerate without theme parameter (theme_ref is None, defaults to theme 0 initially)
-    res_dry = client.post(
-        "/regenerate",
-        json={"target": doc_id, "dry_run": True},
-        headers=OWNER_HEADERS,
-    )
-    assert res_dry.status_code == 200
-    d_dry = res_dry.json()
-    assert d_dry.get("count") == 1
-    assert d_dry.get("theme_id") == new_theme_id
-
-    # Call /regenerate-stream without theme parameter
-    res_stream = client.post(
-        "/regenerate-stream",
-        json={"target": doc_id, "component": "summary", "dry_run": False},
-        headers=OWNER_HEADERS,
-    )
-    assert res_stream.status_code == 200
-    lines = [ln for ln in res_stream.text.split("\n") if ln.strip()]
-    last_event = json.loads(lines[-1])
-    assert last_event.get("done") is True
-    assert last_event["result"].get("count") == 1
-    assert last_event["result"].get("theme_id") == new_theme_id
 

@@ -585,8 +585,7 @@ class Settings(BaseSettings):
     allow_purge: bool = Field(default=True, alias="CLAIRE_ALLOW_PURGE")
     # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
     multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
-    theme_id: int = Field(default=0, alias="CLAIRE_THEME_ID")
-    default_focus: str = Field(default="", alias="CLAIRE_THEME_DEFAULT_FOCUS")
+    kb_id: int = Field(default=0, alias="CLAIRE_KB_ID")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
@@ -657,8 +656,6 @@ class Settings(BaseSettings):
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
-    # 협력자 토큰 — 추가 지식 테마에 대한 읽기 및 적재(ingest) 허용, 기본 테마 쓰기 및 관리 차단.
-    collaborator_token: str = Field(default="", alias="CLAIRE_COLLABORATOR_TOKEN")
     # exact 0|1 opt-in. True면 자격증명 없는 same-origin 요청을 읽기 전용으로만
     # 허용한다(숨김 문서는 제외). owner 인증과 쓰기 경로는 그대로 유지된다.
     anonymous_readonly: bool = Field(
@@ -1267,9 +1264,9 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             is_match = True
         elif getattr(s, "multi_theme", False):
             try:
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
+                tm = get_kb_manager(s)
                 if tm.has_registered_fqdn(host):
                     is_match = True
             except Exception:

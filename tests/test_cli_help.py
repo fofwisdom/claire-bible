@@ -63,7 +63,7 @@ def test_nested_subparsers_have_help_and_description():
     sub_action = _get_subparsers_action(parser)
     assert sub_action is not None
 
-    nested_command_names = ["theme", "presentation", "providers", "entity"]
+    nested_command_names = ["kb", "presentation", "providers", "entity"]
     for cmd_name in nested_command_names:
         sub_parser = sub_action.choices.get(cmd_name)
         assert sub_parser is not None, f"Expected subcommand '{cmd_name}'"
