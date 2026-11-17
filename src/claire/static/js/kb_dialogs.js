@@ -25,23 +25,97 @@
   }
 
   // The documents of the personal knowledge base of the requester, as a list with check boxes. ``homeHref`` is the path of that knowledge base ("/" or "/@user/").
+  // GET …/documents gives one page ("documents", "next_before", "total"): the parameter "q" is the search text (200 characters or less), and "before" is the cursor of the next page. A selected document stays in the list when the search text changes.
   function loadDocumentChoices(box, homeHref) {
-    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p>";
-    return ui().request((homeHref || "/") + "documents").then(function (res) {
-      var docs = (res.ok && res.data && res.data.documents) || [];
-      if (!res.ok) {
-        box.innerHTML = '<div class="claire-note warn">' + esc(errText(res)) + "</div>";
-        return;
+    var base = (homeHref || "/") + "documents";
+    var docs = [];
+    var picked = {};
+    var nextBefore = null;
+    var total = null;
+    var query = "";
+    var serial = 0;
+    var timer = null;
+    box.innerHTML = '<div class="claire-field"><label class="claire-field-label" for="kb-doc-search">' + esc(t("kb.dlg.doc_search")) + '</label><input id="kb-doc-search" type="search" class="claire-input" maxlength="200" autocomplete="off"/></div>' +
+      '<div data-doc-list><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>";
+    var searchInput = box.querySelector("#kb-doc-search");
+    var listBox = box.querySelector("[data-doc-list]");
+
+    function rowHtml(id, title, checked) {
+      return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(id) + '"' + (checked ? " checked" : "") + '/><span class="claire-srow-info"><strong>' + esc(title || id) + "</strong></span></label>";
+    }
+
+    function draw(failure) {
+      var inPage = {};
+      docs.forEach(function (d) { inPage[String(d.id)] = true; });
+      // The selected documents that the current search does not show come first.
+      var rows = Object.keys(picked).filter(function (id) { return !inPage[id]; }).map(function (id) { return rowHtml(id, picked[id], true); })
+        .concat(docs.map(function (d) { return rowHtml(d.id, d.title, Object.prototype.hasOwnProperty.call(picked, String(d.id))); }));
+      var h = "";
+      if (failure) h += '<div class="claire-note warn">' + esc(errText(failure)) + "</div>";
+      if (rows.length) h += '<fieldset class="claire-field" style="border:0;padding:0;margin:0;max-height:260px;overflow:auto"><legend class="claire-field-label">' + esc(t("kb.dlg.pick_documents")) + "</legend>" + rows.join("") + "</fieldset>";
+      else if (!failure) h += '<p class="claire-hint">' + esc(t(query ? "kb.dlg.doc_search_empty" : "kb.dlg.no_documents")) + "</p>";
+      if (total != null && docs.length) h += '<p class="claire-hint" data-doc-count>' + esc(t("kb.dlg.doc_count", { shown: docs.length, total: total })) + "</p>";
+      if (nextBefore) h += '<div class="claire-actions"><button type="button" class="claire-btn sec claire-btn-sm" data-doc-more>' + esc(t("kb.dlg.doc_more")) + "</button></div>";
+      listBox.innerHTML = h;
+    }
+
+    function load(more) {
+      serial += 1;
+      var mine = serial;
+      var params = [];
+      if (query) params.push("q=" + encodeURIComponent(query));
+      if (more && nextBefore) params.push("before=" + encodeURIComponent(nextBefore));
+      return ui().request(base + (params.length ? "?" + params.join("&") : "")).then(function (res) {
+        // An answer of an older request (the search text changed) is not shown.
+        if (mine !== serial) return;
+        if (!res.ok) {
+          if (!more) { docs = []; nextBefore = null; total = null; }
+          draw(res);
+          return;
+        }
+        var page = (res.data && res.data.documents) || [];
+        docs = more ? docs.concat(page) : page;
+        nextBefore = (res.data && res.data.next_before) || null;
+        total = res.data && typeof res.data.total === "number" ? res.data.total : null;
+        draw(null);
+      });
+    }
+
+    listBox.addEventListener("change", function (ev) {
+      var input = ev.target;
+      if (!input || input.name !== "doc") return;
+      if (input.checked) {
+        var label = input.closest("label");
+        picked[input.value] = label ? label.textContent : input.value;
+      } else {
+        delete picked[input.value];
       }
-      if (!docs.length) {
-        box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.no_documents")) + "</p>";
-        return;
-      }
-      box.innerHTML = '<fieldset class="claire-field" style="border:0;padding:0;margin:0;max-height:260px;overflow:auto"><legend class="claire-field-label">' + esc(t("kb.dlg.pick_documents")) + "</legend>" +
-        docs.map(function (d) {
-          return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(d.id) + '"/><span class="claire-srow-info"><strong>' + esc(d.title || d.id) + "</strong></span></label>";
-        }).join("") + "</fieldset>";
     });
+    listBox.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest("[data-doc-more]") : null;
+      if (!btn) return;
+      btn.disabled = true;
+      load(true);
+    });
+    function search() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      var next = searchInput.value.trim();
+      if (next === query) return;
+      query = next;
+      load(false);
+    }
+    searchInput.addEventListener("input", function () {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(search, 300);
+    });
+    // Enter in the search field starts the search; it does not send the dialog.
+    searchInput.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      search();
+    });
+    return load(false);
   }
 
   function selectedDocuments(opts, box) {

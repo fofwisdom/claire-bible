@@ -197,12 +197,6 @@
   }
 
   function stepUp() {
-    var existingConsole = document.getElementById("console-reauth-modal");
-    if (existingConsole && root.ClaireConsoleReauth) {
-      return new Promise(function (resolve) {
-        root.ClaireConsoleReauth(function (ok) { resolve(!!ok); });
-      });
-    }
     var verified = false;
     var errEl = null;
     var pwInput = null;
@@ -248,7 +242,9 @@
               return true;
             }
             if (submitBtn) submitBtn.disabled = false;
-            var msg = (data && (data.detail || data.error)) || t("kb.ui.step_up_failed", null, "Verification failed.");
+            // POST /api/auth/reauth gives 403 "invalid_password", or 409 "password_not_set" for an account that has no password; each other code gets the text of errorText.
+            var code = String((data && (data.error || data.detail)) || ("HTTP " + resp.status));
+            var msg = code === "invalid_password" ? t("kb.ui.step_up_failed") : (code === "password_not_set" ? t("kb.ui.step_up_no_password") : errorText({ error: code }));
             pwInput.setCustomValidity(msg);
             pwInput.setAttribute("aria-invalid", "true");
             pwInput.setAttribute("aria-describedby", errEl.id);
@@ -310,6 +306,8 @@
   // The text of a failed request or of a reason code: the catalog text of the code ("kb.err.<code>", or "kb.reason.<code>" for a reason code of a decision) when there is one, else the general text with the code.
   function errorText(res) {
     var code = String((res && res.error) || "");
+    // The knowledge base routes give 404 with the text "theme not found" for a knowledge base that is not there or that the requester cannot read.
+    if (code === "theme not found") code = "kb_not_found";
     if (/^[a-z0-9_]+$/.test(code)) {
       var keys = ["kb.err." + code, "kb.reason." + code];
       for (var i = 0; i < keys.length; i++) {

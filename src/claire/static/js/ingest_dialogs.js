@@ -253,6 +253,12 @@
     return h;
   }
 
+  // The text of a failed request: the catalog text of the error code (ClaireUi.errorText of shared_ui.js, which each page with this script loads first).
+  function errorText(code) {
+    if (window.ClaireUi && typeof window.ClaireUi.errorText === "function") return window.ClaireUi.errorText({ error: code });
+    return translate("campaign.contribute_failed", { error: code }, "");
+  }
+
   // POST /submissions with the document and the theme of the notice (design Section 9.2).
   function contributeToTheme(btn) {
     var doc = btn.getAttribute("data-campaign-contribute");
@@ -268,7 +274,7 @@
       return resp.json().catch(function () { return null; }).then(function (data) {
         if (!resp.ok) {
           btn.disabled = false;
-          if (msg) msg.textContent = translate("campaign.contribute_failed", { error: (data && (data.error || data.detail)) || ("HTTP " + resp.status) }, "");
+          if (msg) msg.textContent = errorText((data && (data.error || data.detail)) || ("HTTP " + resp.status));
           return;
         }
         var items = (data && data.submission && data.submission.items) || [];
@@ -279,7 +285,7 @@
       });
     }).catch(function () {
       btn.disabled = false;
-      if (msg) msg.textContent = translate("campaign.contribute_failed", { error: "network_error" }, "");
+      if (msg) msg.textContent = errorText("network_error");
     });
   }
 

@@ -954,6 +954,8 @@
             domainInput.value = "";
             noteInput.value = "";
             loadBlocks();
+            // The state of a known server comes from the domain blocks: the tab of the known servers reads again.
+            if (loadKnown) loadKnown();
             return;
           }
           setResult(blocksResult, errorText(res), true);
@@ -974,13 +976,14 @@
             setResult(blocksResult, errorText(res), true);
           }
           loadBlocks();
+          if (loadKnown) loadKnown();
         });
       });
     }
 
     loadState();
 
-    // Shared Knowledge Base & Known Servers / Suggestions / Inbox Journal tabs
+    // The tabs of the section: switches and state, known servers, domain blocks, inbox journal (knowledge federation design Section 6.5).
     var fedTabs = document.getElementById("admin-federation-tabs");
     if (fedTabs && window.ClaireUi) {
       window.ClaireUi.enhance(fedTabs);
@@ -1007,44 +1010,84 @@
       });
     }
 
+    var fedTime = function (value) {
+      // A time of the known servers is a number of seconds; a time of the journal is an ISO 8601 text.
+      if (value == null || value === "") return "—";
+      var date = typeof value === "number" ? new Date(value * 1000) : new Date(String(value));
+      return isNaN(date.getTime()) ? String(value) : date.toLocaleString(document.documentElement.lang || undefined);
+    };
+    // The catalog text of a code (a state, a source); a code without text shows as the code.
+    var fedCodeLabel = function (prefix, code) {
+      var key = prefix + code;
+      var text = tr(key);
+      return text === key ? String(code == null ? "" : code) : text;
+    };
+
+    var loadKnown = null;
     var knownHost = document.getElementById("admin-federation-known-host");
     if (knownHost && window.ClaireUi) {
       var selectedDomain = "";
-      var loadKnown = function () {
-        window.ClaireUi.request("/api/admin/federation/known-servers").then(function (r) {
-          var servers = (r.ok && r.data && (r.data.servers || r.data.orderedItems || r.data.items)) || [];
-          if (!selectedDomain && servers.length) selectedDomain = servers[0].domain || "";
-          var cur = servers.find(function (s) { return s.domain === selectedDomain; }) || servers[0] || null;
-          var ui = window.ClaireUi;
+      loadKnown = function () {
+        var ui = window.ClaireUi;
+        // GET /api/admin/federation/known-servers gives {"servers": [...], "switches": {...}}. One server is "known_server_view": the fields of known_servers.server_view, "kbs" (remote_kbs.view of each record), "kb_count", and "kb_read".
+        ui.request("/api/admin/federation/known-servers").then(function (r) {
+          var servers = (r.ok && r.data && r.data.servers) || [];
+          if (!servers.some(function (s) { return s.domain === selectedDomain; })) selectedDomain = servers.length ? String(servers[0].domain) : "";
+          var cur = servers.find(function (s) { return s.domain === selectedDomain; }) || null;
           var addHtml = '<form id="admin-known-add-form" class="claire-card" style="flex-direction:row;align-items:flex-end;flex-wrap:wrap">' +
-            '<div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="admin-known-domain">' + ui.esc(tr("console.admin.federation.known_add", "Add federated server domain")) + '</label><input id="admin-known-domain" class="claire-input" placeholder="other.example.org" required/></div>' +
-            '<button type="submit" class="claire-btn pri">' + ui.esc(tr("console.admin.federation.known_add", "Add")) + "</button></form>";
+            '<div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="admin-known-domain">' + ui.esc(tr("console.js.admin.federation.known.add_label")) + '</label><input id="admin-known-domain" class="claire-input" placeholder="other.example.org" maxlength="253" autocomplete="off" spellcheck="false" required/></div>' +
+            '<button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.federation.known.add_btn")) + "</button></form>";
           if (!r.ok) {
-            knownHost.innerHTML = addHtml + '<div class="claire-note warn"><span>' + ui.esc(ui.t("kb.dlg.backend_pending")) + "</span></div>";
+            knownHost.innerHTML = addHtml + '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(r)) + "</span></div>";
           } else {
+            var statusTag = function (s) { return '<span class="claire-tag ' + (s.status === "blocked" ? "danger" : "ok") + '">' + ui.esc(fedCodeLabel("console.js.admin.federation.known.status.", s.status)) + "</span>"; };
             var left = '<div class="claire-list-col">' + (servers.length ? servers.map(function (s) {
               return '<button type="button" class="claire-list-item' + (cur && cur.domain === s.domain ? " active" : "") + '" data-pick-known="' + ui.esc(s.domain) + '">' +
-                '<div class="claire-list-item-row"><strong>' + ui.esc(s.domain) + '</strong><span class="claire-tag ' + (s.status === "blocked" ? "danger" : "ok") + '">' + ui.esc(s.status || "active") + "</span></div>" +
-                '<div class="claire-list-item-sub"><span>' + ui.esc(ui.t("kb.pub.kb_count", { count: s.kb_count || 0 })) + "</span></div></button>";
-            }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(ui.t("kb.pub.servers_empty")) + "</p></div>") + "</div>";
-            var right = '<div class="claire-detail-col"><div class="claire-card">' + (cur ? (
-              '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + '</h3><button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.admin.federation.known_block", "Block")) + "</button></div>" +
-              // The state of the reads: the server actor and NodeInfo (last_read_at, last_error), and the /kb collection (kb_read).
-              '<p class="claire-hint" data-known-read>' + ui.esc(tr("console.admin.federation.known_software")) + ": " + ui.esc(cur.software_name ? cur.software_name + " " + (cur.software_version || "") : "—") +
-              " · " + ui.esc(tr("console.admin.federation.known_last_read")) + ": " + ui.esc(cur.last_read_at ? new Date(cur.last_read_at * 1000).toLocaleString() : "—") +
-              " · " + ui.esc(tr("console.admin.federation.known_kb_read")) + ": " + ui.esc(cur.kb_read && cur.kb_read.last_read_at ? new Date(cur.kb_read.last_read_at * 1000).toLocaleString() : "—") + "</p>" +
-              ((cur.last_error || (cur.kb_read && (cur.kb_read.last_error || cur.kb_read.refused_code))) ? '<div class="claire-note warn"><span>' + ui.esc(tr("console.admin.federation.known_error")) + ": " + ui.esc(cur.last_error || cur.kb_read.last_error || cur.kb_read.refused_code) + "</span></div>" : "") +
-              // The shared knowledge bases of the server from the store of remote knowledge bases. The name is the link to the page on that server.
-              ui.renderTable({
-                caption: cur.domain,
-                columns: [
-                  { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="' + ui.esc(k.url) + '" target="_blank" rel="noopener noreferrer">' + ui.esc(k.label) + "</a>"; } },
-                  { label: ui.t("kb.pub.col_type"), render: function (k) { return ui.esc(ui.t(k.knowledge_type === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")); } },
-                  { label: ui.t("kb.dlg.col_docs"), render: function (k) { return ui.esc(k.documents || 0); } }
-                ],
-                rows: cur.kbs || []
-              })
-            ) : '<p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p>") + "</div></div>";
+                '<div class="claire-list-item-row"><strong>' + ui.esc(s.domain) + "</strong>" + statusTag(s) + "</div>" +
+                '<div class="claire-list-item-sub"><span>' + ui.esc(s.software_name ? s.software_name + (s.software_version ? " " + s.software_version : "") : "—") + " · " + ui.esc(s.kb_count == null ? tr("console.js.admin.federation.known.not_read") : ui.t("kb.pub.kb_count", { count: s.kb_count })) + "</span></div></button>";
+            }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p></div>") + "</div>";
+            var right = '<div class="claire-detail-col"><div class="claire-card">';
+            if (cur) {
+              var kbRead = cur.kb_read || null;
+              var fields = [
+                ["software", cur.software_name || "—"],
+                ["version", cur.software_version || "—"],
+                ["source", fedCodeLabel("console.js.admin.federation.known.source.", cur.source)],
+                ["created", fedTime(cur.created_at)],
+                ["last_contact", fedTime(cur.last_contact_at)],
+                ["kb_count", cur.kb_count == null ? "—" : String(cur.kb_count)],
+                ["last_read", fedTime(cur.last_read_at)],
+                ["kb_read", fedTime(kbRead && kbRead.last_read_at) + (kbRead && kbRead.last_read_at ? " (" + tr("console.js.admin.federation.known.kb_read_result", { stored: kbRead.stored, refused: kbRead.refused }) + ")" : "")],
+                ["errors", String((cur.error_count || 0) + ((kbRead && kbRead.error_count) || 0))]
+              ];
+              var errors = [];
+              if (cur.last_error) errors.push(tr("console.js.admin.federation.known.error_server", { time: fedTime(cur.last_error_at), error: cur.last_error }));
+              if (kbRead && kbRead.last_error) errors.push(tr("console.js.admin.federation.known.error_kb_read", { time: fedTime(kbRead.last_error_at), error: kbRead.last_error }));
+              if (kbRead && kbRead.refused_code) errors.push(tr("console.js.admin.federation.known.error_refused", { count: kbRead.refused, code: kbRead.refused_code }));
+              right += '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + " " + statusTag(cur) + "</h3>" +
+                (cur.status === "blocked" ? "" : '<button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.block_btn")) + "</button>") + "</div>" +
+                (cur.status === "blocked" ? '<div class="claire-note warn"><span>' + ui.esc(tr("console.js.admin.federation.known.blocked_by", { domain: cur.blocked_by || cur.domain })) + "</span></div>" : "") +
+                '<dl data-known-read style="display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:13px">' + fields.map(function (f) {
+                  return '<dt class="claire-hint" style="margin:0">' + ui.esc(tr("console.js.admin.federation.known.field." + f[0])) + '</dt><dd style="margin:0;overflow-wrap:anywhere" data-known-field="' + ui.esc(f[0]) + '">' + ui.esc(f[1]) + "</dd>";
+                }).join("") + "</dl>" +
+                errors.map(function (text) { return '<div class="claire-note warn" data-known-error><span>' + ui.esc(text) + "</span></div>"; }).join("") +
+                // The shared knowledge bases of the server from the store of remote knowledge bases ("kbs"). The name is the link to the page on that server.
+                ui.renderTable({
+                  caption: tr("console.js.admin.federation.known.kbs_caption", { domain: cur.domain }),
+                  emptyText: tr("console.js.admin.federation.known.kbs_empty"),
+                  columns: [
+                    { label: ui.t("kb.dlg.col_kb"), render: function (k) { return /^https?:\/\//i.test(String(k.url || "")) ? '<a href="' + ui.esc(k.url) + '" target="_blank" rel="noopener noreferrer">' + ui.esc(k.label) + "</a>" : ui.esc(k.label); } },
+                    { label: ui.t("kb.pub.col_type"), render: function (k) { return ui.esc(ui.t(k.knowledge_type === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")); } },
+                    { label: ui.t("kb.dlg.col_docs"), render: function (k) { return ui.esc(k.documents == null ? "—" : k.documents); } },
+                    { label: ui.t("kb.dlg.col_entities"), render: function (k) { return ui.esc(k.entities == null ? "—" : k.entities); } },
+                    { label: ui.t("kb.dlg.col_relations"), render: function (k) { return ui.esc(k.relations == null ? "—" : k.relations); } }
+                  ],
+                  rows: cur.kbs || []
+                });
+            } else {
+              right += '<p class="claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p>";
+            }
+            right += "</div></div>";
             knownHost.innerHTML = addHtml + '<div class="claire-split">' + left + right + "</div>";
           }
           ui.enhance(knownHost);
@@ -1053,8 +1096,12 @@
             ev.preventDefault();
             var d = knownHost.querySelector("#admin-known-domain").value.trim();
             if (!d) return;
+            // POST gives {"server": {...}, "created": true | false}: 201 for a new server, 200 for a server that is known.
             ui.request("/api/admin/federation/known-servers", { method: "POST", body: { domain: d } }).then(function (pr) {
-              if (!pr.ok) { ui.toast(pr.error || "Failed", "danger"); return; }
+              if (!pr.ok) { ui.toast(ui.errorText(pr), "danger"); return; }
+              var added = (pr.data && pr.data.server && pr.data.server.domain) || d;
+              selectedDomain = String(added);
+              ui.toast(tr(pr.data && pr.data.created ? "console.js.admin.federation.known.added" : "console.js.admin.federation.known.already", { domain: added }), "ok");
               loadKnown();
             });
           });
@@ -1063,7 +1110,20 @@
           });
           knownHost.querySelectorAll("[data-block-known]").forEach(function (b) {
             b.addEventListener("click", function () {
-              ui.request("/api/admin/federation/domain-blocks", { method: "POST", body: { domain: b.getAttribute("data-block-known"), note: "Known server block" } }).then(function () { loadBlocks(); loadKnown(); });
+              var domain = b.getAttribute("data-block-known");
+              if (!window.confirm(tr("console.js.admin.federation.known.block_confirm", { domain: domain }))) return;
+              b.disabled = true;
+              // POST /api/admin/federation/domain-blocks: {"domain", "note"}. The route needs a recent sign-in; the request helper opens the re-authentication dialog.
+              ui.request("/api/admin/federation/domain-blocks", { method: "POST", body: { domain: domain, note: tr("console.js.admin.federation.known.block_note") } }).then(function (br) {
+                if (!br.ok) {
+                  b.disabled = false;
+                  ui.toast(ui.errorText(br), "danger");
+                  return;
+                }
+                ui.toast(tr("console.js.admin.federation.known.block_done", { domain: domain }), "ok");
+                loadBlocks();
+                loadKnown();
+              });
             });
           });
         });
@@ -1071,73 +1131,90 @@
       loadKnown();
     }
 
-    var suggHost = document.getElementById("admin-federation-suggestions-host");
-    if (suggHost && window.ClaireUi) {
-      window.ClaireUi.request("/api/admin/federation/block-suggestions").then(function (r) {
-        var ui = window.ClaireUi;
-        var items = (r.ok && r.data && (r.data.suggestions || r.data.items)) || [];
-        suggHost.innerHTML = '<section class="card"><h3>' + ui.esc(tr("console.admin.federation.suggestions_title", "Blocked server suggestions")) + "</h3>" +
-          ui.renderTable({
-            caption: "Block suggestions",
-            columns: [
-              { label: "Domain", key: "domain" },
-              { label: "Reason", key: "reason" },
-              { label: "", actions: true, render: function (s) { return '<button type="button" class="claire-btn claire-btn-sm" data-add-sugg="' + ui.esc(s.domain) + '">' + ui.esc(tr("console.federation.blocks.add", "Block")) + "</button>"; } }
-            ],
-            rows: items
-          }) + "</section>";
-        suggHost.querySelectorAll("[data-add-sugg]").forEach(function (b) {
-          b.addEventListener("click", function () {
-            ui.request("/api/admin/federation/domain-blocks", { method: "POST", body: { domain: b.getAttribute("data-add-sugg"), note: "Suggested block" } }).then(function () { loadBlocks(); });
-          });
-        });
-      });
-    }
-
     var journalHost = document.getElementById("admin-federation-journal-host");
     if (journalHost && window.ClaireUi) {
+      // The states of journal.STATES. The filter "all" sends no parameter "status".
+      var JOURNAL_STATES = ["received", "processed", "failed", "refused"];
       var jStatus = "all";
-      var loadJournal = function () {
+      var jRows = [];
+      var jNext = null;
+      var jError = null;
+      var drawJournal = function () {
         var ui = window.ClaireUi;
-        ui.request("/api/admin/federation/journal" + (jStatus !== "all" ? "?status=" + encodeURIComponent(jStatus) : "")).then(function (r) {
-          var rows = (r.ok && r.data && (r.data.entries || r.data.orderedItems || r.data.items)) || [];
-          journalHost.innerHTML = '<section class="card"><div class="claire-card-head"><h3>' + ui.esc(tr("console.admin.federation.tab_journal", "Inbox Journal")) + "</h3>" +
-            ui.renderChips({
-              name: "fed-journal-status",
-              label: "Journal status",
-              value: jStatus,
-              options: [
-                { value: "all", label: tr("console.admin.federation.journal_all", "All") },
-                { value: "failed", label: tr("console.admin.federation.journal_failed", "Failed") },
-                { value: "refused", label: tr("console.admin.federation.journal_refused", "Refused") },
-                { value: "processed", label: tr("console.admin.federation.journal_processed", "Processed") }
-              ]
-            }) + "</div>" +
-            ui.renderTable({
-              caption: "Inbox journal",
-              columns: [
-                { label: "Activity", key: "activity_type" },
-                { label: "Actor", key: "actor" },
-                { label: "Status", render: function (e) { return '<span class="claire-tag ' + (e.status === "failed" ? "danger" : (e.status === "processed" ? "ok" : "warn")) + '">' + ui.esc(e.status || "") + "</span>"; } },
-                { label: "Time", key: "received_at" },
-                { label: "", actions: true, render: function (e) { return e.status === "failed" ? '<button type="button" class="claire-btn claire-btn-sm" data-replay-j="' + ui.esc(e.id || e.number) + '">' + ui.esc(tr("console.admin.federation.journal_replay", "Replay")) + "</button>" : "—"; } }
-              ],
-              rows: rows
-            }) + "</section>";
-          journalHost.querySelectorAll('input[name="fed-journal-status"]').forEach(function (inp) {
-            inp.addEventListener("change", function () { jStatus = inp.value; loadJournal(); });
-          });
-          journalHost.querySelectorAll("[data-replay-j]").forEach(function (b) {
-            b.addEventListener("click", function () {
-              ui.request("/api/admin/federation/journal/" + encodeURIComponent(b.getAttribute("data-replay-j")) + "/replay", { method: "POST", body: {} }).then(function (rr) {
-                if (!rr.ok) { ui.toast(rr.error || "Failed", "danger"); return; }
-                loadJournal();
-              });
+        var stateTone = { failed: "danger", processed: "ok" };
+        journalHost.innerHTML = '<section class="card"><div class="claire-card-head"><h3>' + ui.esc(tr("console.js.admin.federation.journal.title")) + "</h3>" +
+          ui.renderChips({
+            name: "fed-journal-status",
+            label: tr("console.js.admin.federation.journal.filter_label"),
+            value: jStatus,
+            options: [{ value: "all", label: tr("console.js.admin.federation.journal.state.all") }].concat(JOURNAL_STATES.map(function (state) { return { value: state, label: tr("console.js.admin.federation.journal.state." + state) }; }))
+          }) + "</div>" +
+          (jError ? '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(jError)) + "</span></div>" : "") +
+          ui.renderTable({
+            caption: tr("console.js.admin.federation.journal.title"),
+            emptyText: tr("console.js.admin.federation.journal.empty"),
+            columns: [
+              { label: tr("console.js.admin.federation.journal.col_activity"), render: function (e) { return ui.esc(e.activity_type) + (e.kind ? ' <span class="claire-hint">' + ui.esc(e.kind) + "</span>" : ""); } },
+              { label: tr("console.js.admin.federation.journal.col_actor"), render: function (e) { return '<span style="overflow-wrap:anywhere">' + ui.esc(e.actor) + "</span>"; } },
+              { label: tr("console.js.admin.federation.journal.col_state"), render: function (e) {
+                return '<span class="claire-tag ' + (stateTone[e.status] || "warn") + '">' + ui.esc(fedCodeLabel("console.js.admin.federation.journal.state.", e.status)) + "</span>" +
+                  (e.error_code ? ' <code class="pref-mono">' + ui.esc(e.error_code) + "</code>" : "") +
+                  (e.error_detail ? ' <span class="claire-hint" style="overflow-wrap:anywhere">' + ui.esc(e.error_detail) + "</span>" : "");
+              } },
+              { label: tr("console.js.admin.federation.journal.col_attempts"), render: function (e) { return ui.esc(e.attempts == null ? "—" : e.attempts); } },
+              { label: tr("console.js.admin.federation.journal.col_time"), render: function (e) { return ui.esc(fedTime(e.received_at)); } },
+              // "replayable" is true for a row whose state is in journal.REPLAY_STATES ("failed", "received").
+              { label: "", actions: true, render: function (e) { return e.replayable ? '<button type="button" class="claire-btn claire-btn-sm" data-replay-j="' + ui.esc(e.id) + '">' + ui.esc(tr("console.js.admin.federation.journal.replay")) + "</button>" : "—"; } }
+            ],
+            rows: jRows
+          }) +
+          (jNext != null ? '<div class="claire-actions"><button type="button" class="claire-btn sec" data-journal-more>' + ui.esc(tr("console.js.admin.federation.journal.more")) + "</button></div>" : "") + "</section>";
+        journalHost.querySelectorAll('input[name="fed-journal-status"]').forEach(function (inp) {
+          inp.addEventListener("change", function () { jStatus = inp.value; loadJournal(false); });
+        });
+        var moreBtn = journalHost.querySelector("[data-journal-more]");
+        if (moreBtn) moreBtn.addEventListener("click", function () { moreBtn.disabled = true; loadJournal(true); });
+        journalHost.querySelectorAll("[data-replay-j]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            var entryId = b.getAttribute("data-replay-j");
+            b.disabled = true;
+            // POST …/journal/{id}/replay takes an empty object and gives {"entry": {...}} with the new state of the row.
+            ui.request("/api/admin/federation/journal/" + encodeURIComponent(entryId) + "/replay", { method: "POST", body: {} }).then(function (rr) {
+              if (!rr.ok) {
+                b.disabled = false;
+                ui.toast(ui.errorText(rr), "danger");
+                return;
+              }
+              var entry = rr.data && rr.data.entry;
+              if (entry) {
+                jRows = jRows.map(function (row) { return String(row.id) === String(entry.id) ? entry : row; });
+                ui.toast(tr("console.js.admin.federation.journal.replay_done", { state: fedCodeLabel("console.js.admin.federation.journal.state.", entry.status) }), entry.status === "processed" ? "ok" : "danger");
+              }
+              drawJournal();
             });
           });
         });
       };
-      loadJournal();
+      // GET /api/admin/federation/journal?status=&max_id= gives {"entries": [...], "next_max_id": number | null}, the newest first. "more" is true for the next page.
+      var loadJournal = function (more) {
+        var ui = window.ClaireUi;
+        var query = [];
+        if (jStatus !== "all") query.push("status=" + encodeURIComponent(jStatus));
+        if (more && jNext != null) query.push("max_id=" + encodeURIComponent(jNext));
+        ui.request("/api/admin/federation/journal" + (query.length ? "?" + query.join("&") : "")).then(function (r) {
+          var entries = (r.ok && r.data && r.data.entries) || [];
+          jError = r.ok ? null : r;
+          if (r.ok) {
+            jRows = more ? jRows.concat(entries) : entries;
+            jNext = r.data && r.data.next_max_id != null ? r.data.next_max_id : null;
+          } else if (!more) {
+            jRows = [];
+            jNext = null;
+          }
+          drawJournal();
+        });
+      };
+      loadJournal(false);
     }
   }
 
@@ -1201,6 +1278,8 @@
         if (filterVal === "warn") return !k.active_moderators || !!k.reembed_required || failures(k).length > 0;
         return true;
       });
+      // The knowledge bases without an active moderator come first (design Section 10.2). The sort is stable: the sequence of the server stays in each of the two groups.
+      filtered.sort(function (a, b) { return (a.active_moderators > 0 ? 1 : 0) - (b.active_moderators > 0 ? 1 : 0); });
       host.innerHTML = '<div class="claire-panel-inner">' +
         ui.renderChips({
           name: "admin-kb-filter",
@@ -1292,6 +1371,13 @@
     var selectedThemeNum = "";
     var lastReport = null;
 
+    // The catalog text of a setting key or of a report field; a key without text shows as the key.
+    function settingLabel(prefix, name) {
+      var key = prefix + name;
+      var text = tr(key);
+      return text === key ? String(name) : text;
+    }
+
     function numberField(id, label, value, step) {
       return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + ui.esc(label) + '</label><input id="' + id + '" type="number" class="claire-input" min="0" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></div>';
     }
@@ -1326,7 +1412,7 @@
           '<div class="claire-kpi"><strong>' + ui.esc(lastRun) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_last_run")) + "</span></div>" +
           "</div>" +
           '<div class="claire-actions"><button type="button" class="claire-btn pri" id="adm-th-run-now">' + ui.esc(tr("console.js.admin.themes.run_now")) + "</button></div>" +
-          (lastReport ? '<div class="claire-note ok"><span>' + ui.esc(tr("console.js.admin.themes.run_done")) + " " + ui.esc(Object.keys(lastReport).map(function (k) { return k + ": " + (typeof lastReport[k] === "object" ? JSON.stringify(lastReport[k]) : lastReport[k]); }).join(" · ")) + "</span></div>" : "") +
+          (lastReport ? '<div class="claire-note ok"><span>' + ui.esc(tr("console.js.admin.themes.run_done")) + " " + ui.esc(Object.keys(lastReport).map(function (k) { return settingLabel("console.js.admin.themes.report.", k) + ": " + (typeof lastReport[k] === "object" ? JSON.stringify(lastReport[k]) : lastReport[k]); }).join(" · ")) + "</span></div>" : "") +
           '<form id="adm-th-thresh-form" class="claire-grid-2">' +
           numberField("th-tm", tr("console.js.admin.themes.th_theme_match"), cfg.theme_match_threshold, "0.01") +
           numberField("th-dm", tr("console.js.admin.themes.th_doc_match"), cfg.document_match_threshold, "0.01") +
@@ -1360,6 +1446,8 @@
               } },
               { label: tr("console.js.admin.themes.col_membership"), render: function (k) { return '<span class="claire-tag' + (k.excluded ? " danger" : (k.pinned ? " ok" : "")) + '">' + ui.esc(tr(k.excluded ? "console.js.admin.themes.member_excluded" : (k.pinned ? "console.js.admin.themes.member_pinned" : "console.js.admin.themes.member_computed"))) + "</span>" + (k.score != null ? ' <span class="claire-hint">' + ui.esc(Number(k.score).toFixed(2)) + "</span>" : ""); } },
               { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
+                // A merged theme takes no adjustment (409 "theme_merged"): it has no membership menu.
+                if (curTh.state === "merged") return "—";
                 var menu = [];
                 var ref = k.remote ? "remote:" + k.remote_id : k.number;
                 if (!k.pinned) menu.push({ action: "th_pin", value: ref, label: tr("console.js.admin.themes.pin_kb"), icon: "plus" });
@@ -1384,7 +1472,7 @@
         });
 
         var repHtml = '<form id="adm-rep-form" class="claire-grid-2">' + Object.keys(repSettings).map(function (key) {
-          return '<div class="claire-field"><label class="claire-field-label" for="rep-' + ui.esc(key) + '"><code class="pref-mono">' + ui.esc(key) + '</code></label><input id="rep-' + ui.esc(key) + '" data-rep-key="' + ui.esc(key) + '" type="number" class="claire-input" min="0" step="any" value="' + ui.esc(repSettings[key]) + '"/></div>';
+          return '<div class="claire-field"><label class="claire-field-label" for="rep-' + ui.esc(key) + '">' + ui.esc(settingLabel("console.js.admin.themes.rep.", key)) + '</label><input id="rep-' + ui.esc(key) + '" data-rep-key="' + ui.esc(key) + '" type="number" class="claire-input" min="0" step="any" value="' + ui.esc(repSettings[key]) + '"/></div>';
         }).join("") + '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.rep_save")) + "</button></div></form>" +
           ui.renderTable({
             caption: tr("console.js.admin.themes.tab_rep"),

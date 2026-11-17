@@ -3738,7 +3738,7 @@ if(typeof document !== 'undefined' && !window.__claireDocKbBound){
     } else if((act === 'doc_kb_never' || act === 'doc_kb_allow') && window.ClaireUi){
       const nextBlock = act === 'doc_kb_never';
       window.ClaireUi.request('/api/contribution-blocks/' + encodeURIComponent(docId), { method: nextBlock ? 'PUT' : 'DELETE' }).then(res => {
-        if(!res.ok){ window.ClaireUi.toast(tr('kb.err.failed', { error: res.error || '' }), 'danger'); return; }
+        if(!res.ok){ window.ClaireUi.toast(window.ClaireUi.errorText(res), 'danger'); return; }
         dc.never_contribute = nextBlock;
         renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
       });

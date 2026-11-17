@@ -268,7 +268,6 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</form>"
         '<p class="result" id="admin-federation-domain-blocks-result" role="status" aria-live="polite"></p>'
         "</section>"
-        f'<div id="admin-federation-suggestions-host"></div>'
     )
     body = (
         '<div class="claire-tabs" id="admin-federation-tabs">'
