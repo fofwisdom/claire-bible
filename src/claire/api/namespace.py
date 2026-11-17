@@ -125,10 +125,6 @@ class NamespaceDirectory(Protocol):
         """퇴역 이름이면 ``was_public``, 퇴역 이름이 아니면 None(§8.9 410 판정)."""
         ...
 
-    def admin_username_published(self) -> bool:
-        """네트워크 모드를 켠 적이 있어 관리자 USERNAME이 공개됐으면 True(§4.2, O15)."""
-        ...
-
     def theme_by_number(self, number: int) -> Any | None:
         """``store.knowledge_base.KnowledgeBaseInfo`` 또는 None."""
         ...
@@ -149,8 +145,6 @@ _PATH_SAFE = "/:@!$&'()*+,;=-._~"
 _QUERY_SAFE = _PATH_SAFE + "%?"
 # 네트워크 모드 루트 ``GET /``에서 관리자 네임스페이스로 옮길 SPA 상태 쿼리(O8, §6.2)
 _SPA_QUERY_KEYS = frozenset({"doc", "node", "theme"})
-# 네트워크 → 싱글 복귀 뒤 ``/@{admin}/…`` → ``/…`` 308을 켜는 표식(O15). L2-f가 네트워크 전환 때 기록한다.
-ADMIN_USERNAME_PUBLISHED_KEY = "admin_username_published"
 
 
 def _valid_username(name: str) -> bool:
@@ -579,7 +573,6 @@ def _redirect(location: str) -> Response:
 @dataclass(frozen=True, slots=True)
 class _Snapshot:
     mode: ServerMode = "single"
-    admin_username_published: bool = False
     admin: Account | None = None
     by_id: dict[int, Account] | None = None
     by_username: dict[str, Account] | None = None
@@ -632,10 +625,8 @@ class SqliteNamespaceDirectory:
             }
             store = accounts_store.AccountStore(conn)
             mode: ServerMode = "single"
-            published = False
             if "server_settings" in tables:
                 mode = store.server_mode()
-                published = store.get_setting(ADMIN_USERNAME_PUBLISHED_KEY) == "1"
             accounts = store.list_accounts() if "accounts" in tables else []
             tombstones: dict[str, bool] = {}
             if "username_tombstones" in tables:
@@ -656,7 +647,6 @@ class SqliteNamespaceDirectory:
             conn.close()
         return _Snapshot(
             mode=mode,
-            admin_username_published=published,
             admin=next((a for a in accounts if a.role == "admin"), None),
             by_id={a.id: a for a in accounts},
             by_username={a.username: a for a in accounts if a.username is not None},
@@ -678,10 +668,6 @@ class SqliteNamespaceDirectory:
 
     def mode(self) -> ServerMode:
         return self._current().mode
-
-    def admin_username_published(self) -> bool:
-        """``server_settings.admin_username_published='1'``이면 True(O15)."""
-        return self._current().admin_username_published
 
     def admin(self) -> Account:
         admin = self._current().admin

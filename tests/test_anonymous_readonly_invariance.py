@@ -16,6 +16,7 @@ from claire.api.security import ROUTE_POLICY, wrap_web_app
 from claire.api.server import create_app
 from claire.ontology.base import Document, Entity
 from claire.store import db as dbm
+from tests.single_mode import complete_admin_setup
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
@@ -117,6 +118,8 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
     assert dbm.set_document_hidden(conn, "doc-1", True)
     share_token = dbm.create_doc_share(conn, "doc-2")
     conn.close()
+    # Single mode serves the admin namespace at ``/@{username}/`` after the first setup; ``/`` and the root paths redirect to it (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
+    ns = "/@" + complete_admin_setup(db_file)
 
     settings = _Settings(
         db_file=db_file,
@@ -148,16 +151,16 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             ("HEAD", "/", None),
             ("GET", "/whoami", None),
             ("HEAD", "/whoami", None),
-            ("GET", "/stats", None),
-            ("HEAD", "/stats", None),
-            ("GET", "/graph", None),
-            ("HEAD", "/graph", None),
-            ("GET", "/node", {"id": "entity-2"}),
-            ("HEAD", "/node", {"id": "entity-2"}),
-            ("GET", "/documents", None),
-            ("HEAD", "/documents", None),
-            ("GET", "/document", {"id": "doc-2"}),
-            ("HEAD", "/document", {"id": "doc-2"}),
+            ("GET", ns + "/stats", None),
+            ("HEAD", ns + "/stats", None),
+            ("GET", ns + "/graph", None),
+            ("HEAD", ns + "/graph", None),
+            ("GET", ns + "/node", {"id": "entity-2"}),
+            ("HEAD", ns + "/node", {"id": "entity-2"}),
+            ("GET", ns + "/documents", None),
+            ("HEAD", ns + "/documents", None),
+            ("GET", ns + "/document", {"id": "doc-2"}),
+            ("HEAD", ns + "/document", {"id": "doc-2"}),
         ]
         responses = [
             client.request(method, path, params=params)
@@ -165,7 +168,7 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
         ]
         responses.append(
             client.post(
-                "/search",
+                ns + "/search",
                 json={
                     "query": "Grace",
                     "limit": 999,
@@ -175,10 +178,10 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             )
         )
         # 익명 요청 시 숨김 문서/엔티티는 목록 제외 및 404
-        hidden_documents = client.get("/documents")
-        hidden_detail = client.get("/document", params={"id": "doc-1"})
-        hidden_node = client.get("/node", params={"id": "entity-1"})
-        hidden_search = client.post("/search", json={"query": "Faith", "limit": 10})
+        hidden_documents = client.get(ns + "/documents")
+        hidden_detail = client.get(ns + "/document", params={"id": "doc-1"})
+        hidden_node = client.get(ns + "/node", params={"id": "entity-1"})
+        hidden_search = client.post(ns + "/search", json={"query": "Faith", "limit": 10})
 
         assert all(response.status_code == 200 for response in responses)
         assert all("set-cookie" not in response.headers for response in responses)
@@ -193,13 +196,13 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
 
         # 소유자(owner) 토큰으로 요청 시에는 숨김 문서/엔티티 정상 접근
         owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        owner_docs = client.get("/documents", headers=owner_headers)
+        owner_docs = client.get(ns + "/documents", headers=owner_headers)
         assert owner_docs.status_code == 200
         assert any(doc["id"] == "doc-1" and doc["hidden"] == 1 for doc in owner_docs.json()["documents"])
-        owner_detail = client.get("/document", params={"id": "doc-1"}, headers=owner_headers)
+        owner_detail = client.get(ns + "/document", params={"id": "doc-1"}, headers=owner_headers)
         assert owner_detail.status_code == 200
         assert owner_detail.json()["hidden"] is True
-        owner_node = client.get("/node", params={"id": "entity-1"}, headers=owner_headers)
+        owner_node = client.get(ns + "/node", params={"id": "entity-1"}, headers=owner_headers)
         assert owner_node.status_code == 200
 
         assert _logical_dump(db_file) == before_dump

@@ -33,6 +33,7 @@ from claire.presentation.favicon import (
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
+from tests.single_mode import complete_admin_setup
 
 
 @pytest.fixture
@@ -231,14 +232,17 @@ def test_setup_page_pwa_head_tags_and_strict_script_isolation(tmp_path: Path) ->
 
 
 def test_single_mode_workspace_pwa_head_tags(base_settings: Settings) -> None:
-    """Check GET / in single mode.
+    """Check GET / in single mode after the first setup.
 
-    Verifies PWA head tags and register script in workspace HTML.
+    ``/`` gives 302 to ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2). Verifies PWA head tags and register script in the workspace HTML of the target.
     """
     app = server.create_app(base_settings)
+    username = complete_admin_setup(base_settings.db_file)
     client = TestClient(app, base_url="http://127.0.0.1:8000")
 
     resp = client.get("/")
+    assert [r.status_code for r in resp.history] == [302]
+    assert resp.url.path == f"/@{username}/"
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     html = resp.text

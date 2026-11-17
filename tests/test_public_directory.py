@@ -17,6 +17,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.public_index import SqlitePublicIndexStore
 from claire.store.token_store import reset_token_stores
+from tests.single_mode import complete_admin_setup
 
 
 @pytest.fixture(autouse=True)
@@ -270,9 +271,14 @@ def test_single_mode_explore_accounts_is_404(tmp_path: Path):
     assert client.get("/explore/accounts").status_code == 404
     assert client.head("/explore/accounts").status_code == 404
 
+    # In single mode ``/`` gives 302 to ``/@{username}/`` after the first setup, and the target is the workspace of the admin, not the directory (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
+    username = complete_admin_setup(db_file)
     root_res = client.get("/")
-    assert root_res.status_code == 200
-    assert "Public directory" not in root_res.text
+    assert root_res.status_code == 302
+    assert root_res.headers["location"] == f"/@{username}/"
+    workspace = client.get(root_res.headers["location"])
+    assert workspace.status_code == 200
+    assert "Public directory" not in workspace.text
 
 
 def test_account_filtering_profile_public_and_status(tmp_path: Path):

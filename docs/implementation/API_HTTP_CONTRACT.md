@@ -89,6 +89,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 - **[코드]** 모든 요청에는 요청 주체(`Principal`)가 하나 정해진다(`src/claire/api/principal.py`). `public` 규칙 라우트는 자격증명을 검증하지 않고 익명 주체를 둔다.
 - **[코드]** `owner`·`admin` 규칙을 통과하지 못하면 §3.4와 같이 404다. `admin` 규칙은 owner 범위이면서 `server_role=admin`인 자격증명만 통과한다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
+- **[코드] Single mode root (KNOWLEDGE_FEDERATION_DESIGN.md Section 15)**: when the admin is `active` and has a USERNAME, `GET`/`HEAD /` gives 302 (`Cache-Control: no-store`) to `/@{username}/` with the same query, and a `GET`/`HEAD` of each other root path of the personal knowledge base (for example `/graph`, `/documents`, `/whoami`) gives 308 to `/@{username}/…`. A write at a root path is not redirected. `/@{name}/…` with another name gets 404. Before the first setup: `/` with the admin session gives 302 `/setup`; each other request to `/` gets the HTML page "setup not complete" with 503, `Cache-Control: no-store`, and `Retry-After: 3600`. After `/setup` and `/login` the 303 to `/` then gives the 302. Details: [KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) §10.8.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
@@ -129,7 +130,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 - **[코드]** `?kb=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).
 - **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
-- **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 싱글 모드에서는 이 경로들과 `GET /whoami`가 `@username`을 내지 않는다(S9).
+- **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 이 경로들과 `GET /whoami`의 응답에는 `@username`이 없다. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): single mode serves the admin at `/@{username}/` (§6, single mode root).
 - **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.
 
 ### 6.3 계정별 기능 경로 (텔레그램 봇, 번들, 백업)
@@ -244,3 +245,16 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
   - `GET /themes/{number}/` (each reader): JSON `{"number", "url", "label", "description", "knowledge_type", "state", "top_entities", "shared_knowledge_bases", "visible_contributions", "last_activity_at", "knowledge_bases": [{"number", "label", "is_personal", "knowledge_type", "url"}]}`, or an HTML page. A merged theme gets 308 to the theme it was merged into; an empty or unknown number gets 404; a theme has no inner paths.
   - Admin (system surface, 404 for each other account): `GET /api/admin/themes` (`settings`, `last_run_at`, `decision_agreement` `[{"knowledge_base", "label", "decisions", "agreement"}]`, and each theme with `label_locked`, and `pinned`, `excluded`, `source`, `score` of each member); `POST /api/admin/themes` `{"label", "knowledge_type"}` (201); `PUT /api/admin/themes/settings` with `theme_match_threshold`, `document_match_threshold`, `seed_match_threshold` from 0 to 1, and `submission_max_documents`, an integer of 1 or more (400 `settings_invalid`; `settings` of `GET /api/admin/themes` has the four keys); `POST /api/admin/themes/judge` (`report`); `PATCH /api/admin/themes/{number}` `{"label"}` or `{"label_locked": false}`; `PUT /api/admin/themes/{number}/knowledge-bases/{kb}` `{"membership": "pinned" | "excluded" | "computed"}` (409 `knowledge_type_mismatch`, `theme_merged`); `POST /api/admin/themes/{number}/merge` `{"into": "<number>"}` (409 `knowledge_type_mismatch`, `theme_merge_invalid`).
 - **[미구현]** 테마 기여·제출(CT-6), 큐레이션·포크(CT-7), 콘솔 화면 `/settings/kb`·`/admin/kb`·`/admin/themes`(CT-9)는 뒤 단위다.
+
+## Knowledge federation: known servers and inbox journal (KF1)
+
+Basis: unit KF1 (2026-11-17). The behaviour is in [KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) §10; the internal routes of the sidecar are there too (§10.4). Each route is `admin` (`_system("admin", "none")`): each other principal gets 404. The responses have `Cache-Control: no-store`. A `POST` needs the same origin (403) and a session with a recent sign-in (401 `reauth_required`, 403 `step_up_requires_session`).
+
+| Method | Path | Success | Other responses |
+|---|---|---|---|
+| `GET` | `/api/admin/federation/known-servers` | 200 `{"servers": [{"domain", "status": "active" \| "blocked", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at"}], "switches": {"federation": "on" \| "off", "kb_auto_contribution": "on" \| "off", "signed_get": "required"}}`, in the order of the domain | 404 |
+| `POST` | `/api/admin/federation/known-servers` | Body `{"domain": "<host name>"}` (one key). 201 `{"server": {...}, "created": true}` and `admin_audit` `federation.known_server_add`; 200 `{"server", "created": false}` for a known server (it does not change) | 400 `invalid_request`, `invalid_domain`, `own_domain`; 401; 403; 404 |
+| `GET` | `/api/admin/federation/journal` | `?status=received\|processed\|failed\|refused`, `?limit=` (1 to 200, default 50), `?max_id=` (the rows with a smaller ID). 200 `{"entries": [{"id", "activity_iri", "activity_type", "kind", "actor", "actor_domain", "recipient", "verified_by", "status", "error_code", "error_detail", "attempts", "received_at", "processed_at", "replayable"}], "next_max_id": <int> \| null}`, newest first; times are ISO 8601 in UTC | 400 `invalid_status` (with `states`), `invalid_limit`, `invalid_max_id`; 404 |
+| `GET` | `/api/admin/federation/journal/{id}` | 200 `{"entry": {..., "payload": <the activity as it came>}}` | 404 `journal_entry_not_found` |
+| `POST` | `/api/admin/federation/journal/{id}/replay` | Body `{}`. 200 `{"entry": {...}}` with the new state, and `admin_audit` `federation.journal_replay` | 400 `invalid_request`; 401; 403; 404 `journal_entry_not_found`; 409 `journal_entry_not_replayable` (with `states`: `failed`, `received`); 409 `federation_off` (the row does not change) |
+

@@ -121,7 +121,8 @@ def test_e2e_the_viewer_sees_labels_in_the_entity_language_and_the_stored_labels
         conn.close()
 
     def labels(**kwargs: Any) -> dict[str, str]:
-        r = _request(client, "GET", "/graph", **kwargs)
+        # Single mode serves the admin namespace at ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
+        r = _request(client, "GET", "/@kim_lee/graph", **kwargs)
         assert r.status_code == 200, r.text
         return {n["id"]: n["label"] for n in r.json()["nodes"]}
 
@@ -133,7 +134,7 @@ def test_e2e_the_viewer_sees_labels_in_the_entity_language_and_the_stored_labels
 
     # The account sees the English alias. An entity without an English name keeps its stored label.
     assert labels(session=session) == {hero.id: "Trailblazer", tool.id: "한글전용"}
-    node = _request(client, "GET", f"/node?id={hero.id}", session=session).json()
+    node = _request(client, "GET", f"/@kim_lee/node?id={hero.id}", session=session).json()
     assert node["name"] == "Trailblazer" and node["aliases"] == ["개척자"]
 
     # The stored main label did not change: a viewer with a different entity language gets its label from the same data.

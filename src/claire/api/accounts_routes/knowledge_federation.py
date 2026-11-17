@@ -198,6 +198,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 except journal.JournalError as exc:
                     if exc.code == "not_found":
                         return 404, {"error": "journal_entry_not_found"}
+                    if exc.code == "federation_off":
+                        return 409, {"error": "federation_off"}
                     return 409, {"error": "journal_entry_not_replayable", "states": list(journal.REPLAY_STATES)}
             finally:
                 conn.close()

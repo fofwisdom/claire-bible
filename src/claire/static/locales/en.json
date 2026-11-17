@@ -218,7 +218,7 @@
   "auth.setup.password_confirm": "Confirm password",
   "auth.setup.confirm_title": "Before you confirm",
   "auth.setup.confirm_immutable": "You cannot change the USERNAME after you confirm it.",
-  "auth.setup.confirm_public": "In network mode the address /@USERNAME is public.",
+  "auth.setup.confirm_public": "The address /@USERNAME is public in single mode and in network mode.",
   "auth.setup.ack": "I read the items above.",
   "auth.setup.submit": "Confirm setup",
   "auth.username.syntax": "The USERNAME format is not correct. Use 3 to 30 lowercase English letters, digits, and underscores that start with a lowercase letter. Two underscores in sequence and an underscore at the end are not permitted.",

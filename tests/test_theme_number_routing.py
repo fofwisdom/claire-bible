@@ -31,6 +31,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import reset_token_stores
+from tests.single_mode import complete_admin_setup
 
 ADMIN_LEGACY_UNIX_MS = dbm.ADMIN_LEGACY_PUBLIC_ID_UNIX_MS
 MIN_NUMBER = ids.MIN_CURRENT_NUMBER
@@ -56,6 +57,8 @@ def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, K
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     conn.close()
+    # The first setup is complete: single mode serves the admin namespace at ``/@adminuser/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
+    complete_admin_setup(db_file)
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
@@ -245,16 +248,23 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     # /kb/{number}/documents 및 /kb/{number}/ 동작 검증
     resp_pin_docs = client.get(f"/kb/{theme0.number}/documents", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_docs.status_code == 200
+    assert resp_pin_docs.url.path == "/@adminuser/documents"
 
     resp_pin_root = client.get(f"/kb/{theme0.number}/", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_root.status_code == 200
+    assert resp_pin_root.url.path == "/@adminuser/"
+
+    # A root path of the personal knowledge base gets 308 to ``/@adminuser/…`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
+    root_docs = client.get(f"/documents?theme={theme0.number}")
+    assert root_docs.status_code == 308
+    assert root_docs.headers["location"] == f"/@adminuser/documents?theme={theme0.number}"
 
     # ?theme={number} 동작 검증
-    resp_q_num = client.get(f"/documents?theme={theme0.number}")
+    resp_q_num = client.get(f"/@adminuser/documents?theme={theme0.number}")
     assert resp_q_num.status_code == 200
 
     # ?theme=0 동작 검증
-    resp_q_0 = client.get("/documents")
+    resp_q_0 = client.get("/@adminuser/documents")
     assert resp_q_0.status_code == 200
 
     # DB에 Theme 1 등 추가 테마가 있어도 CLAIRE_MULTI_THEME=0 에서는 404
@@ -269,9 +279,9 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
-    # ``theme`` is ignored (CT23): the root path is knowledge base 0
-    assert client.get("/documents?theme=1").status_code == 200
-    assert client.get(f"/documents?theme={num1}").status_code == 200
+    # ``theme`` is ignored (CT23): the path of the admin namespace is knowledge base 0
+    assert client.get("/@adminuser/documents?theme=1").status_code == 200
+    assert client.get(f"/@adminuser/documents?theme={num1}").status_code == 200
     assert client.get(f"/kb/{num1}/documents").status_code == 404
     assert client.get("/kb/99999999999999999/documents").status_code == 404
     assert client.get("/kb/99999999999999999/").status_code == 404
@@ -355,9 +365,12 @@ def test_root_resolver_308_with_legacy_spa_query(tmp_path: Path) -> None:
     assert client.get("/").status_code == 200
     assert client.get("/?other=param").status_code == 200
 
-    # 싱글 모드에서는 루트 GET /?doc=42 가 리다이렉트 없이 200 응답
+    # In single mode, GET /?doc=42 gives 302 to /@adminuser/?doc=42 with the same query (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2), and the target gives 200.
     single_client, _, _ = _create_single_theme_client(tmp_path / "single")
-    assert single_client.get("/?doc=42").status_code == 200
+    single_root = single_client.get("/?doc=42")
+    assert single_root.status_code == 302
+    assert single_root.headers["location"] == "/@adminuser/?doc=42"
+    assert single_client.get("/@adminuser/?doc=42").status_code == 200
 
 
 def test_root_theme_resolver_in_network_mode(tmp_path: Path) -> None:

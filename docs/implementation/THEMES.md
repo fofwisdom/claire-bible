@@ -92,7 +92,7 @@
 
 **[코드]** 지식 베이스 선택 규칙(공유 지식 베이스 설계 §5.2, CT23, `_get_theme_ctx`):
 
-1. **네임스페이스 라우트**: 경로만 선택한다. `/kb/{number}/…`는 그 공유 지식 베이스를 고정한다(`pinned_kb_id`, 네임스페이스 계정 없음, 모드와 무관). 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다. 개인 지식 베이스의 번호로 `/kb/{number}/…`를 요청하면 읽을 수 있을 때 그 계정 경로(`/@{u}/…`, 싱글 모드 `/…`)로 308, 아니면 404다. 옛 링크 `/themes/{number}/…`·`/@{u}/themes/{number}/…`는 공유면 `/kb/{number}/…`로, 개인이면 그 계정 경로로 308이다(설계 §7).
+1. **네임스페이스 라우트**: 경로만 선택한다. `/kb/{number}/…`는 그 공유 지식 베이스를 고정한다(`pinned_kb_id`, 네임스페이스 계정 없음, 모드와 무관). 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다. 개인 지식 베이스의 번호로 `/kb/{number}/…`를 요청하면 읽을 수 있을 때 그 계정 경로(`/@{u}/…`; 싱글 모드에서도 관리자의 `/@{username}/…`, 첫 설정 전에는 `/…`)로 308, 아니면 404다. 옛 링크 `/themes/{number}/…`·`/@{u}/themes/{number}/…`는 공유면 `/kb/{number}/…`로, 개인이면 그 계정 경로로 308이다(설계 §7).
 2. **네임스페이스가 없는 라우트**(`any`·`system` 표면, 예: `/p/presentation`, `/api/me/data-bundles`, MCP 읽기 도구): 매개변수 `kb`(번호)가 필수다. 없으면 400 `kb_required`. `KnowledgeBaseManager.get_kb_by_reference`는 번호만 받는다(내부 ID·레이블·빈 값은 404).
 3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_by_contribution`, 다른 계정의 네임스페이스는 404다.
 4. **옛 이름**: 쿼리·본문 `theme`, `X-Claire-Theme` 헤더, 내부 ID 참조는 모르는 필드처럼 무시한다. `Deprecation`·`Sunset` 헤더도 없다. 문서를 다른 지식 베이스에서 찾아 대상을 바꾸는 폴백(`/share`, `/document`, 재생성, 프레젠테이션, 배급 원본)은 없다. 공유 토큰(`/p?s=`, `/p/presentation?s=`)은 토큰이 자기 지식 베이스를 정한다.

@@ -1,16 +1,17 @@
 """End-to-end interface language across the web surfaces (I18N design unit IP3-3).
 
-One owner moves through the workspace (/), /syndication, the console, and the login page. Each page follows the same resolution chain: account preference, then the ``claire_locale`` cookie, then ``Accept-Language``, then ``CLAIRE_LANG``, then ``en``.
+One owner moves through the workspace (/@{username}/), /syndication, the console, and the login page. Each page follows the same resolution chain: account preference, then the ``claire_locale`` cookie, then ``Accept-Language``, then ``CLAIRE_LANG``, then ``en``.
 """
 
 from __future__ import annotations
 
 import re
 
-from tests.test_i18n_api import _activate_admin, _locale_cookies, _session, client, settings  # noqa: F401  (pytest fixtures)
+from tests.test_i18n_api import USERNAME, _activate_admin, _locale_cookies, _session, client, settings  # noqa: F401  (pytest fixtures)
 
 PAGES = {
-    "/": {"en": "<title>Claire Bible — Home</title>", "ko": "<title>Claire Bible — 홈</title>"},
+    # The workspace of single mode is at ``/@{username}/``; ``/`` gives 302 to it (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
+    f"/@{USERNAME}/": {"en": "<title>Claire Bible — Home</title>", "ko": "<title>Claire Bible — 홈</title>"},
     # The view text of /syndication comes from the inline catalog of the page.
     "/syndication": {"en": '"synd.kb.refresh": "Refresh"', "ko": '"synd.kb.refresh": "새로고침"'},
     "/settings/account": {"en": "Account information", "ko": "계정 정보"},

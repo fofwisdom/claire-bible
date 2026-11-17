@@ -1,4 +1,4 @@
-"""서버 모드 설정·전환, 준비 검사, 일몰 시계 관리 API (설계 §4.2, §5.3, §8.6, §17.2, O6, O7, O15).
+"""서버 모드 설정·전환, 준비 검사, 일몰 시계 관리 API (설계 §4.2, §5.3, §8.6, §17.2, O6, O7).
 
 - ``GET /admin/server``: 관리자 전용 HTML 페이지 (모드, G1-G9 준비 검사, 일몰 시계 상태)
 - ``GET /api/admin/server``: JSON API (현재 모드, readiness 검사 결과, network_mode_available, legacy_host_policy)
@@ -25,7 +25,6 @@ from ...store import auth_db
 from ...store import legacy_hosts
 from ...store import usage_ledger
 from ..host_router import LegacyHost, LegacyHostPolicy
-from ..namespace import ADMIN_USERNAME_PUBLISHED_KEY
 from ..principal import request_principal
 from ..security import read_json_body
 from .admin import is_admin
@@ -416,7 +415,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         }
 
                     store.set_setting("mode", "network", updated_by=principal.account_id)
-                    store.set_setting(ADMIN_USERNAME_PUBLISHED_KEY, "1", updated_by=principal.account_id)
                     legacy_hosts.activate_sunset_clock(conn)
                     return 200, {"mode": "network", "changed": True}
 
@@ -439,9 +437,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     }
 
                 store.set_setting("mode", "single", updated_by=principal.account_id)
-                # O15: 네트워크 복귀 시 admin_username_published='1' 기록
-                store.set_setting(ADMIN_USERNAME_PUBLISHED_KEY, "1", updated_by=principal.account_id)
-                return 200, {"mode": "single", "changed": True, "admin_username_published": True}
+                # The USERNAME of the admin stays public: single mode serves ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15). The old marker ``admin_username_published`` (O15) is withdrawn with rule S9; a stored row stays and has no effect.
+                return 200, {"mode": "single", "changed": True}
             finally:
                 conn.close()
 

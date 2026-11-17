@@ -166,8 +166,15 @@ def test_root_redirects_admin_session_to_setup_but_not_bearer(client, settings):
         response = client.request("GET", "/", **kwargs)
         assert response.status_code == 302
         assert response.headers["location"] == "/setup"
-    # bearer API 응답은 그대로다(E1).
-    assert client.request("GET", "/", bearer=OWNER_TOKEN).status_code == 200
+    # KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 3: only the admin session goes to /setup. Each other request to / gets the page "setup not complete"; there is no other target.
+    response = client.request("GET", "/", bearer=OWNER_TOKEN)
+    assert response.status_code == 503
+    assert "location" not in response.headers
+    assert response.headers["cache-control"] == "no-store"
+    assert 'data-setup-state="setup_required"' in response.text
+    assert "Setup necessary" in response.text
+    # This server has no anonymous reading: an anonymous request gets the 404 of each closed route before the route runs (``tests/test_single_mode_redirects.py`` checks the page for an anonymous request with anonymous reading).
+    assert client.request("GET", "/").status_code == 404
 
 
 def test_setup_page_shows_both_confirmation_notices(client, settings):
@@ -175,9 +182,9 @@ def test_setup_page_shows_both_confirmation_notices(client, settings):
     response = client.request("GET", "/setup", session=token)
     assert response.status_code == 200
     assert "You cannot change the USERNAME after you confirm it." in response.text
-    assert "In network mode the address /@USERNAME is public." in response.text
+    assert "The address /@USERNAME is public in single mode and in network mode." in response.text
     korean = client.request("GET", "/setup", session=token, headers={"Accept-Language": "ko"})
-    assert "USERNAME은 확정한 뒤에 바꿀 수 없습니다." in korean.text and "네트워크 모드에서는 /@USERNAME 주소로 공개됩니다." in korean.text
+    assert "USERNAME은 확정한 뒤에 바꿀 수 없습니다." in korean.text and "단일 모드와 네트워크 모드 모두에서 /@USERNAME 주소로 공개됩니다." in korean.text
     assert "<script" not in response.text
     assert " onclick=" not in response.text and " onsubmit=" not in response.text
 
@@ -203,8 +210,10 @@ def test_setup_success_rotates_session_and_closes_setup(client, settings):
     assert client.request("GET", "/me", session=new).status_code == 302
     assert client.request("GET", "/settings/account", session=old).status_code == 404
     assert client.request("GET", "/settings/account", session=new).status_code == 200
-    # 확정 뒤에는 / 가 그대로 열리고 /setup은 다시 열리지 않는다.
-    assert client.request("GET", "/", session=new).status_code == 200
+    # 확정 뒤에는 / 가 /@{username}/ 으로 302(KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2)하고 /setup은 다시 열리지 않는다.
+    root = client.request("GET", "/", session=new)
+    assert root.status_code == 302 and root.headers["location"] == "/@kim_lee/"
+    assert client.request("GET", "/@kim_lee/", session=new).status_code == 200
     assert client.request("GET", "/setup", session=new).status_code == 404
     assert client.request("POST", "/setup", session=new, data=_form("park_lee")).status_code == 404
     assert _admin(settings).username == "kim_lee"

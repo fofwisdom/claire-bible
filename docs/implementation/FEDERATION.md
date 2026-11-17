@@ -688,7 +688,7 @@ These statements are true for the code now.
 - The sidecar container has no access to `claire.db`, `auth.db`, `master.key`, or the `.env` values.
 - The sidecar sets the Fedify option `allowPrivateAddress` in one place only, from the config field `allow_private_addresses` (contract 1.8, Section 5.4). Claire gives true only in the environment `development` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` on. A sidecar test (`sidecar/fedify/tests/sidecar_test.ts`) reads the source directory and fails if the option has a constant value or is in a second place.
 - No external identity value (`iss`, `sub`, email, provider ID) is in an internal API response. `tests/test_federation_routes.py` puts values in `account_identities` and searches all responses.
-- In single mode no federation path shows a USERNAME: all paths return 404. `tests/test_fedify_sidecar.py` examines this with a real Claire process (S9).
+- In single mode each federation path of an account returns 404. `tests/test_fedify_sidecar.py` examines this with a real Claire process. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): single mode serves the admin at `/@{username}/`; the account actor of the admin in single mode (Section 15 rule 5) is not implemented.
 - All states that are not federated give the same 404, so a remote client cannot find which private accounts exist.
 - A signature made with the key of one actor is not valid for a different actor (`sidecar/fedify/tests/discovery_e2e_test.ts`).
 

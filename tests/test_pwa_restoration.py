@@ -286,12 +286,16 @@ def test_m2_root_launch_anonymous_readonly_false(tmp_path: Path):
 
 
 def test_m2_root_launch_single_mode(tmp_path: Path):
-    """Single mode server launching /?pwa=1 renders the default workspace at / directly (200 OK)."""
+    """Single mode server launching /?pwa=1 gives 302 to /@adminuser/?pwa=1 (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2); the target renders the default workspace (200 OK)."""
     s, _ = _setup_pwa_single_env(tmp_path)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/?pwa=1")
+    root = client.get("/?pwa=1")
+    assert root.status_code == 302
+    assert root.headers["location"] == "/@adminuser/?pwa=1"
+    assert root.headers.get("cache-control") == "no-store"
+    res = client.get(root.headers["location"])
     assert res.status_code == 200
     assert "Claire Bible" in res.text or "reader" in res.text
 

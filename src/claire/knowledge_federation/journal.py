@@ -36,6 +36,7 @@ from typing import Any
 from . import access, known_servers, vocabulary
 
 __all__ = [
+    "COLUMNS",
     "FAILED_RETENTION_SECONDS",
     "HANDLERS",
     "KNOWN_BY_KIND",
@@ -43,6 +44,7 @@ __all__ = [
     "REPLAY_STATES",
     "SCHEMA",
     "STATES",
+    "TABLE",
     "VERIFIED_BY",
     "HandlerContext",
     "HandlerRefusal",
@@ -97,6 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_kf_inbox_journal_status ON kf_inbox_journal(statu
 """
 
 _COLUMNS = "id, activity_iri, activity_type, kind, actor, actor_domain, recipient, verified_by, payload, status, error_code, error_detail, attempts, received_at, processed_at"
+# The columns that the code of this module reads. The migration (``store.db``) gives a table of a different form a new name and makes this one again.
+TABLE = "kf_inbox_journal"
+COLUMNS: tuple[str, ...] = tuple(_COLUMNS.split(", "))
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +151,7 @@ class HandlerRefusal(Exception):
 
 
 class JournalError(Exception):
-    """A replay is not possible. ``code`` is ``not_found`` or ``not_replayable``."""
+    """A replay is not possible. ``code`` is ``not_found``, ``not_replayable``, or ``federation_off`` (the switch is off: the row does not change, and the admin can process it again after the switch is on)."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -282,12 +287,17 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
 
     prune(conn, now=now)
     raw_type = activity.get("type")
+    # Two deliveries of the same activity at the same time: the second insert does nothing, and that delivery is a duplicate.
     cursor = conn.execute(
-        "INSERT INTO kf_inbox_journal (activity_iri, activity_type, actor, actor_domain, recipient, verified_by, payload, status, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?)",
+        "INSERT INTO kf_inbox_journal (activity_iri, activity_type, actor, actor_domain, recipient, verified_by, payload, status, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?) ON CONFLICT(activity_iri) DO NOTHING",
         (activity_iri, raw_type if isinstance(raw_type, str) else "", actor if isinstance(actor, str) else signer, signer_domain, recipient, verified_by, json.dumps(activity, ensure_ascii=False, separators=(",", ":")), now),
     )
     # The row is in the database before the processing starts (design Section 13 rule 1).
     conn.commit()
+    if cursor.rowcount == 0:
+        existing = _entry_by_iri(conn, activity_iri)
+        assert existing is not None
+        return Receipt("duplicate", existing.status, existing)
     entry = process(conn, int(cursor.lastrowid), origin=origin, now=now)
     return Receipt(entry.status, entry.error_code, entry)
 
@@ -348,10 +358,15 @@ def process(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float)
 
 
 def replay(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float) -> JournalEntry:
-    """Process a failed row again (design Section 13 rule 3). Raise ``JournalError``: ``not_found`` for an unknown row, ``not_replayable`` for a row whose state is not in ``REPLAY_STATES``."""
+    """Process a failed row again (design Section 13 rule 3). Raise ``JournalError``: ``not_found`` for an unknown row, ``not_replayable`` for a row whose state is not in ``REPLAY_STATES``, ``federation_off`` while the switch ``federation`` is off.
+
+    The switch is a temporary condition, so it does not change the row: without this check the processing would record ``refused`` with ``federation_off``, and the row could not be processed again. A domain block does change the row to ``refused``: the admin decided to stop the exchange with that server.
+    """
     entry = get_entry(conn, entry_id)
     if entry is None:
         raise JournalError("not_found")
     if entry.status not in REPLAY_STATES:
         raise JournalError("not_replayable")
+    if not access.federation_on(conn):
+        raise JournalError("federation_off")
     return process(conn, entry.id, origin=origin, now=now)

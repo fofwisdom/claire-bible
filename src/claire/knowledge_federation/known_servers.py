@@ -22,12 +22,14 @@ from typing import Any
 from ..store import federation as federation_store
 
 __all__ = [
+    "COLUMNS",
     "LOCAL_SOURCES",
     "READ_INTERVAL_SECONDS",
     "READ_LEASE_SECONDS",
     "REMOTE_SOURCES",
     "SCHEMA",
     "SOURCES",
+    "TABLE",
     "KnownServer",
     "ensure_schema",
     "get_server",
@@ -71,6 +73,9 @@ CREATE TABLE IF NOT EXISTS kf_known_servers (
 """
 
 _COLUMNS = "domain, source, added_by, created_at, last_contact_at, server_actor_iri, software_name, software_version, shared_kb_count, last_read_at, read_lease_until, error_count, last_error, last_error_at"
+# The columns that the code of this module reads. The migration (``store.db``) gives a table of a different form a new name and makes this one again.
+TABLE = "kf_known_servers"
+COLUMNS: tuple[str, ...] = tuple(_COLUMNS.split(", "))
 
 
 @dataclass(frozen=True, slots=True)

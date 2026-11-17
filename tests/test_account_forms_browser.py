@@ -109,7 +109,7 @@ def test_setup_login_logout_forms_submit_from_real_chromium(live_server, browser
         values = [c["value"] for c in ctx.cookies(base) if c["name"] == "claire_session"]
         return values[0] if values else None
 
-    # /setup 확정 → / 로 이동하고, 브라우저 쿠키는 새로 발급된 살아 있는 세션이다.
+    # /setup 확정 → / 로 이동하고, 브라우저 쿠키는 새로 발급된 살아 있는 세션이다. In single mode ``/`` then gives 302 to ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
     assert page.goto(f"{base}/setup").status == 200
     page.fill("#username", USERNAME)
     page.fill("#display_name", "브라우저")
@@ -118,7 +118,7 @@ def test_setup_login_logout_forms_submit_from_real_chromium(live_server, browser
     page.check("input[name=ack]")
     with page.expect_navigation():
         page.click("button[type=submit]")
-    assert page.url.rstrip("/") == base, page.url
+    assert page.url == f"{base}/@{USERNAME}/", page.url
     after_setup = session_cookie()
     live = _live_sessions(settings)
     assert after_setup and after_setup != first and after_setup in live
@@ -126,19 +126,21 @@ def test_setup_login_logout_forms_submit_from_real_chromium(live_server, browser
     assert page.goto(f"{base}/me").status == 200
 
     # 로그아웃 양식 → /login, 세션 삭제
+    # The logout form is in the menu of the app bar; a person opens the menu first.
+    page.click("#hamburger-btn")
     with page.expect_navigation():
         page.click("form[action='/logout'] button")
     assert page.url == f"{base}/login"
     assert after_setup not in _live_sessions(settings)
     assert page.goto(f"{base}/me").status == 404
 
-    # 로그인 양식 → /, 새 세션
+    # 로그인 양식 → / → /@{username}/, 새 세션
     page.goto(f"{base}/login")
     page.fill("#username", USERNAME)
     page.fill("#password", PASSWORD)
     with page.expect_navigation():
         page.click("button[type=submit]")
-    assert page.url.rstrip("/") == base, page.url
+    assert page.url == f"{base}/@{USERNAME}/", page.url
     assert session_cookie() in _live_sessions(settings)
     assert page.goto(f"{base}/me").status == 200
 

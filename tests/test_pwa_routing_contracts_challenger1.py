@@ -435,24 +435,31 @@ def test_challenger1_unconfigured_admin_fallback(tmp_path: Path):
 # ==============================================================================
 
 def test_challenger1_single_mode_isolation(tmp_path: Path):
-    """Verify single mode serves workspace HTML directly (200 OK) with NO redirects on /?pwa=1."""
+    """Verify single mode sends /?pwa=1 with 302 to /@singleadmin/?pwa=1 (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2), and the target serves workspace HTML (200 OK) with no other redirect."""
     s, ids_dict = _setup_challenger1_single_env(tmp_path)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
+    for method in ("GET", "HEAD"):
+        root = client.request(method, "/?pwa=1")
+        assert root.status_code == 302
+        assert root.headers["location"] == "/@singleadmin/?pwa=1"
+        assert root.headers.get("cache-control") == "no-store"
+
     # 1. Anonymous GET
-    res_get = client.get("/?pwa=1")
+    res_get = client.get("/@singleadmin/?pwa=1")
     assert res_get.status_code == 200
     assert "text/html" in res_get.headers.get("content-type", "")
 
     # 2. Anonymous HEAD
-    res_head = client.head("/?pwa=1")
+    res_head = client.head("/@singleadmin/?pwa=1")
     assert res_head.status_code == 200
     assert res_head.text == ""
 
     # 3. Authenticated GET
     client.cookies.set("claire_session", ids_dict["admin_session"])
-    res_auth = client.get("/?pwa=1")
+    assert client.get("/?pwa=1").headers["location"] == "/@singleadmin/?pwa=1"
+    res_auth = client.get("/@singleadmin/?pwa=1")
     assert res_auth.status_code == 200
     assert "text/html" in res_auth.headers.get("content-type", "")
 

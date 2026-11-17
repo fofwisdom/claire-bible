@@ -1,6 +1,6 @@
-"""S9: 싱글 모드에서 관리자 USERNAME 비노출 검증 (설계 §4.2, §6.2, §8.5, §17.2, §18.6).
+"""Single mode redirects to ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15; namespace design §4.2, §6.2, §8.5, §17.2, §18.6).
 
-싱글 모드에서는 관리자 USERNAME이 익명·방문자 응답(헤더·본문) 어디에도 노출되지 않아야 한다(S9).
+Rule S9 (no USERNAME of the admin in single mode) is withdrawn (Section 15 rule 4); this file replaces ``tests/test_single_mode_no_username_leak.py``. In single mode ``/`` gives 302 to ``/@{username}/`` of the admin, and the other root paths of the personal knowledge base give 308 to ``/@{username}/…``. Each other name under ``/@…`` gets 404.
 HTML 셸의 부트스트랩 메타태그 ``storage-key``는 계정의 public_id 기반(``a{public_id}``)이어야 한다(O9).
 서버 모드 설정·전환, 준비 검사 G1–G9, 레거시 호스트 일몰 시계 API, 로그인·설정 리다이렉트를 함께 검증한다.
 모든 테스트는 tmp_path를 사용하고 CLAIRE_* 환경변수로부터 완전히 격리된다(§18.2-6).
@@ -26,7 +26,6 @@ from claire.accounts.provider_policy import ServerTier
 from claire.api import security, server
 from claire.api.host_router import LegacyHostPolicy
 from claire.api.namespace import (
-    ADMIN_USERNAME_PUBLISHED_KEY,
     NAMESPACE_EXTRA_STATE_KEY,
     NAMESPACE_STATE_KEY,
     ResolvedNamespace,
@@ -39,7 +38,7 @@ from claire.store import db as dbm
 from claire.store import legacy_hosts
 from claire.store.token_store import reset_token_stores
 
-SECRET_ADMIN_USERNAME = "classified_adm_x99"
+ADMIN_USERNAME = "classified_adm_x99"
 ADMIN_DISPLAY_NAME = "Super Admin"
 ADMIN_PASSWORD = "correct-horse-battery-admin-1234"
 ADMIN_PUBLIC_ID = 1164999888777666555
@@ -85,7 +84,7 @@ def app_env(tmp_path: Path):
         # Update admin account with distinct secret username and specific public_id
         conn.execute(
             "UPDATE accounts SET username=?, display_name=?, status='active', public_id=? WHERE id=1",
-            (SECRET_ADMIN_USERNAME, ADMIN_DISPLAY_NAME, ADMIN_PUBLIC_ID),
+            (ADMIN_USERNAME, ADMIN_DISPLAY_NAME, ADMIN_PUBLIC_ID),
         )
         conn.commit()
     finally:
@@ -95,7 +94,7 @@ def app_env(tmp_path: Path):
     auth_path = auth_db.auth_db_path(tmp_path)
     auth_conn = auth_db.connect_auth_db(auth_path)
     try:
-        auth_db.set_password(auth_conn, 1, ADMIN_PASSWORD, username=SECRET_ADMIN_USERNAME)
+        auth_db.set_password(auth_conn, 1, ADMIN_PASSWORD, username=ADMIN_USERNAME)
     finally:
         auth_conn.close()
 
@@ -118,53 +117,71 @@ def _admin_headers(token: str) -> dict[str, str]:
 
 
 # ==============================================================================
-# S9: No Admin USERNAME Leaked in Single Mode Responses
+# Section 15 rule 2: redirects of single mode
 # ==============================================================================
 
 
-def test_whoami_anonymous_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9: /whoami anonymously returns visitor scope without exposing admin username."""
-    resp = app_env.client.get("/whoami")
+def test_whoami_anonymous_in_single_mode(app_env):
+    """/whoami tells the relation to the namespace (O10), so it is a path of the namespace: the root path gives 308 to ``/@{username}/whoami``. Visitor scope."""
+    root = app_env.client.get("/whoami", follow_redirects=False)
+    assert root.status_code == 308 and root.headers["Location"] == f"/@{ADMIN_USERNAME}/whoami"
+    resp = app_env.client.get(f"/@{ADMIN_USERNAME}/whoami", follow_redirects=False)
     assert resp.status_code == 200
     data = resp.json()
     assert data["scope"] == "anonymous"
     assert data["server"]["mode"] == "single"
     assert data["relation"] == "visitor"
-    assert SECRET_ADMIN_USERNAME not in resp.text
-    assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values())
 
 
-def test_whoami_readonly_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9: /whoami with readonly bearer does not expose admin username."""
-    resp = app_env.client.get("/whoami", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+def test_whoami_readonly_in_single_mode(app_env):
+    """/whoami of the admin namespace with a readonly bearer."""
+    resp = app_env.client.get(f"/@{ADMIN_USERNAME}/whoami", headers={"Authorization": f"Bearer {READONLY_TOKEN}"}, follow_redirects=False)
     assert resp.status_code == 200
-    assert SECRET_ADMIN_USERNAME not in resp.text
+    assert resp.json()["server"]["mode"] == "single"
 
 
-def test_root_html_shell_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9 & O9: Root GET / returns HTML shell and does not leak admin username."""
-    resp = app_env.client.get("/")
+def test_root_gives_302_to_the_admin_namespace(app_env):
+    """Rule 2: ``/`` gives a temporary redirect (302, ``no-store``) to ``/@{username}/`` with the same query, for each credential and for HEAD. It is temporary because the meaning of ``/`` depends on the server mode."""
+    token = _login_admin(app_env)
+    for kwargs in ({}, {"headers": {"Authorization": f"Bearer {READONLY_TOKEN}"}}, {"headers": _admin_headers(token)}):
+        for method in ("GET", "HEAD"):
+            resp = app_env.client.request(method, "/?doc=42&pwa=1", follow_redirects=False, **kwargs)
+            assert resp.status_code == 302
+            assert resp.headers["Location"] == f"/@{ADMIN_USERNAME}/?doc=42&pwa=1"
+            assert resp.headers["Cache-Control"] == "no-store"
+    plain = app_env.client.get("/", follow_redirects=False)
+    assert plain.status_code == 302 and plain.headers["Location"] == f"/@{ADMIN_USERNAME}/"
+
+
+def test_admin_namespace_serves_the_html_shell(app_env):
+    """The target of the redirect is the workspace of the admin. O9: ``storage-key`` is ``a{public_id}``; the API base is the namespace of the admin."""
+    resp = app_env.client.get(f"/@{ADMIN_USERNAME}/", follow_redirects=False)
     assert resp.status_code == 200
-    assert "claire-storage-key" in resp.text
-    assert SECRET_ADMIN_USERNAME not in resp.text
-    assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values())
+    assert f'<meta name="claire-storage-key" content="a{ADMIN_PUBLIC_ID}"/>' in resp.text
+    assert f'content="/@{ADMIN_USERNAME}/"' in resp.text
+    followed = app_env.client.get("/")
+    assert [r.status_code for r in followed.history] == [302]
+    assert followed.url.path == f"/@{ADMIN_USERNAME}/"
+    assert followed.status_code == 200
 
 
-def test_themes_collection_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9: GET /themes collection uses /kb/{n}/ and does not leak admin username."""
-    resp = app_env.client.get("/themes", headers={"Accept": "application/json"})
-    assert resp.status_code == 200
-    assert SECRET_ADMIN_USERNAME not in resp.text
-    assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values())
+def test_root_paths_of_the_personal_knowledge_base_give_308(app_env):
+    """Rule 2: the other root paths of the personal knowledge base give 308 to ``/@{username}/…``; these targets stay valid in network mode. The query stays."""
+    for path in ("/graph", "/documents?page=2", "/stats"):
+        resp = app_env.client.get(path, follow_redirects=False)
+        assert resp.status_code == 308, path
+        assert resp.headers["Location"] == f"/@{ADMIN_USERNAME}{path}"
+    target = app_env.client.get(f"/@{ADMIN_USERNAME}/graph", follow_redirects=False)
+    assert target.status_code == 200
 
 
-def test_public_system_routes_do_not_leak_admin_username(app_env):
-    """S9: Public endpoints (/health, /robots.txt, /sitemap.xml) do not leak admin username."""
+def test_system_routes_do_not_redirect(app_env):
+    """System routes and the shared collections keep their root paths."""
     for path in ("/health", "/robots.txt", "/sitemap.xml"):
-        resp = app_env.client.get(path)
-        assert resp.status_code == 200
-        assert SECRET_ADMIN_USERNAME not in resp.text
-        assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values())
+        resp = app_env.client.get(path, follow_redirects=False)
+        assert resp.status_code == 200, path
+    themes = app_env.client.get("/themes", headers={"Accept": "application/json"}, follow_redirects=False)
+    assert themes.status_code == 200
 
 
 def test_shell_bootstrap_helper_uses_storage_key_public_id(app_env):
@@ -172,16 +189,16 @@ def test_shell_bootstrap_helper_uses_storage_key_public_id(app_env):
     scope = {
         "type": "http",
         "method": "GET",
-        "path": "/",
+        "path": f"/@{ADMIN_USERNAME}/",
         "headers": [],
         "state": {
             NAMESPACE_STATE_KEY: ResolvedNamespace(
                 mode="single",
                 account_id=1,
-                username=None,
-                pinned_kb_id=0,
-                prefix="",
-                via_prefix=False,
+                username=ADMIN_USERNAME,
+                pinned_kb_id=None,
+                prefix=f"/@{ADMIN_USERNAME}",
+                via_prefix=True,
             ),
             NAMESPACE_EXTRA_STATE_KEY: {"public_id": ADMIN_PUBLIC_ID},
         },
@@ -189,33 +206,38 @@ def test_shell_bootstrap_helper_uses_storage_key_public_id(app_env):
     req = Request(scope)
     bs = shell_bootstrap(req)
     assert bs["storage-key"] == f"a{ADMIN_PUBLIC_ID}"
-    assert bs["api-base"] == "/"
+    assert bs["api-base"] == f"/@{ADMIN_USERNAME}/"
     assert bs["root-base"] == "/"
-    assert SECRET_ADMIN_USERNAME not in bs.values()
 
 
-def test_single_mode_at_username_returns_404_without_publishing(app_env):
-    """N1: In single mode before admin_username_published, /@{admin} returns 404."""
-    resp = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/", follow_redirects=False)
-    assert resp.status_code == 404
-    assert SECRET_ADMIN_USERNAME not in resp.text
+def test_other_names_under_at_give_404(app_env):
+    """In single mode only the USERNAME of the admin has a namespace. Each other name gets 404."""
+    for path in ("/@member_bob/", "/@nobody/graph"):
+        resp = app_env.client.get(path, follow_redirects=False)
+        assert resp.status_code == 404, path
 
 
-def test_single_mode_at_username_redirects_308_when_published(app_env):
-    """O15: In single mode after admin_username_published='1', /@{admin}/ 308 redirects to /."""
-    conn = dbm.connect_existing(app_env.db_file)
+def test_before_setup_root_has_no_redirect(tmp_path: Path):
+    """Rule 3: before the first setup the admin has no USERNAME. ``/`` with the admin session goes to ``/setup``; each other request gets the page "setup not complete". There is no other target."""
+    db_file = tmp_path / "claire.db"
+    settings = _Settings(db_file=db_file, data_dir=tmp_path)
+    conn = dbm.connect(db_file)
     try:
-        conn.execute(
-            f"INSERT INTO server_settings (key, value, updated_at) VALUES ('{ADMIN_USERNAME_PUBLISHED_KEY}', '1', ?)",
-            (time.time(),),
-        )
-        conn.commit()
+        dbm.init_db(conn)
+        setup_token = accounts_store.create_account_session(conn, account_id=1, scope="owner", now=time.time())
     finally:
         conn.close()
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
+    client = TestClient(app, base_url=PUBLIC_URL)
 
-    resp = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/", follow_redirects=False)
-    assert resp.status_code == 308
-    assert resp.headers["Location"].endswith("/")
+    admin = client.get("/", headers={"Cookie": f"claire_session={setup_token}"}, follow_redirects=False)
+    assert admin.status_code == 302 and admin.headers["Location"] == "/setup"
+    client.cookies.clear()
+    for headers in ({}, {"Authorization": f"Bearer {READONLY_TOKEN}"}):
+        resp = client.get("/", headers=headers, follow_redirects=False)
+        assert resp.status_code == 503
+        assert "Location" not in resp.headers
+        assert 'data-setup-state="setup_required"' in resp.text
 
 
 # ==============================================================================
@@ -471,7 +493,7 @@ def test_post_api_admin_server_mode_network_to_single_when_members_exist(app_env
 
 
 def test_post_api_admin_server_mode_network_to_single_success(app_env):
-    """Switching network -> single succeeds without members and sets admin_username_published='1' (O15)."""
+    """Switching network -> single succeeds without members. Then ``/`` gives 302 to ``/@{username}/``, the path that the admin had in network mode (Section 15 rule 2)."""
     # Put server into network mode without non-admin members
     conn = dbm.connect_existing(app_env.db_file)
     try:
@@ -490,16 +512,16 @@ def test_post_api_admin_server_mode_network_to_single_success(app_env):
     data = resp.json()
     assert data["mode"] == "single"
     assert data["changed"] is True
-    assert data["admin_username_published"] is True
+    assert set(data) == {"mode", "changed"}
 
-    # Verify DB state: mode='single', admin_username_published='1'
     conn = dbm.connect_existing(app_env.db_file)
     try:
         store = accounts_store.AccountStore(conn)
         assert store.server_mode() == "single"
-        assert store.get_setting(ADMIN_USERNAME_PUBLISHED_KEY) == "1"
     finally:
         conn.close()
+    root = app_env.client.get("/", follow_redirects=False)
+    assert root.status_code == 302 and root.headers["Location"] == f"/@{ADMIN_USERNAME}/"
 
 
 # ==============================================================================
@@ -596,7 +618,7 @@ def test_login_redirect_in_single_and_network_modes(app_env):
     # 1. Single mode login -> redirect to /
     resp_single = app_env.client.post(
         "/login",
-        data={"username": SECRET_ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
         headers=headers,
         follow_redirects=False,
     )
@@ -614,12 +636,12 @@ def test_login_redirect_in_single_and_network_modes(app_env):
     # 2. Network mode login -> redirect to /@{username}/
     resp_net = app_env.client.post(
         "/login",
-        data={"username": SECRET_ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
         headers=headers,
         follow_redirects=False,
     )
     assert resp_net.status_code == 303
-    assert resp_net.headers["Location"] == f"/@{SECRET_ADMIN_USERNAME}/"
+    assert resp_net.headers["Location"] == f"/@{ADMIN_USERNAME}/"
 
 
 def test_setup_redirect_in_single_mode(tmp_path: Path):

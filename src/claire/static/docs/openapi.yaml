@@ -1032,6 +1032,138 @@ paths:
         '200':
           description: The result.
 
+  /api/admin/federation/known-servers:
+    get:
+      summary: Known servers of the federation of shared knowledge, and the switches
+      description: >-
+        Each known server with its state (`active`, or `blocked` when a domain block applies,
+        with `blocked_by`), how it became known (`source`), the last contact, and the result of
+        the last read. `switches` has `federation`, `kb_auto_contribution`, and `signed_get`
+        (always `required`). In the order of the domain (KNOWLEDGE_FEDERATION_DESIGN.md Sections
+        6.2 and 6.5).
+      operationId: listKnownServers
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"servers": [{"domain", "status", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at"}], "switches": {"federation", "kb_auto_contribution", "signed_get"}}`'
+        '404':
+          description: Not the admin.
+    post:
+      summary: Add a known server (admin entry)
+      description: >-
+        The source is `admin`. A server that is known does not change (200, `created` false).
+        A blocked domain can be added; its state is `blocked`. Needs the same origin and a
+        session with a recent sign-in. Writes `admin_audit` `federation.known_server_add`.
+      operationId: addKnownServer
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [domain]
+              properties:
+                domain: {type: string, description: 'A host name, without a scheme, a port, or a path.'}
+      responses:
+        '201':
+          description: '`{"server": {...}, "created": true}`'
+        '200':
+          description: '`{"server": {...}, "created": false}`: the server was known.'
+        '400':
+          description: '`invalid_request`, `invalid_domain`, or `own_domain`.'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: Not the same origin, or `step_up_requires_session`.
+        '404':
+          description: Not the admin.
+
+  /api/admin/federation/journal:
+    get:
+      summary: Inbox journal of the federation of shared knowledge
+      description: >-
+        One row for each received activity, newest first (KNOWLEDGE_FEDERATION_DESIGN.md
+        Section 13). The times are ISO 8601 texts in UTC. `next_max_id` is the cursor of the
+        next page, or null when the page is not full.
+      operationId: listKnowledgeJournal
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [received, processed, failed, refused]}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: max_id, in: query, schema: {type: integer, minimum: 1}, description: Only the rows with a smaller ID.}
+      responses:
+        '200':
+          description: '`{"entries": [{"id", "activity_iri", "activity_type", "kind", "actor", "actor_domain", "recipient", "verified_by", "status", "error_code", "error_detail", "attempts", "received_at", "processed_at", "replayable"}], "next_max_id"}`'
+        '400':
+          description: '`invalid_status` (with `states`), `invalid_limit`, or `invalid_max_id`.'
+        '404':
+          description: Not the admin.
+
+  /api/admin/federation/journal/{entry_id}:
+    get:
+      summary: One row of the inbox journal, with the activity as it came
+      operationId: getKnowledgeJournalEntry
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: entry_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: '`{"entry": {..., "payload": {...}}}`'
+        '404':
+          description: '`journal_entry_not_found`, or not the admin.'
+
+  /api/admin/federation/journal/{entry_id}/replay:
+    post:
+      summary: Process a failed row of the inbox journal again
+      description: >-
+        Only a row with the state `failed` or `received`. While the switch `federation` is off
+        the row does not change (409 `federation_off`). Needs the same origin and a session with
+        a recent sign-in. Writes `admin_audit` `federation.journal_replay`.
+      operationId: replayKnowledgeJournalEntry
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: entry_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: '`{"entry": {...}}` with the state after the processing.'
+        '400':
+          description: '`invalid_request`.'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: Not the same origin, or `step_up_requires_session`.
+        '404':
+          description: '`journal_entry_not_found`, or not the admin.'
+        '409':
+          description: '`journal_entry_not_replayable` (with `states`) or `federation_off`.'
+
   /api/reputation:
     get:
       summary: Reputation of the account of the credential

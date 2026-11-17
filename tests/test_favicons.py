@@ -9,18 +9,20 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.config import Settings
+from tests.single_mode import complete_admin_setup
 
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
+    # ``db_file`` and ``data_dir`` are not fields of ``Settings``: the database path is ``db_path``. Without it the test opened the database of the working copy (``data/claire.db``).
     settings = Settings(
         environment="development",
-        public_url="http://127.0.0.1:8000",
+        CLAIRE_PUBLIC_URL="http://127.0.0.1:8000",
         inject_host="127.0.0.1",
         inject_port=8000,
         inject_token="x" * 32,
-        db_file=tmp_path / "claire.db",
-        data_dir=tmp_path / "data",
+        db_path=str(tmp_path / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
     )
     app = server.create_app(settings)
     return TestClient(app, base_url="http://127.0.0.1:8000")
@@ -335,8 +337,11 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
     assert 'href="/manifest.json"' in resp_explore.text
     assert '/static/js/pwa-register.js' in resp_explore.text
 
-    # Workspace index template
+    # Workspace index template. In single mode ``/`` gives 302 to ``/@{username}/`` after the first setup (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
+    username = complete_admin_setup(tmp_path / "claire.db")
     resp_index = client.get("/")
+    assert [r.status_code for r in resp_index.history] == [302]
+    assert resp_index.url.path == f"/@{username}/"
     assert resp_index.status_code == 200
     assert 'href="/manifest.json"' in resp_index.text
     assert '/static/js/pwa-register.js' in resp_index.text

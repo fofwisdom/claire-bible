@@ -6,6 +6,7 @@ from starlette.testclient import TestClient
 from claire.api import server
 from claire.config import Settings
 from claire.graphview import render_graph_html
+from tests.single_mode import complete_admin_setup
 
 # 테마 관리 UI는 루트 상세 메뉴에서 빠지고 콘솔이 쓰는 공유 모듈에만 있다.
 MANAGE_PANELS_JS = (Path(__file__).resolve().parents[1] / "src" / "claire" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
@@ -56,8 +57,12 @@ def test_theme_web_root_endpoint_serves_selector(tmp_path: Path):
         CLAIRE_FQDN="127.0.0.1",
     )
     app = server.create_app(s)
+    # In single mode ``/`` gives 302 to ``/@{username}/`` after the first setup (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
+    username = complete_admin_setup(s.db_file)
     with TestClient(app, base_url=s.public_url) as client:
         response = client.get("/")
+        assert [r.status_code for r in response.history] == [302]
+        assert response.url.path == f"/@{username}/"
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
         assert 'id="theme-select"' in response.text

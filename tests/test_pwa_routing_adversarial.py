@@ -222,13 +222,24 @@ def _setup_single_env(tmp_path: Path, *, anonymous_readonly: bool = True):
 # ==============================================================================
 
 
+def _single_mode_root(client: TestClient, query: str = "", *, method: str = "GET"):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2: in single mode ``/`` gives 302 (``no-store``, empty body) to ``/@singleadmin/`` with the same query. Return the response of the target; the client does not follow redirects."""
+    suffix = f"?{query}" if query else ""
+    res = client.request(method, f"/{suffix}")
+    assert res.status_code == 302
+    assert res.headers["location"] == f"/@singleadmin/{suffix}"
+    assert res.headers.get("cache-control") == "no-store"
+    assert res.text == ""
+    return client.request(method, res.headers["location"])
+
+
 def test_single_mode_pwa_status_200_html_no_redirect(tmp_path: Path):
-    """Verify single mode with /?pwa=1 returns status 200 OK, HTML content, and no redirect."""
+    """Verify single mode with /?pwa=1 gives 302 to /@singleadmin/?pwa=1, and the target returns status 200 OK, HTML content, and no other redirect."""
     s, _ = _setup_single_env(tmp_path, anonymous_readonly=True)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/?pwa=1")
+    res = _single_mode_root(client, "pwa=1")
     assert res.status_code == 200
     assert res.history == []
     assert res.headers.get("location") is None
@@ -244,13 +255,13 @@ def test_single_mode_pwa_status_200_html_no_redirect(tmp_path: Path):
 
 
 def test_single_mode_pwa_with_complex_query_params(tmp_path: Path):
-    """Verify single mode with /?pwa=1 and arbitrary query params renders workspace directly with 200 OK."""
+    """Verify single mode with /?pwa=1 and arbitrary query params keeps the query in the 302 and renders the workspace with 200 OK at the target."""
     s, _ = _setup_single_env(tmp_path, anonymous_readonly=True)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
     # User specified query combination: ?pwa=1&theme=2&doc=doc-abc
-    res = client.get("/?pwa=1&theme=2&doc=doc-abc")
+    res = _single_mode_root(client, "pwa=1&theme=2&doc=doc-abc")
     assert res.status_code == 200
     assert res.history == []
     assert res.headers.get("location") is None
@@ -259,12 +270,12 @@ def test_single_mode_pwa_with_complex_query_params(tmp_path: Path):
 
 
 def test_single_mode_pwa_head_request(tmp_path: Path):
-    """Verify HEAD /?pwa=1 in single mode returns 200 OK with identical headers and empty body."""
+    """Verify HEAD /?pwa=1 in single mode gives the same 302, and HEAD of the target returns 200 OK with an empty body."""
     s, _ = _setup_single_env(tmp_path, anonymous_readonly=True)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.head("/?pwa=1")
+    res = _single_mode_root(client, "pwa=1", method="HEAD")
     assert res.status_code == 200
     assert res.history == []
     assert "text/html" in res.headers.get("content-type", "")
@@ -278,19 +289,19 @@ def test_single_mode_pwa_forged_and_expired_cookies(tmp_path: Path):
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
     client.cookies.set("claire_session", "completely_bogus_forged_cookie_12345")
-    res = client.get("/?pwa=1")
+    res = _single_mode_root(client, "pwa=1")
     assert res.status_code == 200
     assert res.history == []
     assert "text/html" in res.headers.get("content-type", "")
 
 
 def test_single_mode_normal_root_preservation(tmp_path: Path):
-    """Verify single mode GET / without ?pwa=1 renders default workspace without redirect."""
+    """Verify single mode GET / without ?pwa=1 gives 302 to /@singleadmin/, and the target renders the default workspace without another redirect."""
     s, _ = _setup_single_env(tmp_path, anonymous_readonly=True)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/")
+    res = _single_mode_root(client)
     assert res.status_code == 200
     assert res.history == []
     assert "text/html" in res.headers.get("content-type", "")

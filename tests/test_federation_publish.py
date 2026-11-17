@@ -449,7 +449,8 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
             except Exception as exc:  # noqa: BLE001
                 pytest.skip(f"Playwright Chromium is not available: {exc}")
             try:
-                ctx = browser.new_context()
+                # The browser asks for Korean (Accept-Language), so the interface text is the Korean catalog. The default of the interface is en.
+                ctx = browser.new_context(locale="ko-KR")
                 ctx.add_cookies([{"name": "claire_session", "value": owner, "url": base}])
                 page = ctx.new_page()
                 page.goto(f"{base}/syndication?theme={ALPHA_THEME}")
@@ -474,12 +475,24 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
                 assert published.value.json()["created"] is False
                 assert [r[1] for r in rows("SELECT account_id, kind, status FROM federation_outbox")] == ["create", "update"]
 
-                # A document of a private theme cannot go to the native actor.
-                page.goto(f"{base}/syndication?theme={ALPHA_PRIVATE_THEME}")
-                page.locator("[data-quick-dispatch='doc-private']").first.click()
+                # A document of a private knowledge base cannot go to the native actor. After schema version 28 a knowledge base of one account is its personal knowledge base, so the test makes that one private (the row 12 is neither personal nor shared, and no route shows it).
+                c = dbm.connect_existing(settings.db_file)
+                try:
+                    c.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=11")
+                    c.commit()
+                finally:
+                    c.close()
+                page.goto(f"{base}/syndication?theme={ALPHA_THEME}")
+                page.locator("[data-quick-dispatch='doc-a']").first.click()
                 page.locator("#dispatch-native").wait_for(state="visible")
                 assert page.locator("#btn-native-publish").is_disabled()
                 ctx.close()
+                c = dbm.connect_existing(settings.db_file)
+                try:
+                    c.execute("UPDATE knowledge_bases SET is_public=1 WHERE id=11")
+                    c.commit()
+                finally:
+                    c.close()
 
                 # An account that is not an actor sees no native target.
                 c = dbm.connect_existing(settings.db_file)

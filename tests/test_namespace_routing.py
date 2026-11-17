@@ -354,7 +354,10 @@ def test_grammar_violations_are_404(path):
 async def test_middleware_maps_rejections_and_redirects(app_factory):
     app = app_factory()
     assert (await _call(app, "/a/b", raw_path=b"/a%2Fb")).status == 400
-    assert (await _call(app, "/graph", raw_path=b"/graph?url=https://x.test/a", token=OWNER_TOKEN)).status == 200
+    assert (await _call(app, f"/@{ADMIN_NAME}/graph", raw_path=f"/@{ADMIN_NAME}/graph?url=https://x.test/a".encode(), token=OWNER_TOKEN)).status == 200
+    # Single mode: a root path of the personal knowledge base gets 308 to ``/@{username}/…`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
+    root_path = await _call(app, "/graph", raw_path=b"/graph?url=https://x.test/a", token=OWNER_TOKEN)
+    assert root_path.status == 308 and root_path.headers["location"] == f"/@{ADMIN_NAME}/graph"
     redirect = await _call(app, "/@Alice/", query="doc=1")
     assert redirect.status == 308 and redirect.headers["location"] == "/@alice/?doc=1"
     assert (await _call(app, "/themes/0123/")).status == 404
@@ -391,40 +394,66 @@ async def test_access_log_and_router_see_original_and_stripped_paths(app_factory
 
 
 @pytest.mark.asyncio
-async def test_single_mode_unprefixed_is_admin_namespace_without_username(app_factory, world):
+async def test_single_mode_admin_namespace_is_at_username(app_factory, world):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 2 and 4: single mode serves the admin namespace at ``/@{username}/``; ``/`` gives 302 and the other root paths give 308 to it. Rule S9 is withdrawn."""
     app = app_factory(anonymous_readonly=True)
-    res = await _call(app, "/graph")
+    res = await _call(app, f"/@{ADMIN_NAME}/graph")
     body = res.json()
     assert res.status == 200
     assert body["ns"] == {
-        "mode": "single", "account_id": 1, "username": None, "pinned_kb_id": None,
-        "prefix": "", "via_prefix": False,
+        "mode": "single", "account_id": 1, "username": ADMIN_NAME, "pinned_kb_id": None,
+        "prefix": f"/@{ADMIN_NAME}", "via_prefix": True,
     }
-    assert body["bootstrap"] == {"api-base": "/", "root-base": "/", "storage-key": f"a{world.admin_public_id}"}
-    assert body["link"] == f"{DEV_ORIGIN}/graph"
-    home = await _call(app, "/")
+    assert body["bootstrap"] == {"api-base": f"/@{ADMIN_NAME}/", "root-base": "/", "storage-key": f"a{world.admin_public_id}"}
+    assert body["link"] == f"{DEV_ORIGIN}/@{ADMIN_NAME}/graph"
+    home = await _call(app, f"/@{ADMIN_NAME}/")
     assert home.status == 200 and home.json()["ns"]["account_id"] == 1
-    assert ADMIN_NAME.encode() not in res.body + home.body
+    # ``/``: a temporary redirect with the query, because the meaning of ``/`` depends on the server mode.
+    root = await _call(app, "/", query="doc=1")
+    assert root.status == 302 and root.headers["location"] == f"/@{ADMIN_NAME}/?doc=1"
+    assert root.headers["cache-control"] == "no-store"
+    # Other root paths: a permanent redirect, because the target stays valid in network mode.
+    other = await _call(app, "/graph", query="a=1")
+    assert other.status == 308 and other.headers["location"] == f"/@{ADMIN_NAME}/graph?a=1"
+    head = await _call(app, "/graph", method="HEAD")
+    assert head.status == 308 and head.headers["location"] == f"/@{ADMIN_NAME}/graph"
 
 
 @pytest.mark.asyncio
-async def test_single_mode_account_prefix_is_404_even_for_admin(app_factory):
+async def test_single_mode_before_setup_keeps_the_root_paths(app_factory, world):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 3: before the first setup the admin has no USERNAME, so there is no redirect. ``/`` comes to the route, which gives ``/setup`` or the page "setup not complete" (``tests/test_setup_flow.py``)."""
+    # The USERNAME column cannot change (a trigger); the state alone decides: only an ``active`` admin has the namespace ``/@{username}/``.
+    world.execute("UPDATE accounts SET status='setup_required' WHERE id=1")
+    app = app_factory(anonymous_readonly=True)
+    res = await _call(app, "/graph")
+    assert res.status == 200
+    assert res.json()["ns"] == {
+        "mode": "single", "account_id": 1, "username": None, "pinned_kb_id": None,
+        "prefix": "", "via_prefix": False,
+    }
+    assert res.json()["link"] == f"{DEV_ORIGIN}/graph"
+    home = await _call(app, "/")
+    assert home.status == 200 and home.json()["ns"]["account_id"] == 1
+    assert (await _call(app, f"/@{ADMIN_NAME}/")).status == 404
+
+
+@pytest.mark.asyncio
+async def test_single_mode_account_prefix_is_404_for_other_names(app_factory):
+    """In single mode only the USERNAME of the admin has a namespace. A member name and an unknown name get 404, also for the admin."""
     app = app_factory()
-    for path in (f"/@{ADMIN_NAME}/", "/@alice/", f"/@{ADMIN_NAME}/graph"):
+    assert (await _call(app, f"/@{ADMIN_NAME}/graph", token=OWNER_TOKEN)).status == 200
+    for path in ("/@alice/", "/@alice/graph", "/@nobody/"):
         res = await _call(app, path, token=OWNER_TOKEN)
         assert res.status == 404
         assert ADMIN_NAME.encode() not in res.body
 
 
 @pytest.mark.asyncio
-async def test_single_mode_admin_prefix_redirects_after_network_return(app_factory, world):
-    # O15: 네트워크 모드에서 공개됐던 관리자 이름만 ``/…``로 308.
-    world.execute(
-        "INSERT INTO server_settings (key, value, updated_at) VALUES ('admin_username_published', '1', 0)"
-    )
+async def test_single_mode_old_admin_theme_link_goes_to_username(app_factory, world):
+    """An old link ``/@{admin}/themes/{number}/…`` of the personal knowledge base of the admin gets 308 to ``/@{admin}/…``. The old O15 redirect to ``/…`` is withdrawn with S9."""
     app = app_factory(anonymous_readonly=True)
     res = await _call(app, f"/@{ADMIN_NAME}/themes/{N_ADMIN_DEFAULT}/graph", query="a=1")
-    assert res.status == 308 and res.headers["location"] == f"/themes/{N_ADMIN_DEFAULT}/graph?a=1"
+    assert res.status == 308 and res.headers["location"] == f"/@{ADMIN_NAME}/graph?a=1"
     assert (await _call(app, "/@alice/")).status == 404
 
 
@@ -441,12 +470,12 @@ async def test_single_mode_kb_path_pins_a_shared_knowledge_base(app_factory, wor
     assert body["link"] == f"{DEV_ORIGIN}/kb/{N_ADMIN_PRIVATE}/graph"
     # A shared knowledge base that another account made has the same path.
     assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=OWNER_TOKEN)).status == 200
-    # Old links: shared -> 308 /kb/{number}/…; the personal knowledge base of the admin -> 308 /… (single mode).
+    # Old links: shared -> 308 /kb/{number}/…; the personal knowledge base of the admin -> 308 /@{username}/… (single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
     old = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN, query="a=1")
     assert old.status == 308 and old.headers["location"] == f"/kb/{N_ADMIN_PRIVATE}/graph?a=1"
     personal = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)
-    assert personal.status == 308 and personal.headers["location"] == "/graph"
-    assert (await _call(app, f"/kb/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)).headers["location"] == "/graph"
+    assert personal.status == 308 and personal.headers["location"] == f"/@{ADMIN_NAME}/graph"
+    assert (await _call(app, f"/kb/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)).headers["location"] == f"/@{ADMIN_NAME}/graph"
     # The personal knowledge base of another account has no path in single mode; an unknown number is 404.
     assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404
     assert (await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404

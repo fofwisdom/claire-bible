@@ -340,13 +340,25 @@ def test_network_mode_non_pwa_query_params(tmp_path: Path):
 # ------------------------------------------------------------------------------
 # 5. Single Mode Tests
 # ------------------------------------------------------------------------------
+# KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2: in single mode ``/`` gives 302 to ``/@{username}/`` of the admin with the same query. The workspace is at the target.
+
+
+def _single_mode_root(client: TestClient, query: str = "", *, method: str = "GET", headers: dict[str, str] | None = None):
+    """Request ``/`` in single mode, check the 302 to ``/@adminuser/`` with the same query, and return the response of the target."""
+    suffix = f"?{query}" if query else ""
+    res = client.request(method, f"/{suffix}", headers=headers)
+    assert res.status_code == 302
+    assert res.headers["location"] == f"/@adminuser/{suffix}"
+    assert res.headers.get("cache-control") == "no-store"
+    return client.request(method, res.headers["location"], headers=headers)
+
 
 def test_single_mode_pwa_launch_returns_workspace(tmp_path: Path):
     s, _ = _setup_single_env(tmp_path)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/?pwa=1")
+    res = _single_mode_root(client, "pwa=1")
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
     assert "claire-storage-key" in res.text or "Claire" in res.text
@@ -358,7 +370,7 @@ def test_single_mode_root_without_pwa(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/")
+    res = _single_mode_root(client)
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
 
@@ -368,7 +380,7 @@ def test_single_mode_pwa_with_query_params(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/?pwa=1&filter=all")
+    res = _single_mode_root(client, "pwa=1&filter=all")
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
 
@@ -377,9 +389,8 @@ def test_single_mode_pwa_authenticated_when_anonymous_readonly_false(tmp_path: P
     s, ids_dict = _setup_single_env(tmp_path, anonymous_readonly=False)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
-    client.cookies.set("claire_session", ids_dict["admin_session"])
-
-    res = client.get("/?pwa=1")
+    # The cookie is a header of each request: the cookie jar of the client would keep a second copy from the ``Set-Cookie`` of the first response, and two session cookies are no credential.
+    res = _single_mode_root(client, "pwa=1", headers={"Cookie": f"claire_session={ids_dict['admin_session']}"})
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
 

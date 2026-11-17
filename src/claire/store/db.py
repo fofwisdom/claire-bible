@@ -1443,10 +1443,25 @@ def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
 def _migrate_v29_knowledge_federation(conn: sqlite3.Connection) -> None:
     """v29 schema (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1): the known servers and the inbox journal of the federation of shared knowledge. Idempotent (A3); it runs at each start.
 
-    The store modules own their tables: ``knowledge_federation.known_servers`` (``kf_known_servers``) and ``knowledge_federation.journal`` (``kf_inbox_journal``). The step only makes tables that are not there; it changes no row.
+    The store modules own their tables: ``knowledge_federation.known_servers`` (``kf_known_servers``) and ``knowledge_federation.journal`` (``kf_inbox_journal``). The step makes tables that are not there; it changes no row.
+
+    A table with the name but without a column that the code reads (for example from a development build) is not deleted: it becomes ``<name>_retired_v29`` (or ``_retired_v29_<n>`` when that name is used), its indexes are dropped so that the new table can have them, the log gets a warning, and the start continues (operator rule).
     """
     from ..knowledge_federation import journal, known_servers
 
+    for module in (known_servers, journal):
+        table = module.TABLE
+        if not _table_exists(conn, table) or set(module.COLUMNS) <= _column_names(conn, table):
+            continue
+        retired = f"{table}_retired_v29"
+        suffix = 2
+        while _table_exists(conn, retired):
+            retired = f"{table}_retired_v29_{suffix}"
+            suffix += 1
+        for (index,) in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (table,)).fetchall():
+            conn.execute(f'DROP INDEX "{index}"')
+        conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
+        logger.warning("schema v29: table %s did not have the expected columns; it is kept as %s", table, retired)
     known_servers.ensure_schema(conn)
     journal.ensure_schema(conn)
 
