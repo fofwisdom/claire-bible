@@ -112,7 +112,7 @@ Limits:
 - 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
 - 실행: `bash scripts/e2e.sh run [<spec>.spec.js]`. 실행은 분리된 systemd 사용자 서비스(`claire-e2e-<포트>.service`)에서 돈다. 시작한 터미널이나 에이전트 세션이 끝나도 실행은 계속되고, 실행이 죽어도 세션은 남는다. git worktree에서도 메인 저장소의 `.venv`·`e2e/node_modules`를 재사용한다. `cd e2e && npx playwright test`는 쓰지 않는다.
   - 명령: `run`(시작하고 끝까지 기다림), `start`(시작만 하고 바로 돌아옴), `wait [초]`, `status`, `watch`(출력 따라가기), `tmux`(tmux 세션에서 `watch`), `stop`. 인자가 없으면 스펙 파일마다 Playwright 프로세스를 따로 띄우고, 인자가 있으면 한 프로세스에 그대로 넘긴다.
-  - 제한: 전체 실행 1200초(`CLAIRE_E2E_RUN_TIMEOUT`, systemd `RuntimeMaxSec`), Playwright 프로세스 하나 600초(`CLAIRE_E2E_SPEC_TIMEOUT`)와 `globalTimeout` 9분, 메모리 2400M(`CLAIRE_E2E_MEM_MAX`, `MemoryMax`). 제한에 닿으면 실행을 죽이고 `status`가 이유(`timeout`, `oom-kill`)를 알린다. 전체 실행은 보통 4분 안팎이다(스펙 12개, 가장 큰 `workspace.spec.js`가 약 2분).
+  - 제한: 전체 실행 1200초(`CLAIRE_E2E_RUN_TIMEOUT`, systemd `RuntimeMaxSec`), Playwright 프로세스 하나 600초(`CLAIRE_E2E_SPEC_TIMEOUT`)와 `globalTimeout` 9분, 메모리 2400M(`CLAIRE_E2E_MEM_MAX`, `MemoryMax`). 제한에 닿으면 실행을 죽이고 `status`가 이유(`timeout`, `oom-kill`)를 알린다. 전체 실행은 보통 6분 30초 안팎이다(스펙 18개, 가장 큰 `workspace.spec.js`가 약 2분).
   - 결과: `data/e2e-runs/<실행 id>/`에 `specs.tsv`(스펙별 종료 코드·초·요약), `<스펙>.log`(테스트 출력), `<스펙>.server.log`(서버 출력), `run.log`(전체 출력), `result`를 둔다. `latest`가 마지막 실행을 가리키고 최근 10개만 남긴다.
   - 종료 코드(`run`, `wait`): 0 통과, 1 실패, 2 시간 제한·메모리 제한·`stop`으로 중단, 3 기다린 시간 안에 끝나지 않음.
   - 배경(2026-11-17): 에이전트 세션이 Playwright를 다섯 시간 넘게 "실행 중"으로 보였다. journal 기록으로는 그동안 Playwright가 돌지 않았다(마지막 실행은 약 3.5분 만에 끝났다). 실행이 세션의 전경 명령에 묶여 있었고, 시간 제한과 세션 밖에서 볼 수 있는 상태가 없어서 멈춘 세션과 도는 테스트를 구분할 수 없었다.

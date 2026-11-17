@@ -11,7 +11,7 @@ UNIT="claire-e2e-$PORT"
 RUNS_DIR="$REPO_ROOT/data/e2e-runs"
 KEEP_RUNS=10
 MEM_MAX="${CLAIRE_E2E_MEM_MAX:-2400M}"
-# Time limit of the full run and of one Playwright process, in seconds. A full run takes about 4 minutes.
+# Time limit of the full run and of one Playwright process, in seconds. A full run takes about 6.5 minutes (18 spec files).
 RUN_TIMEOUT="${CLAIRE_E2E_RUN_TIMEOUT:-1200}"
 SPEC_TIMEOUT="${CLAIRE_E2E_SPEC_TIMEOUT:-600}"
 

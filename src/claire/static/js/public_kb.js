@@ -335,7 +335,8 @@
               return (c.state === "visible" ? '<a href="' + esc(kbHref(kbNum) + "?doc=" + encodeURIComponent(c.document)) + '"><strong>' + title + "</strong></a>" : "<strong>" + title + "</strong>") +
                 (c.state !== "visible" ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel(c.state)) + "</span>" : "");
             } },
-            { label: t("kb.dlg.col_contributor"), render: function (c) { return esc((c.contributor && (c.contributor.display_name || c.contributor.account)) || t("kb.pub.contributor_gone")); } },
+            // The contributor: an account of this server, or the actor of an account of another server (the credit of a copy, federation design Section 10.1), as on the review page. Only an account that is gone is "deleted account".
+            { label: t("kb.dlg.col_contributor"), render: function (c) { return esc((c.contributor && (c.contributor.display_name || c.contributor.account)) || (c.remote && c.remote.credit) || t("kb.pub.contributor_gone")); } },
             { label: t("kb.pub.col_origin"), render: function (c) { return esc(t("kb.origin." + c.origin)); } }
           ],
           rows: contributions

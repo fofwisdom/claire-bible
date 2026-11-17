@@ -245,7 +245,7 @@
             // POST /api/auth/reauth gives 403 "invalid_password", or 409 "password_not_set" for an account that has no password; each other code gets the text of errorText.
             var code = String((data && (data.error || data.detail)) || ("HTTP " + resp.status));
             var msg = code === "invalid_password" ? t("kb.ui.step_up_failed") : (code === "password_not_set" ? t("kb.ui.step_up_no_password") : errorText({ error: code }));
-            pwInput.setCustomValidity(msg);
+            // No setCustomValidity here: a field with a custom validity message stops the submit event of the form, and the Enter key then sends nothing after the first failure.
             pwInput.setAttribute("aria-invalid", "true");
             pwInput.setAttribute("aria-describedby", errEl.id);
             errEl.textContent = msg;
