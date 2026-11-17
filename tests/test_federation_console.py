@@ -550,7 +550,8 @@ def test_e2e_owner_removes_a_follower_and_admin_changes_a_domain_block(tmp_path)
                 pytest.skip(f"Playwright Chromium is not available: {exc}")
             try:
                 # The owner sees the handle and the follower count, and removes one follower.
-                ctx = browser.new_context()
+                # The browser asks for Korean (Accept-Language), so the interface text is the Korean catalog. The default of the interface is en.
+                ctx = browser.new_context(locale="ko-KR")
                 ctx.add_cookies([{"name": "claire_session", "value": owner, "url": base}])
                 page = ctx.new_page()
                 page.on("dialog", lambda dialog: dialog.accept())
@@ -578,6 +579,8 @@ def test_e2e_owner_removes_a_follower_and_admin_changes_a_domain_block(tmp_path)
                 page.locator("tr[data-readiness-item='GF1']").wait_for()
                 assert page.locator("tr[data-readiness-item='GF1']").get_attribute("data-readiness-passed") == "1"
                 assert page.locator("#admin-federation-heartbeat").get_attribute("data-heartbeat") == "absent"
+                # The domain blocks are on their own tab of /admin/federation.
+                page.locator("[role='tab'][data-tab='blocks']").click()
                 form = page.locator("#admin-federation-domain-block-form")
                 form.locator("input[name='domain']").fill("Spam.Example")
                 form.locator("input[name='note']").fill("spam wave")

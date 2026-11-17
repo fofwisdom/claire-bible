@@ -108,12 +108,12 @@
     table.appendChild(thead);
     var tbody = el("tbody");
     items.forEach(function (item) {
-      var tr = el("tr");
-      columns.forEach(function (c) { tr.appendChild(el("td", c[1](item))); });
+      var row = el("tr");
+      columns.forEach(function (c) { row.appendChild(el("td", c[1](item))); });
       var cell = el("td");
       actions(item, cell);
-      tr.appendChild(cell);
-      tbody.appendChild(tr);
+      row.appendChild(cell);
+      tbody.appendChild(row);
     });
     table.appendChild(tbody);
     wrap.appendChild(table);

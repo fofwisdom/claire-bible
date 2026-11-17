@@ -206,12 +206,12 @@
       return;
     }
     items.forEach(function (ident) {
-      var tr = document.createElement("tr");
+      var row = document.createElement("tr");
       var name = providerNames[ident.provider_id] || ident.provider_id;
       [String(name), formatTs(ident.linked_at), formatTs(ident.last_login_at)].forEach(function (text) {
         var td = document.createElement("td");
         td.textContent = text;
-        tr.appendChild(td);
+        row.appendChild(td);
       });
       var tdBtn = document.createElement("td");
       var btn = document.createElement("button");
@@ -221,8 +221,8 @@
       btn.setAttribute("data-identity-unlink", String(ident.provider_id));
       btn.setAttribute("data-identity-sub", String(ident.sub));
       tdBtn.appendChild(btn);
-      tr.appendChild(tdBtn);
-      tbody.appendChild(tr);
+      row.appendChild(tdBtn);
+      tbody.appendChild(row);
     });
   }
 
@@ -317,8 +317,8 @@
   }
 
   function followerRow(item) {
-    var tr = document.createElement("tr");
-    tr.setAttribute("data-follower", String(item.id));
+    var row = document.createElement("tr");
+    row.setAttribute("data-follower", String(item.id));
     var tdActor = document.createElement("td");
     var code = document.createElement("code");
     code.className = "pref-mono";
@@ -333,8 +333,8 @@
     btn.textContent = tr("console.js.account.followers.remove");
     btn.setAttribute("data-follower-remove", String(item.actor_iri));
     tdBtn.appendChild(btn);
-    [tdActor, tdTime, tdBtn].forEach(function (td) { tr.appendChild(td); });
-    return tr;
+    [tdActor, tdTime, tdBtn].forEach(function (td) { row.appendChild(td); });
+    return row;
   }
 
   // Retention of the received posts of this account (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). An empty choice is the server value.
@@ -388,15 +388,15 @@
     var nextMaxId = null;
 
     function showEmptyRow() {
-      var tr = document.createElement("tr");
-      tr.setAttribute("data-followers-empty", "");
+      var row = document.createElement("tr");
+      row.setAttribute("data-followers-empty", "");
       var td = document.createElement("td");
       td.colSpan = 3;
       td.style.color = "var(--muted)";
       td.style.textAlign = "center";
       td.textContent = tr("console.js.account.followers.empty");
-      tr.appendChild(td);
-      tbody.appendChild(tr);
+      row.appendChild(td);
+      tbody.appendChild(row);
     }
 
     // Gets one page. Without a cursor the list starts again from the newest follower.

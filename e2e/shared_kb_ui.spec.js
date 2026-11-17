@@ -147,8 +147,8 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   // Reputation: the fiction-like documents with the action "Contribute to this theme" (POST /submissions with the document and the theme).
   await page.locator('#settings-kb-tabs [role="tab"]').nth(3).click();
   // The limits of GET /api/reputation: 5 pending contributions; the automatic contribution is paused (0).
-  await expect(page.locator('#settings-kb-host')).toContainText('Limit of pending contributions');
-  await expect(page.locator('#settings-kb-host')).toContainText('Paused');
+  await expect(page.locator('#settings-kb-host')).toContainText('대기 중인 기여 한도');
+  await expect(page.locator('#settings-kb-host')).toContainText('멈춤');
   await page.locator('[data-fic-contrib="doc-2"]').click();
   const contribDlg = page.locator('dialog.claire-dlg[open]');
   await contribDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
@@ -200,7 +200,7 @@ test('/settings/kb/{number}: the data of one knowledge base, the titles of the c
   expect(calls.some((c) => c.method === 'GET' && c.path === '/kb/101/')).toBe(true);
   expect(calls.some((c) => c.path === '/kb/101/documents')).toBe(false);
   await tabs.nth(5).click();
-  await expect(page.locator('#kb-log-host')).toContainText('Contribution rejected');
+  await expect(page.locator('#kb-log-host')).toContainText('기여 거절');
   await expect(page.locator('#kb-log-host')).toContainText('Bob');
   await expect(page.locator('#kb-log-host')).toContainText('9004');
 });

@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 // A login token of the seed database is for one login. Each test has its own token (e2e/seed_db.py).
 const login = (n) => `/?t=e2e-appbar${n}-token-0123456789abcde`;
 const PAGES = [
-  { name: 'workspace', path: '/', currentPattern: /^\/$/ },
+  { name: 'workspace', path: '/', currentPattern: /^\/@e2eadmin\/$/ },  // single mode: "/" gives 302 to /@{username}/ (KNOWLEDGE_FEDERATION_DESIGN.md Section 15)
   { name: 'syndication', path: '/syndication', currentPattern: /^\/syndication$/ },
   { name: 'console', path: '/settings/reader', currentPattern: /^\/(?:admin|settings)$/ },
 ];
@@ -53,7 +53,8 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     await expect(page.locator('#syndlink')).toBeVisible();
     const fact = await barFacts(page);
     expect(fact.brandText, target.name).toBe('Claire Bible');
-    expect(fact.brandPath, target.name).toBe('/');
+    // In single mode the workspace is at /@{username}/ (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): its brand goes to the home of its knowledge base. The other pages link to "/", which gives 302 to the same place.
+    expect(fact.brandPath, target.name).toBe(target.name === 'workspace' ? '/@e2eadmin/' : '/');
     expect(fact.paletteVisible, target.name).toBe(true);
     expect(fact.authStateCount, target.name).toBe(0);
     expect(fact.visibleTopLogout, target.name).toBe(0);

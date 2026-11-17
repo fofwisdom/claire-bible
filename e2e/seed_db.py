@@ -92,27 +92,28 @@ def seed(db_path: Path) -> None:
         dbm.insert_document(conn, doc2)
         dbm.insert_document(conn, doc3)
 
+        # AsciiDoc is the only body format (RD25): the section titles are "==" lines.
         long_detail = "\n\n".join([
-            f"## 섹션 {i}\n" + "첫 번째 테스트 문서의 스크롤 및 레일 내비게이션 검증을 위한 상세 본문 내용입니다. " * 15
+            f"== 섹션 {i}\n\n" + "첫 번째 테스트 문서의 스크롤 및 레일 내비게이션 검증을 위한 상세 본문 내용입니다. " * 15
             for i in range(1, 10)
         ])
         dbm.set_document_detail(
             conn,
             "doc-1",
             detail=long_detail,
-            format="md",
+            format="adoc",
         )
         dbm.set_document_detail(
             conn,
             "doc-2",
             detail="두 번째 테스트 문서의 자세한 본문 내용입니다.",
-            format="md",
+            format="adoc",
         )
         dbm.set_document_detail(
             conn,
             "doc-3",
             detail="이 문서는 PDF 인코딩 결함 및 스캔본 감지 태그 테스트를 위한 문서입니다.",
-            format="md",
+            format="adoc",
         )
         # More than one page (31) of documents for the list paging test. They are older than doc-1..3, thus the first rows do not change.
         for i in range(1, 41):
@@ -124,7 +125,7 @@ def seed(db_path: Path) -> None:
         src_summary = "출처 문서 요약 문단입니다. " + "양쪽 정렬을 확인하는 긴 문장을 반복합니다. " * 6
         dbm.log_extraction(conn, document_id="doc-page-1", provider="mock", model="m", prompt_version="v", raw_response=json.dumps({"summary": src_summary}, ensure_ascii=False))
         dbm.log_extraction(conn, document_id="doc-page-3", provider="mock", model="m", prompt_version="v", raw_response=json.dumps({"summary": "세 번째 자료의 요약입니다."}, ensure_ascii=False))
-        dbm.set_document_detail(conn, "doc-page-1", detail="페이징 자료 01의 본문입니다.", format="md")
+        dbm.set_document_detail(conn, "doc-page-1", detail="페이징 자료 01의 본문입니다.", format="adoc")
         for i in range(1, 16):
             hid_id = f"doc-hidden-{i}"
             dbm.insert_document(conn, Document(id=hid_id, url=f"https://example.com/hidden/{i}", title=f"숨긴 문서 {i:02d} (스크롤 테스트)", fetched_at=1699990000 - i * 10))
@@ -160,6 +161,9 @@ def seed(db_path: Path) -> None:
             "INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)",
             ("e2e-regen-nonce", "e2e-regen-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"),
         )
+        # A login token is for one login: each test that needs an owner session has its own token.
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-aliases-nonce", "e2e-aliases-token-0123456789abcdef0", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-providers-nonce", "e2e-providers-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-home-nonce", "e2e-home-token-0123456789abcdef012", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-flow-nonce", "e2e-flow-token-0123456789abcdef012", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-panel-nonce", "e2e-panel-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"))
@@ -231,6 +235,15 @@ def seed(db_path: Path) -> None:
             dbm.upsert_relation(conn, Relation(id=f"rel-hub-{i:02d}", type="uses", source_id="ent-hub", target_id=f"ent-list-{i:02d}", sources=["doc-page-40"]))
         for i in range(2, 9):
             dbm.upsert_relation(conn, Relation(id=f"rel-list-{i:02d}", type="relates_to", source_id=f"ent-list-{i:02d}", target_id="ent-list-01", sources=["doc-page-40"]))
+
+        # A shared knowledge base with the number 101 (shared knowledge base design Section 4). The page /settings/kb/{number} needs a shared knowledge base in the database; e2e/shared_kb_ui.spec.js gives the JSON answers of its routes as fixed data with the same number. The admin is its moderator.
+        now = 1700000000.0
+        conn.execute(
+            "INSERT INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at, account_id, number, created_by_account_id, join_policy, state, knowledge_type, seed_entities) "
+            "VALUES (101, 101, 'Modern History', 'History of the 19th century', 0, 1, ?, ?, NULL, 101, 1, 'approval', 'active', 'real', '[\"Railway\"]')",
+            (now, now),
+        )
+        conn.execute("INSERT INTO kb_memberships (kb_id, account_id, public_id, role, state, requested_at, decided_at) VALUES (101, 1, 101001, 'moderator', 'active', ?, ?)", (now, now))
 
         conn.commit()
     finally:

@@ -736,14 +736,14 @@
     }
 
     function messageRow(tbody, colSpan, text, marker) {
-      var tr = document.createElement("tr");
-      if (marker) tr.setAttribute(marker, "");
+      var row = document.createElement("tr");
+      if (marker) row.setAttribute(marker, "");
       var td = cell(text);
       td.colSpan = colSpan;
       td.style.color = "var(--muted)";
       td.style.textAlign = "center";
-      tr.appendChild(td);
-      tbody.appendChild(tr);
+      row.appendChild(td);
+      tbody.appendChild(row);
     }
 
     function send(method, url, payload) {
@@ -792,9 +792,9 @@
       clear(readinessTbody);
       var items = (readiness && readiness.items) || [];
       items.forEach(function (item) {
-        var tr = document.createElement("tr");
-        tr.setAttribute("data-readiness-item", String(item.id));
-        tr.setAttribute("data-readiness-passed", item.passed ? "1" : "0");
+        var row = document.createElement("tr");
+        row.setAttribute("data-readiness-item", String(item.id));
+        row.setAttribute("data-readiness-passed", item.passed ? "1" : "0");
         var tdId = document.createElement("td");
         var code = document.createElement("code");
         code.textContent = String(item.id);
@@ -804,8 +804,8 @@
         pill.className = item.passed ? "badge badge-enabled" : "badge badge-disabled";
         pill.textContent = item.passed ? tr("console.js.admin.readiness.passed") : tr("console.js.admin.readiness.failed");
         tdState.appendChild(pill);
-        [tdId, cell(item.name), tdState, cell(item.detail)].forEach(function (td) { tr.appendChild(td); });
-        readinessTbody.appendChild(tr);
+        [tdId, cell(item.name), tdState, cell(item.detail)].forEach(function (td) { row.appendChild(td); });
+        readinessTbody.appendChild(row);
       });
       if (!items.length) messageRow(readinessTbody, 4, tr("console.js.admin.readiness.empty"));
       setResult(readinessResult, readiness && readiness.passed ? tr("console.js.admin.readiness.all_passed") : tr("console.js.admin.readiness.some_failed"), !(readiness && readiness.passed));
@@ -891,8 +891,8 @@
         return;
       }
       blocks.forEach(function (block) {
-        var tr = document.createElement("tr");
-        tr.setAttribute("data-domain-block", String(block.domain));
+        var row = document.createElement("tr");
+        row.setAttribute("data-domain-block", String(block.domain));
         var tdDomain = document.createElement("td");
         var code = document.createElement("code");
         code.className = "pref-mono";
@@ -905,8 +905,8 @@
         btn.textContent = tr("console.js.admin.federation.unblock");
         btn.setAttribute("data-domain-block-remove", String(block.domain));
         tdBtn.appendChild(btn);
-        [tdDomain, cell(block.note), cell(formatTs(block.created_at)), tdBtn].forEach(function (td) { tr.appendChild(td); });
-        blocksTbody.appendChild(tr);
+        [tdDomain, cell(block.note), cell(formatTs(block.created_at)), tdBtn].forEach(function (td) { row.appendChild(td); });
+        blocksTbody.appendChild(row);
       });
     }
 

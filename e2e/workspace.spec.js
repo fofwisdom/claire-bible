@@ -1,5 +1,8 @@
 const { test, expect } = require('@playwright/test');
 
+// The PWA service worker (/sw.js) sends each request of the page again from its own context. page.route() does not see those requests, so a mocked answer is lost after the worker starts. The other specs block the worker in the same way.
+test.use({ serviceWorkers: 'block' });
+
 async function waitForClaire(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect.poll(
@@ -636,7 +639,7 @@ test('node aliases render and can be promoted to primary representative label in
   await page.setViewportSize({ width: 1400, height: 900 });
 
   // 1. Authenticate as owner
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await page.goto('/?t=e2e-aliases-token-0123456789abcdef0', { waitUntil: 'domcontentloaded' });
   await expect.poll(
     () => page.evaluate(() => window.claireDebug?.authScope),
   ).toBe('owner');
@@ -796,7 +799,7 @@ test('admin providers checks capabilities, guides features, and locks invalid se
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await page.goto('/?t=e2e-providers-token-0123456789abcd', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
 
@@ -1153,8 +1156,9 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
 
-  // 1. Initial normal boot
+  // 1. Initial normal boot. The first view is the home overview (HW-1); the test opens the graph.
   await waitForClaire(page);
+  await page.locator('#centertab-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#matrixwrap')).toBeHidden();
   expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(false);

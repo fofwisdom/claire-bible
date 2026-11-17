@@ -12,10 +12,11 @@ test('the console shows English text for an English browser, in the server text 
   // Server text of a section, and the 3-tab judgement console that console_admin.js renders.
   await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.locator('#admin-themes-summary h2')).toContainText('Theme slots of the full server');
+  // The old summary of the theme slots is gone: /admin/themes is the console of the theme judgement (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3 rule 4).
+  await expect(page.locator('#admin-themes-summary')).toHaveCount(0);
   const themes = page.locator('#admin-themes-host');
   await expect(themes.getByRole('tab', { name: /Judgement/ })).toBeVisible();
-  await expect(themes.getByRole('button', { name: 'Run theme judgement now' })).toBeVisible();
+  await expect(themes.getByRole('button', { name: 'Judge now' })).toBeVisible();
 
   // The provider panel (administrator area): script text with parameters.
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
@@ -36,7 +37,7 @@ test('the console shows English text for an English browser, in the server text 
   await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   await expect(page.locator('#settings-account-info h2')).toContainText('계정 정보');
   await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정기/ })).toBeVisible();
+  await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정과 임계값/ })).toBeVisible();
 
   // The stored language is a setting of the seed account, which other tests share: set it back to automatic.
   await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });

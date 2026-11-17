@@ -339,9 +339,8 @@ def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
 async def test_telegram_on_document_routes_to_composite(tmp_path: Path):
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -406,9 +405,8 @@ async def test_telegram_on_document_routes_to_composite(tmp_path: Path):
 async def test_telegram_on_document_single_file_fallback(tmp_path: Path):
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
