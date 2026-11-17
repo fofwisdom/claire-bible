@@ -839,7 +839,7 @@ class AntigravityProvider:
                 prompt,
                 json_schema=schema,
                 output_format="json",
-                effort="low",
+                effort="medium",
                 call_type="judge_research",
                 allow_tools=False,
             )
@@ -912,7 +912,7 @@ class AntigravityProvider:
                 prompt,
                 json_schema=schema,
                 output_format="json",
-                effort="low",
+                effort="medium",
                 call_type="judge_relationship",
                 document_id=document_id,
                 allow_tools=False,

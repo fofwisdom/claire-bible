@@ -145,6 +145,11 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   await expect(page.locator('#prov-lineage-visualizer-card')).toBeVisible();
   await expect(page.locator('#prov-feature-routing-card')).toBeVisible();
   await expect(page.locator('#prov-member-tier-card')).toBeVisible();
+  await expect(page.locator('#prov-gemini-embed')).toHaveCount(0);
+  await expect(page.locator('#prov-route-embed-provider')).toHaveCount(0);
+  await expect(page.locator('#prov-route-embed-model')).toHaveCount(0);
+  await expect(page.locator('#prov-gemini-embed-info')).toContainText('gemini-embedding-001');
+  await expect(page.locator('#prov-routing-embed-note')).toContainText('gemini-embedding-001');
   await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
 
   const linTop = await page.locator('#prov-lineage-visualizer-card').evaluate(el => el.getBoundingClientRect().top);

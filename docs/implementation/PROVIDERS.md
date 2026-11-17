@@ -59,7 +59,7 @@
 
 `providers.json`이 없으면 `migrate_from_env_if_needed`가 환경변수와 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`를 모아 파일을 만든다. 그 뒤로는 파일 값이 이긴다. 기본값은 `DEFAULT_PROVIDERS_CONFIG` 값이 실제 기본값이다.
 
-- 모델(`gemini.model`, `gemini.embed_model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서만 정한다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
+- 모델(`gemini.model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
 - VLM 설정(`CLAIRE_ENABLE_VLM_TRANSCRIPTION`, `CLAIRE_VLM_PROVIDER`, `CLAIRE_VLM_MODEL`)은 `providers.json`에 없고 환경변수로만 정한다.
 
 ### 2.2 작업별 `ProviderContext`
@@ -134,7 +134,7 @@
 - **[코드] 동시성**: 인스턴스마다 `threading.Semaphore(CLAIRE_AGY_MAX_CONCURRENCY)`를 둔다.
 - **[코드] 격리**: `allow_tools=False`(기본)이면 "도구 금지" 지시문을 붙이고 `tempfile.gettempdir()/claire_agy_clean`을 작업 디렉터리로 쓴다. `research`만 `allow_tools=True`로 호출한다.
 - **[코드] 임베딩**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩을 직접 호출한다. 키가 없으면 개발 환경은 결정론적 의사 벡터(`EMBED_DIM`)를 돌려주고 운영 환경은 `ProviderUnavailableError`를 던진다.
-- **[code] Effort by task** (basis: commit d15ae8e0, 2026-11-16): `judge_same_entity`, `judge_relationship`, `classify_watch`, `judge_research`, and `select_followups` call `_run_cli` with `effort="low"`. Extraction and detail rendering use the configured effort.
+- **[code] Effort by task**: `judge_same_entity`, `classify_watch`, and `select_followups` call `_run_cli` with `effort="low"`. `judge_relationship` and `judge_research` call `_run_cli` with `effort="medium"`. Extraction and detail rendering use the configured effort.
 - **[code] Telemetry identity**: each call gives `call_type` and, where known, `document_id` to `_run_cli`, which writes a provider telemetry row ([TELEMETRY.md](TELEMETRY.md) §2).
 - **[code] Parallel relation judgement**: in `src/claire/ingest/pipeline.py` the cross-link relation judgement runs the candidates in a `ThreadPoolExecutor` with `min(candidates, provider.max_concurrency)` workers. Graph writes happen after all judgements, in the calling thread. Same-entity judgement is not parallel.
 

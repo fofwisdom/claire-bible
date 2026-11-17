@@ -418,3 +418,23 @@ def test_provider_capability_checks_and_locks(tmp_path: Path, monkeypatch):
     assert caps_cdx_docker["can_save"] is False
     with pytest.raises(ValueError):
         pm.update_config({"active_provider": "codex"})
+
+
+def test_server_scope_locks_embedding_selection_and_documents_purpose(tmp_path: Path):
+    """Verify server_scope forbids changing the embedding provider/model and documents gemini-embedding-001."""
+    pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
+
+    with pytest.raises(ValueError, match="gemini-embedding-001"):
+        pm.update_config({"providers": {"gemini": {"embed_model": "gemini-embedding-2"}}}, server_scope=True)
+
+    with pytest.raises(ValueError, match="gemini-embedding-001"):
+        pm.update_config({"feature_routing": {"embed": {"provider": "gemini", "model": "gemini-embedding-2"}}}, server_scope=True)
+
+    with pytest.raises(ValueError, match="gemini-embedding-001"):
+        pm.update_config({"feature_routing": {"embed": {"provider": "mock", "model": ""}}}, server_scope=True)
+
+    sanitized = pm.get_sanitized_config()
+    specs = sanitized["lineage_summary"]["architecture_specs"]
+    assert specs[0]["fixed_value"].startswith("gemini-embedding-001")
+    assert "색인" in specs[0]["rationale"]
+    assert "검색" in specs[0]["rationale"]

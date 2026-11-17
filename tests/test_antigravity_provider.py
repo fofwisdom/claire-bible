@@ -278,6 +278,8 @@ def test_classify_watch(mock_run):
     assert res["watch"] is True
     assert res["interval_days"] == 1
     assert res["reason"] == "실시간 랭킹 순위표"
+    cmd = mock_run.call_args[0][0]
+    assert cmd[cmd.index("--effort") + 1] == "low"
 
 
 @patch("subprocess.run")
@@ -323,6 +325,8 @@ def test_judge_research(mock_run):
     assert res["relevance"] == 0.95
     assert res["quality"] == 0.90
     assert res["same_subject"] is True
+    cmd = mock_run.call_args[0][0]
+    assert cmd[cmd.index("--effort") + 1] == "medium"
 
 
 @patch("subprocess.run")
@@ -347,6 +351,8 @@ def test_select_followups(mock_run):
     ]
     indices = prov.select_followups("Context", cands)
     assert indices == [0, 2]
+    cmd = mock_run.call_args[0][0]
+    assert cmd[cmd.index("--effort") + 1] == "low"
 
 
 @patch("subprocess.run")
@@ -651,8 +657,8 @@ def test_judge_same_entity_passes_low_effort_and_metadata(mock_run):
 
 
 @patch("subprocess.run")
-def test_judge_relationship_passes_low_effort_and_metadata(mock_run):
-    """judge_relationship 호출 시 effort=low, call_type, document_id 전달."""
+def test_judge_relationship_passes_medium_effort_and_metadata(mock_run):
+    """Verify judge_relationship passes effort=medium, call_type, and document_id."""
     rel_payload = {
         "has_relation": True,
         "relation_type": "competes_with",
@@ -691,7 +697,7 @@ def test_judge_relationship_passes_low_effort_and_metadata(mock_run):
         cmd = mock_run.call_args[0][0]
         assert "--effort" in cmd
         eff_idx = cmd.index("--effort")
-        assert cmd[eff_idx + 1] == "low"
+        assert cmd[eff_idx + 1] == "medium"
 
         mock_telemetry.assert_called_once()
         tel_kwargs = mock_telemetry.call_args[1]

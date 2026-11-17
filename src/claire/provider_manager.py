@@ -770,6 +770,12 @@ class ProviderManager:
             "fallbacks": list(REMOVED_FALLBACK_CATALOG),
             "architecture_specs": [
                 {
+                    "stage": "벡터 임베딩 모델 (고정)",
+                    "fixed_value": "gemini-embedding-001 (3072d · Google AI Studio)",
+                    "scope": "config.py, extract/gemini_provider.py, store/vectors.py",
+                    "rationale": "엔티티 프레임(이름·타입·별칭·관찰) 색인, 하이브리드 검색, 유사 엔티티 후보 탐색에 사용하며 테마별 벡터 공간 일관성을 위해 서버에서 단일 모델로 고정합니다.",
+                },
+                {
                     "stage": "임베딩 Task Type (문서 색인)",
                     "fixed_value": "RETRIEVAL_DOCUMENT",
                     "scope": "extract/gemini_provider.py, ingest/pipeline.py",
@@ -1055,11 +1061,21 @@ class ProviderManager:
             cand_active = str(payload.get("active_provider") or "").strip().lower()
             if cand_active in ("antigravity", "codex"):
                 raise ValueError("CLI 클라이언트(Antigravity/Codex)는 서버 공용 프로바이더 메뉴에서 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)에서 구성하세요.")
+            gem_in = (payload.get("providers") or {}).get("gemini") if isinstance(payload.get("providers"), dict) else None
+            if isinstance(gem_in, dict) and "embed_model" in gem_in:
+                req_embed_model = str(gem_in.get("embed_model") or "").strip()
+                if req_embed_model and req_embed_model != "gemini-embedding-001":
+                    raise ValueError("서버 공용 벡터 임베딩 모델은 'gemini-embedding-001'로 고정되어 변경할 수 없습니다.")
             fr_in = payload.get("feature_routing")
             if isinstance(fr_in, dict):
                 for slot_key, item in fr_in.items():
                     if isinstance(item, dict) and str(item.get("provider") or "").strip().lower() in ("antigravity", "codex"):
                         raise ValueError(f"서버 공용 Feature Routing('{slot_key}')에서는 CLI 클라이언트를 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)을 이용하세요.")
+                    if slot_key == "embed" and isinstance(item, dict):
+                        emb_prov = str(item.get("provider") or "inherit").strip().lower()
+                        emb_model = str(item.get("model") or "").strip()
+                        if emb_prov not in ("", "inherit") or emb_model not in ("", "gemini-embedding-001"):
+                            raise ValueError("서버 공용 벡터 임베딩은 Google AI Studio의 'gemini-embedding-001'로 고정되어 프로바이더나 모델을 선택할 수 없습니다.")
         current = self.get_config()
         merged = self._merge_payload(current, payload, validate_models=True)
         caps = self._evaluate_capabilities(merged)

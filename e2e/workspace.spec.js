@@ -763,7 +763,11 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(page.locator('#prov-active-select option[value="codex"]')).toHaveCount(0);
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
-  expect(await page.locator('#prov-gemini-embed').evaluate(el => el.tagName)).toBe('SELECT');
+  await expect(page.locator('#prov-gemini-embed')).toHaveCount(0);
+  await expect(page.locator('#prov-route-embed-provider')).toHaveCount(0);
+  await expect(page.locator('#prov-route-embed-model')).toHaveCount(0);
+  await expect(page.locator('#prov-gemini-embed-info')).toContainText('gemini-embedding-001');
+  await expect(page.locator('#prov-routing-embed-note')).toContainText('gemini-embedding-001');
   await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
   await expect(page.locator('#prov-agy-bin')).toHaveCount(0);
   await expect(page.locator('#prov-cdx-bin')).toHaveCount(0);

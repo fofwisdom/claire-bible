@@ -159,7 +159,6 @@
     const gemKey = document.getElementById('prov-gemini-key');
     const gemModel = document.getElementById('prov-gemini-model').value.trim();
     const gemEffort = document.getElementById('prov-gemini-effort').value;
-    const gemEmbed = document.getElementById('prov-gemini-embed').value.trim();
     const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
     const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
 
@@ -180,7 +179,7 @@
     const sttLang = document.getElementById('prov-stt-lang').value.trim();
 
     const featureRouting = {};
-    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'embed', 'stt', 'vlm'];
+    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
     for (const slot of slotNames) {
       const pEl = document.getElementById(`prov-route-${slot}-provider`);
       const mEl = document.getElementById(`prov-route-${slot}-model`);
@@ -189,7 +188,7 @@
         featureRouting[slot] = {
           provider: pEl ? String(pEl.value || 'inherit') : 'inherit',
           model: mEl ? String(mEl.value || '').trim() : '',
-          effort: (eEl && slot !== 'embed') ? String(eEl.value || '').trim().toLowerCase() : ''
+          effort: eEl ? String(eEl.value || '').trim().toLowerCase() : ''
         };
       }
     }
@@ -198,7 +197,7 @@
       active_provider: activeProv,
       feature_routing: featureRouting,
       providers: {
-        gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, min_interval: gemInterval, max_retries: gemRetries },
+        gemini: { model: gemModel, effort: gemEffort, min_interval: gemInterval, max_retries: gemRetries },
         jev: { enabled: jevEnabled, base_url: jevUrl, mode: jevMode, filter_threshold: jevFilterThr, auto_merge_threshold: jevAutoThr },
         stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
       }
@@ -315,12 +314,6 @@
         }
       }
     }
-    const gemEmbSel = document.getElementById('prov-gemini-embed');
-    if (gemEmbSel && gemCap && Array.isArray(gemCap.available_embed_models) && gemCap.available_embed_models.length) {
-      const resE = buildModelSelectResult(gemCap.available_embed_models, null, gemEmbSel.value, 'gemini-embedding-001');
-      gemEmbSel.innerHTML = resE.optionsHtml;
-      gemEmbSel.value = resE.selected;
-    }
 
     const sttEl = document.getElementById('prov-cap-stt');
     if (sttEl && caps.stt) {
@@ -414,7 +407,6 @@
       'prov-active-select',
       'prov-gemini-key',
       'prov-gemini-model',
-      'prov-gemini-embed',
       'prov-gemini-effort',
       'prov-jev-enabled',
       'prov-jev-mode',
@@ -445,7 +437,7 @@
       tierProvEl.addEventListener('change', syncTierState);
       syncTierState();
     }
-    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'embed', 'stt', 'vlm'];
+    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
     for (const slot of slotNames) {
       const pEl = document.getElementById(`prov-route-${slot}-provider`);
       const mEl = document.getElementById(`prov-route-${slot}-model`);
@@ -514,13 +506,7 @@
               gSel.innerHTML = r1.optionsHtml;
               gSel.value = r1.selected;
             }
-            const eSel = document.getElementById('prov-gemini-embed');
-            if (eSel && Array.isArray(d.details.embed_models) && d.details.embed_models.length) {
-              const r2 = buildModelSelectResult(d.details.embed_models, null, eSel.value, 'gemini-embedding-001');
-              eSel.innerHTML = r2.optionsHtml;
-              eSel.value = r2.selected;
-            }
-            for (const sl of ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'embed', 'stt', 'vlm']) {
+            for (const sl of ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm']) {
               updateRouteSlotModelOptions(sl);
             }
           } else if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
@@ -577,7 +563,6 @@
     { slot: 'relation_judge', label: trKey("console.js.panels.slot.relation_judge"), note: trKey("console.js.panels.slot.relation_judge_note") },
     { slot: 'classify', label: trKey("console.js.panels.slot.classify"), note: trKey("console.js.panels.slot.classify_note") },
     { slot: 'research', label: trKey("console.js.panels.slot.research"), note: trKey("console.js.panels.slot.research_note") },
-    { slot: 'embed', label: trKey("console.js.panels.providers.cap_embedding"), note: trKey("console.js.panels.slot.embed_note") },
     { slot: 'stt', label: trKey("console.js.panels.slot.stt"), note: trKey("console.js.panels.slot.stt_note") },
     { slot: 'vlm', label: trKey("console.js.panels.slot.vlm"), note: trKey("console.js.panels.slot.vlm_note") }
   ];
@@ -592,15 +577,6 @@
 
   function modelsForRouteProvider(cfg, effProv, slot) {
     const provs = (cfg && cfg.providers) || {};
-    if (slot === 'embed') {
-      if (effProv === 'openai') {
-        const list = normalizeModelOptions((provs.openai || {}).available_embed_models, ['text-embedding-3-small', 'text-embedding-3-large']);
-        return [{ id: '', label: trKey("console.js.panels.routing.inherit_embed") }, ...list];
-      }
-      if (effProv === 'mock') return [{ id: '', label: trKey("console.js.panels.routing.mock_embed") }];
-      const gemList = normalizeModelOptions((provs.gemini || {}).available_embed_models, ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview']);
-      return [{ id: '', label: trKey("console.js.panels.routing.inherit_embed") }, ...gemList];
-    }
     if (effProv === 'gemini') {
       const list = normalizeModelOptions((provs.gemini || {}).available_models, ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash']);
       return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
@@ -640,7 +616,7 @@
       html += `<option value="${esc(prev)}" selected>${esc(prev)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
     }
     mEl.innerHTML = html;
-    if (eEl) eEl.disabled = (slot === 'embed' || effProv === 'mock');
+    if (eEl) eEl.disabled = (effProv === 'mock');
   }
 
   function computeEffectiveSlotsFromDom(cfg) {
@@ -649,6 +625,7 @@
     if (!payload) return summarySlots;
     const active = payload.active_provider || cfg.active_provider || 'mock';
     const provs = payload.providers || {};
+    const cfgGem = (cfg.providers && cfg.providers.gemini) || {};
     const out = {};
     for (const def of FEATURE_SLOT_DEFS) {
       const slot = def.slot;
@@ -657,21 +634,24 @@
       let baseModel = '';
       let baseEffort = '';
       if (effProv === 'gemini') {
-        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.gemini.model || '');
-        baseEffort = slot === 'embed' ? '' : (provs.gemini.effort || '');
+        baseModel = provs.gemini.model || '';
+        baseEffort = provs.gemini.effort || '';
       } else if (effProv === 'antigravity') {
-        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.antigravity.model || '');
-        baseEffort = slot === 'embed' ? '' : (provs.antigravity.effort || '');
+        baseModel = (provs.antigravity && provs.antigravity.model) || '';
+        baseEffort = (provs.antigravity && provs.antigravity.effort) || '';
       } else if (effProv === 'codex') {
-        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.codex.model || 'codex-default');
-        baseEffort = slot === 'embed' ? '' : (provs.codex.effort || '');
+        baseModel = (provs.codex && provs.codex.model) || 'codex-default';
+        baseEffort = (provs.codex && provs.codex.effort) || '';
       } else if (effProv === 'openai') {
-        baseModel = slot === 'embed' ? (provs.openai.embed_model || '') : (provs.openai.model || '');
+        baseModel = (provs.openai && provs.openai.model) || '';
       } else if (effProv === 'mock') {
-        baseModel = slot === 'embed' ? 'mock-embed-64d' : 'mock';
+        baseModel = 'mock';
       }
       out[slot] = { provider: effProv, model: r.model || baseModel, effort: r.effort || baseEffort };
     }
+    const embedProv = active === 'mock' ? 'mock' : 'gemini';
+    const embedModel = active === 'mock' ? 'mock-embed-64d' : (cfgGem.embed_model || 'gemini-embedding-001');
+    out.embed = { provider: embedProv, model: embedModel, effort: '' };
     return out;
   }
 
@@ -822,7 +802,7 @@
         h += `<option value="${esc(r.model)}" selected>${esc(r.model)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
       }
       h += '</select></td>';
-      const effortDis = (def.slot === 'embed' || effProv === 'mock') ? ' disabled' : '';
+      const effortDis = (effProv === 'mock') ? ' disabled' : '';
       h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-effort"${effortDis} style="width:100%;box-sizing:border-box;">`;
       for (const eOpt of [['', trKey("console.js.panels.routing.inherit_effort")], ['low', 'low'], ['medium', 'medium'], ['high', 'high']]) {
         h += `<option value="${esc(eOpt[0])}" ${(r.effort || '') === eOpt[0] ? 'selected' : ''}>${esc(eOpt[1])}</option>`;
@@ -830,7 +810,9 @@
       h += '</select></td>';
       h += '</tr>';
     }
-    h += '</tbody></table></div></div>';
+    h += '</tbody></table></div>';
+    h += '<div id="prov-routing-embed-note" style="margin-top:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11px;opacity:0.9;">' + esc(trKey("console.js.panels.routing.embed_fixed_notice")) + '</div>';
+    h += '</div>';
     return h;
   }
 
@@ -954,19 +936,18 @@
       'gemini-2.5-flash-lite',
       'gemini-2.5-pro'
     ];
-    const geminiEmbedFallback = ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview'];
     h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.model_label")) + '</label>';
     h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash', 'gemini-3.8-flash');
     h += '</div>';
-    h += '<div style="display:flex;gap:8px;">';
+    h += '<div style="display:flex;gap:8px;align-items:flex-start;">';
     h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.effort_label")) + '</label>';
     h += '<select id="prov-gemini-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     h += `<option value="low" ${gemini.effort==='low'?'selected':''}>low</option>`;
     h += `<option value="medium" ${gemini.effort==='medium'||!gemini.effort?'selected':''}>medium</option>`;
     h += `<option value="high" ${gemini.effort==='high'?'selected':''}>high</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
-    h += renderModelSelectField('prov-gemini-embed', gemini.available_embed_models, geminiEmbedFallback, gemini.embed_model || 'gemini-embedding-001', 'gemini-embedding-001');
+    h += '<div style="flex:1.4;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
+    h += `<div id="prov-gemini-embed-info" style="margin-top:2px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11.5px;line-height:1.4;"><div><code>${esc(gemini.embed_model || 'gemini-embedding-001')}</code> <span style="opacity:0.75;">(Google AI Studio · 3072d)</span></div><div style="font-size:10.5px;opacity:0.8;margin-top:2px;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</div></div>`;
     h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
