@@ -156,9 +156,15 @@ def run_theme_judgement_if_due(settings: Any) -> bool:
                 return False
             theme_judgement.run_judgement(conn)
             conn.commit()
-            return True
+            # Design Section 9.9 rule 4: after each judgement run the automatic rules run; then the merge jobs of the new contributions.
+            from .. import auto_contribution
+
+            made = auto_contribution.run_all(conn)
         finally:
             conn.close()
+        if made:
+            run_waiting_merge_jobs(settings)
+        return True
     except Exception as exc:  # noqa: BLE001
         log.warning("subject judgement did not run: %s", type(exc).__name__)
         return False

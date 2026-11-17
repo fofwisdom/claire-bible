@@ -54,6 +54,7 @@ from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import contributions
 from .. import theme_judgement
 from .. import reputation
+from .. import auto_contribution
 from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -1110,7 +1111,18 @@ def create_app(
         except Exception as exc:
             _log_operation_failure(request, "kb create", exc)
             raise HTTPException(status_code=500, detail="failed to make the knowledge base") from exc
+        await asyncio.to_thread(_after_kb_founded, kb.id, int(principal.account_id))
         return JSONResponse({"ok": True, "knowledge_base": kb.to_dict()}, status_code=201)
+
+    def _after_kb_founded(kb_id: int, founder_account_id: int) -> None:
+        """A new shared knowledge base: each mutual collaborator of the founder becomes a collaborator at once (design Section 9.10 rule 2), then the automatic rules run (Section 9.9 rule 4: a new shared knowledge base with seed entities)."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            auto_contribution.grant_mutual_collaborators(conn, kb_id=kb_id, founder_account_id=founder_account_id)
+            conn.commit()
+        finally:
+            conn.close()
+        _auto_run_all()
 
     async def kb_settings_route(request: Request) -> JSONResponse:
         """``PATCH /kb/{number}/`` and ``PATCH /@{u}/`` (``PATCH /`` under the prefix): change the settings of the knowledge base that the path selects. A shared one needs the capability ``settings``; a personal one takes its account."""
@@ -1137,6 +1149,8 @@ def create_app(
                     conn.close()
 
             await asyncio.to_thread(_log)
+            if "seed_entities" in values:
+                await asyncio.to_thread(_auto_run_all)  # design Section 9.9 rule 4: a shared knowledge base gets seed entities
         return JSONResponse({"ok": True, "knowledge_base": updated.to_dict()})
 
     async def kb_delete_route(request: Request) -> JSONResponse:
@@ -1606,6 +1620,7 @@ def create_app(
             finally:
                 conn.close()
             theme_mgr.reload()
+            _after_kb_founded(fork.id, account_id)
             return JSONResponse({"ok": True, "knowledge_base": theme_mgr.get_kb(fork.id).to_dict(), "forked_from": ids.format_public_id(kb.number), **counts}, status_code=201)
 
         return await asyncio.to_thread(_fork)
@@ -2040,6 +2055,291 @@ def create_app(
 
         return await asyncio.to_thread(_work)
 
+    # --- Automatic contribution and mutual collaboration (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.9, 9.10) ---
+
+    def _run_all_merge_jobs() -> None:
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s))
+        finally:
+            conn.close()
+
+    def _auto_run_all() -> int:
+        """A run of each active rule, and the merge jobs of the new contributions. For the events of design Section 9.9 rule 4."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            made = auto_contribution.run_all(conn)
+        finally:
+            conn.close()
+        if made:
+            _run_all_merge_jobs()
+        return made
+
+    def _account_id_of(request: Request) -> int:
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return int(principal.account_id)
+
+    def _rule_view(conn: sqlite3.Connection, rule: dict[str, Any] | None) -> dict[str, Any] | None:
+        if rule is None:
+            return None
+        themes = [themes_store.get_theme(conn, theme_id) for theme_id in rule["theme_ids"]]
+        return {
+            "state": rule["state"],
+            "memberships": bool(rule["to_memberships"]),
+            "mutual": bool(rule["to_mutual"]),
+            "include_uploads": bool(rule["include_uploads"]),
+            "themes": [{"number": ids.format_public_id(int(t["number"])), "label": t["label"]} for t in themes if t is not None],
+            "activated_at": rule["activated_at"],
+        }
+
+    def _rule_from_body(conn: sqlite3.Connection, body: dict[str, Any]) -> dict[str, Any]:
+        """The rule that a body gives: ``{"state": "active" | "paused", "memberships", "mutual", "include_uploads": bool, "themes": ["<number>", ...]}``. Each field is required: there is no default for a rule that sends documents."""
+        if set(body) != {"state", "memberships", "mutual", "include_uploads", "themes"} or body["state"] not in ("active", "paused"):
+            raise HTTPException(status_code=400, detail="rule_invalid")
+        if not all(isinstance(body[name], bool) for name in ("memberships", "mutual", "include_uploads")) or not isinstance(body["themes"], list):
+            raise HTTPException(status_code=400, detail="rule_invalid")
+        theme_ids = []
+        for number in body["themes"]:
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(number)))
+            except ValueError:
+                theme = None
+            if theme is None or theme["state"] != "active":
+                raise HTTPException(status_code=404, detail="theme_not_found")
+            theme_ids.append(int(theme["id"]))
+        return {"state": body["state"], "to_memberships": body["memberships"], "to_mutual": body["mutual"], "include_uploads": body["include_uploads"], "theme_ids": sorted(set(theme_ids))}
+
+    def _is_wider(new: dict[str, Any], old: dict[str, Any] | None) -> bool:
+        """True when the new rule turns on, or sends to more targets or more documents than the old rule (design Section 9.9 rule 6)."""
+        if new["state"] != "active":
+            return False
+        if old is None or old["state"] != "active":
+            return True
+        return any(new[name] and not old[name] for name in ("to_memberships", "to_mutual", "include_uploads")) or bool(set(new["theme_ids"]) - set(old["theme_ids"]))
+
+    async def auto_rule_route(request: Request) -> Response:
+        """``GET /api/auto-rule``: the automatic rule of the requester and the server switch. ``PUT``: set the rule. To turn the rule on or to make it wider needs an ``owner`` session with a recent sign-in."""
+        account_id = _account_id_of(request)
+        if request.method != "PUT":
+            def _load() -> dict[str, Any]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return {"server_switch": auto_contribution.switch_on(conn), "rule": _rule_view(conn, kb_collab.get_auto_rule(conn, account_id))}
+                finally:
+                    conn.close()
+
+            return JSONResponse(await asyncio.to_thread(_load))
+        body = await _json_object(request)
+        principal = request_principal(request)
+
+        def _save() -> Response:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                rule = _rule_from_body(conn, body)
+                if _is_wider(rule, kb_collab.get_auto_rule(conn, account_id)):
+                    refused = step_up_response(principal)
+                    if refused is not None:
+                        return refused
+                kb_collab.save_auto_rule(conn, account_id=account_id, **rule)
+                conn.commit()
+                made = auto_contribution.run_account(conn, account_id)  # rule 4: when the rule is turned on
+                view = _rule_view(conn, kb_collab.get_auto_rule(conn, account_id))
+                switch = auto_contribution.switch_on(conn)
+            finally:
+                conn.close()
+            if made:
+                _run_all_merge_jobs()
+            return JSONResponse({"ok": True, "server_switch": switch, "rule": view, "contributions": made})
+
+        return await asyncio.to_thread(_save)
+
+    async def auto_rule_dry_run_route(request: Request) -> JSONResponse:
+        """``POST /api/auto-rule/dry-run`` with the body of a rule: the documents that the rule would send now to each target (design Section 9.9 rule 6). It writes nothing."""
+        account_id = _account_id_of(request)
+        body = await _json_object(request)
+
+        def _plan() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                rule = _rule_from_body(conn, body)
+                targets = [{**_kb_ref(t["kb_id"]), "mode": t["mode"], "documents": t["documents"]} for t in auto_contribution.plan(conn, account_id, rule)]
+                return {"server_switch": auto_contribution.switch_on(conn), "targets": targets}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_plan))
+
+    async def auto_contributions_route(request: Request) -> Response:
+        """``GET /api/auto-contributions``: each automatic contribution of the requester, the newest first."""
+        account_id = _account_id_of(request)
+
+        def _list() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin="auto")]
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_list)
+        return _collection_response(request, collection_url=f"{_public_origin(request)}/api/auto-contributions", items=items, extra={"contributions": items})
+
+    async def contribution_blocks_route(request: Request) -> JSONResponse:
+        """``GET /api/contribution-blocks``: the documents of the requester with the flag "never contribute"."""
+        account_id = _account_id_of(request)
+
+        def _list() -> list[str]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return sorted(kb_collab.contribution_blocks(conn, account_id))
+            finally:
+                conn.close()
+
+        return JSONResponse({"documents": await asyncio.to_thread(_list)})
+
+    async def contribution_block_route(request: Request) -> JSONResponse:
+        """``PUT`` / ``DELETE /api/contribution-blocks/{document}``: set or remove the flag "never contribute" of a document of the personal knowledge base of the requester."""
+        account_id = _account_id_of(request)
+        document_id = str(request.path_params.get("document") or "")
+
+        def _set() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(account_id)
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=?", (document_id, personal.id)).fetchone() is None:
+                    return JSONResponse({"error": "document_not_found"}, status_code=404)
+                kb_collab.set_contribution_block(conn, account_id=account_id, document_id=document_id, blocked=request.method == "PUT")
+                conn.commit()
+                return JSONResponse({"ok": True, "document": document_id, "blocked": request.method == "PUT"})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_set)
+
+    def _mutual_view(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
+        out = []
+        store = accounts_store.AccountStore(conn)
+        for row in kb_collab.mutual_rows(conn, account_id):
+            try:
+                other = store.get(int(row["account_id"]))
+            except accounts_store.AccountNotFound:
+                continue
+            out.append({"account": ids.format_public_id(other.public_id), "display_name": other.display_name, "state": row["state"], "requested_by_me": row["requested_by_me"], "created_at": row["created_at"], "decided_at": row["decided_at"]})
+        return out
+
+    def _other_account(conn: sqlite3.Connection, reference: Any, account_id: int) -> int | None:
+        """The active account that a public number names, when it is not the requester."""
+        try:
+            other = accounts_store.AccountStore(conn).find_by_public_id(ids.parse_public_id(str(reference or "")))
+        except ValueError:
+            return None
+        return int(other.id) if other is not None and other.status == "active" and int(other.id) != account_id else None
+
+    async def mutual_collaborations_route(request: Request) -> Response:
+        """``GET /api/mutual-collaborations``: the mutual collaborations and requests of the requester. ``POST`` with ``{"account": "<number>"}``: request one (a recent sign-in)."""
+        account_id = _account_id_of(request)
+        if request.method != "POST":
+            def _list() -> list[dict[str, Any]]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return _mutual_view(conn, account_id)
+                finally:
+                    conn.close()
+
+            return JSONResponse({"mutual_collaborations": await asyncio.to_thread(_list)})
+        body = await _json_object(request)
+        refused = step_up_response(request_principal(request))
+        if refused is not None:
+            return refused
+
+        def _request() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                other = _other_account(conn, body.get("account"), account_id)
+                if other is None:
+                    return JSONResponse({"error": "account_not_found"}, status_code=404)
+                try:
+                    kb_collab.request_mutual(conn, requester=account_id, other=other)
+                except ValueError:
+                    return JSONResponse({"error": "mutual_exists"}, status_code=409)
+                conn.commit()
+                return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_request)
+
+    async def mutual_collaboration_route(request: Request) -> Response:
+        """``PUT /api/mutual-collaborations/{account}``: accept the request of that account (a recent sign-in). ``DELETE``: end the mutual collaboration, or remove the request. The end does not change roles that it gave (design Section 9.10 rule 3)."""
+        account_id = _account_id_of(request)
+        accept = request.method == "PUT"
+        if accept:
+            refused = step_up_response(request_principal(request))
+            if refused is not None:
+                return refused
+
+        def _change() -> tuple[JSONResponse, bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                other = _other_account(conn, request.path_params.get("account"), account_id)
+                changed = other is not None and (kb_collab.accept_mutual(conn, account_id=account_id, other=other) if accept else kb_collab.end_mutual(conn, account_id, other))
+                if not changed:
+                    return JSONResponse({"error": "mutual_not_found"}, status_code=404), False
+                conn.commit()
+                made = 0
+                if accept:
+                    # Section 9.9 rule 4: when a mutual collaboration starts, the rules of the two accounts run.
+                    made = auto_contribution.run_account(conn, account_id) + auto_contribution.run_account(conn, int(other))
+                return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}), bool(made)
+            finally:
+                conn.close()
+
+        def _work() -> JSONResponse:
+            response, made = _change()
+            if made:
+                _run_all_merge_jobs()
+            return response
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_auto_contribution_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/auto-contribution``: the server switch and its settings. ``PUT`` with ``{"state": "on" | "off"}`` and the settings ``auto_match_threshold``, ``auto_run_documents``. While the switch is off, no run starts and each rule keeps its settings."""
+        principal = request_principal(request)
+        body = await _json_object(request) if request.method == "PUT" else {}
+        if request.method == "PUT" and (not body or set(body) - {"state", *auto_contribution.SETTINGS} or ("state" in body and body["state"] not in ("on", "off"))):
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> tuple[JSONResponse, bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                turned_on = False
+                try:
+                    for key, value in body.items():
+                        if key == "state":
+                            turned_on = value == "on" and not auto_contribution.switch_on(conn)
+                            auto_contribution.set_switch(conn, value == "on", updated_by=principal.account_id)
+                        else:
+                            auto_contribution.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400), False
+                conn.commit()
+                return JSONResponse({"ok": True, "state": "on" if auto_contribution.switch_on(conn) else "off", "settings": auto_contribution.read_settings(conn)}), turned_on
+            finally:
+                conn.close()
+
+        def _run() -> JSONResponse:
+            response, turned_on = _work()
+            if turned_on:
+                _auto_run_all()
+            return response
+
+        return await asyncio.to_thread(_run)
+
     # --- Reputation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6) ---
 
     async def reputation_route(request: Request) -> JSONResponse:
@@ -2114,9 +2414,10 @@ def create_app(
             try:
                 report = theme_judgement.run_judgement(conn)
                 conn.commit()
-                return JSONResponse({"ok": True, "report": dataclasses.asdict(report)})
             finally:
                 conn.close()
+            _auto_run_all()  # design Section 9.9 rule 4: after each judgement run
+            return JSONResponse({"ok": True, "report": dataclasses.asdict(report)})
 
         return await asyncio.to_thread(_work)
 
@@ -5634,6 +5935,14 @@ def create_app(
         Route("/membership", kb_leave_route, methods=["DELETE"]),
         Route("/members", kb_members_route, methods=["GET", "HEAD"]),
         Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/api/auto-rule", auto_rule_route, methods=["GET", "HEAD", "PUT"]),
+        Route("/api/auto-rule/dry-run", auto_rule_dry_run_route, methods=["POST"]),
+        Route("/api/auto-contributions", auto_contributions_route, methods=["GET", "HEAD"]),
+        Route("/api/contribution-blocks", contribution_blocks_route, methods=["GET", "HEAD"]),
+        Route("/api/contribution-blocks/{document}", contribution_block_route, methods=["PUT", "DELETE"]),
+        Route("/api/mutual-collaborations", mutual_collaborations_route, methods=["GET", "HEAD", "POST"]),
+        Route("/api/mutual-collaborations/{account}", mutual_collaboration_route, methods=["PUT", "DELETE"]),
+        Route("/api/admin/auto-contribution", admin_auto_contribution_route, methods=["GET", "HEAD", "PUT"]),
         Route("/api/reputation", reputation_route, methods=["GET", "HEAD"]),
         Route("/api/admin/reputations", admin_reputations_route, methods=["GET", "HEAD"]),
         Route("/api/admin/reputations/settings", admin_reputation_settings_route, methods=["PUT"]),

@@ -372,6 +372,124 @@ def pending_count(conn: sqlite3.Connection, *, kb_id: int, account_id: int) -> i
     return int(conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=? AND contributor_account_id=? AND state='pending'", (int(kb_id), int(account_id))).fetchone()[0])
 
 
+# --- automatic rule, contribution blocks, mutual collaborations (design Sections 9.9, 9.10) -------
+
+
+def get_auto_rule(conn: sqlite3.Connection, account_id: int) -> dict[str, Any] | None:
+    """The automatic rule of an account, with the IDs of its themes, or None."""
+    keys = ("account_id", "state", "to_memberships", "to_mutual", "include_uploads", "activated_at", "updated_at")
+    row = conn.execute(f"SELECT {', '.join(keys)} FROM kb_auto_rules WHERE account_id=?", (int(account_id),)).fetchone()
+    if row is None:
+        return None
+    rule = dict(zip(keys, tuple(row)))
+    rule["theme_ids"] = [int(r[0]) for r in conn.execute("SELECT theme_id FROM kb_auto_rule_themes WHERE account_id=? ORDER BY theme_id", (int(account_id),))]
+    return rule
+
+
+def save_auto_rule(conn: sqlite3.Connection, *, account_id: int, state: str, to_memberships: bool, to_mutual: bool, include_uploads: bool, theme_ids: list[int], now: float | None = None) -> None:
+    """Set the one automatic rule of an account (CT31). ``activated_at`` is the time of the last change to ``active``. No commit."""
+    if state not in ("active", "paused"):
+        raise ValueError(f"invalid rule state: {state!r}")
+    ts = time.time() if now is None else now
+    current = conn.execute("SELECT state, activated_at FROM kb_auto_rules WHERE account_id=?", (int(account_id),)).fetchone()
+    activated_at = ts if state == "active" and (current is None or current[0] != "active") else (None if current is None else current[1])
+    conn.execute(
+        "INSERT INTO kb_auto_rules (account_id, state, to_memberships, to_mutual, include_uploads, activated_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(account_id) DO UPDATE SET state=excluded.state, to_memberships=excluded.to_memberships, to_mutual=excluded.to_mutual, include_uploads=excluded.include_uploads, activated_at=excluded.activated_at, updated_at=excluded.updated_at",
+        (int(account_id), state, 1 if to_memberships else 0, 1 if to_mutual else 0, 1 if include_uploads else 0, activated_at, ts),
+    )
+    conn.execute("DELETE FROM kb_auto_rule_themes WHERE account_id=?", (int(account_id),))
+    conn.executemany("INSERT INTO kb_auto_rule_themes (account_id, theme_id) VALUES (?, ?)", [(int(account_id), int(t)) for t in sorted(set(theme_ids))])
+
+
+def accounts_with_active_rule(conn: sqlite3.Connection) -> list[int]:
+    return [int(r[0]) for r in conn.execute("SELECT r.account_id FROM kb_auto_rules r JOIN accounts a ON a.id = r.account_id WHERE r.state='active' AND a.status='active' ORDER BY r.account_id")]
+
+
+def set_contribution_block(conn: sqlite3.Connection, *, account_id: int, document_id: str, blocked: bool, now: float | None = None) -> None:
+    """The flag "never contribute" of a document of the personal knowledge base of the account."""
+    if blocked:
+        conn.execute("INSERT INTO kb_contribution_blocks (document_id, account_id, created_at) VALUES (?, ?, ?) ON CONFLICT(document_id) DO NOTHING", (document_id, int(account_id), time.time() if now is None else now))
+    else:
+        conn.execute("DELETE FROM kb_contribution_blocks WHERE document_id=? AND account_id=?", (document_id, int(account_id)))
+
+
+def contribution_blocks(conn: sqlite3.Connection, account_id: int) -> set[str]:
+    return {str(r[0]) for r in conn.execute("SELECT document_id FROM kb_contribution_blocks WHERE account_id=?", (int(account_id),))}
+
+
+def documents_contributed_to(conn: sqlite3.Connection, kb_id: int, account_id: int) -> set[str]:
+    """The documents of the account that have a contribution in K in any state (the source or the root): such a document never goes again to K by the automatic rule."""
+    out: set[str] = set()
+    for row in conn.execute("SELECT source_document_id, root_document_id FROM kb_contributions WHERE kb_id=? AND contributor_account_id=?", (int(kb_id), int(account_id))):
+        out.update(str(v) for v in row if v)
+    return out
+
+
+def contributions_of_account(conn: sqlite3.Connection, account_id: int, *, origin: str) -> list[dict[str, Any]]:
+    """The contributions of one account with one origin, the newest first (the list of automatic contributions, Section 9.9 rule 6)."""
+    rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE contributor_account_id=? AND origin=? ORDER BY contributed_at DESC, public_id DESC", (int(account_id), origin)).fetchall()
+    return [dict(zip(_CONTRIBUTION_KEYS, tuple(r))) for r in rows]
+
+
+def _pair(a: int, b: int) -> tuple[int, int]:
+    if int(a) == int(b):
+        raise ValueError("a mutual collaboration needs two accounts")
+    return (int(a), int(b)) if int(a) < int(b) else (int(b), int(a))
+
+
+def get_mutual(conn: sqlite3.Connection, a: int, b: int) -> dict[str, Any] | None:
+    keys = ("account_low", "account_high", "requested_by_account_id", "state", "created_at", "decided_at")
+    row = conn.execute(f"SELECT {', '.join(keys)} FROM kb_mutual_collaborations WHERE account_low=? AND account_high=?", _pair(a, b)).fetchone()
+    return None if row is None else dict(zip(keys, tuple(row)))
+
+
+def request_mutual(conn: sqlite3.Connection, *, requester: int, other: int, now: float | None = None) -> None:
+    """A requests a mutual collaboration with B (state ``pending``). ``ValueError`` when the pair has a row."""
+    if get_mutual(conn, requester, other) is not None:
+        raise ValueError("mutual_exists")
+    low, high = _pair(requester, other)
+    conn.execute("INSERT INTO kb_mutual_collaborations (account_low, account_high, requested_by_account_id, state, created_at) VALUES (?, ?, ?, 'pending', ?)", (low, high, int(requester), time.time() if now is None else now))
+
+
+def accept_mutual(conn: sqlite3.Connection, *, account_id: int, other: int, now: float | None = None) -> bool:
+    """B accepts the request of A. False when there is no pending request of the other account."""
+    low, high = _pair(account_id, other)
+    cur = conn.execute(
+        "UPDATE kb_mutual_collaborations SET state='active', decided_at=? WHERE account_low=? AND account_high=? AND state='pending' AND requested_by_account_id=?",
+        (time.time() if now is None else now, low, high, int(other)),
+    )
+    return cur.rowcount == 1
+
+
+def end_mutual(conn: sqlite3.Connection, a: int, b: int) -> bool:
+    """Either account ends the mutual collaboration, or removes the request."""
+    return conn.execute("DELETE FROM kb_mutual_collaborations WHERE account_low=? AND account_high=?", _pair(a, b)).rowcount == 1
+
+
+def mutual_rows(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
+    """The mutual collaborations and requests of an account: ``{"account_id" (the other account), "state", "requested_by_me", "created_at", "decided_at"}``."""
+    rows = conn.execute(
+        "SELECT account_low, account_high, requested_by_account_id, state, created_at, decided_at FROM kb_mutual_collaborations WHERE account_low=? OR account_high=? ORDER BY created_at",
+        (int(account_id), int(account_id)),
+    ).fetchall()
+    return [
+        {"account_id": int(r[1]) if int(r[0]) == int(account_id) else int(r[0]), "state": r[3], "requested_by_me": int(r[2]) == int(account_id), "created_at": r[4], "decided_at": r[5]}
+        for r in rows
+    ]
+
+
+def mutual_collaborators(conn: sqlite3.Connection, account_id: int) -> list[int]:
+    """The accounts with an active mutual collaboration with the account. A suspended account is paused: only accounts with the status ``active`` count (Section 9.10 rule 5)."""
+    rows = conn.execute(
+        "SELECT CASE WHEN m.account_low=? THEN m.account_high ELSE m.account_low END AS other FROM kb_mutual_collaborations m "
+        "JOIN accounts a ON a.id = (CASE WHEN m.account_low=? THEN m.account_high ELSE m.account_low END) "
+        "WHERE (m.account_low=? OR m.account_high=?) AND m.state='active' AND a.status='active' ORDER BY other",
+        (int(account_id),) * 4,
+    ).fetchall()
+    return [int(r[0]) for r in rows]
+
+
 # --- account purge (design Section 13.2) ---------------------------------------------------------
 
 

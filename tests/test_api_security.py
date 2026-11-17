@@ -320,6 +320,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/members",
         "/submissions",
         "/api/reputation",
+        "/api/auto-rule",
+        "/api/auto-contributions",
+        "/api/contribution-blocks",
+        "/api/mutual-collaborations",
         "/submissions/{number}",
         "/contributions",
         "/themes",
@@ -351,6 +355,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("HEAD", "/document/raw"),
     }
     owner_post = {
+        "/api/auto-rule/dry-run",
+        "/api/mutual-collaborations",
         "/document/presentation/generate",
         "/document/presentation/compose",
         "/document/presentation/compile",
@@ -380,6 +386,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/me/password",
     }
     owner_methods = {
+        ("PUT", "/api/auto-rule"),
+        ("PUT", "/api/contribution-blocks/{document}"),
+        ("DELETE", "/api/contribution-blocks/{document}"),
+        ("PUT", "/api/mutual-collaborations/{account}"),
+        ("DELETE", "/api/mutual-collaborations/{account}"),
         ("PUT", "/document/presentation/adoc"),
         ("PATCH", "/"),
         ("DELETE", "/"),
@@ -488,6 +499,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/support/bundle"),
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),
+        *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
         *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(
             (method, path)
