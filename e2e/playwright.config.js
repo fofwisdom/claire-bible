@@ -28,6 +28,9 @@ function resolvePythonPrefix() {
 }
 
 const py = resolvePythonPrefix();
+// scripts/e2e.sh gives a file for the server output. Without it, the request lines of the server fill the test output.
+const serverLog = process.env.CLAIRE_E2E_SERVER_LOG;
+const serverCommand = `${py} e2e/seed_db.py && ${py} -m claire.cli serve-api`;
 const webServerEnv = {
   ...process.env,
   PYTHONPATH: process.env.PYTHONPATH ? `src:${process.env.PYTHONPATH}` : 'src',
@@ -48,8 +51,10 @@ module.exports = defineConfig({
   retries: 0,
   workers: 1,
   timeout: 45_000,
+  // Time limit of one Playwright process. The largest spec file takes about 2 minutes.
+  globalTimeout: 9 * 60_000,
   expect: { timeout: 10_000 },
-  reporter: [['line']],
+  reporter: [['list']],
   outputDir: 'test-results',
   use: {
     baseURL,
@@ -66,7 +71,7 @@ module.exports = defineConfig({
   webServer: process.env.CLAIRE_E2E_BASE_URL
     ? undefined
     : {
-        command: `${py} e2e/seed_db.py && ${py} -m claire.cli serve-api`,
+        command: serverLog ? `{ ${serverCommand}; } > ${JSON.stringify(serverLog)} 2>&1` : serverCommand,
         cwd: '..',
         url: defaultUrl,
         reuseExistingServer: false,

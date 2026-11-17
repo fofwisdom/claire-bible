@@ -293,7 +293,7 @@ uv run pytest -q tests/test_graphview.py
 ```
 
 ```bash
-cd e2e && npx playwright test workspace.spec.js
+bash scripts/e2e.sh run workspace.spec.js
 ```
 
 e2e는 `e2e/playwright.config.js`의 webServer가 `data/e2e.db`를 시드하고 포트 8766에서 서버를 띄운다. 이미 8766을 쓰는 서버가 있으면 실패한다(`reuseExistingServer: false`). 그래프 엔진 e2e는 다음 둘이다.
