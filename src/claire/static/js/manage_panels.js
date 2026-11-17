@@ -1374,6 +1374,13 @@
     }
   }
 
+  // The resource of one knowledge base (design Section 10.1): the personal one is the root path of the caller ("/"), a shared one is "kb/<number>/".
+  function kbResourceUrl(themeId, query) {
+    const tObj = findTheme(themeId);
+    const number = (tObj && !tObj.is_personal && tObj.number != null) ? String(tObj.number) : '';
+    return resolveRootUrl(_themeState.opts, (number ? 'kb/' + encodeURIComponent(number) + '/' : '') + (query || ''));
+  }
+
   async function updateThemeFromUI(themeId) {
     const labelEl = document.getElementById('editthemep-label-' + themeId);
     const descEl = document.getElementById('editthemep-desc-' + themeId);
@@ -1391,7 +1398,7 @@
     const tObj = findTheme(themeId);
     const sendId = (tObj && tObj.number != null && String(tObj.number) !== '0') ? String(tObj.number) : String(themeId);  // the server takes only the number (CT23)
     const is_public = pubEl ? pubEl.checked : true;
-    const payload = { id: sendId, label, description, icon, is_public };
+    const payload = { label, description, icon, is_public };
     if (sorcererEl !== null && sorcererEl !== undefined) {
       payload.sorcerer = sorcererEl.value.trim();
     }
@@ -1399,11 +1406,11 @@
       payload.presentation_enabled = presEl.checked;
     }
     if (gaEl) {
-      payload.ga_measurement_id = gaEl.value.trim() || null;
+      payload.ga_measurement_id = gaEl.value.trim();
     }
 
     try {
-      const url = resolveApiUrl(_themeState.opts, 'themes');
+      const url = kbResourceUrl(themeId);
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -1426,8 +1433,8 @@
     try {
       const tObj = findTheme(themeId);
       const sendId = (tObj && tObj.number != null && String(tObj.number) !== '0') ? String(tObj.number) : String(themeId);  // the server takes only the number (CT23)
-      const url = resolveApiUrl(_themeState.opts, 'themes');
-      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, is_public: newVisibility }) });
+      const url = kbResourceUrl(themeId);
+      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_public: newVisibility }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         alert(trKey("console.js.panels.themes.visibility_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
@@ -1449,8 +1456,8 @@
     try {
       const tObj = findTheme(themeId);
       const sendId = (tObj && tObj.number != null && String(tObj.number) !== '0') ? String(tObj.number) : String(themeId);  // the server takes only the number (CT23)
-      const url = resolveApiUrl(_themeState.opts, 'themes');
-      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, presentation_enabled: Boolean(newPres) }) });
+      const url = kbResourceUrl(themeId);
+      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ presentation_enabled: Boolean(newPres) }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         alert(trKey("console.js.panels.themes.presentation_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
@@ -1491,7 +1498,7 @@
     if (ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
 
     try {
-      const url = resolveApiUrl(_themeState.opts, 'themes');
+      const url = resolveRootUrl(_themeState.opts, 'kb');
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -1500,10 +1507,10 @@
       }
       const resData = await r.json().catch(() => ({}));
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
-        await _themeState.opts.onThemeChange('create', (resData.theme && resData.theme.id) || null);
+        await _themeState.opts.onThemeChange('create', (resData.knowledge_base && resData.knowledge_base.id) || null);
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChanged === 'function') {
-        await _themeState.opts.onThemeChanged('create', (resData.theme && resData.theme.id) || null);
+        await _themeState.opts.onThemeChanged('create', (resData.knowledge_base && resData.knowledge_base.id) || null);
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
@@ -1517,12 +1524,22 @@
       alert(trKey("console.js.panels.themes.default_no_delete"));
       return;
     }
-    const confirmed = confirm(trKey("console.js.panels.themes.delete_confirm", { label: label }));
-    if (!confirmed) return;
-
     try {
-      const url = resolveApiUrl(_themeState.opts, `themes?id=${encodeURIComponent(themeStr)}&purge=1`);
-      const r = await fetch(url, { method: 'DELETE' });
+      // PRINCIPLES D3: the first request gives the plan only. The delete needs a recent sign-in (design Section 6.8).
+      const planResponse = await fetch(kbResourceUrl(themeId), { method: 'DELETE' });
+      const plan = await planResponse.json().catch(() => ({}));
+      if (planResponse.status === 401 && plan.error === 'reauth_required' && _themeState.opts && typeof _themeState.opts.onReauthRequired === 'function') {
+        _themeState.opts.onReauthRequired(() => deleteThemeFromUI(themeId, label));
+        return;
+      }
+      if (!planResponse.ok) {
+        alert(trKey("console.js.panels.themes.delete_failed") + ' ' + (plan.detail || plan.error || ('HTTP ' + planResponse.status)));
+        return;
+      }
+      const counts = plan.would_delete || {};
+      const confirmed = confirm(trKey("console.js.panels.themes.delete_confirm", { label: label }) + '\n' + trKey("console.js.panels.themes.delete_plan", { documents: counts.documents || 0, entities: counts.entities || 0, relations: counts.relations || 0, members: counts.members || 0 }));
+      if (!confirmed) return;
+      const r = await fetch(kbResourceUrl(themeId, '?apply=true'), { method: 'DELETE' });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         alert(trKey("console.js.panels.themes.delete_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
@@ -1546,6 +1563,8 @@
     const themes = _themeState.themes || [];
     const optsState = _themeState.opts || {};
     const isOwner = evalBool(optsState.isOwner, evalBool(optsState.canWrite, true));
+    // Only the admin deletes a shared knowledge base (design Section 10.1).
+    const isAdmin = evalBool(optsState.isAdmin, false);
     const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
 
     let h = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2>';
@@ -1583,7 +1602,7 @@
       if (isOwner) h += togglePresBtn;
       if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}</button>`;
       h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})"><span data-icon="settings"></span> ${esc(trKey("console.js.panels.themes.show_options"))}</button>`;
-      if (isOwner && themeKey !== '0') {
+      if (isAdmin && themeKey !== '0') {
         h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("common.action.delete"))}</button>`;
       }
       h += '</div></div>';
@@ -1620,7 +1639,7 @@
         h += '<div style="display:flex;gap:6px;margin-top:4px;align-items:center;">';
         h += `<button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">${esc(trKey("common.action.save"))}</button>`;
         h += `<button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">${esc(trKey("common.action.cancel"))}</button>`;
-        if (themeKey !== '0') {
+        if (isAdmin && themeKey !== '0') {
           h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}</button>`;
         }
         h += '</div></div>';

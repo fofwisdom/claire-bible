@@ -266,15 +266,15 @@ def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_pat
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=settings.public_url, follow_redirects=False) as client:
         # CT12: the knowledge type is required; CT5: a shared knowledge base is always public.
-        assert client.post("/themes", json={"label": "Cities"}, headers=OWNER_HEADERS).status_code == 400
-        assert client.post("/themes", json={"label": "Cities", "knowledge_type": "real", "is_public": False}, headers=OWNER_HEADERS).status_code == 400
-        made = client.post("/themes", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER_HEADERS)
+        assert client.post("/kb", json={"label": "Cities"}, headers=OWNER_HEADERS).status_code == 400
+        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "real", "is_public": False}, headers=OWNER_HEADERS).status_code == 400
+        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER_HEADERS)
         assert made.status_code == 201, made.text
-        kb = made.json()["theme"]
+        kb = made.json()["knowledge_base"]
         assert (kb["is_personal"], kb["account_id"], kb["created_by_account_id"], kb["knowledge_type"], kb["is_public"], kb["join_policy"], kb["state"]) == (False, None, 1, "real", True, "approval", "active")
         number = kb["number"]
         # Labels need not be unique (Section 10.1).
-        assert client.post("/themes", json={"label": "Cities", "knowledge_type": "fictional"}, headers=OWNER_HEADERS).status_code == 201
+        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "fictional"}, headers=OWNER_HEADERS).status_code == 201
 
         # CT8: the founder is the first moderator.
         conn = dbm.connect_existing(settings.db_file, readonly=True)
@@ -298,5 +298,5 @@ def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_pat
         assert client.post(f"/kb/{number}/document/pin", json={"id": "x", "pinned": True}).status_code in (401, 403, 404)
         assert client.post(f"/kb/{number}/ingest", json={"payload": "text"}, headers=OWNER_HEADERS).status_code == 403
         # Settings need the capability ``settings``: the admin (moderator) changes the label; --private is refused.
-        assert client.patch("/themes", json={"id": number, "label": "World cities"}, headers=OWNER_HEADERS).status_code == 200
-        assert client.patch("/themes", json={"id": number, "is_public": False}, headers=OWNER_HEADERS).status_code == 400
+        assert client.patch(f"/kb/{number}/", json={"label": "World cities"}, headers=OWNER_HEADERS).status_code == 200
+        assert client.patch(f"/kb/{number}/", json={"is_public": False}, headers=OWNER_HEADERS).status_code == 400

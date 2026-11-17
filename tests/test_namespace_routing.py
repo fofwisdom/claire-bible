@@ -675,9 +675,9 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
         "scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False,
     }
     assert client.get("/static/css/theme.css").status_code == 200
-    created = client.post("/themes", json={"knowledge_type": "real", "label": "옛 호스트", "is_public": True}, headers=owner)
+    created = client.post("/kb", json={"knowledge_type": "real", "label": "옛 호스트", "is_public": True}, headers=owner)
     assert created.status_code == 201, created.text
-    kb_id = created.json()["theme"]["id"]
+    kb_id = created.json()["knowledge_base"]["id"]
     conn = dbm.connect(settings.db_file)
     try:
         conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (kb_id,))

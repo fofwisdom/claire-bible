@@ -59,17 +59,17 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
 
     # 1. Create Theme 1: AI Research
     res_t1 = client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "인공지능 연구", "description": "AI 모델 연구 테마", "icon": "🧠"},
         headers=OWNER_HEADERS,
     )
     assert res_t1.status_code == 201
-    theme1_id = res_t1.json()["theme"]["id"]
+    theme1_id = res_t1.json()["knowledge_base"]["id"]
     assert theme1_id == 1
 
     # 2. Create Theme 2: Information Security
     res_t2 = client.post(
-        "/themes",
+        "/kb",
         json={
             "knowledge_type": "real", "label": "정보보안",
             "description": "보안 위협 및 취약점 분석",
@@ -78,7 +78,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
         headers=OWNER_HEADERS,
     )
     assert res_t2.status_code == 201
-    shared2_id = res_t2.json()["theme"]["id"]
+    shared2_id = res_t2.json()["knowledge_base"]["id"]
     assert shared2_id == 2
     # The copy of a dispatch is an ingest: its target is the personal knowledge base of the caller (CT4). A shared knowledge base as the target gets 403.
     theme2_id = 0

@@ -760,7 +760,6 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
     conn = open_db(ctx)
     try:
         tier = server_tier_mod.load_server_tier(conn)
-        themes = server_tier_mod.account_theme_count(conn, account_id)
         documents = server_tier_mod.account_document_count(conn, account_id)
         storage_bytes = server_tier_mod.account_storage_bytes(conn, account_id)
     finally:
@@ -772,7 +771,6 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
         auth.close()
     return {
         "tier": tier,
-        "themes": themes,
         "documents": documents,
         "storage_bytes": storage_bytes,
         "period": usage.period,
@@ -792,7 +790,6 @@ def _settings_tier_rows_html(tier: ServerTier) -> str:
         (t("console.tier.max_effort"), tier.max_effort),
         (t("console.tier.features"), features),
         (t("console.tier.storage"), f"{tier.storage_mb:,} MB"),
-        (t("console.tier.max_themes"), f"{tier.max_themes:,}"),
         (t("console.tier.max_documents"), f"{tier.max_documents:,}"),
         (t("console.tier.byok_concurrency"), f"{tier.byok_max_concurrency:,}"),
     )
@@ -803,13 +800,11 @@ def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> 
     tier: ServerTier = usage["tier"]
     if admin_viewer:
         stats = (
-            ("themes", f"{usage['themes']:,}", t("console.usage.themes_own")),
             ("documents", f"{usage['documents']:,}", t("console.usage.documents_own")),
             ("storage", _settings_format_bytes(usage["storage_bytes"]), t("console.usage.storage_own")),
         )
     else:
         stats = (
-            ("themes", f"{usage['themes']:,} / {tier.max_themes:,}", t("console.usage.themes")),
             ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", t("console.usage.documents")),
             ("storage", f"{_settings_format_bytes(usage['storage_bytes'])} / {tier.storage_mb:,} MB", t("console.usage.storage")),
             ("tokens", f"{usage['tokens_total']:,} / {tier.monthly_tokens:,}", t("console.usage.tokens", period=usage['period'])),
@@ -1149,22 +1144,15 @@ def _settings_themes_body(
     account: accounts_store.Account,
     owned_themes: list[KnowledgeBaseInfo],
 ) -> tuple[str, dict[str, Any]]:
-    conn = open_db(ctx)
-    try:
-        tier = server_tier_mod.load_server_tier(conn)
-    finally:
-        conn.close()
+    """The knowledge base manager of the account. There is no slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1)."""
     body = (
-        f'<section class="console-subcard" id="settings-themes-quota" aria-label="{escape(t("console.settings.themes.slots_label"))}">'
-        f'<p class="hint" data-theme-slots>{escape(t("console.settings.themes.slots", owned=f"{len(owned_themes):,}", limit=f"{tier.max_themes:,}"))}</p>'
-        "</section>"
         f'<section class="console-subcard" id="settings-themes-manager-card" aria-label="{escape(t("console.settings.themes.manager_label"))}">'
         '<div id="settings-themes-host" data-settings-panel-host="themes">'
         f'<p class="hint">{escape(t("console.settings.themes.loading"))}</p>'
         "</div>"
         "</section>"
     )
-    return body, {"theme_slots": {"owned": len(owned_themes), "max_themes": tier.max_themes}}
+    return body, {}
 
 
 def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:

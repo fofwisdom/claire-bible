@@ -245,9 +245,9 @@ def multi_theme_server_env(tmp_path):
 
 
 def _create_theme(client: TestClient, label: str, **extra) -> tuple[int, str]:
-    r = client.post("/themes", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
+    r = client.post("/kb", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
     assert r.status_code == 201, r.text
-    theme = r.json()["theme"]
+    theme = r.json()["knowledge_base"]
     return theme["id"], theme["number"]
 
 
@@ -281,7 +281,7 @@ def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_serve
     # 쓰기 메서드는 리다이렉트하지 않는다.
     assert client.post("/search", json={"q": "x"}, headers={"Host": "ai.example.com"}).status_code == 421
     assert (
-        client.post("/themes", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
+        client.post("/kb", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
         == 421
     )
     # 정적 자산도 레거시 호스트에서 직접 열리지 않고 정본 경로로 간다.
@@ -313,7 +313,7 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
         conn.close()
 
     # 테마를 지우면 legacy_hosts 행도 사라져 421이다.
-    assert step_up_request(client, settings, "DELETE", "/themes", json={"id": kb_number(settings, kb_id)}).status_code == 200
+    assert step_up_request(client, settings, "DELETE", kb_url(settings, kb_id, "/") + "?apply=true").status_code == 200
     assert status() == 421
 
 
@@ -333,10 +333,10 @@ def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
 
     for fqdn in ("research.example.com", "http://invalid-fqdn/"):
-        assert client.post("/themes", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
+        assert client.post("/kb", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
 
     r_bad_ga = client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
         headers=OWNER_HEADERS,
     )
@@ -345,16 +345,16 @@ def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
 
     kb_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
     r_patch_fqdn = client.patch(
-        "/themes", json={"id": kb_number(settings, kb_id), "fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
     )
     assert r_patch_fqdn.status_code == 400
 
     r_patch = client.patch(
-        "/themes", json={"id": kb_number(settings, kb_id), "ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
     )
     assert r_patch.status_code == 200
-    assert r_patch.json()["theme"]["ga_measurement_id"] == "G-RESEARCH02"
+    assert r_patch.json()["knowledge_base"]["ga_measurement_id"] == "G-RESEARCH02"
 
-    r_clear = client.patch("/themes", json={"id": kb_number(settings, kb_id), "ga_measurement_id": ""}, headers=OWNER_HEADERS)
+    r_clear = client.patch(f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": ""}, headers=OWNER_HEADERS)
     assert r_clear.status_code == 200
-    assert not r_clear.json()["theme"].get("ga_measurement_id")
+    assert not r_clear.json()["knowledge_base"].get("ga_measurement_id")

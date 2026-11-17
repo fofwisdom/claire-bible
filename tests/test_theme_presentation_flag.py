@@ -134,33 +134,33 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
 
         # 2. POST /themes with presentation_enabled=True
         post_res = client.post(
-            "/themes",
+            "/kb",
             json={"knowledge_type": "real", "label": "Pitch Decks", "presentation_enabled": True},
             headers=owner_headers,
         )
         assert post_res.status_code == 201
-        new_theme = post_res.json()["theme"]
+        new_theme = post_res.json()["knowledge_base"]
         assert new_theme["presentation_enabled"] is True
         kb_id = new_theme["id"]
 
         # 3. PATCH /themes: toggle presentation_enabled to False
         patch_res = client.patch(
-            "/themes",
-            json={"id": kb_number(s, kb_id), "presentation_enabled": False},
+            f"/kb/{kb_number(s, kb_id)}/",
+            json={"presentation_enabled": False},
             headers=owner_headers,
         )
         assert patch_res.status_code == 200
-        updated = patch_res.json()["theme"]
+        updated = patch_res.json()["knowledge_base"]
         assert updated["presentation_enabled"] is False
 
         # 4. PATCH /themes: toggle presentation_enabled back to True
         patch_res2 = client.patch(
-            "/themes",
-            json={"id": kb_number(s, kb_id), "presentation_enabled": True},
+            f"/kb/{kb_number(s, kb_id)}/",
+            json={"presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch_res2.status_code == 200
-        updated2 = patch_res2.json()["theme"]
+        updated2 = patch_res2.json()["knowledge_base"]
         assert updated2["presentation_enabled"] is True
 
 
@@ -226,12 +226,12 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
 
         # 2. Enable presentation on Theme 0 via PATCH /themes
         patch_res = client.patch(
-            "/themes",
-            json={"id": kb_number(s, 0), "presentation_enabled": True},
+            "/",
+            json={"presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch_res.status_code == 200
-        assert patch_res.json()["theme"]["presentation_enabled"] is True
+        assert patch_res.json()["knowledge_base"]["presentation_enabled"] is True
 
         # Now presentation endpoints are no longer 403
         res_get_enabled = client.get(f"/document/presentation?id={doc_id}", headers=owner_headers)

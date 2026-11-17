@@ -976,7 +976,7 @@
     } else if (section === "themes") {
       var themeHost = document.getElementById("admin-themes-host");
       if (themeHost && typeof panels.renderThemeManager === "function") {
-        panels.renderThemeManager(themeHost, { showClose: false, isOwner: true, isAdmin: true, apiUrl: "/", rootUrl: "/" });
+        panels.renderThemeManager(themeHost, { showClose: false, isOwner: true, isAdmin: true, apiUrl: "/", rootUrl: "/", onReauthRequired: openReauthModal });
       }
     } else if (section === "tokens") {
       var tokHost = document.getElementById("admin-tokens-host");

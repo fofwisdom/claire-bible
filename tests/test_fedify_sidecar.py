@@ -524,7 +524,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
 
         # Unit FP3-4: the owner makes the theme private and changes the display name. The sidecar sends Delete for the object and Update(Person).
         cookie = {"Cookie": f"claire_session={session}", "Origin": origin}
-        private = httpx.patch(f"{origin}/@alice/themes", json={"id": str(theme_number), "is_public": False}, headers=cookie, timeout=10)
+        private = httpx.patch(f"{origin}/@alice/", json={"is_public": False}, headers=cookie, timeout=10)
         assert private.status_code == 200, private.text
         renamed = httpx.patch(f"{origin}/api/me", json={"display_name": "Alice Park"}, headers=cookie, timeout=10)
         assert renamed.status_code == 200, renamed.text

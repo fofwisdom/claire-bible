@@ -4,7 +4,7 @@
 값이 없으면 기본 ``ServerTier()``(``provider='none'``, D6)이다. 사용량은 ``store.usage_ledger``(auth.db)에 둔다.
 
 - 관리자 컨텍스트(``is_admin`` 또는 ``account_id`` None = 호스트 운영자)는 어떤 한도도 받지 않는다.
-- 자원 한도(``max_themes``·``max_documents``·``storage_mb``·``daily_ingests``)는 BYOK 멤버에게도 적용한다.
+- 자원 한도(``max_documents``·``storage_mb``·``daily_ingests``)는 BYOK 멤버에게도 적용한다.
 - 월 토큰 상한은 서버 등급 컨텍스트(``source='tier'``)에만 적용한다.
 - 한도 값 0은 "허용 없음"이다(fail-closed).
 
@@ -192,10 +192,6 @@ def usage_hooks_for(ctx: ProviderContext, *, auth_db_path: Path | str) -> "Usage
 # --- 자원 한도 (claire.db) ------------------------------------------------------------
 
 
-def account_theme_count(conn: sqlite3.Connection, account_id: int) -> int:
-    return int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE account_id=?", (account_id,)).fetchone()[0])
-
-
 def account_document_count(conn: sqlite3.Connection, account_id: int) -> int:
     row = conn.execute(
         "SELECT COUNT(*) FROM documents WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE account_id=?)",
@@ -241,17 +237,6 @@ def account_storage_bytes(conn: sqlite3.Connection, account_id: int) -> int:
         except OSError:
             continue
     return int(doc_bytes) + int(inbox_bytes) + int(file_bytes)
-
-
-def check_theme_quota(conn: sqlite3.Connection, ctx: ProviderContext) -> None:
-    """멤버가 테마를 하나 더 만들면 ``tier.max_themes``를 넘는지. 넘으면 ``ProviderBudgetExceeded``. 자기 키가 있어도 적용한다."""
-    if _is_admin(ctx):
-        return
-    if account_theme_count(conn, _member_id(ctx)) >= ctx.tier.max_themes:
-        raise ProviderBudgetExceeded(
-            f"theme limit reached ({ctx.tier.max_themes})",
-            remedy="쓰지 않는 테마를 지우거나 관리자에게 한도 상향을 요청하세요.",
-        )
 
 
 def check_document_quota(conn: sqlite3.Connection, ctx: ProviderContext) -> None:

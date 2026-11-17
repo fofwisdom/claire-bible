@@ -2,7 +2,7 @@
 
 - 네트워크 모드 멤버: ``/research``는 항상 403(관리자 전용), ``/synthesize``·프레젠테이션 저작은 등급 기능 또는 BYOK일 때만.
 - 정책 오류 응답은 ``{"error": code, "remedy": ...}``: not allowed 403, 예산·한도 429, 프로바이더 없음·키 거부 409.
-- 멤버는 ``max_themes``를 넘겨 테마를 만들 수 없다. 관리자 경로는 그대로다.
+- Each active account makes shared knowledge bases without a limit (the tier field ``max_themes`` is retired).
 - 오류 응답과 로그에 카나리아 키가 남지 않는다.
 - 테마 목록의 ``reembed_required``는 owner 요청에만 실린다.
 - 텔레그램 봇은 관리자 계정 소유 테마만 고른다.
@@ -321,16 +321,13 @@ def test_presentation_authoring_denied_for_member_without_feature(env, monkeypat
 
 
 def test_shared_knowledge_bases_have_no_limit_and_need_a_knowledge_type(env):
-    """CT3: each active account makes shared knowledge bases without a limit; the tier field max_themes has no function. CT12: the knowledge type is required."""
-    _set_tier(env, max_themes=1)
-    assert _post(env, "/@alice/themes", env.alice, json={"label": "No type"}).status_code == 400
+    """CT3: each active account makes shared knowledge bases without a limit; the tier has no theme limit. CT12: the knowledge type is required."""
+    assert _post(env, "/@alice/kb", env.alice, json={"label": "No type"}).status_code == 400
     for label in ("Third", "Fourth"):
-        r = _post(env, "/@alice/themes", env.alice, json={"knowledge_type": "real", "label": label})
+        r = _post(env, "/@alice/kb", env.alice, json={"knowledge_type": "real", "label": label})
         assert r.status_code == 201, r.text
-        assert r.json()["theme"]["account_id"] is None and r.json()["theme"]["created_by_account_id"] == 2
-    # 관리자는 한도를 받지 않는다.
-    _set_tier(env, max_themes=1)
-    assert _post(env, "/@admin/themes", env.admin, json={"knowledge_type": "real", "label": "Admin Two"}).status_code == 201
+        assert r.json()["knowledge_base"]["account_id"] is None and r.json()["knowledge_base"]["created_by_account_id"] == 2
+    assert _post(env, "/@admin/kb", env.admin, json={"knowledge_type": "real", "label": "Admin Two"}).status_code == 201
 
 
 # --- 정책 오류 형식 -----------------------------------------------------------------

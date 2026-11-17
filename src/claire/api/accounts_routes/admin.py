@@ -221,7 +221,6 @@ def _render_admin_accounts_html(
 
     storage_mb = int(tier_dict.get("storage_mb", 0))
     max_docs = int(tier_dict.get("max_documents", 0))
-    max_themes = int(tier_dict.get("max_themes", 1))
     monthly_tokens = int(tier_dict.get("monthly_tokens", 0))
     daily_ingests = int(tier_dict.get("daily_ingests", 0))
     active_count = sum(1 for i in items if i.get("status") == "active")
@@ -276,7 +275,6 @@ def _render_admin_accounts_html(
         <div class="pref-quota-grid">
           <label>{escape(t("console.admin.accounts.userdb.quota_storage"))}<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_docs"))}<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
-          <label>{escape(t("console.admin.accounts.field.themes"))}<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_tokens"))}<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
           <label>{escape(t("console.admin.accounts.userdb.quota_ingests"))}<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
           <label class="pref-quota-switch"><span>{escape(t("console.admin.accounts.userdb.byok_switch"))} {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>

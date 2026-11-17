@@ -70,17 +70,17 @@ def test_theme_api_single_mode_behavior(tmp_path):
         assert data["personal_kb"]["label"] == "기본 지식베이스"
 
         # 2. POST /themes -> 403 차단
-        resp_post = client.post("/themes", json={"knowledge_type": "real", "label": "새 테마"}, headers=OWNER_HEADERS)
+        resp_post = client.post("/kb", json={"knowledge_type": "real", "label": "새 테마"}, headers=OWNER_HEADERS)
         assert resp_post.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_post.json().get("error", "")
 
         # 3. PATCH /themes -> 403 차단
-        resp_patch = client.patch("/themes", json={"id": 0, "label": "수정"}, headers=OWNER_HEADERS)
+        resp_patch = client.patch("/", json={"label": "수정"}, headers=OWNER_HEADERS)
         assert resp_patch.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_patch.json().get("error", "")
 
         # 4. DELETE /themes -> 403 차단
-        resp_del = step_up_request(client, s, "DELETE", "/themes?id=1")
+        resp_del = step_up_request(client, s, "DELETE", "/")
         assert resp_del.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
 
@@ -111,12 +111,12 @@ def test_get_themes_anonymous_allowed(theme_app_client):
 def test_define_theme_requires_owner(theme_app_client):
     client, settings = theme_app_client
     # 1. 익명 사용자 생성 시도 -> 404 (권한 미달 엔드포인트 숨김)
-    resp = client.post("/themes", json={"knowledge_type": "real", "label": "기술 및 AI"})
+    resp = client.post("/kb", json={"knowledge_type": "real", "label": "기술 및 AI"})
     assert resp.status_code in (403, 404)
 
     # 2. readonly 사용자 생성 시도 -> 404 (권한 미달 엔드포인트 숨김)
     resp = client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "기술 및 AI"},
         headers=READONLY_HEADERS,
     )
@@ -124,12 +124,12 @@ def test_define_theme_requires_owner(theme_app_client):
 
     # 3. owner 사용자 생성 시도 -> 201 Created
     resp = client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "기술 및 AI", "description": "소프트웨어", "icon": "💻"},
         headers=OWNER_HEADERS,
     )
     assert resp.status_code == 201
-    theme_data = resp.json()["theme"]
+    theme_data = resp.json()["knowledge_base"]
     assert theme_data["id"] == 1
     assert theme_data["label"] == "기술 및 AI"
     assert theme_data["icon"] == "💻"
@@ -140,7 +140,7 @@ def test_theme_data_isolation_ingest_and_search(theme_app_client):
 
     # 1. owner로 새 테마(id: 1) 정의
     client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "기술 및 AI", "icon": "💻"},
         headers=OWNER_HEADERS,
     )
@@ -179,20 +179,20 @@ def test_theme_update_label(theme_app_client):
 
     # 새 테마 정의
     client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "원래 이름"},
         headers=OWNER_HEADERS,
     )
 
     # 레이블 수정
     patch_resp = client.patch(
-        "/themes",
-        json={"id": kb_number(settings, 1), "label": "변경된 이름", "icon": "🚀"},
+        f"/kb/{kb_number(settings, 1)}/",
+        json={"label": "변경된 이름", "icon": "🚀"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp.status_code == 200
-    assert patch_resp.json()["theme"]["label"] == "변경된 이름"
-    assert patch_resp.json()["theme"]["icon"] == "🚀"
+    assert patch_resp.json()["knowledge_base"]["label"] == "변경된 이름"
+    assert patch_resp.json()["knowledge_base"]["icon"] == "🚀"
 
     # 목록 조회 시 변경된 레이블 반영 확인
     themes = kb_list(client)
@@ -205,30 +205,32 @@ def test_delete_theme_api(theme_app_client):
     client, settings = theme_app_client
 
     # 1. 새 테마 생성 (id: 1, 2)
-    resp1 = client.post("/themes", json={"knowledge_type": "real", "label": "삭제 대상 1"}, headers=OWNER_HEADERS)
+    resp1 = client.post("/kb", json={"knowledge_type": "real", "label": "삭제 대상 1"}, headers=OWNER_HEADERS)
     assert resp1.status_code == 201
-    resp2 = client.post("/themes", json={"knowledge_type": "real", "label": "삭제 대상 2"}, headers=OWNER_HEADERS)
+    resp2 = client.post("/kb", json={"knowledge_type": "real", "label": "삭제 대상 2"}, headers=OWNER_HEADERS)
     assert resp2.status_code == 201
 
     # 2. 기본 테마(0) 삭제 시도 -> 400 에러 차단
-    # DELETE /themes is a step-up route (design Section 6.8): a bearer credential gets 403.
-    assert client.delete("/themes?id=" + kb_number(settings, 1), headers=OWNER_HEADERS).json() == {"error": "step_up_requires_session"}
-    del_default = step_up_request(client, settings, "DELETE", "/themes?id=" + kb_number(settings, 0))
+    # The delete of a knowledge base is a step-up route (design Section 6.8): a bearer credential gets 403.
+    assert client.delete(kb_url(settings, 1, "/") + "?apply=true", headers=OWNER_HEADERS).json() == {"error": "step_up_requires_session"}
+    del_default = step_up_request(client, settings, "DELETE", "/?apply=true")
     assert del_default.status_code == 400
-    err_msg = str(del_default.json().get("error") or del_default.json().get("detail") or "")
-    assert "기본 테마" in err_msg or "기본 지식베이스" in err_msg
+    assert del_default.json() == {"error": "kb_personal_cannot_delete"}
 
     # 3. 권한 없는 사용자(익명/readonly) 삭제 시도 -> 403/404 차단
-    assert client.delete("/themes?id=" + kb_number(settings, 1)).status_code in (403, 404)
-    assert client.delete("/themes?id=" + kb_number(settings, 1), headers=READONLY_HEADERS).status_code in (403, 404)
+    assert client.delete(kb_url(settings, 1, "/") + "?apply=true").status_code in (403, 404)
+    assert client.delete(kb_url(settings, 1, "/") + "?apply=true", headers=READONLY_HEADERS).status_code in (403, 404)
 
     # 4. owner 사용자가 쿼리 파라미터로 추가 테마 1 삭제 (purge=1)
-    del_t1 = step_up_request(client, settings, "DELETE", "/themes?id=" + kb_number(settings, 1) + "&purge=1")
+    # Without ``apply=true`` the answer is the plan only (PRINCIPLES D3).
+    plan = step_up_request(client, settings, "DELETE", kb_url(settings, 1, "/"))
+    assert (plan.status_code, plan.json()["applied"]) == (200, False)
+    del_t1 = step_up_request(client, settings, "DELETE", kb_url(settings, 1, "/") + "?apply=true")
     assert del_t1.status_code == 200
     assert del_t1.json()["deleted"]["id"] == 1
 
     # 5. owner 사용자가 JSON body로 추가 테마 2 삭제 (purge: true)
-    del_t2 = step_up_request(client, settings, "DELETE", "/themes", json={"id": kb_number(settings, 2), "purge": True})
+    del_t2 = step_up_request(client, settings, "DELETE", kb_url(settings, 2, "/") + "?apply=true")
     assert del_t2.status_code == 200
     assert del_t2.json()["deleted"]["id"] == 2
 
@@ -243,7 +245,7 @@ def test_cross_theme_create_share_route(theme_app_client):
     client, settings = theme_app_client
 
     # 1. 새 테마(id: 1) 정의 및 테마 1에 문서 적재
-    client.post("/themes", json={"knowledge_type": "real", "label": "AI 연구", "icon": "🤖"}, headers=OWNER_HEADERS)
+    client.post("/kb", json={"knowledge_type": "real", "label": "AI 연구", "icon": "🤖"}, headers=OWNER_HEADERS)
     ingest_resp = seed(settings, 1, "테마 1 전용 공유 대상 문서")
     assert ingest_resp.error is None
     doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
@@ -275,7 +277,7 @@ def test_cross_theme_document_detail_route(theme_app_client):
     client, settings = theme_app_client
 
     # 1. 새 테마(id: 1) 생성 및 문서 적재
-    client.post("/themes", json={"knowledge_type": "real", "label": "보안 연구", "icon": "🛡️"}, headers=OWNER_HEADERS)
+    client.post("/kb", json={"knowledge_type": "real", "label": "보안 연구", "icon": "🛡️"}, headers=OWNER_HEADERS)
     seed(settings, 1, "보안 분석 상세 문서 본문")
     doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
@@ -304,7 +306,7 @@ def test_cross_theme_shared_doc_page_fallback(theme_app_client):
     from claire.store import db as dbm
 
     # 1. 새 테마(id: 1) 생성 및 문서 적재
-    client.post("/themes", json={"knowledge_type": "real", "label": "클라우드 아키텍처"}, headers=OWNER_HEADERS)
+    client.post("/kb", json={"knowledge_type": "real", "label": "클라우드 아키텍처"}, headers=OWNER_HEADERS)
     seed(settings, 1, "클라우드 설계 원칙 공유 본문")
     doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
@@ -332,12 +334,12 @@ def test_theme_knowledge_manager_api(theme_app_client):
 
     # 1. 테마 생성 시 sorcerer 지정
     resp = client.post(
-        "/themes",
+        "/kb",
         json={"knowledge_type": "real", "label": "보안 연구", "sorcerer": "sec_officer"},
         headers=OWNER_HEADERS,
     )
     assert resp.status_code == 201
-    created = resp.json()["theme"]
+    created = resp.json()["knowledge_base"]
     assert created["sorcerer"] == "sec_officer"
     assert created["knowledge_manager"] == "sec_officer"
     tid = created["id"]
@@ -352,22 +354,22 @@ def test_theme_knowledge_manager_api(theme_app_client):
 
     # 3. PATCH /themes 로 지식 관리자 변경
     patch_resp = client.patch(
-        "/themes",
-        json={"id": kb_number(settings, tid), "sorcerer": "lead_auditor"},
+        f"/kb/{kb_number(settings, tid)}/",
+        json={"sorcerer": "lead_auditor"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp.status_code == 200
-    assert patch_resp.json()["theme"]["sorcerer"] == "lead_auditor"
-    assert patch_resp.json()["theme"]["knowledge_manager"] == "lead_auditor"
+    assert patch_resp.json()["knowledge_base"]["sorcerer"] == "lead_auditor"
+    assert patch_resp.json()["knowledge_base"]["knowledge_manager"] == "lead_auditor"
 
-    # 4. PATCH /themes 에서 knowledge_manager 키로도 변경 가능
+    # 4. The field name is ``sorcerer`` only. An old alias (``knowledge_manager``) is an unknown field and is ignored (CT23).
     patch_resp2 = client.patch(
-        "/themes",
-        json={"id": kb_number(settings, tid), "knowledge_manager": "chief_trust"},
+        f"/kb/{kb_number(settings, tid)}/",
+        json={"knowledge_manager": "chief_trust"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp2.status_code == 200
-    assert patch_resp2.json()["theme"]["sorcerer"] == "chief_trust"
+    assert patch_resp2.json()["knowledge_base"]["sorcerer"] == "lead_auditor"
 
 
 

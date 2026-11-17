@@ -118,7 +118,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 | Shared document page (`shared_html`) | `CLAIRE_GA_MEASUREMENT_ID` in all modes |
 
 - **[code]** The main page route gets a theme context in multi-theme mode and when the path pins a theme (`/themes/{number}/`).
-- **[code]** A theme ID must match `^(?:G|GTM)-[A-Z0-9]{4,20}$` (`validate_ga_measurement_id`). `POST /themes` and `PATCH /themes` take `ga_measurement_id` (old name `ga_id`). An empty value clears it. The server ID only needs letters, digits, `_`, and `-` (`Settings._parse_ga_measurement_id`).
+- **[code]** A theme ID must match `^(?:G|GTM)-[A-Z0-9]{4,20}$` (`validate_ga_measurement_id`). `POST /kb` and `PATCH /kb/{number}/` (or `PATCH /@{u}/`) take `ga_measurement_id`. An empty value clears it. The server ID only needs letters, digits, `_`, and `-` (`Settings._parse_ga_measurement_id`).
 - Tests: `tests/test_google_analytics.py` (`test_render_graph_html_theme_ga_no_fallback_to_global_settings`), `tests/test_theme_fqdn.py`.
 
 ### 6.3 CSP (`SafeAccessLogMiddleware._csp_for`)

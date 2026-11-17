@@ -15,7 +15,7 @@
    - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
 3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `KnowledgeBaseManager.get_kb(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `KnowledgeBaseNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_personal=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
-4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_kb`·`update_kb`·`delete_kb`는 `RuntimeError`, HTTP `POST`·`PATCH`·`DELETE /themes`는 403)를 잠근다. `reset_kb`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `knowledge_bases` 테이블에서 읽어 일관된 코드 경로로 동작한다.
+4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_kb`·`update_kb`·`delete_kb`는 `RuntimeError`, HTTP `POST /kb`, `PATCH /`, `DELETE /`는 403)를 잠근다. `reset_kb`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `knowledge_bases` 테이블에서 읽어 일관된 코드 경로로 동작한다.
 5. **[코드] 테마 소유권과 계정 귀속 (`account_id`)**: 모든 테마는 `KnowledgeBaseInfo.account_id`를 통해 특정 계정에 귀속된다(`claire.db` v15 `themes.account_id`). 관리자 테마는 `account_id = 1`이며, 멤버 계정이 생성한 테마는 해당 계정의 `account_id`를 갖는다.
 6. **[코드] 기본 테마 불변식의 `theme.is_personal` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_personal = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_personal` 판정으로 일원화했다:
    - 기본 테마는 삭제할 수 없다 (`delete_kb`에서 `theme.is_personal`이면 `ValueError`).
@@ -101,7 +101,7 @@
 **[코드] 지식 베이스의 두 종류와 권한(CT-1, 설계 §6.2·§6.5·§11.2)**:
 
 - **개인**(`is_personal=1`, `account_id`=계정, `knowledge_type` NULL): 계정마다 하나(CT1). 공개 또는 비공개. 소유자만 쓴다.
-- **공유**(`is_personal=0`, `account_id` NULL, 항상 공개, `knowledge_type`은 `real`·`fictional`): 소유자가 없다. `define_kb(..., knowledge_type=..., account_id=창립자)`가 만들고 창립자는 `created_by_account_id`와 첫 `moderator` 멤버십이 된다(CT8). `POST /themes`는 `knowledge_type`이 없으면 400 `knowledge_type_required`다. 개수 한도는 없다(CT3, 등급의 `max_themes`는 쓰지 않는다). 레이블은 겹쳐도 된다.
+- **공유**(`is_personal=0`, `account_id` NULL, 항상 공개, `knowledge_type`은 `real`·`fictional`): 소유자가 없다. `define_kb(..., knowledge_type=..., account_id=창립자)`가 만들고 창립자는 `created_by_account_id`와 첫 `moderator` 멤버십이 된다(CT8). `POST /kb`는 `knowledge_type`이 없으면 400 `knowledge_type_required`다. 개수 한도는 없다(CT3, 등급의 `max_themes`는 쓰지 않는다). 레이블은 겹쳐도 된다.
 - **권한 판정**은 함수 하나다: `claire.kb_access.decide`(§6.2 표 전체, §6.5, §6.6). 서버는 `_kb_decide`·`_require_kb`로만 쓴다. 익명은 404, 권한 없는 계정은 403 `kb_capability_required`다. 숨긴 문서는 공유 지식 베이스에서 `review` 권한자만, 개인 지식 베이스에서 그 계정만 본다.
 - **Route capabilities and credential scopes (CT-2, design Sections 6.6 to 6.9)**:
   - Each entry of `api.security.ROUTE_POLICY` declares two values: the access level (the minimum scope of the credential) and the capability in the selected knowledge base. `_request_capability` reads the capability of the route; no handler selects it. `tests/test_credential_scopes.py` has the table of all routes that act on a knowledge base; a route that is not in the table fails the test.
@@ -111,7 +111,7 @@
   - A credential of an account whose scope is too small gets 403 `{"error": "scope_insufficient", "scope", "required"}` on a route that acts on a knowledge base. Under `/@{u}/` and on account, console, and admin routes the answer stays 404.
   - Regeneration (`/regenerate`, `/regenerate-stream`, `/document/regenerate`): minimum scope `write`, capability `maintain`. Thus a `write` token regenerates in the personal knowledge base, and a reviewer with the scope `owner` regenerates in a shared knowledge base (design Section 13.1 rule 5). `/synthesize` and `/research` write no document: capability `read`, minimum scope `owner`.
   - `share`: this capability is not in the table of design Section 6.2. Each account that reads a shared knowledge base has it (not a banned one); in a personal knowledge base only its account has it. In single mode a reader of the public knowledge base of the admin, an anonymous one included, has it (the rule from before this design).
-  - Step-up (design Section 6.8): a route with `step_up=True` needs a session with a recent sign-in. A bearer credential gets 403 `step_up_requires_session`; an old session gets 401 `reauth_required`. Now only `DELETE /themes` has it (delete of a shared knowledge base). The role routes of unit CT-3 must declare it.
+  - Step-up (design Section 6.8): a route with `step_up=True` needs a session with a recent sign-in. A bearer credential gets 403 `step_up_requires_session`; an old session gets 401 `reauth_required`. Routes with it: `DELETE /kb/{number}/` and the admin moderator routes. `PATCH /kb/{number}/members/{account}` asks for it in the handler, only for a role change, because its other actions (approve, ban, remove) must be fast (Section 6.8 rule 2).
   - Syndication dispatch (`POST /api/syndication/dispatch`): the copy is an ingest, so its target is the personal knowledge base of the caller; a shared knowledge base as the target gets 403 `kb_ingest_personal_only`. The source needs `read`. Federation publish and retract take only documents of the personal knowledge base of the caller.
 - **프로바이더(§13.1 규칙 5)**: 공유 지식 베이스에서 사람이 시작한 작업(재생성, 프레젠테이션, 합성 등)은 **요청자 계정의 프로바이더 컨텍스트**로 실행한다(`IngestServicePool.get_service(..., acting_account_id=)`, `_provider_account_of`). 서버의 프로바이더를 쓰지 않는다. 재임베딩 필요 표시는 서버 임베딩과 비교한다(CT24).
 - **워커(CT10)**: `_theme_services_for_cycle`은 공유 지식 베이스를 돌지 않는다(watch·refresh·expand·recover는 개인 지식 베이스만).
@@ -131,7 +131,7 @@
 - **[코드] `/@{u}/kb`**: the shared knowledge bases where `u` is an active member (CT9). An HTML request gets the workspace page of `u`.
 - **[코드] Response**: the root has `knowledge_bases` (the items), `personal_kb`, and `multi_theme`. `personal_kb` is the personal knowledge base of the requester at `/kb`, and the one of `u` at `/@{u}/kb` when the requester can read it; else `null`. An item has the fields of `KnowledgeBaseInfo.to_dict()`, `stats`, `url` (`/kb/{number}/`), and `role` (the role of the requester at `/kb`, of `u` at `/@{u}/kb`). `legacy_hosts` and `reembed_required` go only to a requester with the capability `settings`. With `CLAIRE_MULTI_THEME=0` the collection has no shared knowledge base.
 - **[코드] `/themes`**: the collection of themes (table `themes`, design Section 8), with `?type=`. An item has `number`, `url` (`/themes/{number}`), `label`, `description`, `knowledge_type`, `state`, and `knowledge_bases` (the count). The page of one theme is unit CT-5.
-- **[코드] Old links**: `GET /@{u}/themes` gets 308 to `/@{u}/kb`. `POST`, `PATCH`, and `DELETE /themes` (define, change, delete a knowledge base) stay until unit CT-3 moves them to `/kb`.
+- **[코드] Old links**: `GET /@{u}/themes` gets 308 to `/@{u}/kb`. The old routes `POST`, `PATCH`, and `DELETE /themes` are removed; the lifecycle routes are `POST /kb`, `PATCH /kb/{number}/`, and `DELETE /kb/{number}/` (§4.7).
 - **[코드] Surface**: `/kb` and `/themes` have the route surface `collection` (`api.security._collection`): at the root there is no namespace account; under `/@{u}/` the namespace is `u`; a pinned knowledge base (`/kb/{number}/kb`) gets 404.
 - **[코드] WebUI**: the selector of the workspace keeps the personal knowledge base from the inline list and reads the shared ones from `/kb` (`app.js` `fetchThemes`). The knowledge base manager of the console reads `/kb` (admin) or `/kb?joined=true` (`manage_panels.js` `renderThemeManager`).
 
@@ -163,13 +163,22 @@
 
 ### 4.6 콘솔 화면의 테마 관리와 `?kb=`
 
-- **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(`src/claire/static/js/manage_panels.js`의 `renderThemeManager`: 목록은 `GET /kb`, 변경은 `/themes` API). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
+- **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(`src/claire/static/js/manage_panels.js`의 `renderThemeManager`: 목록은 `GET /kb`, 변경은 `POST /kb`·`PATCH /kb/{number}/`·`DELETE /kb/{number}/`). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
 - **[코드] 관리자 화면의 경계**: `/admin/themes`는 관리자 계정(`account_id = 1`)의 테마만 관리하고, 서버 전체는 `COUNT(*)` 집계(`total_themes`, `admin_themes`, `purged`가 아닌 계정 수)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다.
-- **[코드] `/settings/themes`의 슬롯 표시**: 호출자 계정의 테마 수와 서버 등급의 `max_themes`를 보인다.
+- **[코드] No slot count**: the tier field `max_themes` is retired (design Section 10.1). `ServerTier.from_dict` ignores the key in a stored tier or in an old request; the console has no slot count.
 - **[코드] 콘솔의 `?kb=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?kb=`(번호)를 `get_kb_by_reference`로 찾고 호출자 계정의 것인지 검사한다. 빈 값, 없는 번호, 다른 계정의 지식 베이스는 404다. 쿼리가 없으면 콘솔 주인 계정의 개인 지식 베이스다(`/settings/*`는 그 계정의 콘솔이다).
 - **[코드] 옛 `/syndication/preferences?kb=`**: `?kb=`가 있으면 `_get_theme_ctx`로 검사하고 호출자 계정의 것이 아니면 404, 통과하면 `/settings/*` 대상에 공개 참조를 `?kb=`로 붙인다.
 
 ---
+
+### 4.7 Lifecycle, membership, and moderation of a shared knowledge base (CT-3, design Section 10)
+
+- **[코드] Store**: `store/kb_collab.py` has `add_membership`, `update_membership`, `delete_membership`, `active_moderators` (an active membership with the role `moderator` of an account whose status is `active`), `members_with_accounts`, and `log_moderation`. `KnowledgeBaseManager.update_kb` takes the settings of a shared knowledge base: `join_policy`, `knowledge_type` (a new type takes the knowledge base out of its themes), `seed_entities` (`validate_seed_entities`: at most 20 names), and `state` (`archived` sets `archived_at`).
+- **[코드] Routes**: `POST /kb`, `PATCH /` and `DELETE /` under the path of the knowledge base, `POST` and `DELETE /membership`, `GET /members`, `PATCH /members/{account}`, and `PUT` and `DELETE /api/admin/kb/{number}/moderators/{account}`. The contract is in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md). `_select_kb` selects the knowledge base of the path and checks the capability of the route; `_get_theme_ctx` adds the settings and the ingest service.
+- **[코드] Roles**: a join makes the role `member`. A moderator with a recent sign-in gives and removes `collaborator`. Only the admin gives and removes `moderator`. A moderator cannot change another moderator. The last active moderator cannot leave. A suspended account keeps its role in storage, but its credential is not valid, and it does not count as an active moderator.
+- **[코드] Archive**: `kb_access.decide(..., archived=True)` refuses the capabilities of `ARCHIVED_BLOCKED`; the join route refuses with 403 `kb_archived`.
+- **[코드] Log**: each decision about a member, each role change, and each settings change writes `kb_moderation_log` (actions `approve`, `ban`, `remove`, `role_collaborator`, `role_member`, `moderator_give`, `moderator_remove`, `leave`, `settings`). The admin actions on moderators and the delete also write `admin_audit`.
+- **[미구현]** The console pages for members, roles, and the log are unit CT-9. Mutual collaborators of the founder do not become collaborators yet (unit CT-13).
 
 ## 5. 테마 수명주기
 

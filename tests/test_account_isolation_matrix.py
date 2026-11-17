@@ -266,7 +266,7 @@ def test_permission_matrix_write(test_environment):
     for method, path, body in (
         ("POST", f"/kb/{ids.format_public_id(env.alice_collab.number)}/graph/bundle", {"kb_id": env.alice_collab.id}),
         ("POST", "/document/hide", {"id": "x", "hidden": True}),
-        ("PATCH", "/themes", {"id": ids.format_public_id(env.alice_collab.number), "label": "x"}),
+        ("PATCH", f"/kb/{ids.format_public_id(env.alice_collab.number)}/", {"label": "x"}),
     ):
         res = client.request(method, path, json=body, headers=headers)
         assert (res.status_code, res.json()) == (403, {"error": "scope_insufficient", "scope": "write", "required": "owner"}), path
@@ -559,12 +559,12 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 1: Alice creates a new custom team theme via API
     res_def = client.post(
-        "/@alice/themes",
+        "/@alice/kb",
         json={"knowledge_type": "real", "label": "Alice Team Project", "is_public": True},
         headers=alice_owner_hdr,
     )
     assert res_def.status_code == 201
-    team_theme = res_def.json()["theme"]
+    team_theme = res_def.json()["knowledge_base"]
     team_kb_id = team_theme["id"]
     team_num = team_theme["number"]
     assert team_theme["account_id"] is None and team_theme["created_by_account_id"] == 2  # a shared knowledge base has no owner; Alice is its founder and first moderator

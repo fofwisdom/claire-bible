@@ -153,7 +153,7 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     _set_mode(env.db_file, "network")
     conn = dbm.connect(env.db_file)
     try:
-        server_tier.save_server_tier(conn, ServerTier(provider="none", max_themes=7, max_documents=900, storage_mb=64, daily_ingests=12, monthly_tokens=5000), updated_by=1)
+        server_tier.save_server_tier(conn, ServerTier(provider="none", max_documents=900, storage_mb=64, daily_ingests=12, monthly_tokens=5000), updated_by=1)
     finally:
         conn.close()
     auth = _auth(env)
@@ -175,7 +175,6 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     assert "/admin/" not in html
     assert "console_admin.js" not in html
     # 할당량: 호출자 자신의 사용량과 서버 등급 상한만 나온다.
-    assert "1 / 7" in html
     assert "1,234 / 5,000" in html
     assert "777,777" not in html
     # 번들 내보내기 대상은 호출자 소유 테마뿐이다.
@@ -301,11 +300,12 @@ def test_themes_page_member_hosts_theme_manager_without_admin_markup(env):
     html = _get(env, "/settings/themes", env.alice).text
     assert 'id="settings-themes-host"' in html
     assert 'data-settings-panel-host="themes"' in html
-    assert "My themes: 1 /" in html
+    # No slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1).
+    assert "My themes:" not in html and "settings-themes-quota" not in html
     assert "/admin/" not in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html
-    assert _bootstrap(html)["settings_account"]["theme_slots"]["owned"] == 1
+    assert "theme_slots" not in _bootstrap(html)["settings_account"]
 
 
 def test_admin_theme_and_token_settings_still_redirect(env):

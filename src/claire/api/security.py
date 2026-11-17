@@ -293,9 +293,9 @@ def _root(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] 
     return RouteRule(access=access, capability=capability, surface="root", modes=modes)
 
 
-def _system(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+def _system(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES, step_up: bool = False) -> RouteRule:
     """루트에서만 받는다. 접두 아래에서는 404(N5)."""
-    return RouteRule(access=access, capability=capability, surface="system", modes=modes)
+    return RouteRule(access=access, capability=capability, surface="system", modes=modes, step_up=step_up)
 
 
 def _namespaced(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES, step_up: bool = False) -> RouteRule:
@@ -436,9 +436,18 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/kb"): _collection("read", "none"),
     ("GET", "/themes"): _collection("read", "none"),
     ("HEAD", "/themes"): _collection("read", "none"),
-    ("POST", "/themes"): _namespaced("owner", "none"),
-    ("PATCH", "/themes"): _namespaced("owner", "settings"),
-    ("DELETE", "/themes"): _namespaced("owner", "delete", step_up=True),
+    # Lifecycle of a knowledge base (design Section 10.1). ``PATCH /`` and ``DELETE /`` act on the knowledge base that the path selects: ``/kb/{number}/`` (shared) or ``/@{u}/`` (personal). Each active account makes shared knowledge bases (``POST /kb``).
+    ("POST", "/kb"): _any("owner", "none"),
+    ("PATCH", "/"): _namespaced("owner", "settings"),
+    ("DELETE", "/"): _namespaced("owner", "delete", step_up=True),
+    # Membership and moderation (design Section 10.2). A role change in ``PATCH /members/{account}`` needs step-up; the handler asks for it, because the other actions of the route must be fast (Section 6.8 rule 2).
+    ("POST", "/membership"): _namespaced("owner", "join"),
+    ("DELETE", "/membership"): _namespaced("owner", "join"),
+    ("GET", "/members"): _namespaced("read", "read"),
+    ("HEAD", "/members"): _namespaced("read", "read"),
+    ("PATCH", "/members/{account}"): _namespaced("owner", "people"),
+    ("PUT", "/api/admin/kb/{number}/moderators/{account}"): _system("admin", "moderators", step_up=True),
+    ("DELETE", "/api/admin/kb/{number}/moderators/{account}"): _system("admin", "moderators", step_up=True),
     ("GET", "/providers"): _any("admin", "none"),
     ("HEAD", "/providers"): _any("admin", "none"),
     ("POST", "/providers"): _any("admin", "none"),
@@ -1376,7 +1385,7 @@ async def _bootstrap_session(
     return await asyncio.to_thread(_exchange)
 
 
-def _step_up_response(principal: Principal) -> Response | None:
+def step_up_response(principal: Principal) -> Response | None:
     """The answer of a step-up route (Section 6.8) when the request has no recent sign-in in a session, else None. Same answers as ``accounts_routes.common.require_recent_auth``."""
     if principal.channel not in ("cookie", "x-session"):
         return JSONResponse({"error": "step_up_requires_session"}, status_code=403)
@@ -2181,9 +2190,9 @@ class AuthenticationMiddleware:
             raise RuntimeError("authenticated request without a resolved credential")
         if rule.step_up:
             # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.8: a recent sign-in in a session. A bearer credential never passes, so it never changes a role or a standing rule.
-            step_up_response = _step_up_response(state[PRINCIPAL_STATE_KEY])
-            if step_up_response is not None:
-                await _send_response(step_up_response, scope, receive, send)
+            refused = step_up_response(state[PRINCIPAL_STATE_KEY])
+            if refused is not None:
+                await _send_response(refused, scope, receive, send)
                 return
         if auth_channel == "cookie" and cookie_token:
             refreshed_cookies = [_session_cookie_header(self.config, cookie_token)]

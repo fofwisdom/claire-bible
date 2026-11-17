@@ -76,6 +76,8 @@ SYSTEM = {
     "/api/syndication/dispatch", "/syndication/dispatch",
     "/api/syndication/dispatches", "/syndication/dispatches",
 }
+# The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2).
+SYSTEM_KEYS = {("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}")}
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/providers/test"),
@@ -83,6 +85,7 @@ ADMIN_KEYS = {
     *((m, "/api/me/personal-cli") for m in ("GET", "HEAD", "PATCH")),
     ("POST", "/api/me/personal-cli/test"),
     ("POST", "/support/bundle"),
+    *SYSTEM_KEYS,
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/server", "/api/admin/server") for m in ("GET", "HEAD")),
     ("PATCH", "/api/admin/accounts"),
     ("GET", "/api/admin/usernames/retired"),
@@ -139,7 +142,10 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
 
 
 # The download of a data bundle uses only the token. Thus the address at the root works in each mode. POST /graph/bundle stays namespaced.
-ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle")}
+# ``POST /kb`` makes a shared knowledge base for the account of the credential (design Section 10.1); the prefix is ignored.
+ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle"), ("POST", "/kb")}
+# ``PATCH /`` and ``DELETE /`` act on the knowledge base that the path selects; only ``GET /`` and ``HEAD /`` have the surface ``root``.
+NAMESPACED_ROOT_KEYS = {("PATCH", "/"), ("DELETE", "/")}
 
 
 def _expected_surface(path: str, method: str = "") -> str:
@@ -147,6 +153,10 @@ def _expected_surface(path: str, method: str = "") -> str:
         return "collection"
     if (method, path) in ANY_KEYS:
         return "any"
+    if (method, path) in NAMESPACED_ROOT_KEYS:
+        return "namespaced"
+    if (method, path) in SYSTEM_KEYS:
+        return "system"
     if path in ROOT:
         return "root"
     if path in ANY:
@@ -175,7 +185,7 @@ def test_every_policy_value_uses_an_explicit_surface_helper():
         assert len(value.args) == 2 and all(isinstance(arg, ast.Constant) for arg in value.args), label
         for keyword in value.keywords:
             if keyword.arg == "step_up":
-                assert value.func.id == "_namespaced" and ast.literal_eval(keyword.value) is True, label
+                assert value.func.id in ("_namespaced", "_system") and ast.literal_eval(keyword.value) is True, label
                 continue
             assert keyword.arg == "modes" and ast.unparse(keyword.value) in {"ALL_MODES", "NETWORK_ONLY"}, label
 

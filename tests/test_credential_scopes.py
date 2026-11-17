@@ -75,7 +75,7 @@ def _bearer(settings: Settings, scope: str, *, account_id: int = 1) -> dict[str,
 KB_ROUTES = [
     ("POST", "/document/pin", "owner", "curate"),
     ("POST", "/document/title", "owner", "curate"),
-    ("DELETE", "/themes", "owner", "delete"),
+    ("DELETE", "/", "owner", "delete"),
     ("POST", "/dedup/merge", "owner", "maintain"),
     ("POST", "/dedup/scan", "owner", "maintain"),
     ("PUT", "/document/presentation/adoc", "owner", "maintain"),
@@ -113,7 +113,11 @@ KB_ROUTES = [
     ("POST", "/purge", "owner", "remove"),
     ("POST", "/document/hide", "owner", "review"),
     ("POST", "/document/seen", "owner", "review"),
-    ("PATCH", "/themes", "owner", "settings"),
+    ("PATCH", "/", "owner", "settings"),
+    ("DELETE|POST", "/membership", "owner", "join"),
+    ("GET|HEAD", "/members", "readonly", "read"),
+    ("PATCH", "/members/{account}", "owner", "people"),
+    ("DELETE|PUT", "/api/admin/kb/{number}/moderators/{account}", "owner", "moderators"),
     ("POST", "/share", "readonly", "share"),
     ("POST", "/api/federation/timeline/{item_id}/ingest", "owner", "write"),
     ("POST", "/api/feeds/items/{item_id}/ingest", "owner", "write"),
@@ -126,7 +130,7 @@ KB_ROUTES = [
     ("POST", "/reingest-stream", "write", "write"),
     ("POST", "/syndication/dispatch", "write", "write"),
 ]
-STEP_UP_ROUTES = {("DELETE", "/themes")}
+STEP_UP_ROUTES = {("DELETE", "/"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}")}
 
 
 def _mounted_keys(app) -> set[tuple[str, str]]:
@@ -183,9 +187,9 @@ def test_route_review_of_the_old_collaborator_level() -> None:
 def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_for_the_decisions_of_the_person(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        made = client.post("/themes", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER)
+        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER)
         assert made.status_code == 201, made.text
-        shared = made.json()["theme"]
+        shared = made.json()["knowledge_base"]
         write = _bearer(settings, "write")
         readonly = _bearer(settings, "readonly")
         assert client.get("/whoami", headers=write).json()["scope"] == "write"
@@ -214,8 +218,10 @@ def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_f
             ("POST", f"/kb/{shared['number']}/document/pin", {"id": document_id, "pinned": True}),
             ("POST", f"/kb/{shared['number']}/dedup/merge", {"keep": "a", "merge": "b"}),
             ("POST", f"/kb/{shared['number']}/document/purge", {"id": document_id}),
-            ("PATCH", "/themes", {"id": shared["number"], "label": "x"}),
-            ("DELETE", "/themes", {"id": shared["number"]}),
+            ("PATCH", f"/kb/{shared['number']}/", {"label": "x"}),
+            ("DELETE", f"/kb/{shared['number']}/", None),
+            ("POST", f"/kb/{shared['number']}/membership", None),
+            ("PATCH", f"/kb/{shared['number']}/members/1", {"action": "ban"}),
             ("POST", "/document/hide", {"id": document_id, "hidden": True}),
             ("POST", "/document/presentation/generate", {"id": document_id}),
         ):
@@ -260,10 +266,10 @@ def test_token_api_takes_the_three_scopes_only(tmp_path: Path) -> None:
 def test_bearer_credential_never_passes_a_step_up_route(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        number = client.post("/themes", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["theme"]["number"]
+        number = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["knowledge_base"]["number"]
         # The owner token of the admin has each capability, but it is a bearer credential: 403.
         for headers in (OWNER, _bearer(settings, "owner")):
-            refused = client.request("DELETE", "/themes", json={"id": number}, headers=headers)
+            refused = client.request("DELETE", f"/kb/{number}/?apply=true", headers=headers)
             assert (refused.status_code, refused.json()) == (403, {"error": "step_up_requires_session"})
         # A session without a recent sign-in: 401 with the place to sign in again.
         conn = dbm.connect_existing(settings.db_file)
@@ -272,12 +278,16 @@ def test_bearer_credential_never_passes_a_step_up_route(tmp_path: Path) -> None:
         finally:
             conn.close()
         client.cookies.clear()
-        stale = client.request("DELETE", "/themes", json={"id": number}, headers={"Cookie": f"claire_session={old}", "Origin": PUBLIC_URL})
+        stale = client.request("DELETE", f"/kb/{number}/?apply=true", headers={"Cookie": f"claire_session={old}", "Origin": PUBLIC_URL})
         client.cookies.clear()
         assert (stale.status_code, stale.json()) == (401, {"error": "reauth_required", "reauth": "/api/auth/reauth"})
         assert [kb["number"] for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == [number]
         # A session with a recent sign-in passes.
-        assert step_up_request(client, settings, "DELETE", "/themes", json={"id": number}).status_code == 200
+        # PRINCIPLES D3: without ``apply=true`` the answer is the plan only.
+        plan = step_up_request(client, settings, "DELETE", f"/kb/{number}/")
+        assert (plan.status_code, plan.json()["applied"], plan.json()["would_delete"]["members"]) == (200, False, 1)
+        assert [kb["number"] for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == [number]
+        assert step_up_request(client, settings, "DELETE", f"/kb/{number}/?apply=true").json()["applied"] is True
         assert [kb for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == []
 
 
@@ -389,8 +399,8 @@ def test_environment_collaborator_token_is_not_read(tmp_path: Path, monkeypatch:
 def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        real = client.post("/themes", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["theme"]
-        fiction = client.post("/themes", json={"label": "Middle-earth", "knowledge_type": "fictional"}, headers=OWNER).json()["theme"]
+        real = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["knowledge_base"]
+        fiction = client.post("/kb", json={"label": "Middle-earth", "knowledge_type": "fictional"}, headers=OWNER).json()["knowledge_base"]
 
         # /kb: the shared knowledge bases, newest first, for each reader.
         anonymous = client.get("/kb").json()

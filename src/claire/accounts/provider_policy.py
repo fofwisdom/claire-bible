@@ -179,6 +179,10 @@ class ProviderKeyRejected(ProviderPolicyError):
     code = "provider_key_rejected"
 
 
+# Fields that an old stored tier or an old client can have. ``ServerTier.from_dict`` ignores them.
+RETIRED_TIER_FIELDS = frozenset({"max_themes"})
+
+
 @dataclass(frozen=True, slots=True)
 class ServerTier:
     """§10.3 서버 등급. 기본값이 곧 D6(``none``)이다."""
@@ -190,7 +194,6 @@ class ServerTier:
     max_effort: str = "low"
     features: frozenset[str] = frozenset()
     storage_mb: int = 2048
-    max_themes: int = 5
     max_documents: int = 5000
     byok_max_concurrency: int = 1  # byok_caps의 "동시 1"
 
@@ -203,7 +206,6 @@ class ServerTier:
             "max_effort": self.max_effort,
             "features": sorted(self.features),
             "storage_mb": self.storage_mb,
-            "max_themes": self.max_themes,
             "max_documents": self.max_documents,
             "byok_caps": {"max_concurrency": self.byok_max_concurrency},
         }
@@ -215,9 +217,10 @@ class ServerTier:
             raise ValueError("server tier must be an object")
         known = {
             "provider", "model", "monthly_tokens", "daily_ingests", "max_effort", "features",
-            "storage_mb", "max_themes", "max_documents", "byok_caps",
+            "storage_mb", "max_documents", "byok_caps",
         }
-        unknown = set(data) - known
+        # ``max_themes`` is retired (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.1: an account has one personal knowledge base and makes shared ones without a limit). A stored tier and an old client can still have the key: it is ignored.
+        unknown = set(data) - known - RETIRED_TIER_FIELDS
         if unknown:
             raise ValueError(f"unknown server tier fields: {sorted(unknown)}")
         default = cls()
@@ -250,7 +253,6 @@ class ServerTier:
             max_effort=max_effort,
             features=frozenset(features_raw),
             storage_mb=_int("storage_mb", data.get("storage_mb", default.storage_mb), 0),
-            max_themes=_int("max_themes", data.get("max_themes", default.max_themes), 1),
             max_documents=_int("max_documents", data.get("max_documents", default.max_documents), 0),
             byok_max_concurrency=_int(
                 "byok_caps.max_concurrency", caps.get("max_concurrency", default.byok_max_concurrency), 1

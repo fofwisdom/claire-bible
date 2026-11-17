@@ -222,6 +222,56 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
 
+    post:
+      summary: Make a shared knowledge base
+      description: >-
+        Each active account makes shared knowledge bases, without a limit. The founder selects the
+        knowledge type (required) and becomes the first moderator. The new knowledge base is public,
+        `active`, and has the join policy `approval`. `CLAIRE_MULTI_THEME=0` gives 403.
+      operationId: createKnowledgeBase
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, knowledge_type]
+              properties:
+                label:
+                  type: string
+                knowledge_type:
+                  type: string
+                  enum: [real, fictional]
+                description:
+                  type: string
+                icon:
+                  type: string
+                seed_entities:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                presentation_enabled:
+                  type: boolean
+                sorcerer:
+                  type: string
+                ga_measurement_id:
+                  type: string
+      responses:
+        '201':
+          description: '`{"ok": true, "knowledge_base": {...}}`'
+        '400':
+          description: '`knowledge_type_required`, `seed_entities_too_many`, `seed_entities_invalid`, `<field>_invalid`, or `<field>_not_at_create`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
   /themes:
     get:
       summary: Collection of themes
@@ -312,9 +362,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
 
-    post:
-      summary: Define a new knowledge theme
-      operationId: defineTheme
+  /kb/{number}/:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The number of the shared knowledge base. The same operations at `/@{username}/` act on the personal knowledge base of that account.
+    patch:
+      summary: Change the settings of a knowledge base
+      description: >-
+        The path selects the knowledge base; no body field does. A shared knowledge base needs the
+        capability `settings` (moderator or admin). `join_policy`, `knowledge_type`, `seed_entities`,
+        and `state` are for a shared knowledge base only (400 `kb_shared_only`). An archived shared
+        knowledge base is read-only.
+      operationId: updateKnowledgeBase
       x-claire-access: owner
       security:
         - BearerAuth: []
@@ -326,177 +389,220 @@ paths:
           application/json:
             schema:
               type: object
-              required: [label]
               properties:
                 label:
                   type: string
-                  example: 인공지능 연구
                 description:
                   type: string
                 icon:
                   type: string
-                  default: "📁"
                 is_public:
                   type: boolean
-                  default: true
-                ga_measurement_id:
-                  type: string
-                sorcerer:
-                  type: string
                 presentation_enabled:
                   type: boolean
-                  default: false
+                sorcerer:
+                  type: string
+                ga_measurement_id:
+                  type: string
+                join_policy:
+                  type: string
+                  enum: [open, approval]
+                knowledge_type:
+                  type: string
+                  enum: [real, fictional]
+                seed_entities:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                state:
+                  type: string
+                  enum: [active, archived]
       responses:
-        '201':
-          description: Theme successfully defined.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [ok, theme]
-                properties:
-                  ok:
-                    type: boolean
-                    example: true
-                  theme:
-                    type: object
+        '200':
+          description: '`{"ok": true, "knowledge_base": {...}}`'
         '400':
-          description: Validation error or deprecated fqdn provided.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: A field with a wrong type or value (`<field>_invalid`), or `kb_shared_only`.
         '403':
-          description: Owner permissions or CLAIRE_MULTI_THEME=1 required.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
-
-    patch:
-      summary: Update existing knowledge theme
-      operationId: updateTheme
+          description: '`kb_capability_required` or `scope_insufficient`.'
+    delete:
+      summary: Delete a shared knowledge base
+      description: >-
+        The admin only, with a session that has a recent sign-in (step-up). Without `apply=true` the
+        answer is the plan only (`applied: false` and `would_delete`). With `apply=true` the knowledge
+        base, its documents, and its graph are deleted.
+      operationId: deleteKnowledgeBase
       x-claire-access: owner
       security:
-        - BearerAuth: []
-        - SessionHeader: []
         - SessionCookie: []
       parameters:
-        - name: id
+        - name: apply
           in: query
           required: false
           schema:
             type: string
-          description: Theme number or internal ID to update (may also be in request body).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: string
-                label:
-                  type: string
-                description:
-                  type: string
-                icon:
-                  type: string
-                is_public:
-                  type: boolean
-                ga_measurement_id:
-                  type: string
-                sorcerer:
-                  type: string
-                presentation_enabled:
-                  type: boolean
+            enum: ['true', 'false']
       responses:
         '200':
-          description: Theme updated successfully.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [ok, theme]
-                properties:
-                  ok:
-                    type: boolean
-                    example: true
-                  theme:
-                    type: object
+          description: The plan, or the result of the delete.
         '400':
-          description: Validation error or deprecated fqdn provided.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: '`kb_personal_cannot_delete` or `invalid_apply`.'
+        '401':
+          description: '`reauth_required`: the session has no recent sign-in.'
         '403':
-          description: Owner permissions required.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
-        '404':
-          description: Theme not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: '`step_up_requires_session` (a bearer credential) or `kb_capability_required`.'
 
-    delete:
-      summary: Delete a knowledge theme
-      operationId: deleteTheme
+  /kb/{number}/membership:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Join a shared knowledge base
+      description: The join policy `open` gives an active membership (201), `approval` a pending one. A second request gives 200.
+      operationId: joinKnowledgeBase
       x-claire-access: owner
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
+      responses:
+        '201':
+          description: '`{"ok": true, "membership": {...}}`'
+        '403':
+          description: '`kb_archived`, or `kb_capability_required` for a banned account.'
+    delete:
+      summary: Leave a shared knowledge base
+      description: Leave, or withdraw a join request.
+      operationId: leaveKnowledgeBase
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"ok": true}`'
+        '404':
+          description: '`membership_not_found`.'
+        '409':
+          description: '`last_moderator`: the last active moderator cannot leave.'
+
+  /kb/{number}/members:
+    get:
+      summary: Members of a shared knowledge base
+      description: >-
+        A collection with `members`. Each reader gets the active members with their roles. An account
+        with the capability `people` also gets the pending and the banned entries.
+      operationId: listKnowledgeBaseMembers
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
       parameters:
-        - name: id
-          in: query
+        - name: number
+          in: path
           required: true
           schema:
             type: string
-          description: Theme number or internal ID to delete.
-        - name: purge
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
       responses:
         '200':
-          description: Theme deleted.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [ok, theme]
-                properties:
-                  ok:
-                    type: boolean
-                    example: true
-                  theme:
-                    type: object
+          description: OrderedCollection or OrderedCollectionPage of members.
+
+  /kb/{number}/members/{account}:
+    patch:
+      summary: Decide about a member, or change the role `collaborator`
+      description: >-
+        Capability `people`. The body has `action` (`approve`, `ban`, `remove`) or `role`
+        (`collaborator`, `member`), and an optional `reason`. A role change needs a session with a
+        recent sign-in. A change of an active moderator gets 403 `moderator_protected`.
+      operationId: changeKnowledgeBaseMember
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: account
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The public number of the account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [approve, ban, remove]
+                role:
+                  type: string
+                  enum: [collaborator, member]
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: '`{"ok": true, "member": {...} | null}`'
         '400':
-          description: Invalid theme ID or cannot delete default theme.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: '`action_or_role_required`, `action_invalid`, `role_invalid`, `reason_invalid`, or `self_not_allowed`.'
         '403':
-          description: Owner permissions required.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: '`kb_capability_required`, `moderator_protected`, or `step_up_requires_session`.'
         '404':
-          description: Theme not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardError'
+          description: '`account_not_found` or `membership_not_found`.'
+        '409':
+          description: '`not_pending` or `not_active_member`.'
+
+  /api/admin/kb/{number}/moderators/{account}:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: account
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The public number of the account.
+    put:
+      summary: Give the role `moderator`
+      description: The admin only, with a session that has a recent sign-in. A membership is made when there is none.
+      operationId: giveKnowledgeBaseModerator
+      x-claire-access: admin
+      security:
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"ok": true, "member": {...}}`'
+        '404':
+          description: The knowledge base or the account is not there.
+    delete:
+      summary: Remove the role `moderator`
+      description: The admin only, with a session that has a recent sign-in. The account is a member again.
+      operationId: removeKnowledgeBaseModerator
+      x-claire-access: admin
+      security:
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"ok": true, "member": {...}}`'
+        '404':
+          description: '`not_a_moderator`, or the knowledge base or the account is not there.'
 
   /.well-known/oauth-protected-resource:
     get:

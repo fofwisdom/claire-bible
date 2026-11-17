@@ -30,6 +30,9 @@ NO_KB = "none"
 # The capabilities that a route can declare. ``write``: a write into the personal knowledge base of the account of the credential (ingest, regeneration, publish); a shared knowledge base refuses it (CT4).
 ROUTE_CAPABILITIES = frozenset({NO_KB, "write", SHARE, *SHARED_CAPABILITIES})
 
+# The capabilities that an archived shared knowledge base refuses (Section 10.1: read-only).
+ARCHIVED_BLOCKED = frozenset({"contribute_direct", "contribute_theme", "review", "curate", "maintain", "remove"})
+
 _NON_MEMBER = frozenset({"read", "join", "contribute_theme", "fork"})
 _MEMBER = _NON_MEMBER | {"contribute_direct"}
 _COLLABORATOR = _MEMBER | {"review", "curate", "maintain"}
@@ -96,8 +99,11 @@ def decide(
     capability: str,
     actor: Actor,
     single_mode: bool = False,
+    archived: bool = False,
 ) -> Decision:
     """Decide one capability of one knowledge base for one actor.
+
+    ``archived``: an archived shared knowledge base is read-only (Section 10.1): no contribution, review, curation, maintenance, or removal. Its settings (to unarchive it), its people, and its delete stay.
 
     ``single_mode``: the server has one personal knowledge base, the one of the admin. There a reader of the public knowledge base, an anonymous one included, makes share links of visible documents (the rule from before this design).
     """
@@ -116,6 +122,6 @@ def decide(
     if capability not in SHARED_CAPABILITIES and capability != SHARE:
         raise ValueError(f"unknown capability of a shared knowledge base: {capability!r}")
     if capability in shared_capabilities(actor):
-        return "allow"
+        return "forbidden" if (archived and capability in ARCHIVED_BLOCKED) else "allow"
     # Section 6.2: anonymous gets 404 for each capability but ``read``.
     return "not_found" if actor.account_id is None else "forbidden"

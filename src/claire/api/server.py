@@ -12,6 +12,7 @@ import html
 import json
 import logging
 import re
+import sqlite3
 import string
 import time
 from collections.abc import AsyncIterator
@@ -51,6 +52,7 @@ from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import kb_access
 from ..store import accounts as accounts_store
+from ..store import auth_db
 from ..store import kb_collab
 from ..store import themes as themes_store
 from ..store import db as dbm
@@ -84,6 +86,7 @@ from .security import (
     read_session_cookie,
     request_auth_scope,
     request_id,
+    step_up_response,
     wrap_web_app,
 )
 
@@ -316,6 +319,7 @@ def create_app(
             capability=capability,
             actor=_kb_actor(request, kb),
             single_mode=request_namespace(request).mode == "single",
+            archived=kb.is_shared and kb.state == "archived",
         )
 
     def _require_kb(request: Request, kb: KnowledgeBaseInfo, capability: str) -> None:
@@ -323,7 +327,12 @@ def create_app(
         if decision == "not_found":
             raise HTTPException(status_code=404, detail="theme not found")
         if decision == "forbidden":
-            detail = "kb_ingest_personal_only" if (kb.is_shared and capability == "write") else "kb_capability_required"
+            if kb.is_shared and capability == "write":
+                detail = "kb_ingest_personal_only"
+            elif kb.is_shared and kb.state == "archived" and capability in kb_access.ARCHIVED_BLOCKED:
+                detail = "kb_archived"
+            else:
+                detail = "kb_capability_required"
             raise HTTPException(status_code=403, detail=detail)
 
     def _request_capability(request: Request) -> str:
@@ -364,16 +373,13 @@ def create_app(
         """작업 조회 대상 지식 베이스: 선택 규칙(``_get_theme_ctx``)이 정한 것이다."""
         return theme.id
 
-    def _get_theme_ctx(
-        request: Request, body: dict[str, Any] | None = None
-    ) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
-        """Select the knowledge base of the request (design Section 5.2, CT23). ``body`` is not read: no body field selects a knowledge base.
+    def _select_kb(request: Request) -> KnowledgeBaseInfo:
+        """Select the knowledge base of the request and check the capability of the route (design Sections 5.2 and 6.9, CT23).
 
         1. A namespaced route: only the path selects. A pinned path selects that knowledge base; else the personal knowledge base of the account of the namespace.
         2. A route without a namespace (surface ``any`` or ``system``): the parameter ``kb`` (number) is required, else 400 ``kb_required``.
         The query ``theme``, the body ``theme``, and the header ``X-Claire-Theme`` are unknown fields and are ignored.
         """
-        del body
         try:
             ns = request_namespace(request)
         except Exception:
@@ -394,10 +400,22 @@ def create_app(
                 theme = theme_mgr.personal_kb_for(ns.account_id)
             if not getattr(s, "multi_theme", False) and theme.id != 0:
                 raise KnowledgeBaseNotFound(theme.id)
-            if theme.is_shared:
-                _require_kb(request, theme, _request_capability(request))
-            elif not _theme_accessible(request, theme):
-                raise HTTPException(status_code=404, detail="theme not found")
+        except KnowledgeBaseNotFound as exc:
+            # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
+            raise HTTPException(status_code=404, detail="theme not found") from exc
+        if theme.is_shared:
+            _require_kb(request, theme, _request_capability(request))
+        elif not _theme_accessible(request, theme):
+            raise HTTPException(status_code=404, detail="theme not found")
+        return theme
+
+    def _get_theme_ctx(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
+        """The knowledge base of the request (``_select_kb``), its settings, and its ingest service. ``body`` is not read: no body field selects a knowledge base."""
+        del body
+        theme = _select_kb(request)
+        try:
             theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             if theme.is_shared:
                 # Design Section 13.1 rule 5: work in a shared knowledge base runs with the provider context of the requester, never with the one of the server.
@@ -409,7 +427,6 @@ def create_app(
             else:
                 theme_svc = service_pool.get_service(theme.id)
         except KnowledgeBaseNotFound as exc:
-            # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
             raise HTTPException(status_code=404, detail="theme not found") from exc
         return theme, theme_settings, theme_svc
 
@@ -697,6 +714,13 @@ def create_app(
                 for h in SqliteLegacyHostDirectory(s.db_file).list_hosts_for_theme(kb.id)
             ]
             item["reembed_required"] = _reembed_required(kb)
+            if kb.is_shared:
+                # A shared knowledge base without an active moderator has the admin as its only moderator (design Section 10.2). The admin console shows these first.
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    item["active_moderators"] = len(kb_collab.active_moderators(conn, kb.id))
+                finally:
+                    conn.close()
         return item
 
     def _collection_response(request: Request, *, collection_url: str, items: list[dict[str, Any]], extra: dict[str, Any]) -> Response:
@@ -1009,194 +1033,369 @@ def create_app(
             return Response(status_code=200, headers=headers, media_type="application/json")
         return JSONResponse(page_data, headers=headers)
 
-    async def theme_define_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body = await _json_object(request)
+    # Knowledge base lifecycle (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.1). The body field and its type of each setting. A field with another name is unknown and is ignored (CT23).
+    _KB_TEXT_FIELDS = ("label", "description", "icon", "ga_measurement_id", "sorcerer")
+    _KB_BOOL_FIELDS = ("is_public", "presentation_enabled")
+    _KB_SHARED_FIELDS = ("join_policy", "knowledge_type", "state")
+
+    def _kb_settings_from_body(body: dict[str, Any]) -> dict[str, Any]:
+        """The settings of a request body, with the types checked. A wrong type gets 400 with the name of the field."""
         if "fqdn" in body and body["fqdn"]:
-            raise HTTPException(
-                status_code=400,
-                detail="FQDN assignment is deprecated and no longer supported",
-            )
-        label = str(body.get("label") or "").strip()
+            raise HTTPException(status_code=400, detail="FQDN assignment is deprecated and no longer supported")
+        values: dict[str, Any] = {}
+        for name in (*_KB_TEXT_FIELDS, *_KB_SHARED_FIELDS):
+            if name in body:
+                if not isinstance(body[name], str):
+                    raise HTTPException(status_code=400, detail=f"{name}_invalid")
+                values[name] = body[name]
+        for name in _KB_BOOL_FIELDS:
+            if name in body:
+                if not isinstance(body[name], bool):
+                    raise HTTPException(status_code=400, detail=f"{name}_invalid")
+                values[name] = body[name]
+        if "seed_entities" in body:
+            values["seed_entities"] = body["seed_entities"]
+        return values
+
+    def _require_multi_kb() -> None:
+        if not getattr(s, "multi_theme", False):
+            raise HTTPException(status_code=403, detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+
+    async def kb_create_route(request: Request) -> JSONResponse:
+        """``POST /kb``: each active account makes shared knowledge bases, without a limit (CT3). The founder selects the knowledge type (required, CT12), can give seed entities, and becomes the first moderator (CT8)."""
+        _require_multi_kb()
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        values = _kb_settings_from_body(await _json_object(request))
+        label = str(values.get("label") or "").strip()
         if not label:
             raise HTTPException(status_code=400, detail="label is required")
-        desc = str(body.get("description") or "").strip()
-        icon = str(body.get("icon") or "📁").strip()
-        is_pub = bool(body.get("is_public", body.get("public", True)))
-        ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
-        sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
-        pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
-        principal = request_principal(request)
-        target_account_id = principal.account_id if principal.account_id is not None else 1
-
-        # Design Section 10.1: each active account makes shared knowledge bases, without a limit (CT3). The founder selects the knowledge type (required, CT12).
-        knowledge_type = body.get("knowledge_type")
-        if knowledge_type not in ("real", "fictional"):
+        if values.get("knowledge_type") not in ("real", "fictional"):
             raise HTTPException(status_code=400, detail="knowledge_type_required")
+        for name in ("join_policy", "state"):
+            if name in values:
+                # A new shared knowledge base is ``active`` with the join policy ``approval`` (design Section 10.1). The settings route changes them.
+                raise HTTPException(status_code=400, detail=f"{name}_not_at_create")
         try:
-            theme = theme_mgr.define_kb(
+            kb = await asyncio.to_thread(
+                theme_mgr.define_kb,
                 label,
-                description=desc,
-                icon=icon,
-                is_public=is_pub,
-                ga_measurement_id=ga_id,
-                sorcerer=sorcerer,
-                presentation_enabled=pres_enabled,
-                account_id=target_account_id,
-                knowledge_type=knowledge_type,
+                description=str(values.get("description") or "").strip(),
+                icon=str(values.get("icon") or "📁").strip(),
+                is_public=values.get("is_public", True),
+                ga_measurement_id=str(values.get("ga_measurement_id") or "").strip(),
+                sorcerer=str(values.get("sorcerer") or "").strip(),
+                presentation_enabled=values.get("presentation_enabled", False),
+                account_id=principal.account_id,
+                knowledge_type=values["knowledge_type"],
+                seed_entities=values.get("seed_entities"),
             )
-            return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err
         except Exception as exc:
-            _log_operation_failure(request, "theme define", exc)
-            raise HTTPException(status_code=500, detail="failed to define theme") from exc
+            _log_operation_failure(request, "kb create", exc)
+            raise HTTPException(status_code=500, detail="failed to make the knowledge base") from exc
+        return JSONResponse({"ok": True, "knowledge_base": kb.to_dict()}, status_code=201)
 
-    async def theme_update_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body = await _json_object(request)
-        if "fqdn" in body and body["fqdn"]:
-            raise HTTPException(
-                status_code=400,
-                detail="FQDN assignment is deprecated and no longer supported",
-            )
-        kb_id = (
-            request.query_params.get("id")
-            or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("kb_id", "")
-        )
-        if not kb_id:
-            raise HTTPException(status_code=400, detail="id is required")
-
+    async def kb_settings_route(request: Request) -> JSONResponse:
+        """``PATCH /kb/{number}/`` and ``PATCH /@{u}/`` (``PATCH /`` under the prefix): change the settings of the knowledge base that the path selects. A shared one needs the capability ``settings``; a personal one takes its account."""
+        _require_multi_kb()
+        values = _kb_settings_from_body(await _json_object(request))
+        kb = _select_kb(request)
+        principal = request_principal(request)
         try:
-            target_theme = theme_mgr.get_kb_by_reference(kb_id)
-        except KnowledgeBaseNotFound:
-            raise HTTPException(status_code=404, detail="theme not found")
-        # Personal: only its owner. Shared: the capability ``settings`` (moderator or admin, design Section 6.2).
-        _require_kb(request, target_theme, _request_capability(request))
-
-        label = body.get("label")
-        desc = body.get("description") if "description" in body else body.get("desc")
-        icon = body.get("icon")
-        is_pub = (
-            body.get("is_public")
-            if "is_public" in body
-            else (body.get("public") if "public" in body else None)
-        )
-        if is_pub is not None:
-            is_pub = bool(is_pub)
-        ga_id = (
-            body.get("ga_measurement_id")
-            if "ga_measurement_id" in body
-            else (body.get("ga_id") if "ga_id" in body else None)
-        )
-        sorcerer = (
-            body.get("sorcerer")
-            if "sorcerer" in body
-            else (body.get("knowledge_manager") if "knowledge_manager" in body else None)
-        )
-        pres_enabled = (
-            body.get("presentation_enabled")
-            if "presentation_enabled" in body
-            else (body.get("is_presentation_enabled") if "is_presentation_enabled" in body else None)
-        )
-        if pres_enabled is not None:
-            pres_enabled = bool(pres_enabled)
-        try:
-            theme = theme_mgr.update_kb(
-                target_theme.id,
-                label=label,
-                description=desc,
-                icon=icon,
-                is_public=is_pub,
-                ga_measurement_id=ga_id,
-                sorcerer=sorcerer,
-                presentation_enabled=pres_enabled,
-            )
-            return JSONResponse({"ok": True, "theme": theme.to_dict()})
+            updated = await asyncio.to_thread(theme_mgr.update_kb, kb.id, **values)
         except KeyError as k_err:
-            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+            raise HTTPException(status_code=404, detail="theme not found") from k_err
         except ValueError as v_err:
             raise HTTPException(status_code=400, detail=str(v_err)) from v_err
         except Exception as exc:
-            _log_operation_failure(request, "theme update", exc)
-            raise HTTPException(status_code=500, detail="failed to update theme") from exc
+            _log_operation_failure(request, "kb settings", exc)
+            raise HTTPException(status_code=500, detail="failed to change the knowledge base") from exc
+        if updated.is_shared:
+            def _log() -> None:
+                conn = dbm.connect_existing(s.db_file)
+                try:
+                    kb_collab.log_moderation(conn, kb_id=updated.id, actor_account_id=principal.account_id, action="settings", target=",".join(sorted(values)))
+                    conn.commit()
+                finally:
+                    conn.close()
 
-    async def theme_delete_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(
-                status_code=403,
-                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
-            )
-        body: dict[str, Any] = {}
-        if request.headers.get("content-type") == "application/json":
+            await asyncio.to_thread(_log)
+        return JSONResponse({"ok": True, "knowledge_base": updated.to_dict()})
+
+    async def kb_delete_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/``: delete a shared knowledge base with its documents and graph (design Section 10.1: admin only, step-up). Without ``?apply=true`` the answer is the plan only (PRINCIPLES D3)."""
+        _require_multi_kb()
+        kb = _select_kb(request)
+        raw_apply = request.query_params.get("apply")
+        if raw_apply not in (None, "true", "false"):
+            raise HTTPException(status_code=400, detail="invalid_apply")
+        if kb.is_personal:
+            raise HTTPException(status_code=400, detail="kb_personal_cannot_delete")
+
+        def _plan() -> dict[str, int]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                raw_body = await _json_object(request)
-                if isinstance(raw_body, dict):
-                    body = raw_body
-            except Exception:
-                pass
+                plan = dict(theme_summary(conn, include_hidden=True, kb_id=kb.id))
+                plan["members"] = conn.execute("SELECT COUNT(*) FROM kb_memberships WHERE kb_id=?", (kb.id,)).fetchone()[0]
+                plan["contributions"] = conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=?", (kb.id,)).fetchone()[0]
+                return plan
+            finally:
+                conn.close()
 
-        kb_id = (
-            request.query_params.get("id")
-            or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("kb_id", "")
-        )
-        if not kb_id:
-            raise HTTPException(status_code=400, detail="id is required")
-
-        purge = (
-            request.query_params.get("purge", "0").strip().lower()
-            in ("1", "true", "yes")
-        )
-        if not purge and isinstance(body, dict):
-            purge = bool(body.get("purge", False))
-
+        plan = await asyncio.to_thread(_plan)
+        if raw_apply != "true":
+            return JSONResponse({"ok": True, "applied": False, "knowledge_base": kb.to_dict(), "would_delete": plan})
         try:
-            target_theme = theme_mgr.get_kb_by_reference(kb_id)
-        except KnowledgeBaseNotFound:
-            raise HTTPException(status_code=404, detail="theme not found")
-        # Shared: the capability ``delete`` (admin only, design Section 6.2), with step-up (Section 6.8, ``ROUTE_POLICY``). Personal: only its owner asks; the store refuses the delete.
-        _require_kb(request, target_theme, _request_capability(request))
-
-        try:
-            deleted = theme_mgr.delete_kb(target_theme.id, purge=purge)
-            if hasattr(service_pool, "remove_service"):
-                service_pool.remove_service(deleted.id)
-            return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
-        except KeyError as k_err:
-            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+            deleted = await asyncio.to_thread(theme_mgr.delete_kb, kb.id, purge=True)
         except ValueError as v_err:
             raise HTTPException(status_code=400, detail=str(v_err)) from v_err
         except Exception as exc:
-            _log_operation_failure(request, "theme delete", exc)
-            raise HTTPException(status_code=500, detail="failed to delete theme") from exc
+            _log_operation_failure(request, "kb delete", exc)
+            raise HTTPException(status_code=500, detail="failed to delete the knowledge base") from exc
+        if hasattr(service_pool, "remove_service"):
+            service_pool.remove_service(deleted.id)
+        principal = request_principal(request)
+        if principal.account_id is not None:
+            def _audit() -> None:
+                auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(s.data_dir))
+                try:
+                    auth_db.record_admin_audit(auth_conn, actor_account_id=int(principal.account_id), action="kb_delete", detail={"kb_number": deleted.to_dict()["number"], "deleted": plan})
+                finally:
+                    auth_conn.close()
+
+            await asyncio.to_thread(_audit)
+        return JSONResponse({"ok": True, "applied": True, "deleted": deleted.to_dict(), "would_delete": plan})
+
+    # --- Membership and moderation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.2) ---
+
+    _MEMBER_ACTIONS = ("approve", "ban", "remove")
+    _MEMBER_ROLES = ("member", "collaborator")  # the role ``moderator`` has its own admin route
+    _MAX_REASON_LENGTH = 500
+
+    def _shared_kb_of_path(request: Request) -> KnowledgeBaseInfo:
+        """The shared knowledge base that the path pins. A personal knowledge base has no members: 404."""
+        kb = _select_kb(request)
+        if not kb.is_shared:
+            raise HTTPException(status_code=404, detail="theme not found")
+        return kb
+
+    def _member_view(row: dict[str, Any], *, mode: str) -> dict[str, Any]:
+        """One member for a response. The account is its public number. The username goes only in network mode and for a public profile (S9, N1)."""
+        view: dict[str, Any] = {
+            "number": ids.format_public_id(int(row["membership_public_id"])),
+            "account": ids.format_public_id(int(row["account_public_id"])),
+            "display_name": row["display_name"],
+            "role": row["role"],
+            "state": row["state"],
+            "requested_at": row["requested_at"],
+            "decided_at": row["decided_at"],
+        }
+        if mode == "network" and row["profile_public"] and row["username"]:
+            view["username"] = row["username"]
+        return view
+
+    def _member_row(conn: sqlite3.Connection, kb_id: int, account_id: int) -> dict[str, Any] | None:
+        rows = [r for r in kb_collab.members_with_accounts(conn, kb_id, states=kb_collab.MEMBERSHIP_STATES) if r["account_id"] == account_id]
+        return rows[0] if rows else None
+
+    def _account_of_path(conn: sqlite3.Connection, request: Request) -> accounts_store.Account:
+        """The account of the path parameter ``account`` (its public number). An account that is not there, or is not ``active``, gets 404."""
+        try:
+            public_id = ids.parse_public_id(str(request.path_params.get("account") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="account_not_found") from None
+        account = accounts_store.AccountStore(conn).find_by_public_id(public_id)
+        if account is None or account.status != "active":
+            raise HTTPException(status_code=404, detail="account_not_found")
+        return account
+
+    def _reason_of(body: dict[str, Any]) -> str:
+        reason = body.get("reason", "")
+        if not isinstance(reason, str) or len(reason) > _MAX_REASON_LENGTH:
+            raise HTTPException(status_code=400, detail="reason_invalid")
+        return reason.strip()
+
+    async def kb_join_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/membership``: ``open`` makes an active member, ``approval`` a pending one. A banned account and an archived knowledge base get 403."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        if kb.state == "archived":
+            raise HTTPException(status_code=403, detail="kb_archived")
+        mode = request_namespace(request).mode
+
+        def _join() -> tuple[dict[str, Any], bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                account_id = int(principal.account_id)
+                current = kb_collab.get_membership(conn, kb.id, account_id)
+                created = current is None
+                if created:
+                    kb_collab.add_membership(conn, kb_id=kb.id, account_id=account_id, role="member", state="active" if kb.join_policy == "open" else "pending")
+                    conn.commit()
+                row = _member_row(conn, kb.id, account_id)
+                assert row is not None
+                return _member_view(row, mode=mode), created
+            finally:
+                conn.close()
+
+        member, created = await asyncio.to_thread(_join)
+        return JSONResponse({"ok": True, "membership": member}, status_code=201 if created else 200)
+
+    async def kb_leave_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/membership``: leave, or withdraw a join request. The last moderator cannot leave (409)."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+
+        def _leave() -> None:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                account_id = int(principal.account_id)
+                current = kb_collab.get_membership(conn, kb.id, account_id)
+                if current is None:
+                    raise HTTPException(status_code=404, detail="membership_not_found")
+                if current["role"] == "moderator" and current["state"] == "active" and kb_collab.active_moderators(conn, kb.id) == [account_id]:
+                    raise HTTPException(status_code=409, detail="last_moderator")
+                kb_collab.delete_membership(conn, kb.id, account_id)
+                if current["state"] == "active" and current["role"] != "member":
+                    # A role ends: a role change (design Section 6.8 rule 3).
+                    kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=account_id, action="leave", target=str(request_principal_public_id(conn, account_id)), reason=current["role"])
+                conn.commit()
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(_leave)
+        return JSONResponse({"ok": True})
+
+    def request_principal_public_id(conn: sqlite3.Connection, account_id: int) -> str:
+        return ids.format_public_id(accounts_store.AccountStore(conn).get(account_id).public_id)
+
+    async def kb_members_route(request: Request) -> Response:
+        """``GET /kb/{number}/members``: the active members with their roles, for each reader. An account with the capability ``people`` also gets the pending and the banned entries."""
+        kb = _shared_kb_of_path(request)
+        sees_all = _kb_decide(request, kb, "people") == "allow"
+        mode = request_namespace(request).mode
+
+        def _members() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                states = kb_collab.MEMBERSHIP_STATES if sees_all else ("active",)
+                return [_member_view(r, mode=mode) for r in kb_collab.members_with_accounts(conn, kb.id, states=states)]
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_members)
+        collection_url = f"{_public_origin(request)}{kb_base_path(kb.number)}members"
+        return _collection_response(request, collection_url=collection_url, items=items, extra={"members": items})
+
+    async def kb_member_change_route(request: Request) -> Response:
+        """``PATCH /kb/{number}/members/{account}`` (capability ``people``): ``{"action": "approve" | "ban" | "remove"}``, or ``{"role": "collaborator" | "member"}``. A role change needs a recent sign-in in a session (design Section 6.8). A moderator cannot change another moderator."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        action, role = body.get("action"), body.get("role")
+        if (action is None) == (role is None):
+            raise HTTPException(status_code=400, detail="action_or_role_required")
+        if action is not None and action not in _MEMBER_ACTIONS:
+            raise HTTPException(status_code=400, detail="action_invalid")
+        if role is not None and role not in _MEMBER_ROLES:
+            raise HTTPException(status_code=400, detail="role_invalid")
+        reason = _reason_of(body)
+        if role is not None:
+            refused = step_up_response(principal)
+            if refused is not None:
+                return refused
+        mode = request_namespace(request).mode
+
+        def _change() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                actor_id = int(principal.account_id)
+                target = _account_of_path(conn, request)
+                if target.id == actor_id:
+                    raise HTTPException(status_code=400, detail="self_not_allowed")
+                current = kb_collab.get_membership(conn, kb.id, target.id)
+                if current is not None and current["role"] == "moderator" and current["state"] == "active" and (role is not None or principal.server_role != "admin"):
+                    # Only the admin changes a moderator, and the role itself only by the admin route.
+                    raise HTTPException(status_code=403, detail="moderator_protected")
+                log_action = action if action is not None else f"role_{role}"
+                if action == "approve":
+                    if current is None or current["state"] != "pending":
+                        raise HTTPException(status_code=409, detail="not_pending")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="active", decided_by_account_id=actor_id)
+                elif action == "ban":
+                    if current is None:
+                        kb_collab.add_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="banned", decided_by_account_id=actor_id)
+                    else:
+                        kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", state="banned", decided_by_account_id=actor_id)
+                elif action == "remove":
+                    if current is None:
+                        raise HTTPException(status_code=404, detail="membership_not_found")
+                    kb_collab.delete_membership(conn, kb.id, target.id)
+                else:
+                    # Design Section 6.2 rule 4: a collaborator must be an active member first. To remove the role makes it a member again.
+                    if current is None or current["state"] != "active":
+                        raise HTTPException(status_code=409, detail="not_active_member")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role=role, decided_by_account_id=actor_id)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action=log_action, target=ids.format_public_id(target.public_id), reason=reason)
+                conn.commit()
+                row = _member_row(conn, kb.id, target.id)
+                return None if row is None else _member_view(row, mode=mode)
+            finally:
+                conn.close()
+
+        member = await asyncio.to_thread(_change)
+        return JSONResponse({"ok": True, "member": member})
+
+    async def admin_kb_moderator_route(request: Request) -> JSONResponse:
+        """``PUT`` and ``DELETE /api/admin/kb/{number}/moderators/{account}``: the admin gives or removes the role ``moderator`` (design Section 10.2; step-up by ``ROUTE_POLICY``). The log of the knowledge base and ``admin_audit`` get a row."""
+        principal = request_principal(request)
+        try:
+            kb = theme_mgr.get_kb_by_reference(request.path_params.get("number"))
+        except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found") from None
+        if not kb.is_shared:
+            raise HTTPException(status_code=404, detail="theme not found")
+        _require_kb(request, kb, _request_capability(request))
+        give = request.method == "PUT"
+        mode = request_namespace(request).mode
+
+        def _change() -> tuple[dict[str, Any], int]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                actor_id = int(principal.account_id)
+                target = _account_of_path(conn, request)
+                current = kb_collab.get_membership(conn, kb.id, target.id)
+                if give:
+                    if current is None:
+                        kb_collab.add_membership(conn, kb_id=kb.id, account_id=target.id, role="moderator", state="active", decided_by_account_id=actor_id)
+                    else:
+                        kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="moderator", state="active", decided_by_account_id=actor_id)
+                else:
+                    if current is None or current["role"] != "moderator":
+                        raise HTTPException(status_code=404, detail="not_a_moderator")
+                    kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", decided_by_account_id=actor_id)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action="moderator_give" if give else "moderator_remove", target=ids.format_public_id(target.public_id))
+                conn.commit()
+                row = _member_row(conn, kb.id, target.id)
+                assert row is not None
+                return _member_view(row, mode=mode), target.id
+            finally:
+                conn.close()
+
+        member, target_id = await asyncio.to_thread(_change)
+
+        def _audit() -> None:
+            auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(s.data_dir))
+            try:
+                auth_db.record_admin_audit(auth_conn, actor_account_id=int(principal.account_id), action="kb_moderator_give" if give else "kb_moderator_remove", target_account_id=target_id, detail={"kb_number": kb.to_dict()["number"]})
+            finally:
+                auth_conn.close()
+
+        await asyncio.to_thread(_audit)
+        return JSONResponse({"ok": True, "member": member})
 
     def _load_server_tier_payload() -> dict[str, Any]:
         """Read current ServerTier configuration for /providers responses."""
@@ -4603,10 +4802,15 @@ def create_app(
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
         Route("/kb", kb_collection_route, methods=["GET", "HEAD"]),
+        Route("/kb", kb_create_route, methods=["POST"]),
+        Route("/", kb_settings_route, methods=["PATCH"]),
+        Route("/", kb_delete_route, methods=["DELETE"]),
+        Route("/membership", kb_join_route, methods=["POST"]),
+        Route("/membership", kb_leave_route, methods=["DELETE"]),
+        Route("/members", kb_members_route, methods=["GET", "HEAD"]),
+        Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/api/admin/kb/{number}/moderators/{account}", admin_kb_moderator_route, methods=["PUT", "DELETE"]),
         Route("/themes", themes_collection_route, methods=["GET", "HEAD"]),
-        Route("/themes", theme_define_route, methods=["POST"]),
-        Route("/themes", theme_update_route, methods=["PATCH"]),
-        Route("/themes", theme_delete_route, methods=["DELETE"]),
         Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
         Route("/providers/test", providers_test_route, methods=["POST"]),

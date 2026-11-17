@@ -130,21 +130,21 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Step 6: Runtime toggle via API
         # Enable Theme 0
         patch0 = client.patch(
-            "/themes",
-            json={"id": kb_number(s, 0), "presentation_enabled": True},
+            "/",
+            json={"presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch0.status_code == 200
-        assert patch0.json()["theme"]["presentation_enabled"] is True
+        assert patch0.json()["knowledge_base"]["presentation_enabled"] is True
 
         # Disable Theme 1
         patch1 = client.patch(
-            "/themes",
-            json={"id": kb_number(s, t1.id), "presentation_enabled": False},
+            f"/kb/{kb_number(s, t1.id)}/",
+            json={"presentation_enabled": False},
             headers=owner_headers,
         )
         assert patch1.status_code == 200
-        assert patch1.json()["theme"]["presentation_enabled"] is False
+        assert patch1.json()["knowledge_base"]["presentation_enabled"] is False
 
         # Verify inverted access
         res0_after = client.get("/document/presentation?id=doc-0", headers=owner_headers)

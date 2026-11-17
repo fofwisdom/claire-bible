@@ -183,10 +183,9 @@
   - `max_effort`: 허용 최대 effort (기본값 `"low"`)
   - `features`: 허용 기능 집합 (기본값 빈 집합. `expand`, `stt`, `vlm`, `presentation`, `synthesize`)
   - `storage_mb`: 계정별 저장 용량 상한 MB (기본값 `2048`)
-  - `max_themes`: 계정별 최대 테마 수 (기본값 `5`)
   - `max_documents`: 계정별 최대 문서 수 (기본값 `5000`)
   - `byok_caps`: BYOK 계정의 서버 자원 상한 (`{"max_concurrency": 1}`)
-- **자원 한도 공통 적용**: 서버 자원 한도(`storage_mb`, `max_themes`, `max_documents`, `daily_ingests`)는 본인 키가 있는 BYOK 멤버에게도 동일하게 적용된다.
+- **자원 한도 공통 적용**: 서버 자원 한도(`storage_mb`, `max_documents`, `daily_ingests`)는 본인 키가 있는 BYOK 멤버에게도 동일하게 적용된다.
 - **유효성 검증 및 보호**:
   - `ServerTier.from_dict`가 필드와 범위를 엄격히 검증하며, 잘못된 JSON이나 미지원 프로바이더는 `provider="none"`으로 fail-closed 처리한다.
 - **관리 경로**: 관리자 세션에서 `GET /api/admin/server-tier`, `PUT /api/admin/server-tier`를 통해 설정 및 조회할 수 있으며, `/admin/server` 화면에 관리 패널이 제공된다.

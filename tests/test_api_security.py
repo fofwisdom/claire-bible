@@ -317,6 +317,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/ingest/active",
         "/mcp",
         "/kb",
+        "/members",
         "/themes",
         "/api/syndication/dispatches",
         "/syndication/dispatches",
@@ -357,7 +358,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/dedup/merge",
         "/entity/primary-label",
         "/graph/bundle",
-        "/themes",
+        "/kb",
+        "/membership",
         "/resolution/rollback",
         "/document/matrix/purge",
         "/tokens",
@@ -368,8 +370,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     }
     owner_methods = {
         ("PUT", "/document/presentation/adoc"),
-        ("PATCH", "/themes"),
-        ("DELETE", "/themes"),
+        ("PATCH", "/"),
+        ("DELETE", "/"),
+        ("DELETE", "/membership"),
+        ("PATCH", "/members/{account}"),
         ("GET", "/tokens"),
         ("HEAD", "/tokens"),
         ("DELETE", "/tokens"),
@@ -470,6 +474,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((method, "/api/me/personal-cli") for method in ("GET", "HEAD", "PATCH")),
         ("POST", "/api/me/personal-cli/test"),
         ("POST", "/support/bundle"),
+        *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *(
             (method, path)
             for path in (
@@ -1543,7 +1548,7 @@ def _state_changing_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/document/presentation/adoc", _endpoint, methods=["PUT"]),
-            Route("/themes", _endpoint, methods=["PATCH", "DELETE"]),
+            Route("/", _endpoint, methods=["PATCH", "DELETE"]),
             Route("/tokens", _endpoint, methods=["DELETE"]),
             Route("/document/seen", _endpoint, methods=["POST"]),
         ]
@@ -1556,8 +1561,8 @@ def _state_changing_app() -> Starlette:
     [
         ("POST", "/document/seen"),
         ("PUT", "/document/presentation/adoc"),
-        ("PATCH", "/themes"),
-        ("DELETE", "/themes"),
+        ("PATCH", "/"),
+        ("DELETE", "/"),
         ("DELETE", "/tokens"),
     ],
 )

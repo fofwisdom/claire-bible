@@ -187,7 +187,8 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     doc_t2 = _seed(client, settings, tm, t2, f"{t2.label} 문서 본문")
 
     # 데이터 행은 남기고 테마만 삭제
-    assert step_up_request(client, settings, "DELETE", f"/themes?id={_num(t1)}").status_code == 200
+    # The HTTP delete purges (design Section 10.1). This test needs the rows of the documents to stay, so it deletes with the store.
+    tm.delete_kb(t1.id, purge=False)
 
     live = client.get(f"/kb/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
     assert live.status_code == 200

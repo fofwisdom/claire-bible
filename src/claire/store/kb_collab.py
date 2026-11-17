@@ -115,6 +115,62 @@ def list_memberships(conn: sqlite3.Connection, kb_id: int, *, state: str | None 
     return [dict(zip(keys, tuple(r))) for r in conn.execute(sql, args).fetchall()]
 
 
+def update_membership(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    account_id: int,
+    role: str | None = None,
+    state: str | None = None,
+    decided_by_account_id: int | None = None,
+    now: float | None = None,
+) -> None:
+    """Change the role, the state, or the two of one membership (design Section 10.2). ``KeyError`` when there is no such membership."""
+    if role is not None and role not in ROLES:
+        raise ValueError(f"invalid role: {role!r}")
+    if state is not None and state not in MEMBERSHIP_STATES:
+        raise ValueError(f"invalid membership state: {state!r}")
+    current = get_membership(conn, kb_id, account_id)
+    if current is None:
+        raise KeyError(f"no membership of account {account_id} in knowledge base {kb_id}")
+    ts = time.time() if now is None else now
+    conn.execute(
+        "UPDATE kb_memberships SET role=?, state=?, decided_at=?, decided_by_account_id=? WHERE kb_id=? AND account_id=?",
+        (role or current["role"], state or current["state"], ts, decided_by_account_id, int(kb_id), int(account_id)),
+    )
+
+
+def delete_membership(conn: sqlite3.Connection, kb_id: int, account_id: int) -> bool:
+    """Delete one membership (leave, or remove). Return False when there was none."""
+    return conn.execute("DELETE FROM kb_memberships WHERE kb_id=? AND account_id=?", (int(kb_id), int(account_id))).rowcount > 0
+
+
+def active_moderators(conn: sqlite3.Connection, kb_id: int) -> list[int]:
+    """The accounts that moderate the knowledge base now: an active membership with the role ``moderator`` of an account that is ``active`` (a suspended account keeps its role, but the role gives no right; design Section 6.7 rule 5)."""
+    rows = conn.execute(
+        "SELECT m.account_id FROM kb_memberships m JOIN accounts a ON a.id = m.account_id WHERE m.kb_id=? AND m.role='moderator' AND m.state='active' AND a.status='active' ORDER BY m.account_id",
+        (int(kb_id),),
+    ).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def members_with_accounts(conn: sqlite3.Connection, kb_id: int, *, states: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The memberships of a knowledge base in the given states, with the public data of each account (the collection ``GET /kb/{number}/members``)."""
+    for state in states:
+        if state not in MEMBERSHIP_STATES:
+            raise ValueError(f"invalid membership state: {state!r}")
+    if not states:
+        return []
+    marks = ",".join("?" for _ in states)
+    keys = ("account_id", "account_public_id", "username", "display_name", "profile_public", "account_status", "membership_public_id", "role", "state", "requested_at", "decided_at")
+    rows = conn.execute(
+        "SELECT a.id, a.public_id, a.username, a.display_name, a.profile_public, a.status, m.public_id, m.role, m.state, m.requested_at, m.decided_at "
+        f"FROM kb_memberships m JOIN accounts a ON a.id = m.account_id WHERE m.kb_id=? AND m.state IN ({marks}) ORDER BY m.public_id DESC",
+        (int(kb_id), *states),
+    ).fetchall()
+    return [dict(zip(keys, tuple(r))) for r in rows]
+
+
 def account_memberships(conn: sqlite3.Connection, account_id: int, *, state: str) -> dict[int, str]:
     """The memberships of one account in the given state: knowledge base id → role (the collections ``/kb?joined=true`` and ``/@{u}/kb``, design Section 7)."""
     if state not in MEMBERSHIP_STATES:

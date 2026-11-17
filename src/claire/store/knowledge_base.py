@@ -112,6 +112,9 @@ class KnowledgeBaseInfo:
     knowledge_type: str | None = None
     join_policy: str = "approval"
     state: str = "active"
+    archived_at: float | None = None
+    # Seed entities (design Section 8.5): names, at most ``MAX_SEED_ENTITIES``.
+    seed_entities: tuple[str, ...] = ()
     # v16(§13.2). 외부 번호(항상 >= 2^56, §7.2). 내부 ``id``는 내부 키로 남는다(K9).
     number: int | None = None
     # 공개 상태 변경·문서 purge 때 올린다. 열람 capability URL을 즉시 무효화한다(§5.2).
@@ -216,6 +219,41 @@ def _owner_account_id(data: dict[str, Any], source: str, *, allow_none: bool = F
     return raw
 
 
+JOIN_POLICIES = ("open", "approval")
+KB_STATES = ("active", "archived")
+MAX_SEED_ENTITIES = 20
+MAX_SEED_ENTITY_LENGTH = 200
+
+
+def validate_seed_entities(value: Any) -> tuple[str, ...]:
+    """Seed entities of a shared knowledge base (design Sections 8.5 and 10.1): a list of names, at most 20, without duplicates. Else ``ValueError`` with a code."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("seed_entities_invalid")
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("seed_entities_invalid")
+        name = item.strip()
+        if not name or len(name) > MAX_SEED_ENTITY_LENGTH:
+            raise ValueError("seed_entities_invalid")
+        if name not in names:
+            names.append(name)
+    if len(names) > MAX_SEED_ENTITIES:
+        raise ValueError("seed_entities_too_many")
+    return tuple(names)
+
+
+def _stored_seed_entities(raw: Any) -> tuple[str, ...]:
+    """The stored JSON list. A value that is not a list of strings is a defect of the data: it reads as no seed entity and the log gets a warning."""
+    if raw in (None, "", "[]"):
+        return ()
+    try:
+        return validate_seed_entities(json.loads(raw))
+    except (ValueError, TypeError):
+        log.warning("knowledge_bases.seed_entities has a value that is not a list of names; it reads as empty")
+        return ()
+
+
 def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
     d = dict(row)
     tid = int(d.get("id", 0))
@@ -242,6 +280,8 @@ def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
         knowledge_type=d.get("knowledge_type"),
         join_policy=str(d.get("join_policy") or "approval"),
         state=str(d.get("state") or "active"),
+        archived_at=d.get("archived_at"),
+        seed_entities=_stored_seed_entities(d.get("seed_entities")),
         # 열이 없는 행은 v16 이전 DB(읽기 전용 점검)다.
         number=_theme_number(d.get("number"), "themes table", tid),
         visibility_epoch=_visibility_epoch(d.get("visibility_epoch"), "themes table", tid),
@@ -730,20 +770,28 @@ class KnowledgeBaseManager:
         presentation_enabled: bool = False,
         account_id: int = dbm.ADMIN_ACCOUNT_ID,
         knowledge_type: str | None = None,
+        seed_entities: Any = None,
     ) -> KnowledgeBaseInfo:
         """Make a knowledge base.
+
+        ``seed_entities``: at most 20 names, for a shared knowledge base only (design Section 10.1).
 
         - ``is_personal=True``: the one personal knowledge base of ``account_id`` (CT1). It has no knowledge type.
         - Else a shared knowledge base (CT2, CT3): it has no owner, is public, and needs ``knowledge_type`` (``real`` or ``fictional``, CT12; there is no default). ``account_id`` is the founder: it becomes ``created_by_account_id`` and the first moderator (CT8). Labels need not be unique.
         """
+        seeds: tuple[str, ...] = ()
         if is_personal:
             if knowledge_type is not None:
                 raise ValueError("a personal knowledge base has no knowledge type")
+            if seed_entities:
+                raise ValueError("kb_shared_only")
         else:
             if knowledge_type not in ("real", "fictional"):
                 raise ValueError("knowledge_type_required")
             if not is_public:
                 raise ValueError("a shared knowledge base is always public")
+            if seed_entities is not None:
+                seeds = validate_seed_entities(seed_entities)
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -786,6 +834,7 @@ class KnowledgeBaseManager:
             account_id=account_id if is_personal else None,
             created_by_account_id=None if is_personal else account_id,
             knowledge_type=None if is_personal else knowledge_type,
+            seed_entities=seeds,
         )
 
         conn = dbm.connect(db_file)
@@ -800,8 +849,8 @@ class KnowledgeBaseManager:
                         is_personal, is_public,
                         fqdn, ga_measurement_id, sorcerer,
                         presentation_enabled, created_at, updated_at, account_id,
-                        number, visibility_epoch, created_by_account_id, knowledge_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        number, visibility_epoch, created_by_account_id, knowledge_type, seed_entities
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         theme.id,
@@ -823,6 +872,7 @@ class KnowledgeBaseManager:
                         theme.visibility_epoch,
                         theme.created_by_account_id,
                         theme.knowledge_type,
+                        json.dumps(list(theme.seed_entities), ensure_ascii=False),
                     ),
                 )
 
@@ -874,8 +924,14 @@ class KnowledgeBaseManager:
         sorcerer: str | None = None,
         knowledge_manager: str | None = None,
         presentation_enabled: bool | None = None,
+        join_policy: str | None = None,
+        knowledge_type: str | None = None,
+        seed_entities: Any = None,
+        state: str | None = None,
     ) -> KnowledgeBaseInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음).
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음).
+
+        Settings of a shared knowledge base only (design Section 10.1): ``join_policy`` (``open`` or ``approval``), ``knowledge_type``, ``seed_entities`` (at most 20 names), and ``state`` (``active`` or ``archived``). For a personal knowledge base each of them raises ``ValueError("kb_shared_only")``. A new knowledge type takes the knowledge base out of its themes: a theme has one type (CT18).
 
         ``fqdn``은 폐지됐다(O5). 비어 있지 않으면 ``ValueError``, 빈 값은 아무것도 바꾸지 않는다. 기존 ``knowledge_bases.fqdn`` 열은 ``legacy_hosts``의 원본이므로 지우지 않는다(A3).
         """
@@ -937,6 +993,27 @@ class KnowledgeBaseManager:
             theme.presentation_enabled = bool(presentation_enabled)
 
         theme.updated_at = time.time()
+        type_changed = False
+        if any(v is not None for v in (join_policy, knowledge_type, seed_entities, state)):
+            if not theme.is_shared:
+                raise ValueError("kb_shared_only")
+            if join_policy is not None:
+                if join_policy not in JOIN_POLICIES:
+                    raise ValueError("join_policy_invalid")
+                theme.join_policy = join_policy
+            if knowledge_type is not None:
+                if knowledge_type not in _themes_store.KNOWLEDGE_TYPES:
+                    raise ValueError("knowledge_type_invalid")
+                type_changed = knowledge_type != theme.knowledge_type
+                theme.knowledge_type = knowledge_type
+            if seed_entities is not None:
+                theme.seed_entities = validate_seed_entities(seed_entities)
+            if state is not None:
+                if state not in KB_STATES:
+                    raise ValueError("state_invalid")
+                if state != theme.state:
+                    theme.state = state
+                    theme.archived_at = theme.updated_at if state == "archived" else None
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         conn = dbm.connect(db_file)
@@ -953,6 +1030,11 @@ class KnowledgeBaseManager:
                     sorcerer = ?,
                     presentation_enabled = ?,
                     visibility_epoch = ?,
+                    join_policy = ?,
+                    knowledge_type = ?,
+                    seed_entities = ?,
+                    state = ?,
+                    archived_at = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -966,10 +1048,17 @@ class KnowledgeBaseManager:
                     theme.sorcerer,
                     int(theme.presentation_enabled),
                     theme.visibility_epoch,
+                    theme.join_policy,
+                    theme.knowledge_type,
+                    json.dumps(list(theme.seed_entities), ensure_ascii=False),
+                    theme.state,
+                    theme.archived_at,
                     theme.updated_at,
                     tid,
                 ),
             )
+            if type_changed:
+                conn.execute("DELETE FROM theme_knowledge_bases WHERE kb_id=?", (tid,))
             if became_private:
                 # Fedify 사이드카 설계 §9.4: 비공개 전환은 발행된 객체마다 Delete 작업을 만든다. visibility_epoch 증가와 같은 트랜잭션이다.
                 from . import federation as federation_store

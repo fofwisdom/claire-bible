@@ -143,7 +143,6 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
           {num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))}
           {num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)}
           {num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)}
-          {num("max_themes", t("console.admin.tier.max_themes"), tier.max_themes, 1)}
           {num("max_documents", t("console.admin.tier.max_documents"), tier.max_documents, 0)}
           {num("byok_max_concurrency", t("console.admin.tier.byok_concurrency"), tier.byok_max_concurrency, 1)}
           <button type="submit">{escape(t("console.admin.tier.submit"))}</button>

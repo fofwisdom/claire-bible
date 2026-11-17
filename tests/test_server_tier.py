@@ -267,14 +267,13 @@ def test_check_ingest_allowed_applies_to_members_including_byok(auth_path):
 
 def test_admin_is_unlimited(auth_path, kdb):
     now = _utc(2026, 7, 1)
-    for ctx in (_ctx(1, source="admin", is_admin=True, daily_ingests=0, max_themes=1, max_documents=0,
+    for ctx in (_ctx(1, source="admin", is_admin=True, daily_ingests=0, max_documents=0,
                      storage_mb=0, monthly_tokens=0),
                 _ctx(None, source="admin", daily_ingests=0, monthly_tokens=0)):
         for _ in range(5):
             st.check_ingest_allowed(ctx, auth_db_path=auth_path, now=now)
         st.check_tokens_available(ctx, auth_db_path=auth_path, now=now)
         st.record_usage(ctx, auth_db_path=auth_path, tokens_in=1000, tokens_out=1000, now=now)
-        st.check_theme_quota(kdb, ctx)
         st.check_document_quota(kdb, ctx)
         with st.job_slot(ctx), st.job_slot(ctx):
             pass
@@ -331,14 +330,12 @@ def test_ledger_needs_prepared_auth_db(tmp_path):
 # --- 집행: 자원 한도 (BYOK에도 적용) -------------------------------------------------------------------
 
 
-def test_theme_quota_applies_to_byok(kdb):
-    _add_member_row(kdb, 2, 111111111111)
-    _add_theme(kdb, 20, 2)
-    _add_theme(kdb, 21, 2)
-    for source in ("tier", "byok", "none"):
-        st.check_theme_quota(kdb, _ctx(2, source=source, max_themes=3))
-        with pytest.raises(ProviderBudgetExceeded):
-            st.check_theme_quota(kdb, _ctx(2, source=source, max_themes=2))
+def test_retired_theme_limit_is_ignored():
+    """``max_themes`` is retired (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.1). A stored tier or an old client can still have the key: it is ignored, and the tier has no such field."""
+    tier = ServerTier.from_dict({"provider": "none", "max_themes": 3, "max_documents": 7})
+    assert tier.max_documents == 7 and not hasattr(tier, "max_themes") and "max_themes" not in tier.to_dict()
+    with pytest.raises(ValueError):
+        ServerTier.from_dict({"provider": "none", "max_things": 3})
 
 
 def test_document_count_and_storage_quota(kdb, tmp_path):
@@ -549,7 +546,7 @@ def _req(tc: TestClient, method: str, path: str, *, session: str | None = None, 
 
 GOOD_TIER = {
     "provider": "gemini", "model": "gemini-2.5-flash", "monthly_tokens": 200000, "daily_ingests": 10,
-    "max_effort": "low", "features": ["expand", "synthesize"], "storage_mb": 512, "max_themes": 3,
+    "max_effort": "low", "features": ["expand", "synthesize"], "storage_mb": 512,
     "max_documents": 1000, "byok_caps": {"max_concurrency": 2},
 }
 
@@ -625,7 +622,6 @@ def test_server_tier_put_requires_step_up(client, app_settings):
         {**GOOD_TIER, "provider": "codex"},
         {**GOOD_TIER, "features": ["research"]},
         {**GOOD_TIER, "daily_ingests": -1},
-        {**GOOD_TIER, "max_themes": 0},
         {**GOOD_TIER, "unknown": 1},
         {**GOOD_TIER, "byok_caps": {"max_concurrency": 0}},
         {**GOOD_TIER, "monthly_tokens": "100"},
@@ -672,8 +668,10 @@ def test_admin_server_page_has_server_tier_section(client, app_settings):
     assert 'id="server-tier"' in page.text and "data-server-tier-form" in page.text
     assert '<script src="/static/js/server_tier.js" defer></script>' in page.text
     for name in ("provider", "model", "monthly_tokens", "daily_ingests", "max_effort", "storage_mb",
-                 "max_themes", "max_documents", "byok_max_concurrency"):
+                 "max_documents", "byok_max_concurrency"):
         assert f'name="{name}"' in page.text
+    # The theme limit is retired (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.1).
+    assert 'name="max_themes"' not in page.text
     for feature in ("expand", "stt", "vlm", "presentation", "synthesize"):
         assert f'name="features" value="{feature}"' in page.text
     assert "Not set" in page.text
