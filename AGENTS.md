@@ -2,7 +2,7 @@
 
 ## Agent rules
 
-An agent must not give instructions to another agent.
+An agent must not give instructions to an agent of another vendor. For example, an agent of one company does not write tasks, notes, or messages for an agent of a different company. An agent can use the subagents of its own product.
 
 ## Documentation folders
 
