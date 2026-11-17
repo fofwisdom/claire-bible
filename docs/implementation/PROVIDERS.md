@@ -207,11 +207,11 @@
 
 Basis: commit d15ae8e0 (2026-11-16).
 
-- **[code] HTTP routes**: `GET`/`HEAD /providers`, `PATCH`/`POST /providers`, `POST /providers/test`, and `POST /providers/check` in `src/claire/api/server.py`. The route table in `src/claire/api/security.py` allows them only for `admin`.
+- **[code] HTTP routes**: `GET`/`HEAD /providers`, `PATCH`/`POST /providers`, `POST /providers/test`, and `POST /providers/check` in `src/claire/api/server.py`. The route table in `src/claire/api/security.py` allows them only for `admin`, and `POST /providers/test`, `POST /providers/check`, and `POST /api/me/personal-cli/test` additionally require an admin browser cookie session and same-origin request (Bearer API tokens are rejected with 403).
 - **[code] Secret masking**: `ProviderManager.get_settings_dict` returns an API key as `••••••••` when a key is set. `ProviderManager.update_config` keeps the stored key when the request sends the mask or an empty value. It clears the key only for an empty value with `clear_api_key`.
 - **[code] Connection test**: `ProviderManager.test_connection` checks a key, a model, or a CLI binary before or after a save. For Gemini, a masked key in the request means the stored key.
 - **[code] Storage**: `data/providers.json`, written by `ProviderManager.save_config`. The env migration (`migrate_from_env_if_needed`) and its effect on `.env` are in §0 and §2.1.
-- **[code] CLI**: `claire providers` (`list`, `test [<provider>]`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
+- **[code] CLI**: `claire providers` (`list`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
 
 ## 6. 프로바이더를 추가할 때
 

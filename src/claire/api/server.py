@@ -67,6 +67,7 @@ from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound, get_kb_manager
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
+from .accounts_routes.common import same_origin
 from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
@@ -2681,13 +2682,22 @@ def create_app(
             _log_operation_failure(request, "provider update", exc)
             raise HTTPException(status_code=500, detail="failed to update provider configuration") from exc
 
-    async def providers_test_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
+    def _require_admin_browser_session(request: Request) -> None:
+        """Require an authenticated server-admin browser cookie session and same-origin request."""
+        principal = request_principal(request)
+        if principal.channel != "cookie" or principal.server_role != "admin" or principal.scope != "owner":
             raise HTTPException(
                 status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
+                detail="서버 관리자 브라우저 세션이 필요합니다.",
             )
+        if not same_origin(request):
+            raise HTTPException(
+                status_code=403,
+                detail="same-origin 요청만 허용됩니다.",
+            )
+
+    async def providers_test_route(request: Request) -> JSONResponse:
+        _require_admin_browser_session(request)
         body = await _json_object(request)
         provider_name = str(body.get("provider") or "").strip().lower()
         if not provider_name:
@@ -2700,8 +2710,7 @@ def create_app(
         return JSONResponse(res)
 
     async def providers_check_route(request: Request) -> JSONResponse:
-        if request_auth_scope(request) != "owner":
-            raise HTTPException(status_code=403, detail="지식 관리자(owner) 권한이 필요합니다.")
+        _require_admin_browser_session(request)
         body = await _json_object(request)
         from ..provider_manager import get_provider_manager
 

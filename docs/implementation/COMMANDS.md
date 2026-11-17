@@ -726,13 +726,12 @@ A theme is a collection of knowledge bases with one subject (SHARED_KNOWLEDGE_BA
 
 ### 3.12 LLM 프로바이더 관리 (`providers`)
 
-`claire providers` 명령군은 WebUI 및 CLI에서 일관되게 관리되는 `data/providers.json` 레지스트리를 검사하고 환경변수로부터의 마이그레이션과 API 연결 테스트를 수행한다.
+`claire providers` 명령군은 WebUI 및 CLI에서 일관되게 관리되는 `data/providers.json` 레지스트리를 검사하고 환경변수로부터의 마이그레이션을 수행한다.
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
 | `providers list` | `claire providers list` | 등록된 프로바이더 목록, 활성 프로바이더, 유효 STT 프로바이더 및 설정값 조회 (기본 동작) |
 | `providers migrate` | `claire providers migrate` | `.env`의 레거시 프로바이더 환경변수를 `data/providers.json`으로 마이그레이션하고 `.env` 항목 주석 처리 |
-| `providers test` | `claire providers test [<provider>]` | 지정 프로바이더(또는 기본 활성 프로바이더)의 API 엔드포인트 연결 및 핑 진단 |
 
 ---
 

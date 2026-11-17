@@ -4845,16 +4845,6 @@ def cmd_providers(args) -> int:
             print(f"ℹ️ The migration is already complete ({pm.registry_path}).")
         return 0
 
-    if action == "test":
-        target = getattr(args, "target_provider", None) or s.provider
-        res = pm.test_connection(target)
-        if res.get("ok"):
-            print(f"✅ [{target}] Connection or detection succeeded: {res.get('message', '')}")
-            return 0
-        else:
-            print(f"❌ [{target}] Connection or detection failed: {res.get('error', 'unknown error')}", file=sys.stderr)
-            return 1
-
     # list
     cfg = pm.get_sanitized_config()
     print("⚡ Claire Bible Providers (WebUI-managed)")
@@ -5106,13 +5096,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="migrate .env provider settings to data/providers.json and comment out .env",
         description="Migrate provider credentials from .env into data/providers.json and safely comment out corresponding .env keys.",
     ).set_defaults(func=cmd_providers)
-    pprov_test = pprov_sub.add_parser(
-        "test",
-        help="test provider connection or CLI presence",
-        description="Test connection or CLI availability for the specified provider.",
-    )
-    pprov_test.add_argument("target_provider", nargs="?", default=None, help="target provider name (e.g. gemini, antigravity, codex, mock)")
-    pprov_test.set_defaults(func=cmd_providers)
     pprov.set_defaults(func=cmd_providers)
 
     # Knowledge base management (design Section 5.3: "claire kb"; "claire theme" is for the theme collections)

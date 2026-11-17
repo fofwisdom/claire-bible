@@ -206,22 +206,68 @@ def test_provider_api_routes(tmp_path: Path):
     )
     assert bad_resp.status_code == 400
 
-    # 5. POST test connection
+    # 5. POST test connection: Bearer API is rejected (403); only admin browser cookie session + same-origin is allowed.
+    bearer_test = client.post(
+        "/providers/test",
+        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
+        json={"provider": "mock"},
+    )
+    assert bearer_test.status_code == 403
+
+    bearer_pcli_test = client.post(
+        "/api/me/personal-cli/test",
+        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
+        json={"provider": "antigravity"},
+    )
+    assert bearer_pcli_test.status_code == 403
+
+    # 6. POST capability check: anonymous -> 404, Bearer API -> 403
+    anon_check = client.post("/providers/check", json={"active_provider": "mock"})
+    assert anon_check.status_code == 404
+
+    bearer_check = client.post(
+        "/providers/check",
+        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
+        json={"active_provider": "openai"},
+    )
+    assert bearer_check.status_code == 403
+
+    # 7. Admin browser cookie session + same-origin -> 200 OK
+    import time
+    from claire.store import accounts as accounts_store, db as dbm
+
+    conn = dbm.connect(db_file)
+    try:
+        dbm.init_db(conn)
+        sess_token = accounts_store.create_account_session(
+            conn,
+            account_id=dbm.ADMIN_ACCOUNT_ID,
+            scope="owner",
+            now=time.time(),
+        )
+    finally:
+        conn.close()
+
+    # Cookie without same-origin -> 403
+    no_origin_test = client.post(
+        "/providers/test",
+        headers={"Cookie": f"claire_session={sess_token}"},
+        json={"provider": "mock"},
+    )
+    assert no_origin_test.status_code == 403
+
+    admin_cookie_headers = {"Cookie": f"claire_session={sess_token}", "Origin": "http://127.0.0.1:8765"}
     test_resp = client.post(
         "/providers/test",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
-        json={"provider": "mock"}
+        headers=admin_cookie_headers,
+        json={"provider": "mock"},
     )
     assert test_resp.status_code == 200
     assert test_resp.json()["ok"] is True
 
-    # 6. POST capability check (owner-only, enforces capability locks)
-    anon_check = client.post("/providers/check", json={"active_provider": "mock"})
-    assert anon_check.status_code == 404
-
     check_resp = client.post(
         "/providers/check",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
+        headers=admin_cookie_headers,
         json={"active_provider": "openai"},
     )
     assert check_resp.status_code == 200
@@ -243,12 +289,9 @@ def test_providers_cli(capsys):
     captured = capsys.readouterr().out
     assert "Claire Bible Providers" in captured
 
-    # 2. test mock
-    args = parser.parse_args(["providers", "test", "mock"])
-    rc = args.func(args)
-    assert rc == 0
-    captured = capsys.readouterr().out
-    assert "Connection or detection succeeded" in captured
+    # 2. test subcommand is removed from CLI
+    with pytest.raises(SystemExit):
+        parser.parse_args(["providers", "test", "mock"])
 
     # 3. migrate
     args = parser.parse_args(["providers", "migrate"])

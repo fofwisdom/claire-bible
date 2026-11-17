@@ -473,6 +473,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
+        if principal.channel != "cookie":
+            return json_error(403, "session_required")
         if not same_origin(request):
             return json_error(403, "forbidden")
         body = await read_json_body(request)
