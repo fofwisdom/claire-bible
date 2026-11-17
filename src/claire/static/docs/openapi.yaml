@@ -757,6 +757,83 @@ paths:
         '409':
           description: '`contribution_not_failed`.'
 
+  /kb/{number}/curations:
+    post:
+      summary: Curate documents from another knowledge base of a theme
+      description: >-
+        A reviewer of the shared knowledge base copies visible documents of another knowledge base
+        of one of its themes (a shared one, or a public personal one). Each copy is a contribution
+        with the origin `curation`, approved by the curator. The merge jobs run in the request,
+        without an LLM call. Each document has its own result.
+      operationId: curateDocuments
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, documents]
+              properties:
+                source:
+                  type: string
+                  description: The number of the source knowledge base.
+                documents:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: '`{"ok": true, "curations": [...]}` when no document was copied (each result has `error`).'
+        '201':
+          description: '`{"ok": true, "curations": [{"document", "contribution"?, "error"?, "url"?}]}`'
+        '400':
+          description: '`documents_invalid` or `source_invalid`.'
+        '403':
+          description: '`kb_capability_required`, `kb_archived`, or `scope_insufficient`.'
+        '404':
+          description: '`source_not_found` (also for a private personal knowledge base).'
+        '409':
+          description: '`source_not_in_theme`.'
+
+  /kb/{number}/forks:
+    post:
+      summary: Fork a shared knowledge base
+      description: >-
+        Makes a new shared knowledge base with the label `<label> (fork)`, the knowledge type, the
+        seed entities, the embedding model, and the themes of the source. It copies the visible
+        documents with their graph, without an LLM call and without a new embedding. The requester
+        becomes the founder and the moderator.
+      operationId: forkKnowledgeBase
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: '`{"ok": true, "knowledge_base": {...}, "forked_from", "documents", "entities", "relations"}`'
+        '403':
+          description: '`kb_fork_shared_only` for a personal knowledge base that the requester reads; `scope_insufficient`.'
+        '404':
+          description: No knowledge base, or a private personal knowledge base of another account.
+
   /submissions:
     post:
       summary: Contribute documents to themes

@@ -465,6 +465,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/contributions"): _namespaced("write", "contribute_direct"),
     ("GET", "/contributions"): _namespaced("read", "read"),
     ("HEAD", "/contributions"): _namespaced("read", "read"),
+    # Curation and fork (design Sections 9.7, 9.8): decisions of the person, so the scope is ``owner``. The fork handler decides the capability ``fork``: a personal knowledge base that the requester reads gets 403 ``kb_fork_shared_only``.
+    ("POST", "/curations"): _namespaced("owner", "curate"),
+    ("POST", "/forks"): _namespaced("owner", "read"),
     ("DELETE", "/contributions/{number}"): _namespaced("write", "read"),
     ("PATCH", "/contributions/{number}"): _namespaced("owner", "review"),
     ("POST", "/contributions/{number}/remove"): _namespaced("owner", "remove"),

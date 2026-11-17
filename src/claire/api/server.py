@@ -1513,6 +1513,96 @@ def create_app(
 
         return await asyncio.to_thread(_contribute)
 
+    async def kb_curations_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/curations`` with ``{"source": "<number of S>", "documents": [...]}``: a reviewer of K copies visible documents of another knowledge base S of a theme of K (design Section 9.7). Each document has its own result; the merge jobs run in this request."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not documents or not all(isinstance(d, str) and d.strip() for d in documents) or len(set(documents)) != len(documents):
+            raise HTTPException(status_code=400, detail="documents_invalid")
+        origin = _public_origin(request)
+
+        def _curate() -> JSONResponse:
+            try:
+                source_kb = theme_mgr.get_kb_by_number(ids.parse_public_id(str(body.get("source") or "")))
+            except (ValueError, KnowledgeBaseNotFound):
+                return JSONResponse({"error": "source_not_found"}, status_code=404)
+            results: list[dict[str, Any]] = []
+            made: dict[str, int] = {}
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    source = contributions.curation_source(conn, kb_id=kb.id, source_kb_id=source_kb.id)
+                except contributions.ContributionError as exc:
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                limit = contributions.read_limits(conn)["submission_max_documents"]
+                if len(documents) > limit:
+                    return JSONResponse({"error": "documents_invalid", "limit": limit}, status_code=400)
+                for document_id in (d.strip() for d in documents):
+                    try:
+                        row = contributions.curate(conn, kb_id=kb.id, source=source, document_id=document_id, curator_account_id=int(principal.account_id))
+                    except contributions.ContributionError as exc:
+                        conn.rollback()
+                        results.append({"document": document_id, **json.loads(_contribution_error(exc, kb=kb, origin=origin).body)})
+                        continue
+                    conn.commit()
+                    made[document_id] = int(row["public_id"])
+                    results.append({"document": document_id})
+            finally:
+                conn.close()
+            if made:
+                _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                for result in results:
+                    if result["document"] in made:
+                        row = kb_collab.get_contribution(conn, made[result["document"]])
+                        if row is not None:
+                            result["contribution"] = _contribution_view(conn, row, full=True)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True, "curations": results}, status_code=201 if made else 200)
+
+        return await asyncio.to_thread(_curate)
+
+    async def kb_forks_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/forks``: an active account forks a shared knowledge base into a new shared knowledge base (design Section 9.8). The copy runs in this request, without an LLM call and without a new embedding. A personal knowledge base that the requester reads gets 403 ``kb_fork_shared_only`` (CT15)."""
+        _require_multi_kb()
+        kb = _select_kb(request)
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if kb.is_personal:
+            return JSONResponse({"error": "kb_fork_shared_only"}, status_code=403)
+        decision = _kb_decide(request, kb, "fork")
+        if decision != "allow":
+            raise HTTPException(status_code=403 if decision == "forbidden" else 404, detail="kb_capability_required" if decision == "forbidden" else "theme not found")
+        account_id = int(principal.account_id)
+
+        def _fork() -> JSONResponse:
+            try:
+                fork = theme_mgr.define_kb(f"{kb.label} (fork)", description=kb.description, icon=kb.icon, account_id=account_id, knowledge_type=kb.knowledge_type, seed_entities=list(kb.seed_entities) or None)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    counts = contributions.fork_copy(conn, Path(s.data_dir), source_kb_id=kb.id, target_kb_id=fork.id, account_id=account_id)
+                    conn.commit()
+                except Exception as exc:  # noqa: BLE001 - a fork that did not complete must not stay as an empty knowledge base
+                    conn.rollback()
+                    _log_operation_failure(request, "kb fork", exc)
+                    conn.close()
+                    theme_mgr.delete_kb(fork.id, purge=True)
+                    return JSONResponse({"error": "fork_failed"}, status_code=500)
+            finally:
+                conn.close()
+            theme_mgr.reload()
+            return JSONResponse({"ok": True, "knowledge_base": theme_mgr.get_kb(fork.id).to_dict(), "forked_from": ids.format_public_id(kb.number), **counts}, status_code=201)
+
+        return await asyncio.to_thread(_fork)
+
     async def kb_contributions_route(request: Request) -> Response:
         """``GET /kb/{number}/contributions``: the visible contributions for each reader; each state for a reviewer; the own contributions of the requester in each state."""
         kb = _shared_kb_of_path(request)
@@ -5470,6 +5560,8 @@ def create_app(
         Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
         Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
         Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
+        Route("/curations", kb_curations_route, methods=["POST"]),
+        Route("/forks", kb_forks_route, methods=["POST"]),
         Route("/contributions", kb_contribute_route, methods=["POST"]),
         Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),
         Route("/contributions/{number}", kb_contribution_withdraw_route, methods=["DELETE"]),

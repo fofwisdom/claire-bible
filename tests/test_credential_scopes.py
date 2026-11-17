@@ -121,6 +121,8 @@ KB_ROUTES = [
     ("PATCH", "/contributions/{number}", "owner", "review"),
     ("POST", "/contributions/{number}/remove", "owner", "remove"),
     ("POST", "/contributions/{number}/retry", "write", "read"),
+    ("POST", "/curations", "owner", "curate"),
+    ("POST", "/forks", "owner", "read"),
     ("GET|HEAD", "/members", "readonly", "read"),
     ("PATCH", "/members/{account}", "owner", "people"),
     ("DELETE|PUT", "/api/admin/kb/{number}/moderators/{account}", "owner", "moderators"),

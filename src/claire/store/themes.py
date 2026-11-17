@@ -139,6 +139,20 @@ def theme_members(conn: sqlite3.Connection, theme_id: int) -> list[dict[str, Any
     ]
 
 
+def themes_of_kb(conn: sqlite3.Connection, kb_id: int) -> list[int]:
+    """The IDs of the active themes that have the knowledge base as a member (not excluded)."""
+    rows = conn.execute(
+        "SELECT m.theme_id FROM theme_knowledge_bases m JOIN themes t ON t.id = m.theme_id WHERE m.kb_id=? AND m.excluded=0 AND t.state='active' ORDER BY m.theme_id",
+        (int(kb_id),),
+    ).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def share_a_theme(conn: sqlite3.Connection, kb_a: int, kb_b: int) -> bool:
+    """True when the two knowledge bases are members of one active theme."""
+    return bool(set(themes_of_kb(conn, kb_a)) & set(themes_of_kb(conn, kb_b)))
+
+
 # --- judgement (design Sections 8.2, 8.3, 8.5; unit CT-5) -----------------------------------------------------------
 
 _THEME_UPDATES = frozenset({"label", "label_locked", "description", "state", "merged_into_theme_id", "top_entities", "signature", "last_activity_at", "computed_at"})

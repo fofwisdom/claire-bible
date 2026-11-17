@@ -186,6 +186,29 @@ def contribute_direct(
     if pending and approved:
         raise ValueError("a pending contribution is not approved")
     ts = time.time() if now is None else now
+    return _add_copy(
+        conn, kb_id=kb_id, source_kb_id=source_kb_id, source_document_id=source_document_id, origin=origin, contributor_account_id=contributor_account_id, curator_account_id=None,
+        root_kb_id=source_kb_id, root_document_id=source_document_id, approved_by_account_id=contributor_account_id if approved else None, pending=pending, submission_item_id=submission_item_id, ts=ts,
+    )
+
+
+def _add_copy(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    source_kb_id: int,
+    source_document_id: str,
+    origin: str,
+    contributor_account_id: int | None,
+    curator_account_id: int | None,
+    root_kb_id: int | None,
+    root_document_id: str | None,
+    approved_by_account_id: int | None,
+    pending: bool,
+    submission_item_id: int | None,
+    ts: float,
+) -> dict[str, Any]:
+    """The common part of a direct contribution, a contribution to a theme, and a curation: the duplicate and tombstone checks, the hidden copy, the contribution, and its merge job (not for a pending one)."""
     source = conn.execute("SELECT canonical_url, content_hash FROM documents WHERE id=? AND kb_id=?", (source_document_id, int(source_kb_id))).fetchone()
     if source is None:
         raise ContributionError(404, "document_not_found")
@@ -205,12 +228,13 @@ def contribute_direct(
         origin=origin,
         state="pending" if pending else "merging",
         contributor_account_id=contributor_account_id,
+        curator_account_id=curator_account_id,
         source_kb_id=source_kb_id,
         source_document_id=source_document_id,
-        root_kb_id=source_kb_id,
-        root_document_id=source_document_id,
-        approved_at=ts if approved else None,
-        approved_by_account_id=contributor_account_id if approved else None,
+        root_kb_id=root_kb_id,
+        root_document_id=root_document_id,
+        approved_at=ts if approved_by_account_id is not None else None,
+        approved_by_account_id=approved_by_account_id,
         submission_item_id=submission_item_id,
         now=ts,
     )
@@ -740,3 +764,146 @@ def decision_agreement(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             entry[0] += 1
             entry[1] += 1 if decision == majority else 0
     return [{"kb_id": kb_id, "decisions": count, "agreement": agreed / count} for kb_id, (count, agreed) in sorted(totals.items())]
+
+
+# --- curation (Section 9.7) ------------------------------------------------------------------------------------------
+
+
+def curation_source(conn: sqlite3.Connection, *, kb_id: int, source_kb_id: int) -> dict[str, Any]:
+    """The knowledge base S that a reviewer of K curates from: another knowledge base of a theme of K, shared or a public personal one (CT14).
+
+    A private personal knowledge base gets 404 ``source_not_found`` (the same answer as for no knowledge base). A knowledge base that shares no theme with K gets 409 ``source_not_in_theme``.
+    """
+    from .store import themes as themes_store
+
+    row = conn.execute("SELECT id, is_personal, is_public, account_id FROM knowledge_bases WHERE id=?", (int(source_kb_id),)).fetchone()
+    if row is None or (row["is_personal"] and not row["is_public"]):
+        raise ContributionError(404, "source_not_found")
+    if int(row["id"]) == int(kb_id):
+        raise ContributionError(400, "source_invalid")
+    if not themes_store.share_a_theme(conn, int(kb_id), int(source_kb_id)):
+        raise ContributionError(409, "source_not_in_theme")
+    return {"id": int(row["id"]), "is_personal": bool(row["is_personal"]), "account_id": row["account_id"]}
+
+
+def curate(conn: sqlite3.Connection, *, kb_id: int, source: dict[str, Any], document_id: str, curator_account_id: int, now: float | None = None) -> dict[str, Any]:
+    """Copy one visible document of S (``curation_source``) into K as a contribution with the origin ``curation`` (design Section 9.7 rules 3 and 4). The curator approves it; its merge job waits. The caller commits.
+
+    The credit: for a shared S, the contributor of the document in S; for a personal S, the owner of S. The root: for a shared S, the root of the contribution in S; for a personal S, the document itself.
+    """
+    ts = time.time() if now is None else now
+    source_kb_id = int(source["id"])
+    visible = conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=? AND hidden=0", (document_id, source_kb_id)).fetchone()
+    if visible is None:
+        raise ContributionError(404, "document_not_found")
+    if source["is_personal"]:
+        credit, root_kb_id, root_document_id = source["account_id"], source_kb_id, document_id
+    else:
+        origin = kb_collab.get_contribution_for_document(conn, source_kb_id, document_id)
+        if origin is None or origin["state"] != "visible":
+            raise ContributionError(404, "document_not_found")
+        credit, root_kb_id, root_document_id = origin["contributor_account_id"], origin["root_kb_id"], origin["root_document_id"]
+    row = _add_copy(
+        conn, kb_id=kb_id, source_kb_id=source_kb_id, source_document_id=document_id, origin="curation", contributor_account_id=credit, curator_account_id=curator_account_id,
+        root_kb_id=root_kb_id, root_document_id=root_document_id, approved_by_account_id=curator_account_id, pending=False, submission_item_id=None, ts=ts,
+    )
+    kb_collab.log_moderation(conn, kb_id=kb_id, actor_account_id=curator_account_id, action="curate", target=str(row["public_id"]), now=ts)
+    return row
+
+
+# --- fork (Section 9.8) ----------------------------------------------------------------------------------------------
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    return [str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})")]
+
+
+def _mapped_sources(raw: Any, doc_map: dict[str, str]) -> list[str]:
+    try:
+        sources = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        sources = []
+    return [doc_map[str(d)] for d in sources if str(d) in doc_map] if isinstance(sources, list) else []
+
+
+def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, target_kb_id: int, account_id: int, now: float | None = None) -> dict[str, int]:
+    """Copy the visible documents of the shared knowledge base ``source_kb_id`` into the new shared knowledge base ``target_kb_id`` with their extractions, entities, relations, embeddings, and FTS rows (design Section 9.8 rules 3 to 6). No LLM call and no new embedding. One transaction; the caller commits.
+
+    A document is copied when it is not hidden and its contribution is ``visible``. An entity or a relation is copied when one of its source documents is copied; its sources become the copies. Each copied document gets a contribution with the origin ``fork``, the credit and the root of the source contribution, and the approval at the fork time. The fork gets the embedding model and the themes of its source.
+    """
+    from .store import themes as themes_store
+
+    ts = time.time() if now is None else now
+    source_kb_id, target_kb_id = int(source_kb_id), int(target_kb_id)
+    data_dir = Path(data_dir)
+    doc_map: dict[str, str] = {}
+    for origin in kb_collab.list_contributions(conn, source_kb_id, state="visible"):
+        document_id = origin["document_id"]
+        if not document_id or conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=? AND hidden=0", (document_id, source_kb_id)).fetchone() is None:
+            continue
+        try:
+            copy_id = copy_document(conn, source_document_id=str(document_id), source_kb_id=source_kb_id, target_kb_id=target_kb_id, hidden=False)
+        except ContributionError:
+            continue  # a document with no extraction has no graph to copy
+        doc_map[str(document_id)] = copy_id
+        copy_document_files(conn, data_dir, source_document_id=str(document_id), target_document_id=copy_id, kb_id=target_kb_id)
+        kb_collab.add_contribution(
+            conn, kb_id=target_kb_id, document_id=copy_id, origin="fork", state="visible", contributor_account_id=origin["contributor_account_id"], curator_account_id=account_id,
+            source_kb_id=source_kb_id, source_document_id=str(document_id), root_kb_id=origin["root_kb_id"], root_document_id=origin["root_document_id"],
+            approved_at=ts, approved_by_account_id=account_id, now=ts,
+        )
+
+    entity_columns = _columns(conn, "entities")
+    entity_map: dict[str, str] = {}
+    for row in conn.execute(f"SELECT {', '.join(entity_columns)} FROM entities WHERE kb_id=?", (source_kb_id,)).fetchall():
+        values = dict(zip(entity_columns, tuple(row)))
+        sources = _mapped_sources(values["sources"], doc_map)
+        if not sources:
+            continue
+        copy_id = new_id("ent")
+        entity_map[str(values["id"])] = copy_id
+        values.update({"id": copy_id, "kb_id": target_kb_id, "sources": json.dumps(sources)})
+        conn.execute(f"INSERT INTO entities ({', '.join(entity_columns)}) VALUES ({', '.join('?' for _ in entity_columns)})", tuple(values[c] for c in entity_columns))
+        conn.execute("INSERT INTO entities_fts (entity_id, name, body) SELECT ?, name, body FROM entities_fts WHERE entity_id=?", (copy_id, str(row["id"])))
+        conn.execute(
+            "INSERT INTO embeddings (owner_id, kb_id, dim, vector, model, updated_at) SELECT ?, ?, dim, vector, model, updated_at FROM embeddings WHERE owner_id=? AND kb_id=?",
+            (copy_id, target_kb_id, str(row["id"]), source_kb_id),
+        )
+
+    relation_columns = _columns(conn, "relations")
+    relations = 0
+    for row in conn.execute(f"SELECT {', '.join(relation_columns)} FROM relations WHERE kb_id=?", (source_kb_id,)).fetchall():
+        values = dict(zip(relation_columns, tuple(row)))
+        source_id, target_id = entity_map.get(str(values["source_id"])), entity_map.get(str(values["target_id"]))
+        sources = _mapped_sources(values["sources"], doc_map)
+        if source_id is None or target_id is None or not sources:
+            continue
+        values.update({"id": new_id("rel"), "kb_id": target_kb_id, "source_id": source_id, "target_id": target_id, "sources": json.dumps(sources)})
+        conn.execute(f"INSERT INTO relations ({', '.join(relation_columns)}) VALUES ({', '.join('?' for _ in relation_columns)})", tuple(values[c] for c in relation_columns))
+        relations += 1
+
+    # The log of the entity decisions of each copy points to the entities of the fork, so that a later purge of the copy can undo them.
+    for document_id, copy_id in doc_map.items():
+        row = conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (document_id, source_kb_id)).fetchone()
+        try:
+            source_meta = json.loads(row["meta"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        log_rows = source_meta.get("resolution_log") if isinstance(source_meta, dict) else None
+        if not isinstance(log_rows, list) or not log_rows:
+            continue
+        text = json.dumps(log_rows, ensure_ascii=False)
+        for old, new in entity_map.items():
+            text = text.replace(f'"{old}"', f'"{new}"')
+        copy = conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (copy_id, target_kb_id)).fetchone()
+        meta = json.loads(copy["meta"] or "{}")
+        meta["resolution_log"] = json.loads(text)
+        conn.execute("UPDATE documents SET meta=? WHERE id=? AND kb_id=?", (json.dumps(meta, ensure_ascii=False), copy_id, target_kb_id))
+
+    conn.execute(
+        "UPDATE knowledge_bases SET embed_provider=(SELECT embed_provider FROM knowledge_bases WHERE id=?), embed_model=(SELECT embed_model FROM knowledge_bases WHERE id=?), forked_from_kb_id=?, forked_at=? WHERE id=?",
+        (source_kb_id, source_kb_id, source_kb_id, ts, target_kb_id),
+    )
+    for theme_id in themes_store.themes_of_kb(conn, source_kb_id):
+        themes_store.add_theme_member(conn, theme_id=theme_id, kb_id=target_kb_id, source="fork", now=ts)
+    return {"documents": len(doc_map), "entities": len(entity_map), "relations": relations}
