@@ -705,6 +705,36 @@ A theme is a collection of knowledge bases with one subject (SHARED_KNOWLEDGE_BA
 
 `<kb>` is a knowledge base number, ID, or label. An unknown theme or knowledge base gives exit code 1 and a message on stderr.
 
+#### `claire contribute` (contributions)
+
+The command contributes documents of the personal knowledge base of the admin account to themes and to shared knowledge bases (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.6, 8.7, 9.1, 9.2, 9.9). It reads and writes `data/claire.db` directly and runs the merge jobs of the new contributions before it ends. The admin account needs no approval. A sub-command is necessary: `claire contribute` alone is a syntax error (exit code 2).
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `contribute submit` | `claire contribute submit <document>... [--theme <theme>] [--json]` | Contribute documents to the shared knowledge bases of a theme. Without `--theme`, the theme match of each document selects the theme. The output gives each target with its state. An item without a theme has the code `no_theme` and no target. |
+| `contribute direct` | `claire contribute direct <kb> <document> [--json]` | Contribute one document directly to one shared knowledge base. |
+| `contribute list` | `claire contribute list [--origin <origin>] [--json]` | Each contribution of the admin account, the newest first: number, state, origin, approval, shared knowledge base, source document, title. `<origin>` is one of `direct`, `bulk`, `auto`, `curation`, `fork`, `migration`. |
+| `contribute withdraw` | `claire contribute withdraw <contribution>` | Withdraw a contribution that is not approved. The copy is deleted from the shared knowledge base. |
+| `contribute reputation` | `claire contribute reputation [--json]` | Compute and show the reputation: level, fiction share, approval rate, limits, and each fiction-like document with its matched theme and the command that contributes it. |
+| `contribute rule show` | `claire contribute rule show [--json]` | The automatic rule of the admin account and the switch of the server. |
+| `contribute rule set` | `claire contribute rule set --state <active\|paused> --memberships <on\|off> --mutual <on\|off> --uploads <on\|off> (--theme <theme>... \| --no-themes) [--apply] [--json]` | Set the automatic rule. Each field is necessary. Without `--apply` the command is a dry run: it prints the documents that the rule sends now to each target and changes nothing. With `--apply` it sets the rule and runs it. |
+| `contribute blocks` | `claire contribute blocks [--json]` | The documents with the flag "never contribute". |
+| `contribute block` | `claire contribute block <document> [--json]` | Set the flag "never contribute" of a document. The automatic rule does not send the document. |
+| `contribute unblock` | `claire contribute unblock <document> [--json]` | Remove the flag "never contribute" of a document. |
+
+`<document>` is a document ID in the personal knowledge base. `<theme>` is a theme number, and the theme must be active. `<kb>` is the number of a shared knowledge base. `<contribution>` is a contribution number from `claire contribute list`. An unknown reference or a refused contribution (for example a duplicate) gives exit code 1 and a message on stderr.
+
+The states of a target of `contribute submit`: `visible` (merged), `pending` (waits for a decision), `merging`, `failed`, and `skipped` with a reason (`contribution_duplicate`, `contribution_tombstoned`, `document_not_extracted`, `pending_limit`).
+
+After `claire ingest`, a notice for a fiction-like document has an action line with the command that contributes the document to the matched theme:
+
+```text
+NOTICE: This document looks like fiction (theme: <label>). Contribute it to this theme to keep your reputation.
+ACTION: Contribute to this theme: claire contribute submit <document> --theme <theme>
+```
+
+The Telegram ingest reply has the same action as the inline button "Contribute to this theme". The button contributes the document for the account of the bot and answers with the state of each target.
+
 ### 3.11 프레젠테이션 관리 및 렌더링 (`presentation`)
 
 `claire presentation` 명령군은 Asciidoctor reveal.js 기반의 HTML 슬라이드 쇼 프레젠테이션을 LLM으로 자동 저작(compose)하고, 컴파일(compile)하며, 진단 및 상태를 관리하는 엔진이다. `doctor`를 뺀 모든 하위 명령은 `-t/--theme-id`를 받고, `recompile`과 `doctor`를 뺀 하위 명령은 `--doc-id`도 받는다. CLI는 테마별 프레젠테이션 스위치를 검사하지 않는다. 원고 수정 명령(`edit-adoc`)은 없다: `PUT /document/presentation/adoc`을 쓴다. 현재 동작: [PRESENTATION.md](PRESENTATION.md).

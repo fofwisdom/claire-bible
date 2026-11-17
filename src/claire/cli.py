@@ -815,6 +815,341 @@ def cmd_themes(args) -> int:
         conn.close()
 
 
+# Messages for the codes of ``contributions.ContributionError`` (CLI text: ASD-STE100 English).
+_CONTRIBUTE_ERRORS = {
+    "document_not_found": "The document is not in the personal knowledge base.",
+    "documents_invalid": "The list of documents is not valid. Give each document one time and obey the limit of documents for one submission.",
+    "document_not_extracted": "The extraction of the document is not complete.",
+    "contribution_duplicate": "The shared knowledge base has this document already.",
+    "contribution_tombstoned": "The shared knowledge base removed this document before. It does not take the document again.",
+    "contribution_approved": "The contribution is approved. You cannot withdraw it.",
+    "contribution_closed": "The contribution is closed.",
+    "contribution_not_found": "The admin account has no contribution with this number.",
+    "pending_limit": "Too many contributions wait for a decision in this shared knowledge base.",
+}
+
+
+def contribute_command(document_id: str, theme_number: str) -> str:
+    """The command that contributes one document to one theme: the action "Contribute to this theme" of a ``fiction_like_document`` notice (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7 rule 2)."""
+    import shlex
+
+    return f"claire contribute submit {shlex.quote(str(document_id))} --theme {shlex.quote(str(theme_number))}"
+
+
+def cmd_contribute(args) -> int:
+    """``claire contribute``: the contributions of the admin account to shared knowledge bases and themes, its reputation, its automatic rule, and the flag "never contribute" (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.6, 8.7, 9.1, 9.2, 9.9)."""
+    import json
+
+    from . import auto_contribution, contributions, ids, reputation
+    from .ingest.service import run_waiting_merge_jobs
+    from .store import kb_collab
+    from .store import themes as themes_store
+    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
+
+    s = get_settings()
+    action = args.contribute_action
+    as_json = getattr(args, "json", False)
+    account_id = dbm.ADMIN_ACCOUNT_ID
+    manager = get_kb_manager(s)
+
+    def _fail(message: str) -> int:
+        print(f"[error] {message}", file=sys.stderr)
+        return 1
+
+    def _refused(exc: contributions.ContributionError) -> int:
+        detail = "".join(f" ({key}: {value})" for key, value in exc.extra.items())
+        return _fail(f"{_CONTRIBUTE_ERRORS.get(exc.code, exc.code)}{detail}")
+
+    def _out(data: dict) -> None:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+
+    try:
+        personal = manager.personal_kb_for(account_id)
+    except KnowledgeBaseNotFound:
+        return _fail("The admin account has no personal knowledge base.")
+    conn = dbm.connect(s.db_file)
+    try:
+        def _kb_ref(kb_id: int) -> dict:
+            try:
+                kb = manager.get_kb(int(kb_id))
+            except KnowledgeBaseNotFound:
+                return {"knowledge_base": None, "label": None}
+            return {"knowledge_base": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label}
+
+        def _title(document_id) -> str | None:
+            row = conn.execute("SELECT title FROM documents WHERE id=?", (document_id,)).fetchone()
+            return None if row is None else row[0]
+
+        def _active_theme(reference: str):
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(reference)))
+            except ValueError:
+                theme = None
+            if theme is None or theme["state"] != "active":
+                print(f"[error] No active theme has the number {reference}.", file=sys.stderr)
+                return None
+            return theme
+
+        def _own_document(document_id: str) -> bool:
+            if conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=?", (document_id, personal.id)).fetchone() is None:
+                print(f"[error] The personal knowledge base has no document with the ID {document_id}.", file=sys.stderr)
+                return False
+            return True
+
+        def _contribution_view(row: dict) -> dict:
+            return {
+                **_kb_ref(int(row["kb_id"])),
+                "number": ids.format_public_id(int(row["public_id"])),
+                "document": row["document_id"],
+                "source_document": row["source_document_id"],
+                "title": _title(row["document_id"]) or _title(row["source_document_id"]),
+                "origin": row["origin"],
+                "state": row["state"],
+                "approved": row["approved_at"] is not None,
+                "contributed_at": row["contributed_at"],
+            }
+
+        if action == "submit":
+            theme_id = None
+            if args.theme is not None:
+                theme = _active_theme(args.theme)
+                if theme is None:
+                    return 1
+                theme_id = int(theme["id"])
+            try:
+                number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=True, personal_kb_id=personal.id, documents=[str(d).strip() for d in args.documents], theme_id=theme_id)
+            except contributions.ContributionError as exc:
+                conn.rollback()
+                return _refused(exc)
+            conn.commit()
+            # The contribution of a reviewer needs no approval: its merge job runs now, with the provider of the server.
+            run_waiting_merge_jobs(s)
+            items = []
+            for item in kb_collab.submission_items(conn, number):
+                item_theme = themes_store.get_theme(conn, int(item["theme_id"])) if item["theme_id"] is not None else None
+                made = {int(c["kb_id"]): c for c in kb_collab.contributions_of_item(conn, int(item["id"]))}
+                reasons = {int(entry["kb_id"]): entry["reason"] for entry in item["skipped"]}
+                targets = []
+                for kb_id in item["target_kb_ids"]:
+                    target = _kb_ref(kb_id)
+                    if kb_id in made:
+                        target.update({"state": made[kb_id]["state"], "contribution": ids.format_public_id(int(made[kb_id]["public_id"])), "approved": made[kb_id]["approved_at"] is not None})
+                    else:
+                        target.update({"state": "skipped", "reason": reasons.get(kb_id)})
+                    targets.append(target)
+                view = {
+                    "document": item["source_document_id"],
+                    "title": _title(item["source_document_id"]),
+                    "theme": None if item_theme is None else ids.format_public_id(int(item_theme["number"])),
+                    "theme_label": None if item_theme is None else item_theme["label"],
+                    "routed_by": item["routed_by"],
+                    "score": item["match_score"],
+                    "targets": targets,
+                }
+                if item_theme is None:
+                    view["code"] = "no_theme"
+                items.append(view)
+            if as_json:
+                _out({"ok": True, "submission": {"number": ids.format_public_id(number), "items": items}})
+                return 0
+            print(f"Submission {ids.format_public_id(number)}:")
+            for view in items:
+                print(f"{view['document']}  {view['title'] or ''}")
+                if view.get("code") == "no_theme":
+                    print("  no_theme: No theme matches this document. Give a theme with the option --theme, or contribute directly: claire contribute direct <kb> <document>")
+                    continue
+                score = "" if view["score"] is None else f", score {view['score']:.2f}"
+                print(f"  theme {view['theme']} ({view['theme_label']}), selected by the {view['routed_by']}{score}")
+                if not view["targets"]:
+                    print("  The theme has no active shared knowledge base that takes the document.")
+                for target in view["targets"]:
+                    if target["state"] == "skipped":
+                        print(f"  {target['knowledge_base']}  {target['label']}: skipped ({target['reason']})")
+                    else:
+                        print(f"  {target['knowledge_base']}  {target['label']}: {target['state']}, contribution {target['contribution']}{', approved' if target['approved'] else ', not approved'}")
+            return 0
+
+        if action == "direct":
+            try:
+                kb = manager.get_kb_by_reference(args.kb)
+            except KnowledgeBaseNotFound:
+                kb = None
+            if kb is None or not kb.is_shared:
+                return _fail(f"No shared knowledge base has the number {args.kb}.")
+            if kb.state != "active":
+                return _fail("The shared knowledge base is archived. It is read-only.")
+            membership = kb_collab.get_membership(conn, kb.id, account_id)
+            is_reviewer = membership is not None and membership["state"] == "active" and membership["role"] in ("collaborator", "moderator")
+            try:
+                approved, pending = contributions.direct_mode(conn, kb_id=kb.id, account_id=account_id, is_reviewer=is_reviewer, is_admin=True)
+                row = contributions.contribute_direct(conn, kb_id=kb.id, source_kb_id=personal.id, source_document_id=str(args.document).strip(), contributor_account_id=account_id, approved=approved, pending=pending)
+            except contributions.ContributionError as exc:
+                conn.rollback()
+                return _refused(exc)
+            conn.commit()
+            run_waiting_merge_jobs(s)
+            view = _contribution_view(kb_collab.get_contribution(conn, int(row["public_id"])) or row)
+            if as_json:
+                _out({"ok": True, "contribution": view})
+            else:
+                print(f"Contribution {view['number']} to the shared knowledge base {view['knowledge_base']} ({view['label']}): {view['state']}{', approved' if view['approved'] else ', not approved'}.")
+            return 0
+
+        if action == "list":
+            views = [_contribution_view(row) for row in kb_collab.contributions_of_account(conn, account_id, origin=args.origin)]
+            if as_json:
+                _out({"contributions": views})
+            elif not views:
+                print("The admin account has no contributions.")
+            else:
+                for view in views:
+                    print(f"{view['number']}  {view['state']:<8} {view['origin']:<8} {'approved' if view['approved'] else 'open':<8} {view['knowledge_base']} ({view['label']})  {view['source_document'] or '-'}  {view['title'] or ''}")
+            return 0
+
+        if action == "withdraw":
+            try:
+                number = ids.parse_public_id(str(args.contribution))
+            except ValueError:
+                number = None
+            row = kb_collab.get_contribution(conn, number) if number is not None else None
+            if row is None or row["contributor_account_id"] != account_id:
+                return _fail(f"The admin account has no contribution with the number {args.contribution}.")
+            try:
+                contributions.withdraw(conn, Path(s.data_dir), kb_id=int(row["kb_id"]), contribution=number, account_id=account_id)
+            except contributions.ContributionError as exc:
+                return _refused(exc)
+            print(f"Contribution {args.contribution} is withdrawn. Its copy is deleted from the shared knowledge base.")
+            return 0
+
+        if action == "reputation":
+            current = reputation.refresh(conn, account_id)
+            conn.commit()
+            documents = []
+            for document_id in current.fiction_like_documents:
+                match = themes_store.get_document_match(conn, document_id)
+                doc_theme = themes_store.get_theme(conn, int(match["theme_id"])) if match is not None and match["theme_id"] is not None else None
+                documents.append({"document": document_id, "title": _title(document_id), "theme": None if doc_theme is None else ids.format_public_id(int(doc_theme["number"])), "theme_label": None if doc_theme is None else doc_theme["label"]})
+            settings = reputation.read_settings(conn)
+            limits = {"pending": reputation.pending_limit(settings, current.level), "auto_documents": reputation.auto_contribution_limit(settings, current.level)}
+            if as_json:
+                _out({**current.to_dict(), "limits": limits, "documents": documents})
+                return 0
+            rate = "no value (too few decisions)" if current.approval_rate is None else f"{current.approval_rate:.2f}"
+            auto_limit = {None: "no limit", 0: "paused"}.get(limits["auto_documents"], f"{limits['auto_documents']} documents for each run and target")
+            print(f"Level:                  {current.level}")
+            print(f"Fiction share:          {current.fiction_share:.2f} ({len(current.fiction_like_documents)} fiction-like of {current.visible_documents} visible documents)")
+            print(f"Approval rate:          {rate} ({current.decisions} decisions)")
+            print(f"Pending limit:          {limits['pending']} contributions in one shared knowledge base")
+            print(f"Automatic contribution: {auto_limit}")
+            if documents:
+                print("Fiction-like documents (contribute each one to its theme to keep the reputation):")
+                for doc in documents:
+                    print(f"  {doc['document']}  {'no theme' if doc['theme'] is None else 'theme ' + doc['theme'] + ' (' + str(doc['theme_label']) + ')'}  {doc['title'] or ''}")
+                    if doc["theme"] is not None:
+                        print(f"    {contribute_command(doc['document'], doc['theme'])}")
+            return 0
+
+        if action == "rule":
+            def _rule_view(rule: dict | None) -> dict | None:
+                if rule is None:
+                    return None
+                rule_themes = [themes_store.get_theme(conn, theme_id) for theme_id in rule["theme_ids"]]
+                return {
+                    "state": rule["state"],
+                    "memberships": bool(rule["to_memberships"]),
+                    "mutual": bool(rule["to_mutual"]),
+                    "include_uploads": bool(rule["include_uploads"]),
+                    "themes": [{"number": ids.format_public_id(int(t["number"])), "label": t["label"]} for t in rule_themes if t is not None],
+                    "activated_at": rule.get("activated_at"),
+                }
+
+            def _print_rule(view: dict | None, switch: bool) -> None:
+                print(f"Automatic contribution of this server: {'on' if switch else 'off (no run starts while it is off)'}")
+                if view is None:
+                    print("The admin account has no automatic rule.")
+                    return
+                print(f"State:       {view['state']}")
+                print(f"Memberships: {'on' if view['memberships'] else 'off'}")
+                print(f"Mutual:      {'on' if view['mutual'] else 'off'}")
+                print(f"Uploads:     {'on' if view['include_uploads'] else 'off'}")
+                print("Themes:      " + (", ".join(f"{t['number']} ({t['label']})" for t in view["themes"]) or "none"))
+
+            switch = auto_contribution.switch_on(conn)
+            if args.rule_action == "show":
+                view = _rule_view(kb_collab.get_auto_rule(conn, account_id))
+                if as_json:
+                    _out({"server_switch": switch, "rule": view})
+                else:
+                    _print_rule(view, switch)
+                return 0
+            # set
+            theme_ids = []
+            for reference in args.theme or []:
+                theme = _active_theme(reference)
+                if theme is None:
+                    return 1
+                theme_ids.append(int(theme["id"]))
+            rule = {"state": args.state, "to_memberships": args.memberships == "on", "to_mutual": args.mutual == "on", "include_uploads": args.uploads == "on", "theme_ids": sorted(set(theme_ids))}
+            # The dry run (design Section 9.9 rule 6): the documents that the rule sends now to each target. A paused rule sends nothing.
+            targets = [{**_kb_ref(t["kb_id"]), "mode": t["mode"], "documents": t["documents"]} for t in auto_contribution.plan(conn, account_id, rule)] if rule["state"] == "active" else []
+            made = None
+            if args.apply:
+                kb_collab.save_auto_rule(conn, account_id=account_id, **rule)
+                conn.commit()
+                made = auto_contribution.run_account(conn, account_id)
+                if made:
+                    run_waiting_merge_jobs(s)
+            view = _rule_view(kb_collab.get_auto_rule(conn, account_id)) if args.apply else _rule_view(rule)
+            if as_json:
+                data = {"ok": True, "applied": bool(args.apply), "server_switch": switch, "rule": view, "targets": targets}
+                if made is not None:
+                    data["contributions"] = made
+                _out(data)
+                return 0
+            if rule["state"] == "active":
+                count = sum(len(t["documents"]) for t in targets)
+                print(f"Dry run: the rule sends {count} documents to {len(targets)} shared knowledge bases now.")
+                for target in targets:
+                    print(f"  {target['knowledge_base']}  {target['label']} ({target['mode']}): {len(target['documents'])} documents")
+                    for doc in target["documents"]:
+                        print(f"    {doc['document']}  score {doc['score']:.2f}  {doc['title'] or ''}")
+            if not args.apply:
+                print("No change was made. To set the rule, run the command again with the option --apply.")
+                if not switch:
+                    print("The automatic contribution of this server is off. No run starts while it is off.")
+                return 0
+            _print_rule(view, switch)
+            print(f"The rule is set. The run made {made} contributions.")
+            return 0
+
+        if action == "blocks":
+            documents = sorted(kb_collab.contribution_blocks(conn, account_id))
+            if as_json:
+                _out({"documents": documents})
+            elif not documents:
+                print("No document has the flag \"never contribute\".")
+            else:
+                for document_id in documents:
+                    print(f"{document_id}  {_title(document_id) or ''}")
+            return 0
+
+        # block, unblock: the flag "never contribute" of one document of the personal knowledge base
+        document_id = str(args.document).strip()
+        if not _own_document(document_id):
+            return 1
+        kb_collab.set_contribution_block(conn, account_id=account_id, document_id=document_id, blocked=action == "block")
+        conn.commit()
+        if as_json:
+            _out({"ok": True, "document": document_id, "blocked": action == "block"})
+        elif action == "block":
+            print(f"Document {document_id} has the flag \"never contribute\". The automatic rule does not send it.")
+        else:
+            print(f"Document {document_id} does not have the flag \"never contribute\".")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_theme(args) -> int:
     """테마(다중 DB 격리) 조회, 정의, 수정, 삭제."""
     import json
@@ -1741,8 +2076,11 @@ def cmd_ingest(args) -> int:
     )
     print(report.telegram_summary())
     # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
-    for notice_line in report.notice_lines():
+    for notice, notice_line in zip(report.notices, report.notice_lines()):
         print(f"NOTICE: {notice_line}")
+        if notice.get("code") == "fiction_like_document" and notice.get("document") and notice.get("theme"):
+            # The action of the notice (Section 8.7 rule 2).
+            print(f"ACTION: Contribute to this theme: {contribute_command(notice['document'], notice['theme'])}")
 
     # 1홉 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
     if report.candidates and args.expand:
@@ -5194,6 +5532,46 @@ def build_parser() -> argparse.ArgumentParser:
     pth_merge.add_argument("theme", help="number of the theme that goes")
     pth_merge.add_argument("--into", required=True, help="number of the theme that stays")
     pthemes.set_defaults(func=cmd_themes, themes_action="list")
+
+    # Contributions of the admin account (design Sections 8.6, 8.7, 9.1, 9.2, 9.9)
+    pcontrib = sub.add_parser("contribute", help="contribute documents to shared knowledge bases and themes", description="Contribute documents of the personal knowledge base of the admin account to themes and to shared knowledge bases. Show the reputation. Set the automatic rule and the flag \"never contribute\".")
+    pcontrib_sub = pcontrib.add_subparsers(dest="contribute_action", required=True)
+    pct_submit = pcontrib_sub.add_parser("submit", help="contribute documents to themes", description="Contribute documents of the personal knowledge base to the shared knowledge bases of a theme. Without the option --theme, the theme match of each document selects the theme.")
+    pct_submit.add_argument("documents", nargs="+", metavar="document", help="document ID in the personal knowledge base")
+    pct_submit.add_argument("--theme", help="theme number (default: the theme match of each document)")
+    pct_submit.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_direct = pcontrib_sub.add_parser("direct", help="contribute one document to a shared knowledge base", description="Contribute one document of the personal knowledge base directly to one shared knowledge base.")
+    pct_direct.add_argument("kb", help="number of the shared knowledge base")
+    pct_direct.add_argument("document", help="document ID in the personal knowledge base")
+    pct_direct.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_list = pcontrib_sub.add_parser("list", help="list the contributions of the admin account", description="List each contribution of the admin account, the newest first: number, state, origin, approval, shared knowledge base, source document, title.")
+    pct_list.add_argument("--origin", choices=("direct", "bulk", "auto", "curation", "fork", "migration"), help="show only the contributions with this origin (default: each origin)")
+    pct_list.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_withdraw = pcontrib_sub.add_parser("withdraw", help="withdraw a contribution that is not approved", description="Withdraw one contribution of the admin account while it is not approved. The copy is deleted from the shared knowledge base.")
+    pct_withdraw.add_argument("contribution", help="contribution number")
+    pct_reputation = pcontrib_sub.add_parser("reputation", help="show the reputation of the admin account", description="Compute and show the reputation: the level, the signals, the limits, and each fiction-like document with its matched theme.")
+    pct_reputation.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_rule = pcontrib_sub.add_parser("rule", help="show or set the automatic rule", description="Show or set the automatic rule of the admin account. The rule sends the documents that fit to shared knowledge bases without a request.")
+    pct_rule_sub = pct_rule.add_subparsers(dest="rule_action", required=True)
+    pct_rule_show = pct_rule_sub.add_parser("show", help="show the automatic rule", description="Show the automatic rule and the switch of the server.")
+    pct_rule_show.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_rule_set = pct_rule_sub.add_parser("set", help="set the automatic rule (default: dry run)", description="Set the automatic rule. Each field is necessary. Without the option --apply, the command prints the documents that the rule sends now to each target and changes nothing.")
+    pct_rule_set.add_argument("--state", required=True, choices=("active", "paused"), help="state of the rule")
+    pct_rule_set.add_argument("--memberships", required=True, choices=("on", "off"), help="send to the shared knowledge bases where the account is an active member")
+    pct_rule_set.add_argument("--mutual", required=True, choices=("on", "off"), help="send to the shared knowledge bases that a mutual collaborator founded")
+    pct_rule_set.add_argument("--uploads", required=True, choices=("on", "off"), help="include the documents from uploaded files")
+    pct_rule_themes = pct_rule_set.add_mutually_exclusive_group(required=True)
+    pct_rule_themes.add_argument("--theme", action="append", help="number of a theme whose shared knowledge bases are targets (give the option again for each theme)")
+    pct_rule_themes.add_argument("--no-themes", action="store_true", help="the rule follows no theme")
+    pct_rule_set.add_argument("--apply", action="store_true", help="set the rule and run it (default: dry run)")
+    pct_rule_set.add_argument("--json", action="store_true", help="output in JSON format")
+    pct_blocks = pcontrib_sub.add_parser("blocks", help="list the documents with the flag \"never contribute\"", description="List the documents of the personal knowledge base that have the flag \"never contribute\".")
+    pct_blocks.add_argument("--json", action="store_true", help="output in JSON format")
+    for name, text in (("block", "set the flag \"never contribute\" of a document"), ("unblock", "remove the flag \"never contribute\" of a document")):
+        pct_block = pcontrib_sub.add_parser(name, help=text, description=f"The automatic rule does not send a document that has the flag: {text}.")
+        pct_block.add_argument("document", help="document ID in the personal knowledge base")
+        pct_block.add_argument("--json", action="store_true", help="output in JSON format")
+    pcontrib.set_defaults(func=cmd_contribute)
     sub.add_parser(
         "bot",
         help="run Telegram long-polling bot daemon",

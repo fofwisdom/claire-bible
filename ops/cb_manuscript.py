@@ -123,6 +123,7 @@ APP_ONE_OFF_COMMANDS = {
     "entity",
     "kb",
     "theme",
+    "contribute",
     "repo",
     "format-status",
     "format-migrate",

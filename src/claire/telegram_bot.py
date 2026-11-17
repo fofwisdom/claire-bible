@@ -274,6 +274,30 @@ async def _react(msg, emoji: str) -> None:
         pass
 
 
+# Callback data of the button "Contribute to this theme": ``ctb:<theme number>:<document ID>``. Telegram accepts at most 64 bytes of callback data.
+CONTRIBUTE_CALLBACK_PREFIX = "ctb:"
+CALLBACK_DATA_MAX_BYTES = 64
+
+
+def contribute_callback_data(notice: dict[str, Any]) -> str | None:
+    """The callback data that contributes the document of a ``fiction_like_document`` notice to its theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7 rule 2). None for each other notice, and when the data is longer than the limit of Telegram."""
+    if notice.get("code") != "fiction_like_document" or not notice.get("document") or not notice.get("theme"):
+        return None
+    data = f"{CONTRIBUTE_CALLBACK_PREFIX}{notice['theme']}:{notice['document']}"
+    if len(data.encode("utf-8")) > CALLBACK_DATA_MAX_BYTES:
+        log.warning("no contribute button for document %s: the callback data is longer than %d bytes", notice["document"], CALLBACK_DATA_MAX_BYTES)
+        return None
+    return data
+
+
+def _markup_with_rows(reply_markup: Any, extra_rows: list[list[Any]]) -> Any:
+    """The inline keyboard of ``reply_markup`` (None: no keyboard) with ``extra_rows`` after its rows."""
+    from telegram import InlineKeyboardMarkup
+
+    rows = [list(row) for row in (getattr(reply_markup, "inline_keyboard", None) or ())]
+    return InlineKeyboardMarkup(rows + [list(row) for row in extra_rows])
+
+
 async def _settle_status(
     status: Any,
     msg: Any = None,
@@ -292,6 +316,7 @@ async def _settle_status(
     inbox_id: int | None = None,
     service_pool: Any = None,
     theme_mgr: Any = None,
+    extra_rows: list[list[Any]] | None = None,
     **kwargs: Any,
 ) -> None:
     """완료 처리:
@@ -301,6 +326,7 @@ async def _settle_status(
     - 이미 적재된 문서(중복/dedup)일 때 메시지를 삭제하지 않고 중복 안내 및 재생성/재수집 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
+    - ``extra_rows``: rows of inline buttons that each result message gets after its own buttons (the action of a campaign notice)
     """
     if isinstance(status, int):
         inbox_id = status
@@ -317,6 +343,11 @@ async def _settle_status(
     )
 
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
+        if extra_rows:
+            try:
+                reply_markup = _markup_with_rows(reply_markup, extra_rows)
+            except Exception as markup_err:  # noqa: BLE001
+                log.warning("Failed to add the extra button rows: %s", markup_err)
         for attempt in range(2):
             try:
                 if reply_markup is not None:
@@ -985,6 +1016,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
         kb_id: int = 0,
+        extra_rows: list[list[Any]] | None = None,
     ) -> None:
         cands_markup = _markup(update_id, cands, retry_doc_id, kb_id=kb_id) if cands else None
         await _settle_status(
@@ -1002,7 +1034,61 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             kb_id=kb_id,
             service_pool=service_pool,
             theme_mgr=theme_mgr,
+            extra_rows=extra_rows,
         )
+
+    def _contribute_to_theme(theme_ref: str, document_id: str) -> str:
+        """Contribute one document of the personal knowledge base of the bot account to one theme, run the merge jobs, and return the reply text with the state of each target (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.7 rule 2 and 9.2). The caller runs it in a worker thread, in the locale of the update."""
+        from . import contributions, ids
+        from .ingest.service import run_waiting_merge_jobs
+        from .store import kb_collab
+        from .store import themes as themes_store
+
+        def _code_text(code: str) -> str:
+            text = _t(f"kb.err.{code}")
+            return code if text == f"kb.err.{code}" else text
+
+        try:
+            personal = theme_mgr.personal_kb()
+        except KnowledgeBaseNotFound:
+            return _t("campaign.contribute_failed", error=_code_text("document_not_found"))
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(theme_ref))
+            except ValueError:
+                theme = None
+            if theme is None or theme["state"] != "active":
+                return _t("campaign.contribute_failed", error=_code_text("theme_not_found"))
+            try:
+                number = contributions.submit_to_themes(conn, account_id=bot_account_id, is_admin=is_admin_bot, personal_kb_id=personal.id, documents=[document_id], theme_id=int(theme["id"]))
+            except contributions.ContributionError as exc:
+                conn.rollback()
+                return _t("campaign.contribute_failed", error=_code_text(exc.code))
+            conn.commit()
+            # The contribution of a reviewer needs no approval: its merge job runs now, with the provider of the server.
+            run_waiting_merge_jobs(s)
+            lines: list[str] = []
+            taken = 0
+            for item in kb_collab.submission_items(conn, number):
+                made = {int(c["kb_id"]): c for c in kb_collab.contributions_of_item(conn, int(item["id"]))}
+                reasons = {int(entry["kb_id"]): entry["reason"] for entry in item["skipped"]}
+                for kb_id in item["target_kb_ids"]:
+                    try:
+                        label = theme_mgr.get_readable_kb(kb_id).label
+                    except KnowledgeBaseNotFound:
+                        label = f"#{kb_id}"
+                    if kb_id in made:
+                        taken += 1
+                        lines.append(f"• {label}: {_t('kb.state.' + str(made[kb_id]['state']))}")
+                    else:
+                        lines.append(f"• {label}: {_t('kb.state.skipped')} ({_code_text(str(reasons.get(kb_id) or ''))})")
+        finally:
+            conn.close()
+        if not lines:
+            return f"{_t('campaign.contribute_none')}\n{_t('kb.dlg.result_no_target')}"
+        head = _t("campaign.contribute_done", count=taken) if taken else _t("campaign.contribute_none")
+        return "\n".join([f"{head} ({theme['label']})", *lines])
 
     def _theme_selection_markup(token: str, themes: list[Any]):
         kb = []
@@ -1075,6 +1161,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_stt_failed = False
         is_duplicate = False
         did = None
+        contribute_rows: list[list[Any]] = []
 
         def _work():
             if doc_work is not None:
@@ -1094,6 +1181,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7), in the locale of the chat.
             for notice_line in report.notice_lines(locale=None):
                 summary += f"\n\nℹ️ {notice_line}"
+            # The action of the notice for a fiction-like document (Section 8.7 rule 2): a button that contributes the document to the theme.
+            for notice in getattr(report, "notices", None) or []:
+                callback_data = contribute_callback_data(notice) if isinstance(notice, dict) else None
+                if callback_data is not None:
+                    contribute_rows.append([InlineKeyboardButton(_t("campaign.contribute_action"), callback_data=callback_data)])
             if target_theme.id != 0:
                 summary = f"🎯 *[{target_theme.icon} {target_theme.label}]*\n" + summary
             is_stt_failed = bool(
@@ -1149,6 +1241,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_duplicate=is_duplicate,
             retry_doc_id=did,
             kb_id=target_theme.id,
+            extra_rows=contribute_rows,
         )
 
     def _help_text() -> str:
@@ -1904,6 +1997,22 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             except Exception as e:
                 ans = _t("bot.regen.mode_error", mode=mode_name, error=e)
             await status_msg.edit_text(ans)
+            return
+        if data.startswith(CONTRIBUTE_CALLBACK_PREFIX):
+            # The button "Contribute to this theme" of a campaign notice: ``ctb:<theme number>:<document ID>``.
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            parts = data.split(":", 2)
+            if len(parts) < 3 or not parts[1] or not parts[2]:
+                return
+            try:
+                # ``asyncio.to_thread`` copies the context, thus the worker thread has the locale of this update.
+                answer = await asyncio.to_thread(_contribute_to_theme, parts[1], parts[2])
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Contribution to a theme failed: %s", exc)
+                answer = _t("campaign.contribute_failed", error=type(exc).__name__)
+            await query.message.reply_text(answer)
             return
         if data.startswith("sb:"):
             user = update.effective_user
