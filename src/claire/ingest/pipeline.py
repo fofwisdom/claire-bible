@@ -120,6 +120,14 @@ class IngestReport:
     stt_language: str | None = None
     caption_language: str | None = None
     model_lineage: dict[str, Any] = field(default_factory=dict)
+    # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7): see ``claire.campaign``.
+    notices: list[dict[str, Any]] = field(default_factory=list)
+
+    def notice_lines(self, *, locale: str | None = "en") -> list[str]:
+        """The texts of the campaign notices. ``locale`` None: the active locale."""
+        from ..campaign import notice_text
+
+        return [notice_text(notice, locale=locale) for notice in self.notices]
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -1331,6 +1339,10 @@ def extract_resolve_store(
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         _start_contribution_revisions(conn, settings, kb_id=tid, document_id=doc.id)
         _match_document_theme(conn, kb_id=tid, document_id=doc.id)
+        from ..campaign import notices_for_ingest
+
+        report.notices = notices_for_ingest(conn, kb_id=tid, document_id=doc.id)
+        conn.commit()
 
     return True, None
 

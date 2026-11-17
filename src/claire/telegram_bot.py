@@ -1068,6 +1068,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         try:
             report = await _run_with_ticker(status_msg, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
+            # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7), in the locale of the chat.
+            for notice_line in report.notice_lines(locale=None):
+                summary += f"\n\nℹ️ {notice_line}"
             if target_theme.id != 0:
                 summary = f"🎯 *[{target_theme.icon} {target_theme.label}]*\n" + summary
             is_stt_failed = bool(

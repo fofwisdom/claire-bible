@@ -1358,7 +1358,8 @@ CREATE TABLE IF NOT EXISTS account_reputation (
     fiction_like_documents INTEGER NOT NULL,
     approval_rate REAL,
     decisions INTEGER NOT NULL,
-    computed_at REAL NOT NULL
+    computed_at REAL NOT NULL,
+    campaign_day TEXT                           -- the UTC day of the last standing message of the campaign (Section 8.7 rule 3)
 );
 
 CREATE TABLE IF NOT EXISTS themes (
@@ -1422,6 +1423,7 @@ def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
     for statement in _V28_TABLES.split(";"):
         if statement.strip():
             conn.execute(statement)
+    _ensure_column(conn, "account_reputation", "campaign_day", "TEXT")  # a database of an earlier state of this schema has the table without the column
     for table in _V28_RETIRED_TABLES:
         if not _table_exists(conn, table):
             continue

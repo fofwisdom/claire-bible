@@ -757,6 +757,57 @@ paths:
         '409':
           description: '`contribution_not_failed`.'
 
+  /api/reputation:
+    get:
+      summary: Reputation of the account of the credential
+      description: >-
+        The level (`good`, `limited`, `low`), the fiction share, the approval rate, and each
+        fiction-like document that counts, with its matched theme. No other account sees it.
+      operationId: getReputation
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"level", "fiction_share", "fiction_like_documents", "visible_documents", "approval_rate", "decisions", "documents": [...]}`'
+
+  /api/admin/reputations:
+    get:
+      summary: Reputation of each active account, and the settings
+      operationId: listReputations
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"settings": {...}, "accounts": [...]}`'
+
+  /api/admin/reputations/settings:
+    put:
+      summary: Set the numbers of the reputation
+      operationId: setReputationSettings
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Keys of the reputation settings. A share is from 0 to 1; a count is an integer of 1 or more.
+      responses:
+        '200':
+          description: '`{"ok": true, "settings": {...}}`'
+        '400':
+          description: '`settings_invalid`.'
+
   /kb/{number}/curations:
     post:
       summary: Curate documents from another knowledge base of a theme

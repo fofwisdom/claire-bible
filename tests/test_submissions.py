@@ -156,12 +156,12 @@ def test_submission_checks_and_limits(world, theme) -> None:  # noqa: F811
     too_many = post({"documents": [first, second], "theme": theme.number})
     assert (too_many.status_code, too_many.json()) == (400, {"error": "documents_invalid", "limit": 1})
     # The limit of the pending contributions of one account in one knowledge base: the target is skipped with the reason.
-    _setting(world, "contribution_pending_limit", 1)
+    _setting(world, "pending_limit_good", 1)
     assert _states(post({"documents": [first], "theme": theme.number}).json()["submission"]) == [{"Cities": "pending", "Towns": "pending"}]
     limited = post({"documents": [second], "theme": theme.number}).json()["submission"]
     assert [(t["label"], t["state"], t["reason"]) for t in limited["items"][0]["targets"]] == [("Cities", "skipped", "pending_limit"), ("Towns", "skipped", "pending_limit")]
     # The same document again, below the limit: each target has it already.
-    _setting(world, "contribution_pending_limit", 5)
+    _setting(world, "pending_limit_good", 5)
     again = post({"documents": [first], "theme": theme.number}).json()["submission"]
     assert {t["reason"] for t in again["items"][0]["targets"]} == {"contribution_duplicate"}
     # A banned account has no target in that knowledge base.

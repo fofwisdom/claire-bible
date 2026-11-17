@@ -1650,6 +1650,9 @@ def cmd_ingest(args) -> int:
         full_content=full_content,
     )
     print(report.telegram_summary())
+    # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
+    for notice_line in report.notice_lines():
+        print(f"NOTICE: {notice_line}")
 
     # 1홉 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
     if report.candidates and args.expand:

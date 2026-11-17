@@ -447,6 +447,12 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/members"): _namespaced("read", "read"),
     ("PATCH", "/members/{account}"): _namespaced("owner", "people"),
     # Themes (design Sections 8.2 and 8.3): the admin sees each theme, sets the thresholds, starts a run, and makes the adjustments.
+    # Reputation (design Section 8.6): the account sees its own; the admin sees all levels and sets the numbers.
+    ("GET", "/api/reputation"): _system("read", "none"),
+    ("HEAD", "/api/reputation"): _system("read", "none"),
+    ("GET", "/api/admin/reputations"): _system("admin", "none"),
+    ("HEAD", "/api/admin/reputations"): _system("admin", "none"),
+    ("PUT", "/api/admin/reputations/settings"): _system("admin", "none"),
     ("GET", "/api/admin/themes"): _system("admin", "none"),
     ("HEAD", "/api/admin/themes"): _system("admin", "none"),
     ("POST", "/api/admin/themes"): _system("admin", "none"),

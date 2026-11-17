@@ -372,6 +372,59 @@ def pending_count(conn: sqlite3.Connection, *, kb_id: int, account_id: int) -> i
     return int(conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=? AND contributor_account_id=? AND state='pending'", (int(kb_id), int(account_id))).fetchone()[0])
 
 
+# --- reputation (design Section 8.6) -------------------------------------------------------------
+
+_REPUTATION_KEYS = ("account_id", "level", "fiction_share", "fiction_like_documents", "approval_rate", "decisions", "computed_at", "campaign_day")
+
+
+def save_reputation(conn: sqlite3.Connection, *, account_id: int, level: str, fiction_share: float, fiction_like_documents: int, approval_rate: float | None, decisions: int, now: float | None = None) -> None:
+    ts = time.time() if now is None else now
+    conn.execute(
+        "INSERT INTO account_reputation (account_id, level, fiction_share, fiction_like_documents, approval_rate, decisions, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(account_id) DO UPDATE SET level=excluded.level, fiction_share=excluded.fiction_share, fiction_like_documents=excluded.fiction_like_documents, "
+        "approval_rate=excluded.approval_rate, decisions=excluded.decisions, computed_at=excluded.computed_at",
+        (int(account_id), level, float(fiction_share), int(fiction_like_documents), approval_rate, int(decisions), ts),
+    )
+
+
+def get_reputation(conn: sqlite3.Connection, account_id: int) -> dict[str, Any] | None:
+    row = conn.execute(f"SELECT {', '.join(_REPUTATION_KEYS)} FROM account_reputation WHERE account_id=?", (int(account_id),)).fetchone()
+    return None if row is None else dict(zip(_REPUTATION_KEYS, tuple(row)))
+
+
+def take_campaign_day(conn: sqlite3.Connection, account_id: int, day: str) -> bool:
+    """True one time for each account and day: the standing message of the campaign shows with the first ingest of the day (design Section 8.7 rule 3). The account must have a stored reputation. No commit."""
+    cur = conn.execute("UPDATE account_reputation SET campaign_day=? WHERE account_id=? AND (campaign_day IS NULL OR campaign_day != ?)", (day, int(account_id), day))
+    return cur.rowcount == 1
+
+
+def roots_in_fictional_kbs(conn: sqlite3.Connection, account_id: int) -> set[str]:
+    """The root documents that the account contributed to a shared knowledge base of the type ``fictional``, where the contribution is visible or approved."""
+    rows = conn.execute(
+        "SELECT c.root_document_id FROM kb_contributions c JOIN knowledge_bases k ON k.id = c.kb_id "
+        "WHERE c.contributor_account_id=? AND k.knowledge_type='fictional' AND c.root_document_id IS NOT NULL AND (c.state='visible' OR c.approved_at IS NOT NULL) AND c.state NOT IN ('rejected', 'removed')",
+        (int(account_id),),
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def decisions_of_account(conn: sqlite3.Connection, account_id: int, *, since: float, origins: tuple[str, ...], reasons: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The decisions of other accounts on the contributions of the account since ``since``: ``{"kb_id", "approved"}``. A rejection or a removal counts only with one of ``reasons``; an approval that a later removal replaced is not an approval."""
+    marks = ", ".join("?" for _ in origins)
+    rows = conn.execute(
+        f"SELECT kb_id, state, decision_reason, approved_at, approved_by_account_id, decided_at FROM kb_contributions WHERE contributor_account_id=? AND origin IN ({marks})",
+        (int(account_id), *origins),
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if row["state"] in ("rejected", "removed"):
+            if row["decided_at"] is not None and row["decided_at"] >= since and row["decision_reason"] in reasons:
+                out.append({"kb_id": int(row["kb_id"]), "approved": False})
+        elif row["approved_at"] is not None and row["approved_at"] >= since and row["approved_by_account_id"] is not None and int(row["approved_by_account_id"]) != int(account_id):
+            out.append({"kb_id": int(row["kb_id"]), "approved": True})
+    return out
+
+
 # --- moderation log ------------------------------------------------------------------------------
 
 

@@ -648,8 +648,8 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
 
 # --- contribution to a theme (Section 9.2) ---------------------------------------------------------------------------
 
-# Admin settings in ``server_settings``: the documents of one submission, and the pending contributions of one account in one knowledge base. The reputation of unit CT-11 makes the second limit depend on the level of the account.
-LIMITS = {"submission_max_documents": 20, "contribution_pending_limit": 20}
+# Admin setting in ``server_settings``: the documents of one submission. The limit of the pending contributions of one account in one knowledge base comes from the reputation (``reputation.pending_limit``).
+LIMITS = {"submission_max_documents": 20}
 
 
 def read_limits(conn: sqlite3.Connection) -> dict[str, int]:
@@ -683,11 +683,13 @@ def submit_to_themes(
 
     For each document: the theme is ``theme_id`` (the account selected it) or the theme match of the document (the server routes it). Without a theme the item has no target (the response gives ``no_theme``). The targets are the active shared knowledge bases of the theme where the account is not banned. In each target: a duplicate, a tombstone, and the pending limit skip the target with the reason; a reviewer of the target contributes without approval; each other account makes a pending contribution with a hidden copy and no graph.
     """
-    from . import theme_judgement
+    from . import reputation, theme_judgement
     from .store import themes as themes_store
 
     ts = time.time() if now is None else now
     limits = read_limits(conn)
+    level = reputation.level(conn, account_id, now=ts)
+    pending_limit = reputation.pending_limit(reputation.read_settings(conn), level)
     if not documents or len(documents) > limits["submission_max_documents"]:
         raise ContributionError(400, "documents_invalid", limit=limits["submission_max_documents"])
     if len(set(documents)) != len(documents):
@@ -716,8 +718,9 @@ def submit_to_themes(
             if membership is not None and membership["state"] == "banned":
                 continue
             targets.append(kb_id)
-            reviewer = is_admin or (membership is not None and membership["state"] == "active" and membership["role"] in ("collaborator", "moderator"))
-            if not reviewer and kb_collab.pending_count(conn, kb_id=kb_id, account_id=account_id) >= limits["contribution_pending_limit"]:
+            # With the reputation ``low`` the contribution of a collaborator or a moderator also waits for approval (Section 8.6). The admin has no reputation rule.
+            reviewer = is_admin or (membership is not None and membership["state"] == "active" and membership["role"] in ("collaborator", "moderator") and not reputation.needs_approval(level))
+            if not reviewer and kb_collab.pending_count(conn, kb_id=kb_id, account_id=account_id) >= pending_limit:
                 skipped.append({"kb_id": kb_id, "reason": "pending_limit"})
                 continue
             try:
@@ -783,6 +786,12 @@ def curation_source(conn: sqlite3.Connection, *, kb_id: int, source_kb_id: int) 
         raise ContributionError(400, "source_invalid")
     if not themes_store.share_a_theme(conn, int(kb_id), int(source_kb_id)):
         raise ContributionError(409, "source_not_in_theme")
+    if row["is_personal"] and row["account_id"] is not None:
+        from . import reputation
+
+        # With the reputation ``low`` the personal knowledge base has no theme attachment, thus it is no curation source (Section 8.6). The check here applies the level before the next judgement run.
+        if not reputation.attaches_to_themes(reputation.level(conn, int(row["account_id"]))):
+            raise ContributionError(409, "source_not_in_theme")
     return {"id": int(row["id"]), "is_personal": bool(row["is_personal"]), "account_id": row["account_id"]}
 
 
@@ -907,3 +916,21 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
     for theme_id in themes_store.themes_of_kb(conn, source_kb_id):
         themes_store.add_theme_member(conn, theme_id=theme_id, kb_id=target_kb_id, source="fork", now=ts)
     return {"documents": len(doc_map), "entities": len(entity_map), "relations": relations}
+
+
+def direct_mode(conn: sqlite3.Connection, *, kb_id: int, account_id: int, is_reviewer: bool, is_admin: bool, now: float | None = None) -> tuple[bool, bool]:
+    """How a direct contribution of the account enters K: ``(approved, pending)`` (design Sections 6.2 rule 2 and 8.6).
+
+    With the reputation ``low`` each contribution waits for approval, also the one of a collaborator or a moderator; the pending limit of the level applies (409 ``pending_limit``). Else a member contributes directly, and a reviewer needs no approval. The admin has no reputation rule.
+    """
+    from . import reputation
+
+    if is_admin:
+        return True, False
+    level = reputation.level(conn, account_id, now=now)
+    if not reputation.needs_approval(level):
+        return is_reviewer, False
+    limit = reputation.pending_limit(reputation.read_settings(conn), level)
+    if kb_collab.pending_count(conn, kb_id=kb_id, account_id=account_id) >= limit:
+        raise ContributionError(409, "pending_limit", limit=limit)
+    return False, True

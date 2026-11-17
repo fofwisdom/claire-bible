@@ -236,7 +236,7 @@ def _knowledge_bases(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     out = []
     for row in rows:
         if row["is_personal"] and row["account_id"] is not None:
-            out.append({"id": int(row["id"]), "is_shared": False, "knowledge_type": "real", "is_public": bool(row["is_public"])})
+            out.append({"id": int(row["id"]), "is_shared": False, "knowledge_type": "real", "is_public": bool(row["is_public"]), "account_id": int(row["account_id"])})
         elif not row["is_personal"] and row["account_id"] is None and row["knowledge_type"] in themes_store.KNOWLEDGE_TYPES:
             out.append({"id": int(row["id"]), "is_shared": True, "knowledge_type": str(row["knowledge_type"]), "is_public": True})
     return out
@@ -334,14 +334,20 @@ def run_judgement(conn: sqlite3.Connection, *, now: float | None = None) -> RunR
     for kb_id, theme_id in assigned.items():
         if themes_store.set_computed_member(conn, theme_id=theme_id, kb_id=kb_id, score=None):
             report.memberships += 1
-    # 4. Public personal knowledge bases attach to each ``real`` theme where the average score with the shared members is at least the threshold (rule 5). The reputation rule comes with unit CT-11.
+    # 4. Public personal knowledge bases attach to each ``real`` theme where the average score with the shared members is at least the threshold (rule 5). The reputation ``low`` stops the attachment (Section 8.6).
     idf_real = idf_by_type.get("real", {})
     members_of: dict[int, list[int]] = {}
     for kb_id, theme_id in assigned.items():
         members_of.setdefault(theme_id, []).append(kb_id)
+    from . import reputation
+
+    owners = {int(kb["id"]): kb.get("account_id") for kb in _knowledge_bases(conn)}
     for signature in signatures.values():
         if signature.is_shared:
             continue
+        owner = owners.get(signature.kb_id)
+        if owner is not None and not reputation.attaches_to_themes(reputation.level(conn, int(owner), now=ts)):
+            continue  # Section 8.6: with the reputation ``low`` the personal knowledge base has no theme attachment
         for theme_id, kb_ids in members_of.items():
             if themes[theme_id]["knowledge_type"] != "real" or (theme_id, signature.kb_id) in excluded:
                 continue

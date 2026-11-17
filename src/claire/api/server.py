@@ -53,6 +53,7 @@ from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import contributions
 from .. import theme_judgement
+from .. import reputation
 from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -1451,6 +1452,10 @@ def create_app(
         if full:
             view["reason"] = row["decision_reason"]
             view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
+        if review_help and row["contributor_account_id"] is not None:
+            # Reviewers see the level and the approval rate of the contributor (design Section 8.6).
+            contributor_reputation = reputation.compute(conn, int(row["contributor_account_id"]))
+            view["contributor_reputation"] = {"level": contributor_reputation.level, "approval_rate": contributor_reputation.approval_rate}
         if review_help and row["submission_item_id"] is not None:
             # Help for the decision of a reviewer (design Section 9.3 rule 2). The server never decides for a reviewer.
             item = conn.execute("SELECT theme_id, match_score, routed_by FROM kb_submission_items WHERE id=?", (int(row["submission_item_id"]),)).fetchone()
@@ -1485,7 +1490,7 @@ def create_app(
         document_id = body.get("document")
         if not isinstance(document_id, str) or not document_id.strip():
             raise HTTPException(status_code=400, detail="document_required")
-        approved = _kb_decide(request, kb, "review") == "allow"
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
         origin = _public_origin(request)
 
         def _contribute() -> JSONResponse:
@@ -1496,7 +1501,9 @@ def create_app(
             conn = dbm.connect_existing(s.db_file)
             try:
                 try:
-                    row = contributions.contribute_direct(conn, kb_id=kb.id, source_kb_id=personal.id, source_document_id=document_id.strip(), contributor_account_id=int(principal.account_id), approved=approved)
+                    # The reputation ``low`` makes the contribution wait for approval (design Section 8.6).
+                    approved, pending = contributions.direct_mode(conn, kb_id=kb.id, account_id=int(principal.account_id), is_reviewer=is_reviewer, is_admin=principal.server_role == "admin")
+                    row = contributions.contribute_direct(conn, kb_id=kb.id, source_kb_id=personal.id, source_document_id=document_id.strip(), contributor_account_id=int(principal.account_id), approved=approved, pending=pending)
                 except contributions.ContributionError as exc:
                     conn.rollback()
                     return _contribution_error(exc, kb=kb, origin=origin)
@@ -1618,6 +1625,9 @@ def create_app(
                     own = principal.account_id is not None and row["contributor_account_id"] == principal.account_id
                     if row["state"] == "visible" or is_reviewer or own:
                         items.append(_contribution_view(conn, row, full=is_reviewer or own, review_help=is_reviewer))
+                if is_reviewer and state == "pending":
+                    # The review queue (design Section 8.6): the level ``good`` first, ``low`` last; in one level the oldest first.
+                    items.sort(key=lambda item: (reputation.queue_rank((item.get("contributor_reputation") or {}).get("level")), item["contributed_at"]))
                 return items
             finally:
                 conn.close()
@@ -1867,13 +1877,19 @@ def create_app(
                 continue
             if kb.is_personal and not kb.is_public:
                 continue
+            owner_level = reputation.level(conn, int(kb.account_id)) if kb.is_personal and kb.account_id is not None else None
+            if owner_level is not None and not reputation.attaches_to_themes(owner_level) and not admin:
+                continue  # Section 8.6: the level ``low`` has no theme attachment
             entry: dict[str, Any] = {"number": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label, "is_personal": kb.is_personal, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None}
             if kb.is_shared and not member["excluded"]:
                 contributions_visible += len(kb_collab.list_contributions(conn, kb.id, state="visible"))
+            if owner_level is not None:
+                # Section 8.6: the level ``limited`` is listed after the others with a mark.
+                entry["limited"] = owner_level != "good"
             if admin:
                 entry.update({"pinned": bool(member["pinned"]), "excluded": bool(member["excluded"]), "source": member["source"], "score": member["score"]})
             knowledge_bases.append(entry)
-        knowledge_bases.sort(key=lambda e: (e["is_personal"], e["label"]))
+        knowledge_bases.sort(key=lambda e: (e["is_personal"], bool(e.get("limited")), e["label"]))
         try:
             top_entities = json.loads(theme["top_entities"] or "[]")
         except ValueError:
@@ -2019,6 +2035,72 @@ def create_app(
                     return JSONResponse({"error": "settings_invalid"}, status_code=400)
                 conn.commit()
                 return JSONResponse({"ok": True, "settings": theme_judgement.read_settings(conn)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    # --- Reputation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6) ---
+
+    async def reputation_route(request: Request) -> JSONResponse:
+        """``GET /api/reputation``: the account sees its level, its signals, and each fiction-like document that counts, with its matched theme. No other account sees it."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        account_id = int(principal.account_id)
+
+        def _load() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                current = reputation.refresh(conn, account_id)
+                conn.commit()
+                documents = []
+                for document_id in current.fiction_like_documents:
+                    match = themes_store.get_document_match(conn, document_id)
+                    theme = themes_store.get_theme(conn, int(match["theme_id"])) if match is not None and match["theme_id"] is not None else None
+                    title = conn.execute("SELECT title FROM documents WHERE id=?", (document_id,)).fetchone()
+                    documents.append({"document": document_id, "title": None if title is None else title[0], "theme": None if theme is None else ids.format_public_id(int(theme["number"])), "theme_label": None if theme is None else theme["label"]})
+                return {**current.to_dict(), "documents": documents}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_load))
+
+    async def admin_reputations_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/reputations``: the admin sees the level of each active account, and the settings."""
+
+        def _load() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                rows = []
+                for account in conn.execute("SELECT id, public_id, display_name FROM accounts WHERE status='active' ORDER BY id").fetchall():
+                    current = reputation.refresh(conn, int(account["id"]))
+                    rows.append({"account": ids.format_public_id(int(account["public_id"])), "display_name": account["display_name"], **current.to_dict()})
+                conn.commit()
+                return {"settings": reputation.read_settings(conn), "accounts": rows}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_load))
+
+    async def admin_reputation_settings_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/reputations/settings``: the numbers of the reputation (the keys of ``reputation.SETTINGS``)."""
+        body = await _json_object(request)
+        principal = request_principal(request)
+        if not body or set(body) - set(reputation.SETTINGS):
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    for key, value in body.items():
+                        reputation.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400)
+                conn.commit()
+                return JSONResponse({"ok": True, "settings": reputation.read_settings(conn)})
             finally:
                 conn.close()
 
@@ -5552,6 +5634,9 @@ def create_app(
         Route("/membership", kb_leave_route, methods=["DELETE"]),
         Route("/members", kb_members_route, methods=["GET", "HEAD"]),
         Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/api/reputation", reputation_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/reputations", admin_reputations_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/reputations/settings", admin_reputation_settings_route, methods=["PUT"]),
         Route("/api/admin/themes", admin_themes_route, methods=["GET", "HEAD", "POST"]),
         Route("/api/admin/themes/settings", admin_themes_settings_route, methods=["PUT"]),
         Route("/api/admin/themes/judge", admin_themes_judge_route, methods=["POST"]),
