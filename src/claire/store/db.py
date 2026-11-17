@@ -2337,12 +2337,16 @@ def set_document_watch(
     conn.commit()
 
 
+# Watch, refresh, and expand take no row of a shared knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md CT10, Section 13.1 rule 4): a shared knowledge base gets its content only from contributions.
+_NOT_SHARED_KB = " AND kb_id NOT IN (SELECT id FROM knowledge_bases WHERE COALESCE(is_personal, 0)=0 AND account_id IS NULL) "
+
+
 def watch_due_documents(
     conn: sqlite3.Connection, now: float, *, default_interval: float, limit: int = 0, kb_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """재크롤할 때가 된 watch 문서: enabled=1 AND (last_watched_at NULL 또는 now - last_watched_at >= interval). interval 없으면 default_interval 적용."""
     q = ("SELECT id, url FROM documents WHERE watch_enabled=1 AND url IS NOT NULL AND ("
-         "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) ")
+         "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) " + _NOT_SHARED_KB)
     params: list[Any] = [now, default_interval]
     if kb_id is not None:
         q += " AND kb_id=? "
@@ -4763,7 +4767,7 @@ def enqueue_refresh(
 
 
 def pending_refresh(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[sqlite3.Row]:
-    q = "SELECT * FROM refresh_queue WHERE status='pending'"
+    q = "SELECT * FROM refresh_queue WHERE status='pending'" + _NOT_SHARED_KB
     params: list[Any] = []
     if kb_id is not None:
         q += " AND kb_id=?"
@@ -4828,7 +4832,7 @@ def enqueue_expand(conn: sqlite3.Connection, document_id: str, kb_id: int = 0) -
 
 
 def pending_expand(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[sqlite3.Row]:
-    q = "SELECT * FROM expand_queue WHERE status='pending'"
+    q = "SELECT * FROM expand_queue WHERE status='pending'" + _NOT_SHARED_KB
     params: list[Any] = []
     if kb_id is not None:
         q += " AND kb_id=?"

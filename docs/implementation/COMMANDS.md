@@ -688,6 +688,23 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
+#### `claire theme` (themes)
+
+A theme is a collection of knowledge bases with one subject (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8). The command reads and writes `data/claire.db` directly. The number of a theme is the number in `/themes/<number>/`.
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `theme list` | `claire theme list [--json]` | Each theme: number, knowledge type, state, count of knowledge bases, label. `claire theme` alone does the same. |
+| `theme judge` | `claire theme judge` | Run the subject judgement now: signatures, themes, memberships. Admin adjustments stay. |
+| `theme rename` | `claire theme rename <theme> <label>` | Set the label and lock it. The judgement does not change a locked label. |
+| `theme unlock` | `claire theme unlock <theme>` | Remove the lock. The next judgement sets the label. |
+| `theme pin` | `claire theme pin <theme> <kb>` | Pin a knowledge base to the theme. The knowledge types must be the same. |
+| `theme exclude` | `claire theme exclude <theme> <kb>` | Keep a knowledge base out of the theme. |
+| `theme free` | `claire theme free <theme> <kb>` | Remove the pin or the exclusion. The judgement decides the membership again. |
+| `theme merge` | `claire theme merge <theme> --into <theme>` | Merge a theme into another theme of the same knowledge type. |
+
+`<kb>` is a knowledge base number, ID, or label. An unknown theme or knowledge base gives exit code 1 and a message on stderr.
+
 ### 3.11 프레젠테이션 관리 및 렌더링 (`presentation`)
 
 `claire presentation` 명령군은 Asciidoctor reveal.js 기반의 HTML 슬라이드 쇼 프레젠테이션을 LLM으로 자동 저작(compose)하고, 컴파일(compile)하며, 진단 및 상태를 관리하는 엔진이다. `doctor`를 뺀 모든 하위 명령은 `-t/--theme-id`를 받고, `recompile`과 `doctor`를 뺀 하위 명령은 `--doc-id`도 받는다. CLI는 테마별 프레젠테이션 스위치를 검사하지 않는다. 원고 수정 명령(`edit-adoc`)은 없다: `PUT /document/presentation/adoc`을 쓴다. 현재 동작: [PRESENTATION.md](PRESENTATION.md).

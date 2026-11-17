@@ -217,7 +217,7 @@ def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_f
         assert client.get(f"/document/raw?id={document_id}", headers=write).status_code == 404
         # A path that pins a shared knowledge base: 403 (CT4).
         pinned = client.post(f"/kb/{shared['number']}/ingest", json={"payload": "text"}, headers=write)
-        assert (pinned.status_code, pinned.json()) == (403, {"error": "kb_ingest_personal_only"})
+        assert (pinned.status_code, pinned.json()) == (403, {"error": "kb_ingest_by_contribution"})
 
         # Review, curation, maintenance, settings, remove, and delete are decisions of the person: 403.
         refused = {"error": "scope_insufficient", "scope": "write", "required": "owner"}

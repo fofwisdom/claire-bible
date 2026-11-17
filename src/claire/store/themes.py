@@ -259,6 +259,13 @@ def delete_document_matches_of_kb(conn: sqlite3.Connection, kb_id: int) -> None:
     conn.execute("DELETE FROM kb_document_matches WHERE kb_id=?", (int(kb_id),))
 
 
+def delete_kb_rows(conn: sqlite3.Connection, kb_id: int) -> None:
+    """Delete the theme rows of a knowledge base that goes: its document matches, its signature, and its memberships in themes."""
+    delete_document_matches_of_kb(conn, kb_id)
+    delete_signature(conn, kb_id)
+    conn.execute("DELETE FROM theme_knowledge_bases WHERE kb_id=?", (int(kb_id),))
+
+
 def fiction_like_documents(conn: sqlite3.Connection, kb_id: int) -> set[str]:
     """The documents of a knowledge base whose theme match is a ``fictional`` theme (design Section 8.5, CT18)."""
     return {str(r[0]) for r in conn.execute("SELECT document_id FROM kb_document_matches WHERE kb_id=? AND knowledge_type='fictional' AND theme_id IS NOT NULL", (int(kb_id),))}

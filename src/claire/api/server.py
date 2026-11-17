@@ -332,7 +332,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="theme not found")
         if decision == "forbidden":
             if kb.is_shared and capability == "write":
-                detail = "kb_ingest_personal_only"
+                detail = "kb_ingest_by_contribution"
             elif kb.is_shared and kb.state == "archived" and capability in kb_access.ARCHIVED_BLOCKED:
                 detail = "kb_archived"
             else:
@@ -449,7 +449,7 @@ def create_app(
         try:
             theme = theme_mgr.personal_kb_for(principal.account_id)
             if ns is not None and ns.pinned_kb_id is not None and ns.pinned_kb_id != theme.id:
-                raise HTTPException(status_code=403, detail="kb_ingest_personal_only")
+                raise HTTPException(status_code=403, detail="kb_ingest_by_contribution")
             theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             theme_svc = service_pool.get_service(theme.id)
         except KnowledgeBaseNotFound as exc:
@@ -3126,7 +3126,7 @@ def create_app(
             except Exception:
                 raise HTTPException(status_code=404, detail="target theme not found")
 
-        # The copy is an ingest: its target is the personal knowledge base of the caller (capability ``write`` of the route, CT4). A shared knowledge base gets 403 ``kb_ingest_personal_only``; documents go there by contribution.
+        # The copy is an ingest: its target is the personal knowledge base of the caller (capability ``write`` of the route, CT4). A shared knowledge base gets 403 ``kb_ingest_by_contribution``; documents go there by contribution.
         _require_kb(request, target_theme, _request_capability(request))
 
         principal = request_principal(request)

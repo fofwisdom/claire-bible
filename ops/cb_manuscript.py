@@ -122,6 +122,7 @@ APP_ONE_OFF_COMMANDS = {
     "link-relations",
     "entity",
     "kb",
+    "theme",
     "repo",
     "format-status",
     "format-migrate",

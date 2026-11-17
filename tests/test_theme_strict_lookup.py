@@ -280,7 +280,9 @@ def test_telegram_resolve_selected_theme_clears_stale_selection(tmp_path):
     t1 = tm.define_kb("Alpha Research", knowledge_type="real")
     selections = {100: t1.id}
 
-    assert resolve_selected_theme(tm, selections, 100).id == t1.id
+    # A shared knowledge base is a selection for search and read. Ingest goes to the personal knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
+    assert resolve_selected_theme(tm, selections, 100, for_read=True).id == t1.id
+    assert resolve_selected_theme(tm, selections, 100).id == 0
     # 고른 적이 없으면 기본 테마 0
     assert resolve_selected_theme(tm, selections, 200).id == 0
 

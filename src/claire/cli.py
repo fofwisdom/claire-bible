@@ -725,6 +725,96 @@ def cmd_media(args) -> int:
     return 0
 
 
+def cmd_themes(args) -> int:
+    """``claire theme``: the themes (collections of knowledge bases with one subject): list, run the judgement, and adjust (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2, 8.3, 13.4)."""
+    import json
+
+    from . import ids, theme_judgement
+    from .store import themes as themes_store
+    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
+
+    s = get_settings()
+    action = getattr(args, "themes_action", None) or "list"
+    conn = dbm.connect(s.db_file)
+    try:
+        def _theme(reference: str):
+            try:
+                theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(reference)))
+            except ValueError:
+                theme = None
+            if theme is None:
+                print(f"[error] No theme has the number {reference}.", file=sys.stderr)
+            return theme
+
+        if action == "list":
+            rows = []
+            for theme in themes_store.list_themes(conn, include_merged=True):
+                members = themes_store.theme_members(conn, int(theme["id"]))
+                rows.append({"number": ids.format_public_id(int(theme["number"])), "label": theme["label"], "knowledge_type": theme["knowledge_type"], "state": theme["state"], "label_locked": bool(theme["label_locked"]), "knowledge_bases": len(members)})
+            if getattr(args, "json", False):
+                print(json.dumps({"themes": rows}, ensure_ascii=False, indent=2))
+            elif not rows:
+                print("There are no themes. Run: claire theme judge")
+            else:
+                for row in rows:
+                    print(f"{row['number']}  {row['knowledge_type']:<9} {row['state']:<7} {row['knowledge_bases']:>3} knowledge bases  {row['label']}")
+            return 0
+        if action == "judge":
+            report = theme_judgement.run_judgement(conn)
+            conn.commit()
+            print(f"The judgement is complete: {report.signatures} signatures, {report.themes_active} active themes ({report.themes_new} new), {report.memberships} memberships.")
+            return 0
+        theme = _theme(args.theme)
+        if theme is None:
+            return 1
+        if action == "rename":
+            label = str(args.label or "").strip()
+            if not label:
+                print("[error] The label is empty.", file=sys.stderr)
+                return 1
+            themes_store.update_theme(conn, int(theme["id"]), label=label, label_locked=1)
+            conn.commit()
+            print(f"Theme {args.theme} has the label '{label}'. The judgement does not change this label.")
+            return 0
+        if action == "unlock":
+            themes_store.update_theme(conn, int(theme["id"]), label_locked=0)
+            conn.commit()
+            print(f"The next judgement sets the label of theme {args.theme}.")
+            return 0
+        if action == "merge":
+            target = _theme(args.into)
+            if target is None:
+                return 1
+            try:
+                themes_store.merge_themes(conn, source_id=int(theme["id"]), target_id=int(target["id"]))
+            except ValueError as exc:
+                print(f"[error] The merge is not possible: {exc}", file=sys.stderr)
+                return 1
+            conn.commit()
+            print(f"Theme {args.theme} is merged into theme {args.into}.")
+            return 0
+        # pin, exclude, free: the membership of one knowledge base
+        try:
+            kb = get_kb_manager(s).get_kb_by_reference(args.kb)
+        except KnowledgeBaseNotFound:
+            print(f"[error] No knowledge base has the reference {args.kb}.", file=sys.stderr)
+            return 1
+        if theme["state"] == "merged":
+            print("[error] A merged theme has no members.", file=sys.stderr)
+            return 1
+        if action == "pin" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+            print("[error] The knowledge type of the knowledge base is not the knowledge type of the theme.", file=sys.stderr)
+            return 1
+        themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=action == "pin", excluded=action == "exclude")
+        if action == "pin":
+            themes_store.update_theme(conn, int(theme["id"]), state="active")
+        conn.commit()
+        print({"pin": "The knowledge base is pinned to the theme.", "exclude": "The knowledge base is excluded from the theme.", "free": "The judgement decides the membership of the knowledge base again."}[action])
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_theme(args) -> int:
     """테마(다중 DB 격리) 조회, 정의, 수정, 삭제."""
     import json
@@ -5101,6 +5191,26 @@ def build_parser() -> argparse.ArgumentParser:
     ptres.set_defaults(func=cmd_theme)
 
     ptheme.set_defaults(func=cmd_theme, theme_action="list")
+
+    # Themes (design Section 13.4: "claire theme" for themes: list, run judgement, adjust)
+    pthemes = sub.add_parser("theme", help="manage themes", description="Manage the themes (collections of knowledge bases with one subject): list, run the judgement, adjust.")
+    pthemes_sub = pthemes.add_subparsers(dest="themes_action")
+    pth_list = pthemes_sub.add_parser("list", help="list the themes", description="List each theme with its number, knowledge type, state, and count of knowledge bases.")
+    pth_list.add_argument("--json", action="store_true", help="output in JSON format")
+    pthemes_sub.add_parser("judge", help="run the subject judgement now", description="Compute the signatures, the themes, and the memberships now. Admin adjustments stay.")
+    pth_rename = pthemes_sub.add_parser("rename", help="set and lock the label of a theme", description="Set the label of a theme. The judgement does not change a locked label.")
+    pth_rename.add_argument("theme", help="theme number")
+    pth_rename.add_argument("label", help="new label")
+    pth_unlock = pthemes_sub.add_parser("unlock", help="give the label back to the judgement", description="Remove the lock of the label. The next judgement sets the label.")
+    pth_unlock.add_argument("theme", help="theme number")
+    for name, text in (("pin", "pin a knowledge base to a theme"), ("exclude", "exclude a knowledge base from a theme"), ("free", "remove the pin or the exclusion of a knowledge base")):
+        pth_member = pthemes_sub.add_parser(name, help=text, description=f"Adjust a membership: {text}.")
+        pth_member.add_argument("theme", help="theme number")
+        pth_member.add_argument("kb", help="knowledge base number, ID, or label")
+    pth_merge = pthemes_sub.add_parser("merge", help="merge a theme into another theme", description="Merge a theme into another theme of the same knowledge type. The members are pinned to the other theme.")
+    pth_merge.add_argument("theme", help="number of the theme that goes")
+    pth_merge.add_argument("--into", required=True, help="number of the theme that stays")
+    pthemes.set_defaults(func=cmd_themes, themes_action="list")
     sub.add_parser(
         "bot",
         help="run Telegram long-polling bot daemon",

@@ -528,7 +528,7 @@ class AccountStore:
         self.conn.commit()
         return self.get(account_id)
 
-    def purge(self, account_id: int, *, data_dir: Path | str | None = None, now: float | None = None, skip_federated_delete: bool = False) -> Account:
+    def purge(self, account_id: int, *, data_dir: Path | str | None = None, now: float | None = None, skip_federated_delete: bool = False, delete_activity_records: bool = False) -> Account:
         """계정을 완전히 삭제(purged) 처리하고, tombstones 등록, 자격증명 및 디스크 산출물을 정리한다.
 
         연합(Fedify 사이드카 설계 §8.1): 액터였던 계정은 액터 tombstone을 남기고, 팔로워가 있으면 ``delete_actor`` 작업을 같은 트랜잭션에서 만든다. ``skip_federated_delete``는 그 작업을 만들지 않는다.
@@ -562,6 +562,20 @@ class AccountStore:
         from . import client_db
 
         client_db.purge_account_of_claire_db(self.conn, account_id)
+
+        # Shared knowledge bases (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2): the contributions with the credit of the account stay without the credit (CT7, CT19); its pending contributions go with their hidden copies. ``delete_activity_records`` is the option of the purge confirmation.
+        from . import kb_collab
+
+        collab = kb_collab.purge_account(self.conn, account_id, delete_activity_records=delete_activity_records)
+        for kb_id, document_id in collab["pending_copies"]:
+            # A pending copy has a document row and an extraction, and no graph and no files.
+            self.conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (document_id, kb_id))
+            self.conn.execute("DELETE FROM documents WHERE id=? AND kb_id=? AND hidden=1", (document_id, kb_id))
+        self.conn.execute("UPDATE knowledge_bases SET created_by_account_id=NULL WHERE created_by_account_id=?", (account_id,))
+        from . import themes as themes_store
+
+        for owned in self.conn.execute("SELECT id FROM knowledge_bases WHERE account_id=?", (account_id,)).fetchall():
+            themes_store.delete_kb_rows(self.conn, int(owned[0]))
 
         _gc_account_disk_artifacts(self.conn, account_id, data_dir=data_dir)
 

@@ -260,7 +260,7 @@ def test_permission_matrix_write(test_environment):
 
     # 3. A path that pins a shared knowledge base -> 403 (CT4)
     res_shared = client.post(f"/kb/{ids.format_public_id(env.alice_collab.number)}/ingest", json={"payload": "text"}, headers=headers)
-    assert (res_shared.status_code, res_shared.json().get("error")) == (403, "kb_ingest_personal_only")
+    assert (res_shared.status_code, res_shared.json().get("error")) == (403, "kb_ingest_by_contribution")
 
     # 4. Owner actions (graph bundle, review, settings) -> 403 scope_insufficient
     for method, path, body in (
@@ -313,7 +313,7 @@ def test_permission_matrix_cross_account(test_environment):
 
     # 5. Ingest write attempt to Alice public theme -> 404 (cross-account write hidden)
     res_write = client.post(f"/kb/{ids.format_public_id(env.alice_pub.number)}/ingest", json={"payload": "Bob cross-write attempt"}, headers=headers)
-    assert res_write.status_code == 403  # a path that pins a shared knowledge base: 403 kb_ingest_personal_only (CT4)
+    assert res_write.status_code == 403  # a path that pins a shared knowledge base: 403 kb_ingest_by_contribution (CT4)
 
     # 6. Graph bundle export attempt on Alice theme -> 404
     res_bundle = client.post(f"/kb/{ids.format_public_id(env.alice_pub.number)}/graph/bundle", json={"kb_id": env.alice_pub.id}, headers=headers)
@@ -598,7 +598,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
         json={"payload": "Bob illegal cross-account ingest"},
         headers=bob_owner_hdr,
     )
-    assert res_bob_write.status_code == 403  # a path that pins a shared knowledge base: 403 kb_ingest_personal_only for each account (CT4)
+    assert res_bob_write.status_code == 403  # a path that pins a shared knowledge base: 403 kb_ingest_by_contribution for each account (CT4)
 
     # Step 6: Bob reads and searches Alice's public team theme -> Success, search forced to FTS
     res_bob_read = client.get(f"/kb/{team_num}/graph", headers=bob_owner_hdr)

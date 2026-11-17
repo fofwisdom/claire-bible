@@ -99,7 +99,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
 
     # 5. Dispatch from the shared knowledge base 1 to the personal knowledge base via POST /api/syndication/dispatch
     refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": theme1_id, "target_kb_id": shared2_id}, headers=OWNER_HEADERS)
-    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_personal_only"})
+    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_by_contribution"})
     applied_focus = "적대적 공격 탐지 관점 분석"
     dispatch_resp = client.post(
         "/api/syndication/dispatch",

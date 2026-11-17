@@ -90,7 +90,7 @@ def test_e2e_ingest_writes_only_to_the_personal_knowledge_base(kb_env):
 
     pinned = client.post(f"/kb/{_number(other)}/ingest", json={"payload": "Title: Pinned\nBody: text."}, headers=OWNER_HEADERS)
     assert pinned.status_code == 403
-    assert pinned.json() == {"error": "kb_ingest_personal_only"}
+    assert pinned.json() == {"error": "kb_ingest_by_contribution"}
 
 
 def test_routes_without_a_namespace_need_kb(kb_env):

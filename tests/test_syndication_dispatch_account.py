@@ -100,7 +100,7 @@ def test_syndication_dispatch_records_principal_account_id(dispatch_account_env)
 
     # The copy is an ingest: a shared knowledge base as the target gets 403 (CT4; SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review).
     refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id}, headers=OWNER_HEADERS)
-    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_personal_only"})
+    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_by_contribution"})
 
     # Dispatch from the shared knowledge base 1 to the personal knowledge base of the caller (Account ID 1)
     dispatch_res = client.post(
@@ -161,7 +161,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
         json={"document_id": doc3_id, "source_kb_id": t3_id, "target_kb_id": t2_id},
         headers=env["member_collab_headers"],
     )
-    assert (res_forbidden.status_code, res_forbidden.json()) == (403, {"error": "kb_ingest_personal_only"})
+    assert (res_forbidden.status_code, res_forbidden.json()) == (403, {"error": "kb_ingest_by_contribution"})
 
     # 2. The personal knowledge base of another account as the target: the admin is not a content superuser.
     member_personal = get_kb_manager(settings=env["settings"]).personal_kb_for(env["member_id"])

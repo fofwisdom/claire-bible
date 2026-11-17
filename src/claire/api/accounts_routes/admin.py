@@ -446,7 +446,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         if not federation_readiness.heartbeat_is_recent(heartbeat):
                             return json_error(409, "federation_sidecar_unavailable", detail="The federation sidecar is not available, so the followers of this actor cannot get the Delete activity. Start the sidecar and try again, or send skip_federated_delete: true.")
                     try:
-                        updated = store.purge(target.id, data_dir=data_dir, skip_federated_delete=skip_federated_delete)
+                        # The option "Delete my activity records" of the purge confirmation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2, CT19).
+                        updated = store.purge(target.id, data_dir=data_dir, skip_federated_delete=skip_federated_delete, delete_activity_records=body.get("delete_activity_records") is True)
                     except accounts_store.AccountStateError as exc:
                         return json_error(400, "invalid_state_transition", detail=str(exc))
                     # The keys stay only while a delete_actor task waits for the sidecar. The acknowledgement of that task deletes them.

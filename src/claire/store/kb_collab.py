@@ -372,6 +372,44 @@ def pending_count(conn: sqlite3.Connection, *, kb_id: int, account_id: int) -> i
     return int(conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=? AND contributor_account_id=? AND state='pending'", (int(kb_id), int(account_id))).fetchone()[0])
 
 
+# --- account purge (design Section 13.2) ---------------------------------------------------------
+
+
+def purge_account(conn: sqlite3.Connection, account_id: int, *, delete_activity_records: bool) -> dict[str, Any]:
+    """The rows of the collaboration tables at the purge of an account (design Section 13.2, CT7, CT19). No commit.
+
+    - Memberships, the automatic rule, the contribution blocks, the mutual collaborations, and the stored reputation of the account are deleted.
+    - Pending contributions of the account are deleted: they are not yet content of a knowledge base. The result gives their hidden copies (``pending_copies``: ``(kb_id, document_id)``); the caller deletes those documents.
+    - Each other contribution stays, without the credit (``contributor_account_id = NULL``). The account goes also from ``curator_account_id``, ``approved_by_account_id``, the decisions of memberships, the founder of a knowledge base, and the actor of the moderation log.
+    - ``delete_activity_records`` (the option of the purge confirmation): also the submissions with their items are deleted, and the reason texts that the account wrote in the moderation log are cleared. The option never changes a document, a graph, or a contribution.
+    """
+    account_id = int(account_id)
+    pending = conn.execute("SELECT public_id, kb_id, document_id FROM kb_contributions WHERE contributor_account_id=? AND state='pending'", (account_id,)).fetchall()
+    copies = [(int(r["kb_id"]), str(r["document_id"])) for r in pending if r["document_id"]]
+    conn.execute("DELETE FROM kb_contributions WHERE contributor_account_id=? AND state='pending'", (account_id,))
+    credited = conn.execute("UPDATE kb_contributions SET contributor_account_id=NULL WHERE contributor_account_id=?", (account_id,)).rowcount
+    conn.execute("UPDATE kb_contributions SET curator_account_id=NULL WHERE curator_account_id=?", (account_id,))
+    conn.execute("UPDATE kb_contributions SET approved_by_account_id=NULL WHERE approved_by_account_id=?", (account_id,))
+    conn.execute("DELETE FROM kb_memberships WHERE account_id=?", (account_id,))
+    conn.execute("UPDATE kb_memberships SET decided_by_account_id=NULL WHERE decided_by_account_id=?", (account_id,))
+    conn.execute("DELETE FROM kb_auto_rule_themes WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM kb_auto_rules WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM kb_contribution_blocks WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM kb_mutual_collaborations WHERE account_low=? OR account_high=?", (account_id, account_id))
+    conn.execute("DELETE FROM account_reputation WHERE account_id=?", (account_id,))
+    submissions = 0
+    if delete_activity_records:
+        conn.execute("UPDATE kb_moderation_log SET reason='' WHERE actor_account_id=?", (account_id,))
+        numbers = [int(r[0]) for r in conn.execute("SELECT public_id FROM kb_submissions WHERE account_id=?", (account_id,))]
+        for number in numbers:
+            conn.execute("UPDATE kb_contributions SET submission_item_id=NULL WHERE submission_item_id IN (SELECT id FROM kb_submission_items WHERE submission_public_id=?)", (number,))
+            conn.execute("DELETE FROM kb_submission_items WHERE submission_public_id=?", (number,))
+        conn.execute("DELETE FROM kb_submissions WHERE account_id=?", (account_id,))
+        submissions = len(numbers)
+    conn.execute("UPDATE kb_moderation_log SET actor_account_id=NULL WHERE actor_account_id=?", (account_id,))
+    return {"pending_copies": copies, "credit_removed": int(credited), "submissions_deleted": submissions}
+
+
 # --- reputation (design Section 8.6) -------------------------------------------------------------
 
 _REPUTATION_KEYS = ("account_id", "level", "fiction_share", "fiction_like_documents", "approval_rate", "decisions", "computed_at", "campaign_day")

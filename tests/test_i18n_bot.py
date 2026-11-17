@@ -168,7 +168,7 @@ async def test_bot_handlers_reply_in_the_locale_of_the_update(tmp_path: Path, mo
     assert msg.reply_text.call_args[0][0] == expected_text["ko"]
     bot = AsyncMock()
     await app.post_init(SimpleNamespace(bot=bot))
-    assert {call.args[0][0].description for call in bot.set_my_commands.call_args_list} == {t("bot.command.theme", locale="ko")}
+    assert {call.args[0][0].description for call in bot.set_my_commands.call_args_list} == {t("bot.command.kb", locale="ko")}
     _set_admin_locale(settings.db_file, "en")
     update, msg = _fake_update("ko")
     await handlers["on_search"](update, ctx)

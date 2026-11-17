@@ -658,6 +658,7 @@ def restore_account_backup(
         # The ATTACH below gives each snapshot as a file: URI with mode=ro. SQLite reads a URI in ATTACH only when the main connection was opened with uri=True; else the result depends on the SQLITE_USE_URI build option (the Python 3.11 build has it off).
         conn = sqlite3.connect(Path(s.db_file).resolve().as_uri(), uri=True, timeout=30.0, isolation_level=None)
         restored: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
         try:
             conn.execute("PRAGMA busy_timeout=30000")
             conn.execute("PRAGMA foreign_keys=OFF")
@@ -675,7 +676,12 @@ def restore_account_backup(
                 conn.execute("BEGIN IMMEDIATE")
                 try:
                     for alias, kb_id in zip(attached, kb_ids):
-                        restored.append(_restore_theme(conn, alias, kb_id=kb_id, account_id=account_id))
+                        # An account has one knowledge base: its personal one (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2). A backup made before version 28 can have more; the restore skips them and the result lists them.
+                        if _is_personal_target(conn, alias, kb_id=kb_id, account_id=account_id):
+                            restored.append(_restore_theme(conn, alias, kb_id=kb_id, account_id=account_id))
+                        else:
+                            row = conn.execute(f"SELECT label FROM {alias}.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
+                            skipped.append({"kb_id": kb_id, "label": None if row is None else str(row[0])})
                     violations = conn.execute("PRAGMA foreign_key_check").fetchall()
                     if violations:
                         raise AccountBackupConflict(f"restore would break {len(violations)} foreign key references")
@@ -702,8 +708,27 @@ def restore_account_backup(
     return {
         "backup_id": backup_id,
         "restored_themes": restored,
+        "skipped_knowledge_bases": skipped,
         "checkpoint": checkpoint.name,
     }
+
+
+def _is_personal_target(conn: sqlite3.Connection, bk: str, *, kb_id: int, account_id: int) -> bool:
+    """True when the knowledge base ``kb_id`` of the snapshot ``bk`` is the personal knowledge base of the account: the restore replaces it.
+
+    - The row is there now and belongs to another account: ``AccountBackupConflict`` (nothing changes).
+    - The row is there now as the personal knowledge base of the account: True.
+    - The row is there now as a shared knowledge base (the conversion of version 28 made it one): False.
+    - The row is not there: True only when the account has no personal knowledge base now and the snapshot row is the personal one.
+    """
+    current = conn.execute("SELECT account_id, is_personal FROM main.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
+    if current is not None:
+        if current[0] is not None and int(current[0]) != int(account_id):
+            raise AccountBackupConflict(f"theme {kb_id} now belongs to another account")
+        return current[0] is not None and bool(current[1])
+    has_personal = conn.execute("SELECT 1 FROM main.knowledge_bases WHERE account_id=? AND is_personal=1", (account_id,)).fetchone() is not None
+    snapshot = conn.execute(f"SELECT is_personal FROM {bk}.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
+    return not has_personal and snapshot is not None and bool(snapshot[0])
 
 
 def _restore_theme(conn: sqlite3.Connection, bk: str, *, kb_id: int, account_id: int) -> dict[str, Any]:
@@ -747,13 +772,8 @@ def _restore_theme(conn: sqlite3.Connection, bk: str, *, kb_id: int, account_id:
         conn.execute(f"INSERT INTO main.knowledge_bases ({col_sql}) SELECT {col_sql} FROM {bk}.knowledge_bases WHERE id=?", (kb_id,))
     except sqlite3.IntegrityError as exc:
         raise AccountBackupConflict(f"theme {kb_id} conflicts with an existing theme ({exc})") from None
-    conn.execute("UPDATE main.knowledge_bases SET account_id=? WHERE id=?", (account_id, kb_id))
-    # 기본 테마는 계정에 하나다. 다른 기본 테마가 이미 있으면 되돌린 테마를 기본에서 뺀다.
-    other_default = conn.execute(
-        "SELECT 1 FROM main.knowledge_bases WHERE account_id=? AND is_personal=1 AND id<>?", (account_id, kb_id)
-    ).fetchone()
-    if other_default is not None:
-        conn.execute("UPDATE main.knowledge_bases SET is_personal=0 WHERE id=?", (kb_id,))
+    # The restored row is the personal knowledge base of the account (``_is_personal_target``).
+    conn.execute("UPDATE main.knowledge_bases SET account_id=?, is_personal=1 WHERE id=?", (account_id, kb_id))
 
     counts: dict[str, int] = {}
     for table in backup_tables:

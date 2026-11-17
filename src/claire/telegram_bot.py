@@ -61,6 +61,23 @@ class AccountThemeScope:
     def list_kbs(self, *args: Any, **kwargs: Any) -> list[Any]:
         return [t for t in self._inner.list_kbs(*args, **kwargs) if self._owned(t)]
 
+    # Search and read (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4): ``/kb`` selects the personal knowledge base or a shared knowledge base. Ingest goes to the personal knowledge base only, so ``get_kb`` and ``list_kbs`` stay with the knowledge base of the account.
+    def get_readable_kb(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
+        from .store.knowledge_base import KnowledgeBaseNotFound
+
+        if theme_ref is None or str(theme_ref).strip() == "":
+            return self._inner.personal_kb_for(self.account_id)
+        theme = self._inner.get_kb(theme_ref, *args, **kwargs)
+        if not self._owned(theme) and not getattr(theme, "is_shared", False):
+            raise KnowledgeBaseNotFound(theme_ref)
+        return theme
+
+    def readable_kbs(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return [t for t in self._inner.list_kbs(*args, **kwargs) if self._owned(t) or getattr(t, "is_shared", False)]
+
+    def personal_kb(self) -> Any:
+        return self._inner.personal_kb_for(self.account_id)
+
     def _kb_id_owned(self, kb_id: Any) -> bool:
         from .store.knowledge_base import KnowledgeBaseNotFound
 
@@ -90,7 +107,7 @@ ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webro", "token", "statu
 # 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
 ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
 # The commands of the Telegram command menu, in menu order. The description of each command is the catalog key ``bot.command.<name>``.
-COMMAND_MENU: tuple[str, ...] = ("theme", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webro", "failed", "retry", "start")
+COMMAND_MENU: tuple[str, ...] = ("kb", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webro", "failed", "retry", "start")
 
 
 def resolve_update_locale(update: Any, *, owner_locale: str | None, settings: Any) -> str:
@@ -660,15 +677,21 @@ def parse_message_theme(
     return t, None
 
 
-def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: int) -> Any | None:
-    """사용자가 /theme 으로 고른 테마를 엄격하게 찾는다.
+def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: int, *, for_read: bool = False) -> Any | None:
+    """사용자가 /kb 로 고른 지식 베이스를 엄격하게 찾는다.
 
     고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 ``bot.theme.stale`` 메시지로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
+
+    ``for_read`` (search and read): the selection can be a shared knowledge base. Else (ingest and the work on ingested items) a selected shared knowledge base gives the personal knowledge base of the account: ingest goes to the personal knowledge base only (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
     """
     from .store.knowledge_base import KnowledgeBaseNotFound
 
+    scoped = hasattr(theme_mgr, "get_readable_kb")
     try:
-        return theme_mgr.get_kb(selections.get(user_id, 0))
+        selected = (theme_mgr.get_readable_kb if scoped else theme_mgr.get_kb)(selections.get(user_id, 0))
+        if not for_read and getattr(selected, "is_shared", False):
+            return theme_mgr.personal_kb() if scoped else theme_mgr.personal_kb_for(dbm.ADMIN_ACCOUNT_ID)
+        return selected
     except KnowledgeBaseNotFound:
         selections.pop(user_id, None)
         return None
@@ -1157,13 +1180,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         uid = user.id if user else 0
         theme_mgr.reload()
-        themes = theme_mgr.list_kbs()
+        themes = theme_mgr.readable_kbs()
 
         if ctx.args:
             arg = " ".join(ctx.args).strip()
             try:
                 # 사람이 입력하는 값이라 레이블 부분 일치를 허용한다
-                target = theme_mgr.get_kb(arg, label_match="partial")
+                target = theme_mgr.get_readable_kb(arg, label_match="partial")
                 user_active_themes[uid] = target.id
                 msg_text = (
                     _t("bot.theme.selected", icon=_h(target.icon), label=_h(target.label), id=target.id)
@@ -1177,7 +1200,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 await update.message.reply_text(_t("bot.theme.not_found", name=arg))
                 return
 
-        current_theme = resolve_selected_theme(theme_mgr, user_active_themes, uid)
+        current_theme = resolve_selected_theme(theme_mgr, user_active_themes, uid, for_read=True)
         stale_lines = []
         if current_theme is None:
             # 삭제된 선택은 지웠으므로 선택 없음(기본 테마 0)으로 보여 주고 그 사실을 알린다
@@ -1922,7 +1945,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             target_tid_str = data[10:]
             try:
                 target_tid = int(target_tid_str)
-                theme = theme_mgr.get_kb(target_tid)
+                theme = theme_mgr.get_readable_kb(target_tid)
                 uid = user.id if user else 0
                 user_active_themes[uid] = theme.id
                 await query.answer(_t("bot.theme.toast", icon=theme.icon, label=theme.label))
@@ -2007,7 +2030,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if explicit_tid is not None:
             active_theme = theme_mgr.get_kb(explicit_tid)
         else:
-            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id, for_read=True)
             if active_theme is None:
                 await update.message.reply_text(_t("bot.theme.stale"))
                 return
@@ -2557,7 +2580,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     app.add_handler(CommandHandler("support", _localized(on_support)))
     app.add_handler(CommandHandler("export", _localized(on_export)))
     app.add_handler(CommandHandler("repo", _localized(on_repo)))
-    app.add_handler(CommandHandler("theme", _localized(on_theme)))
+    app.add_handler(CommandHandler("kb", _localized(on_theme)))
     app.add_handler(CommandHandler("search", _localized(on_search)))
     app.add_handler(CommandHandler("ingest", _localized(on_ingest)))
     app.add_handler(CommandHandler("web", _localized(on_web)))

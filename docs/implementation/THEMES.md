@@ -79,7 +79,7 @@
 | MCP 도구 (`_kb_id`) | 정확 | `{"error": "theme not found"}` |
 | `IngestServicePool.get_service` | 정확 | `KnowledgeBaseNotFound` 전파 (캐시된 서비스도) |
 | CLI `--theme` 등 사람이 입력하는 조회 | 부분 | 종료 코드 2 |
-| 텔레그램 `/theme <arg>`, `#태그` | 부분 | 안내 메시지 |
+| 텔레그램 `/kb <arg>`, `#태그` | 부분 | 안내 메시지 |
 | 텔레그램 저장된 선택 테마 (`resolve_selected_theme`) | — | 선택을 지우고 요청을 거부한다(적재·검색 안 함) |
 
 - 집행: `tests/test_theme_strict_lookup.py`
@@ -94,7 +94,7 @@
 
 1. **네임스페이스 라우트**: 경로만 선택한다. `/kb/{number}/…`는 그 공유 지식 베이스를 고정한다(`pinned_kb_id`, 네임스페이스 계정 없음, 모드와 무관). 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다. 개인 지식 베이스의 번호로 `/kb/{number}/…`를 요청하면 읽을 수 있을 때 그 계정 경로(`/@{u}/…`, 싱글 모드 `/…`)로 308, 아니면 404다. 옛 링크 `/themes/{number}/…`·`/@{u}/themes/{number}/…`는 공유면 `/kb/{number}/…`로, 개인이면 그 계정 경로로 308이다(설계 §7).
 2. **네임스페이스가 없는 라우트**(`any`·`system` 표면, 예: `/p/presentation`, `/api/me/data-bundles`, MCP 읽기 도구): 매개변수 `kb`(번호)가 필수다. 없으면 400 `kb_required`. `KnowledgeBaseManager.get_kb_by_reference`는 번호만 받는다(내부 ID·레이블·빈 값은 404).
-3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_personal_only`, 다른 계정의 네임스페이스는 404다.
+3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_by_contribution`, 다른 계정의 네임스페이스는 404다.
 4. **옛 이름**: 쿼리·본문 `theme`, `X-Claire-Theme` 헤더, 내부 ID 참조는 모르는 필드처럼 무시한다. `Deprecation`·`Sunset` 헤더도 없다. 문서를 다른 지식 베이스에서 찾아 대상을 바꾸는 폴백(`/share`, `/document`, 재생성, 프레젠테이션, 배급 원본)은 없다. 공유 토큰(`/p?s=`, `/p/presentation?s=`)은 토큰이 자기 지식 베이스를 정한다.
 5. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
 
@@ -106,13 +106,13 @@
 - **Route capabilities and credential scopes (CT-2, design Sections 6.6 to 6.9)**:
   - Each entry of `api.security.ROUTE_POLICY` declares two values: the access level (the minimum scope of the credential) and the capability in the selected knowledge base. `_request_capability` reads the capability of the route; no handler selects it. `tests/test_credential_scopes.py` has the table of all routes that act on a knowledge base; a route that is not in the table fails the test.
   - Capabilities of a route: `none` (no knowledge base), `read`, `share` (make a share link), `write` (a write into the personal knowledge base of the account of the credential: ingest, re-ingest, publish, dispatch), and the capabilities of design Section 6.2 (`review`, `curate`, `maintain`, `settings`, `remove`, `delete`, and the others).
-  - In a personal knowledge base, `read` and `share` stay, a decision about the knowledge base (`settings`, `delete`) needs `settings`, and each other capability is a write of the content. In a shared knowledge base a route with `write` gets 403 `kb_ingest_personal_only` (CT4).
+  - In a personal knowledge base, `read` and `share` stay, a decision about the knowledge base (`settings`, `delete`) needs `settings`, and each other capability is a write of the content. In a shared knowledge base a route with `write` gets 403 `kb_ingest_by_contribution` (CT4).
   - Scopes: `owner`, `write`, `readonly`. `write` replaces `collaborator`. In the personal knowledge base `write` reads, ingests, regenerates, and publishes. In a shared knowledge base `write` has only `read`, `contribute_direct`, `contribute_theme`, and `share`, also for a moderator or the admin. `readonly` has `read` and `share`.
   - A credential of an account whose scope is too small gets 403 `{"error": "scope_insufficient", "scope", "required"}` on a route that acts on a knowledge base. Under `/@{u}/` and on account, console, and admin routes the answer stays 404.
   - Regeneration (`/regenerate`, `/regenerate-stream`, `/document/regenerate`): minimum scope `write`, capability `maintain`. Thus a `write` token regenerates in the personal knowledge base, and a reviewer with the scope `owner` regenerates in a shared knowledge base (design Section 13.1 rule 5). `/synthesize` and `/research` write no document: capability `read`, minimum scope `owner`.
   - `share`: this capability is not in the table of design Section 6.2. Each account that reads a shared knowledge base has it (not a banned one); in a personal knowledge base only its account has it. In single mode a reader of the public knowledge base of the admin, an anonymous one included, has it (the rule from before this design).
   - Step-up (design Section 6.8): a route with `step_up=True` needs a session with a recent sign-in. A bearer credential gets 403 `step_up_requires_session`; an old session gets 401 `reauth_required`. Routes with it: `DELETE /kb/{number}/` and the admin moderator routes. `PATCH /kb/{number}/members/{account}` asks for it in the handler, only for a role change, because its other actions (approve, ban, remove) must be fast (Section 6.8 rule 2).
-  - Syndication dispatch (`POST /api/syndication/dispatch`): the copy is an ingest, so its target is the personal knowledge base of the caller; a shared knowledge base as the target gets 403 `kb_ingest_personal_only`. The source needs `read`. Federation publish and retract take only documents of the personal knowledge base of the caller.
+  - Syndication dispatch (`POST /api/syndication/dispatch`): the copy is an ingest, so its target is the personal knowledge base of the caller; a shared knowledge base as the target gets 403 `kb_ingest_by_contribution`. The source needs `read`. Federation publish and retract take only documents of the personal knowledge base of the caller.
 - **프로바이더(§13.1 규칙 5)**: 공유 지식 베이스에서 사람이 시작한 작업(재생성, 프레젠테이션, 합성 등)은 **요청자 계정의 프로바이더 컨텍스트**로 실행한다(`IngestServicePool.get_service(..., acting_account_id=)`, `_provider_account_of`). 서버의 프로바이더를 쓰지 않는다. 재임베딩 필요 표시는 서버 임베딩과 비교한다(CT24).
 - **워커(CT10)**: `_theme_services_for_cycle`은 공유 지식 베이스를 돌지 않는다(watch·refresh·expand·recover는 개인 지식 베이스만).
 - **목록**: `list_account_kbs`는 계정이 소유한 것(개인), `list_selectable_kbs`는 선택기용(개인 + 모든 공유)이다.
@@ -223,6 +223,17 @@
 - **[코드] Campaign notices** (`src/claire/campaign.py`): after the theme match of a new document of a personal knowledge base, `IngestReport.notices` gets `fiction_like_document` (with `document`, `theme`, `theme_label`) when the match is a `fictional` theme, and `fiction_standing_message` with the first ingest of each UTC day of the account (`account_reputation.campaign_day`). Each notice has `message` (English). The HTTP result of an ingest has them in the report; the Telegram reply shows them in the locale of the chat (catalog keys `campaign.*`); the CLI command `ingest` prints them as `NOTICE:` lines.
 - **[미구현]** The standing message on the ingest forms of the WebUI (the catalog keys `campaign.standing`, `campaign.fictional_themes_link`, `campaign.make_kb_link` are there; the forms get it after the merge with the ingest dialogs of the main branch), the action "Contribute to this theme" in Telegram and the CLI, and the reputation part of `/settings/kb` (CT-9). MCP has no ingest tool, so it shows no notice.
 
+### 4.11 Effects on other subsystems (CT-8, design Section 13)
+
+- **[코드] Ingest**: an ingest pinned to a shared knowledge base gets 403 `kb_ingest_by_contribution` (`_require_kb`; each route with the capability `write`).
+- **[코드] Workers**: `watch_due_documents`, `pending_refresh`, and `pending_expand` take no row of a shared knowledge base (`_NOT_SHARED_KB` in `store/db.py`), also when the caller gives the ID of a shared knowledge base. A copy has `watch_enabled = 0` from the start.
+- **[코드] Account purge** (`AccountStore.purge`, `kb_collab.purge_account`): the memberships, the automatic rule, the contribution blocks, the mutual collaborations, the stored reputation, and the theme rows of the personal knowledge base are deleted. A pending contribution of the account is deleted with its hidden copy. Each other contribution stays with `contributor_account_id = NULL`; the account goes also from `curator_account_id`, `approved_by_account_id`, `kb_memberships.decided_by_account_id`, `knowledge_bases.created_by_account_id`, and `kb_moderation_log.actor_account_id`. With `delete_activity_records` (the body field of the admin purge action) the submissions with their items are deleted and the reason texts of the account in the moderation log are cleared; no document, graph, or contribution changes.
+- **[코드] Account backup**: a backup has the knowledge bases with `account_id` = the account, which is the personal one. The restore (`_is_personal_target`) replaces only the personal knowledge base of the account. A knowledge base of the archive that is a shared knowledge base now (a backup made before version 28) is skipped; the result lists it in `skipped_knowledge_bases`.
+- **[코드] Federation**: the publish route has the capability `write`, so only the personal knowledge base publishes. The removal of a contribution purges the copy with `purge_document_cascade`, which adds the `Delete` tasks for a published object.
+- **[코드] Telegram**: the command `/kb` (before: `/theme`) selects the personal knowledge base or a shared knowledge base (`AccountThemeScope.readable_kbs`, `get_readable_kb`). `/search` uses the selection. Ingest, `/failed`, and `/retry` use the personal knowledge base when the selection is a shared one (`resolve_selected_theme`). The ingest reply shows the campaign notices (Section 4.10).
+- **[코드] CLI**: `claire theme` (list, judge, rename, unlock, pin, exclude, free, merge); see `COMMANDS.md`.
+- **[미구현]** The option "Delete my activity records" in the WebUI purge confirmation (CT-9); MCP tools `kb_candidates` and `kb_submit` (CT-13); the data bundle of a shared knowledge base for moderators.
+
 ## 5. 테마 수명주기
 
 | 동작 | 코드 | 범위 |
@@ -243,7 +254,7 @@
   - 단순히 예외를 다시 던지게 고치면 재시도가 안전하지 않다. 병합은 DB 파일 단위로 커밋하고, 자동 증가 키 테이블은 `id`를 빼고 복사한다. 그래서 부분 실패 뒤에 다시 실행하면 그 테이블의 행이 중복될 수 있다.
 - **[코드] 삭제(`purge=False`) 뒤에 남은 데이터 행에는 접근할 수 없다.** 해당 `kb_id`의 행이 DB에 남지만 어느 테마에서도 보이지 않는다. 정리하는 명령은 확인하지 못했다.
 - **[미검증]** `import-graph --theme`은 테마의 `db_path`(현재는 단일 DB)를 대상으로 한다. 가져온 행에 `kb_id`가 붙는지는 확인하지 않았다.
-- **[미검증]** 텔레그램 `/theme`과 MCP 도구의 테마 지정에서 비공개 테마 접근이 어떻게 검사되는지는 이 문서 작성 시 확인하지 않았다.
+- **[미검증]** 텔레그램 `/kb`와 MCP 도구의 테마 지정에서 비공개 테마 접근이 어떻게 검사되는지는 이 문서 작성 시 확인하지 않았다.
 
 ---
 
