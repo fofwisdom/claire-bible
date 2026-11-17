@@ -292,6 +292,22 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v29 to v31 (federation of shared knowledge, units KF1 to KF3)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 31`.
+- **[코드] 버전 상수**: v31 도입 당시 `SCHEMA_VERSION`은 31이었다(현재 값은 아래 "v32" 절).
 - **[코드]** The steps `_migrate_v29_knowledge_federation`, `_migrate_v30_remote_knowledge_bases`, `_migrate_v31_contribution_remote_columns`, and `_migrate_v31_knowledge_base_actors` run at each start and are idempotent. They make the tables `kf_*` and `theme_remote_knowledge_bases` when they are not there, and v31 adds the columns of a remote source to `kb_contributions`. They change no row. A table with one of these names and another form becomes `<name>_retired_v<version>`; the start continues. The tables and columns are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.2, 11.3, and 12.3.
 - **[테스트]** `tests/test_knowledge_federation_stores.py`, `tests/test_knowledge_federation_remote.py`, `tests/test_knowledge_federation_kf3.py`.
+
+## v32 (federation of shared knowledge, unit KF4)
+
+- **[코드] 버전 상수**: v32 도입 당시 `SCHEMA_VERSION`은 32였다(현재 값은 아래 "v33" 절).
+- **[코드]** The step `_migrate_v32_offers_and_grants` runs at each start and is idempotent. It makes the tables `kf_outbound_offers`, `kf_inbound_offers` (module `knowledge_federation.offers`), `kf_grants`, and `kf_received_grants` (module `knowledge_federation.grants`) with their indexes when they are not there. It changes no row. A table with one of these names and another form becomes `<name>_retired_v32` with its rows; the start continues. The tables are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.3.
+- **[테스트]** `tests/test_knowledge_federation_kf4.py` (`test_migration_v32_makes_the_tables_and_keeps_a_table_of_another_form`), `tests/test_knowledge_federation_stores.py`.
+
+## v33 (federation of shared knowledge, limits of the security review)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 33`.
+- **[코드]** The step `_migrate_v33_knowledge_federation_limits` runs at each start, after the steps v29 to v32, and is idempotent. The start continues for each state of the data.
+  - `kf_inbox_journal` gets the columns `quota_domain` (the registrable domain of the signer) and `payload_bytes`, and the index `idx_kf_inbox_journal_quota` (`journal.ensure_quota_columns`). An old row has NULL and does not count in the quota of 24 hours.
+  - `kf_outbox`: the new table `kf_outbox_activities` (`activity_iri`, `payload`) keeps the activity JSON one time for each activity. A `kf_outbox` of version 31 to 32 has the column `payload` (one copy for each recipient): the step copies each activity one time to `kf_outbox_activities`, then drops the column (`outbox.move_payloads`). No activity is lost.
+  - `kb_contributions.remote_updated_at` (the time of the version of the origin that a copy has) is in `kb_collab.REMOTE_COLUMNS`; the step v31 and this step add it when it is not there. An old copy has NULL: its next revision is applied.
+  - The tables and the columns are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 14.
+- **[테스트]** `tests/test_knowledge_federation_security.py` (`test_the_outbox_keeps_one_copy_of_an_activity_for_its_recipients_and_the_migration_moves_old_copies`), `tests/test_knowledge_federation_stores.py`.

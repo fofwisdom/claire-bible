@@ -508,6 +508,13 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # The sources of a curation on other servers (federation design Section 11): the tool of a reviewer, and the request can start a read of another server.
     ("GET", "/remote-sources"): _namespaced("owner", "curate"),
     ("HEAD", "/remote-sources"): _namespaced("owner", "curate"),
+    # Remote collaborators (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.2): a moderator gives and ends the grant of an account of another server. The routes need a recent sign-in in the handler, as the role change of ``/members/{account}``.
+    ("GET", "/remote-collaborators"): _namespaced("owner", "people"),
+    ("HEAD", "/remote-collaborators"): _namespaced("owner", "people"),
+    ("POST", "/remote-collaborators"): _namespaced("owner", "people"),
+    ("DELETE", "/remote-collaborators/{grant}"): _namespaced("owner", "people"),
+    ("GET", "/api/kb/remote-grants"): _any("read", "none"),
+    ("HEAD", "/api/kb/remote-grants"): _any("read", "none"),
     ("POST", "/forks"): _namespaced("owner", "read"),
     ("DELETE", "/contributions/{number}"): _namespaced("write", "read"),
     ("PATCH", "/contributions/{number}"): _namespaced("owner", "review"),
@@ -620,6 +627,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/federation/known-servers"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation/known-servers"): _system("admin", "none"),
     ("POST", "/api/admin/federation/known-servers"): _system("admin", "none"),
+    ("DELETE", "/api/admin/federation/known-servers"): _system("admin", "none"),
     ("GET", "/api/admin/federation/journal"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation/journal"): _system("admin", "none"),
     ("GET", "/api/admin/federation/journal/{entry_id}"): _system("admin", "none"),

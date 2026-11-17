@@ -130,8 +130,8 @@ Deno.test("NodeInfo shows the software and federated actors only", async () => {
   assert.equal((info.usage as { users: { total: number } }).users.total, 1);
 });
 
-Deno.test("all paths are 404 when federation is off or the mode is single", async () => {
-  for (const state of [{ federation: "off" }, { mode: "single" }]) {
+Deno.test("all paths are 404 when federation is off, in each mode", async () => {
+  for (const state of [{ federation: "off" }, { federation: "off", mode: "single" }]) {
     const { get, fake, bodies } = setup();
     fake.config = { ...state, federated_actors: 0 };
     for (const [path, accept] of [[webfinger("alice@claire.example.com"), JRD], [webfinger("claire@claire.example.com"), JRD], [`/ap/actors/${ALICE}`, AS2], ["/ap/actors/server", AS2], ["/.well-known/nodeinfo", "application/json"], ["/nodeinfo/2.1", "application/json"]]) {
@@ -139,9 +139,18 @@ Deno.test("all paths are 404 when federation is off or the mode is single", asyn
       assert.equal(response.status, 404, `${JSON.stringify(state)} ${path}`);
       assert.equal(response.text, "Not Found");
     }
-    // Single mode must show no USERNAME (S9). The sidecar asked Claire for the config only.
+    // The sidecar asked Claire for the config only.
     assert.ok(!bodies.join("").includes("alice"));
     assert.ok(fake.calls.every((call) => call.endsWith("/config")));
+  }
+});
+
+Deno.test("the server actor and NodeInfo work in single mode while federation is on", async () => {
+  // KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5: the server actor and the federation of shared knowledge work in single mode. Claire decides which account is an actor (KD2).
+  const { get, fake } = setup();
+  fake.config = { mode: "single" };
+  for (const [path, accept] of [["/ap/actors/server", AS2], ["/.well-known/nodeinfo", "application/json"]]) {
+    assert.equal((await get(path, accept)).status, 200, path);
   }
 });
 

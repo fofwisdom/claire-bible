@@ -11,7 +11,7 @@
   function roleLabel(role) { return role ? t("kb.role." + role) : "—"; }
   function levelTag(level) { return '<span class="claire-tag ' + (level === "good" ? "ok" : (level === "limited" ? "warn" : "danger")) + '">' + esc(t("kb.level." + level)) + "</span>"; }
   function percent(value) { return value == null ? "—" : Math.round(Number(value) * 100) + "%"; }
-  function stateTag(state) { return '<span class="claire-tag ' + (state === "visible" ? "ok" : (state === "rejected" || state === "removed" || state === "failed" ? "danger" : "warn")) + '">' + esc(dlgs().stateLabel(state)) + "</span>"; }
+  function stateTag(state) { return '<span class="claire-tag ' + (state === "visible" || state === "accepted" ? "ok" : (state === "rejected" || state === "removed" || state === "failed" ? "danger" : "warn")) + '">' + esc(dlgs().stateLabel(state)) + "</span>"; }
   // The reason of a decision or of a log entry: the catalog text of a reason code, else the text as it is.
   function reasonText(reason) {
     var code = String(reason || "");
@@ -24,7 +24,14 @@
     var roleText = t(roleKey);
     return roleText === roleKey ? code : roleText;
   }
+  // A shared knowledge base of another server (federation design Section 12): its label with a link to its page on that server, and the tag of the server.
+  function remoteKbHtml(label, url, server) {
+    var name = /^https?:\/\//.test(String(url || "")) ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(label) + "</a>" : esc(label);
+    return name + ' <span class="claire-tag">' + esc(t("console.js.kb.curate_remote_tag", { server: server })) + "</span>";
+  }
   function dateText(seconds) { return seconds ? new Date(Number(seconds) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—"; }
+  // The state of a grant of the role collaborator across servers: active, ended (the end time is past), or revoked.
+  function grantStateTag(state) { return '<span class="claire-tag ' + (state === "active" ? "ok" : (state === "revoked" ? "danger" : "warn")) + '">' + esc(t("console.js.kb.grant_state." + state)) + "</span>"; }
   // The contributor withdraws a contribution while it is not approved and not closed (design Section 9.4; DELETE /kb/{number}/contributions/{contribution}).
   function canWithdraw(c) { return !!c && !c.approved && c.state !== "rejected" && c.state !== "removed"; }
 
@@ -33,7 +40,7 @@
     var account = (bs && bs.account) || {};
     // The path of the personal knowledge base of the account: "/@user/" in network mode, "/" in single mode (design Section 7).
     var homeHref = account.username ? "/@" + encodeURIComponent(account.username) + "/" : "/";
-    var state = { personal: null, joined: [], memberships: [], subs: [], rule: null, serverSwitch: false, rep: null, mutual: [], autos: [], mine: [], blocks: [], themes: [] };
+    var state = { personal: null, joined: [], memberships: [], subs: [], rule: null, serverSwitch: false, rep: null, mutual: [], autos: [], mine: [], blocks: [], themes: [], grants: [] };
 
     function loadAll() {
       return Promise.all([
@@ -47,7 +54,9 @@
         ui().request("/api/contributions"),
         ui().request("/themes"),
         // GET /api/contribution-blocks: the identifiers of the documents with the flag "never contribute". The list of GET /documents has pages, thus it is not the source of this list.
-        ui().request("/api/contribution-blocks")
+        ui().request("/api/contribution-blocks"),
+        // GET /api/kb/remote-grants: the grants of the role collaborator that the account got from shared knowledge bases of other servers (federation design Section 12.2).
+        ui().request("/api/kb/remote-grants")
       ]).then(function (all) {
         var data = function (i) { return (all[i].ok && all[i].data) || {}; };
         state.personal = data(0).personal_kb || null;
@@ -62,6 +71,7 @@
         state.mine = data(6).contributions || [];
         state.themes = (data(7).themes || []).filter(function (th) { return th.state === "active"; });
         state.blocks = data(8).documents || [];
+        state.grants = data(9).grants || [];
         draw(all[0].ok ? null : all[0]);
       });
     }
@@ -110,7 +120,8 @@
           var theme = item.code === "no_theme" ? t("kb.dlg.result_no_theme") : (item.theme_label || item.theme || "—");
           if (!(item.targets || []).length) rows.push({ doc: item.title || item.document, theme: theme, routed: item.routed_by, score: item.score });
           (item.targets || []).forEach(function (target) {
-            rows.push({ doc: item.title || item.document, theme: theme, routed: item.routed_by, score: item.score, kb: target.knowledge_base, kbLabel: target.label || target.knowledge_base, state: target.state, reason: target.reason, approved: !!target.approved, contribution: target.contribution });
+            // A target on another server (federation design Section 12.1): the state is the decision of that server; it has no contribution of this server, so it has no withdrawal.
+            rows.push({ doc: item.title || item.document, theme: theme, routed: item.routed_by, score: item.score, kb: target.knowledge_base, kbLabel: target.label || target.knowledge_base || target.actor, state: target.state, reason: target.reason, approved: !!target.approved, contribution: target.contribution, remote: target.remote ? target : null });
           });
         });
       });
@@ -121,8 +132,15 @@
         columns: [
           { label: t("kb.dlg.col_document"), render: function (r) { return "<strong>" + esc(r.doc) + "</strong>"; } },
           { label: t("kb.dlg.col_theme"), render: function (r) { return esc(r.theme) + (r.routed ? ' <span class="claire-hint">' + esc(t("kb.routed." + r.routed)) + (r.score != null ? " " + esc(Number(r.score).toFixed(2)) : "") + "</span>" : ""); } },
-          { label: t("kb.dlg.col_kb"), render: function (r) { return r.kb ? '<a href="' + esc(kbUrl(r.kb)) + '">' + esc(r.kbLabel) + "</a>" : "—"; } },
-          { label: t("kb.dlg.col_state"), render: function (r) { return r.state ? stateTag(r.state) + (r.reason ? " " + esc(ui().errorText({ error: r.reason })) : "") : "—"; } },
+          { label: t("kb.dlg.col_kb"), render: function (r) {
+            if (r.remote) return remoteKbHtml(r.kbLabel, r.remote.url, r.remote.server) + (r.remote.with_grant ? ' <span class="claire-tag ok">' + esc(t("console.js.kb.subs_with_grant")) + "</span>" : "");
+            return r.kb ? '<a href="' + esc(kbUrl(r.kb)) + '">' + esc(r.kbLabel) + "</a>" : "—";
+          } },
+          { label: t("kb.dlg.col_state"), render: function (r) {
+            if (!r.state) return "—";
+            var delivery = r.remote && r.remote.delivery && r.remote.delivery !== "delivered" ? ' <span class="claire-hint">' + esc(t("console.js.kb.subs_delivery." + r.remote.delivery)) + "</span>" : "";
+            return stateTag(r.state) + (r.reason ? " " + esc(ui().errorText({ error: r.reason })) : "") + delivery;
+          } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return r.contribution && canWithdraw(r) ? withdrawBtn(r.kb, r.contribution) : "—"; } }
         ],
         rows: rows
@@ -254,6 +272,22 @@
         rows: state.memberships
       });
       h += "</div>";
+
+      // The role collaborator in shared knowledge bases of other servers (federation design Section 12.2). The other server decides each use; this list shows the state that this server knows.
+      if (state.grants.length) {
+        h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.grants_card")) + "</h3></div>";
+        h += '<p class="claire-hint">' + esc(t("console.js.kb.grants_hint")) + "</p>";
+        h += ui().renderTable({
+          caption: t("console.js.kb.grants_card"),
+          columns: [
+            { label: t("kb.dlg.col_kb"), render: function (g) { return remoteKbHtml(g.label || g.knowledge_base, g.url, g.server); } },
+            { label: t("kb.dlg.col_state"), render: function (g) { return grantStateTag(g.state); } },
+            { label: t("console.js.kb.grants_col_end"), render: function (g) { return esc(dateText(g.state === "revoked" ? g.revoked_at : g.end_time)); } }
+          ],
+          rows: state.grants
+        });
+        h += "</div>";
+      }
 
       h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("users") + " " + esc(t("console.js.kb.mutual_card")) + "</h3></div>";
       h += '<p class="claire-hint">' + esc(t("console.js.kb.mutual_hint", { number: account.public_id || "" })) + "</p>";
@@ -467,7 +501,7 @@
           };
           draw();
           loadSources();
-          if (isAdmin || kb.role === "moderator") loadLog();
+          if (isAdmin || kb.role === "moderator") { loadLog(); loadRemoteGrants(); }
         });
       });
     }
@@ -591,7 +625,11 @@
     }
 
     function docTitle(c) { return c.title || String(c.document || "—"); }
-    function contributorName(c) { return (c.contributor && (c.contributor.display_name || c.contributor.account)) || t("kb.pub.contributor_gone"); }
+    // The contributor: an account of this server, or the actor of an account of another server (the credit of a copy, federation design Section 10.1). An account that is gone is "deleted account".
+    function contributorName(c) {
+      if (c.contributor) return c.contributor.display_name || c.contributor.account;
+      return (c.remote && c.remote.credit) || t("kb.pub.contributor_gone");
+    }
 
     function draw() {
       var kb = view.kb;
@@ -626,15 +664,16 @@
           var level = (c.contributor_reputation || {}).level;
           return '<button type="button" class="claire-list-item' + (sel && String(c.number) === String(sel.number) ? " active" : "") + '" data-pick-pending="' + esc(c.number) + '">' +
             '<div class="claire-list-item-row"><strong>' + esc(docTitle(c)) + "</strong>" + (level ? levelTag(level) : "") + (originWaits(c) ? '<span class="claire-tag warn">' + esc(t("console.js.kb.queue_origin_removed")) + "</span>" : "") + "</div>" +
-            '<div class="claire-list-item-sub"><span>' + esc(contributorName(c)) + "</span><span>" + esc(t("kb.origin." + c.origin)) + "</span></div></button>";
+            '<div class="claire-list-item-sub"><span>' + esc(contributorName(c)) + "</span>" + (c.offer ? "<span>" + esc(t("console.js.kb.curate_remote_tag", { server: c.offer.server })) + "</span>" : "") + "<span>" + esc(t("kb.origin." + c.origin)) + "</span></div></button>";
         }).join("") : '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>") +
         '</div><div class="claire-detail-col">';
       if (sel && originWaits(sel)) {
         // The two decisions: show the copy again, or remove it (a moderator or the admin). A removal here never changes the origin.
         queue += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
           '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
-          '<button type="button" class="claire-btn pri claire-btn-sm" data-q-origin-keep="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_origin_keep")) + "</button>" +
-          (isMod ? '<button type="button" class="claire-btn danger claire-btn-sm" data-q-origin-remove="' + esc(sel.number) + '">' + esc(t("console.js.kb.content_remove")) + "</button>" : "") + "</div></div>" +
+          // An archived knowledge base is read-only: the server refuses the two decisions with 403 kb_archived, so the page does not show their controls.
+          (archived ? "" : '<button type="button" class="claire-btn pri claire-btn-sm" data-q-origin-keep="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_origin_keep")) + "</button>") +
+          (isMod && !archived ? '<button type="button" class="claire-btn danger claire-btn-sm" data-q-origin-remove="' + esc(sel.number) + '">' + esc(t("console.js.kb.content_remove")) + "</button>" : "") + "</div></div>" +
           '<div class="claire-note warn"><span>' + esc(t("console.js.kb.queue_origin_hint")) + "</span></div>" +
           '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
           "<dt>" + esc(t("console.js.kb.queue_origin_reason")) + "</dt><dd>" + esc(reasonText(sel.origin_removed.reason)) + "</dd>" +
@@ -650,6 +689,12 @@
           '<button type="button" class="claire-btn danger claire-btn-sm" data-q-reject="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_reject")) + "</button>") + "</div></div>";
         queue += '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
           "<dt>" + esc(t("kb.dlg.col_contributor")) + "</dt><dd>" + esc(contributorName(sel)) + "</dd>" +
+          // An offer of an account of another server (federation design Sections 12.1 and 12.2): its server, and if its grant of the role collaborator was in effect when the offer came.
+          (sel.offer ? "<dt>" + esc(t("console.js.kb.queue_remote_server")) + "</dt><dd>" + esc(sel.offer.server) + "</dd>" +
+            "<dt>" + esc(t("console.js.kb.queue_grant")) + "</dt><dd>" + '<span class="claire-tag ' + (sel.offer.grant_valid ? "ok" : (sel.offer.with_grant ? "warn" : "")) + '">' +
+            esc(t(sel.offer.grant_valid ? "console.js.kb.queue_grant_valid" : (sel.offer.with_grant ? "console.js.kb.queue_grant_invalid" : "console.js.kb.queue_grant_none"))) + "</span>" +
+            // A moderator can give the role collaborator to this account from here (capability "people"); the grant goes to the next offers of the account.
+            (isMod && sel.offer.actor ? ' <button type="button" class="claire-btn claire-btn-sm" data-q-remote-grant="' + esc(sel.offer.actor) + '">' + esc(t("console.js.kb.remote_collab_give")) + "</button>" : "") + "</dd>" : "") +
           (rep ? "<dt>" + esc(t("console.js.kb.queue_reputation")) + "</dt><dd>" + levelTag(rep.level) + " " + esc(t("console.js.kb.queue_approval_rate", { rate: percent(rep.approval_rate) })) + "</dd>" : "") +
           (help ? "<dt>" + esc(t("console.js.kb.queue_route")) + "</dt><dd>" + esc(help.routed_by ? t("kb.routed." + help.routed_by) : "—") + "</dd>" +
             "<dt>" + esc(t("console.js.kb.queue_theme_score")) + "</dt><dd>" + esc(help.theme_score != null ? Number(help.theme_score).toFixed(2) : "—") + "</dd>" +
@@ -746,6 +791,13 @@
           (isAdmin ? '<button type="button" class="claire-btn danger" id="kb-delete-btn">' + esc(t("console.js.kb.settings_delete")) + "</button>" : "") +
           "</div></form>";
 
+        // Collaborators of other servers (federation design Section 12.2): GET /kb/{number}/remote-collaborators; a grant has a term of 6 months, and Revoke ends it at once. The changes need a recent sign-in.
+        people += '<div class="claire-card" id="kb-remote-collab-host"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.remote_collab_card")) + "</h3></div>" +
+          '<p class="claire-hint">' + esc(t("console.js.kb.remote_collab_hint")) + "</p>" +
+          '<form id="kb-remote-collab-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
+            '<div class="claire-field" style="flex:1;min-width:260px"><label class="claire-field-label" for="kb-remote-collab-actor">' + esc(t("console.js.kb.remote_collab_actor")) + '</label><input id="kb-remote-collab-actor" class="claire-input" type="url" maxlength="2048" placeholder="https://example.org/ap/actors/…" required/></div>' +
+            '<button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.remote_collab_give")) + "</button></form>" +
+          '<div id="kb-remote-collab-list"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div></div>";
         tabs.push({ id: "people", label: t("console.js.kb.tab_people"), icon: "users", html: people });
         tabs.push({ id: "settings", label: t("console.js.kb.tab_settings"), icon: "settings", html: settings });
         tabs.push({ id: "log", label: t("console.js.kb.tab_log"), icon: "doc", html: '<div class="claire-card" id="kb-log-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
@@ -755,7 +807,67 @@
       ui().enhance(host);
       if (view.sources) drawCuration();
       drawLog();
+      drawRemoteGrants();
       bind();
+    }
+
+    // GET /kb/{number}/remote-collaborators (a moderator or the admin): the grants of this knowledge base, the newest first.
+    function loadRemoteGrants() {
+      var current = view;
+      ui().request(kbUrl(currentNum, "remote-collaborators")).then(function (res) {
+        if (view !== current) return;
+        view.remoteGrants = res.ok ? ((res.data && res.data.grants) || []) : res;
+        drawRemoteGrants();
+      });
+    }
+
+    function drawRemoteGrants() {
+      var box = host.querySelector("#kb-remote-collab-list");
+      if (!box || view.remoteGrants == null) return;
+      if (!Array.isArray(view.remoteGrants)) {
+        box.innerHTML = '<div class="claire-note warn"><span>' + esc(ui().errorText(view.remoteGrants)) + "</span></div>";
+        return;
+      }
+      box.innerHTML = ui().renderTable({
+        caption: t("console.js.kb.remote_collab_card"),
+        columns: [
+          { label: t("kb.dlg.col_account"), render: function (g) { return '<code class="pref-mono">' + esc(g.actor) + "</code>"; } },
+          { label: t("console.js.kb.queue_remote_server"), render: function (g) { return esc(g.server); } },
+          { label: t("kb.dlg.col_state"), render: function (g) { return grantStateTag(g.state); } },
+          { label: t("console.js.kb.grants_col_end"), render: function (g) { return esc(dateText(g.state === "revoked" ? g.revoked_at : g.end_time)); } },
+          { label: t("kb.pub.col_actions"), actions: true, render: function (g) {
+            // A renewal is a new grant of 6 months; the server revokes the grant that is in effect.
+            var btns = '<button type="button" class="claire-btn claire-btn-sm" data-remote-grant-renew="' + esc(g.actor) + '">' + esc(t(g.state === "active" ? "console.js.kb.remote_collab_renew" : "console.js.kb.remote_collab_give")) + "</button>";
+            if (g.state === "active") btns += ' <button type="button" class="claire-btn danger claire-btn-sm" data-remote-grant-revoke="' + esc(g.id) + '">' + esc(t("console.js.kb.remote_collab_revoke")) + "</button>";
+            return btns;
+          } }
+        ],
+        rows: view.remoteGrants
+      });
+      ui().enhance(box);
+      box.querySelectorAll("[data-remote-grant-renew]").forEach(function (btn) {
+        btn.addEventListener("click", function () { btn.disabled = true; giveRemoteGrant(btn.getAttribute("data-remote-grant-renew")); });
+      });
+      box.querySelectorAll("[data-remote-grant-revoke]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          // A change of a role needs a recent sign-in: the request helper opens the re-authentication dialog for 401 "reauth_required".
+          ui().request(kbUrl(currentNum, "remote-collaborators/" + encodeURIComponent(btn.getAttribute("data-remote-grant-revoke"))), { method: "DELETE" }).then(function (r) {
+            if (!r.ok) { btn.disabled = false; fail(r); return; }
+            ui().toast(t("console.js.kb.remote_collab_revoked"), "ok");
+            loadRemoteGrants();
+          });
+        });
+      });
+    }
+
+    function giveRemoteGrant(actor) {
+      return ui().request(kbUrl(currentNum, "remote-collaborators"), { method: "POST", body: { actor: actor } }).then(function (r) {
+        if (!r.ok) { fail(r); drawRemoteGrants(); return false; }
+        ui().toast(t("console.js.kb.remote_collab_given"), "ok");
+        loadRemoteGrants();
+        return true;
+      });
     }
 
     function drawCuration() {
@@ -851,8 +963,19 @@
       host.querySelectorAll("[data-q-origin-remove]").forEach(function (btn) {
         btn.addEventListener("click", function () { dlgs().openRemoveContributionDialog({ kbNumber: currentNum, contribNumber: btn.getAttribute("data-q-origin-remove"), onRemoved: function () { load(); } }); });
       });
+      host.querySelectorAll("[data-q-remote-grant]").forEach(function (btn) {
+        btn.addEventListener("click", function () { btn.disabled = true; giveRemoteGrant(btn.getAttribute("data-q-remote-grant")).then(function () { btn.disabled = false; }); });
+      });
       host.querySelectorAll("[data-q-reject]").forEach(function (btn) {
         btn.addEventListener("click", function () { dlgs().openRejectContributionDialog({ kbNumber: currentNum, contribNumber: btn.getAttribute("data-q-reject"), onRejected: function () { load(); } }); });
+      });
+
+      var grantForm = host.querySelector("#kb-remote-collab-form");
+      if (grantForm) grantForm.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var input = host.querySelector("#kb-remote-collab-actor");
+        if (!grantForm.reportValidity()) return;
+        giveRemoteGrant(input.value.trim()).then(function (ok) { if (ok) input.value = ""; });
       });
 
       var form = host.querySelector("#kb-manage-settings-form");

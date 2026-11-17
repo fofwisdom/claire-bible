@@ -133,7 +133,9 @@
       }
       if (!(item.targets || []).length) rows.push({ document: item.document, theme: item.theme_label || item.theme, kb: t("kb.dlg.result_no_target"), state: "" });
       (item.targets || []).forEach(function (target) {
-        rows.push({ document: item.document, theme: item.theme_label || item.theme, kb: target.label || target.knowledge_base, state: stateLabel(target.state) + (target.reason ? " (" + errText({ error: target.reason }) + ")" : "") });
+        // A target on another server (federation design Section 12.1) has its server after the label; its state is the decision of that server.
+        var kb = target.remote ? t("kb.dlg.remote_kb_label", { label: target.label || target.actor, server: target.server }) : (target.label || target.knowledge_base);
+        rows.push({ document: item.document, theme: item.theme_label || item.theme || "—", kb: kb, state: stateLabel(target.state) + (target.reason ? " (" + errText({ error: target.reason }) + ")" : "") });
       });
     });
     return ui().renderTable({
@@ -196,14 +198,17 @@
   }
 
   // Direct contribution (design Section 9.1): POST /kb/{number}/contributions with one document of the personal knowledge base. An account contributes directly only where it is an active member, thus the list is GET /kb?joined=true. ``opts.kbNumber`` selects the target without the list.
+  // A shared knowledge base of another server where the account has the role collaborator (a grant in its term, GET /api/kb/remote-grants; federation design Section 12.2 rule 4) is a direct target too: POST /submissions with {"documents": [...], "remote_knowledge_base": <id>}. The other server decides; the submission page shows its decision.
   function openNoThemePicker(opts) {
     opts = opts || {};
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
     box.innerHTML = '<p class="claire-hint">' + esc(t(opts.kbNumber ? "kb.dlg.direct_desc" : "kb.dlg.no_theme_desc")) + "</p>" +
-      '<div id="claire-direct-docs"></div><div id="claire-no-theme-list"></div><div id="claire-direct-msg" class="claire-note warn" hidden></div>';
+      '<div id="claire-direct-docs"></div><div id="claire-no-theme-list"></div><div id="claire-remote-kb-list"></div><div id="claire-direct-msg" class="claire-note warn" hidden></div><div id="claire-direct-result"></div>';
     var docBox = box.querySelector("#claire-direct-docs");
     var listBox = box.querySelector("#claire-no-theme-list");
+    var remoteBox = box.querySelector("#claire-remote-kb-list");
+    var directResult = box.querySelector("#claire-direct-result");
     var msgBox = box.querySelector("#claire-direct-msg");
 
     var createBtn = document.createElement("button");
@@ -244,6 +249,48 @@
       });
     }
 
+    function contributeRemote(remoteId, button) {
+      var documents = selectedDocuments(opts, docBox);
+      if (!documents.length) {
+        msgBox.textContent = t("kb.dlg.need_document");
+        msgBox.hidden = false;
+        return;
+      }
+      button.disabled = true;
+      msgBox.hidden = true;
+      ui().request("/submissions", { method: "POST", body: { documents: documents, remote_knowledge_base: Number(remoteId) } }).then(function (res) {
+        button.disabled = false;
+        if (!res.ok) {
+          msgBox.textContent = errText(res) + (res.data && res.data.limit ? " (" + res.data.limit + ")" : "");
+          msgBox.hidden = false;
+          return;
+        }
+        // The dialog stays open with the state of each target: the offer waits for the decision of the other server, or the target was skipped with a reason.
+        directResult.innerHTML = submissionResultHtml(res.data.submission);
+        ui().enhance(directResult);
+        ui().toast(t("kb.dlg.contrib_done"), "ok");
+        if (opts.onSubmitted) opts.onSubmitted(res.data);
+      });
+    }
+
+    function drawRemoteTargets(grants) {
+      var targets = (grants || []).filter(function (g) { return g.state === "active" && g.remote_id != null; });
+      if (!targets.length) return;
+      remoteBox.innerHTML = ui().renderTable({
+        caption: t("kb.dlg.remote_targets"),
+        columns: [
+          { label: t("kb.dlg.col_kb"), render: function (g) { return "<strong>" + esc(t("kb.dlg.remote_kb_label", { label: g.label || g.knowledge_base, server: g.server })) + "</strong>"; } },
+          { label: t("kb.pub.col_role"), render: function () { return esc(t("kb.role.collaborator")); } },
+          { label: "", actions: true, render: function (g) { return '<button type="button" class="claire-btn pri claire-btn-sm" data-pick-remote-kb="' + esc(g.remote_id) + '">' + esc(t("kb.dlg.submit_here")) + "</button>"; } }
+        ],
+        rows: targets
+      });
+      remoteBox.addEventListener("click", function (ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest("[data-pick-remote-kb]") : null;
+        if (btn) contributeRemote(btn.getAttribute("data-pick-remote-kb"), btn);
+      });
+    }
+
     return ui().openDialog({
       title: t(opts.kbNumber ? "kb.dlg.direct_title" : "kb.dlg.no_theme_title"),
       icon: "folder",
@@ -258,6 +305,7 @@
         if (opts.documentId) docBox.innerHTML = '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(opts.documentTitle || opts.documentId) + "</strong></div></div>";
         else loadDocumentChoices(docBox, opts.homeHref);
         if (opts.kbNumber) return;
+        ui().request("/api/kb/remote-grants").then(function (res) { if (res.ok && res.data) drawRemoteTargets(res.data.grants); });
         ui().request("/kb?joined=true").then(function (res) {
           var items = (res.ok && res.data && res.data.knowledge_bases) || [];
           if (!res.ok || !items.length) {

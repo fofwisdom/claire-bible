@@ -85,9 +85,14 @@ def _major(version: Any) -> str | None:
 
 
 def _check_mode(conn: sqlite3.Connection) -> ReadinessItem:
-    mode = accounts_store.AccountStore(conn).server_mode()
-    passed = mode == "network"
-    return ReadinessItem(id="GF1", name="Server mode is network", passed=passed, detail="The server mode is network." if passed else f"The server mode is {mode}. Federation operates in network mode only.")
+    """GF1: the server mode permits federation. Network mode does. Single mode does when the first setup is complete: the admin account is ``active`` and has a USERNAME (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 1 and 5: the server actor and the federation of shared knowledge work in single mode)."""
+    store = accounts_store.AccountStore(conn)
+    mode = store.server_mode()
+    if mode == "network":
+        return ReadinessItem(id="GF1", name="Server mode permits federation", passed=True, detail="The server mode is network.")
+    admin = conn.execute("SELECT status, username FROM accounts WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+    passed = admin is not None and admin[0] == "active" and bool(admin[1])
+    return ReadinessItem(id="GF1", name="Server mode permits federation", passed=passed, detail=f"The server mode is {mode} and the first setup is complete." if passed else f"The server mode is {mode} and the first setup is not complete: the admin account must be active and have a USERNAME.")
 
 
 def _check_heartbeat(heartbeat: dict[str, Any] | None, age: float | None) -> ReadinessItem:

@@ -60,6 +60,7 @@ __all__ = [
     "build_update_knowledge_base",
     "context_document",
     "context_json",
+    "is_content_hash",
     "is_iri",
     "iso_time",
     "term_iri",
@@ -112,6 +113,13 @@ ROLE_COLLABORATOR = "claire:collaborator"
 KNOWLEDGE_TYPES = ("real", "fictional")
 REASON_CODES = ("off_subject", "wrong_knowledge_type", "duplicate", "low_quality", "spam", "other")
 MAX_SIGNATURE_ENTITIES = 256
+# The largest count of the wire form: the largest integer that each JSON reader keeps without a change (2^53), and that SQLite stores.
+MAX_COUNT = 2**53
+# The length of one IRI of the wire form (the limit of the inbox journal for an activity IRI).
+MAX_IRI_LENGTH = 2048
+# The identifiers in ``sameAs`` of one entity, and the length of one identifier.
+MAX_SAME_AS = 16
+MAX_SAME_AS_LENGTH = 100
 
 _XSD_COUNT = "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
 
@@ -274,13 +282,13 @@ def _text(obj: dict[str, Any], key: str, path: str, *, empty: bool) -> str:
 
 def _count(obj: dict[str, Any], key: str, path: str) -> int:
     value = _need(obj, key, path)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > MAX_COUNT:
         raise ContractError("invalid_field", _join(path, key))
     return value
 
 
 def _is_iri(value: Any) -> bool:
-    if not isinstance(value, str) or value != value.strip() or any(ch.isspace() for ch in value):
+    if not isinstance(value, str) or len(value) > MAX_IRI_LENGTH or value != value.strip() or any(ch.isspace() for ch in value):
         return False
     try:
         parts = urlsplit(value)
@@ -302,7 +310,9 @@ def _optional_iri(obj: dict[str, Any], key: str, path: str) -> str | None:
 
 
 def _server(iri: str) -> str:
-    return urlsplit(iri).netloc.lower()
+    """The origin of an IRI as it is written: the scheme and the authority. Two IRIs with another scheme are on two servers."""
+    parts = urlsplit(iri)
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
 
 
 def _same_server(iri: str, authority: str, path: str) -> None:
@@ -357,6 +367,16 @@ def _iso(seconds: Any, path: str) -> str:
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
         raise ContractError("invalid_time", path)
     return datetime.fromtimestamp(int(seconds), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def time_seconds(value: Any) -> float:
+    """The seconds of a time of the wire form (for example ``published`` and ``endTime`` of a ``Grant``). ``ContractError`` with ``invalid_time`` for each other value."""
+    return _parse_time(value, "").timestamp()
+
+
+def is_content_hash(value: Any) -> bool:
+    """True when the value is a ``claire:contentHash`` of the wire form: 64 lowercase hexadecimal characters."""
+    return isinstance(value, str) and _HASH.fullmatch(value) is not None
 
 
 def is_iri(value: Any) -> bool:
@@ -430,7 +450,7 @@ def _check_extraction(obj: dict[str, Any], path: str) -> None:
             _text_list(_need(entity, key, at), _join(at, key))
         if "sameAs" in entity:
             same_as = entity["sameAs"]
-            if not isinstance(same_as, list) or not same_as or not all(isinstance(v, str) and ":" in v and not any(ch.isspace() for ch in v) for v in same_as):
+            if not isinstance(same_as, list) or not same_as or len(same_as) > MAX_SAME_AS or not all(isinstance(v, str) and ":" in v and len(v) <= MAX_SAME_AS_LENGTH and not any(ch.isspace() for ch in v) for v in same_as):
                 raise ContractError("invalid_field", _join(at, "sameAs"))
         if "proposed_type" in entity:
             _text(entity, "proposed_type", at, empty=False)

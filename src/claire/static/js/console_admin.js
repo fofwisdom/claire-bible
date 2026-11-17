@@ -94,7 +94,16 @@
             return;
           }
           if (errEl) {
-            errEl.textContent = (res.body && (res.body.detail || res.body.error)) ? String(res.body.detail || res.body.error) : tr("console.js.admin.reauth.failed");
+            // POST /api/auth/reauth gives an error code (403 "invalid_password", 409 "password_not_set", 429 "too_many_attempts", 403 "step_up_requires_session"): the dialog shows the catalog text of the code, and the general text for a code without text.
+            var code = res.body && typeof res.body.error === "string" ? res.body.error : "";
+            var codeText = "";
+            if (/^[a-z0-9_]+$/.test(code)) {
+              ["console.js.common.error.", "console.js.account.error."].forEach(function (prefix) {
+                var text = tr(prefix + code);
+                if (!codeText && text !== prefix + code) codeText = text;
+              });
+            }
+            errEl.textContent = codeText || tr("console.js.admin.reauth.failed");
             errEl.hidden = false;
           }
         }).catch(function () {
@@ -1420,6 +1429,10 @@
           numberField("th-am", tr("console.js.admin.themes.th_auto_min"), autoSettings.auto_match_threshold, "0.01") +
           numberField("th-ar", tr("console.js.admin.themes.th_auto_run_documents"), autoSettings.auto_run_documents, "1") +
           numberField("th-sx", tr("console.js.admin.themes.th_submission_max_documents"), cfg.submission_max_documents, "1") +
+          // The limits for contributions that accounts of other servers offer (KNOWLEDGE_FEDERATION_DESIGN.md KS2, KS3): keys of PUT /api/admin/themes/settings.
+          numberField("th-ra", tr("console.js.admin.themes.th_remote_account_pending_limit"), cfg.remote_account_pending_limit, "1") +
+          numberField("th-rd", tr("console.js.admin.themes.th_remote_domain_pending_limit"), cfg.remote_domain_pending_limit, "1") +
+          numberField("th-ro", tr("console.js.admin.themes.th_remote_domain_daily_offers"), cfg.remote_domain_daily_offers, "1") +
           '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></div>";
 
         var adjLeft = '<div class="claire-list-col">' +
@@ -1522,6 +1535,9 @@
           put(themeBody, "#th-dm", "document_match_threshold");
           put(themeBody, "#th-sm", "seed_match_threshold");
           put(themeBody, "#th-sx", "submission_max_documents");
+          put(themeBody, "#th-ra", "remote_account_pending_limit");
+          put(themeBody, "#th-rd", "remote_domain_pending_limit");
+          put(themeBody, "#th-ro", "remote_domain_daily_offers");
           put(autoBody, "#th-am", "auto_match_threshold");
           put(autoBody, "#th-ar", "auto_run_documents");
           Promise.all([

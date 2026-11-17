@@ -1068,7 +1068,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if theme is None or theme["state"] != "active":
                 return _t("campaign.contribute_failed", error=_code_text("theme_not_found"))
             try:
-                number = contributions.submit_to_themes(conn, account_id=bot_account_id, is_admin=is_admin_bot, personal_kb_id=personal.id, documents=[document_id], theme_id=int(theme["id"]))
+                number = contributions.submit_to_themes(conn, account_id=bot_account_id, is_admin=is_admin_bot, personal_kb_id=personal.id, documents=[document_id], theme_id=int(theme["id"]), origin=contributions.canonical_origin(s))
             except contributions.ContributionError as exc:
                 conn.rollback()
                 return _t("campaign.contribute_failed", error=_code_text(exc.code))

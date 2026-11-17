@@ -38,6 +38,7 @@ __all__ = [
     "note_server",
     "record_read",
     "record_read_error",
+    "remove_server",
     "server_view",
     "touch_contact",
 ]
@@ -181,6 +182,11 @@ def record_read_error(conn: sqlite3.Connection, domain: str, *, error: str, now:
         "UPDATE kf_known_servers SET read_lease_until=NULL, error_count=error_count+1, last_error=?, last_error_at=? WHERE domain=?",
         (error[:_MAX_ERROR_LENGTH], now, domain),
     ).rowcount > 0
+
+
+def remove_server(conn: sqlite3.Connection, domain: str) -> bool:
+    """Delete one known server. Return ``False`` when the domain is not a known server. A later contact or an admin entry makes it known again (design Section 6.2)."""
+    return conn.execute("DELETE FROM kf_known_servers WHERE domain=?", (domain,)).rowcount > 0
 
 
 def server_view(conn: sqlite3.Connection, server: KnownServer) -> dict[str, Any]:

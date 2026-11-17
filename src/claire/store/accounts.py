@@ -408,7 +408,7 @@ class AccountStore:
             self.conn.rollback()
             raise AccountNotFound(account_id)
         # 연합 액터의 이름이 바뀌면 팔로워에게 Update(Person)을 보낸다(Fedify 사이드카 설계 §8.1). 이름 변경과 같은 트랜잭션이다.
-        if before is not None and str(before[0]) != display_name and self.federation_state() == "on" and self.server_mode() == "network":
+        if before is not None and str(before[0]) != display_name and self.federation_state() == "on":
             row = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
             if row["status"] == "active" and row["profile_public"] and row["username"]:
                 from . import federation as federation_store
@@ -555,7 +555,7 @@ class AccountStore:
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
         from . import federation as federation_store
 
-        federation_active = self.federation_state() == "on" and self.server_mode() == "network"
+        federation_active = self.federation_state() == "on"
         was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
         federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=federation_active and not skip_federated_delete, now=when)
         # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
@@ -567,6 +567,12 @@ class AccountStore:
         from . import kb_collab
 
         collab = kb_collab.purge_account(self.conn, account_id, delete_activity_records=delete_activity_records)
+        # The federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md Section 12): the grants that the account got are deleted, and its offers to other servers stay as records without the account or go with the option.
+        from ..knowledge_federation import grants as kf_grants
+        from ..knowledge_federation import offers as kf_offers
+
+        kf_grants.purge_account(self.conn, account_id)
+        kf_offers.purge_account(self.conn, account_id, delete_activity_records=delete_activity_records)
         for kb_id, document_id in collab["pending_copies"]:
             # A pending copy has a document row and an extraction, and no graph and no files.
             self.conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (document_id, kb_id))

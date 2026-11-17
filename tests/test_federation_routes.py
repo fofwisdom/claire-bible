@@ -338,8 +338,16 @@ def test_non_federated_account_gets_the_same_404(internal, username, public_id):
         auth.close()
 
 
-@pytest.mark.parametrize("state", [{"federation": "off"}, {"mode": "single"}])
-def test_no_actor_when_federation_is_off_or_the_mode_is_single(internal, state):
+def test_the_actors_are_the_same_in_single_mode_while_federation_is_on(internal):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5 and KD2: the server actor and the account actors work in single mode with the rules of network mode."""
+    internal.set_state(mode="single")
+    for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", "/actors/server/keys"):
+        assert internal.get(path).status_code == 200, path
+    assert internal.get("/config").json()["mode"] == "single"
+
+
+@pytest.mark.parametrize("state", [{"federation": "off"}, {"federation": "off", "mode": "single"}])
+def test_no_actor_when_federation_is_off_in_each_mode(internal, state):
     internal.set_state(**state)
     for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", f"/actors/{ALICE_PUBLIC_ID}/followers", f"/actors/{ALICE_PUBLIC_ID}/outbox", f"/objects/{OBJECT_ID}", "/actors/server/keys"):
         assert internal.get(path).status_code == 404, path
@@ -534,7 +542,7 @@ def test_follow_through_the_shared_inbox_has_no_recipient(internal):
     assert (internal.alice, BOB_IRI, f"{BOB_IRI}/inbox", "https://remote.example/inbox") in _follower_rows(internal)
 
 
-@pytest.mark.parametrize("state", [{"federation": "off"}, {"mode": "single"}])
+@pytest.mark.parametrize("state", [{"federation": "off"}, {"federation": "off", "mode": "single"}])
 def test_no_event_is_applied_when_federation_is_not_active(internal, state):
     before = _follower_rows(internal)
     internal.set_state(**state)

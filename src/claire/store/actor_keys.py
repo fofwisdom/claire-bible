@@ -27,9 +27,11 @@ __all__ = [
     "SERVER_ACTOR_ACCOUNT_ID",
     "ActorKeyPair",
     "delete_actor_keys",
+    "delete_kb_actor_keys",
     "ensure_actor_keys",
     "ensure_kb_actor_keys",
     "generate_key_pair",
+    "kb_actor_key_numbers",
     "load_kb_actor_keys",
     "load_actor_keys",
     "load_public_jwks",
@@ -171,3 +173,14 @@ def delete_actor_keys(conn: sqlite3.Connection, account_id: int) -> int:
     """Delete all keys of the actor. Return the number of deleted rows."""
     with conn:
         return conn.execute("DELETE FROM actor_keys WHERE account_id=?", (_check_account_id(account_id),)).rowcount
+
+
+def kb_actor_key_numbers(conn: sqlite3.Connection) -> list[int]:
+    """The numbers of the knowledge base actors that have keys."""
+    return [-int(row[0]) for row in conn.execute("SELECT DISTINCT account_id FROM actor_keys WHERE account_id<0 ORDER BY account_id DESC").fetchall()]
+
+
+def delete_kb_actor_keys(conn: sqlite3.Connection, kb_number: int) -> int:
+    """Delete the keys of the actor of a shared knowledge base that is gone. Return the number of deleted rows."""
+    with conn:
+        return conn.execute("DELETE FROM actor_keys WHERE account_id=?", (_kb_owner(kb_number),)).rowcount

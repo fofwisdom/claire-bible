@@ -196,7 +196,7 @@ def test_admin_sets_the_limit_of_the_documents_of_one_submission(world) -> None:
     assert client.get("/api/admin/themes", headers=world.admin).json()["settings"]["submission_max_documents"] == 5
     conn = dbm.connect_existing(world.settings.db_file, readonly=True)
     try:
-        assert contributions.read_limits(conn) == {"submission_max_documents": 5}
+        assert contributions.read_limits(conn) == {**contributions.LIMITS, "submission_max_documents": 5}
     finally:
         conn.close()
     for value in (0, -1, 2.5, "5", True, None):

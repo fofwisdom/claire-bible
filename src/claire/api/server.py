@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import mimetypes
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -63,6 +63,8 @@ from ..store import themes as themes_store
 from ..store import federation as federation_store
 from ..knowledge_federation import known_servers as kf_known_servers
 from ..knowledge_federation import remote_kbs
+from ..knowledge_federation import grants as kf_grants
+from ..knowledge_federation import offers as kf_offers
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
@@ -1658,6 +1660,16 @@ def create_app(
             view["origin_removed"] = None if row["origin_removed_at"] is None else {"at": row["origin_removed_at"], "reason": row["origin_removed_reason"], "waiting": contributions.in_origin_review(row)}
             view["reason"] = row["decision_reason"]
             view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
+            # The ``Offer`` of an account of another server that made this contribution (federation design Section 12.1): the actor and its server, and if the offer had a grant of this knowledge base in effect when it came (Section 12.2 rule 2). None for each other contribution. ``actor`` is null after the remote account was deleted (the credit "deleted account").
+            offer = kf_offers.inbound_of_contribution(conn, int(row["public_id"]))
+            view["offer"] = None if offer is None else {"actor": row["remote_credit_iri"], "server": offer["domain"], "with_grant": bool(offer["capability_iri"]), "grant_valid": bool(offer["grant_valid"])}
+        if review_help and row["contributor_account_id"] is None and row["remote_credit_iri"] and not row["remote_source_kb_iri"]:
+            # The reputation of an account of another server comes only from the decisions of this server (federation design Section 12.1 rule 5).
+            reputations = cache.setdefault("remote_reputations", {})
+            actor_iri = str(row["remote_credit_iri"])
+            if actor_iri not in reputations:
+                reputations[actor_iri] = reputation.compute_remote(conn, actor_iri)
+            view["contributor_reputation"] = {"level": reputations[actor_iri][0], "approval_rate": reputations[actor_iri][1]}
         if review_help and row["contributor_account_id"] is not None:
             # Reviewers see the level and the approval rate of the contributor (design Section 8.6).
             reputations = cache.setdefault("reputations", {})
@@ -1781,6 +1793,137 @@ def create_app(
         finally:
             conn.close()
         return JSONResponse({"ok": True, "curations": results}, status_code=202 if any("read" in result for result in results) else 200)
+
+    # --- Remote collaborators (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.2, KD6) ---
+
+    def _grant_view(row: dict[str, Any], now: float) -> dict[str, Any]:
+        return {
+            "id": int(row["id"]), "grant": row["grant_iri"], "actor": row["actor_iri"], "server": row["domain"], "state": kf_grants.issued_state(row, now),
+            "published_at": row["published_at"], "end_time": row["end_time"], "revoked_at": row["revoked_at"],
+        }
+
+    async def kb_remote_collaborators_route(request: Request) -> Response:
+        """``GET /kb/{number}/remote-collaborators`` (capability ``people``): the grants of the role ``collaborator`` that this shared knowledge base gave to accounts of other servers, the newest first, with their end times.
+
+        ``POST`` with ``{"actor": "<IRI of the account actor>"}``: give the role for 6 months. The knowledge base actor sends ``Grant``. A grant of the same actor that is in effect is revoked (a renewal). A recent sign-in in a session is necessary, as for the role ``collaborator`` of a local account (design Section 6.8). A remote collaborator has only the capabilities ``contribute_direct`` and ``contribute_theme``.
+        """
+        from ..knowledge_federation import access as kf_access
+        from ..knowledge_federation import collections as kf_collections
+        from ..knowledge_federation import outbox as kf_outbox
+        from ..knowledge_federation import vocabulary as kf_vocabulary
+
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        canonical = _public_origin(request)
+        if request.method != "POST":
+            def _list() -> list[dict[str, Any]]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    now = time.time()
+                    return [_grant_view(row, now) for row in kf_grants.list_issued(conn, int(kb.number))]
+                finally:
+                    conn.close()
+
+            items = await asyncio.to_thread(_list)
+            return JSONResponse({"grants": items})
+        body = await _json_object(request)
+        actor = body.get("actor")
+        if set(body) - {"actor"} or not isinstance(actor, str) or not actor.strip():
+            raise HTTPException(status_code=400, detail="actor_invalid")
+        actor = actor.strip()
+        refused = step_up_response(principal)
+        if refused is not None:
+            return refused
+
+        def _give() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if not kf_access.federation_on(conn):
+                    return JSONResponse({"error": "federation_off"}, status_code=409)
+                domain = kf_access.remote_server_domain(actor, canonical)
+                parts = urlsplit(actor)
+                # The target is an account actor of another Claire server (``/ap/actors/{public ID}``), not its server actor.
+                if domain is None or parts.query or parts.fragment or not parts.path.startswith("/ap/actors/") or parts.path == kf_access.SERVER_ACTOR_PATH or len(actor) > 2048:
+                    return JSONResponse({"error": "actor_invalid"}, status_code=400)
+                if federation_store.blocking_domain(conn, domain) is not None:
+                    return JSONResponse({"error": "blocked_domain"}, status_code=409)
+                now = time.time()
+                kb_iri = kf_collections.knowledge_base_iris(canonical, int(kb.number))["id"]
+                grant, replaced = kf_grants.give(conn, kb_number=int(kb.number), iri=kf_grants.grant_iri(kb_iri), actor_iri=actor, domain=domain, account_id=int(principal.account_id), now=now)
+                signer = str(int(kb.number))
+                for old in replaced:
+                    kf_outbox.enqueue(conn, kf_vocabulary.build_revoke(activity_id=f"{old['grant_iri']}/revoke", knowledge_base=kb_iri, account_actor=actor, grant=old["grant_iri"]), signer=signer, recipients=[actor], origin=canonical, now=now)
+                kf_outbox.enqueue(conn, kf_vocabulary.build_grant(activity_id=grant["grant_iri"], knowledge_base=kb_iri, account_actor=actor, published=grant["published_at"], end_time=grant["end_time"]), signer=signer, recipients=[actor], origin=canonical, now=now)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=int(principal.account_id), action="remote_collaborator_grant", target=actor, now=now)
+                conn.commit()
+                return JSONResponse({"ok": True, "grant": _grant_view(grant, now), "renewed": bool(replaced)}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_give)
+
+    async def kb_remote_collaborator_route(request: Request) -> Response:
+        """``DELETE /kb/{number}/remote-collaborators/{grant}`` (capability ``people``, recent sign-in): end one grant at once. The knowledge base actor sends ``Revoke``; the next contribution of the account needs approval again (design Section 12.2 rule 3)."""
+        from ..knowledge_federation import collections as kf_collections
+        from ..knowledge_federation import outbox as kf_outbox
+        from ..knowledge_federation import vocabulary as kf_vocabulary
+
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        raw = str(request.path_params.get("grant") or "")
+        if not (raw.isascii() and raw.isdigit()):
+            raise HTTPException(status_code=404, detail="grant_not_found")
+        refused = step_up_response(principal)
+        if refused is not None:
+            return refused
+        canonical = _public_origin(request)
+
+        def _revoke() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                now = time.time()
+                grant = kf_grants.get_issued(conn, int(raw))
+                if grant is None or int(grant["kb_number"]) != int(kb.number):
+                    return JSONResponse({"error": "grant_not_found"}, status_code=404)
+                if kf_grants.issued_state(grant, now) != "active" or not kf_grants.revoke(conn, int(grant["id"]), account_id=int(principal.account_id), now=now):
+                    return JSONResponse({"error": "grant_not_active"}, status_code=409)
+                kb_iri = kf_collections.knowledge_base_iris(canonical, int(kb.number))["id"]
+                from ..knowledge_federation import access as kf_access
+
+                # No ``Revoke`` goes to an address that is not one of another server now; the grant ends on this server, which is the authority for it.
+                if kf_access.federation_on(conn) and kf_access.remote_server_domain(grant["actor_iri"], canonical) is not None:
+                    kf_outbox.enqueue(conn, kf_vocabulary.build_revoke(activity_id=f"{grant['grant_iri']}/revoke", knowledge_base=kb_iri, account_actor=grant["actor_iri"], grant=grant["grant_iri"]), signer=str(int(kb.number)), recipients=[grant["actor_iri"]], origin=canonical, now=now)
+                kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=int(principal.account_id), action="remote_collaborator_revoke", target=str(grant["actor_iri"]), now=now)
+                conn.commit()
+                return JSONResponse({"ok": True, "grant": _grant_view(kf_grants.get_issued(conn, int(grant["id"])) or grant, now)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_revoke)
+
+    async def kb_remote_grants_route(request: Request) -> JSONResponse:
+        """``GET /api/kb/remote-grants``: the grants of the role ``collaborator`` that the requester got from shared knowledge bases of other servers, the newest first (federation design Section 12.2). ``state`` is ``active``, ``ended``, or ``revoked``, as this server knows it; the other server decides each use. ``remote_id`` is the record of the knowledge base on this server (the value of ``remote_knowledge_base`` of ``POST /submissions``), or null when this server has no record of it."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+
+        def _list() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                now = time.time()
+                out = []
+                for row in kf_grants.received_of_account(conn, int(principal.account_id)):
+                    record = remote_kbs.get_by_iri(conn, str(row["kb_iri"]))
+                    out.append({
+                        "grant": row["grant_iri"], "knowledge_base": row["kb_iri"], "server": row["domain"], "remote_id": None if record is None else record.id, "label": None if record is None else record.label,
+                        "url": None if record is None else record.url, "state": kf_grants.issued_state(row, now), "published_at": row["published_at"], "end_time": row["end_time"], "revoked_at": row["revoked_at"],
+                    })
+                return out
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_list)
+        return JSONResponse({"grants": items})
 
     async def kb_remote_sources_route(request: Request) -> JSONResponse:
         """``GET /kb/{number}/remote-sources`` (capability ``curate``): the shared knowledge bases of other servers that a reviewer of K can curate from (the remote members of the themes of K, federation design Section 11 rule 1), and the newest reads for curations into K. With ``?source=<id>``: also the documents of that knowledge base. The list of documents comes from the sidecar; the request starts a read when the list is older than 10 minutes."""
@@ -2088,6 +2231,8 @@ def create_app(
                 else:
                     target.update({"state": "withdrawn"})  # the contributor deleted the pending contribution
                 targets.append(target)
+            # The shared knowledge bases of other servers that got an ``Offer`` for this item, or that were skipped with a reason (federation design Section 12.1 rule 3): the state is the decision of the other server.
+            targets.extend(kf_offers.outbound_view(conn, offer) for offer in kf_offers.outbound_of_item(conn, int(item["id"])))
             view: dict[str, Any] = {
                 "document": item["source_document_id"],
                 "title": _document_title(conn, item["source_document_id"]),
@@ -2097,14 +2242,17 @@ def create_app(
                 "score": item["match_score"],
                 "targets": targets,
             }
-            if theme is None:
-                # No theme: the account selects a theme, contributes directly to a shared knowledge base where it is a member, or makes a shared knowledge base (Section 9.2 rule 3).
+            if theme is None and not any(target.get("remote") for target in targets):
+                # No theme: the account selects a theme, contributes directly to a shared knowledge base where it is a member, or makes a shared knowledge base (Section 9.2 rule 3). An item of a direct choice of a knowledge base of another server has no theme and is not such an item.
                 view["code"] = "no_theme"
             items.append(view)
         return {"number": ids.format_public_id(int(submission["public_id"])), "created_at": submission["created_at"], "items": items}
 
     async def submissions_route(request: Request) -> Response:
-        """``POST /submissions`` with ``{"documents": [...], "theme"?: "<number>"}``: contribute documents of the personal knowledge base of the requester to themes. ``GET /submissions``: the submissions of the requester."""
+        """``POST /submissions`` with ``{"documents": [...], "theme"?: "<number>"}``: contribute documents of the personal knowledge base of the requester to themes. ``GET /submissions``: the submissions of the requester.
+
+        A theme with shared knowledge bases of other servers sends an ``Offer`` to each of them (federation design Section 12.1). ``{"documents": [...], "remote_knowledge_base": <id of the record>}`` (not with ``theme``) is the direct choice of one shared knowledge base of another server; it needs a grant of that knowledge base in its term (403 ``grant_required``).
+        """
         principal = request_principal(request)
         if principal.account_id is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -2123,6 +2271,10 @@ def create_app(
         documents = body.get("documents")
         if not isinstance(documents, list) or not all(isinstance(d, str) and d.strip() for d in documents):
             raise HTTPException(status_code=400, detail="documents_invalid")
+        remote_kb_id = body.get("remote_knowledge_base")
+        if "remote_knowledge_base" in body and (isinstance(remote_kb_id, bool) or not isinstance(remote_kb_id, int) or "theme" in body):
+            raise HTTPException(status_code=400, detail="remote_knowledge_base_invalid")
+        canonical = _public_origin(request)
 
         def _submit() -> JSONResponse:
             try:
@@ -2141,7 +2293,7 @@ def create_app(
                         return JSONResponse({"error": "theme_not_found"}, status_code=404)
                     theme_id = int(theme["id"])
                 try:
-                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=principal.server_role == "admin", personal_kb_id=personal.id, documents=[d.strip() for d in documents], theme_id=theme_id)
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=principal.server_role == "admin", personal_kb_id=personal.id, documents=[d.strip() for d in documents], theme_id=theme_id, origin=canonical, remote_kb_id=remote_kb_id)
                 except contributions.ContributionError as exc:
                     conn.rollback()
                     return JSONResponse({"error": exc.code, **exc.extra}, status_code=exc.status)
@@ -3704,7 +3856,7 @@ def create_app(
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             store = accounts_store.AccountStore(conn)
-            if store.federation_state() != "on" or store.server_mode() != "network":
+            if store.federation_state() != "on":
                 return None
             try:
                 account = store.get(account_id)
@@ -6410,6 +6562,9 @@ def create_app(
         Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
         Route("/curations", kb_curations_route, methods=["POST"]),
         Route("/remote-sources", kb_remote_sources_route, methods=["GET", "HEAD"]),
+        Route("/remote-collaborators", kb_remote_collaborators_route, methods=["GET", "HEAD", "POST"]),
+        Route("/remote-collaborators/{grant}", kb_remote_collaborator_route, methods=["DELETE"]),
+        Route("/api/kb/remote-grants", kb_remote_grants_route, methods=["GET", "HEAD"]),
         Route("/forks", kb_forks_route, methods=["POST"]),
         Route("/contributions", kb_contribute_route, methods=["POST"]),
         Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),

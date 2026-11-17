@@ -280,7 +280,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.10"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.11"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: while the switch `federation` is on, the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). No shape that existed changed.
 - Version 1.10 (unit KF3 of the knowledge federation) added the routes `knowledge-kb-actors`, `knowledge-outbox-tasks`, and `knowledge-remote-reads` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 12.5). No shape that existed changed.
 - Version 1.9 (unit KF2 of the knowledge federation) added `GET` and `POST /knowledge-kb-reads` and changed the answer of `GET /knowledge-collections/{name}` (`document` in place of `items`). The sidecar calls the routes of the knowledge federation from this version ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.4, 10.6, and 11.4).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
@@ -383,7 +384,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 
 | ID | Passes when |
 | :--- | :--- |
-| GF1 | The server mode is `network`. |
+| GF1 | The server mode is `network`, or the mode is `single` and the first setup is complete (the admin account is `active` and has a USERNAME; KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 1 and 5). |
 | GF2 | `{data_dir}/run/federation_heartbeat.json` has a `received_at` time that is 0 to 120 seconds old (`HEARTBEAT_MAX_AGE_SECONDS`), and its contract major version is that of Claire. A time that is later than the clock fails. |
 | GF3 | `{data_dir}/auth/fedify_service.key` is a regular file with mode 0600 and 32 bytes. |
 | GF4 | `SecretService` can load the master key (`CLAIRE_SECRET_KEY` or `{data_dir}/auth/master.key`). The check does not make a key file. |
@@ -575,7 +576,7 @@ The page keeps its HTML format for all `Accept` values. The path has no content 
 
 ### 8.3 Mode Change Refusal
 
-`POST /api/admin/server/mode` refuses the change from `network` to `single` while `federation` is `on`: 400 `{"error": "federation_enabled", "detail": "Cannot switch to single mode while federation is on"}`. The admin must set `federation` to `off` first.
+Withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 6, unit KF4): federation works in single mode, so `POST /api/admin/server/mode` changes from `network` to `single` also while `federation` is `on`. A change to single mode still needs no members.
 
 ### 8.4 Pause
 
@@ -692,7 +693,7 @@ These statements are true for the code now.
 - The sidecar container has no access to `claire.db`, `auth.db`, `master.key`, or the `.env` values.
 - The sidecar sets the Fedify option `allowPrivateAddress` in one place only, from the config field `allow_private_addresses` (contract 1.8, Section 5.4). Claire gives true only in the environment `development` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` on. A sidecar test (`sidecar/fedify/tests/sidecar_test.ts`) reads the source directory and fails if the option has a constant value or is in a second place.
 - No external identity value (`iss`, `sub`, email, provider ID) is in an internal API response. `tests/test_federation_routes.py` puts values in `account_identities` and searches all responses.
-- In single mode each federation path of an account returns 404. `tests/test_fedify_sidecar.py` examines this with a real Claire process. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): single mode serves the admin at `/@{username}/`; the account actor of the admin in single mode (Section 15 rule 5) is not implemented.
+- While `federation` is off, each federation path returns 404, in each mode. `tests/test_fedify_sidecar.py` examines this with a real Claire process. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): single mode serves the admin at `/@{username}/`. Since contract 1.11 the mode is not a condition: while `federation` is on, the server actor and the account actor of the admin federate in single mode with the rules of network mode (`profile_public`, a USERNAME; Section 15 rule 5, KD2). The account routes of `ROUTE_POLICY` (`/api/federation/*`) stay network mode only.
 - All states that are not federated give the same 404, so a remote client cannot find which private accounts exist.
 - A signature made with the key of one actor is not valid for a different actor (`sidecar/fedify/tests/discovery_e2e_test.ts`).
 

@@ -28,7 +28,10 @@ __all__ = [
     "collection_access",
     "exchange_refusal",
     "federation_on",
+    "iri_origin",
+    "quota_domain",
     "remote_server_domain",
+    "server_actor_of",
 ]
 
 # The path of the server actor of each Claire server (FEDERATION.md Section 4.2).
@@ -62,6 +65,35 @@ def remote_server_domain(iri: str, origin: str) -> str | None:
     if credentials or f"{parts.scheme}://{parts.netloc}".lower() == origin.rstrip("/").lower():
         return None
     return federation_store.iri_host(iri)
+
+
+def iri_origin(iri: str) -> str | None:
+    """Return the origin of an ``http`` or ``https`` IRI (scheme, host, and port; the default port of the scheme is not written), lowercase, or ``None`` when the IRI has no valid host or port. Two IRIs are on the same server only when their origins are equal: a host alone does not identify a server (KS1)."""
+    try:
+        parts = urlsplit(iri)
+        port = parts.port
+    except ValueError:
+        return None
+    host = federation_store.iri_host(iri)
+    if host is None or parts.scheme not in ("http", "https"):
+        return None
+    if ":" in host:
+        host = f"[{host}]"
+    default = 443 if parts.scheme == "https" else 80
+    return f"{parts.scheme}://{host}" if port is None or port == default else f"{parts.scheme}://{host}:{port}"
+
+
+def server_actor_of(iri: str) -> str | None:
+    """Return the IRI of the server actor of the server of ``iri`` (``{origin}/ap/actors/server``), or ``None`` for an IRI without a valid origin."""
+    origin = iri_origin(iri)
+    return None if origin is None else f"{origin}{SERVER_ACTOR_PATH}"
+
+
+def quota_domain(domain: str) -> str:
+    """Return the key of the limits for each domain (KS2, KS3): the registrable domain of a host (public suffix and one label), so that the subdomains of one domain share one limit. A host without a registrable domain (an IP address, a name under an unknown top-level domain) is its own key."""
+    from ..api.prototype_host import registrable_domain  # the import is here: the public suffix list loads at the first call
+
+    return registrable_domain(domain) or domain
 
 
 def exchange_refusal(conn: sqlite3.Connection, *, actor_iri: str, origin: str) -> str | None:

@@ -185,13 +185,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
             fed_conn.close()
 
     _set_federation("on")
-    refused = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
-    assert refused.status_code == 400
-    assert refused.json()["error"] == "federation_enabled"
-    assert app_env.client.get("/whoami", headers=headers).json()["server"]["mode"] == "network"
-    _set_federation("off")
-
-    # 7. Transition back network -> single mode -> succeeds when no non-admin members exist
+    # 7. Transition back network -> single mode -> succeeds when no non-admin members exist. The switch ``federation`` is no condition: federation works in single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 5 and 6).
     back_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
     assert back_resp.status_code == 200
     back_body = back_resp.json()

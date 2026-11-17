@@ -47,7 +47,9 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Feed view (FP4-F3)
        "/api/feeds/items/{item_id}", "/api/feeds/items/{item_id}/ingest", "/api/feeds/discover", "/render/feed/{item_id}",
        # Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.2)
-       "/submissions", "/submissions/{number}"}
+       "/submissions", "/submissions/{number}",
+       # The grants that the account got from shared knowledge bases of other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.2)
+       "/api/kb/remote-grants"}
 SYSTEM = {
     "/health", "/robots.txt", "/ns", "/ns/v1", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -110,7 +112,7 @@ ADMIN_KEYS = {
     *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/admin/federation/domain-blocks") for m in ("GET", "HEAD", "POST", "DELETE")),
     *((m, "/api/admin/federation/reading") for m in ("GET", "HEAD", "PUT")),
-    *((m, "/api/admin/federation/known-servers") for m in ("GET", "HEAD", "POST")),
+    *((m, "/api/admin/federation/known-servers") for m in ("GET", "HEAD", "POST", "DELETE")),
     *((m, p) for p in ("/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}") for m in ("GET", "HEAD")),
     ("POST", "/api/admin/federation/journal/{entry_id}/replay"),
     *((m, "/admin/federation") for m in ("GET", "HEAD")),

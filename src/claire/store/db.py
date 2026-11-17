@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 33
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -759,6 +759,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v29_knowledge_federation(conn)
     _migrate_v30_remote_knowledge_bases(conn)
     _migrate_v31_knowledge_base_actors(conn)
+    _migrate_v32_offers_and_grants(conn)
+    _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
@@ -1513,6 +1515,38 @@ def _migrate_v31_knowledge_base_actors(conn: sqlite3.Connection) -> None:
         for table, columns in module.TABLES.items():
             _retire_table_of_other_form(conn, table, columns, version=31)
         module.ensure_schema(conn)
+
+
+def _migrate_v32_offers_and_grants(conn: sqlite3.Connection) -> None:
+    """v32 schema (KNOWLEDGE_FEDERATION_DESIGN.md Sections 12.1 and 12.2, unit KF4): the offers of contributions across servers (the ones that go out and the ones that come in) and the grants of the role ``collaborator`` (the ones that this server gave and the ones that its accounts got). Idempotent (A3); it runs at each start.
+
+    The store modules own their tables: ``knowledge_federation.offers`` and ``knowledge_federation.grants``. The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
+    """
+    from ..knowledge_federation import grants, offers
+
+    for module in (offers, grants):
+        for table, columns in module.TABLES.items():
+            _retire_table_of_other_form(conn, table, columns, version=32)
+        module.ensure_schema(conn)
+
+
+def _migrate_v33_knowledge_federation_limits(conn: sqlite3.Connection) -> None:
+    """v33 schema (KNOWLEDGE_FEDERATION_DESIGN.md Section 14, KS2: limits for each object, each domain, and each day). Idempotent (A3); it runs at each start, after the steps v29 to v32.
+
+    - ``kf_inbox_journal`` gets the columns ``quota_domain`` and ``payload_bytes`` and their index (``journal.ensure_quota_columns``). An old row has NULL and does not count in the quota.
+    - ``kf_outbox`` of version 31 to 32 has the activity JSON in each row (one copy for each recipient): the step copies each activity one time to ``kf_outbox_activities`` and drops the column ``payload`` (``outbox.move_payloads``). No activity is lost.
+    - ``kb_contributions.remote_updated_at`` (the time of the version of the origin that a copy has) is one of ``kb_collab.REMOTE_COLUMNS``: the step v31 adds it.
+    The store modules own their tables. The start continues for each state of the data (operator rule).
+    """
+    from ..knowledge_federation import journal, outbox
+    from . import kb_collab
+
+    kb_collab.ensure_remote_columns(conn)
+    journal.ensure_quota_columns(conn)
+    if _table_exists(conn, "kf_outbox") and _table_exists(conn, "kf_outbox_activities"):
+        moved = outbox.move_payloads(conn)
+        if moved:
+            logger.info("schema v33: %d outbound activities moved to kf_outbox_activities", moved)
 
 
 def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:

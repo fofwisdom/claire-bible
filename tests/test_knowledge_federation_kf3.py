@@ -141,11 +141,17 @@ def test_follow_accept_undo_and_the_activities_of_a_knowledge_base_actor(tmp_pat
     b.now += 10
     assert _tasks(b) == []
 
-    # A blocked domain gets no delivery: its task ends as ``refused``.
+    # A blocked domain gets no delivery, and its followers are deleted (design Section 6.3). After the block ends, it gets activities again only after a new ``Follow``.
     b.db(lambda conn: conn.execute("UPDATE knowledge_bases SET label='Machines' WHERE number=?", (B_KB_NUMBER,)))
     b.db(lambda conn: federation_store.add_domain_block(conn, "a.example", created_by=1, now=b.now))
     assert _tasks(b) == []
     b.db(lambda conn: federation_store.remove_domain_block(conn, "a.example"))
+    assert b.db(lambda conn: conn.execute("SELECT COUNT(*) FROM kf_kb_followers").fetchone()[0]) == 0
+    assert b.deliver({**follow, "id": follow["id"] + "/again"}, signer=A_SERVER, recipient=KB_IRI).json()["decision"] == "processed"
+    # The new follower gets the ``Accept`` and the record that it does not have (the label changed while it was not a follower).
+    again = _tasks(b)
+    assert sorted(task["kind"] for task in again) == ["accept_follow", "update_knowledge_base"]
+    assert all(_ack(b, task["id"]) == "delivered" for task in again)
 
     # The knowledge base is deleted: the followers get the ``Delete`` of its record. Claire gives the keys of the actor while that task waits.
     b.db(lambda conn: conn.execute("DELETE FROM knowledge_bases WHERE number=?", (B_KB_NUMBER,)))
@@ -306,6 +312,8 @@ def test_a_copy_of_a_remote_document_follows_the_rules_of_local_revisions(tmp_pa
     try:
         places = a.client.post("/kb", json={"label": "Places", "knowledge_type": "real"}, headers=a.headers("ann")).json()["knowledge_base"]
         base, kb_id = f"/kb/{places['number']}", int(places["id"])
+        # The revisions of this test come one after the other at once: no minimum time between two revisions (the default is 300 seconds, KS2).
+        a.db(lambda conn: contributions.write_limit(conn, "remote_revision_min_seconds", 0, updated_by=1))
         a.db(lambda conn: conn.execute("INSERT INTO kf_follows (kb_iri, domain, follow_iri, state, created_at) VALUES (?, 'b.example', ?, 'accepted', 1)", (KB_IRI, f"{A_SERVER}#follows/1")))
 
         def _state() -> dict:
@@ -358,7 +366,7 @@ def test_a_copy_of_a_remote_document_follows_the_rules_of_local_revisions(tmp_pa
         assert [r["state"] for r in seventh["revisions"]] == ["done", "done", "failed", "done"]
         assert a.db(lambda conn: [row[0] for row in conn.execute("SELECT detail_html FROM documents WHERE kb_id=?", (kb_id,))]) == ["<p>The seventh version.</p>"]
         # A revision from another actor than the one of the copy changes nothing.
-        assert a.db(lambda conn: contributions.start_remote_revisions(conn, source_kb_iri="https://b.example/ap/kb/1", article=_article("Another."))) == []
+        assert a.db(lambda conn: contributions.start_remote_revisions(conn, source_kb_iri="https://b.example/ap/kb/1", article=_article("Another."))) == ([], None)
 
         # The removal at the origin (KD1): hidden at once, in the review queue. Here the reviewers remove it: a tombstone keeps the document out.
         assert a.deliver(fixture("activities", "delete_document"), signer=KB_IRI, recipient=None).json()["decision"] == "processed"

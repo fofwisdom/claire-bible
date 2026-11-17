@@ -17,7 +17,7 @@ from .. import ids, theme_judgement
 from ..store import themes as themes_store
 from . import remote_kbs, vocabulary
 
-__all__ = ["KB_PAGE_SIZE", "THEMES_PATH", "kb_collection_page", "kb_collection_root", "knowledge_base_iris", "knowledge_base_object", "themes_collection"]
+__all__ = ["KB_PAGE_SIZE", "THEMES_PATH", "kb_collection_page", "kb_collection_root", "knowledge_base_iris", "knowledge_base_object", "themes_collection", "visible_graph_counts"]
 
 KB_PAGE_SIZE = 20
 THEMES_PATH = "/ap/themes"
@@ -34,7 +34,7 @@ def knowledge_base_iris(origin: str, number: int) -> dict[str, str]:
 
 
 def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, origin: str, signatures: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document does not count."""
+    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document, and the entities and relations that only hidden documents have, do not count."""
     kb_id, number, label, description, knowledge_type = tuple(row)
     signature_row = signatures.get(int(kb_id))
     kb = {
@@ -42,11 +42,29 @@ def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *,
         "description": str(description or ""),
         "knowledge_type": knowledge_type,
         "documents": int(conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=? AND COALESCE(hidden, 0)=0", (int(kb_id),)).fetchone()[0]),
-        "entities": int(conn.execute("SELECT COUNT(*) FROM entities WHERE kb_id=?", (int(kb_id),)).fetchone()[0]),
-        "relations": int(conn.execute("SELECT COUNT(*) FROM relations WHERE kb_id=?", (int(kb_id),)).fetchone()[0]),
+        **dict(zip(("entities", "relations"), visible_graph_counts(conn, int(kb_id)))),
         "signature": None if signature_row is None else theme_judgement.wire_signature(signature_row),
     }
     return vocabulary.build_knowledge_base(kb, knowledge_base_iris(origin, int(number)))
+
+
+# The entities of a knowledge base that a reader of its public page sees (``store.queries.graph_json`` without hidden documents): an entity with no source, or with one source that is not a hidden document. The relations between two such entities.
+_VISIBLE_GRAPH_SQL = """
+WITH hidden AS (SELECT id FROM documents WHERE kb_id=:kb AND hidden=1),
+visible AS (
+    SELECT e.id FROM entities e WHERE e.kb_id=:kb AND (
+        e.sources IS NULL OR json_valid(e.sources)=0 OR json_type(e.sources)!='array' OR json_array_length(e.sources)=0
+        OR EXISTS (SELECT 1 FROM json_each(e.sources) j WHERE j.value NOT IN (SELECT id FROM hidden))
+    )
+)
+SELECT (SELECT COUNT(*) FROM visible), (SELECT COUNT(*) FROM relations r WHERE r.kb_id=:kb AND r.source_id IN (SELECT id FROM visible) AND r.target_id IN (SELECT id FROM visible))
+"""
+
+
+def visible_graph_counts(conn: sqlite3.Connection, kb_id: int) -> tuple[int, int]:
+    """The numbers of entities and relations of a knowledge base without the graph of its hidden documents (KS5: a hidden document does not leave the server, and its graph does not count)."""
+    row = conn.execute(_VISIBLE_GRAPH_SQL, {"kb": int(kb_id)}).fetchone()
+    return int(row[0]), int(row[1])
 
 
 def kb_collection_root(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:

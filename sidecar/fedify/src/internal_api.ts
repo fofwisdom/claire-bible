@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.10";
+export const CONTRACT_VERSION = "1.11";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -380,7 +380,7 @@ export interface KbReadBatch {
   error: string | null;
 }
 
-// One outbound activity of the knowledge federation (unit KF3). activity is the JSON that must go out without a change. signer is "server" (the server actor) or the number of a knowledge base actor of this server. recipient is the actor that gets the activity.
+// One outbound activity of the knowledge federation (unit KF3). activity is the JSON that must go out without a change. signer is "server" (the server actor), the number of a knowledge base actor of this server, or "account:" and the public ID of an account actor of this server (unit KF4). recipient is the actor that gets the activity.
 export interface KnowledgeOutboxTask {
   id: number;
   kind: string;

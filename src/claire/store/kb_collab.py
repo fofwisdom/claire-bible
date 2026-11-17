@@ -211,14 +211,15 @@ def add_contribution(
     """Insert one contribution and return its public ID. One document has at most one contribution in a knowledge base (``UNIQUE (kb_id, document_id)``).
 
     ``remote`` (a copy of a document of another server, federation design Section 10.1): the keys ``source_kb_iri`` (the knowledge base actor), ``source_iri`` (the document that was copied: ``origin``), ``root_iri`` (``claire:root``), and ``credit_iri`` (the actor with the credit, or None). Such a contribution has no local source and no local root.
+    A contribution that an account of another server offered (federation design Section 12.1) has no ``source_kb_iri``: its document is in a personal knowledge base, which is not an actor. Its ``credit_iri`` is the account actor.
     """
     if origin not in CONTRIBUTION_ORIGINS:
         raise ValueError(f"invalid contribution origin: {origin!r}")
     if state not in CONTRIBUTION_STATES:
         raise ValueError(f"invalid contribution state: {state!r}")
     ts = time.time() if now is None else now
-    if remote is not None and (set(remote) != set(_REMOTE_KEYS) or not remote["source_kb_iri"] or not remote["source_iri"] or not remote["root_iri"]):
-        raise ValueError("a remote source needs source_kb_iri, source_iri, root_iri, and credit_iri (credit_iri can be None)")
+    if remote is not None and (set(remote) != set(_REMOTE_KEYS) or not remote["source_iri"] or not remote["root_iri"] or (not remote["source_kb_iri"] and not remote["credit_iri"])):
+        raise ValueError("a remote source needs source_kb_iri, source_iri, root_iri, and credit_iri (credit_iri can be None; source_kb_iri can be None only for a contribution of an account of another server, which has credit_iri)")
     remote_values: dict[str, str | None] = dict.fromkeys(_REMOTE_KEYS) if remote is None else dict(remote)
 
     def _insert(number: int) -> None:
@@ -241,14 +242,14 @@ _CONTRIBUTION_KEYS = (
     "public_id", "kb_id", "document_id", "origin", "contributor_account_id", "curator_account_id", "source_kb_id", "source_document_id",
     "root_kb_id", "root_document_id", "submission_item_id", "state", "decision_reason", "approved_at", "approved_by_account_id",
     "updates_frozen", "revised_at", "decided_at", "contributed_at", "updated_at",
-    "remote_source_kb_iri", "remote_source_iri", "remote_root_iri", "remote_credit_iri", "origin_removed_at", "origin_removed_reason", "origin_decided_at",
+    "remote_source_kb_iri", "remote_source_iri", "remote_root_iri", "remote_credit_iri", "origin_removed_at", "origin_removed_reason", "origin_decided_at", "remote_updated_at",
 )
 # The keys of ``remote`` of ``add_contribution``.
 _REMOTE_KEYS = ("source_kb_iri", "source_iri", "root_iri", "credit_iri")
-# The columns of a copy of a document of another server (KNOWLEDGE_FEDERATION_DESIGN.md Sections 10.1 and 10.3, unit KF3). ``remote_*``: the knowledge base actor, the document that was copied, its root, and the actor with the credit. ``origin_removed_at`` and ``origin_removed_reason``: the origin removed the document (the copy is hidden and in the review queue); ``origin_decided_at``: a reviewer decided to show the copy again.
+# The columns of a copy of a document of another server (KNOWLEDGE_FEDERATION_DESIGN.md Sections 10.1 and 10.3, unit KF3). ``remote_*``: the knowledge base actor, the document that was copied, its root, and the actor with the credit. ``origin_removed_at`` and ``origin_removed_reason``: the origin removed the document (the copy is hidden and in the review queue); ``origin_decided_at``: a reviewer decided to show the copy again. ``remote_updated_at`` (schema version 33): the time of the version of the origin that the copy has (``updated``, else ``published``); an older revision is refused (federation design Section 10.2).
 REMOTE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("remote_source_kb_iri", "TEXT"), ("remote_source_iri", "TEXT"), ("remote_root_iri", "TEXT"), ("remote_credit_iri", "TEXT"),
-    ("origin_removed_at", "REAL"), ("origin_removed_reason", "TEXT"), ("origin_decided_at", "REAL"),
+    ("origin_removed_at", "REAL"), ("origin_removed_reason", "TEXT"), ("origin_decided_at", "REAL"), ("remote_updated_at", "REAL"),
 )
 
 
@@ -287,7 +288,7 @@ def get_contribution(conn: sqlite3.Connection, public_id: int) -> dict[str, Any]
 
 
 # The columns that ``update_contribution`` changes. The identity of a contribution (its knowledge base, origin, credit, and root) does not change.
-_CONTRIBUTION_UPDATES = frozenset({"document_id", "state", "decision_reason", "approved_at", "approved_by_account_id", "updates_frozen", "revised_at", "decided_at", "origin_removed_at", "origin_removed_reason", "origin_decided_at"})
+_CONTRIBUTION_UPDATES = frozenset({"document_id", "state", "decision_reason", "approved_at", "approved_by_account_id", "updates_frozen", "revised_at", "decided_at", "origin_removed_at", "origin_removed_reason", "origin_decided_at", "remote_updated_at"})
 
 
 def update_contribution(conn: sqlite3.Connection, public_id: int, *, now: float | None = None, **fields: Any) -> None:
@@ -354,10 +355,77 @@ def remote_source_kbs_with_copies(conn: sqlite3.Connection) -> set[str]:
     return {str(r[0]) for r in rows}
 
 
+def open_remote_sources_of_kb_actor(conn: sqlite3.Connection, kb_iri: str) -> list[str]:
+    """The documents of one knowledge base actor of another server that this server holds an open copy of: a contribution that is not closed and whose origin did not remove the document (the read again after a follow, federation design Section 10.3)."""
+    rows = conn.execute("SELECT DISTINCT remote_source_iri FROM kb_contributions WHERE remote_source_kb_iri=? AND remote_source_iri IS NOT NULL AND state NOT IN ('removed', 'rejected') AND origin_removed_at IS NULL ORDER BY remote_source_iri", (kb_iri,)).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def last_revision_at(conn: sqlite3.Connection, public_ids: list[int]) -> float | None:
+    """The time of the newest revision of the contributions, or None when they have no revision (the minimum time between two revisions from the origin, federation design KS2)."""
+    if not public_ids:
+        return None
+    marks = ", ".join("?" for _ in public_ids)
+    value = conn.execute(f"SELECT MAX(created_at) FROM kb_contribution_revisions WHERE contribution_public_id IN ({marks})", [int(p) for p in public_ids]).fetchone()[0]
+    return None if value is None else float(value)
+
+
+def remote_revisions_since(conn: sqlite3.Connection, since: float) -> dict[str, int]:
+    """The revisions of copies of documents of other servers after ``since``, for each knowledge base actor of the source (the revisions of one domain in 24 hours, federation design KS2)."""
+    rows = conn.execute(
+        "SELECT c.remote_source_kb_iri, COUNT(*) FROM kb_contribution_revisions r JOIN kb_contributions c ON c.public_id=r.contribution_public_id WHERE c.remote_source_kb_iri IS NOT NULL AND r.created_at>? GROUP BY c.remote_source_kb_iri",
+        (float(since),),
+    ).fetchall()
+    return {str(r[0]): int(r[1]) for r in rows}
+
+
 def remote_sources_in_kb(conn: sqlite3.Connection, kb_id: int) -> dict[str, dict[str, Any]]:
     """For one knowledge base: the remote source document of each contribution that is not ``rejected``, as ``{source IRI: contribution}`` (the newest contribution for a source that has more than one)."""
     rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE kb_id=? AND remote_source_iri IS NOT NULL AND state != 'rejected' ORDER BY public_id", (int(kb_id),)).fetchall()
     return {str(r["remote_source_iri"]): r for r in (dict(zip(_CONTRIBUTION_KEYS, tuple(row))) for row in rows)}
+
+
+def pending_count_remote(conn: sqlite3.Connection, *, kb_id: int, credit_iri: str) -> int:
+    """The pending contributions of one account of another server in one knowledge base (the pending limit for each remote account, federation design KS3)."""
+    return int(conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=? AND remote_credit_iri=? AND contributor_account_id IS NULL AND state='pending'", (int(kb_id), credit_iri)).fetchone()[0])
+
+
+def count_pending_among(conn: sqlite3.Connection, public_ids: list[int]) -> int:
+    """How many of the contributions are ``pending`` now (the pending limit for each domain, federation design KS3)."""
+    count = 0
+    for start in range(0, len(public_ids), 500):
+        part = public_ids[start:start + 500]
+        count += int(conn.execute(f"SELECT COUNT(*) FROM kb_contributions WHERE state='pending' AND public_id IN ({', '.join('?' for _ in part)})", [int(p) for p in part]).fetchone()[0])
+    return count
+
+
+def decisions_of_remote_actor(conn: sqlite3.Connection, credit_iri: str, *, since: float, reasons: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The decisions of the reviewers of this server on the contributions that one account of another server offered, since ``since``: ``{"kb_id", "approved"}`` (federation design Section 12.1 rule 5: only the decisions of this server). The rules are those of ``decisions_of_account``. A curation is not a contribution of the account with the credit: only a row without a knowledge base actor as its source counts."""
+    rows = conn.execute(
+        "SELECT kb_id, state, decision_reason, approved_at, approved_by_account_id, contributor_account_id, decided_at FROM kb_contributions WHERE remote_credit_iri=? AND remote_source_kb_iri IS NULL AND contributor_account_id IS NULL AND origin IN ('direct', 'bulk', 'auto')",
+        (credit_iri,),
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if row["state"] in ("rejected", "removed"):
+            if row["decided_at"] is not None and row["decided_at"] >= since and row["decision_reason"] in reasons:
+                out.append({"kb_id": int(row["kb_id"]), "approved": False})
+        elif row["approved_at"] is not None and row["approved_at"] >= since and approved_by_another(row):
+            out.append({"kb_id": int(row["kb_id"]), "approved": True})
+    return out
+
+
+def remote_actor_deleted(conn: sqlite3.Connection, credit_iri: str) -> dict[str, Any]:
+    """The account of another server is gone (``Delete`` of its actor; federation design Section 12.1 rule 4, CT7, CT19). The rules are those of ``purge_account`` for an account of this server. No commit.
+
+    - The pending contributions that the account offered are deleted: they are not yet content of a knowledge base. The result gives their hidden copies (``pending_copies``: ``(kb_id, document_id)``); the caller deletes those documents.
+    - Each other contribution with the credit of the actor stays, without the credit (``remote_credit_iri = NULL``): the views show "deleted account". This is also true for a copy that a curation made.
+    """
+    pending = conn.execute("SELECT kb_id, document_id FROM kb_contributions WHERE remote_credit_iri=? AND remote_source_kb_iri IS NULL AND contributor_account_id IS NULL AND state='pending'", (credit_iri,)).fetchall()
+    copies = [(int(r["kb_id"]), str(r["document_id"])) for r in pending if r["document_id"]]
+    conn.execute("DELETE FROM kb_contributions WHERE remote_credit_iri=? AND remote_source_kb_iri IS NULL AND contributor_account_id IS NULL AND state='pending'", (credit_iri,))
+    credited = conn.execute("UPDATE kb_contributions SET remote_credit_iri=NULL WHERE remote_credit_iri=?", (credit_iri,)).rowcount
+    return {"pending_copies": copies, "credit_removed": int(credited)}
 
 
 def changed_contributions(conn: sqlite3.Connection, kb_id: int, *, since: float) -> list[dict[str, Any]]:

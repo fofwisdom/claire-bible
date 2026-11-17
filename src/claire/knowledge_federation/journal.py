@@ -16,9 +16,12 @@ States of a row:
 Rules:
 
 - The activity IRI is the key. A second delivery of a ``processed``, ``failed``, or ``refused`` activity changes nothing (``duplicate``).
-- An activity gets a row only when the switch ``federation`` is on, the domain of the signer is not blocked, and the activity IRI and the actor are on the server of the signer. Thus a blocked server and a server that names the IRI of another server cannot write rows.
+- An activity gets a row only when the switch ``federation`` is on, the domain of the signer is not blocked, the activity IRI is on the origin (scheme, host, and port) of the signer, the actor is the signer or the signer is the server actor of the origin of the actor, and the registrable domain of the signer is inside its quota of 24 hours (rows and bytes, ``contributions.LIMITS``). Thus a blocked server, a server that names the IRI of another server, and an actor that names another actor of its server cannot write rows.
 - Unlike the other store modules, ``receive`` and ``process`` commit: the row must be in the database before the processing starts.
+- ``process`` takes the write lock of the database (``BEGIN IMMEDIATE``) before it reads the state of the row: two deliveries of the same activity at the same time do not both run the handler.
 - A handler runs in a savepoint. An error of the handler removes its changes and keeps the row.
+- A ``refused`` row keeps no payload (``{}``): it cannot be processed again, and a refused activity of another server takes no space.
+- A row does not make its server a known server: the handler that accepts the activity does that (design Section 6.2 rule 2).
 
 Later units register one handler for each activity kind with ``register_handler``. A kind without a handler gets ``failed`` with ``no_handler``; after the unit with the handler is installed, a replay processes the row.
 """
@@ -39,8 +42,8 @@ __all__ = [
     "COLUMNS",
     "FAILED_RETENTION_SECONDS",
     "HANDLERS",
-    "KNOWN_BY_KIND",
     "PROCESSED_RETENTION_SECONDS",
+    "QUOTA_COLUMNS",
     "REPLAY_STATES",
     "SCHEMA",
     "STATES",
@@ -52,11 +55,14 @@ __all__ = [
     "JournalError",
     "Receipt",
     "ensure_schema",
+    "drop_payloads_of_domain",
+    "ensure_quota_columns",
     "entry_view",
     "get_entry",
     "list_entries",
     "process",
     "prune",
+    "quota_use",
     "receive",
     "register_handler",
     "replay",
@@ -72,9 +78,10 @@ VERIFIED_BY: tuple[str, ...] = ("http-signature", "ld-signature", "object-integr
 # Retention (design Section 13 rule 4): 30 days for processed and refused rows, 90 days for failed rows and rows whose processing did not end.
 PROCESSED_RETENTION_SECONDS = 30 * 86400.0
 FAILED_RETENTION_SECONDS = 90 * 86400.0
-# An activity kind that makes its sender a known server (design Section 6.2 rule 2), with the source that ``known_servers`` records. A ``Follow`` of a knowledge base actor comes from a server that holds copies of its documents (curation, design Section 9.2 rule 2).
-KNOWN_BY_KIND: dict[str, str] = {"offer_contribution": "remote_contribution", "follow": "remote_curation"}
 _MAX_IRI_LENGTH = 2048
+_QUOTA_SECONDS = 86400.0
+# The payload of a ``refused`` row.
+_NO_PAYLOAD = "{}"
 _MAX_DETAIL_LENGTH = 500
 
 SCHEMA = """
@@ -93,10 +100,14 @@ CREATE TABLE IF NOT EXISTS kf_inbox_journal (
     error_detail TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     received_at REAL NOT NULL,
-    processed_at REAL
+    processed_at REAL,
+    quota_domain TEXT,
+    payload_bytes INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_kf_inbox_journal_status ON kf_inbox_journal(status, received_at)
 """
+# The columns of the quota for each registrable domain (schema version 33): the key of the quota (``access.quota_domain`` of the signer) and the size of the activity as it came. ``ensure_quota_columns`` adds them to a table of version 29 to 32; a row of that time has NULL and does not count.
+QUOTA_COLUMNS: tuple[tuple[str, str], ...] = (("quota_domain", "TEXT"), ("payload_bytes", "INTEGER"))
 
 _COLUMNS = "id, activity_iri, activity_type, kind, actor, actor_domain, recipient, verified_by, payload, status, error_code, error_detail, attempts, received_at, processed_at"
 # The columns that the code of this module reads. The migration (``store.db``) gives a table of a different form a new name and makes this one again.
@@ -182,6 +193,23 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             conn.execute(statement)
 
 
+def ensure_quota_columns(conn: sqlite3.Connection) -> None:
+    """Add the columns of ``QUOTA_COLUMNS`` when they are not there, and their index. Idempotent; the migration of ``store.db`` (step v33) calls it at each start. No row changes."""
+    present = {str(row[1]) for row in conn.execute("PRAGMA table_info(kf_inbox_journal)")}
+    if not present:
+        return  # the table is not there: the step v29 makes it
+    for name, kind in QUOTA_COLUMNS:
+        if name not in present:
+            conn.execute(f"ALTER TABLE kf_inbox_journal ADD COLUMN {name} {kind}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kf_inbox_journal_quota ON kf_inbox_journal(quota_domain, received_at)")
+
+
+def quota_use(conn: sqlite3.Connection, quota: str, *, now: float) -> tuple[int, int]:
+    """The rows and the bytes of the activities of one quota key in the last 24 hours."""
+    row = conn.execute("SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM kf_inbox_journal WHERE quota_domain=? AND received_at>?", (quota, now - _QUOTA_SECONDS)).fetchone()
+    return int(row[0]), int(row[1])
+
+
 def _entry(row: sqlite3.Row | tuple) -> JournalEntry:
     return JournalEntry(*tuple(row))
 
@@ -248,6 +276,11 @@ def prune(conn: sqlite3.Connection, *, now: float) -> int:
     return deleted
 
 
+def drop_payloads_of_domain(conn: sqlite3.Connection, domain: str) -> int:
+    """Remove the payload of each ``processed`` or ``refused`` row of one domain (the admin removes a known server). A ``failed`` or ``received`` row keeps its payload: the admin can process it again. The rows stay until their retention ends. Return the number of rows that lost a payload. The caller commits."""
+    return conn.execute("UPDATE kf_inbox_journal SET payload=? WHERE actor_domain=? AND status IN ('processed', 'refused') AND payload!=?", (_NO_PAYLOAD, domain, _NO_PAYLOAD)).rowcount
+
+
 def _rejected(reason: str) -> Receipt:
     return Receipt("rejected", reason, None)
 
@@ -257,40 +290,53 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
 
     ``signer`` is the IRI of the actor whose signature the sidecar verified; ``verified_by`` is the mechanism (``VERIFIED_BY``); ``recipient`` is the IRI of the inbox owner (a knowledge base actor or an account actor), or ``None`` for the shared inbox.
 
-    No row is made (``rejected``) for these reasons, in this sequence: ``federation_off``, ``invalid_actor``, ``blocked_domain`` (the controls of ``access.exchange_refusal`` for the signer), ``invalid_activity`` (the activity is not a JSON object with an ``id`` that is an ``http`` or ``https`` IRI), ``signer_mismatch`` (the ``id`` or the ``actor`` of the activity is not on the server of the signer).
+    No row is made (``rejected``) for these reasons, in this sequence: ``federation_off``, ``invalid_actor``, ``blocked_domain`` (the controls of ``access.exchange_refusal`` for the signer), ``invalid_activity`` (the activity is not a JSON object with an ``id`` that is an ``http`` or ``https`` IRI), ``signer_mismatch`` (the ``id`` is not on the origin of the signer, or the ``actor`` is not the signer and the signer is not the server actor of the origin of the actor), ``domain_quota`` (the registrable domain of the signer has ``remote_domain_daily_activities`` rows, or the activity would take its bytes over ``remote_domain_daily_bytes``, in the last 24 hours).
     """
+    from .. import contributions  # the import is here: the limits are admin settings of ``contributions``
+
     if verified_by not in VERIFIED_BY:
         raise ValueError(f"unknown signature mechanism: {verified_by!r}")
     refusal = access.exchange_refusal(conn, actor_iri=signer, origin=origin)
     if refusal is not None:
         return _rejected(refusal)
     signer_domain = access.remote_server_domain(signer, origin)
+    signer_origin = access.iri_origin(signer)
     assert signer_domain is not None
     if not isinstance(activity, dict):
         return _rejected("invalid_activity")
     activity_iri = activity.get("id")
     if not isinstance(activity_iri, str) or len(activity_iri) > _MAX_IRI_LENGTH or access.remote_server_domain(activity_iri, origin) is None:
         return _rejected("invalid_activity")
-    if access.remote_server_domain(activity_iri, origin) != signer_domain:
+    # The origin is the scheme, the host, and the port: another port of the same host is another server (KS1).
+    if signer_origin is None or access.iri_origin(activity_iri) != signer_origin:
         return _rejected("signer_mismatch")
     actor = activity.get("actor")
     # An activity without a text ``actor`` gets a row: the validator then records ``missing_field`` or ``invalid_iri``. The row has the signer as its actor.
-    if isinstance(actor, str) and access.remote_server_domain(actor, origin) != signer_domain:
+    # The handlers trust the ``actor`` of the row: it is the signer, or an actor of the server whose server actor signed (that server answers for its actors).
+    if isinstance(actor, str) and actor != signer and not (signer == access.server_actor_of(signer) and access.iri_origin(actor) == signer_origin):
         return _rejected("signer_mismatch")
 
     existing = _entry_by_iri(conn, activity_iri)
     if existing is not None:
         if existing.status != "received":
             return Receipt("duplicate", existing.status, existing)
-        entry = process(conn, existing.id, origin=origin, now=now)
-        return Receipt(entry.status, entry.error_code, entry)
+        entry, ran = _process(conn, existing.id, origin=origin, now=now, states=("received",))
+        return Receipt(entry.status, entry.error_code, entry) if ran else Receipt("duplicate", entry.status, entry)
 
+    payload = json.dumps(activity, ensure_ascii=False, separators=(",", ":"))
+    size = len(payload.encode("utf-8"))
+    quota = access.quota_domain(signer_domain)
+    limits = contributions.read_limits(conn)
+    rows, used = quota_use(conn, quota, now=now)
+    if rows >= limits["remote_domain_daily_activities"] or used + size > limits["remote_domain_daily_bytes"]:
+        log.warning("knowledge federation journal: the quota of 24 hours of a domain is full")
+        return _rejected("domain_quota")
     prune(conn, now=now)
     raw_type = activity.get("type")
     # Two deliveries of the same activity at the same time: the second insert does nothing, and that delivery is a duplicate.
     cursor = conn.execute(
-        "INSERT INTO kf_inbox_journal (activity_iri, activity_type, actor, actor_domain, recipient, verified_by, payload, status, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?) ON CONFLICT(activity_iri) DO NOTHING",
-        (activity_iri, raw_type if isinstance(raw_type, str) else "", actor if isinstance(actor, str) else signer, signer_domain, recipient, verified_by, json.dumps(activity, ensure_ascii=False, separators=(",", ":")), now),
+        "INSERT INTO kf_inbox_journal (activity_iri, activity_type, actor, actor_domain, recipient, verified_by, payload, status, received_at, quota_domain, payload_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?) ON CONFLICT(activity_iri) DO NOTHING",
+        (activity_iri, raw_type if isinstance(raw_type, str) else "", actor if isinstance(actor, str) else signer, signer_domain, recipient, verified_by, payload, now, quota, size),
     )
     # The row is in the database before the processing starts (design Section 13 rule 1).
     conn.commit()
@@ -298,8 +344,8 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
         existing = _entry_by_iri(conn, activity_iri)
         assert existing is not None
         return Receipt("duplicate", existing.status, existing)
-    entry = process(conn, int(cursor.lastrowid), origin=origin, now=now)
-    return Receipt(entry.status, entry.error_code, entry)
+    entry, ran = _process(conn, int(cursor.lastrowid), origin=origin, now=now, states=("received",))
+    return Receipt(entry.status, entry.error_code, entry) if ran else Receipt("duplicate", entry.status, entry)
 
 
 def _finish(conn: sqlite3.Connection, entry_id: int, *, status: str, kind: str | None, error_code: str | None, error_detail: str | None, now: float) -> JournalEntry:
@@ -307,6 +353,9 @@ def _finish(conn: sqlite3.Connection, entry_id: int, *, status: str, kind: str |
         "UPDATE kf_inbox_journal SET status=?, kind=?, error_code=?, error_detail=?, attempts=attempts+1, processed_at=? WHERE id=?",
         (status, kind, error_code, None if error_detail is None else error_detail[:_MAX_DETAIL_LENGTH], now if status == "processed" else None, entry_id),
     )
+    if status == "refused":
+        # A refused activity cannot be processed again: its payload is not kept (KS2).
+        conn.execute("UPDATE kf_inbox_journal SET payload=? WHERE id=?", (_NO_PAYLOAD, entry_id))
     conn.commit()
     entry = get_entry(conn, entry_id)
     assert entry is not None
@@ -314,47 +363,54 @@ def _finish(conn: sqlite3.Connection, entry_id: int, *, status: str, kind: str |
 
 
 def process(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float) -> JournalEntry:
-    """Process one row and record the result. This function commits. A ``processed`` row does not change (design Section 13 rule 2).
+    """Process one row and record the result. This function commits. A ``processed`` or ``refused`` row does not change (design Section 13 rule 2).
 
-    Sequence: the controls of ``access.exchange_refusal`` for the actor (``refused`` with the reason); ``vocabulary.validate_activity`` (``refused`` with the code and the field of ``ContractError``); the record of the known server for the kinds of ``KNOWN_BY_KIND``; the handler of the kind (``failed`` with ``no_handler`` when there is none).
+    Sequence: the controls of ``access.exchange_refusal`` for the actor (``refused`` with the reason); ``vocabulary.validate_activity`` (``refused`` with the code and the field of ``ContractError``); the time of the last contact of a known server; the handler of the kind (``failed`` with ``no_handler`` when there is none).
     """
+    return _process(conn, entry_id, origin=origin, now=now, states=REPLAY_STATES)[0]
+
+
+def _process(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float, states: tuple[str, ...]) -> tuple[JournalEntry, bool]:
+    """Process one row when its state is in ``states``. Return the row and True when this call processed it. The write lock is taken before the state is read, so that only one caller processes a row; a second caller waits for the lock, then finds the new state."""
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
     entry = get_entry(conn, entry_id)
     if entry is None:
+        conn.rollback()
         raise JournalError("not_found")
-    if entry.status == "processed":
-        return entry
+    if entry.status not in states:
+        conn.rollback()
+        return entry, False
     refusal = access.exchange_refusal(conn, actor_iri=entry.actor, origin=origin)
     if refusal is not None:
-        return _finish(conn, entry.id, status="refused", kind=entry.kind, error_code=refusal, error_detail=None, now=now)
+        return _finish(conn, entry.id, status="refused", kind=entry.kind, error_code=refusal, error_detail=None, now=now), True
     activity = json.loads(entry.payload)
     try:
         kind = vocabulary.validate_activity(activity)
     except vocabulary.ContractError as exc:
-        return _finish(conn, entry.id, status="refused", kind=None, error_code=exc.code, error_detail=exc.path, now=now)
+        return _finish(conn, entry.id, status="refused", kind=None, error_code=exc.code, error_detail=exc.path, now=now), True
 
-    source = KNOWN_BY_KIND.get(kind)
-    if source is not None:
-        known_servers.note_server(conn, entry.actor_domain, source=source, now=now)
-    else:
-        known_servers.touch_contact(conn, entry.actor_domain, now=now)
+    # A contact changes only the time of a known server. The handler that accepts the activity makes a new known server (design Section 6.2 rule 2).
+    known_servers.touch_contact(conn, entry.actor_domain, now=now)
 
     handler = HANDLERS.get(kind)
     if handler is None:
-        return _finish(conn, entry.id, status="failed", kind=kind, error_code="no_handler", error_detail=None, now=now)
+        return _finish(conn, entry.id, status="failed", kind=kind, error_code="no_handler", error_detail=None, now=now), True
     conn.execute("SAVEPOINT kf_journal_handler")
     try:
         handler(HandlerContext(conn=conn, origin=origin, now=now), entry, activity)
     except HandlerRefusal as exc:
         conn.execute("ROLLBACK TO SAVEPOINT kf_journal_handler")
         conn.execute("RELEASE SAVEPOINT kf_journal_handler")
-        return _finish(conn, entry.id, status="refused", kind=kind, error_code=exc.code, error_detail=exc.detail or None, now=now)
+        return _finish(conn, entry.id, status="refused", kind=kind, error_code=exc.code, error_detail=exc.detail or None, now=now), True
     except Exception as exc:  # noqa: BLE001 - each error of a handler is recorded in the row; the admin can process the row again.
         conn.execute("ROLLBACK TO SAVEPOINT kf_journal_handler")
         conn.execute("RELEASE SAVEPOINT kf_journal_handler")
         log.exception("knowledge federation journal: the handler of %s failed for row %d", kind, entry.id)
-        return _finish(conn, entry.id, status="failed", kind=kind, error_code="handler_error", error_detail=f"{type(exc).__name__}: {exc}", now=now)
+        return _finish(conn, entry.id, status="failed", kind=kind, error_code="handler_error", error_detail=f"{type(exc).__name__}: {exc}", now=now), True
     conn.execute("RELEASE SAVEPOINT kf_journal_handler")
-    return _finish(conn, entry.id, status="processed", kind=kind, error_code=None, error_detail=None, now=now)
+    return _finish(conn, entry.id, status="processed", kind=kind, error_code=None, error_detail=None, now=now), True
 
 
 def replay(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float) -> JournalEntry:

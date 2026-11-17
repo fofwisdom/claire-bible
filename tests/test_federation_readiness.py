@@ -135,8 +135,11 @@ def test_all_checks_pass_for_a_ready_server(ready):
     assert set(items["GF1"]) == {"id", "name", "passed", "detail"}
 
 
-def test_gf1_fails_in_single_mode(ready):
+def test_gf1_passes_in_single_mode_only_after_the_first_setup(ready):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5: federation works in single mode. The admin account must be active and have a USERNAME."""
     _store_call(ready, lambda store: store.set_setting("mode", "single", updated_by=1))
+    assert _failed(_report(ready)) == []
+    _store_call(ready, lambda store: (store.conn.execute("UPDATE accounts SET status='setup_required' WHERE role='admin'"), store.conn.commit()))
     assert _failed(_report(ready)) == ["GF1"]
 
 

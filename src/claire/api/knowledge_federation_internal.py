@@ -18,7 +18,7 @@ Unit KF3 (design Sections 9.2, 9.3, 10, and 11):
 - ``GET /knowledge-outbox-tasks`` and ``POST /knowledge-outbox-tasks/{id}/ack``: the outbound activities (``knowledge_federation.outbox``). Each task has the activity JSON as it must go out, the actor whose key signs it, and the actor that gets it.
 - ``GET /knowledge-remote-reads`` and ``POST /knowledge-remote-reads``: the reads of documents of another server for a curation (``knowledge_federation.remote_documents``).
 
-The models are sealed, as in ``federation_routes``. The contract version is 1.10: no shape that existed changed.
+The models are sealed, as in ``federation_routes``. The contract version is 1.11: no shape that existed changed. Unit KF4 added one value of ``signer`` of an outbox task: ``account:`` and the public ID of an account actor.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import Field, ValidationError
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import Response
@@ -159,7 +160,7 @@ class KbActorDocument(_Sealed):
 
 
 class KnowledgeOutboxTaskItem(_Sealed):
-    """One outbound activity. ``activity`` is the JSON that must go out without a change. ``signer`` is ``server`` (the server actor) or the number of a knowledge base actor of this server: the key of that actor signs the request. ``recipient`` is the actor that gets the activity; the sidecar reads its inbox from its actor document."""
+    """One outbound activity. ``activity`` is the JSON that must go out without a change. ``signer`` is ``server`` (the server actor), the number of a knowledge base actor of this server, or ``account:`` and the public ID of an account actor of this server (the ``Offer`` of a contribution, unit KF4): the key of that actor signs the request. ``recipient`` is the actor that gets the activity; the sidecar reads its inbox from its actor document."""
 
     id: int
     kind: str
@@ -242,6 +243,22 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         from ..ingest.service import run_waiting_merge_jobs
 
         run_waiting_merge_jobs(settings)
+
+    def _after_answer(response: Response) -> Response:
+        """Run the merge jobs that wait after the answer went to the sidecar (KS2): a job can make many embedding calls, and the sidecar does not wait for them. A failure of a job is in its row and in the log."""
+        response.background = BackgroundTask(_run_merge_jobs)
+        return response
+
+    def _drop_gone_kb_actor_keys(conn: Any) -> None:
+        """Delete the keys of each knowledge base actor whose knowledge base is gone and that has no task that waits (its last ``Delete`` was delivered or ended). A number is never used again, so these keys are of no use."""
+        data_dir = Path(settings.data_dir)
+        auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+        try:
+            for number in actor_keys.kb_actor_key_numbers(auth):
+                if actors.shared_kb(conn, number) is None and not outbox.has_open_task(conn, str(number)):
+                    actor_keys.delete_kb_actor_keys(auth, number)
+        finally:
+            auth.close()
 
     def _kb_number(request: Request) -> int | None:
         try:
@@ -384,6 +401,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
             # No activity goes out while the switch is off. The request changes data (the tasks that the state needs, and the leases), although the method is GET, as ``outbox-tasks`` does.
             tasks = outbox.lease(conn, origin=canonical, now=now(), limit=limit) if access.federation_on(conn) else []
             conn.commit()
+            _drop_gone_kb_actor_keys(conn)
         finally:
             conn.close()
         return _json(KnowledgeOutboxTasks(tasks=[KnowledgeOutboxTaskItem(id=t.id, kind=t.kind, signer=t.signer, recipient=t.recipient, activity=json.loads(t.payload)) for t in tasks]))
@@ -438,11 +456,12 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         read = await run_in_threadpool(_apply)
         if read is None:
             return _not_found()
-        if read["kind"] == "document" and read["status"] == "done":
-            # The copy of a curation is a contribution in ``merging``: its merge job builds the graph from the extraction that came, without an LLM call.
-            await run_in_threadpool(_run_merge_jobs)
         _log.info("knowledge remote read: %s%s", read["status"], "" if read["error_code"] is None else f" ({read['error_code']})")
-        return _json(RemoteReadRecorded(id=int(read["id"]), status=read["status"], error_code=read["error_code"]))
+        answer = _json(RemoteReadRecorded(id=int(read["id"]), status=read["status"], error_code=read["error_code"]))
+        if read["kind"] in ("document", "recheck") and read["status"] == "done":
+            # The copy of a curation (or a revision after a read again) is a merge job: it builds the graph from the extraction that came, without an LLM call, after the answer.
+            return _after_answer(answer)
+        return answer
 
     async def knowledge_activity(request: Request) -> Response:
         try:
@@ -459,12 +478,11 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
                 conn.close()
 
         receipt = await run_in_threadpool(_apply)
-        if receipt.decision == "processed":
-            # A revision of a copy (unit KF3) is a merge job: it builds the graph after the journal committed. A failure of a job is in its row and in the log.
-            await run_in_threadpool(_run_merge_jobs)
         # The line has no address.
         _log.info("knowledge activity: %s%s", receipt.decision, "" if receipt.reason is None else f" ({receipt.reason})")
-        return _json(KnowledgeActivityResponse(decision=receipt.decision, reason=receipt.reason, journal_id=None if receipt.entry is None else receipt.entry.id))
+        answer = _json(KnowledgeActivityResponse(decision=receipt.decision, reason=receipt.reason, journal_id=None if receipt.entry is None else receipt.entry.id))
+        # A revision of a copy (unit KF3) is a merge job: it builds the graph after the journal committed, and after the answer to the sidecar.
+        return _after_answer(answer) if receipt.decision == "processed" else answer
 
     def knowledge_collection(request: Request) -> Response:
         name = request.path_params["name"]

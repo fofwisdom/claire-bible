@@ -1212,6 +1212,43 @@ paths:
           description: Not the same origin, or `step_up_requires_session`.
         '404':
           description: Not the admin.
+    delete:
+      summary: Remove a known server
+      description: >-
+        Deletes the known server and what this server keeps of it: the records of its shared
+        knowledge bases with their theme memberships, the lists of their documents, and the
+        state of the reads; its server actors as followers of the knowledge base actors of this
+        server; the outbound tasks for it that wait (they end as `refused` with `server_removed`);
+        and the payload of each `processed` and `refused` row of the inbox journal of that server.
+        The copies of its documents stay, and a domain block does not change. The server becomes
+        known again at its next contact. Needs the same origin and a session with a recent sign-in.
+        Writes `admin_audit` `federation.known_server_remove` with the counts.
+      operationId: removeKnownServer
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [domain]
+              properties:
+                domain: {type: string, description: 'A host name, without a scheme, a port, or a path.'}
+      responses:
+        '200':
+          description: '`{"removed": true, "domain", "deleted": {"knowledge_bases", "listed_documents", "followers", "outbox_tasks", "journal_payloads"}}`: the numbers of the rows that were deleted or changed.'
+        '400':
+          description: '`invalid_request` or `invalid_domain`.'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: Not the same origin, or `step_up_requires_session`.
+        '404':
+          description: '`known_server_not_found`, or not the admin.'
 
   /api/admin/federation/journal:
     get:
@@ -1376,9 +1413,45 @@ paths:
                   type: integer
                   minimum: 1
                   description: The documents of one submission (`POST /submissions`).
+                remote_account_pending_limit:
+                  type: integer
+                  minimum: 1
+                  description: The pending contributions of one account of another server in one shared knowledge base (the lower value of this limit and the limit of its reputation applies).
+                remote_domain_pending_limit:
+                  type: integer
+                  minimum: 1
+                  description: The pending contributions of all accounts of one other server.
+                remote_domain_daily_offers:
+                  type: integer
+                  minimum: 1
+                  description: The offers of one registrable domain of other servers in 24 hours.
+                remote_domain_daily_activities:
+                  type: integer
+                  minimum: 1
+                  description: The activities of the knowledge federation of one registrable domain in 24 hours (the inbox journal; default 10000).
+                remote_domain_daily_bytes:
+                  type: integer
+                  minimum: 1
+                  description: The bytes of those activities in 24 hours (default 104857600).
+                kb_followers_limit:
+                  type: integer
+                  minimum: 1
+                  description: The followers of one knowledge base actor of this server (default 1000).
+                remote_domain_followers_limit:
+                  type: integer
+                  minimum: 1
+                  description: The follows by the server actors of one registrable domain (default 1000).
+                remote_revision_min_seconds:
+                  type: integer
+                  minimum: 0
+                  description: The minimum time in seconds between two revisions of one copy from its origin (default 300).
+                remote_domain_daily_revisions:
+                  type: integer
+                  minimum: 1
+                  description: The revisions from the knowledge base actors of one registrable domain in 24 hours (default 200).
       responses:
         '200':
-          description: '`{"ok": true, "settings": {...}}` with the four keys. `GET /api/admin/themes` gives the same `settings`.'
+          description: '`{"ok": true, "settings": {...}}` with the thirteen keys. `GET /api/admin/themes` gives the same `settings`.'
         '400':
           description: '`settings_invalid`: an unknown key, an empty body, or a value out of range.'
 
@@ -1493,6 +1566,118 @@ paths:
         '409':
           description: '`source_not_in_theme` or `federation_off`.'
 
+  /kb/{number}/remote-collaborators:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List the grants of the role collaborator to accounts of other servers
+      description: >-
+        Remote collaborators (unit KF4 of the knowledge federation). Each grant that this shared
+        knowledge base gave, the newest first. `state` is `active`, `ended` (the end time is past),
+        or `revoked`.
+      operationId: listRemoteCollaborators
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"grants": [{"id", "grant", "actor", "server", "state", "published_at", "end_time", "revoked_at"}]}`'
+        '403':
+          description: '`kb_capability_required` (capability `people`) or `scope_insufficient`.'
+    post:
+      summary: Give the role collaborator to an account of another server
+      description: >-
+        The knowledge base actor sends `Grant` with an end time after 183 days. A grant of the same
+        actor that is in effect is revoked with `Revoke` (a renewal). An `Offer` of the account with
+        a grant in effect needs no approval, unless its reputation on this server is `low`. The
+        request needs a session with a recent sign-in. The change writes the moderation log.
+      operationId: giveRemoteCollaborator
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actor]
+              additionalProperties: false
+              properties:
+                actor:
+                  type: string
+                  maxLength: 2048
+                  description: The IRI of an account actor of another server (`https://<server>/ap/actors/<id>`).
+      responses:
+        '201':
+          description: '`{"ok": true, "grant": {...}, "renewed": <bool>}`'
+        '400':
+          description: '`actor_invalid`.'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: '`step_up_requires_session`, `kb_capability_required`, or `scope_insufficient`.'
+        '409':
+          description: '`blocked_domain` or `federation_off`.'
+
+  /kb/{number}/remote-collaborators/{grant}:
+    delete:
+      summary: Revoke a grant of the role collaborator
+      description: >-
+        Ends the grant at once; the knowledge base actor sends `Revoke`. The next `Offer` of the account
+        needs approval again. The request needs a session with a recent sign-in.
+      operationId: revokeRemoteCollaborator
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: grant
+          in: path
+          required: true
+          description: The `id` of an item of `GET /kb/{number}/remote-collaborators`.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: '`{"ok": true, "grant": {...}}`'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: '`step_up_requires_session`, `kb_capability_required`, or `scope_insufficient`.'
+        '404':
+          description: '`grant_not_found`.'
+        '409':
+          description: '`grant_not_active`.'
+
+  /api/kb/remote-grants:
+    get:
+      summary: The grants of the role collaborator that the requester got from other servers
+      description: >-
+        Unit KF4 of the knowledge federation. `state` is `active`, `ended`, or `revoked`, as this server
+        knows it; the other server decides each use. `remote_id` is the value of
+        `remote_knowledge_base` of `POST /submissions`, or null when this server has no record of
+        that knowledge base.
+      operationId: listReceivedRemoteGrants
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"grants": [{"grant", "knowledge_base", "server", "remote_id", "label", "url", "state", "published_at", "end_time", "revoked_at"}]}`'
+
   /kb/{number}/forks:
     post:
       summary: Fork a shared knowledge base
@@ -1530,6 +1715,12 @@ paths:
         the theme match of each document; a document with no match gets the code `no_theme` and no
         target. A contribution of a reviewer of a target is visible at once. Each other contribution
         is `pending` until a reviewer of that knowledge base decides.
+
+        A shared knowledge base of another server in the theme is a target too (unit KF4): the
+        account actor of the requester sends an `Offer`, and the reviewers of that server decide; the
+        submission shows the decision when its answer comes. With `remote_knowledge_base` (not with
+        `theme`) the requester selects one shared knowledge base of another server directly; this needs
+        a grant of the role collaborator of that knowledge base in its term (`GET /api/kb/remote-grants`).
       operationId: submitToThemes
       x-claire-access: write
       security:
@@ -1552,13 +1743,18 @@ paths:
                 theme:
                   type: string
                   description: The number of an active theme.
+                remote_knowledge_base:
+                  type: integer
+                  description: The `remote_id` of a shared knowledge base of another server. Not with `theme`.
       responses:
         '201':
           description: '`{"ok": true, "submission": {"number", "created_at", "items": [...]}}`'
         '400':
-          description: '`documents_invalid` (with `limit`).'
+          description: '`documents_invalid` (with `limit`) or `remote_knowledge_base_invalid`.'
+        '403':
+          description: '`grant_required`.'
         '404':
-          description: '`document_not_found` or `theme_not_found`.'
+          description: '`document_not_found`, `theme_not_found`, or `knowledge_base_not_found`.'
     get:
       summary: Submissions of the requester
       operationId: listSubmissions
@@ -1577,7 +1773,10 @@ paths:
       description: >-
         Each item has the document, the theme, `routed_by` (`account` or `server`), the match score,
         and the state of each target knowledge base (`pending`, `visible`, `rejected`, `removed`,
-        `failed`, `skipped` with a reason, or `withdrawn`).
+        `failed`, `skipped` with a reason, or `withdrawn`). A target on another server has `remote`
+        true, `server`, `actor`, and the decision of that server: `pending`, `accepted` (with
+        `result`, the IRI of the contribution there), `rejected` (with `reason`), `removed`, or
+        `skipped` (with `reason`); `delivery` is the state of the delivery of the `Offer`.
       operationId: getSubmission
       x-claire-access: read
       security:

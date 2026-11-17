@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from typing import Any
 
 import nh3
@@ -35,11 +36,15 @@ __all__ = [
     "DOCUMENTS_PAGE_SIZE",
     "SECURITY_CONTEXT",
     "TABLES",
+    "account_actor_iri",
     "actor_document",
     "add_follower",
     "document_iri",
     "drop_actor",
     "knowledge_base_object",
+    "local_account_of_actor",
+    "personal_article",
+    "personal_document_iri",
     "document_object",
     "documents_page",
     "documents_root",
@@ -47,6 +52,10 @@ __all__ = [
     "followers",
     "followers_collection",
     "followed_numbers",
+    "follower_count",
+    "follower_count_of_quota",
+    "purge_blocked_followers",
+    "remove_followers_of_domain",
     "get_follower",
     "local_number",
     "outbox_collection",
@@ -150,6 +159,32 @@ def followers(conn: sqlite3.Connection, number: int, *, deliverable_only: bool =
     return rows
 
 
+def follower_count(conn: sqlite3.Connection, number: int) -> int:
+    """The followers of one actor (the limit ``kb_followers_limit``, KS2)."""
+    return int(conn.execute("SELECT COUNT(*) FROM kf_kb_followers WHERE kb_number=?", (int(number),)).fetchone()[0])
+
+
+def follower_count_of_quota(conn: sqlite3.Connection, quota: str) -> int:
+    """The follows of each actor of this server by the server actors of one registrable domain (``access.quota_domain``; the limit ``remote_domain_followers_limit``, KS2)."""
+    from . import access
+
+    return sum(int(row[1]) for row in conn.execute("SELECT domain, COUNT(*) FROM kf_kb_followers GROUP BY domain").fetchall() if access.quota_domain(str(row[0])) == quota)
+
+
+def purge_blocked_followers(conn: sqlite3.Connection) -> int:
+    """Delete each follower on a domain that a domain block applies to (design Section 6.3: no exchange with that domain). After the block ends, that server gets the activities again only after a new ``Follow``. Return the number of deleted rows."""
+    removed = 0
+    for (domain,) in conn.execute("SELECT DISTINCT domain FROM kf_kb_followers").fetchall():
+        if federation_store.blocking_domain(conn, str(domain)) is not None:
+            removed += conn.execute("DELETE FROM kf_kb_followers WHERE domain=?", (str(domain),)).rowcount
+    return removed
+
+
+def remove_followers_of_domain(conn: sqlite3.Connection, domain: str) -> int:
+    """Delete the followers on one domain (the admin removes a known server). Return the number of deleted rows."""
+    return conn.execute("DELETE FROM kf_kb_followers WHERE domain=?", (domain,)).rowcount
+
+
 def followed_numbers(conn: sqlite3.Connection) -> list[int]:
     """The numbers of the knowledge base actors that have a follower."""
     return [int(row[0]) for row in conn.execute("SELECT DISTINCT kb_number FROM kf_kb_followers ORDER BY kb_number").fetchall()]
@@ -210,21 +245,62 @@ def outbox_collection(conn: sqlite3.Connection, number: int, *, origin: str, tot
 # --- documents -------------------------------------------------------------------------------------
 
 
-def _credit(conn: sqlite3.Connection, contribution: dict[str, Any], origin: str) -> str | None:
-    if contribution["remote_credit_iri"]:
-        return str(contribution["remote_credit_iri"])
-    if contribution["remote_source_iri"] or contribution["contributor_account_id"] is None:
-        return None
+def account_actor_iri(conn: sqlite3.Connection, account_id: int, origin: str) -> str | None:
+    """The IRI of the federation actor of an account of this server, or None when the account is not a federation actor: the switch ``federation`` is on, and the account is ``active`` with a public profile and a USERNAME (FEDERATION.md Section 3). The rule is the same in single mode and in network mode (design Section 15 rule 5, KD2)."""
     store = accounts_store.AccountStore(conn)
-    if store.federation_state() != "on" or store.server_mode() != "network":
+    if store.federation_state() != "on":
         return None
     try:
-        account = store.get(int(contribution["contributor_account_id"]))
+        account = store.get(int(account_id))
     except accounts_store.AccountNotFound:
         return None
     if account.status != "active" or not account.profile_public or not account.username:
         return None
     return f"{origin}/ap/actors/{ids.format_public_id(account.public_id)}"
+
+
+def local_account_of_actor(conn: sqlite3.Connection, iri: str, origin: str) -> int | None:
+    """The account of this server whose federation actor has the IRI (``{origin}/ap/actors/{public ID}``), or None when the IRI is not such an actor now."""
+    prefix = f"{origin}/ap/actors/"
+    if not iri.startswith(prefix):
+        return None
+    try:
+        public_id = ids.parse_public_id(iri[len(prefix):])
+    except ValueError:
+        return None
+    account = accounts_store.AccountStore(conn).find_by_public_id(public_id)
+    if account is None or account_actor_iri(conn, account.id, origin) != iri:
+        return None
+    return int(account.id)
+
+
+def _credit(conn: sqlite3.Connection, contribution: dict[str, Any], origin: str) -> str | None:
+    if contribution["remote_credit_iri"]:
+        return str(contribution["remote_credit_iri"])
+    if contribution["remote_source_iri"] or contribution["contributor_account_id"] is None:
+        return None
+    return account_actor_iri(conn, int(contribution["contributor_account_id"]), origin)
+
+
+def personal_document_iri(actor_iri: str, document_id: str) -> str:
+    """The IRI of a document of a personal knowledge base in a contribution to another server. It is an identifier only: a personal knowledge base has no address for other servers (KD3, KS5), so no route serves it. The same document gives the same IRI, so that the target finds a second offer of it."""
+    return f"{actor_iri}/documents/{document_id}"
+
+
+def personal_article(conn: sqlite3.Connection, *, kb_id: int, document_id: str, actor_iri: str, origin: str) -> dict[str, Any] | None:
+    """The ``Article`` of one document of the personal knowledge base ``kb_id`` with its ``claire:Extraction``, for a ``claire:Contribution`` of its account (design Section 12.1 rule 2), without ``@context``. The document is its own root and has no ``origin``. None when the document is not there or has no extraction that the wire contract can have."""
+    row = conn.execute("SELECT id, title, canonical_url, content_hash, raw_text, detail, detail_format, detail_html, fetched_at FROM documents WHERE id=? AND kb_id=?", (document_id, int(kb_id))).fetchone()
+    if row is None:
+        return None
+    extraction = _wire_extraction(conn, int(kb_id), str(row["id"]))
+    if extraction is None:
+        return None
+    iri = personal_document_iri(actor_iri, str(row["id"]))
+    doc = {**_summary(row, {"contributed_at": row["fetched_at"] if row["fetched_at"] is not None else time.time(), "revised_at": None}, iri), "content_html": _content_html(row, origin)}
+    try:
+        return vocabulary.build_document(doc, {"id": iri, "attributed_to": actor_iri, "origin": None, "root": iri}, extraction)
+    except vocabulary.ContractError:
+        return None
 
 
 def _content_html(row: sqlite3.Row, origin: str) -> str:
@@ -239,8 +315,6 @@ def _content_html(row: sqlite3.Row, origin: str) -> str:
 
 def _wire_extraction(conn: sqlite3.Connection, kb_id: int, document_id: str) -> dict[str, Any] | None:
     """The ``claire:Extraction`` of a document from its stored extraction, or None when the document has no extraction that the wire contract can have. A relation whose source or target is not an entity of the extraction is not sent: the merge job does not use it."""
-    from .. import contributions
-
     row = conn.execute("SELECT raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (document_id, int(kb_id))).fetchone()
     if row is None:
         return None
@@ -260,7 +334,8 @@ def _wire_extraction(conn: sqlite3.Connection, kb_id: int, document_id: str) -> 
         "relations": [{"source": r["source"], "target": r["target"], "type": r.get("type"), "proposed_type": r.get("proposed_type") or None} for r in relations],
     }
     try:
-        return vocabulary.build_extraction(result, contributions.authority_ids_of(conn, kb_id, sorted(names)))
+        # No authority identifier goes to another server: each one that this server has came from another server (no function of this server links an entity to an authority, design Section 10.4 rule 2), and this server does not send onward a decision that it did not make (KS4).
+        return vocabulary.build_extraction(result, {})
     except vocabulary.ContractError:
         return None
 

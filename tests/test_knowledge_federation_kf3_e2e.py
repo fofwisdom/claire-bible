@@ -15,8 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from claire import ids
-from claire.ingest.normalize import content_hash
+from claire import contributions, ids
 from claire.knowledge_federation import handlers, journal, known_servers, vocabulary
 from claire.store import themes as themes_store
 from claire.store.secrets import reset_secret_service
@@ -179,7 +178,9 @@ def test_kf3_curation_across_servers_then_a_revision_and_a_removal_at_the_origin
     # The copy on A has the new version. No reviewer of A did anything: the contribution is visible, and it points to a new copy.
     (revised,) = a.client.get(f"{a_base}/contributions", headers=a.headers("ann")).json()["contributions"]
     assert (revised["number"], revised["state"], [r["state"] for r in revised["revisions"]]) == (copy["number"], "visible", ["done"]) and revised["document"] != first_copy
-    assert a.db(lambda conn: tuple(conn.execute("SELECT content_hash, hidden FROM documents WHERE id=?", (revised["document"],)).fetchone())) == (content_hash(second_text), 0)
+    # The content hash of the copy is the one that A computes from the content and the extraction that came (federation design Section 10.2), not the one that B declares.
+    update_article = json.loads(a.db(lambda conn: conn.execute("SELECT payload FROM kf_inbox_journal WHERE kind='update_document'").fetchone()[0]))["object"]
+    assert a.db(lambda conn: tuple(conn.execute("SELECT content_hash, hidden FROM documents WHERE id=?", (revised["document"],)).fetchone())) == (contributions.remote_content_hash(contributions.remote_html(update_article), update_article), 0)
     assert a.db(lambda conn: conn.execute("SELECT COUNT(*) FROM documents WHERE id=?", (first_copy,)).fetchone()[0]) == 0
     assert _graph(a, places["id"]) == {"Korea", "Incheon"} and no_llm == []
     assert a.db(lambda conn: [row[0] for row in conn.execute("SELECT action FROM kb_moderation_log WHERE kb_id=?", (places["id"],))]) == ["curate"]

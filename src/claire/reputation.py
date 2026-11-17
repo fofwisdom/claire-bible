@@ -134,6 +134,19 @@ def compute(conn: sqlite3.Connection, account_id: int, *, now: float | None = No
     return Reputation(int(account_id), level_of(share, rate, settings), share, tuple(fiction_like), len(visible), rate, count)
 
 
+def compute_remote(conn: sqlite3.Connection, actor_iri: str, *, now: float | None = None, settings: dict[str, float] | None = None) -> tuple[str, float | None, int]:
+    """The reputation of an account of another server on this server: ``(level, approval rate, decisions)`` (federation design Sections 12.1 rule 5 and 12.2 rule 2).
+
+    It comes only from the decisions of the reviewers of this server on the contributions that the account offered; no value of another server is read (KS4). The account has no personal knowledge base on this server, so the fiction share is 0 and only the approval rate can lower the level.
+    """
+    ts = time.time() if now is None else now
+    settings = read_settings(conn) if settings is None else settings
+    since = ts - settings["reputation_window_days"] * 24 * 60 * 60
+    decisions = [(row["kb_id"], row["approved"]) for row in kb_collab.decisions_of_remote_actor(conn, actor_iri, since=since, reasons=COUNTED_REASONS)]
+    rate, count = approval_rate(decisions, min_decisions=int(settings["reputation_min_decisions"]))
+    return level_of(0.0, rate, settings), rate, count
+
+
 def refresh(conn: sqlite3.Connection, account_id: int, *, now: float | None = None) -> Reputation:
     """Compute the reputation and store it. No commit."""
     ts = time.time() if now is None else now

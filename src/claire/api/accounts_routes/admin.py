@@ -454,7 +454,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     from .. import federation_routes
 
                     skip_federated_delete = body.get("skip_federated_delete") is True
-                    needs_federated_delete = store.federation_state() == "on" and store.server_mode() == "network" and bool(target.username) and federation_store.count_followers(conn, target.id) > 0
+                    needs_federated_delete = store.federation_state() == "on" and bool(target.username) and federation_store.count_followers(conn, target.id) > 0
                     if needs_federated_delete and not skip_federated_delete:
                         heartbeat = federation_routes.read_heartbeat(ctx.data_dir or data_dir) if (ctx.data_dir or data_dir) else None
                         if not federation_readiness.heartbeat_is_recent(heartbeat):

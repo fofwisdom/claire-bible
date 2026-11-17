@@ -281,7 +281,7 @@ Deno.test("inbox paths accept POST only, and are 404 when federation is not acti
     }
     assert.equal((await post("/ap/actors/216412345678901234/inbox", fixtureFollow())).status, 404);
     assert.equal((await post(`/ap/actors/${ALICE}`, fixtureFollow())).status, 405);
-    for (const state of [{ federation: "off" }, { mode: "single" }]) {
+    for (const state of [{ federation: "off" }, { federation: "off", mode: "single" }]) {
       fake.config = state;
       fake.now += 600;
       assert.equal((await post(`/ap/actors/${ALICE}/inbox`, fixtureFollow())).status, 404);

@@ -61,9 +61,9 @@ def test_kf1_completion_criteria_with_two_servers(tmp_path: Path, monkeypatch: p
     assert delivered.status_code == 200
     # No handler of ``offer_contribution`` is installed (unit KF4 adds it): the row is ``failed`` and stays in the journal.
     assert (delivered.json()["decision"], delivered.json()["reason"]) == ("failed", "no_handler")
-    # The two servers know each other.
+    # A knows B (admin entry). B does not know A yet: an activity that no handler accepted does not make its server known (design Section 6.2 rule 2; the handler of KF4 makes it known when the offer makes a contribution).
     assert (_known(a, a_admin)["b.example"]["source"], _known(a, a_admin)["b.example"]["status"]) == ("admin", "active")
-    assert (_known(b, b_admin)["a.example"]["source"], _known(b, b_admin)["a.example"]["status"]) == ("remote_contribution", "active")
+    assert "a.example" not in _known(b, b_admin)
 
     # 4. B blocks the third server C. Its server actor gets 404 on each collection of shared knowledge; A reads them.
     assert b.request("POST", BLOCKS, session=b_admin, json={"domain": "c.example", "note": "test"}).status_code == 201

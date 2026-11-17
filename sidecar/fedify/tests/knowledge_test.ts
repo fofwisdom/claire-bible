@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { exportJwk, exportSpki, generateCryptoKeyPair, getDocumentLoader, MemoryKvStore, signRequest, verifyRequest } from "@fedify/fedify";
 import { Application, CryptographicKey, Endpoints } from "@fedify/fedify/vocab";
 import { InternalApi } from "../src/internal_api.ts";
-import { CLAIRE_CONTEXT_DOCUMENT, CLAIRE_CONTEXT_IRI, kbBatches, KB_BATCH_ITEMS, readKbCollection, readRemoteDocument, readServer, REMOTE_READ_BYTES } from "../src/knowledge.ts";
+import { CLAIRE_CONTEXT_DOCUMENT, CLAIRE_CONTEXT_IRI, deliverKnowledgeTask, kbBatches, KB_BATCH_ITEMS, type KnowledgeDeliveryDeps, processKnowledgeOutbox, processRemoteReads, readKbCollection, readRemoteDocument, readServer, REMOTE_READ_BYTES, withDeadline } from "../src/knowledge.ts";
 import { Sidecar } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY, knowledgeFixture, knowledgeFixtureNames, wireFixture } from "./fixtures.ts";
 
@@ -470,6 +470,39 @@ Deno.test("an outbound activity goes to the inbox of its recipient as the JSON o
   }
 });
 
+Deno.test("an Offer of an account goes to the inbox of the knowledge base actor of the other server, signed with the key of the account actor, also in single mode", async () => {
+  const { fake, sidecar, requests, restore } = setup();
+  try {
+    // Design Section 15 rule 5: the knowledge federation works in single mode. Claire decides which account is an actor and gives the keys only for such an account.
+    fake.config = { mode: "single" };
+    const offer = wireFixture("activities", "offer_contribution");
+    const account = `${ORIGIN}/ap/actors/${ALICE}`;
+    const target = `${REMOTE}/ap/kb/1846000000000000100`;
+    // The activity of the task is the JSON of Claire for an account of this server; its content is the one of the contract fixture.
+    const activity = { ...offer, id: `${account}#offers/1`, actor: account, target, to: [target] };
+    fake.overrides.set(`GET ${PREFIX}/knowledge-outbox-tasks?limit=10`, { status: 200, response: { tasks: [{ id: 11, kind: "offer_contribution", signer: `account:${ALICE}`, recipient: target, activity }, { id: 12, kind: "offer_contribution", signer: "account:116412345678901999", recipient: target, activity }] } });
+    fake.overrides.set(`POST ${PREFIX}/knowledge-outbox-tasks/11/ack`, { status: 200, response: { id: 11, status: "delivered" } });
+    fake.overrides.set(`POST ${PREFIX}/knowledge-outbox-tasks/12/ack`, { status: 200, response: { id: 12, status: "failed" } });
+    assert.equal(await sidecar.processKnowledgeOutbox(), 2);
+    // An account that Claire gives no keys for (it is not an actor) cannot sign: the task ends, and no request goes out for it.
+    assert.deepEqual(fake.knowledgeAcks, [{ id: 11, result: "delivered", error_code: null }, { id: 12, result: "rejected", error_code: "no_actor_key" }]);
+    const posts = requests.filter((request) => request.method === "POST" && request.url.startsWith(`${REMOTE}/`));
+    assert.deepEqual(posts.map((request) => request.url), [`${target}/inbox`]);
+    assert.equal(await posts[0].clone().text(), JSON.stringify(activity));
+    // The other server verifies the signature with the actor document of the account, which this sidecar serves.
+    const standard = getDocumentLoader();
+    const remoteLoader = async (url: string) => {
+      if (!url.startsWith(`${ORIGIN}/`)) return await standard(url);
+      const answer = await sidecar.handle(new Request(url, { headers: { accept: AS2 } }));
+      return { contextUrl: null, documentUrl: url, document: await answer.json() };
+    };
+    const key = await verifyRequest(posts[0], { documentLoader: remoteLoader, contextLoader: remoteLoader, currentTime: Temporal.Instant.fromEpochMilliseconds(fake.now * 1000) });
+    assert.equal(key?.ownerId?.href, account);
+  } finally {
+    restore();
+  }
+});
+
 Deno.test("the result of a delivery tells Claire if the task can come again", async () => {
   const { fake, sidecar, documents, requests, restore } = setup();
   try {
@@ -540,8 +573,9 @@ Deno.test("a read for a curation is a GET that the server actor signs, and its J
     const ctx = await sidecar.createContext();
     const blocked: string[] = [];
     const deps = { api, documentLoader: await ctx.getDocumentLoader({ identifier: "server" }), origin: ORIGIN, isBlocked: (host: string) => Promise.resolve(blocked.includes(host)) };
+    // A 404 of the origin: the document is gone there (design Section 10.3).
     documents.set(`${REMOTE}/gone`, null);
-    assert.deepEqual(await readRemoteDocument(deps, { id: 2, url: `${REMOTE}/gone` }), { document: null, error: "document_unavailable" });
+    assert.deepEqual(await readRemoteDocument(deps, { id: 2, url: `${REMOTE}/gone` }), { document: null, error: "origin_removed" });
     documents.set(`${REMOTE}/list`, [1, 2]);
     assert.deepEqual(await readRemoteDocument(deps, { id: 3, url: `${REMOTE}/list` }), { document: null, error: "document_invalid" });
     documents.set(`${REMOTE}/large`, { content: "x".repeat(REMOTE_READ_BYTES) });
@@ -555,4 +589,120 @@ Deno.test("a read for a curation is a GET that the server actor signs, and its J
   } finally {
     restore();
   }
+});
+
+// --- Security review of the knowledge federation: time limits, the address check of a delivery, and a removal at the origin ---
+
+// The dependencies of a delivery without a network: the actor document of each recipient has its inbox on its server, the key is a test key, and the signature is not made. fetch is the inbox of the other server.
+async function deliveryDeps(fetchInbox: (request: Request, init?: RequestInit) => Promise<Response>, options: { checkAddress?: (url: URL) => Promise<void>; acks?: unknown[] } = {}): Promise<KnowledgeDeliveryDeps> {
+  const keys = await generateCryptoKeyPair("RSASSA-PKCS1-v1_5");
+  const acks = options.acks ?? [];
+  const api = {
+    knowledgeOutboxTasks: () => Promise.resolve([]),
+    ackKnowledgeOutboxTask: (id: number, result: string, error: string | null) => {
+      acks.push({ id, result, error });
+      return Promise.resolve("pending");
+    },
+  } as unknown as InternalApi;
+  return {
+    api,
+    origin: ORIGIN,
+    isBlocked: () => Promise.resolve(false),
+    documentLoader: (url: string) => Promise.resolve({ contextUrl: null, documentUrl: url, document: { id: url, type: "Application", inbox: `${url}/inbox` } }),
+    signingKey: () => Promise.resolve({ privateKey: keys.privateKey, keyId: new URL(`${ORIGIN}/ap/kb/${KB}#main-key`) }),
+    sign: (request: Request) => Promise.resolve(request),
+    checkAddress: options.checkAddress ?? (() => Promise.resolve()),
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) => fetchInbox(new Request(input), init)) as typeof fetch,
+  };
+}
+
+function deliveryTask(id: number, recipient: string): { id: number; kind: string; signer: string; recipient: string; activity: Record<string, unknown> } {
+  return { id, kind: "accept_follow", signer: KB, recipient, activity: { id: `${ORIGIN}/ap/kb/${KB}#accepts/${id}` } };
+}
+
+Deno.test("withDeadline gives the value of the time limit for a task that never ends, and aborts its signal", async () => {
+  let aborted = false;
+  const result = await withDeadline((signal) => new Promise<string>(() => signal.addEventListener("abort", () => (aborted = true))), 20, "timeout");
+  assert.equal(result, "timeout");
+  assert.ok(aborted);
+  assert.equal(await withDeadline(() => Promise.resolve("done"), 1000, "timeout"), "done");
+});
+
+Deno.test("an inbox that accepts the connection and never answers does not stop the deliveries to the other recipients", async () => {
+  const acks: unknown[] = [];
+  const posts: string[] = [];
+  const deps = await deliveryDeps((request, init) => {
+    posts.push(request.url);
+    // The POST has a signal: the timeout of one request.
+    assert.ok(init?.signal instanceof AbortSignal);
+    if (request.url.startsWith("https://slow.example/")) return new Promise<Response>(() => {});
+    return Promise.resolve(new Response(null, { status: 202 }));
+  }, { acks });
+  deps.api.knowledgeOutboxTasks = () => Promise.resolve([deliveryTask(1, "https://slow.example/ap/actors/server"), deliveryTask(2, "https://fast.example/ap/actors/server")]);
+  const counters = { delivered: 0, retry: 0, rejected: 0, reads_ok: 0, reads_failed: 0 };
+  // A short time limit of a task: the slow recipient ends as retry, and the next task is delivered.
+  assert.equal(await processKnowledgeOutbox(deps, counters, 10, 50), 2);
+  assert.deepEqual(acks, [{ id: 1, result: "retry", error: "delivery_timeout" }, { id: 2, result: "delivered", error: null }]);
+  assert.deepEqual(posts, ["https://slow.example/ap/actors/server/inbox", "https://fast.example/ap/actors/server/inbox"]);
+  // The signal of the task ends the request that waits.
+  const controller = new AbortController();
+  const hanging = await deliveryDeps((_request, init) => new Promise<Response>((_resolve, reject) => {
+    const stop = () => reject(new DOMException("aborted", "AbortError"));
+    if (init?.signal?.aborted) stop();
+    init?.signal?.addEventListener("abort", stop);
+    // The inbox answers the POST only after the abort of the task.
+    setTimeout(() => controller.abort(), 10);
+  }));
+  assert.deepEqual(await deliverKnowledgeTask(hanging, deliveryTask(3, "https://slow.example/ap/actors/server"), controller.signal), { result: "retry", error: "inbox_unreachable" });
+});
+
+Deno.test("a delivery to an inbox at an address that is not public is refused, and no POST goes out", async () => {
+  const posts: string[] = [];
+  const deps = await deliveryDeps((request) => {
+    posts.push(request.url);
+    return Promise.resolve(new Response(null, { status: 202 }));
+  }, { checkAddress: (url) => url.hostname === "inside.example" ? Promise.reject(new Error("private address")) : Promise.resolve() });
+  assert.deepEqual(await deliverKnowledgeTask(deps, deliveryTask(1, "https://inside.example/ap/actors/server")), { result: "rejected", error: "inbox_private_address" });
+  assert.deepEqual(posts, []);
+  assert.deepEqual(await deliverKnowledgeTask(deps, deliveryTask(2, "https://public.example/ap/actors/server")), { result: "delivered", error: null });
+});
+
+Deno.test("a read for a curation: 404 and 410 are origin_removed, another failure is document_unavailable, and a read that never ends does not stop the loop", async () => {
+  const failing = (status: number) => () => Promise.reject(Object.assign(new Error(`HTTP ${status}`), { response: new Response(null, { status }) }));
+  const base = { api: {} as InternalApi, origin: ORIGIN, isBlocked: () => Promise.resolve(false) };
+  for (const [status, error] of [[404, "origin_removed"], [410, "origin_removed"], [500, "document_unavailable"]] as const) {
+    assert.deepEqual(await readRemoteDocument({ ...base, documentLoader: failing(status) }, { id: 1, url: `${REMOTE}/ap/kb/1/documents/2` }), { document: null, error }, String(status));
+  }
+  const recorded: unknown[] = [];
+  const api = {
+    knowledgeRemoteReads: () => Promise.resolve([{ id: 1, url: "https://slow.example/ap/kb/1/documents/2" }, { id: 2, url: `${REMOTE}/ap/kb/1/documents/3` }]),
+    recordRemoteRead: (result: unknown) => {
+      recorded.push(result);
+      return Promise.resolve(null);
+    },
+  } as unknown as InternalApi;
+  const loader = (url: string) => url.startsWith("https://slow.example/") ? new Promise<never>(() => {}) : Promise.resolve({ contextUrl: null, documentUrl: url, document: { id: url } });
+  const counters = { delivered: 0, retry: 0, rejected: 0, reads_ok: 0, reads_failed: 0 };
+  assert.equal(await processRemoteReads({ ...base, api, documentLoader: loader }, counters, 5, 50), 2);
+  assert.deepEqual(recorded, [{ id: 1, document: null, error: "read_timeout" }, { id: 2, document: { id: `${REMOTE}/ap/kb/1/documents/3` }, error: null }]);
+});
+
+Deno.test("the read of a /kb collection needs the scheme of this server and makes no request for another scheme", async () => {
+  const loads: string[] = [];
+  const recorded: unknown[] = [];
+  const deps = {
+    api: { recordKbRead: (batch: unknown) => {
+      recorded.push(batch);
+      return Promise.resolve({ domain: "b.example", stored: 0, refused: 0, refused_code: null, removed: null });
+    } } as unknown as InternalApi,
+    origin: ORIGIN,
+    isBlocked: () => Promise.resolve(false),
+    documentLoader: (url: string) => {
+      loads.push(url);
+      return Promise.resolve({ contextUrl: null, documentUrl: url, document: {} });
+    },
+  };
+  assert.equal(await readKbCollection(deps, { domain: "b.example", url: "http://b.example/ap/kb" }), "collection_invalid");
+  assert.deepEqual(loads, []);
+  assert.deepEqual(recorded, [{ domain: "b.example", items: [], complete: false, error: "collection_invalid" }]);
 });

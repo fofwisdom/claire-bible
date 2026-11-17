@@ -50,6 +50,7 @@ __all__ = [
     "read_state",
     "record_batch",
     "record_read_error",
+    "remove_domain",
     "signature_rows",
     "view",
 ]
@@ -64,6 +65,16 @@ READ_LEASE_SECONDS = 600.0
 PER_SERVER_MAX = 1000
 LABEL_MAX = 200
 DESCRIPTION_MAX = 2000
+# The length of one IRI of a record, of the type and the name of one row of the signature, and of the stored record (the JSON of ``payload``).
+IRI_MAX = 2048
+SIGNATURE_TYPE_MAX = 64
+SIGNATURE_NAME_MAX = 200
+RECORD_MAX_BYTES = 128 * 1024
+# The keys of a ``claire:KnowledgeBase`` that the record keeps (the wire contract, ``vocabulary``). Each other key of the object that came is not stored.
+RECORD_KEYS: tuple[str, ...] = (
+    "id", "type", "name", "summary", "url", "inbox", "outbox", "followers", vocabulary.DOCUMENTS,
+    vocabulary.KNOWLEDGE_TYPE, vocabulary.DOCUMENT_COUNT, vocabulary.ENTITY_COUNT, vocabulary.RELATION_COUNT, vocabulary.SIGNATURE,
+)
 _MAX_ERROR_LENGTH = 200
 
 SCHEMA = """
@@ -118,7 +129,7 @@ class RemoteKnowledgeBase:
     entity_count: int
     relation_count: int
     signature: str | None  # the JSON of ``claire:signature`` as it came, or None for a knowledge base with no signature
-    payload: str  # the JSON of the ``claire:KnowledgeBase`` as it came
+    payload: str | None  # the JSON of the keys ``RECORD_KEYS`` of the ``claire:KnowledgeBase``; None in the result of ``list_all``, which does not read it
     first_seen_at: float
     seen_at: float
     changed_at: float
@@ -174,9 +185,13 @@ def get_by_iri(conn: sqlite3.Connection, iri: str) -> RemoteKnowledgeBase | None
     return None if row is None else _kb(row)
 
 
+# The columns of ``list_all``: ``payload`` is not read (a list of all records is for the public pages and the judgement, which do not need it).
+_LIST_COLUMNS = _KB_COLUMNS.replace("payload", "NULL AS payload")
+
+
 def list_all(conn: sqlite3.Connection, *, knowledge_type: str | None = None) -> list[RemoteKnowledgeBase]:
-    """Each remote knowledge base, the newest record first. A record of a blocked domain is not in the result (``purge_blocked`` deletes it; this check covers a block that another code path made)."""
-    sql, args = f"SELECT {_KB_COLUMNS} FROM kf_remote_knowledge_bases", []
+    """Each remote knowledge base, the newest record first, without ``payload`` (None). A record of a blocked domain is not in the result (``purge_blocked`` deletes it; this check covers a block that another code path made)."""
+    sql, args = f"SELECT {_LIST_COLUMNS} FROM kf_remote_knowledge_bases", []
     if knowledge_type is not None:
         if knowledge_type not in vocabulary.KNOWLEDGE_TYPES:
             raise ValueError(f"invalid knowledge type: {knowledge_type!r}")
@@ -229,6 +244,13 @@ def purge_blocked(conn: sqlite3.Connection) -> int:
     return removed
 
 
+def remove_domain(conn: sqlite3.Connection, domain: str) -> int:
+    """Delete the records of one domain, their memberships in local themes, and the read state of the domain (the admin removes a known server). Return the number of records."""
+    removed = _delete(conn, "domain=?", (domain,))
+    conn.execute("DELETE FROM kf_remote_kb_reads WHERE domain=?", (domain,))
+    return removed
+
+
 def lease_reads(conn: sqlite3.Connection, *, now: float, limit: int, lease_seconds: float = READ_LEASE_SECONDS) -> list[str]:
     """Return the domains whose ``/kb`` collection is due for a read, and give a lease on each one.
 
@@ -264,7 +286,7 @@ def _open_read(conn: sqlite3.Connection, domain: str) -> ReadState | None:
 
 
 class _Refusal(Exception):
-    """An item of a batch that this server does not store. ``code`` is the code of ``vocabulary.ContractError``, or a limit of this module: ``not_a_knowledge_base``, ``other_server``, ``label_too_long``, ``description_too_long``, ``too_many_knowledge_bases``."""
+    """An item of a batch that this server does not store. ``code`` is the code of ``vocabulary.ContractError``, or a limit of this module: ``not_a_knowledge_base``, ``other_server``, ``label_too_long``, ``description_too_long``, ``iri_too_long``, ``signature_too_large``, ``record_too_large``, ``too_many_knowledge_bases``."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -287,12 +309,25 @@ def _check_item(item: Any, domain: str, origin: str) -> dict[str, Any]:
         raise _Refusal("label_too_long")
     if len(item["summary"]) > DESCRIPTION_MAX:
         raise _Refusal("description_too_long")
-    return item
+    if any(len(item[key]) > IRI_MAX for key in ("id", "url", "inbox", "outbox", "followers", vocabulary.DOCUMENTS)):
+        raise _Refusal("iri_too_long")
+    signature = item.get(vocabulary.SIGNATURE)
+    if signature is not None and any(len(row[0]) > SIGNATURE_TYPE_MAX or len(row[1]) > SIGNATURE_NAME_MAX for row in signature["entities"]):
+        raise _Refusal("signature_too_large")
+    record = _record(item)
+    if len(json.dumps(record, ensure_ascii=False, sort_keys=True).encode("utf-8")) > RECORD_MAX_BYTES:
+        raise _Refusal("record_too_large")
+    return record
+
+
+def _record(obj: dict[str, Any]) -> dict[str, Any]:
+    """The keys of ``RECORD_KEYS`` of a checked ``claire:KnowledgeBase``: the record keeps no other key of another server (KS2)."""
+    return {key: obj[key] for key in RECORD_KEYS if key in obj}
 
 
 def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: RemoteKnowledgeBase | None, *, now: float) -> None:
-    """Insert or change the record of one checked ``claire:KnowledgeBase``. ``changed_at`` changes only when the content changes."""
-    obj = {key: value for key, value in obj.items() if key != "@context"}
+    """Insert or change the record of one checked ``claire:KnowledgeBase`` (the result of ``_check_item``). ``changed_at`` changes only when the content changes."""
+    obj = _record(obj)
     payload = json.dumps(obj, ensure_ascii=False, sort_keys=True)
     signature = json.dumps(obj[vocabulary.SIGNATURE], ensure_ascii=False, sort_keys=True) if vocabulary.SIGNATURE in obj else None
     values = (domain, obj["url"], obj["name"], obj["summary"], obj[vocabulary.KNOWLEDGE_TYPE], int(obj[vocabulary.DOCUMENT_COUNT]), int(obj[vocabulary.ENTITY_COUNT]), int(obj[vocabulary.RELATION_COUNT]), signature, payload)
@@ -331,7 +366,9 @@ def delete_record(conn: sqlite3.Connection, iri: str) -> bool:
 
 
 def documents_url(kb: RemoteKnowledgeBase) -> str:
-    """The address of the documents collection of a remote knowledge base (``claire:documents``), from the object as it came."""
+    """The address of the documents collection of a remote knowledge base (``claire:documents``), from the stored record. A record of ``list_all`` has no payload: ``ValueError``; the caller reads the record with ``get``."""
+    if kb.payload is None:
+        raise ValueError("the record has no payload: read it with get()")
     return str(json.loads(kb.payload)[vocabulary.DOCUMENTS])
 
 

@@ -746,7 +746,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                     theme_id = int(row["id"])
                 is_admin = conn.execute("SELECT role FROM accounts WHERE id=?", (account_id,)).fetchone()[0] == "admin"
                 try:
-                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=is_admin, personal_kb_id=personal_id, documents=[d.strip() for d in documents], theme_id=theme_id)
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=is_admin, personal_kb_id=personal_id, documents=[d.strip() for d in documents], theme_id=theme_id, origin=contributions.canonical_origin(s))
                 except contributions.ContributionError as exc:
                     conn.rollback()
                     return {"error": exc.code, **exc.extra}

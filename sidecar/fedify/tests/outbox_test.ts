@@ -211,10 +211,10 @@ Deno.test("a follower on a blocked domain gets no delivery, and an actor without
   }
 });
 
-Deno.test("no task is taken while federation is off or the mode is single", async () => {
+Deno.test("no task is taken while federation is off, in each mode", async () => {
   const { fake, sidecar, deliveries, restore } = setup();
   try {
-    for (const state of [{ federation: "off" }, { mode: "single" }]) {
+    for (const state of [{ federation: "off" }, { federation: "off", mode: "single" }]) {
       fake.config = state;
       fake.now += 600;
       assert.equal(await sidecar.processOutboxTasks(), 0);

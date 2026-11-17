@@ -4,6 +4,7 @@ The routes are for the admin only. Other principals get the same 404 as for the 
 
 - ``GET /api/admin/federation/known-servers``: the known servers, with the switches of Section 14.
 - ``POST /api/admin/federation/known-servers``: the admin adds a domain (Section 6.2 rule 3).
+- ``DELETE /api/admin/federation/known-servers``: the admin removes a known server and what this server keeps of it (``remove_known_server``).
 - ``GET /api/admin/federation/journal``: the inbox journal, newest first.
 - ``GET /api/admin/federation/journal/{id}``: one row with the activity as it came.
 - ``POST /api/admin/federation/journal/{id}/replay``: process a failed row again (Section 13 rule 3).
@@ -23,7 +24,7 @@ from starlette.routing import Route
 
 from ... import auto_contribution
 from ...knowledge_federation import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
-from ...knowledge_federation import journal, known_servers, remote_kbs
+from ...knowledge_federation import actors, journal, known_servers, outbox, remote_documents, remote_kbs
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import federation as federation_store
@@ -35,6 +36,7 @@ from .common import AccountsContext, json_error, not_found, open_auth_db, open_d
 ADMIN_KNOWN_SERVERS_API_PATH = "/api/admin/federation/known-servers"
 ADMIN_JOURNAL_API_PATH = "/api/admin/federation/journal"
 AUDIT_KNOWN_SERVER_ADD = "federation.known_server_add"
+AUDIT_KNOWN_SERVER_REMOVE = "federation.known_server_remove"
 AUDIT_JOURNAL_REPLAY = "federation.journal_replay"
 JOURNAL_PAGE_DEFAULT = 50
 JOURNAL_PAGE_MAX = 200
@@ -64,6 +66,29 @@ def known_server_view(conn: Any, server: known_servers.KnownServer) -> dict[str,
         view["kb_count"] = len(records)
     view["kb_read"] = None if state is None else {"last_read_at": state.last_read_at, "stored": state.stored_count, "refused": state.refused_count, "refused_code": state.refused_code, "error_count": state.error_count, "last_error": state.last_error, "last_error_at": state.last_error_at}
     return view
+
+
+def remove_known_server(conn: Any, domain: str, *, now: float) -> dict[str, int] | None:
+    """Remove one known server and what this server keeps of it (design Sections 6.2 and 6.3). Return the counts of what was deleted, or None when the domain is not a known server. The caller commits.
+
+    | Deleted | Stays |
+    | :--- | :--- |
+    | The row of the known server; the records of its shared knowledge bases with their theme memberships, the lists of their documents, and the state of the reads (``knowledge_bases``, ``listed_documents``) | The copies of its documents in the shared knowledge bases of this server, with their origin (design Section 10.1) |
+    | Its server actors as followers of the knowledge base actors of this server (``followers``): no activity goes to that server until it follows again | The follows of this server: ``outbox.sync`` ends the follow of a record that is gone, and keeps the follow of an actor that this server holds copies from |
+    | The tasks for that server that wait: ``refused`` with ``server_removed`` (``outbox_tasks``) | The rows of the inbox journal until their retention ends; a ``failed`` row keeps its payload for a replay |
+    | The payload of each ``processed`` and ``refused`` row of the inbox journal of that server (``journal_payloads``) | A domain block: the admin removes it in its own list |
+
+    The server becomes known again at its next contact (design Section 6.2).
+    """
+    if not known_servers.remove_server(conn, domain):
+        return None
+    return {
+        "knowledge_bases": remote_kbs.remove_domain(conn, domain),
+        "listed_documents": remote_documents.remove_listings_of_domain(conn, domain),
+        "followers": actors.remove_followers_of_domain(conn, domain),
+        "outbox_tasks": outbox.refuse_tasks_of_domain(conn, domain, error_code="server_removed", now=now),
+        "journal_payloads": journal.drop_payloads_of_domain(conn, domain),
+    }
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -137,6 +162,43 @@ def routes(ctx: AccountsContext) -> list[Route]:
         view, made = await asyncio.to_thread(_execute)
         # A server that is known does not change: how it became known stays.
         return JSONResponse({"server": view, "created": made}, status_code=201 if made else 200, headers=_NO_STORE)
+
+    async def known_servers_delete(request: Request) -> Response:
+        principal = request_principal(request)
+        denied = _admin_change_denied(request, principal)
+        if denied is not None:
+            return denied
+        assert principal.account_id is not None
+        admin_id = principal.account_id
+
+        body = await read_json_body(request)
+        # Sealed body: one field, as ``DELETE /api/admin/federation/domain-blocks``.
+        if not isinstance(body, dict) or set(body) != {"domain"}:
+            return json_error(400, "invalid_request", fields=["domain"])
+        try:
+            domain = federation_store.normalize_domain(body["domain"])
+        except ValueError:
+            return json_error(400, "invalid_domain")
+
+        def _execute() -> dict[str, int] | None:
+            conn = open_db(ctx)
+            try:
+                deleted = remove_known_server(conn, domain, now=time.time())
+                conn.commit()
+            finally:
+                conn.close()
+            if deleted is not None:
+                auth_conn = open_auth_db(ctx)
+                try:
+                    auth_db.record_admin_audit(auth_conn, actor_account_id=admin_id, action=AUDIT_KNOWN_SERVER_REMOVE, detail={"domain": domain, **deleted})
+                finally:
+                    auth_conn.close()
+            return deleted
+
+        deleted = await asyncio.to_thread(_execute)
+        if deleted is None:
+            return json_error(404, "known_server_not_found")
+        return JSONResponse({"removed": True, "domain": domain, "deleted": deleted}, headers=_NO_STORE)
 
     # --- Inbox journal (design Section 13) ---
 
@@ -239,6 +301,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     return [
         Route(ADMIN_KNOWN_SERVERS_API_PATH, known_servers_get, methods=["GET"]),
         Route(ADMIN_KNOWN_SERVERS_API_PATH, known_servers_post, methods=["POST"]),
+        Route(ADMIN_KNOWN_SERVERS_API_PATH, known_servers_delete, methods=["DELETE"]),
         Route(ADMIN_JOURNAL_API_PATH, journal_get, methods=["GET"]),
         Route(ADMIN_JOURNAL_API_PATH + "/{entry_id}", journal_entry_get, methods=["GET"]),
         Route(ADMIN_JOURNAL_API_PATH + "/{entry_id}/replay", journal_replay_post, methods=["POST"]),

@@ -84,7 +84,7 @@ def test_migration_makes_the_tables_and_keeps_a_table_of_another_form(tmp_path: 
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'kf_%'")}
             # The tables of the remote knowledge bases are from the step v30 (unit KF2); the tables of the knowledge base actors, the outbox, and the reads for a curation are from the step v31 (unit KF3).
             v31 = {"kf_kb_followers", "kf_kb_actor_state", "kf_document_announcements", "kf_outbox", "kf_follows", "kf_remote_documents", "kf_remote_reads"}
-            assert tables == {"kf_known_servers", "kf_inbox_journal", "kf_known_servers_retired_v29", "kf_inbox_journal_retired_v29", "kf_remote_knowledge_bases", "kf_remote_kb_reads"} | v31
+            assert tables == {"kf_known_servers", "kf_inbox_journal", "kf_known_servers_retired_v29", "kf_inbox_journal_retired_v29", "kf_remote_knowledge_bases", "kf_remote_kb_reads"} | v31 | {"kf_outbound_offers", "kf_inbound_offers", "kf_grants", "kf_received_grants"} | {"kf_outbox_activities"}  # the offers and the grants are from the step v32 (unit KF4); the activities of the outbox from the step v33
             assert [tuple(row) for row in conn.execute("SELECT domain, note FROM kf_known_servers_retired_v29")] == [("old.example", "kept")]
             assert set(known_servers.COLUMNS) <= dbm._column_names(conn, "kf_known_servers")
             index = conn.execute("SELECT tbl_name FROM sqlite_master WHERE type='index' AND name='idx_kf_inbox_journal_status'").fetchone()
@@ -207,15 +207,15 @@ def test_no_exchange_while_the_switch_is_off(conn) -> None:
 # --- Inbox journal --------------------------------------------------------------------
 
 
-def test_an_activity_without_a_handler_is_recorded_as_failed_and_its_server_becomes_known(conn, handlers) -> None:
+def test_an_activity_without_a_handler_is_recorded_as_failed_and_its_server_does_not_become_known(conn, handlers) -> None:
     receipt = _receive(conn, _offer())
     assert (receipt.decision, receipt.reason) == ("failed", "no_handler")
     entry = receipt.entry
     assert (entry.status, entry.kind, entry.error_code, entry.attempts, entry.actor, entry.actor_domain, entry.recipient, entry.verified_by) == ("failed", "offer_contribution", "no_handler", 1, ALICE, "a.example", KB_IRI, "http-signature")
     # The activity is stored as it came.
     assert json.loads(entry.payload) == _offer()
-    server = known_servers.get_server(conn, "a.example")
-    assert (server.source, server.last_contact_at) == ("remote_contribution", T0)
+    # Only a handler that accepts the activity makes its server known (design Section 6.2 rule 2).
+    assert known_servers.get_server(conn, "a.example") is None
     view = journal.entry_view(entry, with_payload=True)
     assert view["replayable"] is True and view["received_at"] == "2027-01-15T08:00:00Z" and view["payload"] == _offer()
     assert "payload" not in journal.entry_view(entry)
@@ -288,8 +288,8 @@ def test_a_handler_error_keeps_the_row_without_the_changes_and_a_replay_processe
     failed = _receive(conn, _offer()).entry
     assert (failed.status, failed.error_code, failed.error_detail) == ("failed", "handler_error", "RuntimeError: disk full")
     assert conn.execute("SELECT COUNT(*) FROM server_settings WHERE key='kf_test'").fetchone()[0] == 0
-    # The contact with the server stays: it is not a change of the handler.
-    assert known_servers.get_server(conn, "a.example") is not None
+    # A failed activity does not make its server known: only a handler that accepts it does (design Section 6.2 rule 2).
+    assert known_servers.get_server(conn, "a.example") is None
 
     def good(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict) -> None:
         assert (ctx.origin, ctx.now, entry.id, activity) == (ORIGIN, T0 + 100, failed.id, _offer())

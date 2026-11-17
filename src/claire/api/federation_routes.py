@@ -75,7 +75,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.10"
+CONTRACT_VERSION = "1.11"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -584,7 +584,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return accounts_store.AccountStore(dbm.connect_existing(settings.db_file, readonly=True))
 
     def _federation_active(store: accounts_store.AccountStore) -> bool:
-        return store.federation_state() == "on" and store.server_mode() == "network"
+        # The mode is not a condition: the server actor, the federation of shared knowledge, and the account actors work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). ``_is_actor`` is the same rule in the two modes.
+        return store.federation_state() == "on"
 
     def _is_actor(account: accounts_store.Account | None) -> bool:
         return account is not None and account.status == "active" and account.profile_public and bool(account.username)
@@ -747,6 +748,14 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return InboxEventResponse(decision="ignored", reply=None, reason="unsupported_type")
         if kind == "delete_actor":
             federation_store.remove_followers_of_actor(conn, event.actor.iri)
+            # The federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.1 rule 4, CT7, CT19): the contributions of the account stay with the credit "deleted account", its pending contributions go, its offers without an answer are closed, and its grants end.
+            from .. import contributions
+            from ..knowledge_federation import grants as kf_grants
+            from ..knowledge_federation import offers as kf_offers
+
+            contributions.remote_actor_deleted(conn, event.actor.iri)
+            kf_offers.actor_deleted(conn, event.actor.iri, now=now())
+            kf_grants.actor_deleted(conn, event.actor.iri, now=now())
             return InboxEventResponse(decision="accepted", reply=None, reason=None)
         if kind == "update_actor":
             federation_store.update_follower_inboxes(conn, event.actor.iri, inbox_iri=event.actor.inbox, shared_inbox_iri=event.actor.shared_inbox, now=now())

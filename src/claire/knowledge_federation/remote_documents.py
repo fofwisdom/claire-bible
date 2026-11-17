@@ -6,6 +6,7 @@ A reviewer of a local shared knowledge base K opens a remote shared knowledge ba
 | :--- | :--- | :--- |
 | ``documents`` | The documents collection of S (``claire:documents``), page after page | The list of ``kf_remote_documents``: the metadata of each visible document of S |
 | ``document`` | One document of S, with its extraction | The copy in K: ``contributions.curate_remote`` |
+| ``recheck`` | One document of S that this server holds a copy of, after S accepted the follow of this server | A 404 or 410: the origin removed it (``contributions.origin_removed``); a newer version: a revision (``contributions.start_remote_revisions``) |
 
 This module owns the tables ``kf_remote_reads`` and ``kf_remote_documents``. No function here commits.
 
@@ -15,6 +16,8 @@ Rules:
 - The list of a knowledge base is read again when it is older than ``LISTING_MAX_AGE_SECONDS``. A complete read deletes each row that it did not contain.
 - A document for a curation must be in the list of S: the reviewer selected it there. Its address and each page are on the server of S.
 - A read that the sidecar does not answer comes again after its lease; after ``MAX_ATTEMPTS`` leases it ends as ``failed`` with ``read_timeout``.
+- The list of one knowledge base has at most ``MAX_LISTED_DOCUMENTS`` rows, also after reads that failed: a new row takes the place of the oldest row that the current read did not see, or is not stored.
+- An answer of the sidecar with the error ``origin_removed`` is a 404 or 410 of the origin: the document is gone there (design Section 10.3).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import sqlite3
 from typing import Any
 
 from ..store import federation as federation_store
+from ..store import kb_collab
 from ..store import themes as themes_store
 from . import access, known_servers, remote_kbs, vocabulary
 
@@ -38,7 +42,10 @@ __all__ = [
     "lease",
     "listing",
     "listing_state",
+    "purge_blocked",
     "record_result",
+    "remove_listings_of_domain",
+    "request_rechecks",
     "request_document",
     "request_listing",
     "source_of",
@@ -54,6 +61,9 @@ MAX_PAGES = 50
 # The rows of one knowledge base in the list (KS2).
 MAX_LISTED_DOCUMENTS = 1000
 _TITLE_MAX = 500
+_IRI_MAX = 2048
+# The error code of the sidecar for a 404 or 410 of the origin.
+ORIGIN_REMOVED = "origin_removed"
 _READ_RETENTION_SECONDS = 30 * 86400.0
 
 SCHEMA = """
@@ -200,6 +210,37 @@ def request_document(conn: sqlite3.Connection, source: remote_kbs.RemoteKnowledg
     return read
 
 
+def request_rechecks(conn: sqlite3.Connection, *, kb_iri: str, domain: str, now: float) -> int:
+    """Add a read (``kind`` ``recheck``) of each document of the actor ``kb_iri`` that this server holds an open copy of, unless such a read waits (design Section 10.3: a removal or a revision at the origin between the read of a curation and the follow of this server reached no follower). Return the number of new reads. No commit."""
+    added = 0
+    for source_iri in kb_collab.open_remote_sources_of_kb_actor(conn, kb_iri):
+        if conn.execute("SELECT 1 FROM kf_remote_reads WHERE kind='recheck' AND status='pending' AND target_iri=?", (source_iri,)).fetchone() is not None:
+            continue
+        conn.execute("INSERT INTO kf_remote_reads (kind, kb_iri, domain, url, target_iri, status, started_at) VALUES ('recheck', ?, ?, ?, ?, 'pending', ?)", (kb_iri, domain, source_iri, source_iri, now))
+        added += 1
+    return added
+
+
+def purge_blocked(conn: sqlite3.Connection) -> int:
+    """Delete the list rows of each knowledge base whose domain a domain block applies to (design Section 6.3). Return the number of deleted rows."""
+    removed = 0
+    for (kb_iri,) in conn.execute("SELECT DISTINCT kb_iri FROM kf_remote_documents").fetchall():
+        host = federation_store.iri_host(str(kb_iri))
+        if host is not None and federation_store.blocking_domain(conn, host) is not None:
+            removed += conn.execute("DELETE FROM kf_remote_documents WHERE kb_iri=?", (str(kb_iri),)).rowcount
+    return removed
+
+
+def remove_listings_of_domain(conn: sqlite3.Connection, domain: str) -> int:
+    """Delete the list rows of each knowledge base on one domain, and the reads of that domain that ended (the admin removes a known server). Return the number of deleted list rows."""
+    removed = 0
+    for (kb_iri,) in conn.execute("SELECT DISTINCT kb_iri FROM kf_remote_documents").fetchall():
+        if federation_store.iri_host(str(kb_iri)) == domain:
+            removed += conn.execute("DELETE FROM kf_remote_documents WHERE kb_iri=?", (str(kb_iri),)).rowcount
+    conn.execute("DELETE FROM kf_remote_reads WHERE domain=? AND status!='pending'", (domain,))
+    return removed
+
+
 def curation_reads(conn: sqlite3.Connection, kb_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
     """The newest reads of documents for curations into K, with the title of the list."""
     rows = [_read(row) for row in conn.execute(f"SELECT {_READ_COLUMNS} FROM kf_remote_reads WHERE kind='document' AND kb_id=? ORDER BY id DESC LIMIT ?", (int(kb_id), int(limit))).fetchall()]
@@ -241,11 +282,37 @@ def _listed_item(item: Any, read: dict[str, Any], origin: str) -> tuple[str, str
     iri, title, url, content_hash, published, updated = (item.get(key) for key in ("id", "name", "url", vocabulary.CONTENT_HASH, "published", "updated"))
     if not vocabulary.is_iri(iri) or access.remote_server_domain(iri, origin) != read["domain"]:
         return None
-    if not isinstance(title, str) or not title.strip() or len(title) > _TITLE_MAX or not isinstance(content_hash, str) or not isinstance(published, str):
+    if len(iri) > _IRI_MAX or not isinstance(title, str) or not title.strip() or len(title) > _TITLE_MAX or not isinstance(content_hash, str) or not vocabulary.is_content_hash(content_hash):
         return None
-    if (url is not None and not vocabulary.is_iri(url)) or (updated is not None and not isinstance(updated, str)):
+    if (url is not None and (not vocabulary.is_iri(url) or len(url) > _IRI_MAX)) or not _is_time(published) or (updated is not None and not _is_time(updated)):
         return None
     return iri, title, url, content_hash, published, updated
+
+
+def _is_time(value: Any) -> bool:
+    """True for an ISO 8601 text with a time zone (the form of the wire contract)."""
+    try:
+        vocabulary.time_seconds(value)
+    except vocabulary.ContractError:
+        return False
+    return isinstance(value, str) and len(value) <= 64
+
+
+def _store_listed(conn: sqlite3.Connection, read: dict[str, Any], row: tuple[Any, ...], *, now: float) -> bool:
+    """Store one row of the list of S. A new row needs a place: the list of the knowledge base has at most ``MAX_LISTED_DOCUMENTS`` rows, and a full list gives the place of its oldest row that this read did not see. False when the row has no place."""
+    iri = row[0]
+    if conn.execute("SELECT 1 FROM kf_remote_documents WHERE iri=? AND kb_iri=?", (iri, read["kb_iri"])).fetchone() is None:
+        if int(conn.execute("SELECT COUNT(*) FROM kf_remote_documents WHERE kb_iri=?", (read["kb_iri"],)).fetchone()[0]) >= MAX_LISTED_DOCUMENTS:
+            old = conn.execute("SELECT id FROM kf_remote_documents WHERE kb_iri=? AND seen_at<? ORDER BY seen_at, id LIMIT 1", (read["kb_iri"], float(read["started_at"]))).fetchone()
+            if old is None:
+                return False
+            conn.execute("DELETE FROM kf_remote_documents WHERE id=?", (int(old[0]),))
+    conn.execute(
+        "INSERT INTO kf_remote_documents (kb_iri, iri, title, url, content_hash, published, updated, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(iri) DO UPDATE SET kb_iri=excluded.kb_iri, title=excluded.title, url=excluded.url, content_hash=excluded.content_hash, published=excluded.published, updated=excluded.updated, seen_at=excluded.seen_at",
+        (read["kb_iri"], *row, now),
+    )
+    return True
 
 
 def _record_page(conn: sqlite3.Connection, read: dict[str, Any], document: dict[str, Any], *, origin: str, now: float) -> str:
@@ -264,12 +331,8 @@ def _record_page(conn: sqlite3.Connection, read: dict[str, Any], document: dict[
             row = _listed_item(item, read, origin)
             if row is None or read["items"] + stored >= MAX_LISTED_DOCUMENTS:
                 continue
-            conn.execute(
-                "INSERT INTO kf_remote_documents (kb_iri, iri, title, url, content_hash, published, updated, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(iri) DO UPDATE SET kb_iri=excluded.kb_iri, title=excluded.title, url=excluded.url, content_hash=excluded.content_hash, published=excluded.published, updated=excluded.updated, seen_at=excluded.seen_at",
-                (read["kb_iri"], *row, now),
-            )
-            stored += 1
+            if _store_listed(conn, read, row, now=now):
+                stored += 1
     following = document.get("first") if kind == "OrderedCollection" and items is None else document.get("next")
     if following is not None:
         if not vocabulary.is_iri(following) or access.remote_server_domain(following, origin) != read["domain"]:
@@ -324,6 +387,36 @@ def _record_document(conn: sqlite3.Connection, read: dict[str, Any], document: d
     return "done"
 
 
+def _record_recheck(conn: sqlite3.Connection, read: dict[str, Any], document: dict[str, Any] | None, error: str | None, *, now: float) -> str:
+    """Apply the read again of a document that this server holds a copy of (``request_rechecks``). ``origin_removed`` (a 404 or 410 of the origin): each copy is hidden and waits in the review queue, as after a ``Delete`` (reason ``other``). A valid document: the revision rules of an ``Update`` (only a newer version changes a copy). Return ``done`` or ``failed``."""
+    from .. import contributions  # the import is here so that the store modules of this package do not load the contribution code
+
+    if error == ORIGIN_REMOVED:
+        contributions.origin_removed(conn, source_kb_iri=read["kb_iri"], source_iri=read["target_iri"], reason="other", now=now)
+        _finish(conn, read["id"], status="done", error_code=ORIGIN_REMOVED, now=now)
+        return "done"
+    if error is not None or document is None:
+        _finish(conn, read["id"], status="failed", error_code=error or "document_unavailable", now=now)
+        return "failed"
+    try:
+        kind = vocabulary.validate_object(document, top_level=True)
+    except vocabulary.ContractError as exc:
+        _finish(conn, read["id"], status="failed", error_code=exc.code, now=now)
+        return "failed"
+    if kind != "document" or vocabulary.EXTRACTION_OF not in document or document["id"] != read["target_iri"]:
+        _finish(conn, read["id"], status="failed", error_code="other_document", now=now)
+        return "failed"
+    refusal = contributions.remote_article_refusal(document)
+    if refusal is None and contributions.remote_time(document) > now + contributions.REMOTE_FUTURE_SECONDS:
+        refusal = "invalid_time"
+    if refusal is not None:
+        _finish(conn, read["id"], status="failed", error_code=refusal, now=now)
+        return "failed"
+    contributions.start_remote_revisions(conn, source_kb_iri=read["kb_iri"], article=document, now=now)
+    _finish(conn, read["id"], status="done", error_code=None, now=now)
+    return "done"
+
+
 def record_result(conn: sqlite3.Connection, read_id: int, *, document: dict[str, Any] | None, error: str | None, origin: str, now: float) -> dict[str, Any] | None:
     """Store the answer of the sidecar for one read: the JSON document as it came, or an error code. Return the read after it, or None when there is no read that waits with that ID. A read of a blocked domain ends as ``failed``."""
     read = get_read(conn, read_id)
@@ -331,6 +424,8 @@ def record_result(conn: sqlite3.Connection, read_id: int, *, document: dict[str,
         return None
     if federation_store.blocking_domain(conn, read["domain"]) is not None:
         _finish(conn, read["id"], status="failed", error_code="blocked_domain", now=now)
+    elif read["kind"] == "recheck":
+        _record_recheck(conn, read, document, error, now=now)
     elif error is not None or document is None:
         _finish(conn, read["id"], status="failed", error_code=error or "document_unavailable", now=now)
     elif read["kind"] == "documents":

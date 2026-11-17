@@ -917,7 +917,7 @@ def cmd_contribute(args) -> int:
                     return 1
                 theme_id = int(theme["id"])
             try:
-                number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=True, personal_kb_id=personal.id, documents=[str(d).strip() for d in args.documents], theme_id=theme_id)
+                number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=True, personal_kb_id=personal.id, documents=[str(d).strip() for d in args.documents], theme_id=theme_id, origin=contributions.canonical_origin(s))
             except contributions.ContributionError as exc:
                 conn.rollback()
                 return _refused(exc)
