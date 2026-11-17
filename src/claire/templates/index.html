@@ -70,6 +70,7 @@
 </script>
 <link rel=stylesheet href=/static/css/theme.css/>
 <link rel=stylesheet href=/static/css/appbar.css/>
+<link rel=stylesheet href=/static/css/shared_ui.css/>
 <link rel=stylesheet href=/static/css/workspace.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
@@ -181,6 +182,13 @@
                 </div>
               </div>
             </div>
+          </section>
+          <section class="home-card" id="home-themes" aria-labelledby="home-themes-title" hidden>
+            <header>
+              <h2 id="home-themes-title" data-i18n="ws.kb.home_themes_title">${t:ws.kb.home_themes_title}</h2>
+              <a class="home-card-link" href="/themes" data-i18n="ws.kb.home_themes_all">${t:ws.kb.home_themes_all}</a>
+            </header>
+            <div id="home-themes-list" style="padding:10px 12px"></div>
           </section>
           <section class="home-card home-span2" id="home-maint" aria-labelledby="home-maint-title" hidden>
             <header>
@@ -462,6 +470,8 @@
 <script src=/static/js/i18n.js></script>
 <script src=/static/js/icons.js></script>
 <script src=/static/js/appbar.js></script>
+<script src=/static/js/shared_ui.js></script>
+<script src=/static/js/kb_dialogs.js></script>
 <script src=/static/js/ingest_dialogs.js></script>
 <script src=/static/js/graph/core.js></script>
 <script src=/static/js/graph/simulation.js></script>

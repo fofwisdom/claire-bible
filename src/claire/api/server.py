@@ -56,6 +56,7 @@ from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
+from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
@@ -680,19 +681,7 @@ def create_app(
             visible_scope = scope
 
         if collections.wants_html(request):
-            from ..graphview import render_graph_html
-
-            return HTMLResponse(
-                render_graph_html(
-                    s,
-                    include_private=(visible_scope in {"owner", "readonly"}),
-                    collaborator=(visible_scope == "collaborator"),
-                    theme=None,
-                    host=request.headers.get("host"),
-                    request=request,
-                    account_id=account_id,
-                )
-            )
+            return public_kb_routes.render_public_kb_page(request, view="themes_list", title="Public Themes", ctx=account_routes.context)
 
         def _fetch_themes_data() -> tuple[list[ThemeInfo], list[ThemeInfo]]:
             owned = theme_mgr.list_account_themes(account_id)
@@ -934,6 +923,7 @@ def create_app(
             rendered = string.Template(template_text).substitute(
                 title=html.escape(_t("explore.title")),
                 html_lang=get_locale(),
+                explore_head_html=public_kb_routes.explore_head_markup(request),
                 nav_label=html.escape(_t("explore.nav_label")),
                 subtitle=html.escape(_t("explore.subtitle")),
                 nav_auth=nav_auth,
@@ -5051,6 +5041,7 @@ def create_app(
         Route("/oauth/token", handle_token, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
+        *public_kb_routes.routes(account_routes.context),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
 

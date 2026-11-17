@@ -121,13 +121,6 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="lock",
     ),
     ConsoleSectionSpec(
-        slug="themes",
-        path="/settings/themes",
-        area="settings",
-        group_id="workspace",
-        icon="folder",
-    ),
-    ConsoleSectionSpec(
         slug="tokens",
         path="/settings/tokens",
         area="settings",
@@ -154,6 +147,23 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         icon="save",
+    ),
+)
+
+SETTINGS_KB_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    ConsoleSectionSpec(
+        slug="kb",
+        path="/settings/kb",
+        area="settings",
+        group_id="kb",
+        icon="folder",
+    ),
+    ConsoleSectionSpec(
+        slug="kb_manage",
+        path="/settings/kb/manage",
+        area="settings",
+        group_id="kb",
+        icon="check-circle",
     ),
 )
 
@@ -235,6 +245,14 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ),
 )
 
+ADMIN_KB_SPEC = ConsoleSectionSpec(
+    slug="kb",
+    path="/admin/kb",
+    area="admin",
+    group_id="admin_server",
+    icon="folder",
+)
+
 ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
         slug="server",
@@ -257,6 +275,7 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         group_id="admin_server",
         icon="users",
     ),
+    ADMIN_KB_SPEC,
     ConsoleSectionSpec(
         slug="idp",
         path="/admin/idp",
@@ -320,6 +339,7 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
 
 ALL_SETTINGS_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *SETTINGS_GROUP_1_SPECS,
+    *SETTINGS_KB_SPECS,
     *SETTINGS_GROUP_2_SPECS,
     *SETTINGS_GROUP_3_SPECS,
 )
@@ -328,7 +348,10 @@ ALL_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *ADMIN_CONSOLE_GROUP_5_SPECS,
 )
 SETTINGS_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ALL_SETTINGS_SPECS}
-ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS}
+ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {
+    **{spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS},
+    ADMIN_KB_SPEC.path: ADMIN_KB_SPEC,
+}
 ADMIN_SPEC_BY_SLUG: dict[str, ConsoleSectionSpec] = {spec.slug: spec for spec in ALL_ADMIN_SPECS}
 
 
@@ -411,10 +434,11 @@ def _build_sidebar_html(
             [
                 spec
                 for spec in SETTINGS_GROUP_1_SPECS
-                # D3: 관리자는 테마·토큰 관리를 /admin/themes·/admin/tokens 한 곳에서만 노출한다.
-                if not (admin_viewer and spec.slug in {"themes", "tokens"})
+                # D3: admin manages tokens in /admin/tokens.
+                if not (admin_viewer and spec.slug == "tokens")
             ],
         ),
+        ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
         ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
         ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
     ]
@@ -424,7 +448,10 @@ def _build_sidebar_html(
 
     parts: list[str] = []
     for group_id, group_label, specs in groups:
-        has_active = any(spec.path == active_path for spec in specs)
+        has_active = any(
+            spec.path == active_path or (spec.slug == "kb_manage" and active_path.startswith("/settings/kb/"))
+            for spec in specs
+        )
         group_cls = "console-nav-group has-active" if has_active else "console-nav-group"
         list_id = f"console-grp-{group_id}"
         parts.append(f'<div class="{group_cls}" data-nav-group="{escape(group_id)}">')
@@ -432,7 +459,8 @@ def _build_sidebar_html(
         parts.append(f'  <ul id="{escape(list_id)}" class="console-nav-list" role="list">')
         for spec in specs:
             href = _append_theme_query(spec.path, theme_query) if spec.theme_scoped else spec.path
-            current = ' aria-current="page"' if spec.path == active_path else ""
+            is_cur = spec.path == active_path or (spec.slug == "kb_manage" and active_path.startswith("/settings/kb/"))
+            current = ' aria-current="page"' if is_cur else ""
             parts.append(f'    <li><a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}<span>{escape(spec.nav_label)}</span></a></li>')
         parts.append("  </ul>")
         parts.append("</div>")
@@ -482,6 +510,17 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<p class="hint">{escape(t("console.admin.providers.loading"))}</p>'
             "</div>"
             "</div>"
+            f'<section class="card" id="admin-providers-embed-card" aria-label="{escape(t("console.admin.providers.label"))}">'
+            '<div id="admin-providers-embed-host"></div>'
+            "</section>"
+        )
+        return body, {}
+
+    if slug == "kb":
+        body = (
+            f'<section class="card" id="admin-kb-card" aria-label="{escape(t("console.section.admin.kb.title"))}">'
+            '<div id="admin-kb-host"></div>'
+            "</section>"
         )
         return body, {}
 
@@ -720,6 +759,19 @@ def _build_settings_account_section(
             # D3: 라우터가 관리자를 /admin/themes로 보낸다. 여기에 오면 결함이다.
             raise RuntimeError("/settings/themes must redirect the admin to /admin/themes")
         body, extra = _settings_themes_body(ctx, account=account, owned_themes=owned_themes)
+    elif spec.slug == "kb":
+        default_num = next((ids.format_public_id(t.number) for t in owned_themes if t.is_default and t.number is not None), "")
+        return SettingsSectionRender(
+            body_html='<div id="settings-kb-host"></div>',
+            extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}, "default_theme_number": default_num},
+            extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
+        )
+    elif spec.slug == "kb_manage":
+        return SettingsSectionRender(
+            body_html='<div id="settings-kb-manage-host"></div>',
+            extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}},
+            extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
+        )
     elif spec.slug == "tokens":
         if admin_viewer:
             raise RuntimeError("/settings/tokens must redirect the admin to /admin/tokens")
@@ -950,6 +1002,17 @@ def _settings_account_body(
         lifecycle_html = (
             f'<p class="hint" data-lifecycle="member">{escape(t("console.settings.account.lifecycle_member"))}</p>'
             f'<p class="hint">{escape(t("console.settings.account.lifecycle_member_hint"))}</p>'
+            '<div class="claire-srow" id="settings-delete-activity-row">'
+            '<div class="claire-srow-info">'
+            f'<label for="pref-delete-activity">{escape(t("console.settings.account.delete_activity_title"))}</label>'
+            f'<span>{escape(t("console.settings.account.delete_activity_desc"))}</span>'
+            "</div>"
+            '<input id="pref-delete-activity" type="checkbox" class="claire-switch" data-delete-activity-toggle/>'
+            "</div>"
+            '<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+            f'<button type="button" class="pref-btn" id="pref-delete-preview-btn">{escape(t("console.js.account.delete_preview_btn"))}</button>'
+            '<span class="result" id="pref-delete-activity-result" role="status" aria-live="polite"></span>'
+            "</div>"
         )
 
     quota_hint = (
@@ -1401,6 +1464,38 @@ def routes(ctx: AccountsContext) -> list[Route]:
             raw_theme=raw_theme,
         )
 
+    async def settings_legacy_themes_page(request: Request) -> Response:
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        assert principal.account_id is not None
+        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        validated_theme: str | None = None
+        if raw_theme is not None:
+            resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
+            if resolved is None:
+                return not_found()
+            validated_theme = resolved[2]
+        if is_admin(principal):
+            return _redirect(_append_theme_query("/admin/themes", validated_theme))
+        return _redirect("/settings/kb")
+
+    async def settings_kb_manage_page(request: Request) -> Response:
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        spec = SETTINGS_BY_PATH["/settings/kb/manage"]
+        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        kb_num = request.path_params.get("kb_number")
+        return await asyncio.to_thread(
+            _render_console_section,
+            ctx,
+            spec=spec,
+            principal=principal,
+            raw_theme=raw_theme,
+            extra_bootstrap={"kb_number": str(kb_num)} if kb_num is not None else None,
+        )
+
     async def settings_section_page(request: Request) -> Response:
         principal = request_principal(request)
         if not _is_owner(principal):
@@ -1410,15 +1505,15 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         assert principal.account_id is not None
         raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
-        # D3: 관리자가 /settings/themes 또는 /settings/tokens를 요청하면 ?theme= 검증 후 /admin/*으로 302 이동한다.
-        if is_admin(principal) and spec.slug in {"themes", "tokens"}:
+        # D3: admin accessing /settings/tokens redirects 302 to /admin/tokens.
+        if is_admin(principal) and spec.slug == "tokens":
             validated_theme: str | None = None
             if raw_theme is not None:
                 resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
                 if resolved is None:
                     return not_found()
                 validated_theme = resolved[2]
-            return _redirect(_append_theme_query(f"/admin/{spec.slug}", validated_theme))
+            return _redirect(_append_theme_query("/admin/tokens", validated_theme))
         return await asyncio.to_thread(
             _render_console_section,
             ctx,
@@ -1463,6 +1558,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ADMIN_INDEX_PATH, admin_index, methods=["GET", "HEAD"]),
         Route(SETTINGS_INDEX_PATH, settings_index, methods=["GET", "HEAD"]),
         Route(ADMIN_MCP_TELEMETRY_API_PATH, admin_mcp_telemetry_api, methods=["GET", "HEAD"]),
+        Route(ADMIN_KB_SPEC.path, admin_section_page, methods=["GET", "HEAD"]),
+        Route("/settings/themes", settings_legacy_themes_page, methods=["GET", "HEAD"]),
+        Route("/settings/kb/{kb_number:int}", settings_kb_manage_page, methods=["GET", "HEAD"]),
     ]
     for spec in ADMIN_CONSOLE_GROUP_5_SPECS:
         mounted.append(Route(spec.path, admin_section_page, methods=["GET", "HEAD"]))

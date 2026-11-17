@@ -128,19 +128,12 @@
     if (opts.themeConfig) {
       configureThemeSelect("ingest-theme-wrap", "ingtheme", "ingtheme-help", opts.themeConfig);
     }
-    var focusEl = byId("ingfocus");
     var themeEl = byId("ingtheme");
-    function syncFocusPlaceholder() {
-      if (!focusEl || typeof opts.getFocusPlaceholder !== "function") return;
-      focusEl.placeholder = opts.getFocusPlaceholder(themeEl ? themeEl.value : "");
-    }
     if (themeEl) {
       themeEl.onchange = function () {
-        syncFocusPlaceholder();
         if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
       };
     }
-    syncFocusPlaceholder();
     renderEffortGrid(byId("ingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     if (!dlg.open) dlg.showModal();
     var ta = byId("ingin");
@@ -264,6 +257,17 @@
       dryRunBtn.dataset.bound = "1";
       dryRunBtn.addEventListener("click", function () {
         if (handlers && typeof handlers.submitRegen === "function") handlers.submitRegen(true);
+      });
+    }
+
+    var createKbBtn = byId("btn-ingest-create-kb");
+    if (createKbBtn && createKbBtn.dataset.bound !== "1") {
+      createKbBtn.dataset.bound = "1";
+      createKbBtn.addEventListener("click", function () {
+        closeDialog("modal-ingest");
+        if (window.ClaireKbDialogs && typeof window.ClaireKbDialogs.openCreateKbDialog === "function") {
+          window.ClaireKbDialogs.openCreateKbDialog({ defaultType: "fictional" });
+        }
       });
     }
   }

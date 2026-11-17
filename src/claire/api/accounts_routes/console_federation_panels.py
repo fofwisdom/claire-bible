@@ -204,7 +204,13 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     target = "off" if federation == "on" else "on"
     switch_label = t("console.federation.switch.turn_off") if federation == "on" else t("console.federation.switch.turn_on")
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
-    body = (
+    single_note = (
+        f'<div class="claire-note warn" id="admin-federation-single-note"><span>{escape(t("console.admin.federation.single_mode_note"))}</span></div>'
+        if mode != "network"
+        else ""
+    )
+    sw_panel = (
+        f'{single_note}'
         f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="{escape(t("console.federation.switch.title"))}">'
         f"<h2><span data-icon='globe'></span> {escape(t('console.federation.switch.title'))}</h2>"
         "<dl>"
@@ -214,6 +220,20 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f'<p class="hint">{escape(t("console.federation.switch.hint"))}</p>'
         f'<div><button type="button" class="{switch_class}" data-federation-switch="{target}">{escape(switch_label)}</button></div>'
         '<p class="result" id="admin-federation-switch-result" role="status" aria-live="polite"></p>'
+        '<div class="claire-srow" id="admin-federation-auto-contrib">'
+        '<div class="claire-srow-info">'
+        f'<label for="admin-fed-auto-contrib-toggle">{escape(t("console.admin.federation.auto_contrib_title"))}</label>'
+        f'<span>{escape(t("console.admin.federation.auto_contrib_desc"))}</span>'
+        '</div>'
+        '<input id="admin-fed-auto-contrib-toggle" type="checkbox" class="claire-switch" data-fed-auto-contrib/>'
+        '</div>'
+        '<div class="claire-srow" id="admin-federation-signed-get">'
+        '<div class="claire-srow-info">'
+        f'<strong>{escape(t("console.admin.federation.signed_get_title"))}</strong>'
+        f'<span>{escape(t("console.admin.federation.signed_get_desc"))}</span>'
+        '</div>'
+        f'<span class="claire-tag ok">{escape(t("console.admin.federation.signed_get_badge"))}</span>'
+        '</div>'
         "</section>"
         f'<section class="card" id="admin-federation-readiness" aria-label="{escape(t("console.federation.readiness.label"))}">'
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
@@ -231,6 +251,9 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f'<p class="hint">{escape(t("console.federation.sidecar.hint"))}</p>'
         f'<dl id="admin-federation-heartbeat"><dt>{escape(t("console.federation.sidecar.heartbeat"))}</dt><dd>{escape(t("console.common.loading"))}</dd></dl>'
         "</section>"
+        f"{reading_html}"
+    )
+    blocks_panel = (
         f'<section class="card" id="admin-federation-domain-blocks" aria-label="{escape(t("console.federation.blocks.title"))}">'
         f"<h2><span data-icon='block'></span> {escape(t('console.federation.blocks.title'))}</h2>"
         f'<p class="hint">{escape(t("console.federation.blocks.hint"))}</p>'
@@ -245,6 +268,21 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</form>"
         '<p class="result" id="admin-federation-domain-blocks-result" role="status" aria-live="polite"></p>'
         "</section>"
-        f"{reading_html}"
+        f'<div id="admin-federation-suggestions-host"></div>'
+    )
+    body = (
+        '<div class="claire-tabs" id="admin-federation-tabs">'
+        '<div class="claire-tablist-wrap"><div class="claire-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="Federation">'
+        f'<button type="button" class="claire-tab" role="tab" data-tab="sw" aria-selected="true" focusgroupstart><span data-icon="globe"></span> <span>{escape(t("console.admin.federation.tab_switches"))}</span></button>'
+        f'<button type="button" class="claire-tab" role="tab" data-tab="known" aria-selected="false"><span data-icon="server"></span> <span>{escape(t("console.admin.federation.tab_known"))}</span></button>'
+        f'<button type="button" class="claire-tab" role="tab" data-tab="blocks" aria-selected="false"><span data-icon="block"></span> <span>{escape(t("console.admin.federation.tab_blocks"))}</span></button>'
+        f'<button type="button" class="claire-tab" role="tab" data-tab="journal" aria-selected="false"><span data-icon="list"></span> <span>{escape(t("console.admin.federation.tab_journal"))}</span></button>'
+        '</div></div>'
+        '<div class="claire-tabpanels">'
+        f'<div role="tabpanel" data-tabpanel="sw"><div class="claire-panel-inner">{sw_panel}</div></div>'
+        '<div role="tabpanel" data-tabpanel="known" hidden="until-found"><div class="claire-panel-inner"><div id="admin-federation-known-host"></div></div></div>'
+        f'<div role="tabpanel" data-tabpanel="blocks" hidden="until-found"><div class="claire-panel-inner">{blocks_panel}</div></div>'
+        '<div role="tabpanel" data-tabpanel="journal" hidden="until-found"><div class="claire-panel-inner"><div id="admin-federation-journal-host"></div></div></div>'
+        '</div></div>'
     )
     return body, {"federation": federation, "domain_blocks": [domain_block_view(block) for block in blocks]}

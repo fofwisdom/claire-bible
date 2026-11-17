@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>$title · Claire</title>
+    $explore_head_html
     <style>
       :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --badge-bg: #e8e8e4; }
       @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --badge-bg: #2d2d2a; } }
@@ -51,6 +52,7 @@
         <h1>$title</h1>
         <p class="subtitle">$subtitle</p>
       </header>
+      <div id="public-home-showcase" data-public-view="home"></div>
       $content
       $pagination
     </main>

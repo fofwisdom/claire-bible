@@ -708,6 +708,10 @@ function canWrite(){ return AUTH_SCOPE==='owner'; }
 function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
+function personalKbCardHtml(){
+  if(!canWrite()) return '';
+  return '<div class="claire-card" id="ctx-personal-kb-card" style="margin-top:12px"><div class="claire-card-head"><h3><span data-icon="folder"></span> ' + esc(tr('ws.kb.personal_kb_title')) + '</h3><a class="claire-btn claire-btn-sm" href="/settings/kb">' + esc(tr('ws.kb.personal_kb_manage')) + '</a></div></div>';
+}
 function defaultHint(){
   const synthLine = canWrite()
     ? '• ' + tr('ws.hint.synth') + '<br>'
@@ -715,7 +719,7 @@ function defaultHint(){
   return '<p class="hint">'+tr('ws.hint.click_node')+'<br><br>'+synthLine+
     '• '+tr('ws.hint.hover', { seconds: NODE_POP_DELAY_MS/1000 })+'<br>'+
     '• '+tr('ws.hint.source_pick')+' <b><span data-icon="book"></span></b><br>'+
-    '• '+tr('ws.hint.theme')+' <b><span data-icon="moon"></span>/<span data-icon="sun"></span></b></p>';
+    '• '+tr('ws.hint.theme')+' <b><span data-icon="moon"></span>/<span data-icon="sun"></span></b></p>' + personalKbCardHtml();
 }
 if(panel) panel.innerHTML = defaultHint();
 
@@ -2436,15 +2440,7 @@ function openIngest(){
     window.ClaireIngestDialogs.openIngestDialog({
       themeConfig,
       effortSpec: latestIngestEffortSpec,
-      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
-      getFocusPlaceholder: function(tid){
-        const effectiveTid = tid || (isMultiThemeEnabled() ? String(activeThemeId || '0') : '0');
-        const themeObj = findTheme(effectiveTid);
-        if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
-          return tr('ws.ingest.focus_default_placeholder', { focus: themeObj.default_focus });
-        }
-        return tr('ws.ingest.focus_placeholder');
-      }
+      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); }
     });
     if(themeConfig.deniedMsg){
       window.ClaireIngestDialogs.showMsg('ingest-modal-msg', themeConfig.deniedMsg, true);
@@ -2472,7 +2468,7 @@ async function runIngest(){
     }
   }
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-ingest');
-  const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
+  const focus='';
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
   const fullContent=!!amountChoice && amountChoice.value==='full';
@@ -2634,6 +2630,14 @@ function renderIngestResult(d){
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
   }
   panel.innerHTML=h;
+  if((d.fiction_like_document || d.fiction_like) && window.ClaireKbDialogs){
+    window.ClaireKbDialogs.openFictionNotice({
+      documentId: d.document_id,
+      documentTitle: d.title,
+      themeNumber: d.matched_theme_number,
+      themeLabel: d.matched_theme_label
+    });
+  }
 }
 
 // --- 자료 재적재 (Reingest) 및 소각 (Purge) ---
@@ -2683,7 +2687,7 @@ async function runReingest(){
     }
   }
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-reingest');
-  const focus=((document.getElementById('reingfocus')||{}).value||'').trim();
+  const focus='';
   const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
   const untombstoneChk=document.getElementById('reinguntombstone');
@@ -2871,7 +2875,7 @@ async function runRegen(isDryRun){
   const component = compChoice ? compChoice.value : 'all';
   const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
   const effort = effortChoice ? effortChoice.value : '';
-  const focus = ((document.getElementById('regenfocus')||{}).value||'').trim();
+  const focus = '';
   const refetchChk = document.getElementById('regenrefetch');
   const refetch = !!(refetchChk && refetchChk.checked);
 
@@ -3903,15 +3907,59 @@ function docItemHtml(dc){
       '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
       '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
+  const tags = [];
+  if(dc.matched_theme_label){
+    const scoreTip = dc.matched_theme_score != null ? tr('ws.kb.matched_theme_tip', { score: Number(dc.matched_theme_score).toFixed(2) }) : dc.matched_theme_label;
+    tags.push('<span class="claire-tag acc" title="' + esc(scoreTip) + '">' + esc(dc.matched_theme_label) + '</span>');
+  }
+  if(canWrite() && (dc.fiction_like || dc.fiction_like_document)){
+    tags.push('<span class="claire-tag fic">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
+  }
+  if(dc.never_contribute){
+    tags.push('<span class="claire-tag warn">' + esc(tr('ws.kb.never_badge')) + '</span>');
+  }
+  const menuHtml = (canWrite() && window.ClaireUi && typeof window.ClaireUi.renderRowMenu === 'function')
+    ? '<span class="docitem-actions" onclick="event.stopPropagation()">' + window.ClaireUi.renderRowMenu([
+        { action: 'doc_kb_contrib', value: dc.id, label: dc.matched_theme_label ? tr('ws.kb.contribute_to_theme') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
+        { action: dc.never_contribute ? 'doc_kb_allow' : 'doc_kb_never', value: dc.id, label: tr(dc.never_contribute ? 'ws.kb.allow_contribute' : 'ws.kb.never_contribute'), icon: 'block' }
+      ], dc.title || dc.id) + '</span>'
+    : '';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
     pinBtn+
     (watching?'<span class=wbadge title="' + tr("ws.list.watch") + '"><span data-icon="restore"></span></span>':'')+
     (unread?'<span class=ubadge title="' + tr("ws.list.unread") + '">●</span>':'')+
-    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
+    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+menuHtml+
     '</div>'+
+    (tags.length ? '<div class="doc-kb-meta">' + tags.join('') + '</div>' : '')+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
+}
+if(typeof document !== 'undefined' && !window.__claireDocKbBound){
+  window.__claireDocKbBound = true;
+  document.addEventListener('click', function(ev){
+    const mi = ev.target && ev.target.closest ? ev.target.closest('[data-menu-action^="doc_kb_"]') : null;
+    if(!mi) return;
+    ev.stopPropagation();
+    const act = mi.getAttribute('data-menu-action');
+    const docId = mi.getAttribute('data-menu-value');
+    const dc = (allDocs || []).find(d => String(d.id) === String(docId)) || { id: docId };
+    if(act === 'doc_kb_contrib' && window.ClaireKbDialogs){
+      window.ClaireKbDialogs.openContribPreview({
+        documentId: docId,
+        documentTitle: dc.title || docId,
+        themeId: dc.matched_theme_number,
+        themeLabel: dc.matched_theme_label
+      });
+    } else if((act === 'doc_kb_never' || act === 'doc_kb_allow') && window.ClaireUi){
+      const nextBlock = act === 'doc_kb_never';
+      window.ClaireUi.request('/api/contribution-blocks/' + encodeURIComponent(docId), { method: nextBlock ? 'PUT' : 'DELETE' }).then(res => {
+        if(!res.ok){ window.ClaireUi.toast(res.error || 'Failed', 'danger'); return; }
+        dc.never_contribute = nextBlock;
+        renderDocs();
+      });
+    }
+  });
 }
 let showHidden = false;
 function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
@@ -4725,12 +4773,13 @@ function renderDocs(filter){
     ph.style.display = pinned.length ? '' : 'none';
     ph.textContent = tr('ws.list.pinned_count', { count: pinned.length });
   }
-  const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
+  const pl = document.getElementById('pinnedlist'); if(pl){ pl.innerHTML = pinned.map(docItemHtml).join(''); if(window.ClaireUi) window.ClaireUi.enhance(pl); }
 
   const dw = docWindow();
   if(dw){
     // The same search text keeps the rendered count and the scroll position. A new search text starts from the first 31 documents.
     dw.render(rest, 'docs:' + q, {head: doclistToolbarHtml(), empty: pager.error ? '<div class="list-more-error" role="status">' + tr("ws.list.docs_failed") + ' <button type="button" class="sec list-retry">' + tr("ws.common.retry") + '</button></div>' : '<p class=hint style="padding:10px">' + tr("ws.list.no_docs") + '</p>'});
+    if(window.ClaireUi){ const dl = document.getElementById('doclist'); if(dl) window.ClaireUi.enhance(dl); }
     const activeIndex = activeDoc ? rest.findIndex(dc => dc.id === activeDoc) : -1;
     if(activeIndex >= 0) dw.ensureVisible(activeIndex);
     // After a deep link, the list scrolls to the row of the open document one time, when the list is in view.
@@ -4762,6 +4811,7 @@ function renderDocs(filter){
       hl.innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
       hl.style.display = showHidden ? 'block' : 'none';
       if(showHidden && prevScroll > 0) hl.scrollTop = prevScroll;
+      if(showHidden && window.ClaireUi) window.ClaireUi.enhance(hl);
     }
   }
   const st = document.getElementById('stat');
@@ -6382,7 +6432,7 @@ function renderGraphInsights(){
     h += renderMapRowsHtml(recent, 'home.map.connections_unit', n => n.degree || 0, 'ctx-insight-row');
     h += '</div></div>';
   }
-  h += '</div></div>';
+  h += '</div></div>' + personalKbCardHtml();
   p.innerHTML = h;
 }
 window.renderGraphInsights = renderGraphInsights;
@@ -6449,6 +6499,26 @@ function renderHomeMaintenance(){
     '<div class="home-maint-row" role="listitem"><span class="home-row-title">' + esc(it.label) + '</span><span class="home-maint-cmdwrap"><code class="home-cmd">' + esc(it.cmd) + '</code><button type="button" class="home-copy-btn" data-home-copy="' + esc(it.cmd) + '">' + esc(tr('home.maint.copy')) + '</button></span></div>'
   ).join('');
 }
+let homeThemesCache = null;
+function renderHomeThemes(){
+  const card = document.getElementById('home-themes'), list = document.getElementById('home-themes-list');
+  if(!card || !list) return;
+  const paint = (themes) => {
+    const items = Array.isArray(themes) ? themes : [];
+    card.hidden = !items.length;
+    if(!items.length){ list.innerHTML = '<p class="hint">' + esc(tr('ws.kb.home_themes_empty')) + '</p>'; return; }
+    list.innerHTML = '<div class="claire-tags">' + items.slice(0, 8).map(th => {
+      const num = th.number != null ? th.number : th.id;
+      const cls = th.knowledge_type === 'fictional' ? 'fic' : 'acc';
+      return '<a class="claire-tag ' + cls + '" href="/explore/themes/' + encodeURIComponent(num) + '">' + esc(th.label || ('#' + num)) + '</a>';
+    }).join('') + '</div>';
+  };
+  if(homeThemesCache){ paint(homeThemesCache); return; }
+  fetch('/themes?page=true', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(r => r.ok ? r.json() : null).then(d => {
+    homeThemesCache = (d && (d.orderedItems || d.themes || d.items)) || [];
+    paint(homeThemesCache);
+  }).catch(() => {});
+}
 function renderHome(){
   const wrap = document.getElementById('homewrap'); if(!wrap) return;
   const theme = (typeof findTheme === 'function') ? findTheme(activeThemeId) : null;
@@ -6474,6 +6544,7 @@ function renderHome(){
   }
   renderHomeMap();
   renderHomeDecisions();
+  renderHomeThemes();
   renderHomeMaintenance();
   renderHomeFlow();
 }

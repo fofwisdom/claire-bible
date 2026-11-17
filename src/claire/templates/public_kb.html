@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="$html_lang">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>$page_title — Claire Bible</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+<link rel="icon" href="/favicon.ico" sizes="any"/>
+<script>
+  (function(){ try{ var t=localStorage.getItem('claireTheme')||'light'; document.documentElement.setAttribute('data-theme', t); }catch(e){ document.documentElement.setAttribute('data-theme','light'); } })();
+</script>
+$i18n_bootstrap_html
+<link rel="stylesheet" href="/static/css/theme.css"/>
+<link rel="stylesheet" href="/static/css/appbar.css"/>
+<link rel="stylesheet" href="/static/css/shared_ui.css"/>
+<script id="claire-public-bootstrap" type="application/json">$bootstrap_json</script>
+</head>
+<body class="claire-public-body">
+<!-- __COMMON_APPBAR__ -->
+<main id="public-kb-root" class="claire-page" data-public-view="$view_name"></main>
+<!-- __COMMON_CMDPALETTE__ -->
+<script src="/static/js/icons.js" defer></script>
+<script src="/static/js/appbar.js" defer></script>
+<script src="/static/js/shared_ui.js" defer></script>
+<script src="/static/js/kb_dialogs.js" defer></script>
+<script src="/static/js/public_kb.js" defer></script>
+</body>
+</html>

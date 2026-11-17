@@ -98,7 +98,7 @@ def build_syndication_section(
     if slug not in SYNDICATION_SECTION_SLUGS:
         raise KeyError(slug)
     admin_viewer = _account_is_admin(account)
-    themes_href = "/admin/themes" if admin_viewer else "/settings/themes"
+    themes_href = "/admin/themes" if admin_viewer else "/settings/kb"
     if selected_theme is None:
         # C1: 테마가 없으면 다른 테마로 대체하지 않고 안내만 그린다. 스크립트도 싣지 않는다.
         return SettingsSectionRender(

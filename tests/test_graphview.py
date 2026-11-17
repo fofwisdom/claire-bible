@@ -138,10 +138,12 @@ def test_graph_html_self_contained_markers():
     assert 'id="reingest-effort-grid" class="ingest-choice-grid effort"' in GRAPH_HTML
     assert 'id="regen-effort-grid" class="ingest-choice-grid effort"' in GRAPH_HTML
     assert 'id="ingeffort-default" type="radio" name="ingest-effort" value="" checked' in GRAPH_HTML
-    assert 'id="ingfocus"' in GRAPH_HTML
+    assert 'id="ingest-fiction-notice"' in GRAPH_HTML
+    assert 'id="ingfocus"' not in GRAPH_HTML
+    assert 'id="reingfocus"' not in GRAPH_HTML
+    assert 'id="regenfocus"' not in GRAPH_HTML
     assert "const bodyObj = {payload:payload, full_content:fullContent};" in GRAPH_HTML
     assert "if(effort) bodyObj.effort=effort;" in GRAPH_HTML
-    assert "if(focus) bodyObj.focus=focus;" in GRAPH_HTML
     assert "const sepIdx = rawText.search" not in GRAPH_HTML
     assert "줄바꿈 두 번" not in GRAPH_HTML
     for guarded_write in (

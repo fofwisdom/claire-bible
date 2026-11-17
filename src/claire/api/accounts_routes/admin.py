@@ -66,8 +66,46 @@ def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
     return {int(r[0]): int(r[1]) for r in rows}
 
 
+def _account_kb_stats(conn: sqlite3.Connection) -> tuple[dict[int, str], dict[int, int], set[int]]:
+    """Return optional reputation levels, moderated shared KB counts, and sole-moderator flags when KB tables exist."""
+    tables = {str(r[0]) for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    rep_map: dict[int, str] = {}
+    mod_counts: dict[int, int] = {}
+    sole_mod_ids: set[int] = set()
+    if "contributor_reputations" in tables:
+        try:
+            for r in conn.execute("SELECT account_id, level FROM contributor_reputations").fetchall():
+                rep_map[int(r[0])] = str(r[1] or "good")
+        except Exception:
+            pass
+    if "knowledge_bases" in tables and "kb_members" in tables:
+        try:
+            rows = conn.execute(
+                "SELECT m.account_id, m.kb_id FROM kb_members m "
+                "JOIN knowledge_bases k ON k.id = m.kb_id "
+                "WHERE m.role = 'moderator' AND m.state = 'active' AND COALESCE(k.is_personal, 0) = 0"
+            ).fetchall()
+            kb_mods: dict[int, set[int]] = {}
+            for acc_id, kb_id in rows:
+                a_i, k_i = int(acc_id), int(kb_id)
+                mod_counts[a_i] = mod_counts.get(a_i, 0) + 1
+                kb_mods.setdefault(k_i, set()).add(a_i)
+            for mod_set in kb_mods.values():
+                if len(mod_set) == 1:
+                    sole_mod_ids.update(mod_set)
+        except Exception:
+            pass
+    return rep_map, mod_counts, sole_mod_ids
+
+
 def account_summary(
-    account: accounts_store.Account, theme_count: int, *, has_provider_key: bool | None = None
+    account: accounts_store.Account,
+    theme_count: int,
+    *,
+    has_provider_key: bool | None = None,
+    reputation: str = "good",
+    moderated_kb_count: int = 0,
+    sole_moderator: bool = False,
 ) -> dict[str, Any]:
     """§8.6 목록 항목 중 P1에서 있는 값. 번호는 JS 정밀도 손실을 막기 위해 문자열이다(S13).
 
@@ -81,6 +119,9 @@ def account_summary(
         "created_at": account.created_at,
         "activated_at": account.activated_at,
         "theme_count": theme_count,
+        "reputation": reputation,
+        "moderated_kb_count": moderated_kb_count,
+        "sole_moderator": sole_moderator,
     }
     if account.delete_after is not None:
         res["delete_after"] = account.delete_after
@@ -94,12 +135,16 @@ def list_account_summaries(ctx: AccountsContext) -> list[dict[str, Any]]:
     auth = open_auth_db(ctx)
     try:
         counts = _theme_counts(conn)
+        rep_map, mod_counts, sole_mod_ids = _account_kb_stats(conn)
         return [
             account_summary(
                 a,
                 counts.get(a.id, 0),
                 # 관리자는 providers.json을 쓰므로 멤버 항목에만 키 등록 여부를 싣는다(§11.2).
                 has_provider_key=provider_keys.has_key(auth, account_id=a.id) if a.role == "member" else None,
+                reputation=rep_map.get(a.id, "good"),
+                moderated_kb_count=mod_counts.get(a.id, 0),
+                sole_moderator=a.id in sole_mod_ids,
             )
             for a in accounts_store.AccountStore(conn).list_accounts()
         ]
@@ -139,13 +184,22 @@ def _render_admin_accounts_html(
         uname = m.get("username") or t("console.admin.accounts.username_unset")
         st = m.get("status", "")
         st_label = account_status_text(st)
+        rep = str(m.get("reputation") or "good")
+        mod_kbs = int(m.get("moderated_kb_count", 0))
+        sole_warn = (
+            f' <span class="claire-tag warn">{escape(t("console.admin.accounts.sole_mod_warn"))}</span>'
+            if st == "suspended" and (m.get("sole_moderator") or mod_kbs > 0)
+            else ""
+        )
         key_tag = t("console.admin.accounts.key_registered") if m.get("has_provider_key") else t("console.common.none")
         member_trs.append(
             f'<tr data-account-public-id="{escape(pub_id)}" data-account-status="{escape(st)}">'
             f'<td><code class="pref-mono">{escape(pub_id)}</code></td>'
             f"<td><strong>{escape(uname)}</strong></td>"
-            f'<td><span class="badge">{escape(st_label)}</span></td>'
+            f'<td><span class="badge">{escape(st_label)}</span>{sole_warn}</td>'
             f'<td>{int(m.get("theme_count", 0))}</td>'
+            f'<td><span class="claire-tag {"ok" if rep == "good" else "warn"}">{escape(rep)}</span></td>'
+            f'<td>{mod_kbs}</td>'
             f"<td>{escape(key_tag)}</td>"
             f'<td data-member-actions="{escape(pub_id)}">'
             f'<button type="button" class="pref-btn" data-account-action="suspend" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.suspend"))}</button> '
@@ -160,7 +214,7 @@ def _render_admin_accounts_html(
     members_tbody = (
         "".join(member_trs)
         if member_trs
-        else f'<tr><td colspan="6" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.members_empty"))}</td></tr>'
+        else f'<tr><td colspan="8" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.members_empty"))}</td></tr>'
     )
 
     if mode == "network":
@@ -237,7 +291,7 @@ def _render_admin_accounts_html(
         <div class="pref-table-wrap">
           <table class="pref-table">
             <thead>
-              <tr><th>{escape(t("console.admin.accounts.members.col_number"))}</th><th>USERNAME</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.field.themes"))}</th><th>{escape(t("console.admin.accounts.members.col_key"))}</th><th>{escape(t("console.admin.accounts.members.col_actions"))}</th></tr>
+              <tr><th>{escape(t("console.admin.accounts.members.col_number"))}</th><th>USERNAME</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.field.themes"))}</th><th>{escape(t("console.admin.accounts.col_reputation"))}</th><th>{escape(t("console.admin.accounts.col_mod_kbs"))}</th><th>{escape(t("console.admin.accounts.members.col_key"))}</th><th>{escape(t("console.admin.accounts.members.col_actions"))}</th></tr>
             </thead>
             <tbody id="admin-accounts-tbody">{members_tbody}</tbody>
           </table>

@@ -193,6 +193,9 @@
   .docitem .docpin-btn.pinned{opacity:1;color:#e3b341}
   .docitem .docpin-icon{font-size:13px;line-height:1.2;margin-right:2px;flex-shrink:0}
   .docitem .docpin-icon.pinned{color:#e3b341}
+  .docitem .docitem-actions{flex-shrink:0;margin-left:4px;display:inline-flex;align-items:center}
+  .docitem .docitem-actions .claire-icon-btn{min-width:24px;min-height:24px;padding:2px}
+  .docitem .doc-kb-meta{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 2px}
   .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}

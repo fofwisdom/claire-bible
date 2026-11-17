@@ -42,9 +42,9 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "themes", "tokens", "mcp")
-SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
-MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "themes", "tokens", *SETTINGS_SECTIONS[2:])
+ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "kb", "idp", "providers", "limits", "themes", "tokens", "mcp")
+SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "kb", "kb/manage", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
+MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "kb", "kb/manage", "tokens", *SETTINGS_SECTIONS[4:])
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/api/admin/mcp/telemetry")
 
 
@@ -250,9 +250,10 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
 
     for slug in SETTINGS_SECTIONS:
         path = f"/settings/{slug}"
+        expected_sec = "kb_manage" if slug == "kb/manage" else slug
         body = _assert_console_page(_get(env, path, env.admin), path)
         _assert_admin_sidebar(body, path)
-        assert f'data-active-section="{slug}"' in body, path
+        assert f'data-active-section="{expected_sec}"' in body, path
 
     # D3: 관리자의 /settings/themes·/settings/tokens는 /admin/*로 302.
     for slug in ("themes", "tokens"):

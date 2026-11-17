@@ -30,6 +30,7 @@ OTHER_USERNAME = "bob_member"
 
 NEW_ADMIN_PATHS: tuple[str, ...] = (
     "/admin",
+    "/admin/kb",
     "/admin/providers",
     "/admin/limits",
     "/admin/themes",
@@ -43,7 +44,8 @@ ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/settings/account",
     "/settings/federation",
     "/settings/keys",
-    "/settings/themes",
+    "/settings/kb",
+    "/settings/kb/manage",
     "/settings/tokens",
     "/settings/reader",
     "/settings/connections",
@@ -229,8 +231,12 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
         assert adm_page.status_code == 200
         assert adm_page.headers["referrer-policy"] == "same-origin"
 
-        # Regular member gets 200 on /settings/themes and /settings/tokens
-        mem_page = client.get(f"/settings/{slug}", headers=console_env.alice_owner, follow_redirects=False)
+    # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb and /settings/tokens return 200.
+    mem_themes_redirect = client.get("/settings/themes", headers=console_env.alice_owner, follow_redirects=False)
+    assert mem_themes_redirect.status_code == 302
+    assert mem_themes_redirect.headers["location"] == "/settings/kb"
+    for path in ("/settings/kb", "/settings/tokens"):
+        mem_page = client.get(path, headers=console_env.alice_owner, follow_redirects=False)
         assert mem_page.status_code == 200
         assert mem_page.headers["referrer-policy"] == "same-origin"
 
@@ -264,7 +270,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     member_resp = client.get("/settings/reader", headers=console_env.alice_owner)
     assert member_resp.status_code == 200
     assert 'href="/settings/account"' in member_resp.text
-    assert 'href="/settings/themes"' in member_resp.text
+    assert 'href="/settings/kb"' in member_resp.text
     assert 'href="/settings/tokens"' in member_resp.text
     assert 'href="/settings/feeds"' in member_resp.text
     assert "/admin/" not in member_resp.text
@@ -422,7 +428,7 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
             else:
                 assert f'data-prototype-note="{marker}"' in body, (path, marker)
     # 실제로 동작하는 화면에는 표식을 달지 않는다.
-    for path in ("/admin/server", "/admin/providers", "/admin/limits", "/admin/themes"):
+    for path in ("/admin/server", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/kb"):
         assert "data-prototype=" not in client.get(path, headers=console_env.admin_owner).text, path
     for path in ALL_SETTINGS_SECTION_PATHS:
         resp = client.get(path, headers=console_env.alice_owner, follow_redirects=False)

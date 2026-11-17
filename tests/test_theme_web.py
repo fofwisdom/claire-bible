@@ -173,9 +173,12 @@ def test_theme_web_default_focus(tmp_path: Path):
     # 3. 테마 카드에 기본 초점 표시 템플릿 확인
     assert '<span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))}' in html
 
-    # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
-    assert "getFocusPlaceholder" in graph_html and "syncFocusPlaceholder" in graph_html
-    assert "ws.ingest.focus_default_placeholder" in graph_html
+    # 4. Ingest modal seals per-document focus inputs (CT28) and renders standing fictional notice
+    assert 'id="ingfocus"' not in graph_html
+    assert 'id="reingfocus"' not in graph_html
+    assert 'id="regenfocus"' not in graph_html
+    assert 'id="ingest-fiction-notice"' in graph_html
+    assert 'id="btn-ingest-create-kb"' in graph_html
 
 
 def test_theme_web_knowledge_manager_display(tmp_path: Path):

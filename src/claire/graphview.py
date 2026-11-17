@@ -41,6 +41,7 @@ _GRAPH_ENGINE_FILES = ("core.js", "simulation.js", "renderers.js", "network.js")
 def _build_standalone_graph_html() -> str:
     """static 디렉터리와 templates/index.html을 조합하여 단일 자립형 GRAPH_HTML을 동적 생성한다."""
     theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
+    shared_ui_css = (_STATIC_DIR / "css" / "shared_ui.css").read_text(encoding="utf-8")
     ws_css = (_STATIC_DIR / "css" / "workspace.css").read_text(encoding="utf-8")
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
 
@@ -51,6 +52,8 @@ def _build_standalone_graph_html() -> str:
     adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
     reader_js = (_STATIC_DIR / "js" / "reader.js").read_text(encoding="utf-8")
     appbar_js = (_STATIC_DIR / "js" / "appbar.js").read_text(encoding="utf-8")
+    shared_ui_js = (_STATIC_DIR / "js" / "shared_ui.js").read_text(encoding="utf-8")
+    kb_dialogs_js = (_STATIC_DIR / "js" / "kb_dialogs.js").read_text(encoding="utf-8")
     ingest_dialogs_js = (_STATIC_DIR / "js" / "ingest_dialogs.js").read_text(encoding="utf-8")
     command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
     app_js = (_STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
@@ -139,7 +142,7 @@ def _build_standalone_graph_html() -> str:
 
     # The rules of the application bar (static/css/appbar.css) are the same for the workspace, /syndication, and the console.
     appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{ws_css}\n{reader_css}\n</style>"
+    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{shared_ui_css}\n{ws_css}\n{reader_css}\n</style>"
     html = re.sub(r"<link rel=stylesheet href=/static/css/[^>]+>\s*", "", index_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>")
 
@@ -157,7 +160,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{ingest_dialogs_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 

@@ -171,19 +171,25 @@
       const label = (heading.textContent || '').trim();
       if(!label || seen.has(label)) return;
       const hiddenParent = heading.closest('[hidden]');
-      if(hiddenParent) return;
+      const tabPanel = heading.closest('[role="tabpanel"][data-tabpanel]');
+      if(hiddenParent && hiddenParent !== tabPanel) return;
       seen.add(label);
       const anchor = heading.closest('section, form, .card, .console-subcard, .pref-card') || heading;
       if(!anchor.id){
         if(!heading.id) heading.id = 'console-heading-' + (idx + 1);
       }
       const targetEl = anchor.id ? anchor : heading;
+      const tabId = tabPanel ? tabPanel.getAttribute('data-tabpanel') : '';
+      const tabContainer = tabPanel ? tabPanel.closest('.claire-tabs') : null;
+      const tabBtn = (tabContainer && tabId) ? tabContainer.querySelector('[role="tab"][data-tab="' + tabId + '"]') : null;
+      const tabTitle = tabBtn ? (tabBtn.textContent || '').trim() : '';
       cmds.push({
         iconName: 'settings',
         label: label,
-        meta: pageMeta,
-        keywords: label,
+        meta: tabTitle ? (pageMeta + ' · ' + tabTitle) : pageMeta,
+        keywords: label + (tabTitle ? ' ' + tabTitle : ''),
         run: function(){
+          if(tabBtn) tabBtn.click();
           targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
           flashTarget(targetEl);
         }

@@ -495,16 +495,18 @@
   /* ── mcp (user slice: endpoint, discovery, snippets, tool catalog, draft scope) ── */
 
   var MCP_TOOLS = [
-    { name: "resolve_entity", args: [["name", "string", true]], desc: "이름 · 별칭으로 엔티티 찾기 — 탐색 루프의 진입점" },
-    { name: "search", args: [["query", "string", true], ["entity_type", "string"], ["near_ids", "array"], ["limit", "integer"]], desc: "FTS5 전문 검색 (LLM 호출 0)" },
-    { name: "neighbors", args: [["entity_ids", "array", true], ["exclude_ids", "array"], ["limit", "integer"]], desc: "여러 노드의 1홉 이웃 합집합 · degree" },
-    { name: "path", args: [["from_id", "string", true], ["to_id", "string", true], ["max_hops", "integer"]], desc: "두 노드 사이 최단 경로 (BFS)" },
-    { name: "context", args: [["entity_ids", "array", true], ["compact", "boolean"]], desc: "observations · 관계 · 출처 종합 (최대 10개 노드)" },
-    { name: "overview", args: [], desc: "엔티티 타입 분포 · 허브 노드 (오리엔테이션)" },
-    { name: "node", args: [["entity_id", "string", true], ["full", "boolean"]], desc: "노드 1개 상세 (연결 문서 최대 10건)" },
-    { name: "documents", args: [["limit", "integer"], ["since", "string"], ["query", "string"]], desc: "최신순 문서 목록 (최대 100건)" },
-    { name: "document", args: [["document_id", "string", true]], desc: "문서 본문 · 메타데이터 (mark_seen 부작용 없음)" },
-    { name: "stats", args: [], desc: "문서 · 엔티티 · 관계 등 규모 요약" }
+    { name: "resolve_entity", args: [["kb", "string", true], ["name", "string", true]], desc: "이름 · 별칭으로 엔티티 찾기 — 탐색 루프의 진입점" },
+    { name: "search", args: [["kb", "string", true], ["query", "string", true], ["entity_type", "string"], ["near_ids", "array"], ["limit", "integer"]], desc: "FTS5 전문 검색 (LLM 호출 0)" },
+    { name: "neighbors", args: [["kb", "string", true], ["entity_ids", "array", true], ["exclude_ids", "array"], ["limit", "integer"]], desc: "여러 노드의 1홉 이웃 합집합 · degree" },
+    { name: "path", args: [["kb", "string", true], ["from_id", "string", true], ["to_id", "string", true], ["max_hops", "integer"]], desc: "두 노드 사이 최단 경로 (BFS)" },
+    { name: "context", args: [["kb", "string", true], ["entity_ids", "array", true], ["compact", "boolean"]], desc: "observations · 관계 · 출처 종합 (최대 10개 노드)" },
+    { name: "overview", args: [["kb", "string", true]], desc: "엔티티 타입 분포 · 허브 노드 (오리엔테이션)" },
+    { name: "node", args: [["kb", "string", true], ["entity_id", "string", true], ["full", "boolean"]], desc: "노드 1개 상세 (연결 문서 최대 10건)" },
+    { name: "documents", args: [["kb", "string", true], ["limit", "integer"], ["since", "string"], ["query", "string"]], desc: "최신순 문서 목록 (최대 100건)" },
+    { name: "document", args: [["kb", "string", true], ["document_id", "string", true]], desc: "문서 본문 · 메타데이터 (mark_seen 부작용 없음)" },
+    { name: "stats", args: [["kb", "string", true]], desc: "문서 · 엔티티 · 관계 등 규모 요약" },
+    { name: "kb_candidates", args: [["document_id", "string", true]], desc: "문서의 일치 테마·공유 지식베이스 기여 후보 조회" },
+    { name: "kb_submit", args: [["documents", "array", true], ["theme", "string"]], desc: "추출된 문서를 공유 지식베이스로 기여 제출" }
   ];
 
   var MCP_PROPOSED_TOOLS = [
@@ -517,22 +519,20 @@
 
   function mcpEndpoint() { return window.location.origin + "/mcp"; }
 
-  function schemaFor(args, withTheme) {
+  function schemaFor(args) {
     var properties = {};
     var required = [];
     args.forEach(function (a) {
       properties[a[0]] = a[1] === "array" ? { type: "array", items: { type: "string" } } : { type: a[1] };
       if (a[2]) required.push(a[0]);
     });
-    if (withTheme) properties.theme = { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }], default: null };
     var schema = { type: "object", properties: properties };
     if (required.length) schema.required = required;
     return schema;
   }
 
-  function argLabel(args, withTheme) {
+  function argLabel(args) {
     var parts = args.map(function (a) { return a[2] ? a[0] : a[0] + "?"; });
-    if (withTheme) parts.push("theme?");
     return parts.length ? parts.join(", ") : "—";
   }
 
@@ -546,11 +546,11 @@
     var proposedOn = MCP_PROPOSED_TOOLS.filter(proposedToolOn);
     var ep = mcpEndpoint();
     byId("pref-mcp-endpoint").textContent = ep;
-    byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { query: "…", theme: THEME_REF } });
+    byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
     byId("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
     byId("pref-mcp-stats").innerHTML = [
       ["Streamable HTTP", "stateless · JSON 응답"],
-      [MCP_TOOLS.length + "종", "읽기 전용 도구 (구현)"],
+      [MCP_TOOLS.length + "종", "도구 (kb 필수 · 기여 포함)"],
       ["3채널", "상시 토큰 · 텔레그램 세션 · OAuth 2.1"],
       ["+" + proposedOn.length, "제안 도구 (미리보기)"]
     ].map(function (p) { return '<div class="pref-stat"><b>' + escapeHtml(p[0]) + "</b><span>" + escapeHtml(p[1]) + "</span></div>"; }).join("");
@@ -559,7 +559,7 @@
     byId("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { type: "http", url: ep, headers: { Authorization: "Bearer cb_…" } } } }, null, 2);
 
     byId("pref-mcp-tools-tbody").innerHTML = MCP_TOOLS.map(function (t) {
-      return '<tr><td><code class="pref-mono">' + escapeHtml(t.name) + '</code></td><td class="pref-mono">' + escapeHtml(argLabel(t.args, true)) + '</td><td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
+      return '<tr><td><code class="pref-mono">' + escapeHtml(t.name) + '</code></td><td class="pref-mono">' + escapeHtml(argLabel(t.args)) + '</td><td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
     }).join("");
 
     byId("pref-mcp-proposed-tbody").innerHTML = MCP_PROPOSED_TOOLS.map(function (t) {
@@ -567,13 +567,13 @@
       var on = proposedToolOn(t);
       return '<tr data-off="' + (on ? "false" : "true") + '">'
         + '<td><input type="checkbox" switch data-mcp-proposed="' + escapeHtml(t.name) + '" ' + (on ? "checked" : "") + " " + (available ? "" : "disabled") + ' aria-label="' + escapeHtml(t.name) + ' 미리보기 포함"/></td>'
-        + '<td><code class="pref-mono">' + escapeHtml(t.name) + '</code><br/><span class="pref-mono" style="color:var(--muted)">' + escapeHtml(argLabel(t.args, true)) + "</span></td>"
+        + '<td><code class="pref-mono">' + escapeHtml(t.name) + '</code><br/><span class="pref-mono" style="color:var(--muted)">' + escapeHtml(argLabel(t.args)) + "</span></td>"
         + '<td><code class="pref-mono">' + escapeHtml(t.scope) + "</code>" + (available ? "" : '<br/><span style="color:var(--muted);font-size:11px">\'발행 초안 허용\'에서만</span>') + "</td>"
         + '<td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
     }).join("");
 
-    var listed = MCP_TOOLS.map(function (t) { return { name: t.name, description: t.desc, inputSchema: schemaFor(t.args, true) }; })
-      .concat(proposedOn.map(function (t) { return { name: t.name, description: "[제안] " + t.desc, inputSchema: schemaFor(t.args, true) }; }));
+    var listed = MCP_TOOLS.map(function (t) { return { name: t.name, description: t.desc, inputSchema: schemaFor(t.args) }; })
+      .concat(proposedOn.map(function (t) { return { name: t.name, description: "[제안] " + t.desc, inputSchema: schemaFor(t.args) }; }));
     byId("pref-mcp-toolslist").textContent = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: listed } }, null, 2);
   }
 

@@ -9,14 +9,13 @@ test('the console shows English text for an English browser, in the server text 
   await page.goto('/?t=e2e-consolei18n-token-0123456789a', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 
-  // Server text of a section, and the theme panel that manage_panels.js renders.
+  // Server text of a section, and the 3-tab judgement console that console_admin.js renders.
   await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('#admin-themes-summary h2')).toContainText('Theme slots of the full server');
   const themes = page.locator('#admin-themes-host');
-  await expect(themes.locator('h2')).toHaveText(/Knowledge theme management/);
-  await expect(themes.getByRole('button', { name: 'Show options' }).first()).toBeVisible();
-  await expect(themes.getByText('Add a new theme')).toBeVisible();
+  await expect(themes.getByRole('tab', { name: /Judgement/ })).toBeVisible();
+  await expect(themes.getByRole('button', { name: 'Run theme judgement now' })).toBeVisible();
 
   // The provider panel (administrator area): script text with parameters.
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
@@ -37,7 +36,7 @@ test('the console shows English text for an English browser, in the server text 
   await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   await expect(page.locator('#settings-account-info h2')).toContainText('계정 정보');
   await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#admin-themes-host h2')).toHaveText(/지식 테마 관리/);
+  await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정기/ })).toBeVisible();
 
   // The stored language is a setting of the seed account, which other tests share: set it back to automatic.
   await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });

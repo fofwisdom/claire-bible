@@ -725,6 +725,37 @@
         });
       });
     });
+
+    var delActToggle = document.getElementById("pref-delete-activity");
+    var delActResult = document.getElementById("pref-delete-activity-result");
+    if (delActToggle) {
+      delActToggle.addEventListener("change", function () {
+        var next = delActToggle.checked;
+        request("PATCH", "/api/me", { delete_activity_records: next }).then(function (r) {
+          if (r.ok) {
+            if (delActResult) { delActResult.textContent = tr("console.js.account.delete_activity_saved"); delActResult.setAttribute("data-state", "ok"); }
+            return;
+          }
+          if (delActResult) { delActResult.textContent = errorText(r.status, r.body); delActResult.setAttribute("data-state", "error"); }
+        });
+      });
+    }
+    var delPreviewBtn = document.getElementById("pref-delete-preview-btn");
+    if (delPreviewBtn) {
+      delPreviewBtn.addEventListener("click", function () {
+        var incAct = !!(delActToggle && delActToggle.checked);
+        request("POST", "/api/me/delete-preview", { include_activity: incAct }).then(function (r) {
+          if (!delActResult) return;
+          if (r.ok && r.body) {
+            delActResult.textContent = JSON.stringify(r.body);
+            delActResult.setAttribute("data-state", "ok");
+          } else {
+            delActResult.textContent = r.status === 404 ? tr("kb.dlg.backend_pending") : errorText(r.status, r.body);
+            delActResult.setAttribute("data-state", r.status === 404 ? "ok" : "error");
+          }
+        });
+      });
+    }
   }
 
   // I18N design Section 6.2: the interface language selector. The server renders the page text, thus a successful change loads the page again.
