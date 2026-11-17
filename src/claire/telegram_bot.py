@@ -711,17 +711,24 @@ def parse_message_theme(
 def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: int, *, for_read: bool = False) -> Any | None:
     """사용자가 /kb 로 고른 지식 베이스를 엄격하게 찾는다.
 
-    고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 ``bot.theme.stale`` 메시지로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
+    고른 적이 없으면 봇 계정의 개인 지식 베이스다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 ``bot.theme.stale`` 메시지로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
 
     ``for_read`` (search and read): the selection can be a shared knowledge base. Else (ingest and the work on ingested items) a selected shared knowledge base gives the personal knowledge base of the account: ingest goes to the personal knowledge base only (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
     """
     from .store.knowledge_base import KnowledgeBaseNotFound
 
     scoped = hasattr(theme_mgr, "get_readable_kb")
+
+    def _personal() -> Any:
+        return theme_mgr.personal_kb() if scoped else theme_mgr.personal_kb_for(dbm.ADMIN_ACCOUNT_ID)
+
+    if user_id not in selections:
+        # No selection: the personal knowledge base of the account of the bot. The number 0 is the knowledge base of the admin; the bot of a member account cannot use it.
+        return _personal()
     try:
-        selected = (theme_mgr.get_readable_kb if scoped else theme_mgr.get_kb)(selections.get(user_id, 0))
+        selected = (theme_mgr.get_readable_kb if scoped else theme_mgr.get_kb)(selections[user_id])
         if not for_read and getattr(selected, "is_shared", False):
-            return theme_mgr.personal_kb() if scoped else theme_mgr.personal_kb_for(dbm.ADMIN_ACCOUNT_ID)
+            return _personal()
         return selected
     except KnowledgeBaseNotFound:
         selections.pop(user_id, None)
@@ -1298,7 +1305,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if current_theme is None:
             # 삭제된 선택은 지웠으므로 선택 없음(기본 테마 0)으로 보여 주고 그 사실을 알린다
             stale_lines = [_t("bot.theme.stale_cleared"), ""]
-            current_theme = theme_mgr.get_kb(0)
+            current_theme = theme_mgr.personal_kb()
         current_tid = current_theme.id
         lines = stale_lines + [
             _t("bot.theme.current", icon=_h(current_theme.icon), label=_h(current_theme.label), id=current_theme.id),
@@ -1351,8 +1358,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             active_svc = service_pool.get_service(active_kb_id)
         else:
             text = raw_text
-            active_kb_id = 0
-            active_theme = theme_mgr.get_kb(0)
+            active_theme = theme_mgr.personal_kb()
+            active_kb_id = active_theme.id
             active_svc = svc
 
         # CT28: the parser still separates the URL from the text after a separator; the text is ignored.
@@ -1586,8 +1593,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             }
             return
 
-        active_tid = explicit_kb_id if explicit_kb_id is not None else 0
-        active_theme = theme_mgr.get_kb(active_tid)
+        # Ingest with no named knowledge base goes to the personal knowledge base of the account of the bot (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
+        active_theme = theme_mgr.get_kb(explicit_kb_id) if explicit_kb_id is not None else theme_mgr.personal_kb()
         status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,
@@ -1696,8 +1703,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             }
             return
 
-        active_tid = explicit_tid if explicit_tid is not None else 0
-        active_theme = theme_mgr.get_kb(active_tid)
+        # Ingest with no named knowledge base goes to the personal knowledge base of the account of the bot (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
+        active_theme = theme_mgr.get_kb(explicit_tid) if explicit_tid is not None else theme_mgr.personal_kb()
         status_text = (
             _t("bot.progress.composite", name=name)
             if is_composite
@@ -1795,8 +1802,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             }
             return
 
-        active_tid = explicit_tid if explicit_tid is not None else 0
-        active_theme = theme_mgr.get_kb(active_tid)
+        # Ingest with no named knowledge base goes to the personal knowledge base of the account of the bot (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
+        active_theme = theme_mgr.get_kb(explicit_tid) if explicit_tid is not None else theme_mgr.personal_kb()
         status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,

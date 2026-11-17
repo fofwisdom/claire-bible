@@ -1,6 +1,6 @@
 """Store of the themes: collections of knowledge bases with the same subject and the same knowledge type (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8 and 11.2, unit CT-1).
 
-Only this module reads and writes the tables ``themes``, ``theme_knowledge_bases``, ``theme_remote_knowledge_bases``, ``kb_signatures``, and ``kb_document_matches`` (store boundary RD27 R2).
+Only this module reads and writes the tables ``themes``, ``theme_knowledge_bases``, ``theme_remote_knowledge_bases``, ``kb_signatures``, ``kb_judged_counts``, and ``kb_document_matches`` (store boundary RD27 R2).
 
 A remote knowledge base (a record of ``knowledge_federation.remote_kbs``) can be a member of a local theme (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2). Its memberships are in ``theme_remote_knowledge_bases``, with the same columns and the same admin adjustments as a local membership. A theme number never leaves the server.
 
@@ -240,6 +240,33 @@ def load_signatures(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(zip(_SIGNATURE_KEYS, tuple(r))) for r in rows]
 
 
+# The count of all visible documents of each public knowledge base at the last judgement run (design Section 8.2 rule 10). ``kb_signatures.visible_documents`` cannot give it: that count has no fiction-like documents, and a knowledge base without a signature has no row there.
+_JUDGED_COUNT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kb_judged_counts (
+    kb_id INTEGER PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    visible_documents INTEGER NOT NULL,
+    counted_at REAL NOT NULL
+)
+"""
+
+
+def ensure_judged_count_schema(conn: sqlite3.Connection) -> None:
+    """Make the table of the judged counts when it is not there. Idempotent; the migration of ``store.db`` calls it at each start."""
+    conn.execute(_JUDGED_COUNT_SCHEMA)
+
+
+def replace_judged_counts(conn: sqlite3.Connection, counts: dict[int, int], *, now: float | None = None) -> None:
+    """Store the count of visible documents of each knowledge base of a judgement run, in place of the counts of the run before."""
+    ts = time.time() if now is None else now
+    conn.execute("DELETE FROM kb_judged_counts")
+    conn.executemany("INSERT INTO kb_judged_counts (kb_id, visible_documents, counted_at) VALUES (?, ?, ?)", [(int(kb_id), int(count), ts) for kb_id, count in counts.items()])
+
+
+def load_judged_counts(conn: sqlite3.Connection) -> dict[int, int]:
+    """Knowledge base → the count of its visible documents at the last judgement run. A knowledge base that was not in that run is not in the result."""
+    return {int(r[0]): int(r[1]) for r in conn.execute("SELECT kb_id, visible_documents FROM kb_judged_counts").fetchall()}
+
+
 _MATCH_KEYS = ("document_id", "kb_id", "theme_id", "knowledge_type", "score", "computed_at")
 
 
@@ -274,9 +301,10 @@ def delete_document_matches_of_kb(conn: sqlite3.Connection, kb_id: int) -> None:
 
 
 def delete_kb_rows(conn: sqlite3.Connection, kb_id: int) -> None:
-    """Delete the theme rows of a knowledge base that goes: its document matches, its signature, and its memberships in themes."""
+    """Delete the theme rows of a knowledge base that goes: its document matches, its signature, its judged count, and its memberships in themes."""
     delete_document_matches_of_kb(conn, kb_id)
     delete_signature(conn, kb_id)
+    conn.execute("DELETE FROM kb_judged_counts WHERE kb_id=?", (int(kb_id),))
     conn.execute("DELETE FROM theme_knowledge_bases WHERE kb_id=?", (int(kb_id),))
 
 
@@ -294,7 +322,10 @@ def kb_type_for_themes(conn: sqlite3.Connection, kb_id: int) -> str | None:
 
 
 def merge_themes(conn: sqlite3.Connection, *, source_id: int, target_id: int, now: float | None = None) -> None:
-    """Merge theme A into theme B (design Section 8.3): A gets the state ``merged`` and points to B, and the members of A are pinned to B. The two themes must have one knowledge type. No commit."""
+    """Merge theme A into theme B (design Section 8.3): A gets the state ``merged`` and points to B, and the shared members of A (local and remote) are pinned to B. The two themes must have one knowledge type. No commit.
+
+    An attached personal knowledge base of A gets no pin: a pin stays when the knowledge base becomes private or its account gets the reputation ``low``. The next judgement run attaches it again when its score permits.
+    """
     source, target = get_theme(conn, source_id), get_theme(conn, target_id)
     if source is None or target is None:
         raise KeyError("theme not found")
@@ -302,8 +333,10 @@ def merge_themes(conn: sqlite3.Connection, *, source_id: int, target_id: int, no
         raise ValueError("theme_merge_invalid")
     if source["knowledge_type"] != target["knowledge_type"]:
         raise ValueError("knowledge_type_mismatch")
+    shared = {int(r[0]) for r in conn.execute("SELECT id FROM knowledge_bases WHERE COALESCE(is_personal, 0)=0")}
     for member in theme_members(conn, source_id):
-        set_admin_member(conn, theme_id=target_id, kb_id=int(member["kb_id"]), pinned=True, excluded=False)
+        if int(member["kb_id"]) in shared:
+            set_admin_member(conn, theme_id=target_id, kb_id=int(member["kb_id"]), pinned=True, excluded=False)
     conn.execute("DELETE FROM theme_knowledge_bases WHERE theme_id=?", (int(source_id),))
     # The remote members go with the local ones (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2).
     for member in remote_members(conn, theme_id=source_id):
