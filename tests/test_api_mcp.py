@@ -2,7 +2,7 @@
 
 - 표준 MCP HTTP 사양: 미인증/무효 토큰 요청 시 401 Unauthorized + WWW-Authenticate: Bearer
 - X-Session 헤더 및 Bearer 토큰을 통한 단일 활성 세션 인증
-- tools/list 10종 툴 노출 및 tools/call JSON-RPC 통신
+- tools/list 12종 툴 노출 및 tools/call JSON-RPC 통신
 - 세션 재발급 시 이전 세션 토큰 즉시 무효화
 """
 
@@ -175,7 +175,7 @@ def test_mcp_owner_bearer_tools_list_and_call(tmp_path: Path) -> None:
         assert resp.status_code == 200
         body = resp.json()
         names = {t["name"] for t in body["result"]["tools"]}
-        assert len(names) == 10
+        assert len(names) == 12 and {"kb_candidates", "kb_submit"} <= names
 
 
 def test_mcp_session_regeneration_invalidates_previous_token(tmp_path: Path) -> None:

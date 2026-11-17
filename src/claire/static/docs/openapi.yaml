@@ -757,6 +757,211 @@ paths:
         '409':
           description: '`contribution_not_failed`.'
 
+  /api/auto-rule:
+    get:
+      summary: Automatic rule of the account and the server switch
+      operationId: getAutoRule
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+    put:
+      summary: Set the automatic rule
+      description: >-
+        To turn the rule on or to make it wider needs a recent sign-in. A run starts after the save when the server switch is on.
+      operationId: setAutoRule
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The result.
+
+  /api/auto-rule/dry-run:
+    post:
+      summary: Documents that a rule would send now
+      description: >-
+        The body is a rule. The answer has each target with its mode and documents. It writes nothing.
+      operationId: dryRunAutoRule
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The result.
+
+  /api/auto-contributions:
+    get:
+      summary: Automatic contributions of the account
+      operationId: listAutoContributions
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: OrderedCollection or OrderedCollectionPage of contributions.
+
+  /api/contribution-blocks:
+    get:
+      summary: Documents with the flag never contribute
+      operationId: listContributionBlocks
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+
+  /api/contribution-blocks/{document}:
+    parameters:
+      - name: document
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Set the flag never contribute
+      operationId: setContributionBlock
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+    delete:
+      summary: Remove the flag never contribute
+      operationId: removeContributionBlock
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+
+  /api/mutual-collaborations:
+    get:
+      summary: Mutual collaborations and requests of the account
+      operationId: listMutualCollaborations
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+    post:
+      summary: Request a mutual collaboration
+      description: >-
+        Body `{"account": "<number>"}`. It needs a recent sign-in.
+      operationId: requestMutualCollaboration
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: The result.
+
+  /api/mutual-collaborations/{account}:
+    parameters:
+      - name: account
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Accept the request of an account
+      description: >-
+        It needs a recent sign-in. The rules of the two accounts run.
+      operationId: acceptMutualCollaboration
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+    delete:
+      summary: End a mutual collaboration or remove a request
+      operationId: endMutualCollaboration
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+
+  /api/admin/auto-contribution:
+    get:
+      summary: Server switch of the automatic contribution and its settings
+      operationId: getAutoContributionSwitch
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The result.
+    put:
+      summary: Set the server switch and its settings
+      description: >-
+        Body: `state` (`on` or `off`), `auto_match_threshold`, `auto_run_documents`.
+      operationId: setAutoContributionSwitch
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The result.
+
   /api/reputation:
     get:
       summary: Reputation of the account of the credential

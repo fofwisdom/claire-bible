@@ -310,7 +310,7 @@ def documents_impl(
 
 
 def get_mcp_tools_metadata() -> list[dict[str, Any]]:
-    """MCP 서버에 등록된 10종 도구의 표준 메타데이터 목록 반환."""
+    """MCP 서버에 등록된 12종 도구의 표준 메타데이터 목록 반환."""
     return [
         {
             "name": "resolve_entity",
@@ -371,6 +371,18 @@ def get_mcp_tools_metadata() -> list[dict[str, Any]]:
             "description": "지식베이스 규모(문서/엔티티/관계/OAuth 테이블 등) 요약",
             "read_only": True,
             "parameters": ["kb"],
+        },
+        {
+            "name": "kb_candidates",
+            "description": "Documents of the personal knowledge base that fit a shared knowledge base or a theme, with scores (no LLM call)",
+            "read_only": True,
+            "parameters": ["kb", "theme", "include_uploads"],
+        },
+        {
+            "name": "kb_submit",
+            "description": "Contribute documents of the personal knowledge base to themes (scope write)",
+            "read_only": False,
+            "parameters": ["documents", "theme"],
         },
     ]
 
@@ -616,6 +628,124 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             return _timed_call("document", _fetch_doc)
         finally:
             conn.close()
+
+    def _personal_kb_of_principal() -> tuple[int, int, str] | None:
+        """The account, its personal knowledge base, and the scope of the principal of the call. None for an anonymous call or an account with no personal knowledge base."""
+        principal = current_principal.get()
+        if principal is None or principal.account_id is None or theme_mgr is None:
+            return None
+        try:
+            return int(principal.account_id), theme_mgr.personal_kb_for(int(principal.account_id)).id, str(principal.scope)
+        except KnowledgeBaseNotFound:
+            return None
+
+    @mcp.tool()
+    async def kb_candidates(kb: str | int | None = None, theme: str | int | None = None, include_uploads: bool = False) -> dict:
+        """The documents of your personal knowledge base that fit a shared knowledge base (``kb``: its number) or the shared knowledge bases of a theme (``theme``: its number), with scores. Read only; the server makes no LLM call. Give ``kb`` or ``theme``, not the two. Use ``kb_submit`` to contribute documents."""
+        from .. import auto_contribution
+        from ..store import themes as themes_store
+
+        who = _personal_kb_of_principal()
+        if who is None:
+            return {"error": "account_required"}
+        account_id, personal_id, _scope = who
+        if (kb is None) == (theme is None):
+            return {"error": "kb_or_theme_required"}
+
+        def _work() -> dict:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                if kb is not None:
+                    try:
+                        target = theme_mgr.get_kb_by_reference(kb)
+                    except KnowledgeBaseNotFound:
+                        return {"error": "kb_not_found"}
+                    if not getattr(target, "is_shared", False):
+                        return {"error": "kb_not_found"}
+                    kb_ids = [target.id]
+                else:
+                    try:
+                        row = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(theme)))
+                    except ValueError:
+                        row = None
+                    if row is None or row["state"] != "active":
+                        return {"error": "theme_not_found"}
+                    kb_ids = [int(m["kb_id"]) for m in themes_store.theme_members(conn, int(row["id"]))]
+                targets = []
+                for kb_id in kb_ids:
+                    try:
+                        info = theme_mgr.get_kb(kb_id)
+                    except KnowledgeBaseNotFound:
+                        continue
+                    if not info.is_shared or info.state != "active":
+                        continue
+                    found = auto_contribution.candidates(conn, account_id=account_id, personal_kb_id=personal_id, kb_id=kb_id, include_uploads=bool(include_uploads))
+                    targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "documents": found})
+                return {"targets": targets}
+            finally:
+                conn.close()
+
+        return _timed_call("kb_candidates", _work)
+
+    @mcp.tool()
+    async def kb_submit(documents: list[str], theme: str | int | None = None) -> dict:
+        """Contribute documents of your personal knowledge base to themes (the same as ``POST /submissions``). With ``theme`` (its number) you select the theme; without it the server uses the theme match of each document. A credential with the scope ``readonly`` cannot use this tool. The result gives the state of each target; a contribution of an account that is not a reviewer of the target waits for approval."""
+        from .. import contributions
+        from ..ingest.service import run_waiting_merge_jobs
+        from ..store import kb_collab
+        from ..store import themes as themes_store
+
+        who = _personal_kb_of_principal()
+        if who is None:
+            return {"error": "account_required"}
+        account_id, personal_id, scope = who
+        if scope not in ("owner", "write"):
+            return {"error": "scope_insufficient"}
+        if not isinstance(documents, list) or not all(isinstance(d, str) and d.strip() for d in documents):
+            return {"error": "documents_invalid"}
+
+        def _work() -> dict:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme_id = None
+                if theme is not None:
+                    try:
+                        row = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(theme)))
+                    except ValueError:
+                        row = None
+                    if row is None or row["state"] != "active":
+                        return {"error": "theme_not_found"}
+                    theme_id = int(row["id"])
+                is_admin = conn.execute("SELECT role FROM accounts WHERE id=?", (account_id,)).fetchone()[0] == "admin"
+                try:
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=is_admin, personal_kb_id=personal_id, documents=[d.strip() for d in documents], theme_id=theme_id)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return {"error": exc.code, **exc.extra}
+                conn.commit()
+            finally:
+                conn.close()
+            run_waiting_merge_jobs(s)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                items = []
+                for item in kb_collab.submission_items(conn, number):
+                    made = {int(c["kb_id"]): c for c in kb_collab.contributions_of_item(conn, int(item["id"]))}
+                    reasons = {int(e["kb_id"]): e["reason"] for e in item["skipped"]}
+                    targets = []
+                    for kb_id in item["target_kb_ids"]:
+                        info = theme_mgr.get_kb(kb_id)
+                        state = made[kb_id]["state"] if kb_id in made else "skipped"
+                        targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "state": state, **({"reason": reasons[kb_id]} if kb_id in reasons else {})})
+                    entry = {"document": item["source_document_id"], "routed_by": item["routed_by"], "score": item["match_score"], "targets": targets}
+                    if item["theme_id"] is None:
+                        entry["code"] = "no_theme"
+                    items.append(entry)
+                return {"submission": ids.format_public_id(number), "items": items}
+            finally:
+                conn.close()
+
+        return _timed_call("kb_submit", _work)
 
     @mcp.tool()
     async def stats(kb: str | int | None = None) -> dict:
