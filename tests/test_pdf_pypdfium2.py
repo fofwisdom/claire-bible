@@ -89,6 +89,38 @@ def test_pypdfium2_extracts_links():
     assert "https://example.com/research" in res.links
 
 
+
+def _create_pdf_with_wrapped_link(full_url: str) -> bytes:
+    """Create a PDF whose visible URL wraps after "https://www" and whose link annotation holds the full URL."""
+    content = b"BT\n/F1 12 Tf\n20 250 Td\n(See https://www) Tj\n0 -20 Td\n(.example.org/long/path for data) Tj\nET\n"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>",
+        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Annot /Subtype /Link /Rect [20 220 280 265] /Border [0 0 0] /A << /S /URI /URI (" + full_url.encode() + b") >> >>",
+    ]
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for i, body in enumerate(objs, start=1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+def test_pypdfium2_link_annotation_replaces_wrapped_url_fragment():
+    """The full URL comes from the link annotation; the text fragment cut at the line wrap is not kept."""
+    full_url = "https://www.example.org/long/path"
+    res = extract_pdf_stream_pypdfium2(io.BytesIO(_create_pdf_with_wrapped_link(full_url)))
+    assert full_url in res.links
+    assert "https://www" not in res.links
+    assert all("." in u.split("/")[2] for u in res.links)
+
 def test_pypdfium2_encrypted_pdf_handling():
     """Verify encrypted PDF returns 'encrypted PDF' error."""
     writer = pypdf.PdfWriter()

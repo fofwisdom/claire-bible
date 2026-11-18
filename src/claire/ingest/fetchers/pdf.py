@@ -70,6 +70,38 @@ REFERENCES_PATTERNS = [
 ]
 
 
+def _drop_url_fragments(links: list[str]) -> list[str]:
+    """Remove an address that text detection cut at a line wrap.
+
+    A fragment has a host without a dot ("https://www") or is the start of a longer address in the same list.
+    """
+    from urllib.parse import urlsplit
+
+    kept: list[str] = []
+    for u in links:
+        host = urlsplit(u).hostname or ""
+        if "." not in host:
+            continue
+        if any(other != u and other.startswith(u) for other in links):
+            continue
+        kept.append(u)
+    return kept
+
+
+_SENTENCE_CONTINUATION_END = re.compile(r"[a-z,;(\-–]$")
+
+
+def _continues_sentence(text: str, m: re.Match[str]) -> bool:
+    """Return True when the match is a wrapped line of a body sentence, not a heading.
+
+    A heading starts after a blank line or after a line that ends a sentence. A line such as "details are in" that ends with a lower-case word or a comma continues on the next line ("Appendix B. We want ...").
+    """
+    if re.match(r"\r?\n[^\S\n]*\r?\n", m.group(0)):
+        return False
+    prev_line = text[: m.start()].rsplit("\n", 1)[-1].rstrip()
+    return bool(prev_line) and bool(_SENTENCE_CONTINUATION_END.search(prev_line))
+
+
 def find_appendix_split(text: str) -> tuple[int, str] | None:
     """PDF 본문에서 부록(Appendix) 섹션 시작 위치 검출.
 
@@ -82,7 +114,7 @@ def find_appendix_split(text: str) -> tuple[int, str] | None:
     matches: list[tuple[int, str]] = []
     for pat in APPENDIX_PATTERNS:
         for m in pat.finditer(text):
-            if m.start() > 0:
+            if m.start() > 0 and not _continues_sentence(text, m):
                 header = m.group(0).strip()
                 matches.append((m.start(), header))
     if not matches:
@@ -389,6 +421,26 @@ def extract_pdf_stream_pypdfium2(
                     pages_text.append(pt)
                     total_len += len(pt)
 
+                # Link annotations (URI actions) hold the full address, also when the visible text wraps.
+                try:
+                    pos = ctypes.c_int(0)
+                    link_obj = pdfium_c.FPDF_LINK()
+                    while len(links) < 50 and pdfium_c.FPDFLink_Enumerate(page.raw, ctypes.byref(pos), ctypes.byref(link_obj)):
+                        action = pdfium_c.FPDFLink_GetAction(link_obj)
+                        if not action or pdfium_c.FPDFAction_GetType(action) != pdfium_c.PDFACTION_URI:
+                            continue
+                        n = pdfium_c.FPDFAction_GetURIPath(doc.raw, action, None, 0)
+                        if n <= 0:
+                            continue
+                        uri_buf = ctypes.create_string_buffer(n)
+                        pdfium_c.FPDFAction_GetURIPath(doc.raw, action, uri_buf, n)
+                        u = uri_buf.value.decode("utf-8", errors="ignore").strip()
+                        if u.startswith(("http://", "https://")) and u not in seen_links:
+                            seen_links.add(u)
+                            links.append(u)
+                except Exception:
+                    pass
+
                 # PDFium 내장 웹 링크 추출
                 try:
                     weblinks = pdfium_c.FPDFLink_LoadWebLinks(textpage)
@@ -459,7 +511,7 @@ def extract_pdf_stream_pypdfium2(
             return PdfExtractResult(
                 title,
                 full_text,
-                links[:50],
+                _drop_url_fragments(links)[:50],
                 anchors,
                 None,
                 [],
@@ -565,7 +617,7 @@ def extract_pdf_stream_pypdf(
         return PdfExtractResult(
             title,
             full_text,
-            links[:50],
+            _drop_url_fragments(links)[:50],
             anchors,
             None,
             [],

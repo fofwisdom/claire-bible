@@ -96,6 +96,23 @@ def test_find_appendix_split_false_positives():
     assert find_appendix_split(t4) is None
 
 
+
+def test_find_appendix_split_skips_wrapped_body_line():
+    """A body sentence that wraps before "Appendix B." is not a heading; the real heading after it is the split."""
+    body = "4 EQUILIBRIUM\r\n4.1 Equilibrium. We describe the concept informally; details are in\r\nAppendix B. We want to determine two objects: the industry structure.\r\nMore body text.\r\n"
+    text = body + "REFERENCES\r\nSmith 2020.\r\nAPPENDIX\r\nProofs."
+    res = find_appendix_split(text)
+    assert res is not None
+    assert res[1] == "APPENDIX"
+    assert "We want to determine" in text[: res[0]]
+
+    after_comma = "We use the notation of the model,\nAppendix C. Defines the rest.\n"
+    assert find_appendix_split(after_comma) is None
+
+    after_period = "This ends the body.\nAppendix C. Proofs\nProof 1."
+    res2 = find_appendix_split(after_period)
+    assert res2 is not None and res2[1] == "Appendix C. Proofs"
+
 def test_slice_pdf_text_pure_appendix_truncated():
     """본문이 예산 내에 있고 부록만 절단한 경우 appendix_truncated=True 검증."""
     main_text = "Paper Main Body Paragraph. " * 500  # ~13,500자

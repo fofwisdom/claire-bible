@@ -124,7 +124,7 @@ Tests: `tests/test_http_security.py`. [code]
 
 - There is no layout-analysis or vision tier for PDF text. Docling is removed from the dependencies. [code]
 - `ops/cb_manuscript.py` `_check_pdf_parser` stops `cb-manuscript` preflight when `CLAIRE_PDF_PARSER` (or `pdf_parser` in `ingest_limits.json`) is `pypdf` or `docling`. [code]
-- Both engines stop at 1,000 pages with text or 10,000,000 characters. Both take the title from PDF metadata, else from the first two text lines, else from `fallback_title`. Both collect at most 50 HTTP links (PDF link annotations and URLs in the text). [code]
+- Both engines stop at 1,000 pages with text or 10,000,000 characters. Both take the title from PDF metadata, else from the first two text lines, else from `fallback_title`. Both collect at most 50 HTTP links (PDF link annotations and URLs in the text). pypdfium2 reads the link annotations of a page before the text links. `_drop_url_fragments` removes an address that text detection cut at a line wrap: a host without a dot (`https://www`) or the start of a longer address in the list. [code]
 - `PdfExtractResult` is a 6-tuple `(title, text, links, anchors, error, images)` with more attributes: `parser_requested`, `parser_used`, `parser_fallback`, `parser_fallback_reason`, `encoding_flaw_detected`, `encoding_flaws`, `is_scanned`, `encoding_flaw_details`, `pdf_metadata`. [code]
 - An empty text layer gives the error `empty PDF content`. `fetch_file` and the web chain then fail. There is no OCR. [code]
 
@@ -136,7 +136,7 @@ These keys go to `IngestReport` (CLI and Telegram summary), to the Telegram comp
 
 ### 5.3 Appendix and references cut
 
-`slice_pdf_text(text, limit, *, strategy, exclude_appendix, exclude_references)` finds the first heading of an appendix (`APPENDIX_PATTERNS`, English and Korean) and of references (`REFERENCES_PATTERNS`), cuts the text at the earlier one, then applies the budget with `slice_document_text`. It returns `(text, is_truncated, appendix_truncated, references_truncated, orig_chars, raw_chars)`. `CLAIRE_PDF_EXCLUDE_APPENDIX` and `CLAIRE_PDF_EXCLUDE_REFERENCES` (both on by default) control it. With `full_content`, neither cut is applied. Presentation PDFs never get the cuts (§10.2). [code]
+`slice_pdf_text(text, limit, *, strategy, exclude_appendix, exclude_references)` finds the first heading of an appendix (`APPENDIX_PATTERNS`, English and Korean) and of references (`REFERENCES_PATTERNS`), cuts the text at the earlier one, then applies the budget with `slice_document_text`. An appendix match is not a heading when it follows a single line break after a line that ends with a lower-case letter, `,`, `;`, `(`, or a dash (`_continues_sentence`): that line is a wrapped body sentence such as "details are in / Appendix B. We want …". It returns `(text, is_truncated, appendix_truncated, references_truncated, orig_chars, raw_chars)`. `CLAIRE_PDF_EXCLUDE_APPENDIX` and `CLAIRE_PDF_EXCLUDE_REFERENCES` (both on by default) control it. With `full_content`, neither cut is applied. Presentation PDFs never get the cuts (§10.2). [code]
 
 ### 5.4 ODT preference and local files
 
