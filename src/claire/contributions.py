@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .extract.decision import EXTRACTED_NAME_KEY, Provenance
 from .extract.provider import ExtractionResult
 from .extract.resolver import resolve_or_create
 from .ontology.base import Relation, new_id
@@ -391,6 +392,9 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
             if authority and (matched_name is not None or bool(getattr(resolved, "created", False))):
                 _add_authority_ids(conn, kb_id, resolved.entity.id, authority)
             if getattr(resolved, "decision", None) is not None:
+                if matched_name is not None and matched_name != extracted.name:
+                    # The resolver got the name of the entity of K: the log keeps the name of the extracted entity, so that a rollback finds what this copy gave (``extract.decision.Provenance``).
+                    resolved.decision.rollback_payload = {**(resolved.decision.rollback_payload or {}), EXTRACTED_NAME_KEY: extracted.name}
                 decisions.append(resolved.decision)
             if heartbeat is not None:
                 heartbeat()
@@ -427,7 +431,7 @@ def _finish_job(conn: sqlite3.Connection, job_id: int | None, *, error: str = ""
 
 
 def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, contribution: int, job_id: int | None = None, revision: int | None = None) -> MergeResult:
-    """Run the merge job of one contribution: give the copy its files, build its graph, and make it visible. Commits.
+    """Run the merge job of one contribution: give the copy its files (the files of ``copy_origin``), build its graph, and make it visible. Commits.
 
     With ``job_id`` the job is taken first (``claim_job``); when another process has it, the result has the error ``job_taken`` and nothing changes.
 
@@ -464,9 +468,9 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
     try:
         # A retry starts from a clean graph: the first try can have left some entities of this copy.
         dbm.rollback_document_graph_contributions(conn, [document_id], prune_orphans=True, kb_id=kb_id)
-        if row["source_document_id"]:
-            # A copy of a document of another server has no source files on this server.
-            copy_document_files(conn, data_dir, source_document_id=str(row["source_document_id"]), target_document_id=document_id, kb_id=kb_id)
+        origin = copy_origin(row)
+        if origin is not None:
+            copy_document_files(conn, data_dir, source_document_id=origin, target_document_id=document_id, kb_id=kb_id)
         entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=document_id, heartbeat=_heartbeat(conn, job_id), decisions=decisions)
     except ContributionError as exc:
         conn.rollback()
@@ -499,6 +503,15 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
     return MergeResult("visible", entities=entities, relations=relations)
 
 
+def copy_origin(row: dict[str, Any]) -> str | None:
+    """The document that the current copy of a contribution was copied from, for its files. None for a copy of a document of another server (it has no files on this server).
+
+    A revision copies the root (``start_revisions``, ``_run_revision``) and sets ``revised_at``; the first copy is a copy of the source document. For a curation from a shared knowledge base the two are different documents.
+    """
+    origin = row["root_document_id"] if row["revised_at"] is not None else row["source_document_id"]
+    return None if origin is None else str(origin)
+
+
 def _heartbeat(conn: sqlite3.Connection, job_id: int | None) -> Callable[[], None] | None:
     """The progress signal of a running job: each call sets ``jobs.updated_at`` and commits. Thus only a job with no progress for ``STALE_JOB_SECONDS`` is taken again."""
     if job_id is None:
@@ -518,8 +531,11 @@ def _drop_copy(conn: sqlite3.Connection, data_dir: Path, *, document_id: str, de
     """
     from .extract.decision import rollback_resolution
 
+    provenance: dict[int, Provenance] = {}
     for decision in reversed(decisions):
-        rollback_resolution(conn, decision)
+        owner = conn.execute("SELECT kb_id FROM entities WHERE id=?", (decision.target_entity_id,)).fetchone() if decision.target_entity_id else None
+        if owner is not None:
+            rollback_resolution(conn, decision, document_id=document_id, provenance=provenance.setdefault(int(owner[0]), Provenance(conn, int(owner[0]))))
     owners = {int(r[0]) for r in conn.execute("SELECT kb_id FROM documents WHERE id=?", (document_id,))}
     owners.update(int(r[0]) for r in conn.execute("SELECT DISTINCT kb_id FROM entities WHERE sources LIKE ?", (f'%"{document_id}"%',)))
     for kb_id in sorted(owners):
@@ -696,7 +712,7 @@ def start_revisions(conn: sqlite3.Connection, data_dir: Path, *, root_kb_id: int
 
     - A contribution with stopped updates, and a closed one (``removed``, ``rejected``), keeps its version.
     - A visible or hidden contribution: the new version and its extraction are copied into K without graph; the merge job applies it. No approval; the state stays.
-    - A contribution in ``merging``: its merge job can run now, so its copy is not replaced. The new version waits as a revision; its job runs after the merge (``_run_revision`` puts the job back while the state is ``merging``).
+    - A contribution in ``merging``: its merge job can run now, so its copy is not replaced. The new version waits as a revision; its job runs after the merge (``_run_revision`` puts the job back while the state is ``merging``). When the merge fails, the new version replaces the failed copy and a retry merges it.
     - A pending contribution: the new version replaces the pending copy.
     - A contribution in ``failed``: its copy has no complete graph and no job, so the new version replaces the copy and a new merge job starts.
     - The newest version wins: a revision of the contribution that still waits is closed and its copy is purged, but a revision that waits with this same version stays and no second one starts.
@@ -746,7 +762,10 @@ def start_revisions(conn: sqlite3.Connection, data_dir: Path, *, root_kb_id: int
 
 
 def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row: dict[str, Any], revision_id: int, job_id: int | None, data_dir: Path) -> MergeResult:
-    """Apply one revision: build the graph of the new copy, point the contribution to it, and purge the old copy. A failure keeps the old copy."""
+    """Apply one revision: build the graph of the new copy, point the contribution to it, and purge the old copy. A failure keeps the old copy.
+
+    A revision that waited behind the first merge of a contribution that then failed is not applied: its copy replaces the failed copy (``kb_collab.replace_failed_copy``), the state ``failed`` and its reason stay, and the old copy is purged. A retry then merges the newest version.
+    """
     public_id, kb_id = int(row["public_id"]), int(row["kb_id"])
     revision = next((r for r in kb_collab.list_revisions(conn, public_id) if int(r["id"]) == revision_id), None)
     if revision is None or revision["state"] != "merging":
@@ -763,6 +782,17 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
             conn.execute("UPDATE jobs SET status='pending', updated_at=? WHERE id=?", (time.time(), int(job_id)))
         conn.commit()
         return MergeResult("merging", "revision_waits")
+    if row["state"] == "failed" and not row["updates_frozen"] and row["document_id"] == old_copy:
+        # The first merge failed while the revision waited: the new version replaces the copy, as a new version of a failed contribution does (``start_revisions``). No merge job starts; a retry merges this version. The old copy goes with the graph that the failed merge made.
+        replaced = kb_collab.replace_failed_copy(conn, revision_id)
+        _finish_job(conn, job_id, error="" if replaced else "revision_superseded")
+        conn.commit()
+        if replaced:
+            _purge_copy(conn, data_dir, kb_id=kb_id, document_id=str(old_copy), tombstone=False, reason="contribution_revised")
+            return MergeResult("failed")
+        _drop_copy(conn, data_dir, document_id=new_copy, decisions=[], reason="contribution_revision_dropped")
+        current = kb_collab.get_contribution(conn, public_id)
+        return MergeResult(str(current["state"]) if current is not None else "removed", "revision_superseded")
     if row["state"] not in ("visible", "hidden") or row["updates_frozen"] or row["document_id"] != old_copy:
         # The contribution changed after the revision started (removed, updates stopped, a failed merge, or a newer revision): this new copy is not used.
         kb_collab.complete_revision(conn, revision_id, state="failed")
@@ -1425,7 +1455,7 @@ def _mapped_sources(raw: Any, doc_map: dict[str, str]) -> list[str]:
 def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, target_kb_id: int, account_id: int, now: float | None = None) -> dict[str, int]:
     """Copy the visible documents of the shared knowledge base ``source_kb_id`` into the new shared knowledge base ``target_kb_id`` with their extractions, entities, relations, embeddings, and FTS rows (design Section 9.8 rules 3 to 6). No LLM call and no new embedding. Commits.
 
-    A document is copied when it is not hidden and its contribution is ``visible``. An entity or a relation is copied when one of its source documents is copied; its sources become the copies. Each copied document gets a contribution with the origin ``fork``, the credit and the root of the source contribution, and the approval at the fork time. The fork gets the embedding model and the themes of its source.
+    A document is copied when it is not hidden and its contribution is ``visible``. An entity or a relation is copied when one of its source documents is copied; its sources become the copies. An entity of the fork keeps only the observations and the aliases that the copied documents gave (``extract.decision.Provenance``: the resolution log and the extraction of each copied document), so that a value that only a hidden document gave is not copied; its FTS row then gets the body of these values. Its name, its type, and its embedding are those of the entity of the source. Each copied document gets a contribution with the origin ``fork``, the credit and the root of the source contribution, and the approval at the fork time. The fork gets the embedding model and the themes of its source.
 
     The order: (1) all rows, in one transaction, then the commit; (2) the files of each copy, with one short transaction for each document (the image paths in its ``meta`` and its body). The write lock of the database is thus not held while files are copied. A failure in step 1 rolls back and leaves nothing. A failure in step 2 deletes the files that this call copied and raises: the rows of the fork are committed then, and the caller deletes the new knowledge base with its rows (a fork that did not complete does not stay). When the process stops in step 2, the documents without their own files still show the image files of their source documents.
     """
@@ -1454,6 +1484,8 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
 
     entity_columns = _columns(conn, "entities")
     entity_map: dict[str, str] = {}
+    # What each copied document gave to each entity of S (its resolution log and its extraction). An entity of the fork keeps only these observations and aliases: a value that only a hidden document gave is not copied (Section 9.8 rule 5).
+    provenance = Provenance(conn, source_kb_id)
     for row in conn.execute(f"SELECT {', '.join(entity_columns)} FROM entities WHERE kb_id=?", (source_kb_id,)).fetchall():
         values = dict(zip(entity_columns, tuple(row)))
         sources = _mapped_sources(values["sources"], doc_map)
@@ -1461,9 +1493,16 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
             continue
         copy_id = new_id("ent")
         entity_map[str(values["id"])] = copy_id
-        values.update({"id": copy_id, "kb_id": target_kb_id, "sources": json.dumps(sources)})
+        observations, aliases = _json_strings(values["observations"]), _json_strings(values["aliases"])
+        given_observations, given_aliases = _given_by_copies(provenance, str(values["id"]), values["sources"], doc_map)
+        kept_observations = [o for o in observations if o in given_observations]
+        kept_aliases = [a for a in aliases if a in given_aliases]
+        values.update({"id": copy_id, "kb_id": target_kb_id, "sources": json.dumps(sources), "observations": json.dumps(kept_observations, ensure_ascii=False), "aliases": json.dumps(kept_aliases, ensure_ascii=False)})
         conn.execute(f"INSERT INTO entities ({', '.join(entity_columns)}) VALUES ({', '.join('?' for _ in entity_columns)})", tuple(values[c] for c in entity_columns))
-        conn.execute("INSERT INTO entities_fts (entity_id, name, body) SELECT ?, name, body FROM entities_fts WHERE entity_id=?", (copy_id, str(row["id"])))
+        if (kept_observations, kept_aliases) == (observations, aliases):
+            conn.execute("INSERT INTO entities_fts (entity_id, name, body) SELECT ?, name, body FROM entities_fts WHERE entity_id=?", (copy_id, str(row["id"])))
+        else:
+            conn.execute("INSERT INTO entities_fts (entity_id, name, body) VALUES (?, ?, ?)", (copy_id, values["name"], _fts_body(str(values["name"]), kept_aliases, kept_observations)))
         conn.execute(
             "INSERT INTO embeddings (owner_id, kb_id, dim, vector, model, updated_at) SELECT ?, ?, dim, vector, model, updated_at FROM embeddings WHERE owner_id=? AND kb_id=?",
             (copy_id, target_kb_id, str(row["id"]), source_kb_id),
@@ -1515,6 +1554,39 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
             _delete_copy_files(data_dir, copy_id)
         raise
     return {"documents": len(doc_map), "entities": len(entity_map), "relations": relations}
+
+
+def _json_strings(raw: Any) -> list[str]:
+    try:
+        value = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _given_by_copies(provenance: Provenance, entity_id: str, raw_sources: Any, doc_map: dict[str, str]) -> tuple[set[str], set[str]]:
+    """The observations and the aliases that the copied documents among the sources of one entity of S gave to it. A copied document whose log or extraction does not tell it gives nothing."""
+    observations: set[str] = set()
+    aliases: set[str] = set()
+    for document_id in _json_strings(raw_sources):
+        if document_id not in doc_map:
+            continue
+        found = (provenance.given(document_id) or {}).get(entity_id)
+        if found is not None:
+            observations |= found[0]
+            aliases |= found[1]
+    return observations, aliases
+
+
+def _fts_body(name: str, aliases: list[str], observations: list[str]) -> str:
+    """The body of the FTS row of an entity: the same text as ``store.db.upsert_entity`` writes."""
+    from .retrieval.tokenizer import get_search_tokenizer
+
+    tokenizer = get_search_tokenizer()
+    tokenizer.add_user_words([name, *aliases])
+    raw_body = " \n".join(observations) + " " + " ".join(aliases)
+    tokens = tokenizer.extract_search_tokens(f"{name} {raw_body}")
+    return f"{raw_body}\n{' '.join(tokens)}" if tokens else raw_body
 
 
 def _remap_ids(value: Any, id_map: dict[str, str]) -> Any:

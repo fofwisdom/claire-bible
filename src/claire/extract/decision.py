@@ -126,19 +126,91 @@ def get_resolution_log_from_meta(meta: dict[str, Any] | None) -> list[Resolution
     return results
 
 
+# The key of ``rollback_payload`` with the name of the extracted entity, when the resolver got another name (``ResolutionDecision.entity``). Only the merge job of a contribution writes it (``contributions.build_graph_from_extraction``).
+EXTRACTED_NAME_KEY = "extracted"
+
+
+class Provenance:
+    """What each document of one knowledge base gave to each entity: ``given(document_id)`` is ``{entity ID: (observations, aliases)}``, or None when the document has no resolution log or no extraction.
+
+    The resolution log of the document tells the entity of each extracted entity (a ``MERGE`` or a ``CREATE_NEW`` decision). The latest extraction of the document tells what that entity got: the observations, and the aliases with the name. The log entry names the extracted entity with ``rollback_payload["extracted"]``; else with ``ResolutionDecision.entity`` (the extracted entity of that name, or else the first one with that alias).
+    An entity of a decision whose extracted entity is not in the extraction is not in the result: what the document gave to it is not known. The result of each document is kept for the life of the object.
+    """
+
+    def __init__(self, conn: Any, kb_id: int) -> None:
+        self.conn = conn
+        self.kb_id = int(kb_id)
+        self._given: dict[str, dict[str, tuple[set[str], set[str]]] | None] = {}
+
+    def given(self, document_id: str) -> dict[str, tuple[set[str], set[str]]] | None:
+        if document_id not in self._given:
+            self._given[document_id] = self._read(document_id)
+        return self._given[document_id]
+
+    def _read(self, document_id: str) -> dict[str, tuple[set[str], set[str]]] | None:
+        import json
+
+        row = self.conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (document_id, self.kb_id)).fetchone()
+        extraction = self.conn.execute("SELECT raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (document_id, self.kb_id)).fetchone()
+        if row is None or extraction is None:
+            return None
+        try:
+            meta = json.loads(row[0] or "{}")
+            data = json.loads(extraction[0] or "")
+        except (TypeError, ValueError):
+            return None
+        decisions = get_resolution_log_from_meta(meta if isinstance(meta, dict) else None)
+        extracted = [e for e in (data.get("entities") if isinstance(data, dict) else None) or [] if isinstance(e, dict) and isinstance(e.get("name"), str)]
+        if not decisions or not extracted:
+            return None
+        result: dict[str, tuple[set[str], set[str]]] = {}
+        unknown: set[str] = set()
+        for decision in decisions:
+            if decision.decision not in ("MERGE", "CREATE_NEW") or not decision.target_entity_id:
+                continue
+            payload = decision.rollback_payload if isinstance(decision.rollback_payload, dict) else {}
+            name = payload.get(EXTRACTED_NAME_KEY) or decision.entity
+            entity = next((e for e in extracted if e["name"] == name), None) or next((e for e in extracted if name in _strings(e.get("aliases"))), None)
+            if entity is None:
+                unknown.add(decision.target_entity_id)
+                continue
+            observations, aliases = result.setdefault(decision.target_entity_id, (set(), set()))
+            observations.update(_strings(entity.get("observations")))
+            aliases.update(_strings(entity.get("aliases")))
+            aliases.update((entity["name"], decision.entity))
+        for entity_id in unknown:
+            result.pop(entity_id, None)
+        return result
+
+
+def _strings(value: Any) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
 def rollback_resolution(
     conn: Any,
     decision: ResolutionDecision,
     kb_id: int | None = None,
+    *,
+    document_id: str | None = None,
+    gone: Any = (),
+    provenance: Provenance | None = None,
 ) -> bool:
     """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복.
 
     The entity stays in its knowledge base: the write uses the ``kb_id`` of the entity row, never a guessed one. With ``kb_id`` the entity must be in that knowledge base; else nothing changes and the result is False.
+
+    ``document_id``: the document of the decision. ``gone``: the other documents that go with this rollback. The remaining sources of the entity are its sources without these documents and without the added source.
+    - A ``MERGE`` removes the aliases and the observations that the payload added, but not one that a remaining source gave (``Provenance``).
+    - With ``document_id`` a ``MERGE`` also removes what the document gave and the payload does not have (the document can have kept a value of a document that went before), but only when it knows what each remaining source gave.
+    - With ``document_id`` a ``CREATE_NEW`` removes what the document gave (all of it was added by the document) and its source, when the entity has a remaining source. An entity with no remaining source does not change (the prune step deletes it). Without ``document_id`` a ``CREATE_NEW`` changes nothing.
     """
-    if decision.decision != "MERGE" or not decision.target_entity_id:
+    if decision.decision not in ("MERGE", "CREATE_NEW") or not decision.target_entity_id:
         return False
-    payload = decision.rollback_payload
-    if not isinstance(payload, dict):
+    payload = decision.rollback_payload if isinstance(decision.rollback_payload, dict) else None
+    if decision.decision == "MERGE" and payload is None:
+        return False
+    if decision.decision == "CREATE_NEW" and document_id is None:
         return False
 
     from ..store import db as dbm
@@ -151,10 +223,48 @@ def rollback_resolution(
     cand = dbm.get_entity(conn, target_id, kb_id=entity_kb_id)
     if not cand:
         return False
+    if provenance is None or provenance.kb_id != entity_kb_id:
+        provenance = Provenance(conn, entity_kb_id)
 
-    added_aliases = set(payload.get("added_aliases") or [])
-    added_observations = set(payload.get("added_observations") or [])
-    added_source = payload.get("added_source")
+    own_given = provenance.given(document_id) if document_id is not None else None
+    own = own_given.get(target_id) if own_given is not None else None
+    if decision.decision == "CREATE_NEW":
+        if own is None:
+            return False
+        # The document made the entity: each value that it gave was added by it.
+        added_aliases, added_observations, added_source, prev_type = set(own[1]), set(own[0]), document_id, None
+    else:
+        assert payload is not None
+        added_aliases = set(payload.get("added_aliases") or [])
+        added_observations = set(payload.get("added_observations") or [])
+        added_source = payload.get("added_source")
+        prev_type = payload.get("prev_type")
+    leaving = {d for d in (document_id, added_source, *gone) if d}
+    remaining = [s for s in cand.sources if s not in leaving]
+    if decision.decision == "CREATE_NEW" and not remaining:
+        return False
+
+    # What can go: the values that the document added or gave and that the entity has now. A remaining source that gave a value keeps it.
+    alias_candidates = (added_aliases | (own[1] if own is not None else set())) & set(cand.aliases)
+    observation_candidates = (added_observations | (own[0] if own is not None else set())) & set(cand.observations)
+    kept_aliases: set[str] = set()
+    kept_observations: set[str] = set()
+    all_known = True
+    for source in reversed(remaining):
+        if alias_candidates <= kept_aliases and observation_candidates <= kept_observations:
+            break
+        given = provenance.given(source)
+        found = given.get(target_id) if given is not None else None
+        if found is None:
+            all_known = False
+            continue
+        kept_observations |= found[0]
+        kept_aliases |= found[1]
+    if own is not None and all_known:
+        added_observations |= own[0]
+        added_aliases |= own[1]
+    added_observations -= kept_observations
+    added_aliases -= kept_aliases
 
     changed = False
     if added_aliases:
@@ -173,7 +283,6 @@ def rollback_resolution(
         cand.sources = [s for s in cand.sources if s != added_source]
         changed = True
 
-    prev_type = payload.get("prev_type")
     if prev_type and prev_type != cand.type:
         cand.type = prev_type
         changed = True
