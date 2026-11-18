@@ -119,21 +119,21 @@ def test_ingest_emits_progress_events(tmp_path: Path):
     assert rep.document_id and rep.error is None
     assert any("원문 가져오는 중" in m for m in msgs), msgs
     assert any("구조화 추출" in m for m in msgs), msgs
-    # prefetched 경로(1홉 확장)는 재fetch 안 하므로 "원문 가져오는 중" 을 내지 않는다.
+    # prefetched 경로(링크 확장)는 재fetch 안 하므로 "원문 가져오는 중" 을 내지 않는다.
     msgs2: list[str] = []
     conn2 = _db()
     set_progress_callback(msgs2.append)
     try:
         ingest("x", conn=conn2, provider=MockProvider(), vstore=VectorStore(conn2, "brute"),
-               source="onehop:d1", fetch_fn=_fetch_doc(doc), prefetched=doc)
+               source="expand:d1", fetch_fn=_fetch_doc(doc), prefetched=doc)
     finally:
         set_progress_callback(None)
     assert not any("원문 가져오는 중" in m for m in msgs2), msgs2
 
 
 def test_ingest_watch_classification(tmp_path: Path):
-    """[주기 크롤링] 신규 1차 적재 시 classify_watch(mock)가 watch 설정 — 벤치/순위는 on,
-    일반 글은 off, onehop 자식은 판단 자체를 건너뜀(watch_enabled NULL=미판단)."""
+    """[주기 재확인] 신규 1차 적재 시 classify_watch(mock)가 watch 설정 — 벤치/순위는 on,
+    일반 글은 off, 링크 확장 자식은 판단 자체를 건너뜀(watch_enabled NULL=미판단)."""
     conn = _db()
     vstore = VectorStore(conn, "brute")
     p = MockProvider()
@@ -145,7 +145,7 @@ def test_ingest_watch_classification(tmp_path: Path):
     ingest("x", conn=conn, provider=p, vstore=vstore, source="web", fetch_fn=_fetch_doc(blog))
     child = Document(url="https://x/child", title="자식 문서",
                      raw_text="리더보드 순위 " * 20, source_type="web", content_hash="c1")
-    ingest("x", conn=conn, provider=p, vstore=vstore, source="onehop:parent",
+    ingest("x", conn=conn, provider=p, vstore=vstore, source="expand:parent",
            fetch_fn=_fetch_doc(child))
 
     def we(h):
@@ -153,7 +153,7 @@ def test_ingest_watch_classification(tmp_path: Path):
                             (h,)).fetchone()["watch_enabled"]
     assert we("b1") == 1     # 리더보드 → watch on
     assert we("g1") == 0     # 일반 글 → off
-    assert we("c1") is None  # onehop 자식 → 판단 건너뜀(미판단)
+    assert we("c1") is None  # 링크 확장 자식 → 판단 건너뜀(미판단)
 
 
 def test_ingest_text_creates_entities(tmp_path: Path):

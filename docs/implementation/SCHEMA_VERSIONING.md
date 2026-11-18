@@ -314,6 +314,14 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v34 (federation of shared knowledge, unit KF5)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 34`.
+- **[코드] 버전 상수**: v34 도입 당시 `SCHEMA_VERSION`은 34였다(현재 값은 아래 "v35" 절).
 - **[코드]** The step `_migrate_v34_automatic_offers` runs at each start, before the step v32, and is idempotent. It adds the column `automatic` (`INTEGER NOT NULL DEFAULT 0`) to a `kf_outbound_offers` of version 32 or 33 (`offers.ensure_automatic_column`), so that the step v32 finds each column that the code reads and keeps the table. An old row gets 0 (an offer of a submission). When the table is not there, the step v32 makes it with the column. No other row changes; the start continues for each state of the data. The table is in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 13.3 and 15.3.
 - **[테스트]** `tests/test_knowledge_federation_kf5.py` (`test_migration_v34_adds_the_column_and_keeps_the_rows_of_version_33`).
+
+## v35 (link expansion terms and shadow records of the same-subject source merge)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 35`.
+- **[코드]** The step `_migrate_v35_expansion_source_names` runs at each start and is idempotent. In `raw_inbox.source`, `onehop:<parent id>` becomes `expand:<parent id>`, and `telegram-expand` becomes `expand-proposal` (terms: [`GLOSSARY.md`](GLOSSARY.md)). No other row changes.
+- **[코드]** The schema script makes the table `same_subject_shadow` and its index `idx_same_subject_shadow_kb`. Automatic expansion writes a row in the mode `same_subject_merge = "shadow"` ([`EXPANSION.md`](EXPANSION.md) §3.1).
+- **[코드]** `telemetry.db` (not versioned): `connect_telemetry` changes the call type `judge_research` to `judge_gate` at each connection (`_migrate_gate_call_type`).
+- **[테스트]** `tests/test_schema_v35.py`.

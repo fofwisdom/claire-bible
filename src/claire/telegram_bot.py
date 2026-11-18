@@ -1,6 +1,6 @@
 """텔레그램 진입점 (long-polling).
 
-링크/문서/키워드/PDF를 받으면 IngestService(공유 통로)로 적재하고, 1홉 확장 후보가 있으면 inline 버튼으로 "가져오기"를 제안한다. /search 로 검색. 적재 로직은 IngestService 에 있어 inject API · CLI 와 완전히 동일한 경로를 탄다.
+링크/문서/키워드/PDF를 받으면 IngestService(공유 통로)로 적재하고, 링크 확장 후보가 있으면 inline 버튼으로 "가져오기"를 제안한다. /search 로 검색. 적재 로직은 IngestService 에 있어 inject API · CLI 와 완전히 동일한 경로를 탄다.
 """
 
 from __future__ import annotations
@@ -320,12 +320,12 @@ async def _settle_status(
     **kwargs: Any,
 ) -> None:
     """완료 처리:
-    - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
+    - 확장 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
     - 본문(detail) 생성 실패 시 진행 메시지에 재수집/재생성 원터치 버튼 제공
     - 비디오 자막 추출 실패 시 진행 메시지를 삭제하지 않고 재수집/재적재 원터치 버튼 제공
     - 이미 적재된 문서(중복/dedup)일 때 메시지를 삭제하지 않고 중복 안내 및 재생성/재수집 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
-    - 정상 완료이면서 1홉 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
+    - 정상 완료이면서 확장 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
     - ``extra_rows``: rows of inline buttons that each result message gets after its own buttons (the action of a campaign notice)
     """
     if isinstance(status, int):
@@ -2127,7 +2127,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             for url in urls:
                 try:
                     sub = await asyncio.to_thread(
-                        exp_svc.ingest, url, source="telegram-expand", expand_max=0)
+                        exp_svc.ingest, url, source="expand-proposal", expand_max=0)
                     lines.append(f"• {sub.telegram_summary().splitlines()[0]}")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")

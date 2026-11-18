@@ -40,7 +40,6 @@ from .pipeline import (
     extract_resolve_store,
     provider_effort,
     ingest,
-    merge_source_into_document,
 )
 from .router import fetch as default_fetch
 
@@ -388,7 +387,7 @@ class IngestService:
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
-        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
+        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(링크 확장의 중복 fetch 방지).
         """
         # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
         tlabel = self.get_theme_label()
@@ -434,9 +433,9 @@ class IngestService:
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
         em = self.s.expand_max if expand_max is None else expand_max
-        # 1홉 자동확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
+        # 자동 확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
         auto = (self.s.auto_expand and em > 0
-                and not source.startswith(("onehop", "recover", "replay", "refresh")))
+                and not source.startswith(("expand:", "recover", "replay", "refresh")))
         fmt = format or self.s.render_format
         tid = self.kb_id
         try:
@@ -567,13 +566,14 @@ class IngestService:
 
     @_service_job()
     def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
-        """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
+        """[자동 확장] 부모 문서의 링크를 LLM 이 선별→fetch→확장 게이트→통과 시 독립 문서로 적재.
 
-        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정. 게이트 통과 후 same_subject(judge_research 확장 필드, docs/implementation/ONEHOP_MERGE.md §3.1)로 한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3), False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존). 깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨. 병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음. 반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
+        파고들지(select_followups)·쌓을지(judge_gate, 확장 게이트) 모두 LLM 결정. 깊이는 1 고정: 자식은 source='expand:<부모>' + expand_max=0 → 재확장 안 됨. 동일 주제 출처 병합은 하지 않는다(docs/implementation/EXPANSION.md §3): 설정 same_subject_merge 가 "shadow"면 게이트의 same_subject 판정을 same_subject_shadow 에 기록만 한다. 반환: {document_id, candidates, selected, stored, shadowed, skipped, followed[...]}
         """
-        from ..expand.follow import build_candidates, build_parent_context, passes_gate
+        from ..expand.automatic import build_candidates, build_parent_context
+        from ..expand.gate import passes_gate
 
-        # 1홉 확장은 서버 등급 기능이다(멤버는 tier.features 또는 BYOK). 관리자는 통과.
+        # 링크 확장은 서버 등급 기능이다(멤버는 tier.features 또는 BYOK). 관리자는 통과.
         self.require_feature("expand")
         cap = self.s.expand_max if limit is None else limit
         conn = dbm.connect(self.s.db_file)
@@ -588,7 +588,7 @@ class IngestService:
             conn.close()
 
         result = {"document_id": document_id, "candidates": len(candidates),
-                  "selected": 0, "stored": 0, "merged": 0, "skipped": 0, "followed": []}
+                  "selected": 0, "stored": 0, "shadowed": 0, "skipped": 0, "followed": []}
         if not candidates:
             return result
 
@@ -598,7 +598,7 @@ class IngestService:
         chosen = [candidates[i] for i in idxs][:cap]
         result["selected"] = len(chosen)
 
-        judge = getattr(self.provider, "judge_research", None)
+        judge = getattr(self.provider, "judge_gate", None)
         for c in chosen:
             url = c["url"]
             try:
@@ -607,7 +607,7 @@ class IngestService:
                 result["skipped"] += 1
                 result["followed"].append({"url": url, "stored": False, "error": error_text(e)})
                 continue
-            # 2) 쌓을지 = LLM(research 게이트 재사용). judge 없으면 통과로 간주.
+            # 2) 쌓을지 = LLM(확장 게이트). judge 없으면 통과로 간주.
             rel, qual, same_subject = 1.0, 1.0, False
             if judge:
                 report = f"{child.title or ''}\n{(child.raw_text or '')[:4000]}"
@@ -621,49 +621,29 @@ class IngestService:
                                            "relevance": rel, "quality": qual})
                 continue
 
-            if same_subject:
-                # 3a) 같은 주제의 부가 출처 = 새 문서 대신 부모에 흡수(§3.2~3.3).
-                conn2 = dbm.connect(self.s.db_file)
-                dbm.init_db(conn2)
-                try:
-                    inbox_id = dbm.log_inbox(
-                        conn2, source=f"onehop:{document_id}", payload=url, kind="url", kb_id=self.kb_id)
-                    vstore = make_vector_store(conn2, self.s.vector_backend, kb_id=self.kb_id)
-                    parent_full = dbm.get_document(conn2, document_id, kb_id=self.kb_id)
-                    m = merge_source_into_document(
-                        conn2, self.provider, vstore, parent_full, child,
-                        data_dir=self.s.data_dir,
-                        format=self.s.render_format,
-                        kb_id=self.kb_id,
-                        settings=self.s)
-                    if m.get("merged"):
-                        dbm.update_inbox(conn2, inbox_id, status="done",
-                                         document_id=document_id, kb_id=self.kb_id)
-                    else:
-                        dbm.update_inbox(conn2, inbox_id, status="error",
-                                         document_id=document_id, error=m.get("error"), kb_id=self.kb_id)
-                finally:
-                    conn2.close()
-                merged = bool(m.get("merged"))
-                if merged:
-                    result["merged"] += 1
-                else:
-                    result["skipped"] += 1
-                result["followed"].append({"url": url, "stored": False, "merged": merged,
-                                           "title": child.title, "relevance": rel,
-                                           "quality": qual, "error": m.get("error")})
-                continue
-
-            # 3b) 별개 소재 = 기존처럼 독립 문서로 적재(정보 보존).
-            rep = self.ingest(url, source=f"onehop:{document_id}", expand_max=0,
+            # 3) 게이트 통과 = 독립 문서로 적재. 동일 주제 출처 병합은 하지 않는다(소유자 결정, 2026-11-18): 모드 "shadow"면 병합 판정만 기록한다.
+            rep = self.ingest(url, source=f"expand:{document_id}", expand_max=0,
                               prefetched=child)
             stored = rep.error is None and not rep.duplicate
             if stored:
                 result["stored"] += 1
-            result["followed"].append({"url": url, "stored": stored, "merged": False,
-                                       "title": rep.title, "duplicate": rep.duplicate,
-                                       "relevance": rel, "quality": qual,
-                                       "error": rep.error})
+            item = {"url": url, "stored": stored,
+                    "title": rep.title, "duplicate": rep.duplicate,
+                    "relevance": rel, "quality": qual,
+                    "error": rep.error}
+            if judge and self.s.same_subject_merge == "shadow":
+                conn3 = dbm.connect(self.s.db_file)
+                try:
+                    dbm.record_same_subject_shadow(
+                        conn3, kb_id=self.kb_id, parent_document_id=document_id, child_url=url,
+                        child_document_id=rep.document_id if stored else None,
+                        same_subject=same_subject, relevance=rel, quality=qual,
+                        interpretation=str(j.get("interpretation") or ""), reason=str(j.get("reason") or ""))
+                finally:
+                    conn3.close()
+                item["same_subject"] = same_subject
+                result["shadowed"] += 1
+            result["followed"].append(item)
         return result
 
     @_service_job()
@@ -674,7 +654,7 @@ class IngestService:
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> list[dict]:
-        """[1홉 자동확장] 대기열의 pending 문서를 처리(expand-loop 데몬이 호출).
+        """[자동 확장] 대기열의 pending 문서를 처리(expand-loop 데몬이 호출).
 
         각 문서를 expand_document 로 확장하고 done/error 로 마킹. 반환: 처리 요약 목록.
         """
@@ -688,8 +668,8 @@ class IngestService:
         out: list[dict] = []
         for idx, row in enumerate(rows, 1):
             did = row["document_id"]
-            with _item_context(reporter, on_progress, idx, f"expand#{row['id']}:{did}", title=f"1홉 확장 ({did})") as step_cb:
-                step_cb("1홉 자동확장 링크 선별 및 판정 중...")
+            with _item_context(reporter, on_progress, idx, f"expand#{row['id']}:{did}", title=f"링크 확장 ({did})") as step_cb:
+                step_cb("자동 확장 링크 선별 및 판정 중...")
                 try:
                     res = self.expand_document(did)
                 except Exception as e:  # noqa: BLE001
@@ -859,7 +839,7 @@ class IngestService:
         return out
 
     def enqueue_due_watch(self, *, limit: int = 0) -> int:
-        """[주기 크롤링] 재크롤할 때가 된 watch 문서를 refresh 큐에 등록(reason='watch').
+        """[주기 재확인] 재크롤할 때가 된 watch 문서를 refresh 큐에 등록(reason='watch').
 
         watch_due = enabled=1 AND (last_watched_at NULL 또는 now-last >= interval). 등록 후 last_watched_at=now 로 갱신해 다음 due 를 미룬다(큐 대기 중 중복은 enqueue_refresh 의 document_id UNIQUE 가 막음). 처리(refresh_document)는 run_refresh_queue 가 하며, watch 문서가 변했으면 거기서 스냅샷 보존 + unseen. 신규 등록 건수 반환."""
         import time

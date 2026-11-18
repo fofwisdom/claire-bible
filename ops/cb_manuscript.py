@@ -109,6 +109,7 @@ APP_ONE_OFF_COMMANDS = {
     "refresh-mark",
     "refresh-run",
     "expand-run",
+    "expand-shadow",
     "ingest",
     "search",
     "backfill-detail",

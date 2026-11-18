@@ -304,7 +304,7 @@ def test_research_with_markdown_citations(mock_run):
 
 
 @patch("subprocess.run")
-def test_judge_research(mock_run):
+def test_judge_gate(mock_run):
     payload = {
         "status": "SUCCESS",
         "structured_output": {
@@ -321,7 +321,7 @@ def test_judge_research(mock_run):
         stderr="",
     )
     prov = AntigravityProvider(_make_settings())
-    res = prov.judge_research("Antigravity", "Context", "Report")
+    res = prov.judge_gate("Antigravity", "Context", "Report")
     assert res["relevance"] == 0.95
     assert res["quality"] == 0.90
     assert res["same_subject"] is True

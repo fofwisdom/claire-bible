@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.expand.onehop import find_candidates
+from claire.expand.proposal import find_candidates
 from claire.ingest.fetchers.base import FetchError
 from claire.ingest.fetchers.odt import (
     extract_odt_bytes,
@@ -272,7 +272,7 @@ def test_router_classify_odt(tmp_path: Path):
 
 
 def test_find_candidates_prioritizes_odt():
-    """1홉 후보 탐색 시 동일 문서의 .odt 와 .pdf 가 있으면 .odt를 남기고 .pdf는 제외."""
+    """확장 후보 탐색 시 동일 문서의 .odt 와 .pdf 가 있으면 .odt를 남기고 .pdf는 제외."""
     conn = dbm.connect(":memory:")
     dbm.init_db(conn)
 

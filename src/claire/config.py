@@ -595,10 +595,12 @@ class Settings(BaseSettings):
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
-    # 1홉 자동확장: 적재 문서의 링크를 LLM 이 선별→판정→적재(백그라운드 expand-loop).
+    # 자동 확장: 적재 문서의 링크를 LLM 이 선별→판정→적재(백그라운드 expand-loop).
     # 기본 ON. 끄면(0) 확장 안 함(텔레그램 confirm 버튼 경로도 비활성).
     auto_expand: bool = Field(default=True, alias="CLAIRE_AUTO_EXPAND")
-    # 주기 크롤링: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
+    # 동일 주제 출처 병합: "off"(기본) 또는 "shadow"(판정만 기록하고 자식은 독립 문서로 적재). 병합하는 모드는 없다(소유자 결정, 2026-11-18). data/ingest_limits.json(WebUI)에서만 설정한다.
+    same_subject_merge: str = Field(default="off", alias="CLAIRE_SAME_SUBJECT_MERGE")
+    # 주기 재확인: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
     watch_interval_days: float = Field(default=1.0, alias="CLAIRE_WATCH_INTERVAL_DAYS")
 
     # --- text slicing & char budgets ---
@@ -630,7 +632,7 @@ class Settings(BaseSettings):
     slicing_strategy: str = Field(default="table-exemption", alias="CLAIRE_SLICING_STRATEGY")
     # 임베딩 생성 시 본문 슬라이싱 상한
     embed_char_budget: int = Field(default=8000, alias="CLAIRE_EMBED_CHAR_BUDGET")
-    # 1홉 자동확장 및 선별 시 컨텍스트 상한
+    # 자동 확장 및 선별 시 컨텍스트 상한
     expand_char_budget: int = Field(default=2000, alias="CLAIRE_EXPAND_CHAR_BUDGET")
     # 리서치 보고서/맥락 상한
     research_context_budget: int = Field(default=8000, alias="CLAIRE_RESEARCH_CONTEXT_BUDGET")
@@ -772,6 +774,14 @@ class Settings(BaseSettings):
             logging.getLogger(__name__).warning("CLAIRE_RENDER_FORMAT=%s is closed (RD23); ingestion uses adoc", s)
             return "adoc"
         raise ValueError("CLAIRE_RENDER_FORMAT must be 'adoc'")
+
+    @field_validator("same_subject_merge", mode="before")
+    @classmethod
+    def _parse_same_subject_merge(cls, value: object) -> str:
+        s = str(value).strip().lower()
+        if s in ("off", "shadow"):
+            return s
+        raise ValueError("same_subject_merge must be 'off' or 'shadow'")
 
     @field_validator("data_lifecycle", mode="before")
     @classmethod

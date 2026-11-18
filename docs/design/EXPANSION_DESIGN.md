@@ -1,7 +1,7 @@
-# One-Hop Expansion: Depth, Relevance Filtering, and Same-Subject Merge
+# Link Expansion: Depth, Relevance Filtering, and Same-Subject Source Merge
 
-- **Status**: Partly implemented. Implemented: fixed depth of one, the heuristic link filter, LLM selection, the relevance and quality gate, and the same-subject merge. Current behavior: [`ONEHOP_MERGE.md`](../implementation/ONEHOP_MERGE.md). The pre-LLM content guard of the web fetcher: [`INGESTION.md`](../implementation/INGESTION.md). Planned, not implemented: the items in "Planned work" below.
-- **Date**: 2026-08-19 (expansion filtering), 2026-07-13 (same-subject merge, owner decisions) · restructured 2026-11-16
+- **Status**: Partly implemented. Implemented: fixed depth of one, the heuristic link filter, LLM selection, the expansion gate, and the same-subject source merge (off since 2026-11-18; only its shadow records can be enabled, decision 12). Current behavior: [`EXPANSION.md`](../implementation/EXPANSION.md). The pre-LLM content guard of the web fetcher: [`INGESTION.md`](../implementation/INGESTION.md). Planned, not implemented: the items in "Planned work" below.
+- **Date**: 2026-08-19 (expansion filtering), 2026-07-13 (same-subject merge, owner decisions), 2026-11-18 (terms, merge off, owner decisions) · restructured 2026-11-16
 
 ## Goal / problem
 
@@ -25,6 +25,8 @@ Automatic expansion follows external links in an ingested document and adds rela
 9. **Snapshot and restore instead of a transaction (owner decision, 2026-07-13).** The database functions commit at once, so a real transaction would need changes in all of them. The merge keeps a snapshot of the parent and writes it back on failure. Entities that a failed re-extraction committed can stay; refresh and ingest have the same risk.
 10. **Store all, cut only the model input (owner decision, 2026-07-13).** The merged text is stored complete. The extraction budget of a merged document is two times the single budget, and the detail prompt asks for a longer text, with retries when the result is too short. Reason: a single budget cuts away the child, and no limit makes the token cost jump. The retry is a quality step, so it is fail-open.
 11. **No extra guard against a wrong same-subject flag (owner decision, 2026-07-13).** Reasons: the merged text keeps each source in full (no summary loss), each source link stays separate and traceable, and the scope is already narrow (links from one parent, found at about the same time).
+12. **The same-subject source merge is off by default, and only its shadow mode can be enabled (owner decision, 2026-11-18).** In the mode "shadow", automatic expansion stores each child as its own document and records the same-subject judgement with the gate scores. Reason: the merge has a high risk of wrong results, and its value is not measured (Planned work 5). The records are the data for that decision. Decisions 5, 9, 10, and 11 describe the merge for the time when it runs again; the merge function stays without a caller.
+13. **One term for each concept, and the identifiers use the same term (owner decision, 2026-11-18).** The feature is "링크 확장" (link expansion), identifier stem `expand`. The depth is a property ("depth one"), not a part of the name, because a later design can allow more depth (Planned work 4). Other terms: 자동 확장 (`auto_expand`), 확장 제안 (`expand-proposal`), 확장 게이트 (`judge_gate`), 동일 주제 출처 병합 (`same_subject_merge`), 맥락 조사 (`research`, not a part of link expansion), 주기 재확인 (`watch`). Reason: only one trial server exists, so a change of the identifiers now costs the community less than later. The list is in [GLOSSARY.md](../implementation/GLOSSARY.md).
 
 ## Rejected alternatives
 
@@ -58,4 +60,4 @@ Automatic expansion follows external links in an ingested document and adds rela
 
 ### 5) Measure the same-subject flag
 
-Not done: compare the flag of the real model with a small set of true same-subject pairs and true different-subject pairs (milestone M5 of the 2026-07-13 plan). It needs real model calls, so it waits for the owner.
+Not done: compare the flag of the real model with a small set of true same-subject pairs and true different-subject pairs (milestone M5 of the 2026-07-13 plan). The shadow records (decision 12, `claire expand-shadow`) collect the flags of real expansions. Still not done: a human verdict for each record and the calculation of precision and recall.

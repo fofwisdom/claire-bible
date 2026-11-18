@@ -1,6 +1,6 @@
 # Documentation Root Guide (`docs/`)
 
-Claire Bible 프로젝트의 모든 아키텍처 설계, 구현 명세, 와이어 계약 및 운영 문서는 **문서 정본(`docs/`)** 하위에서 통합 관리합니다. 기존 업스트림 및 공통 계약 중 현재 시스템 구현과 정확히 일치하는 요소(공개 아키텍처 파이프라인, 1홉 확장 병합 명세, OpenAPI 3.1.0 사양, HTTP 와이어/보안 계약, 스키마 버전 v13 계약, OAuth 2.0 토큰 교환, 공통 용어집)는 모두 **`docs/implementation/`**에 정본으로 통합 보관됩니다.
+Claire Bible 프로젝트의 모든 아키텍처 설계, 구현 명세, 와이어 계약 및 운영 문서는 **문서 정본(`docs/`)** 하위에서 통합 관리합니다. 기존 업스트림 및 공통 계약 중 현재 시스템 구현과 정확히 일치하는 요소(공개 아키텍처 파이프라인, 링크 확장 병합 명세, OpenAPI 3.1.0 사양, HTTP 와이어/보안 계약, 스키마 버전 v13 계약, OAuth 2.0 토큰 교환, 공통 용어집)는 모두 **`docs/implementation/`**에 정본으로 통합 보관됩니다.
 
 ---
 
@@ -18,7 +18,7 @@ docs/
 │   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md  # Phase 3–4 미구현
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md  # 완전 가역 병합·UI 롤백 미구현
-│   ├── EXPAND_FILTERING_DESIGN.md
+│   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합 초안
@@ -76,7 +76,7 @@ docs/
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
 │   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0): 어휘, JSON-LD 컨텍스트, 와이어 계약 빌더·검증기, 계약 픽스처
-│   ├── ONEHOP_MERGE.md         # 1홉 확장과 동일 주제 병합
+│   ├── EXPANSION.md         # 링크 확장과 동일 주제 출처 병합
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름
 │   ├── PRESENTATION.md         # 프레젠테이션 저작·컴파일·뷰어·테마별 스위치

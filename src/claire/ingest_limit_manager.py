@@ -47,10 +47,11 @@ DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
         "slicing_strategy": "table-exemption",
         # 4. 임베딩 벡터 생성 상황
         "embed_char_budget": 8000,
-        # 5. 1홉 확장 탐색 상황
+        # 5. 링크 확장 탐색 상황
         "expand_char_budget": 2000,
         "expand_max": 5,
         "auto_expand": True,
+        "same_subject_merge": "off",
         "watch_interval_days": 1.0,
         # 6. 심층 리서치 상황
         "research_context_budget": 8000,
@@ -93,6 +94,8 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
 VALID_SLICING_STRATEGIES = ("table-exemption", "strict")
 VALID_PDF_PARSERS = ("default",)
 VALID_EFFORTS = ("low", "medium", "high")
+# The modes of the same-subject source merge (owner decision, 2026-11-18): "off" (default) or "shadow" (record the judgement, store the child as its own document). No mode merges.
+VALID_SAME_SUBJECT_MERGE_MODES = ("off", "shadow")
 
 
 def comment_out_env_file_limits(file_path: Path, keys_to_comment: set[str]) -> int:
@@ -308,6 +311,12 @@ class IngestLimitManager:
             if eff and eff not in VALID_EFFORTS:
                 raise ValueError(f"pdf_default_effort must be empty or one of {VALID_EFFORTS}, got '{eff}'")
             curr_limits["pdf_default_effort"] = eff
+
+        if "same_subject_merge" in incoming_limits:
+            mode = str(incoming_limits["same_subject_merge"]).strip().lower()
+            if mode not in VALID_SAME_SUBJECT_MERGE_MODES:
+                raise ValueError(f"same_subject_merge must be one of {VALID_SAME_SUBJECT_MERGE_MODES}, got '{mode}'")
+            curr_limits["same_subject_merge"] = mode
 
         if "watch_interval_days" in incoming_limits:
             try:

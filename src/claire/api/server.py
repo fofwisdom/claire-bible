@@ -5127,7 +5127,7 @@ def create_app(
         return JSONResponse(await _run_expensive(_synthesize_job))
 
     async def research_route(request: Request) -> StreamingResponse:
-        from ..expand.research import contextual_research
+        from ..research import contextual_research
 
         body = await _json_object(request)
         # 요청 테마의 설정(kb_id)으로 맥락을 읽고 적재한다

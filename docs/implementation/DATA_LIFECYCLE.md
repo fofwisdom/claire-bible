@@ -50,7 +50,7 @@ The HTTP handler also removes the active ingest matrix of each purged document (
 ### 3.3 Tombstones
 
 - **[code] Table.** `purged_tombstones` in the knowledge database: `id`, `kb_id`, `url`, `canonical_url`, `content_hash`, `reason`, `purged_at`. Indexes on `(kb_id, canonical_url)`, `(kb_id, content_hash)`, and a unique index on `(id, kb_id)`.
-- **[code] Guard.** `is_tombstoned` returns true when the URL, canonical URL, or content hash matches a tombstone of the theme. The ingest pipeline (`src/claire/ingest/pipeline.py`) and one-hop expansion (`src/claire/expand/onehop.py`, canonical URL only) call it and drop the document.
+- **[code] Guard.** `is_tombstoned` returns true when the URL, canonical URL, or content hash matches a tombstone of the theme. The ingest pipeline (`src/claire/ingest/pipeline.py`) and link expansion (`already_ingested` in `src/claire/expand/links.py`, canonical URL only) call it and drop the document.
 - **[code] Lifting.** `remove_tombstones` (CLI `claire purge --untombstone`) deletes tombstones so that the source can be ingested again.
 
 ### 3.4 Audit

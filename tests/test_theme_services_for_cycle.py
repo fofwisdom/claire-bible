@@ -44,12 +44,12 @@ def _fetch(payload: str) -> Document:
     if payload == PARENT_STANDALONE:
         return _doc(PARENT_STANDALONE, "독립 확장 부모 문서 고유 본문 내용입니다. " * 30, links=[CHILD_STANDALONE])
     if payload == CHILD_STANDALONE:
-        # '별개주제' -> judge_research returns same_subject=False -> standalone ingest
+        # '별개주제' -> judge_gate returns same_subject=False -> standalone ingest
         return _doc(CHILD_STANDALONE, "별개주제 — 부모 글이 언급한 독립된 프로젝트 내용. " + body, title="독립 프로젝트")
     if payload == PARENT_MERGE:
         return _doc(PARENT_MERGE, "병합 확장 부모 문서 고유 본문 내용입니다. " * 30, links=[CHILD_MERGE])
     if payload == CHILD_MERGE:
-        # No '별개주제' -> judge_research returns same_subject=True -> merge into parent
+        # No '별개주제' -> judge_gate returns same_subject=True -> merge into parent
         return _doc(CHILD_MERGE, "같은 주제의 추가 출처 본문. " + body, title="동일 주제 부가 출처")
     return _doc(payload, f"일반 문서 본문 ({payload}). " + body, title="일반 문서")
 

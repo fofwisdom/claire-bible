@@ -339,7 +339,7 @@ def document_detail(
         "detail_format": dbm.get_document_detail_format(conn, document_id, kb_id=kb_id),
         "detail_html": dbm.get_document_detail_html(conn, document_id, kb_id=kb_id) or "",
         "hidden": bool(row["hidden"]),
-        # [1홉 병합, docs/implementation/ONEHOP_MERGE.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
+        # [동일 주제 출처 병합, docs/implementation/EXPANSION.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
         "extra_sources": dbm.get_document_extra_sources(conn, document_id, kb_id=kb_id),
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
@@ -512,7 +512,7 @@ def documents_list(
             "source_type": r["source_type"],
             "fetched_at": r["fetched_at"],
             "seen": r["seen"],                  # 0=미열람(unread) → UI 아이콘
-            "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
+            "watch": r["watch_enabled"],        # 1=주기 재확인 대상 → UI 아이콘
             "pinned": r["pinned"],              # 1=즐겨찾기 → 목록 상단 고정 섹션
             "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
             "summary": dbm.latest_extraction_summary(conn, doc_id, kb_id=kb_id) or "",

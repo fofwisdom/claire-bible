@@ -119,14 +119,14 @@ def test_research_grounding_annotations():
     assert kwargs["tools"] == [{"type": "google_search"}]
 
 
-def test_judge_research():
+def test_judge_gate():
     p = _make_provider()
     mock_interaction = SimpleNamespace(
         output_text='{"relevance":0.95,"quality":0.9,"same_subject":true,"interpretation":"오픈소스 스킬 도구","reason":"정확함"}'
     )
     p.client.interactions.create.return_value = mock_interaction
 
-    judge = p.judge_research("OpenSkill", "Context", "Report")
+    judge = p.judge_gate("OpenSkill", "Context", "Report")
     assert judge["relevance"] == 0.95
     assert judge["quality"] == 0.9
     assert judge["same_subject"] is True

@@ -27,7 +27,7 @@ flowchart LR
 ## 주요 기능
 
 - **다채로운 소스 파싱**: 정적 웹 문서, 동적 JS 렌더링 페이지(스텔스 Fetcher), 리다이렉트 체인, X(트위터), YouTube·웹 비디오 자막 및 음성 전사(STT), PDF(적응형 추론 및 비전 파싱), RSS/Atom/OPML 피드 지원.
-- **온톨로지 지식 그래프 및 1홉 확장**: 엔티티 간 연결 관계(Entity-Relation Graph)를 추출·해소·축적하고, 관련 링크 1홉 자동 확장 및 중복 병합(MinHash LSH, canonical URL/콘텐츠 해시) 수행.
+- **온톨로지 지식 그래프 및 링크 확장**: 엔티티 간 연결 관계(Entity-Relation Graph)를 추출·해소·축적하고, 관련 링크 자동 확장 및 중복 병합(MinHash LSH, canonical URL/콘텐츠 해시) 수행.
 - **하이브리드 검색 (Hybrid Search)**: SQLite FTS5 전문 검색(BM25, 한국어 `kiwipiepy` 형태소 분석 지원)과 `sqlite-vec`(또는 코사인 유사도 폴백) 벡터 검색, 그래프 문맥 확장을 결합.
 - **AsciiDoc AOT 렌더링 및 내보내기**: SQLite 정본(`raw_text`)과 사전 컴파일된 `detail_html`(KaTeX 수식·표·코드 지원)을 유지하며, AsciiDoc/Markdown 내보내기 및 Asciidoctor reveal.js 프레젠테이션 저작 지원(레거시 Obsidian Vault 동기화 서브시스템은 제거됨).
 - **멀티 테마 및 계정·보안 아키텍처**: 단일 DB(`claire.db`) 내 `theme_id` 파티셔닝으로 테마를 논리 격리하며, 싱글·네트워크 모드, 초대제 가입, OIDC/GitHub 외부 IdP, 4계층 RBAC(`owner`/`collaborator`/`readonly`/`anonymous`), OAuth 2.1 및 RFC 8693 토큰 교환 지원.
@@ -140,7 +140,7 @@ claire-bible/
 ├── src/claire/
 │   ├── accounts/        # USERNAME 정책, 초대 코드, 서버 등급, 프로바이더·연합 준비 검사
 │   ├── api/             # ASGI 웹 서비스, 계정·인증·OAuth/OIDC·MCP·연합 내부/외부 라우트
-│   ├── expand/          # 1홉 링크 확장 및 조사 로직
+│   ├── expand/          # 링크 확장 (자동 확장, 확장 제안, 확장 게이트)
 │   ├── extract/         # LLM(Gemini/Antigravity/Codex), STT/VLM, 엔티티 해소 및 분류기
 │   ├── feeds/           # RSS/Atom/JSON Feed 파서, 폴러 및 OPML 처리
 │   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그 및 미들웨어 지원

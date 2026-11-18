@@ -22,7 +22,7 @@ from .prompts import (
     extract_fallback_prompt,
     extract_system_prompt,
     is_preface_summary,
-    judge_research_prompt,
+    judge_gate_prompt,
     judge_relationship_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
@@ -479,7 +479,7 @@ class GeminiProvider:
 
         짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게 여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에 영향 없음.
 
-        [1홉 병합 전용, docs/implementation/ONEHOP_MERGE.md §3.3b] doc.meta.extra_sources 가 있으면 (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이 통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩 최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막 결과를 그대로 채택)."""
+        [동일 주제 출처 병합 전용, docs/implementation/EXPANSION.md §3.3b] doc.meta.extra_sources 가 있으면 (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이 통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩 최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막 결과를 그대로 채택)."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
@@ -593,7 +593,7 @@ class GeminiProvider:
         )
 
     def classify_watch(self, doc: Document) -> dict:
-        """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
+        """[주기 재확인] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
 
         리더보드/벤치마크 순위표/실시간 통계/가격/랭킹 = watch(주기 재크롤 가치). 뉴스/블로그/논문/일회성 설명 = 1회성. rate limit 등 실패는 위로 raise(호출측이 비필수로 조용히 무시 — watch 미판단으로 남고 적재는 정상)."""
         body = _doc_to_prompt(doc)[:4000]
@@ -624,7 +624,7 @@ class GeminiProvider:
     def research(self, query: str, context: str) -> dict:
         """맥락 고정 웹 조사(google_search grounding) → 한국어 보고서 + 출처.
 
-        다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의 의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신 INSUFFICIENT 를 선언하게 한다. 판정(judge_research)은 별도 호출로 이중 방어."""
+        다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의 의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신 INSUFFICIENT 를 선언하게 한다. 판정(judge_gate)은 별도 호출로 이중 방어."""
         prompt = research_prompt(query, context)
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
@@ -637,11 +637,11 @@ class GeminiProvider:
         sources: list[dict] = _extract_sources(interaction)
         return {"report": report, "sources": sources}
 
-    def judge_research(self, query: str, context: str, report: str) -> dict:
+    def judge_gate(self, query: str, context: str, report: str) -> dict:
         """조사 보고서가 '맥락 내 의미'와 일치하고 품질이 충분한지 별도 판정.
 
         research 호출과 분리된 fresh 호출(자기 채점 편향 완화). 판정 실패 시 0점 (fail-closed) — 불확실하면 그래프에 추가하지 않는다."""
-        prompt = judge_research_prompt(query, context, report)
+        prompt = judge_gate_prompt(query, context, report)
         response_format = {
             "type": "text",
             "mime_type": "application/json",
@@ -673,7 +673,7 @@ class GeminiProvider:
                     "interpretation": "", "reason": f"판정 실패: {e}"}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
-        """1홉 자동확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별."""
+        """자동 확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별."""
         if not candidates:
             return []
         prompt = select_followups_prompt(context, candidates)

@@ -220,7 +220,7 @@ def test_graph_html_self_contained_markers():
     assert "readerReturnFocus" in GRAPH_HTML and "data-read-doc" in GRAPH_HTML
     assert "#ffffff" in GRAPH_HTML and "this.selectedNodes.has(this._ids[i]) ? 1.6 : 1.25" in GRAPH_HTML  # 선택 노드 고리
     assert "nodes:ids" in GRAPH_HTML                                    # 문서 선택 → 해당 노드들로 fit
-    assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사
+    assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 조사
     assert "refreshGraph" in GRAPH_HTML                                 # 조사 후 무리로드 그래프 갱신
     assert "getReader" in GRAPH_HTML and "rprog" in GRAPH_HTML          # NDJSON 스트림 진행 표시
     assert GRAPH_HTML.count("if(!r.ok)") >= 2                          # 503 등 비-NDJSON 오류 처리

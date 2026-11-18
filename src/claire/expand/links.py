@@ -1,6 +1,6 @@
-"""1홉 자동 확장 — 적재한 문서에서 관련 외부 링크 후보를 뽑는다.
+"""Link expansion: the link filters that the expansion proposal and the automatic expansion share.
 
-설계(PLAN/사용자): 자동 fetch 가 아니라 **후보 제안**이 기본. 텔레그램에서 confirm 하면 그때 fetch+ingest. 내부 연결(기존 그래프와의 관계)은 이미 파이프라인에서 자동. 비용 통제: 자료당 상한(expand_max) + 이미 적재된 URL 제외 + dedup.
+The filters remove noise hosts, boilerplate paths, and URLs that the knowledge base already has (a document, a tombstone, or an extra source of a same-subject source merge). Terms: docs/implementation/GLOSSARY.md.
 """
 
 from __future__ import annotations
@@ -9,10 +9,7 @@ import re
 import sqlite3
 from urllib.parse import urlsplit
 
-from ..ingest.normalize import canonicalize_url
-from ..ontology.base import Document
-
-_URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
+URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
 # 본문에 흔히 섞이는 비콘텐츠/잡음 호스트는 후보에서 제외(정확 일치).
 _SKIP_HOSTS = {
@@ -34,7 +31,7 @@ _SKIP_HOST_SUFFIXES = (
 )
 
 # 호스트 무관 boilerplate 경로 prefix(헤더/푸터의 about/help/donate/약관/로그인 류).
-# 1홉은 '제안'일 뿐이라 과소제안의 해는 작고, 잡음 제안이 더 거슬린다(사용자 지적).
+# 확장 제안은 '제안'일 뿐이라 과소제안의 해는 작고, 잡음 제안이 더 거슬린다(사용자 지적).
 _SKIP_PATH_PREFIXES = (
     "/about", "/help", "/donate", "/login", "/signin", "/signup", "/register",
     "/privacy", "/terms", "/tos", "/legal", "/policies", "/contact", "/abuse",
@@ -43,12 +40,12 @@ _SKIP_PATH_PREFIXES = (
 )
 
 
-def _host(url: str) -> str:
+def host_of(url: str) -> str:
     h = urlsplit(url).netloc.lower()
     return h.removeprefix("www.")
 
 
-def _is_blocked(url: str, host: str) -> bool:
+def is_blocked(url: str, host: str) -> bool:
     """잡음 호스트(정확/서브도메인) 또는 boilerplate 경로면 후보에서 제외."""
     if not host or host in _SKIP_HOSTS:
         return True
@@ -58,44 +55,7 @@ def _is_blocked(url: str, host: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _SKIP_PATH_PREFIXES)
 
 
-def find_candidates(
-    conn: sqlite3.Connection, doc: Document, *, limit: int = 5, kb_id: int | None = None,
-) -> list[str]:
-    """문서 본문에서 1홉 후보 URL 목록(정규화, dedup, 상한)."""
-    seen_canon: set[str] = set()
-    if doc.canonical_url:
-        seen_canon.add(doc.canonical_url)
-    if doc.url:
-        seen_canon.add(canonicalize_url(doc.url))
-
-    # href 로 추출된 링크(web fetcher)가 있으면 우선, 없으면 본문 텍스트 스캔.
-    raw_links = list(doc.meta.get("links", [])) if doc.meta else []
-    raw_links += _URL_RE.findall(doc.raw_text or "")
-    from ..ingest.fetchers.odt import prioritize_odt_links
-
-    raw_links = prioritize_odt_links(raw_links)
-
-    out: list[str] = []
-    for raw in raw_links:
-        raw = raw.rstrip(".,;")
-        host = _host(raw)
-        if _is_blocked(raw, host):
-            continue
-        canon = canonicalize_url(raw)
-        if canon in seen_canon:
-            continue
-        # 이미 그래프에 적재된 문서면 제외
-        if _already_ingested(conn, canon, kb_id=kb_id):
-            seen_canon.add(canon)
-            continue
-        seen_canon.add(canon)
-        out.append(raw)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def _already_ingested(conn: sqlite3.Connection, canonical_url: str, kb_id: int | None = None) -> bool:
+def already_ingested(conn: sqlite3.Connection, canonical_url: str, kb_id: int | None = None) -> bool:
     from ..store.db import find_document_by_extra_source, is_tombstoned
 
     if is_tombstoned(conn, canonical_url=canonical_url, kb_id=kb_id):
@@ -110,6 +70,6 @@ def _already_ingested(conn: sqlite3.Connection, canonical_url: str, kb_id: int |
         ).fetchone()
     if row is not None:
         return True
-    # 1홉 병합(docs/implementation/ONEHOP_MERGE.md)은 새 Document 를 안 만들어 위 색인으로는 못 잡힘 —
+    # 동일 주제 출처 병합(docs/implementation/EXPANSION.md)은 새 Document 를 안 만들어 위 색인으로는 못 잡힘 —
     # 이미 어떤 문서에 부가 출처로 흡수된 URL 도 재제안 방지 대상.
     return find_document_by_extra_source(conn, canonical_url, kb_id=kb_id) is not None

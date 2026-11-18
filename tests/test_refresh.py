@@ -159,7 +159,7 @@ def test_run_refresh_queue_marks_done(monkeypatch, tmp_path):
 
 
 def test_watch_document_refresh_snapshots_and_unseen(monkeypatch, tmp_path):
-    """[주기 크롤링] watch 문서가 내용 변경되면 변경 '전' 원문을 스냅샷으로 보존(시계열) +
+    """[주기 재확인] watch 문서가 내용 변경되면 변경 '전' 원문을 스냅샷으로 보존(시계열) +
     다시 봐야 하니 unseen. 그래프는 최신 in-place(기존 동작)."""
     s = _mem(monkeypatch, tmp_path)
     svc = IngestService(s)
@@ -207,7 +207,7 @@ def test_non_watch_refresh_no_snapshot(monkeypatch, tmp_path):
 
 
 def test_enqueue_due_watch(monkeypatch, tmp_path):
-    """[주기 크롤링] due 된 watch 문서만 refresh 큐(reason='watch')에 등록 + last_watched_at
+    """[주기 재확인] due 된 watch 문서만 refresh 큐(reason='watch')에 등록 + last_watched_at
     갱신 → 방금 등록한 건 다음 호출에서 due 아님(중복 폭주 방지)."""
     s = _mem(monkeypatch, tmp_path)
     svc = IngestService(s)

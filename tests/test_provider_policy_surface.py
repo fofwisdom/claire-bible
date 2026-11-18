@@ -206,7 +206,7 @@ def _assert_policy(r, status: int, code: str) -> None:
 
 @pytest.fixture
 def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
-    import claire.expand.research as research_mod
+    import claire.research as research_mod
     from claire.extract.antigravity_provider import AntigravityProvider
 
     calls: list[Any] = []

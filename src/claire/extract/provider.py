@@ -138,7 +138,7 @@ def emit_progress(msg: str) -> None:
 class ResearchJudgement(BaseModel):
     """맥락 조사 보고서 판정 — 그래프 추가 게이트(expand/research).
 
-    relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1). 다의어가 다른 의미로 새는 오염을 여기서 걸러낸다. quality: 사실성·구체성·출처 충실도(0~1). same_subject: [1홉 병합 전용, docs/implementation/ONEHOP_MERGE.md §3.1] 대상(query/report)이 맥락이 다루는 구체적 대상 그 자체를 가리키는 원출처(예: 맥락이 소개하는 프로젝트의 공식 저장소 자체 — 같은 것을 가리키는 두 창)면 True. 맥락 자체가 이미 특정 회사·제품의 1차 콘텐츠라면, 같은 회사·제품의 다른 공식 페이지(문서/다른 사례/홈페이지)라는 이유만 으로는 True 로 보지 않는다 — 맥락이 다루는 구체적 서사와 실질적으로 같을 때만 True. 맥락과 관련은 있으나 사실상 별개의 소재(다른 프로젝트/사건/화제/제3자 논의)면 False. contextual research(맥락 확장 조사) 호출부는 이 필드를 사용하지 않는다(무시해도 무해).
+    relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1). 다의어가 다른 의미로 새는 오염을 여기서 걸러낸다. quality: 사실성·구체성·출처 충실도(0~1). same_subject: [동일 주제 출처 병합 전용, docs/implementation/EXPANSION.md §3.1] 대상(query/report)이 맥락이 다루는 구체적 대상 그 자체를 가리키는 원출처(예: 맥락이 소개하는 프로젝트의 공식 저장소 자체 — 같은 것을 가리키는 두 창)면 True. 맥락 자체가 이미 특정 회사·제품의 1차 콘텐츠라면, 같은 회사·제품의 다른 공식 페이지(문서/다른 사례/홈페이지)라는 이유만 으로는 True 로 보지 않는다 — 맥락이 다루는 구체적 서사와 실질적으로 같을 때만 True. 맥락과 관련은 있으나 사실상 별개의 소재(다른 프로젝트/사건/화제/제3자 논의)면 False. contextual research(맥락 조사) 호출부는 이 필드를 사용하지 않는다(무시해도 무해).
     """
 
     relevance: float
@@ -149,7 +149,7 @@ class ResearchJudgement(BaseModel):
 
 
 class FollowSelection(BaseModel):
-    """1홉 자동확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
+    """자동 확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
 
     follow: 입력 후보에서 '지식으로 더 팔 가치가 있다'고 판단한 항목의 0-기반 인덱스. 가치 없으면 빈 목록(= 파고들지 않음). 다의어/잡음/맥락 무관은 제외.
     """
@@ -159,7 +159,7 @@ class FollowSelection(BaseModel):
 
 
 class WatchClassification(BaseModel):
-    """[주기 크롤링] 이 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인가.
+    """[주기 재확인] 이 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인가.
 
     watch: 리더보드/벤치마크 순위표/실시간 통계/가격/랭킹처럼 지속 갱신되면 True; 뉴스/블로그/논문/일회성 설명/문서면 False. interval_days: watch=True 일 때 재확인 권장 주기(일). 아니면 None.
     """
@@ -198,7 +198,7 @@ class Provider(Protocol):
 
     def research(self, query: str, context: str) -> dict: ...
 
-    def judge_research(self, query: str, context: str, report: str) -> dict: ...
+    def judge_gate(self, query: str, context: str, report: str) -> dict: ...
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]: ...
 
@@ -534,10 +534,10 @@ class MockProvider:
         return {"report": f"[mock-research] {query} :: {context[:120]}",
                 "sources": [{"title": "mock source", "url": "https://example.com/mock"}]}
 
-    def judge_research(self, query: str, context: str, report: str) -> dict:
+    def judge_gate(self, query: str, context: str, report: str) -> dict:
         """결정론적 stub — 저품질 판정(게이트 거절) 훅: query '모호' 또는 report '무관'.
 
-        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용. '별개주제' 훅은 게이트는 통과하되 same_subject=False(1홉 병합 분기 테스트용, docs/implementation/ONEHOP_MERGE.md §3.1) — 기본은 True(합쳐도 되는 케이스가 흔함을 모사)."""
+        '무관' 훅은 자동 확장의 store 게이트(judge_gate 재사용) 거절 경로 테스트용. '별개주제' 훅은 게이트는 통과하되 same_subject=False(동일 주제 출처 병합 분기 테스트용, docs/implementation/EXPANSION.md §3.1) — 기본은 True(합쳐도 되는 케이스가 흔함을 모사)."""
         low = ("모호" in query) or ("무관" in report) or ("무관" in context)
         same_subject = "별개주제" not in report and "별개주제" not in context
         return {"relevance": 0.2 if low else 0.92, "quality": 0.2 if low else 0.85,
@@ -546,7 +546,7 @@ class MockProvider:
                 "reason": "mock judge"}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
-        """결정론적 stub — 1홉 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).
+        """결정론적 stub — 링크 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).
 
         url/anchor 에 'skip' 이 들어간 후보는 제외(= 안 판다), 나머지는 따라간다. 실제 선별 품질은 실 Gemini 로. 여기선 선별→게이트 배선만 결정론적으로 보장한다."""
         out = []
@@ -1025,8 +1025,8 @@ class FeatureRoutedProvider:
     def research(self, query: str, context: str) -> dict:
         return self._call_stage("research", lambda p: p.research(query, context))
 
-    def judge_research(self, query: str, context: str, report: str) -> dict:
-        return self._call_stage("research", lambda p: p.judge_research(query, context, report))
+    def judge_gate(self, query: str, context: str, report: str) -> dict:
+        return self._call_stage("research", lambda p: p.judge_gate(query, context, report))
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         return self._call_stage("research", lambda p: p.select_followups(context, candidates))

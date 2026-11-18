@@ -11,7 +11,7 @@ Command Groups:
   Presentations:         presentation
   Reprocess & Backfill:  reprocess, regenerate, summary-regenerate, reextract, backfill-detail, backfill-summary, backfill-images, recompile-html, video-reprocess
   Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill, media
-  Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run
+  Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run, expand-shadow
   Document Management:   doc, doc-title, watch, share, auth
   Graph & Entities:      link-relations, re-embed, entity, export-graph, import-graph
   Deduplication & Purge: dedup-scan, recanonicalize, dedup-merge, purge, audit
@@ -1926,7 +1926,7 @@ def cmd_refresh_loop(args) -> int:
 
 
 def _notify_expansion(results: list[dict]) -> None:
-    """1홉 자동확장으로 새 지식이 쌓였으면 소유자에게 텔레그램 알림(실패해도 루프 계속)."""
+    """자동 확장으로 새 지식이 쌓였으면 소유자에게 텔레그램 알림(실패해도 루프 계속)."""
     from .notify import notify_owner
 
     stored = [r for r in results if r.get("stored")]
@@ -1934,7 +1934,7 @@ def _notify_expansion(results: list[dict]) -> None:
         return
     s = get_settings()
     total = sum(r["stored"] for r in stored)
-    lines = [f"🔗 One-hop expansion: Claire followed {total} links and added them to the knowledge base."]
+    lines = [f"🔗 Link expansion: Claire followed {total} links and added them to the knowledge base."]
     for r in stored[:5]:
         kb_id = r.get("_kb_id")
         theme_label = str(r.get("_theme_label") or "").strip()
@@ -1949,7 +1949,7 @@ def _notify_expansion(results: list[dict]) -> None:
 
 
 def cmd_expand_run(args) -> int:
-    """1홉 자동확장 큐 1회 처리."""
+    """자동 확장 큐 1회 처리."""
     from .ingest.service import IngestService
     from .progress import track_batch_progress
 
@@ -1965,7 +1965,7 @@ def cmd_expand_run(args) -> int:
 
     svc = IngestService(s)
     try:
-        with track_batch_progress("One-hop expansion queue", len(rows)) as reporter:
+        with track_batch_progress("Link expansion queue", len(rows)) as reporter:
             results = svc.run_expand_queue(limit=args.limit, reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
@@ -1976,8 +1976,39 @@ def cmd_expand_run(args) -> int:
             print(f"  ❌ {r.get('document_id', '?')}: {str(r['error'])[:60]}")
         else:
             print(f"  🔗 {r.get('document_id', '?')}: candidates {r.get('candidates', 0)} · selected {r.get('selected', 0)}"
-                  f" · ingested {r.get('stored', 0)} · skipped {r.get('skipped', 0)}")
+                  f" · ingested {r.get('stored', 0)} · shadow records {r.get('shadowed', 0)} · skipped {r.get('skipped', 0)}")
     print(f"{len(results)} processed, {sum(r.get('stored',0) for r in results)} ingested")
+    return 0
+
+
+def cmd_expand_shadow(args) -> int:
+    """Show the shadow records of the same-subject source merge (mode "shadow")."""
+    import json as _json
+
+    s, theme = get_effective_settings(args)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        kb_id = theme.id if theme else None
+        rows = [dict(r) for r in dbm.list_same_subject_shadow(conn, kb_id=kb_id, limit=args.limit)]
+    finally:
+        conn.close()
+    for r in rows:
+        r["same_subject"] = bool(r["same_subject"])
+    summary = {
+        "mode": s.same_subject_merge,
+        "records": len(rows),
+        "same_subject_true": sum(1 for r in rows if r["same_subject"]),
+    }
+    if args.json:
+        print(_json.dumps({"summary": summary, "records": rows}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Same-subject source merge: mode {summary['mode']}. {summary['records']} records, "
+          f"{summary['same_subject_true']} with same_subject=true.")
+    for r in rows:
+        mark = "same" if r["same_subject"] else "different"
+        print(f"  [{mark}] parent {r['parent_document_id']} -> child {r['child_document_id'] or '-'} "
+              f"(relevance {r['relevance']:.2f}, quality {r['quality']:.2f}) {r['child_url']}")
     return 0
 
 
@@ -2047,7 +2078,7 @@ def _run_expand_cycle(
 
 
 def cmd_expand_loop(args) -> int:
-    """1홉 자동확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
+    """자동 확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     import time
 
     from .ingest.service import IngestService
@@ -2109,7 +2140,7 @@ def cmd_ingest(args) -> int:
             # The action of the notice (Section 8.7 rule 2).
             print(f"ACTION: Contribute to this theme: {contribute_command(notice['document'], notice['theme'])}")
 
-    # 1홉 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
+    # 링크 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
     if report.candidates and args.expand:
         print(f"\n[expand] Ingesting {len(report.candidates)} candidates…")
         for url in report.candidates:
@@ -3712,7 +3743,7 @@ def cmd_backfill_images(args) -> int:
 
 
 def cmd_watch(args) -> int:
-    """[주기 크롤링] 문서 watch(주기 재크롤) 수동 on/off·주기·목록·상태.
+    """[주기 재확인] 문서 watch(주기 재크롤) 수동 on/off·주기·목록·상태.
 
     watch 대상은 refresh-loop 가 주기적으로 재fetch → 내용 바뀌면 변경 전 원문을 스냅샷 보존 + 그래프 최신 갱신 + unseen. LLM 자동판단을 사람이 덮어쓸 때 사용."""
     from .store import db as dbm
@@ -5777,20 +5808,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     pxr = sub.add_parser(
         "expand-run",
-        help="process queued 1-hop link expansion items once",
-        description="Process pending items in expand_queue once, fetching and ingesting discovered 1-hop links.",
+        help="process queued link expansion items once",
+        description="Process pending items in expand_queue once, fetching and ingesting the links that automatic expansion selects.",
     )
     pxr.add_argument("--limit", type=int, default=0, help="maximum items to process (0 = all pending)")
     pxr.set_defaults(func=cmd_expand_run)
 
     pxl = sub.add_parser(
         "expand-loop",
-        help="run continuous 1-hop link expansion loop on interval (daemon)",
-        description="Run continuous daemon loop processing queued 1-hop link expansions on a scheduled interval.",
+        help="run continuous link expansion loop on interval (daemon)",
+        description="Run continuous daemon loop processing queued link expansions on a scheduled interval.",
     )
     pxl.add_argument("--interval", type=int, default=900, help="interval in seconds between expansion cycles (default: 900, minimum: 60)")
     pxl.add_argument("--batch", type=int, default=3, help="maximum items to process per cycle (default: 3)")
     pxl.set_defaults(func=cmd_expand_loop)
+
+    pxs = sub.add_parser(
+        "expand-shadow",
+        help="show the shadow records of the same-subject source merge",
+        description="Show the records that automatic expansion writes when the same-subject source merge is in the mode 'shadow': the parent, the child document, the gate scores, and the same-subject judgement. The newest record is first.",
+    )
+    pxs.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
+    pxs.add_argument("--limit", type=int, default=50, help="maximum records to show (0 = all, default: 50)")
+    pxs.add_argument("--json", action="store_true", help="output the summary and the records in JSON format")
+    pxs.set_defaults(func=cmd_expand_shadow)
 
     pi = sub.add_parser(
         "ingest",
@@ -5803,9 +5844,9 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"], default=None,
                     help="LLM reasoning effort level (validated against active provider capabilities)")
     pi.add_argument("--expand", action="store_true",
-                    help="fetch and queue 1-hop related links found in content")
+                    help="queue the document for link expansion")
     pi.add_argument("--no-expand", action="store_true",
-                    help="skip 1-hop candidate link detection")
+                    help="do not use link expansion for this document")
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
@@ -5826,8 +5867,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="LLM reasoning effort level (validated against active provider capabilities)")
     pri.add_argument("--format", choices=["adoc"], default=None,
                      help="detail render format (adoc only, RD23)")
-    pri.add_argument("--expand", action="store_true", help="fetch and queue 1-hop related links found in content")
-    pri.add_argument("--no-expand", action="store_true", help="skip 1-hop candidate link detection")
+    pri.add_argument("--expand", action="store_true", help="queue the document for link expansion")
+    pri.add_argument("--no-expand", action="store_true", help="do not use link expansion for this document")
     pri.add_argument("--untombstone", action="store_true",
                      help="lift and delete tombstone registry if target was previously purged, unblocking re-ingestion")
     pri.add_argument("--apply", action="store_true", help="execute actual re-ingest operation (default: dry-run inspection)")

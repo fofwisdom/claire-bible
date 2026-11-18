@@ -134,7 +134,7 @@
 - **[코드] 동시성**: 인스턴스마다 `threading.Semaphore(CLAIRE_AGY_MAX_CONCURRENCY)`를 둔다.
 - **[코드] 격리**: `allow_tools=False`(기본)이면 "도구 금지" 지시문을 붙이고 `tempfile.gettempdir()/claire_agy_clean`을 작업 디렉터리로 쓴다. `research`만 `allow_tools=True`로 호출한다.
 - **[코드] 임베딩**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩을 직접 호출한다. 키가 없으면 개발 환경은 결정론적 의사 벡터(`EMBED_DIM`)를 돌려주고 운영 환경은 `ProviderUnavailableError`를 던진다.
-- **[code] Effort by task**: `judge_same_entity`, `classify_watch`, and `select_followups` call `_run_cli` with `effort="low"`. `judge_relationship` and `judge_research` call `_run_cli` with `effort="medium"`. Extraction and detail rendering use the configured effort.
+- **[code] Effort by task**: `judge_same_entity`, `classify_watch`, and `select_followups` call `_run_cli` with `effort="low"`. `judge_relationship` and `judge_gate` call `_run_cli` with `effort="medium"`. Extraction and detail rendering use the configured effort.
 - **[code] Telemetry identity**: each call gives `call_type` and, where known, `document_id` to `_run_cli`, which writes a provider telemetry row ([TELEMETRY.md](TELEMETRY.md) §2).
 - **[code] Parallel relation judgement**: in `src/claire/ingest/pipeline.py` the cross-link relation judgement runs the candidates in a `ThreadPoolExecutor` with `min(candidates, provider.max_concurrency)` workers. Graph writes happen after all judgements, in the calling thread. Same-entity judgement is not parallel.
 

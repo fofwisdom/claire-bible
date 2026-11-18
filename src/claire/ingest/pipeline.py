@@ -89,7 +89,7 @@ class IngestReport:
     inbox_id: int | None = None
     new_entity_names: list[str] = field(default_factory=list)
     linked_entity_names: list[str] = field(default_factory=list)
-    candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
+    candidates: list[str] = field(default_factory=list)  # 링크 확장 후보 URL
     focus: str | None = None
     full_content: bool = False
     effort: str | None = None
@@ -353,7 +353,7 @@ def ingest(
         try:
 
             try:
-                # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
+                # prefetched: 링크 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
                 if prefetched is None:
                     emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
                     with bound_fetch_settings(settings):
@@ -628,20 +628,20 @@ def ingest(
                 dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, kb_id=tid)
                 return report
 
-            # 주기 크롤링 watch 판단(LLM, 비용 1콜) — 1차 신규 적재에만. onehop 자식/research 문서/
+            # 주기 재확인(watch) 판단(LLM, 비용 1콜) — 1차 신규 적재에만. 링크 확장 자식/research 문서/
             # 복구·갱신 재적재는 제외(부적절·낭비). 실패는 조용히(watch 미판단으로 남음).
             if not doc.partial and not source.startswith(
-                    ("onehop", "recover", "replay", "refresh", "research")):
+                    ("expand:", "recover", "replay", "refresh", "research")):
                 emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
                 ensure_watch_classification(conn, provider, doc, kb_id=tid)
 
-            # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
-            # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
+            # 링크 확장. auto_expand(자동 확장)면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
+            # 아니면 확장 제안: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
             if expand_max > 0 and not doc.partial:
                 if auto_expand:
                     dbm.enqueue_expand(conn, doc.id, kb_id=tid)
                 else:
-                    from ..expand.onehop import find_candidates
+                    from ..expand.proposal import find_candidates
 
                     report.candidates = find_candidates(conn, doc, limit=expand_max, kb_id=tid)
 
@@ -1409,7 +1409,9 @@ def merge_source_into_document(
     kb_id: int | None = None,
     settings: Any = None,
 ) -> dict:
-    """[1홉 병합, docs/implementation/ONEHOP_MERGE.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
+    """[동일 주제 출처 병합, docs/implementation/EXPANSION.md §3] 지금은 부르는 코드가 없다: 병합은 꺼져 있고 모드 "shadow"는 판정만 기록한다(소유자 결정, 2026-11-18). 섀도 기록으로 실효성을 판단한 뒤 다시 켤 때를 위해 함수와 테스트를 남긴다.
+
+    같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
 
     저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은 `_doc_to_prompt`(gemini_provider.py) 쪽에서 doc.meta.extra_sources 유무로 자동 분기.
 
@@ -1593,7 +1595,7 @@ def ensure_document_detail(
 def ensure_watch_classification(
     conn: sqlite3.Connection, provider: Provider, doc: Document, kb_id: int | None = None,
 ) -> bool:
-    """[주기 크롤링] 변하는 콘텐츠(벤치/순위 등)인지 LLM 판단 → watch 설정. 비필수(별도 호출).
+    """[주기 재확인] 변하는 콘텐츠(벤치/순위 등)인지 LLM 판단 → watch 설정. 비필수(별도 호출).
 
     신규 1차 적재에만 호출(비용 통제 — 호출측 source 게이트). rate limit 등 실패는 조용히 False(적재 막지 않음 — watch 미판단으로 남고 나중에 수동/재판단 가능)."""
     fn = getattr(provider, "classify_watch", None)

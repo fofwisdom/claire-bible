@@ -1,10 +1,10 @@
-"""1홉 자동 확장 후보 탐지 (M4) 테스트 — 네트워크 불필요."""
+"""자동 확장 후보 탐지 (M4) 테스트 — 네트워크 불필요."""
 
 from __future__ import annotations
 
 import sqlite3
 
-from claire.expand.onehop import find_candidates
+from claire.expand.proposal import find_candidates
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import ingest
 from claire.ontology.base import Document

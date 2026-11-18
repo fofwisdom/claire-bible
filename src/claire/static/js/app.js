@@ -2137,7 +2137,7 @@ function renderPanel(d){
     });
     h+='</div></div>';
   }
-  // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
+  // 맥락 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
   // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
   if(canWrite()) h+='<h3>' + tr("ws.research.more") + '</h3>'+
     '<div class=research><input id="rq" placeholder="' + tr("ws.research.placeholder") + '" '+
@@ -2192,7 +2192,7 @@ async function promoteEntityAlias(entityId, chosenAlias){
   }
 }
 
-// --- 맥락 확장 조사: 조사(grounding)→판정 게이트→통과 시 그래프 적재(서버) ---
+// --- 맥락 조사: 조사(grounding)→판정 게이트→통과 시 그래프 적재(서버) ---
 // 서버가 NDJSON 스트림으로 진행 이벤트({stage,msg})를 흘리고 마지막 줄이
 // {done:true, result:{...}} — 마냥 기다리지 않고 단계·rate limit 상황을 실시간 표시(피드백).
 async function doResearch(){
@@ -2258,7 +2258,7 @@ function renderResearchResult(d, backId){
 }
 
 // --- 웹 적재: URL/텍스트를 그래프에 적재(서버 /ingest-stream, /research 와 동일 NDJSON 스트리밍) ---
-// 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
+// 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 자동 확장도 동일하게 동작.
 let activeIngest = null;
 
 function updateIngestElapsed(){

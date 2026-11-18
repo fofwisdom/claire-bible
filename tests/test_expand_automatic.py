@@ -1,16 +1,16 @@
-"""1홉 자동확장 — 후보수집·LLM 선별·store 게이트·재귀가드·enqueue (네트워크 없이).
+"""자동 확장 — 후보수집·LLM 선별·store 게이트·재귀가드·enqueue (네트워크 없이).
 
 mock provider 훅:
   - select_followups: url/anchor 에 'skip' → 제외(파고들지=LLM 모사)
-  - judge_research: report 에 '무관' → 저품질(쌓을지 게이트 거절)
-  - judge_research: report 에 '별개주제' → same_subject=False(독립 문서로 적재 — 트리거
-    없으면 기본 True 라 부모에 병합됨. 이 파일은 병합 이전의 '선별+게이트+독립 적재' 배선을 보는 게 목적이라 GOOD 은 '별개주제' 로 명시 — 병합 자체는 test_onehop_merge.py 참조)
+  - judge_gate: report 에 '무관' → 저품질(쌓을지 게이트 거절)
+  - judge_gate: report 에 '별개주제' → same_subject=False(독립 문서로 적재 — 트리거
+    없으면 기본 True 라 부모에 병합됨. 이 파일은 병합 이전의 '선별+게이트+독립 적재' 배선을 보는 게 목적이라 GOOD 은 '별개주제' 로 명시 — 병합 자체는 test_same_subject_merge.py 참조)
 """
 
 from __future__ import annotations
 
 from claire.config import Settings
-from claire.expand.follow import build_candidates
+from claire.expand.automatic import build_candidates
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService
@@ -114,7 +114,7 @@ def test_auto_expand_enqueues_parent_only(monkeypatch, tmp_path):
     assert [r["document_id"] for r in pend] == [parent.document_id]
     conn.close()
 
-    # 큐 처리 → 부모 done, 자식(onehop)들은 재확장 enqueue 안 됨(깊이 1)
+    # 큐 처리 → 부모 done, 자식(expand:)들은 재확장 enqueue 안 됨(깊이 1)
     out = svc.run_expand_queue()
     assert len(out) == 1 and out[0]["stored"] == 1
     conn = dbm.connect(s.db_file); dbm.init_db(conn)

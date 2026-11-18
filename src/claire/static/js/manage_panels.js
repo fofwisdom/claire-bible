@@ -1072,6 +1072,7 @@
     const expandBudget = parseInt(document.getElementById('limit-expand-budget').value, 10);
     const expandMax = parseInt(document.getElementById('limit-expand-max').value, 10);
     const autoExpand = document.getElementById('limit-auto-expand').checked;
+    const sameSubjectMerge = document.getElementById('limit-same-subject-merge').value;
     const watchIntervalDays = document.getElementById('limit-watch-interval-days').value;
     const researchBudget = parseInt(document.getElementById('limit-research-budget').value, 10);
 
@@ -1099,6 +1100,7 @@
         expand_char_budget: isNaN(expandBudget) ? 2000 : expandBudget,
         expand_max: isNaN(expandMax) ? 5 : expandMax,
         auto_expand: autoExpand,
+        same_subject_merge: sameSubjectMerge,
         watch_interval_days: watchIntervalDays,
         research_context_budget: isNaN(researchBudget) ? 8000 : researchBudget,
         presentation_pdf_max_bytes: isNaN(presPdfBytes) ? 67108864 : presPdfBytes,
@@ -1148,6 +1150,7 @@
         expand_char_budget: 2000,
         expand_max: 5,
         auto_expand: true,
+        same_subject_merge: 'off',
         watch_interval_days: 1,
         research_context_budget: 8000,
         presentation_pdf_max_bytes: 67108864,
@@ -1277,6 +1280,12 @@
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += `<label style="cursor:pointer;"><input id="limit-auto-expand" type="checkbox" ${lims.auto_expand!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.auto_expand"))}</label>`;
     h += '<div style="font-size:10px;opacity:0.7;">' + esc(trKey("console.js.panels.limits.auto_expand_hint")) + '</div>';
+    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.same_subject_merge")) + '</label>';
+    h += '<select id="limit-same-subject-merge" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    h += `<option value="off" ${lims.same_subject_merge!=='shadow'?'selected':''}>${esc(trKey("console.js.panels.limits.same_subject_merge_off"))}</option>`;
+    h += `<option value="shadow" ${lims.same_subject_merge==='shadow'?'selected':''}>${esc(trKey("console.js.panels.limits.same_subject_merge_shadow"))}</option>`;
+    h += '</select>';
+    h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">' + esc(trKey("console.js.panels.limits.same_subject_merge_hint")) + '</div></div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.expand_max"))}</label><input id="limit-expand-max" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_max ?? 5}"/></div>`;
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.watch_interval_days"))}</label><input id="limit-watch-interval-days" type="number" min="0.01" step="any" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.watch_interval_days ?? 1}"/></div>`;

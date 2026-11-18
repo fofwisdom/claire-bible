@@ -29,7 +29,7 @@ from .prompts import (
     extract_system_prompt,
     is_preface_summary,
     judge_relationship_prompt,
-    judge_research_prompt,
+    judge_gate_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
     research_prompt,
@@ -557,8 +557,8 @@ class CodexProvider:
                 sources.append({"title": "", "url": url.strip()})
         return {"report": report, "sources": sources}
 
-    def judge_research(self, query: str, context: str, report: str) -> dict:
-        prompt = judge_research_prompt(query, context, report)
+    def judge_gate(self, query: str, context: str, report: str) -> dict:
+        prompt = judge_gate_prompt(query, context, report)
         try:
             data = self._run_cli(
                 prompt, schema=ResearchJudgement.model_json_schema()

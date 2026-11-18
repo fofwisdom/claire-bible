@@ -2,13 +2,13 @@
 
 Basis: commit d15ae8e0 (2026-11-16) · Readers: agents that change the extraction, the entity resolution, the ontology, the cross-document linking, or the content language. · Design reasons: [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md), [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md), [QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](../design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md), [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](../design/INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
 
-This document tells what the code does now, from a fetched `Document` to entities and edges in the graph. Fetchers, PDF parsing, video, and Telegram input are in [INGESTION.md](INGESTION.md). One-hop expansion and the merge of a same-subject source are in [ONEHOP_MERGE.md](ONEHOP_MERGE.md). Provider selection, model slots, and the embedding pin are in [PROVIDERS.md](PROVIDERS.md). Setting names and defaults are in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
+This document tells what the code does now, from a fetched `Document` to entities and edges in the graph. Fetchers, PDF parsing, video, and Telegram input are in [INGESTION.md](INGESTION.md). Link expansion and the merge of a same-subject source are in [EXPANSION.md](EXPANSION.md). Provider selection, model slots, and the embedding pin are in [PROVIDERS.md](PROVIDERS.md). Setting names and defaults are in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
 
 Anchors are file paths and function names, not line numbers. Evidence tags follow [PRINCIPLES.md](../PRINCIPLES.md) F1: [code], [measured], [decision], [unverified].
 
 ## 1. Flow of one document
 
-`extract_resolve_store` in `src/claire/ingest/pipeline.py` does the work for one document. New ingest, refresh, re-extraction, and the one-hop merge all call it with the same `doc.id`. Thus a second run adds to the sources of the existing entities and does not make new ones for the same names. [code]
+`extract_resolve_store` in `src/claire/ingest/pipeline.py` does the work for one document. New ingest, refresh, re-extraction, and the same-subject source merge all call it with the same `doc.id`. Thus a second run adds to the sources of the existing entities and does not make new ones for the same names. [code]
 
 The steps, in order: [code]
 

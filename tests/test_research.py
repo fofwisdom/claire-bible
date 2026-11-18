@@ -1,4 +1,4 @@
-"""맥락 확장 조사(expand/research) — 조사→판정 게이트→통과 시에만 그래프 적재.
+"""맥락 조사(expand/research) — 조사→판정 게이트→통과 시에만 그래프 적재.
 
 MockProvider 훅: '조사불가' 포함 쿼리 → INSUFFICIENT, '모호' 포함 쿼리 → 저품질 판정. 실제 조사/판정 품질은 실 Gemini 로 검증하고, 여기선 게이트 배선과 적재 경로를 본다.
 """
@@ -6,7 +6,7 @@ MockProvider 훅: '조사불가' 포함 쿼리 → INSUFFICIENT, '모호' 포함
 from __future__ import annotations
 
 from claire.config import Settings
-from claire.expand.research import build_context, contextual_research
+from claire.research import build_context, contextual_research
 from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity
 from claire.store import db as dbm

@@ -1,6 +1,6 @@
-"""맥락 확장 조사 — 읽던 맥락에 맞춰 키워드/문장을 조사해 그래프를 확장한다.
+"""맥락 조사(contextual research) — 읽던 맥락에 맞춰 키워드/문장을 조사해 그래프에 더한다. 링크 확장이 아니다(용어: docs/implementation/GLOSSARY.md).
 
-사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력 → provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사 → provider.judge_research(별도 호출)가 맥락 일치도(relevance)·품질(quality)을 채점 → 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계)으로 적재.
+사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력 → provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사 → provider.judge_gate(별도 호출, 확장 게이트)가 맥락 일치도(relevance)·품질(quality)을 채점 → 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계)으로 적재.
 
 다의어 방어(사용자 요구)는 이중: ① 조사 프롬프트가 맥락 내 해석을 강제하고 맥락 불일치 시 INSUFFICIENT 선언, ② 독립 판정자가 relevance 를 채점해 게이트. 판정 실패는 0점(fail-closed) — 불확실하면 추가하지 않는다(보고서는 보여주되 보류).
 """
@@ -9,12 +9,8 @@ from __future__ import annotations
 
 import sqlite3
 
-from ..store import db as dbm
-
-# 그래프 추가 게이트 임계. relevance(맥락 일치)가 quality 보다 엄격 — 오염이 빈약보다
-# 해롭다(잘못 들어간 다의어 노드는 이후 모든 검색/종합을 오도).
-RELEVANCE_MIN = 0.7
-QUALITY_MIN = 0.6
+from .expand.gate import QUALITY_MIN, RELEVANCE_MIN
+from .store import db as dbm
 
 
 def build_context(conn: sqlite3.Connection, node_id: str | None = None,
@@ -26,7 +22,7 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
     parts: list[str] = []
     focus = ""
     if node_id:
-        from ..graphview import synthesis_context
+        from .graphview import synthesis_context
 
         ctx, names = synthesis_context(conn, [node_id], kb_id=kb_id)
         if ctx:
@@ -53,7 +49,7 @@ def contextual_research(settings, provider, *, query: str,
 
     반환 dict: {query, context_focus, report, sources, relevance, quality, interpretation, reason, added, verdict, ingest?} — 게이트 미달이어도 보고서는 반환해 사용자가 읽을 수 있게 한다(추가만 보류).
     """
-    from ..extract.provider import set_progress_callback
+    from .extract.provider import set_progress_callback
 
     def _p(stage: str, msg: str) -> None:
         if progress:
@@ -65,7 +61,7 @@ def contextual_research(settings, provider, *, query: str,
     query = (query or "").strip()
     if not query:
         return {"error": "조사할 키워드/문장이 비었습니다"}
-    if not (hasattr(provider, "research") and hasattr(provider, "judge_research")):
+    if not (hasattr(provider, "research") and hasattr(provider, "judge_gate")):
         return {"error": "이 provider 는 맥락 조사를 지원하지 않습니다"}
 
     conn = dbm.connect(settings.db_file)
@@ -92,7 +88,7 @@ def contextual_research(settings, provider, *, query: str,
         _p("research", f"조사 완료 — 보고서 {len(report)}자 · 출처 {len(sources)}개")
 
         _p("judge", "판정 중 — 맥락 일치·품질 채점(별도 LLM 호출)…")
-        judge = provider.judge_research(query, context, report)
+        judge = provider.judge_gate(query, context, report)
         rel = float(judge.get("relevance") or 0.0)
         qual = float(judge.get("quality") or 0.0)
         base.update({"relevance": rel, "quality": qual,
@@ -144,10 +140,10 @@ def _research_doc_text(query: str, focus: str, interpretation: str,
 
 def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
                        query: str, text: str) -> dict:
-    from ..ingest.normalize import content_hash
-    from ..ingest.pipeline import ingest as run_ingest
-    from ..ontology.base import Document
-    from ..store.vectors import make_vector_store
+    from .ingest.normalize import content_hash
+    from .ingest.pipeline import ingest as run_ingest
+    from .ontology.base import Document
+    from .store.vectors import make_vector_store
 
     doc = Document(
         title=f"조사: {query[:60]}",

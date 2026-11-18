@@ -92,7 +92,15 @@ def connect_telemetry(db_path: Path | str) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=1000;")
     conn.executescript(TELEMETRY_SCHEMA)
     _migrate_support_bundles_account_id(conn)
+    _migrate_gate_call_type(conn)
     return conn
+
+
+def _migrate_gate_call_type(conn: sqlite3.Connection) -> None:
+    """The provider method ``judge_research`` has the name ``judge_gate`` (the expansion gate, GLOSSARY.md). Old rows get the new call type (idempotent)."""
+    cur = conn.execute("UPDATE provider_telemetry SET call_type='judge_gate' WHERE call_type='judge_research'")
+    if cur.rowcount:
+        conn.commit()
 
 
 def _migrate_support_bundles_account_id(conn: sqlite3.Connection) -> None:

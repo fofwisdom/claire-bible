@@ -24,7 +24,7 @@ A VMware Explore session page can give a Presentation PDF next to the video. The
 
 ## Rejected alternatives
 
-- **Separate documents for video and PDF, joined later by the one-hop merge.** The merge runs after the parent is stored and depends on an LLM judgment; a publisher-given attachment needs a deterministic, atomic path.
+- **Separate documents for video and PDF, joined later by the same-subject source merge.** The merge runs after the parent is stored and depends on an LLM judgment; a publisher-given attachment needs a deterministic, atomic path.
 - **Collect every `.pdf` link on the page.** It takes unrelated files.
 - **Fixed sleep before the DOM check.** It caused the 2026-09-22 failure (decision 5).
 - **One shared downloader for web pages and required attachments now.** The web fetch follows redirects and buffers whole responses; a required attachment needs per-hop checks and a stream limit. Merge them only when a second attachment source exists.

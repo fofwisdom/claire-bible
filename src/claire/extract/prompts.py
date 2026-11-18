@@ -24,7 +24,7 @@ PRESENTATION_PROMPT_VERSION = "pres-v2"
 # 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
 _SINGLE_DOC_CHAR_BUDGET = 20000
 _MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
-# render_detail 재시도 하한선(docs/implementation/ONEHOP_MERGE.md §3.3b) — 이보다 짧으면 두 출처를
+# render_detail 재시도 하한선(docs/implementation/EXPANSION.md §3.3b) — 이보다 짧으면 두 출처를
 # 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
 _MERGED_DETAIL_MIN_CHARS = 1000
 
@@ -896,7 +896,7 @@ def research_prompt(query: str, context: str) -> str:
     )
 
 
-def judge_research_prompt(query: str, context: str, report: str) -> str:
+def judge_gate_prompt(query: str, context: str, report: str) -> str:
     """조사 보고서 품질 및 맥락 일치도 판정 프롬프트."""
     return (
         "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
@@ -929,7 +929,7 @@ def judge_research_prompt(query: str, context: str, report: str) -> str:
 
 
 def select_followups_prompt(context: str, candidates: list[dict]) -> str:
-    """1홉 자동확장 후보 선별 프롬프트."""
+    """자동 확장 후보 선별 프롬프트."""
     listing = "\n".join(
         f"[{i}] {c.get('anchor') or '(텍스트 없음)'} — {c.get('url', '')}"
         for i, c in enumerate(candidates)

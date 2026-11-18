@@ -367,7 +367,7 @@ def test_text_and_structured_provider_methods_follow_existing_contract():
             "reason": "근거가 일치함",
         }
     )
-    judgement = provider.judge_research("Claire", "맥락", "보고서")
+    judgement = provider.judge_gate("Claire", "맥락", "보고서")
     assert judgement["relevance"] == 0.94
     assert judgement["quality"] == 0.88
     assert judgement["same_subject"] is True

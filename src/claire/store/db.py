@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS oauth_auth_requests (
     expires_at REAL NOT NULL
 );
 
--- [1홉 자동확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
+-- [자동 확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
 -- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
 CREATE TABLE IF NOT EXISTS expand_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -305,7 +305,23 @@ CREATE TABLE IF NOT EXISTS expand_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_expand_status ON expand_queue(status);
 
--- [주기 크롤링] watch 대상 문서가 재크롤 시 '내용이 바뀌었을 때' 변경 '전' 원문을 시계열로
+-- v35: the shadow records of the same-subject source merge (docs/implementation/EXPANSION.md). In the mode "shadow", automatic expansion stores each child as its own document and records here what the merge would do. The rows are data for the decision about the merge; no code merges from them.
+CREATE TABLE IF NOT EXISTS same_subject_shadow (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    parent_document_id TEXT NOT NULL,
+    child_url TEXT NOT NULL,
+    child_document_id TEXT,        -- the child document that the ingest made (NULL: duplicate or ingest error)
+    same_subject INTEGER NOT NULL, -- the judgement of the expansion gate: 1 = the merge would take the child
+    relevance REAL,
+    quality REAL,
+    interpretation TEXT,
+    reason TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_same_subject_shadow_kb ON same_subject_shadow(kb_id, created_at);
+
+-- [주기 재확인] watch 대상 문서가 재크롤 시 '내용이 바뀌었을 때' 변경 '전' 원문을 시계열로
 -- 보존(데이터 보존 협약 — 벤치/순위처럼 변하는 콘텐츠의 추세를 살림). 그래프(엔티티)는
 -- 최신 in-place 갱신만 하고, 과거 상태는 여기 원문으로만 남는다(추세는 나중에 스냅샷 종합).
 CREATE TABLE IF NOT EXISTS document_snapshots (
@@ -493,7 +509,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # v6: 근사 중복 탐지용 MinHash 서명(JSON). content_hash/canonical_url 을 비껴가는
     # "같은 글 다른 입구"(arxiv 버전 접미사 등)를 잡는 3차 dedup 게이트. 백필=dedup-scan.
     _ensure_column(conn, "documents", "minhash", "TEXT")
-    # v7: 주기 크롤링 + 미열람 표시.
+    # v7: 주기 재확인 + 미열람 표시.
     #  - seen: 문서를 한 번이라도 열어봤는지(0=미열람/unread, 1=봄). 기존 문서는 DEFAULT 1
     #    (='이제부터' 적용 — 과거 적재분은 이미 본 것으로 간주). 신규 적재는 insert 시 0 명시.
     #  - watch_*: 변하는 콘텐츠(벤치/순위 등) 주기 재크롤 대상 여부·주기·이력. enabled NULL=미판단
@@ -761,6 +777,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v31_knowledge_base_actors(conn)
     _migrate_v34_automatic_offers(conn)
     _migrate_v32_offers_and_grants(conn)
+    _migrate_v35_expansion_source_names(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1539,6 +1556,21 @@ def _migrate_v34_automatic_offers(conn: sqlite3.Connection) -> None:
         offers.ensure_automatic_column(conn)
 
 
+def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
+    """v35 schema (GLOSSARY.md, link expansion terms): the source names of link expansion in ``raw_inbox.source``. ``onehop:<parent id>`` becomes ``expand:<parent id>``, and ``telegram-expand`` becomes ``expand-proposal``. Idempotent (A3); it runs at each start. The table ``same_subject_shadow`` comes from the schema script."""
+    if not _table_exists(conn, "raw_inbox") or "source" not in _column_names(conn, "raw_inbox"):
+        return
+    renamed = conn.execute(
+        "UPDATE raw_inbox SET source = 'expand:' || substr(source, 8) WHERE source LIKE 'onehop:%'"
+    ).rowcount
+    renamed += conn.execute(
+        "UPDATE raw_inbox SET source = 'expand-proposal' WHERE source = 'telegram-expand'"
+    ).rowcount
+    if renamed:
+        conn.commit()
+        logger.info("schema v35: %d raw_inbox rows got the new source names of link expansion", renamed)
+
+
 def _migrate_v33_knowledge_federation_limits(conn: sqlite3.Connection) -> None:
     """v33 schema (KNOWLEDGE_FEDERATION_DESIGN.md Section 14, KS2: limits for each object, each domain, and each day). Idempotent (A3); it runs at each start, after the steps v29 to v32.
 
@@ -1619,7 +1651,7 @@ def _migrate_v28_convert_knowledge_bases(conn: sqlite3.Connection) -> None:
                     now_ms=_next_ms(),
                 )
             conn.execute("UPDATE documents SET watch_enabled=0 WHERE kb_id=?", (kb_id,))
-            for queue in ("refresh_queue", "expand_queue"):
+            for queue in ("refresh_queue", "expand_queue", "same_subject_shadow"):
                 if _table_exists(conn, queue):
                     conn.execute(f"DELETE FROM {queue} WHERE kb_id=?", (kb_id,))
             conn.execute("RELEASE SAVEPOINT v28_convert_kb")
@@ -2394,7 +2426,7 @@ def get_document_row(conn: sqlite3.Connection, document_id: str, kb_id: int | No
     ).fetchone()
 
 
-# --- [주기 크롤링] 스냅샷(시계열) · 열람(seen) · watch 설정 ---
+# --- [주기 재확인] 스냅샷(시계열) · 열람(seen) · watch 설정 ---
 
 def save_document_snapshot(
     conn: sqlite3.Connection, document_id: str, *, captured_at: float,
@@ -4943,10 +4975,10 @@ def refresh_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) ->
     return {r["status"]: r["n"] for r in rows}
 
 
-# --- 1홉 자동확장 큐 (expand_queue) — refresh_queue 와 동일 패턴 ---
+# --- 자동 확장 큐 (expand_queue) — refresh_queue 와 동일 패턴 ---
 
 def enqueue_expand(conn: sqlite3.Connection, document_id: str, kb_id: int = 0) -> bool:
-    """문서를 1홉 확장 대기열에 등록. 이미 있으면 pending 으로 되살린다(중복 무해). 신규면 True."""
+    """문서를 링크 확장 대기열에 등록. 이미 있으면 pending 으로 되살린다(중복 무해). 신규면 True."""
     now = time.time()
     row = conn.execute(
         "SELECT id FROM expand_queue WHERE document_id=? AND kb_id=?", (document_id, kb_id)
@@ -4995,6 +5027,37 @@ def update_expand(
         tuple(params),
     )
     conn.commit()
+
+
+def record_same_subject_shadow(
+    conn: sqlite3.Connection, *, kb_id: int, parent_document_id: str, child_url: str,
+    child_document_id: str | None, same_subject: bool, relevance: float, quality: float,
+    interpretation: str = "", reason: str = "",
+) -> int:
+    """Record one shadow judgement of the same-subject source merge (mode "shadow"). Returns the row id."""
+    cur = conn.execute(
+        "INSERT INTO same_subject_shadow(kb_id, parent_document_id, child_url, child_document_id, same_subject,"
+        " relevance, quality, interpretation, reason, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (kb_id, parent_document_id, child_url, child_document_id, 1 if same_subject else 0,
+         relevance, quality, interpretation, reason, time.time()),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def list_same_subject_shadow(
+    conn: sqlite3.Connection, *, kb_id: int | None = None, limit: int = 0,
+) -> list[sqlite3.Row]:
+    """The shadow records, the newest first. ``kb_id`` None: all knowledge bases."""
+    q = "SELECT * FROM same_subject_shadow"
+    params: list[Any] = []
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params.append(kb_id)
+    q += " ORDER BY created_at DESC, id DESC"
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return conn.execute(q, tuple(params)).fetchall()
 
 
 def expand_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, int]:
@@ -5087,7 +5150,7 @@ def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict
     conn.commit()
 
 
-# --- 1홉 병합 출처(extra_sources) — docs/implementation/ONEHOP_MERGE.md. 신규 컬럼 없이 documents.meta
+# --- 동일 주제 출처 병합 출처(extra_sources) — docs/implementation/EXPANSION.md. 신규 컬럼 없이 documents.meta
 # JSON 재사용(set_document_images 와 동일 패턴) — 같은 주제의 부가 출처(예: GeekNews 글이
 # 발견한 그 프로젝트의 github)를 새 Document 로 안 만들고 부모 문서에 흡수할 때, 원문 링크
 # 계보를 보존하기 위한 목록.
@@ -5209,7 +5272,7 @@ def purge_document_matrix(conn: sqlite3.Connection, doc_id: str, kb_id: int | No
 
 
 def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None, kb_id: int | None = None) -> str | None:
-    """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용 (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
+    """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 확장 후보 재제안 방지용 (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
 
     documents.meta 는 색인 없는 JSON 이라 파이썬 측 스캔 — near_duplicate_document 와 동일한 절충(개인용 규모라 전체 스캔으로 충분히 빠름). 대략적인 LIKE 로 후보를 먼저 좁혀 스캔 대상을 줄인다."""
     if not canonical_url:
@@ -5334,6 +5397,10 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
             (keeper_id, *lo)).rowcount
         conn.execute(f"DELETE FROM refresh_queue WHERE document_id IN ({ph}){where_theme}", lo)
         conn.execute(f"DELETE FROM expand_queue WHERE document_id IN ({ph}){where_theme}", lo)
+        for col in ("parent_document_id", "child_document_id"):
+            conn.execute(
+                f"UPDATE same_subject_shadow SET {col}=? WHERE {col} IN ({ph}){where_theme}",
+                (keeper_id, *lo))
         out["deleted"] = conn.execute(
             f"DELETE FROM documents WHERE id IN ({ph}){where_theme}", lo).rowcount
         conn.commit()
@@ -6229,6 +6296,10 @@ def purge_document_cascade(
         # 8개 DB 테이블 연쇄 삭제
         stats["deleted_expand_queue"] = conn.execute(
             f"DELETE FROM expand_queue WHERE document_id IN ({ph_matched}){where_th}", matched_ids
+        ).rowcount
+        stats["deleted_same_subject_shadow"] = conn.execute(
+            f"DELETE FROM same_subject_shadow WHERE (parent_document_id IN ({ph_matched}) OR child_document_id IN ({ph_matched})){where_th}",
+            (*matched_ids, *matched_ids),
         ).rowcount
         stats["deleted_refresh_queue"] = conn.execute(
             f"DELETE FROM refresh_queue WHERE document_id IN ({ph_matched}){where_th}", matched_ids

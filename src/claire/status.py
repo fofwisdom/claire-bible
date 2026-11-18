@@ -100,10 +100,10 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
         lines.append("[갱신 큐]")
         lines.append("  " + ", ".join(f"{k}={v}" for k, v in sorted(rq.items())))
 
-    # 자동확장 큐(1홉)
+    # 자동 확장 큐
     eq = dbm.expand_status_counts(conn)
     if eq:
-        lines.append("[자동확장 큐]")
+        lines.append("[자동 확장 큐]")
         lines.append("  " + ", ".join(f"{k}={v}" for k, v in sorted(eq.items())))
 
     # 연결
@@ -193,11 +193,11 @@ def build_queue_dashboard(
                 if r["payload"]:
                     lines.append(f"        URL: {r['payload'][:55]}")
 
-    # 3. 1홉 자동확장 큐 (expand_queue)
+    # 3. 자동 확장 큐 (expand_queue)
     if queue_name in (None, "expand", "expand_queue"):
         exp_counts = dbm.expand_status_counts(conn)
         total_exp = sum(exp_counts.values())
-        lines.append(f"\n[3] 🔗 1홉 자동확장 큐 (expand_queue) - 총 {total_exp}건")
+        lines.append(f"\n[3] 🔗 자동 확장 큐 (expand_queue) - 총 {total_exp}건")
         lines.append(f"    상태 분포 : " + (", ".join(f"{k}={v}" for k, v in sorted(exp_counts.items())) or "비어있음"))
 
         exp_pending = conn.execute(

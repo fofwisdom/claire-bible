@@ -150,7 +150,7 @@ def test_queue_dashboard_output(tmp_path):
 
     # status 텍스트에도 expand_queue 반영 확인
     st = build_status_text(s, full=True)
-    assert "[자동확장 큐]" in st
+    assert "[자동 확장 큐]" in st
 
 
 def test_queue_list_accepts_positional_queue_name(tmp_path, monkeypatch, capsys):

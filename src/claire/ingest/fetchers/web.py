@@ -246,7 +246,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     #   static 이 실패해 effective 를 못 얻으면 입력 url 로 폴백.
     effective = effective_url or url
 
-    # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
+    # link_anchors: 자동 확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
     if doc_type == "odt" or url.lower().split("?", 1)[0].endswith(".odt") or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".odt")):
         doc_type = "odt"
@@ -417,7 +417,7 @@ def _extract_html(
         except Exception:  # noqa: BLE001
             pass
 
-    # 외부 링크 수집(1홉 후보용) + 앵커 텍스트(LLM 선별 신호; url 당 첫 비어있지 않은 텍스트)
+    # 외부 링크 수집(확장 후보용) + 앵커 텍스트(LLM 선별 신호; url 당 첫 비어있지 않은 텍스트)
     links: list[str] = []
     anchors: dict[str, str] = {}
     seen_l: set[str] = set()
@@ -591,7 +591,7 @@ def _fetch_scrapling(
 ) -> tuple[str | None, str, list[str], dict[str, str], list[dict], bool]:
     """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
 
-    정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에 가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 → title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
+    정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에 가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 → title/본문/링크(확장 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
     try:
         from scrapling.fetchers import Fetcher

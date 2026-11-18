@@ -106,13 +106,13 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CB_REFRESH_INTERVAL` | `3600` | 정수 (초) | `refresh-loop` 워커의 주기 크롤링 실행 간격 (기본 1시간). |
+| `CB_REFRESH_INTERVAL` | `3600` | 정수 (초) | `refresh-loop` 워커의 주기 재확인 실행 간격 (기본 1시간). |
 | `CB_REFRESH_BATCH` | `5` | 정수 | `refresh-loop` 1회 실행당 확인할 최대 watch 문서 수. |
 | `CB_RECOVER_INTERVAL` | `600` | 정수 (초) | `recover-loop` 워커의 실패 문서 복구 재시도 루프 주기 (기본 10분). |
 | `CB_RECOVER_BATCH` | `5` | 정수 | `recover-loop` 1회 실행당 재처리할 최대 실패 문서 수. |
 | `CB_RECOVER_MAX_ATTEMPTS` | `5` | 정수 | 실패 문서에 대한 최대 복구 시도 횟수 (초과 시 영구 실패 처리). |
 | `CB_RECOVER_BASE_DELAY` | `300` | 정수 (초) | 지수 백오프 복구 지연 기본 시간 (초). |
-| `CB_EXPAND_INTERVAL` | `900` | 정수 (초) | `expand-loop` 워커의 1홉 자동확장 큐 처리 주기 (기본 15분). |
+| `CB_EXPAND_INTERVAL` | `900` | 정수 (초) | `expand-loop` 워커의 자동 확장 큐 처리 주기 (기본 15분). |
 | `CB_EXPAND_BATCH` | `3` | 정수 | `expand-loop` 1회 실행당 처리할 최대 확장 후보 수. |
 
 ---
@@ -214,15 +214,16 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.10 탐색, 1홉 자동확장 및 크롤링 정책
+### 2.10 링크 확장 및 주기 재확인 정책
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_EXPAND_MAX` | `5` | 정수 | 1개 문서 적재 시 1홉 확장으로 탐색/적재할 최대 링크 수. |
-| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화된다. ([ONEHOP_MERGE.md](ONEHOP_MERGE.md) 참조) |
+| `CLAIRE_EXPAND_MAX` | `5` | 정수 | 1개 문서 적재 시 링크 확장으로 탐색/적재할 최대 링크 수. |
+| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 자동 확장 사용 여부. `0`이면 확장 대기열에 넣지 않고 확장 제안(텔레그램 버튼)으로 후보만 보인다. ([EXPANSION.md](EXPANSION.md) §1 참조) |
+| `CLAIRE_SAME_SUBJECT_MERGE` | `off` | `off`, `shadow` | 동일 주제 출처 병합 모드. `data/ingest_limits.json`의 `same_subject_merge`가 정본이고 이 이름은 설정 별칭일 뿐이다(파일이 환경변수보다 우선). `shadow`는 판정만 기록하고 병합하지 않는다. 병합하는 값은 없다. ([EXPANSION.md](EXPANSION.md) §3.1) |
 | `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위, 0보다 큼) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
 
-이 세 변수는 `data/ingest_limits.json`의 `expand_max`, `auto_expand`, `watch_interval_days`로 이전된다. 서버 관리자는 `/admin/limits`의 **1홉 자동확장 및 주기 크롤링** 구역에서 설정한다(§2.11 참조).
+이 세 변수는 `data/ingest_limits.json`의 `expand_max`, `auto_expand`, `watch_interval_days`로 이전된다. 서버 관리자는 `/admin/limits`의 **링크 확장 및 주기 재확인** 구역에서 설정한다(§2.11 참조). 같은 구역의 `same_subject_merge`(동일 주제 출처 병합, `off` 기본 또는 `shadow`)는 환경변수가 없고 이 파일에만 있다([EXPANSION.md](EXPANSION.md) §3.1).
 
 ---
 
@@ -284,8 +285,8 @@ TypeSafe AI Jev는 관리자 컨텍스트에서 플래그와 API 키가 모두 �
 | `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산된다. |
 | `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([INGESTION.md](INGESTION.md) §8.2 참조) |
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
-| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [ONEHOP_MERGE.md](ONEHOP_MERGE.md) §7 참조. |
-| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [ONEHOP_MERGE.md](ONEHOP_MERGE.md) §7 참조. |
+| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 자동 확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [EXPANSION.md](EXPANSION.md) §7 참조. |
+| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [EXPANSION.md](EXPANSION.md) §7 참조. |
 | `CLAIRE_VIDEO_MAX_EXTRACT_CHARS` | `200000` | 정수 (글자 수) | 비디오 전사 텍스트 추출 상한. |
 | `CLAIRE_VLM_MAX_IMAGES` | `20` | 정수 | 문서 하나에서 VLM으로 전사할 최대 이미지 수. |
 

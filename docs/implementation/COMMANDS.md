@@ -19,7 +19,7 @@
    * [3.3 검색 및 질의 (Search)](#33-검색-및-질의-search)
    * [3.4 재생성, 백필, 포맷 마이그레이션 및 복구](#34-재생성-백필-포맷-마이그레이션-및-복구)
    * [작업 진행률 및 중단 보고](#작업-진행률-및-중단-보고)
-   * [3.5 1홉 자동 확장 (Expand)](#35-1홉-자동-확장-expand)
+   * [3.5 자동 확장 (Expand)](#35-자동-확장-expand)
    * [3.6 중복 정리 및 정규화 (Dedup & Canon)](#36-중복-정리-및-정규화-dedup--canon)
    * [3.7 감시 및 문서 관리 (Watch & Doc)](#37-감시-및-문서-관리-watch--doc)
    * [3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)](#38-데이터-수명주기-및-오염-소각-lifecycle--purge)
@@ -267,7 +267,7 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
 * **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc]`
 * **주요 옵션**:
   * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재.
-  * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
+  * `--expand`: 본문에서 추출된 외부 링크 URL들을 링크 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
@@ -543,10 +543,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
-### 3.5 1홉 자동 확장 (Expand)
+### 3.5 자동 확장 (Expand)
 
-* `claire expand-run [--limit N]`: 1홉 확장 큐(`expand_queue`)에 대기 중인 URL 후보를 선별하여 자동 수집 및 적재 1회 실행.
-* `claire expand-loop [--interval N] [--batch N]`: 모든 활성 테마의 1홉 확장을 전역 batch 한도 안에서 순환 처리하는 데몬 루프. 확장 알림은 적재 결과와 링크를 테마별로 묶는다. 세 상주 루프는 매 cycle 레지스트리를 다시 읽어 신규·삭제 테마를 반영하고, 한 테마의 오류를 다른 테마 처리와 격리한다.[^multi-theme-operations]
+* `claire expand-run [--limit N]`: 자동 확장 큐(`expand_queue`)에 대기 중인 문서의 링크를 선별하여 확장 게이트를 통과한 링크를 1회 적재.
+* `claire expand-shadow [-t THEME] [--limit N] [--json]`: 동일 주제 출처 병합의 섀도 기록(`same_subject_shadow`)을 최신순으로 보여 준다. 요약은 모드, 기록 수, `same_subject=true` 기록 수다 ([EXPANSION.md](EXPANSION.md) §3.1).
+* `claire expand-loop [--interval N] [--batch N]`: 모든 활성 테마의 링크 확장을 전역 batch 한도 안에서 순환 처리하는 데몬 루프. 확장 알림은 적재 결과와 링크를 테마별로 묶는다. 세 상주 루프는 매 cycle 레지스트리를 다시 읽어 신규·삭제 테마를 반영하고, 한 테마의 오류를 다른 테마 처리와 격리한다.[^multi-theme-operations]
 
 ---
 

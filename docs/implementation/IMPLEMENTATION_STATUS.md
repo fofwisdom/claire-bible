@@ -134,13 +134,13 @@ Limits:
 5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `telegram_bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
 6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
 
-### 4.2 추출과 1홉 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`ONEHOP_MERGE.md`](ONEHOP_MERGE.md))
+### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 
 1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
 2. `evaluate_summary_verdict`는 `AntigravityProvider`에서만 돌고, 판정 결과에 따라 동작하는 코드가 없다.
 3. `multihop_candidates`는 엣지를 만들지 않는다(링킹 Phase 3은 계획).
 4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
-5. 1홉 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
+5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
 6. `CLAIRE_PREFERRED_LANGUAGES`는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
 
 ### 4.3 판정 기록과 그래프 ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md), [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md))

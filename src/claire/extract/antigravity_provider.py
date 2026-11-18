@@ -34,7 +34,7 @@ from .prompts import (
     extract_system_prompt,
     is_preface_summary,
     judge_relationship_prompt,
-    judge_research_prompt,
+    judge_gate_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
     research_prompt,
@@ -779,7 +779,7 @@ class AntigravityProvider:
         )
 
     def classify_watch(self, doc: Document) -> dict:
-        """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""
+        """[주기 재확인] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""
         body = _doc_to_prompt(doc)[:4000]
         prompt = classify_watch_prompt(body)
         schema = WatchClassification.model_json_schema()
@@ -830,9 +830,9 @@ class AntigravityProvider:
 
         return {"report": report, "sources": sources}
 
-    def judge_research(self, query: str, context: str, report: str) -> dict:
+    def judge_gate(self, query: str, context: str, report: str) -> dict:
         """조사 보고서 품질 및 맥락 일치도 판정."""
-        prompt = judge_research_prompt(query, context, report)
+        prompt = judge_gate_prompt(query, context, report)
         schema = ResearchJudgement.model_json_schema()
         try:
             data = self._run_cli(
@@ -840,14 +840,14 @@ class AntigravityProvider:
                 json_schema=schema,
                 output_format="json",
                 effort="medium",
-                call_type="judge_research",
+                call_type="judge_gate",
                 allow_tools=False,
             )
             if isinstance(data, dict):
                 return ResearchJudgement.model_validate(data).model_dump()
             return ResearchJudgement.model_validate_json(str(data)).model_dump()
         except Exception as e:
-            logger.warning("judge_research parsing failed: %s", e)
+            logger.warning("judge_gate parsing failed: %s", e)
             return {
                 "relevance": 0.0,
                 "quality": 0.0,
@@ -857,7 +857,7 @@ class AntigravityProvider:
             }
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
-        """1홉 자동확장 — 부모 문서 맥락에서 따라갈 가치가 있는 링크 선별."""
+        """자동 확장 — 부모 문서 맥락에서 따라갈 가치가 있는 링크 선별."""
         if not candidates:
             return []
         prompt = select_followups_prompt(context, candidates)
