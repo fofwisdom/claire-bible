@@ -40,7 +40,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 
 - An entry (`RegisteredEntry` in `src/claire/plugin_host/context.py`) has a kind (`fetcher` or `web_adapter`), a name, a priority, host patterns, a class, and a plugin id (`None` for a core entry). The entries come from `_core_entries()` and from the enabled plugins (`plugin_host.runtime`). Order: priority (higher first), then plugin id, then name.
 - Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, `*` matches every host, and there is no substring match (`dropbox.com` is not an x.com host). The registry calls `can_handle` only for a URL whose host matches the entry. An exception from `can_handle` is "no match" and is logged with the entry.
-- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), then the URL rules that are not entries yet (share redirect, HoYoWiki, HoYoLAB, else `web`), then local file rules, else `text`.
+- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), then the URL rules that are not entries yet (share redirect, else `web`), then local file rules, else `text`.
 - `web_adapter_entries(url, domain_only)` returns web adapter entries whose hosts match. An entry with `*` is general and comes only when `domain_only` is false.
 - The old drop-in loader (`load_plugins_from_dir`, `load_entrypoints`, `plugins/fetchers/`) and the decorators `register_fetcher` and `register_web_adapter` are removed.
 
@@ -48,7 +48,6 @@ Core entries at this commit (the site entries move to project plugins in unit PL
 
 | Kind | Name | Priority | Hosts | Module |
 |---|---|---|---|---|
-| fetcher | `naver_clip` | 120 | Naver Clip hosts | `src/claire/ingest/fetchers/naver_clip.py` |
 | fetcher | `youtube` | 90 | YouTube hosts | `src/claire/ingest/fetchers/youtube.py` |
 | fetcher | `video` | 80 | `*` (`is_video_or_audio_url`) | `src/claire/ingest/fetchers/video.py` |
 
@@ -64,6 +63,7 @@ Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of t
 | `claire.hoyolab` | fetcher | `hoyolab` | 115 | `hoyolab.com`, `*.hoyolab.com` (articles) |
 | `claire.hoyolab` | web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` |
 | `claire.hoyolab` | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` |
+| `claire.naver_clip` | fetcher | `naver_clip` | 120 | Naver Clip hosts and `m.naver.com` (`/shorts` path); source type `video` |
 
 #### Plugins [code]
 
@@ -125,7 +125,7 @@ After a usable step, `fetch_web` decides `doc_type` (`odt`, `pdf`, or `web`), cu
 - `SafeHttpClient(timeout=30.0, max_size=10 MiB, ...)` uses the same policy. `get(url)` checks the URL, then sends the request through `guarded_client` with `follow_redirects=True`, raises `MediaResponseDetected` for media responses, and raises `FetchError` when `Content-Length` is larger than `max_size`.
 - Settings: `CLAIRE_ALLOW_PRIVATE_NETWORKS` (default off, boolean or 0/1) and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` (default empty) in `src/claire/config.py`.
 
-Users of the guard: `_fetch_static` in `web.py`, the HoYoWiki client and the `uttu` adapter (through `SafeHttpClient`); the `discourse`, `law`, `xcom`, HoYoLAB, Naver Clip, and YouTube page requests, the share link resolver (`redirect.py`), the VMware Explore session page fetch, the page image download (`store/raw.py` `download_images`), and the Gemini VLM image download (through `guarded_client`); the feed fetcher in `src/claire/feeds/fetch.py` and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` on each hop, with the same two settings). The VMware Explore presentation download has its own check on each hop (§10.2). [code] A new fetcher that sends HTTP requests uses `guarded_client`, `SafeHttpClient`, or `check_ip_safety` on each hop.
+Users of the guard: `_fetch_static` in `web.py`; the project plugins through `ctx.http_client()` and `ctx.safe_get()`, which add the host list of the plugin (§2.2); the YouTube page requests, the share link resolver (`redirect.py`), the VMware Explore session page fetch, the page image download (`store/raw.py` `download_images`), and the Gemini VLM image download (through `guarded_client`); the feed fetcher in `src/claire/feeds/fetch.py` and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` on each hop, with the same two settings). The VMware Explore presentation download has its own check on each hop (§10.2). [code] A new fetcher that sends HTTP requests uses `guarded_client`, `SafeHttpClient`, or `check_ip_safety` on each hop.
 
 Tests: `tests/test_http_security.py` (also the redirect hop checks). Tests that replace the network use the fixture `mock_guarded_client` in `tests/conftest.py`. [code]
 
@@ -246,13 +246,12 @@ The selected value goes to `meta.applied_effort` and `IngestReport.effort`. [cod
 
 1. For a VMware Explore video URL, it runs the presentation discovery first (§10).
 2. `resolve_video_target_url` changes a VMware Explore page URL to the Brightcove player URL, or finds a Brightcove embed, an HTML5 `<video>` source, or `og:video` in given HTML.
-3. A Naver Clip URL goes to `fetch_naver_clip`.
-4. `yt-dlp` reads the metadata (`skip_download`) with `CLAIRE_YTDLP_EXTRACTOR_ARGS`. `acquire_caption` (§9.2) gets a publisher caption.
-5. If no valid caption exists and `enable_video_transcription` is on: a cached media file (§9.4) or a `yt-dlp` audio download goes to the STT provider (`get_transcript_provider`) with `stt_language`. `ffmpeg` must exist (`find_ffmpeg_executable`), else `stt_error` is set.
-6. The text has these blocks: play time, `[영상 챕터]`, `[영상 자막]` or `[영상 음성 전사 (STT)]`, `[영상 설명]`, `[태그]`. With no transcript, the caption block has a notice text.
-7. Meta keys include `has_transcript`, `transcript_segments`, `transcript_source` (`manual_caption`, `automatic_caption`, or `stt`), `caption_status`, `caption_language`, `caption_format`, `caption_content_hash`, `caption_error`, `is_stt`, `stt_error`, `stt_truncated` (budget cut, or more than 120 seconds between the last segment and the end), `video_cached`, `video_cache_used`.
+3. `yt-dlp` reads the metadata (`skip_download`) with `CLAIRE_YTDLP_EXTRACTOR_ARGS`. `acquire_caption` (§9.2) gets a publisher caption.
+4. If no valid caption exists and `enable_video_transcription` is on: a cached media file (§9.4) or a `yt-dlp` audio download goes to the STT provider (`get_transcript_provider`) with `stt_language`. `ffmpeg` must exist (`find_ffmpeg_executable`), else `stt_error` is set.
+5. The text has these blocks: play time, `[영상 챕터]`, `[영상 자막]` or `[영상 음성 전사 (STT)]`, `[영상 설명]`, `[태그]`. With no transcript, the caption block has a notice text.
+6. Meta keys include `has_transcript`, `transcript_segments`, `transcript_source` (`manual_caption`, `automatic_caption`, or `stt`), `caption_status`, `caption_language`, `caption_format`, `caption_content_hash`, `caption_error`, `is_stt`, `stt_error`, `stt_truncated` (budget cut, or more than 120 seconds between the last segment and the end), `video_cached`, `video_cache_used`.
 
-`is_video_or_audio_url` sends VMware Explore, Brightcove, Vimeo, Naver TV and clips, TikTok, Instagram reels, media file suffixes, and query values with media suffixes to the `video` fetcher. A local file path with a media suffix also matches; there is no separate local media fetcher. [code] Whether `yt-dlp` reads such a local path is [unverified].
+`is_video_or_audio_url` sends VMware Explore, Brightcove, Vimeo, TikTok, Chzzk, Instagram reels, media file suffixes, and query values with media suffixes to the `video` fetcher. A local file path with a media suffix also matches; there is no separate local media fetcher. [code] Whether `yt-dlp` reads such a local path is [unverified].
 
 YouTube has its own fetcher (`fetch_youtube`): `youtube-transcript-api` first, then `yt-dlp` captions, then STT. [code]
 

@@ -26,6 +26,28 @@ from claire.ingest.pipeline import ingest
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore
 
+import pytest
+
+_NAMES = ()
+
+from pathlib import Path as _Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = _Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_naver_clip.adapter"
+
+
+@pytest.fixture(autouse=True)
+def plugin(monkeypatch):
+    """Load claire.naver_clip for each test and use its entry in the registry."""
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    module = loaded.module("adapter")
+    for name in _NAMES:
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return loaded
+
 
 def _init_memory_db() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
@@ -68,7 +90,7 @@ def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path, mock_
         # Page of the naver.me short link
         return httpx.Response(200, text='<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=A08CD689352F2A92D6BF04CC676647DAE467" /></html>')
 
-    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler)
+    mock_guarded_client(MOD, handler)
 
     # Mock STT provider to return grounded technical transcription
     class FakeSegment:
@@ -89,7 +111,7 @@ def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path, mock_
             return FakeSTTResult()
 
     monkeypatch.setattr(
-        "claire.ingest.fetchers.naver_clip.get_transcript_provider",
+        MOD + ".get_transcript_provider",
         lambda settings: GroundedSTTProvider(),
     )
 
@@ -180,7 +202,7 @@ def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path
             return httpx.Response(200, json=thin_api_data)
         return httpx.Response(200, text='<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=B12345678901234567890123456789012345" /></html>')
 
-    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler_thin)
+    mock_guarded_client(MOD, handler_thin)
 
     report = ingest(
         "https://naver.me/5eDc8abm",

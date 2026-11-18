@@ -1,4 +1,4 @@
-"""Unit tests for Naver Clip / Shorts fetcher and STT adapter."""
+"""Unit tests for Naver Clip / Shorts fetcher and STT adapter (project plugin claire.naver_clip)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,28 @@ import httpx
 
 import pytest
 
-from claire.ingest.fetchers.base import FetchError
-from claire.ingest.fetchers.naver_clip import (
-    NaverClipClient,
-    NaverClipFetcher,
-    fetch_naver_clip,
-    is_naver_clip_url,
-)
+from claire.plugin_sdk import FetchError
 from claire.ontology.base import Document
+
+_NAMES = ("NaverClipClient", "NaverClipFetcher", "fetch_naver_clip", "is_naver_clip_url")
+
+from pathlib import Path as _Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = _Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_naver_clip.adapter"
+
+
+@pytest.fixture(autouse=True)
+def plugin(monkeypatch):
+    """Load claire.naver_clip for each test and use its entry in the registry."""
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    module = loaded.module("adapter")
+    for name in _NAMES:
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return loaded
 
 
 def test_is_naver_clip_url():
@@ -58,7 +72,7 @@ def test_resolve_media_id_from_redirect_response(monkeypatch, mock_guarded_clien
             return httpx.Response(302, headers={"Location": bridge})
         return httpx.Response(200, text=fake_html)
 
-    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler)
+    mock_guarded_client(MOD, handler)
     media_id = client.resolve_media_id("https://naver.me/5eDc8abm")
     assert media_id == "A08CD689352F2A92D6BF04CC676647DAE467"
 
@@ -85,7 +99,7 @@ def test_get_card_parses_creatorhub_api(monkeypatch, mock_guarded_client):
         },
     }
 
-    mock_guarded_client("claire.ingest.fetchers.naver_clip", lambda request: httpx.Response(200, json=mock_payload))
+    mock_guarded_client(MOD, lambda request: httpx.Response(200, json=mock_payload))
     card = client.get_card("A08CD689352F2A92D6BF04CC676647DAE467")
     assert card["header"]["code"] == 0
 
@@ -114,7 +128,7 @@ def test_fetch_naver_clip_missing_transcript_raises_fetch_error(monkeypatch):
         },
     }
     monkeypatch.setattr(client, "get_card", lambda mid: thin_card)
-    monkeypatch.setattr("claire.ingest.fetchers.naver_clip.NaverClipClient", lambda: client)
+    monkeypatch.setattr(MOD + ".NaverClipClient", lambda: client)
 
     # When STT is disabled or yields no transcript, thin clips must raise FetchError
     with pytest.raises(FetchError, match="video_transcript_missing"):
@@ -144,10 +158,10 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
         },
     }
     monkeypatch.setattr(client, "get_card", lambda mid: card)
-    monkeypatch.setattr("claire.ingest.fetchers.naver_clip.NaverClipClient", lambda: client)
+    monkeypatch.setattr(MOD + ".NaverClipClient", lambda: client)
 
     mock_guarded_client(
-        "claire.ingest.fetchers.naver_clip",
+        MOD,
         lambda request: httpx.Response(200, content=b"M4A_SYNTHETIC_AUDIO_STREAM_DATA"),
     )
 
@@ -165,7 +179,7 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
             return FakeSTTResult()
 
     monkeypatch.setattr(
-        "claire.ingest.fetchers.naver_clip.get_transcript_provider",
+        MOD + ".get_transcript_provider",
         lambda settings: FakeSTTProvider(),
     )
 
@@ -178,3 +192,19 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
     assert doc.meta["has_transcript"] is True
     assert doc.meta["media_id"] == "A08CD689352F2A92D6BF04CC676647DAE467"
     assert doc.meta["fetch_via"] == "naver_clip"
+
+
+def test_naver_tv_url_recognition():
+    from claire.ingest.router import classify
+
+    urls = [
+        "https://tv.naver.com/v/101263731",
+        "https://m.tv.naver.com/v/101263731",
+        "https://now.naver.com/v/12345678",
+    ]
+    # The kind is the name of the registry entry (INGEST_ADAPTER_PLUGIN_DESIGN.md §4.3).
+    for u in urls:
+        assert classify(u) == "naver_clip"
+
+    shared = "NAVER ENGINEERING DAY 2026 세션 https://tv.naver.com/v/101263731"
+    assert classify(shared) == "naver_clip"

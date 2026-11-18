@@ -1,4 +1,4 @@
-"""Naver Clip / Shorts video fetcher with STT transcription.
+"""Naver Clip / Shorts video fetcher with STT transcription (project plugin claire.naver_clip).
 
 Reverse-engineers Naver CreatorHub Clip Viewer API to retrieve media metadata
 and direct authenticated audio/video streams for STT transcription, preventing
@@ -15,14 +15,35 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from ...config import ProviderUnavailableError, Settings, get_settings
-from ...extract.table_budget import slice_document_text
-from ...extract.transcript.factory import get_transcript_provider
-from ...ontology.base import Document
-from ..normalize import canonicalize_url, content_hash
-from .base import BaseFetcher, FetchError, attach_usage_hooks, fetch_settings
-from .http import guarded_client
-from .http_policy import BROWSER_USER_AGENT
+from claire.plugin_sdk import (
+    BROWSER_USER_AGENT,
+    BaseFetcher,
+    Document,
+    FetchError,
+    PluginContext,
+    ProviderUnavailableError,
+    Settings,
+    attach_usage_hooks,
+    canonicalize_url,
+    content_hash,
+    delete_cached_video_file,
+    fetch_settings,
+    get_cached_video_file,
+    get_transcript_provider,
+    host_matches_any,
+    save_video_file_to_cache,
+    slice_document_text,
+    url_host,
+)
+
+_ctx: PluginContext | None = None
+
+
+def guarded_client(**kwargs: Any) -> Any:
+    """The network client of the plugin (``ctx.http_client()``, S6)."""
+    if _ctx is None:
+        raise RuntimeError("register(ctx) of claire.naver_clip was not called")
+    return _ctx.http_client(**kwargs)
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +64,6 @@ def is_naver_clip_url(url: str) -> bool:
     if not url:
         return False
     from urllib.parse import urlsplit
-
-    from ..hosts import host_matches_any, url_host
 
     host = url_host(url)
     if host_matches_any(host, NAVER_CLIP_HOSTS):
@@ -177,7 +196,7 @@ def fetch_naver_clip(
     settings: Settings | None = None,
 ) -> Document:
     """Fetch Naver Clip metadata and audio stream, transcribing with STT."""
-    settings = fetch_settings(settings, get_settings)
+    settings = fetch_settings(settings)
     client = NaverClipClient()
 
     media_id = client.resolve_media_id(url)
@@ -209,11 +228,6 @@ def fetch_naver_clip(
     cached_file: Path | None = None
 
     if settings.enable_video_transcription and stream_url:
-        from ...store.video_cache import (
-            delete_cached_video_file,
-            get_cached_video_file,
-            save_video_file_to_cache,
-        )
 
         canonical_media_url = f"https://m.naver.com/shorts/?seedMediaId={media_id}"
         if effective_data_dir:
@@ -335,6 +349,12 @@ def fetch_naver_clip(
     )
 
 
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    ctx.fetcher(NaverClipFetcher, name="naver_clip", priority=120, hosts=NAVER_CLIP_HOSTS + ("m.naver.com",))
+
+
 class NaverClipFetcher(BaseFetcher):
     """Fetcher for Naver Clip and Shorts videos."""
 
@@ -344,7 +364,7 @@ class NaverClipFetcher(BaseFetcher):
 
     @classmethod
     def name(cls) -> str:
-        return "video"
+        return "naver_clip"
 
     @classmethod
     def fetch(cls, url: str, **kwargs: Any) -> Document:

@@ -136,15 +136,6 @@ def fetch_video(
 
     emit_progress("발행자 CC 확인 및 필요 시 STT 처리 중…")
     resolved_url = resolve_video_target_url(url)
-    from .naver_clip import is_naver_clip_url, fetch_naver_clip
-
-    if is_naver_clip_url(url) or is_naver_clip_url(resolved_url):
-        return fetch_naver_clip(
-            url,
-            full_content=full_content,
-            preferred_languages=preferred_languages,
-            settings=settings,
-        )
 
     ext_args = parse_ytdlp_extractor_args(
         getattr(settings, "ytdlp_extractor_args", "generic:impersonate")
@@ -466,9 +457,8 @@ def is_video_or_audio_url(url: str) -> bool:
         path = (parsed.path or "").lower()
         if (host_matches_any(host, ("vmware.com", "www.vmware.com")) and "/explore/video/" in path) or host_matches_any(host, ("brightcove.net", "*.brightcove.net")):
             return True
-        if host_matches_any(host, ("vimeo.com", "*.vimeo.com", "tiktok.com", "*.tiktok.com", "naver.me", "chzzk.naver.com", "clip.naver.com", "*.clip.naver.com", "tv.naver.com", "*.tv.naver.com", "now.naver.com", "*.now.naver.com")):
-            return True
-        if host_matches_any(host, ("naver.com", "*.naver.com")) and ("/v/" in path or "/shorts" in path):
+        # Media host hints: hosts for which yt-dlp is the complete fetcher (INGEST_ADAPTER_PLUGIN_DESIGN.md PL-D2). Naver Clip has its own project plugin (claire.naver_clip).
+        if host_matches_any(host, ("vimeo.com", "*.vimeo.com", "tiktok.com", "*.tiktok.com", "chzzk.naver.com")):
             return True
         if host_matches_any(host, ("instagram.com", "*.instagram.com")) and "/reel" in path:
             return True

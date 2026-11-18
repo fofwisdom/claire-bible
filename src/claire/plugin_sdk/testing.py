@@ -76,5 +76,5 @@ def load_plugin(folder: Path | str) -> LoadedTestPlugin:
         digest=folder_digest(folder),
         state=STATE_ENABLED,
     )
-    package, context = register_plugin(status)
+    package, context = register_plugin(status, fresh=True)
     return LoadedTestPlugin(manifest=manifest, context=context, package=package)

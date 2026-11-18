@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.naver_clip"
+type = "ingest_adapter"
+revision = 1
+core_commit = "b380da044abb7b7649b70d641c5d23f57243cc87"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "Naver Clip"
+description = "Gets the metadata of Naver Clip and Naver TV videos from the CreatorHub API and makes a transcript of the audio with speech to text."
+
+[text.ko]
+name = "네이버 클립"
+description = "네이버 클립·네이버 TV 영상의 메타데이터를 CreatorHub API로 가져오고, 오디오를 음성 인식으로 전사한다."
+
+[[provides]]
+kind = "fetcher"
+name = "naver_clip"
+priority = 120
+hosts = ["naver.me", "clip.naver.com", "*.clip.naver.com", "tv.naver.com", "*.tv.naver.com", "now.naver.com", "*.now.naver.com", "m.naver.com"]
+source_types = ["video"]
+
+[permissions]
+network = ["naver.me", "naver.com", "*.naver.com", "pstatic.net", "*.pstatic.net", "*.naver.net"]
+private_network = false
+network_modules = []
+executables = []
+providers = ["stt"]
+
+[requires]
+distributions = []
+executables = []

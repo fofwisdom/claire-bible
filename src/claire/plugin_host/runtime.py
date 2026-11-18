@@ -81,29 +81,42 @@ class Snapshot:
 
 
 def _ensure_namespace(name: str) -> None:
-    if name in sys.modules:
-        return
-    module = types.ModuleType(name)
-    module.__path__ = []  # a namespace for the packages of plugins
-    sys.modules[name] = module
+    if name not in sys.modules:
+        module = types.ModuleType(name)
+        module.__path__ = []  # a namespace for the packages of plugins
+        sys.modules[name] = module
+    parent, _, child = name.rpartition(".")
+    if parent:
+        setattr(sys.modules[parent], child, sys.modules[name])
 
 
-def import_plugin(status: PluginStatus) -> tuple[str, Any]:
-    """Import the folder of the plugin as ``claire_plugins.<type>.<Python name>`` and return the entry function. No change to ``sys.path``."""
+def import_plugin(status: PluginStatus, *, fresh: bool = False) -> tuple[str, Any]:
+    """Import the folder of the plugin as ``claire_plugins.<type>.<Python name>`` and return the entry function. No change to ``sys.path``.
+
+    A package that is already imported from the same folder is used again, unless ``fresh`` (the test helper). Python cannot unload a module safely; new code needs a restart (§8.4).
+    """
     manifest = status.manifest
     assert manifest is not None and status.path is not None
     type_package = f"{PACKAGE_ROOT}.{manifest.type}"
     _ensure_namespace(PACKAGE_ROOT)
     _ensure_namespace(type_package)
     package_name = f"{type_package}.{python_name(manifest.id)}"
+    init = status.path / "__init__.py"
+    existing = sys.modules.get(package_name)
+    if not fresh and existing is not None and getattr(existing, "__file__", None) == str(init):
+        module = importlib.import_module(f"{package_name}.{manifest.entry_module}")
+        function = getattr(module, manifest.entry_function, None)
+        if not callable(function):
+            raise ImportError(f"entry {manifest.entry!r} is not a function")
+        return package_name, function
     for name in [n for n in sys.modules if n == package_name or n.startswith(package_name + ".")]:
         del sys.modules[name]
-    init = status.path / "__init__.py"
     spec = importlib.util.spec_from_file_location(package_name, init, submodule_search_locations=[str(status.path)])
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot make an import spec for {status.path}")
     package = importlib.util.module_from_spec(spec)
     sys.modules[package_name] = package
+    setattr(sys.modules[type_package], python_name(manifest.id), package)
     spec.loader.exec_module(package)
     module = importlib.import_module(f"{package_name}.{manifest.entry_module}")
     function = getattr(module, manifest.entry_function, None)
@@ -112,11 +125,11 @@ def import_plugin(status: PluginStatus) -> tuple[str, Any]:
     return package_name, function
 
 
-def register_plugin(status: PluginStatus) -> tuple[str, PluginContext]:
+def register_plugin(status: PluginStatus, *, fresh: bool = False) -> tuple[str, PluginContext]:
     """Import and call ``register(ctx)``. Raise ``PluginRegistrationMismatch`` when the entries differ from ``provides``."""
     manifest = status.manifest
     assert manifest is not None and status.path is not None and status.origin is not None
-    module_name, function = import_plugin(status)
+    module_name, function = import_plugin(status, fresh=fresh)
     ctx = PluginContext(manifest, status.path, status.origin)
     function(ctx)
     declared = sorted(p.key() for p in manifest.provides)
