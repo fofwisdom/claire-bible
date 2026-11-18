@@ -202,7 +202,7 @@ def test_naver_tv_url_recognition():
         "https://m.tv.naver.com/v/101263731",
         "https://now.naver.com/v/12345678",
     ]
-    # The kind is the name of the registry entry (INGEST_ADAPTER_PLUGIN_DESIGN.md §4.3).
+    # The kind is the name of the registry entry (docs/implementation/INGESTION.md §2.2).
     for u in urls:
         assert classify(u) == "naver_clip"
 

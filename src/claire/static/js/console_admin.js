@@ -707,7 +707,7 @@
     }
   }
 
-  // --- /admin/plugins: switch plugins on and off (INGEST_ADAPTER_PLUGIN_DESIGN.md Section 10.1). The server renders the table, the texts, and the dialog content of each plugin; switching on sends the digest that the administrator saw and the enabled plugins of the overlap group (replace). ---
+  // --- /admin/plugins: switch plugins on and off (docs/implementation/INGESTION.md section 2.2). The server renders the table, the texts, and the dialog content of each plugin; switching on sends the digest that the administrator saw and the enabled plugins of the overlap group (replace). ---
 
   function initPluginsSection() {
     var card = document.getElementById("admin-plugins-card");

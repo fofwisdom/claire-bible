@@ -128,7 +128,7 @@ Limits:
 ### 4.1 적재 ([`INGESTION.md`](INGESTION.md))
 
 1. `CLAIRE_PDF_DETECT_ENCODING_FLAWS`는 효과가 없다. `detect_pdf_encoding_flaws`는 항상 실행된다.
-2. fetcher 플러그인은 로드되지 않는다. `registry.load_plugins_from_dir`와 `load_entrypoints`를 부르는 실행 경로가 없어 `plugins/fetchers/`와 `claire.fetchers` 엔트리 포인트는 쓰이지 않는다.
+2. 플러그인([INGESTION.md](INGESTION.md) §2.2)의 제약: (a) `permissions.network_modules`로 직접 접속하는 모듈(`yt_dlp`, `youtube_transcript_api`)은 플러그인 호스트 목록의 검사를 받지 않는다. (b) import 검사는 정적이라 import를 숨긴 코드를 막지 못한다. (c) 다이제스트 계산과 import 사이에 파일이 바뀌면 바뀐 코드가 실행된다(컨테이너에서는 플러그인 폴더가 읽기 전용이라 호스트에서만 바꿀 수 있다). (d) `claire.naver_clip`의 미디어 스트림 호스트는 녹화된 응답(`*.pstatic.net`)에서 정했다. 실제 스트림이 다른 호스트에서 오면 호스트 검사가 막는다 [미검증]. (e) 콘솔 업로드는 없다. 설치는 플러그인 폴더에 폴더를 넣는 것이다. (f) 실행 중 새 플러그인 코드는 프로세스를 다시 시작해야 반영된다.
 3. 올린 MP4·오디오 파일을 읽는 로컬 미디어 리더가 없다. 미디어 경로는 `fetch_video`(yt-dlp, 로컬 경로 [미검증])로 가고, 복합 메시지의 미디어 파일은 `fetch_file`에서 실패한다.
 4. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
 5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `telegram_bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.

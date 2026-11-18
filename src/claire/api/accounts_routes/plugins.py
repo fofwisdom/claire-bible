@@ -1,4 +1,4 @@
-"""Plugins of the server: the console section ``/admin/plugins`` and ``/api/admin/plugins`` (INGEST_ADAPTER_PLUGIN_DESIGN.md §10).
+"""Plugins of the server: the console section ``/admin/plugins`` and ``/api/admin/plugins`` (docs/implementation/INGESTION.md §2.2).
 
 - ``GET /api/admin/plugins``: the list of the console as JSON.
 - ``PUT /api/admin/plugins/{id}``: ``{"enabled": true, "digest": "sha256:…", "replace": [...]}`` or ``{"enabled": false}``. Switching on needs a recent authentication (S2); switching off is the emergency stop and needs only the administrator session.

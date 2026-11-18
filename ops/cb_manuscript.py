@@ -1711,7 +1711,7 @@ class StorageLayout:
     data: Path
     vault: Path
     database_relative: Path
-    # The plugin folder of the server administrator (CB_PLUGINS_DIR, mounted read-only at /app/var/plugins). INGEST_ADAPTER_PLUGIN_DESIGN.md section 5.
+    # The plugin folder of the server administrator (CB_PLUGINS_DIR, mounted read-only at /app/var/plugins). docs/implementation/INGESTION.md section 2.2
     plugins: Path
 
     @property

@@ -1,4 +1,4 @@
-"""Static import check of a plugin (INGEST_ADAPTER_PLUGIN_DESIGN.md S6, PL-D10).
+"""Static import check of a plugin (INGEST_ADAPTER_PLUGIN_DESIGN.md PL-D10).
 
 It reads the Python files of a plugin with ``ast`` and does not execute them. Files under ``tests/`` are not checked: the server never imports them. The check is static: it does not stop code that hides its imports.
 """

@@ -1,4 +1,4 @@
-"""Registry of fetchers and web adapters (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2, §7.3).
+"""Registry of fetchers and web adapters (docs/implementation/INGESTION.md §2.2).
 
 The entries come from two places: the core (format routes) and the enabled plugins (``plugin_host.runtime``). Each entry declares exact host patterns; the registry calls ``can_handle`` only for a URL whose host matches (PL-D12). The order is deterministic: priority (higher first), then plugin id, then name.
 """
@@ -21,7 +21,7 @@ _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
 
 def _core_entries() -> list[Entry]:
-    """Format routes of the core: the media route `video`. All site entries come from plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §4.2)."""
+    """Format routes of the core: the media route `video`. All site entries come from plugins (docs/implementation/INGESTION.md §2.2)."""
     from .fetchers import video
 
     return [

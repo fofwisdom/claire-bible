@@ -1,4 +1,4 @@
-"""/admin/plugins and /api/admin/plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §10.1, §10.2; S2, S3, S8)."""
+"""/admin/plugins and /api/admin/plugins (docs/implementation/INGESTION.md §2.2)."""
 
 from __future__ import annotations
 

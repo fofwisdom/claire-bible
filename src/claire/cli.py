@@ -1490,7 +1490,7 @@ def cmd_repo(_args) -> int:
 
 
 def _set_plugin_process(name: str) -> None:
-    """A long-running process writes data/run/plugins_<name>.json (INGEST_ADAPTER_PLUGIN_DESIGN.md §8.3 item 4)."""
+    """A long-running process writes data/run/plugins_<name>.json (docs/implementation/INGESTION.md §2.2)."""
     from .plugin_host.runtime import runtime
 
     runtime().set_process_name(name)
@@ -4680,7 +4680,7 @@ def cmd_liveness(_args) -> int:
 
 
 def _migrate_plugin_store(s) -> int:
-    """First start of the plugin store (INGEST_ADAPTER_PLUGIN_DESIGN.md §11 item 1). The operator does nothing."""
+    """First start of the plugin store (docs/implementation/INGESTION.md §2.2). The operator does nothing."""
     from .plugin_host.service import start_store
 
     try:

@@ -512,7 +512,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         return feature_routes.admin_backups_body(ctx, principal=principal), {}
 
     if slug == "plugins":
-        # INGEST_ADAPTER_PLUGIN_DESIGN.md §10.1. console_admin.js handles the switches and the dialog.
+        # docs/implementation/INGESTION.md §2.2. console_admin.js handles the switches and the dialog.
         from .plugins import admin_plugins_body
 
         body, extra = admin_plugins_body(ctx)

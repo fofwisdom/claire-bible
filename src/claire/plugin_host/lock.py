@@ -1,4 +1,4 @@
-"""``plugins/project.lock``: id, plugin revision, and digest of each project plugin (INGEST_ADAPTER_PLUGIN_DESIGN.md §6.2)."""
+"""``plugins/project.lock``: id, plugin revision, and digest of each project plugin (docs/implementation/INGESTION.md §2.2)."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def read_lock(project_folder: Path) -> dict[str, LockItem]:
 def render_lock(items: dict[str, LockItem]) -> str:
     lines = [
         "# Project plugins: id, plugin revision, and digest. Written by `claire plugin lock`.",
-        "# docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.2",
+        "# docs/implementation/INGESTION.md section 2.2",
     ]
     for plugin_id in sorted(items):
         item = items[plugin_id]

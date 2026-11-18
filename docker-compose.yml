@@ -28,7 +28,7 @@ x-claire-service: &claire-service
   volumes:
     - "${CB_DATA_DIR:-./data}:/app/data"
     - "${CB_VAULT_DIR:-./vault}:/app/vault"
-    # Plugin folder of the server administrator, read-only (INGEST_ADAPTER_PLUGIN_DESIGN.md section 5).
+    # Plugin folder of the server administrator, read-only (docs/implementation/INGESTION.md section 2.2).
     - "${CB_PLUGINS_DIR:-./var/plugins}:/app/var/plugins:ro"
     - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
     - "${CB_CODEX_DIR:-~/.codex}:/root/.codex"

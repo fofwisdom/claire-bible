@@ -1,4 +1,4 @@
-"""Files of a plugin folder: digest (INGEST_ADAPTER_PLUGIN_DESIGN.md §6.3) and safety checks (S4).
+"""Files of a plugin folder: digest (docs/implementation/INGESTION.md §2.2) and safety checks.
 
 The digest is the SHA-256 of the sorted lines ``<sha256 of the content>  <path relative to the folder of the plugin>``. A person can make the same lines with ``sha256sum``.
 """
@@ -26,7 +26,7 @@ class FileListing:
 
 
 def _check_safe(path: Path, st: os.stat_result, *, check_owner: bool) -> None:
-    """S4: no file that other users can write. World-writable is refused; group-writable is refused when the group is not the group of the process (a user private group is safe)."""
+    """No file that other users can write. World-writable is refused; group-writable is refused when the group is not the group of the process (a user private group is safe)."""
     if st.st_mode & stat.S_IWOTH:
         raise PluginFileError(f"{path.name}: other users can write it")
     if st.st_mode & stat.S_IWGRP and hasattr(os, "getgid") and st.st_gid not in (os.getgid(), 0):
@@ -38,7 +38,7 @@ def _check_safe(path: Path, st: os.stat_result, *, check_owner: bool) -> None:
 def list_files(folder: Path, *, check_owner: bool = False, read_only_mount: bool = False) -> FileListing:
     """All regular files of the folder of a plugin, sorted. Raise ``PluginFileError``.
 
-    ``check_owner`` applies the owner rule of S4. ``read_only_mount`` lifts the mode and owner rules: a read-only mount cannot be changed by the process.
+    ``check_owner`` applies the owner rule (a file of the plugin folder belongs to the process user or to root). ``read_only_mount`` lifts the mode and owner rules: a read-only mount cannot be changed by the process.
     """
     root = folder.resolve()
     entries: list[tuple[str, Path]] = []

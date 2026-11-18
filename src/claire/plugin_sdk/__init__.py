@@ -1,4 +1,4 @@
-"""Plugin SDK, API level 1 (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.1).
+"""Plugin SDK, API level 1 (docs/implementation/INGESTION.md §2.2).
 
 The only part of the core that a plugin imports (PL-D10). It gives names that exist in the core under one stable surface. ``tests/test_plugin_sdk_surface.py`` keeps a snapshot of the names and signatures: a change of the snapshot is a compatible addition (same level) or a break (new level).
 """

@@ -587,7 +587,7 @@ class Settings(BaseSettings):
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
-    # Plugin folder of the server administrator (INGEST_ADAPTER_PLUGIN_DESIGN.md §5). Not in the data folder.
+    # Plugin folder of the server administrator (docs/implementation/INGESTION.md §2.2). Not in the data folder.
     plugins_path: str = Field(default="var/plugins", alias="CLAIRE_PLUGINS_DIR")
     # Deprecated: The vault subsystem is removed. Retained for backward compatibility.
     vault_path: str = Field(default="", alias="CLAIRE_VAULT_PATH")

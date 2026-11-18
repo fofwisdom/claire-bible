@@ -1,4 +1,4 @@
-"""Every registry entry follows the contract (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2), with the network blocked for can_handle."""
+"""Every registry entry follows the contract (docs/implementation/INGESTION.md §2.2), with the network blocked for can_handle."""
 
 import socket
 

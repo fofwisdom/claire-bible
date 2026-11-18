@@ -5,7 +5,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/c
 
 test.use({ serviceWorkers: 'block' });
 
-// /admin/plugins against the real server (INGEST_ADAPTER_PLUGIN_DESIGN.md unit PL3): the server administrator puts a test plugin into the plugin folder of the E2E server (CLAIRE_PLUGINS_DIR of playwright.config.js), switches it on and off, and ingests a payload that it takes. The test plugins are offline: they answer from fixed text.
+// /admin/plugins against the real server (docs/implementation/INGESTION.md §2.2): the server administrator puts a test plugin into the plugin folder of the E2E server (CLAIRE_PLUGINS_DIR of playwright.config.js), switches it on and off, and ingests a payload that it takes. The test plugins are offline: they answer from fixed text.
 
 const PLUGIN_FOLDER = path.resolve(__dirname, '..', 'data', 'e2e-plugins', 'ingest_adapter');
 const HOST = 'e2e-plugin.test';

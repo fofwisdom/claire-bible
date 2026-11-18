@@ -1,4 +1,4 @@
-"""``ingest_session(args)``: ingest from a plugin command (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.1, CLI)."""
+"""``ingest_session(args)``: ingest from a plugin command (docs/implementation/INGESTION.md §2.2)."""
 
 from __future__ import annotations
 

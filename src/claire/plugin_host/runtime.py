@@ -1,4 +1,4 @@
-"""Plugins in one process (INGEST_ADAPTER_PLUGIN_DESIGN.md §8.3, §8.4).
+"""Plugins in one process (docs/implementation/INGESTION.md §2.2).
 
 ``current()`` gives a snapshot: the state of each plugin and the registry entries of the enabled plugins. A snapshot is at most ``REFRESH_SECONDS`` old; a switch in this process makes the next call read again. A failure of one plugin changes only the state of that plugin and never stops the process.
 """

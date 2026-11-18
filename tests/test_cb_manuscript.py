@@ -1859,7 +1859,7 @@ def test_source_revision_prefers_git_head_over_stale_embedded_file(tmp_path, mon
 
 
 def test_plugin_folder_is_separate_and_made_when_absent(tmp_path, monkeypatch):
-    """CB_PLUGINS_DIR (INGEST_ADAPTER_PLUGIN_DESIGN.md section 5): default ./var/plugins, made when absent, never equal to or nested with the data folder, the vault, the backups, or the project plugin folder."""
+    """CB_PLUGINS_DIR (docs/implementation/INGESTION.md section 2.2): default ./var/plugins, made when absent, never equal to or nested with the data folder, the vault, the backups, or the project plugin folder."""
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     storage = cb.resolve_storage(runtime)

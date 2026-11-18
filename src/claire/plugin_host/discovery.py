@@ -1,4 +1,4 @@
-"""Discovery and states of plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §5, §6.4, §8.1).
+"""Discovery and states of plugins (docs/implementation/INGESTION.md §2.2).
 
 Discovery reads manifests and file hashes only. It never imports plugin code (PL-D8, S1).
 """

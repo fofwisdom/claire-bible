@@ -1,4 +1,4 @@
-"""Plugin host: manifest, digest, discovery and states, overlap, records, loading, service, CLI (INGEST_ADAPTER_PLUGIN_DESIGN.md, unit PL1)."""
+"""Plugin host: manifest, digest, discovery and states, overlap, records, loading, service, CLI (docs/implementation/INGESTION.md §2.2)."""
 
 from __future__ import annotations
 

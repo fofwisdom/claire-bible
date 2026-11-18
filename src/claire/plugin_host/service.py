@@ -1,4 +1,4 @@
-"""Operations on plugins for the console, the HTTP API, and the CLI (INGEST_ADAPTER_PLUGIN_DESIGN.md §10).
+"""Operations on plugins for the console, the HTTP API, and the CLI (docs/implementation/INGESTION.md §2.2).
 
 The HTTP routes and the CLI call these functions, so both paths have the same checks, store, and audit (§10.3).
 """

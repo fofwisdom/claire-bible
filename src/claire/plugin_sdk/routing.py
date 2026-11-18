@@ -1,4 +1,4 @@
-"""``reroute(url)``: route a resolved URL again (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.1, Routing)."""
+"""``reroute(url)``: route a resolved URL again (docs/implementation/INGESTION.md §2.2)."""
 
 from __future__ import annotations
 

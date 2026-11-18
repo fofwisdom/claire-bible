@@ -21,7 +21,7 @@ docs/
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
-│   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 미구현
+│   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합 초안
 │   ├── KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md  # Phase 3 미구현
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획: 추가 통합 뷰, 계정 간 발행 본문

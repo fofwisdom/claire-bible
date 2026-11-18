@@ -1,4 +1,4 @@
-"""Host patterns of ingest rules (INGEST_ADAPTER_PLUGIN_DESIGN.md §6.1 rule 6).
+"""Host patterns of ingest rules (docs/implementation/INGESTION.md §2.2).
 
 A pattern is one of:
 

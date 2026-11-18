@@ -2,7 +2,7 @@
 
 - **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §2, §4 (the fetcher and web adapter contracts, the registry with built-in fetchers, the single classifier, and the private network guard).
 - **Date**: 2026-09-15 · condensed 2026-11-16
-- **Related**: [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`INGEST_ADAPTER_PLUGIN_DESIGN.md`](INGEST_ADAPTER_PLUGIN_DESIGN.md) (planned: site adapters move to plugins)
+- **Related**: [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`INGEST_ADAPTER_PLUGIN_DESIGN.md`](INGEST_ADAPTER_PLUGIN_DESIGN.md) (implemented: site adapters are plugins)
 
 ## Goal / problem
 

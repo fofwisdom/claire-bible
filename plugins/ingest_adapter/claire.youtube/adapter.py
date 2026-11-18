@@ -39,7 +39,7 @@ _ctx: PluginContext | None = None
 
 
 def guarded_client(**kwargs: Any) -> Any:
-    """The network client of the plugin (``ctx.http_client()``, S6)."""
+    """The network client of the plugin (``ctx.http_client()``)."""
     if _ctx is None:
         raise RuntimeError("register(ctx) of claire.youtube was not called")
     return _ctx.http_client(**kwargs)

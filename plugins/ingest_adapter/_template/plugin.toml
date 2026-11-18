@@ -1,4 +1,4 @@
-# Manifest of a plugin: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1.
+# Manifest of a plugin: docs/implementation/INGESTION.md section 2.2
 # `claire plugin new <id> --type ingest_adapter` copies this folder and fills the values in double underscores.
 manifest = 1
 id = "__ID__"

@@ -1,4 +1,4 @@
-"""Test helpers for plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §14 rule 2).
+"""Test helpers for plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md, rules for code contribution, rule 2).
 
 ``load_plugin(folder)`` imports a plugin and calls ``register(ctx)`` without the records of a server. Tests never use the network: ``mock_network`` sends each request of the plugin to a handler.
 """

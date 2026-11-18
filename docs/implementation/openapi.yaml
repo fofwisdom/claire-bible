@@ -1423,7 +1423,7 @@ paths:
 
   /api/admin/plugins:
     get:
-      summary: Plugins of the server with their states (INGEST_ADAPTER_PLUGIN_DESIGN.md section 10.2)
+      summary: Plugins of the server with their states (INGESTION.md section 2.2)
       operationId: listPlugins
       x-claire-access: admin
       security:

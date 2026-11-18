@@ -1,6 +1,6 @@
-"""``PluginContext``: the object that ``register(ctx)`` gets (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2).
+"""``PluginContext``: the object that ``register(ctx)`` gets (docs/implementation/INGESTION.md §2.2).
 
-It records the registry entries and the commands of one plugin, and gives the network client of the plugin (S6).
+It records the registry entries and the commands of one plugin, and gives the network client of the plugin.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class PluginContext:
             raise ValueError(f"{self.plugin_id}: command {name!r} is registered two times")
         self.commands[name] = PluginCommand(name=name, build_parser=build_parser, run=run, plugin_id=self.plugin_id)
 
-    # --- network (S6) ------------------------------------------------------------------
+    # --- network ------------------------------------------------------------------
 
     def _host_check(self) -> Callable[[Any], None]:
         allowed = self.manifest.permissions.network

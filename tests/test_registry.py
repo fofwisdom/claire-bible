@@ -1,4 +1,4 @@
-"""Registry of fetchers and web adapters: entries with hosts and plugin ids (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2, §7.3)."""
+"""Registry of fetchers and web adapters: entries with hosts and plugin ids (docs/implementation/INGESTION.md §2.2)."""
 
 from claire.ingest.fetchers.base import BaseFetcher, BaseWebAdapter
 from claire.ingest.registry import Entry, FetcherRegistry

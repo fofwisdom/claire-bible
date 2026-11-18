@@ -1,4 +1,4 @@
-"""``plugin.toml``: the declarative manifest of a plugin (INGEST_ADAPTER_PLUGIN_DESIGN.md §6.1).
+"""``plugin.toml``: the declarative manifest of a plugin (docs/implementation/INGESTION.md §2.2).
 
 The server reads it without an import of plugin code (PL-D4). An unknown key, a missing required key, or a value of the wrong type is a ``ManifestError`` (the state ``invalid``).
 """

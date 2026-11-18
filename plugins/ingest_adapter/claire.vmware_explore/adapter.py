@@ -40,7 +40,7 @@ _ctx: PluginContext | None = None
 
 
 def guarded_client(**kwargs: Any) -> Any:
-    """The network client of the plugin (``ctx.http_client()``, S6): private network guard and the hosts of ``permissions.network`` on each request and redirect hop."""
+    """The network client of the plugin (``ctx.http_client()``): private network guard and the hosts of ``permissions.network`` on each request and redirect hop."""
     if _ctx is None:
         raise RuntimeError("register(ctx) of claire.vmware_explore was not called")
     return _ctx.http_client(**kwargs)

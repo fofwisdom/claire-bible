@@ -162,4 +162,10 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 유사 문서 정리 | **근사 중복 병합** | Near-Duplicate Merge | `dedup-scan`, `dedup-merge` | 본문 유사도로 찾은 중복 문서를 대표 문서로 합친다. 동일 주제 출처 병합과 다르다 |
 | 같은 주제 자식 문서 | **동일 주제 출처 병합** | Same-Subject Source Merge | `same_subject`, `same_subject_merge`, `same_subject_shadow` | 링크 확장의 자식 문서를 새 문서로 만들지 않고 부모 문서의 추가 출처로 붙인다. 지금은 꺼져 있고, 모드 `shadow`는 판정만 기록한다 ([EXPANSION.md](EXPANSION.md) §3) |
 | 해소 판정 감사 | **판단 기록 스트림** | Decision Stream | `ResolutionDecision` | `documents.meta.resolution_log` ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md)) |
+| 기능 추가 단위 | **플러그인** | Plugin | `plugin_host`, `claire.plugin_sdk`, `claire plugin` | `plugin.toml`이 있는 폴더 하나. 코어 파일을 고치지 않고 기능을 더한다. 서버 관리자가 플러그인 폴더에 설치한다. "이용자 플러그인"은 쓰지 않는다 ([INGESTION.md](INGESTION.md) §2.2) |
+| 서버 관리자의 설치 위치 | **플러그인 폴더** | Plugin Folder | `CLAIRE_PLUGINS_DIR`, `plugin_folder()` | 호스트 `CB_PLUGINS_DIR`(기본 `./var/plugins`), 컨테이너 `/app/var/plugins`(읽기 전용). 데이터 폴더 밖이다 |
+| 릴리스에 포함된 플러그인 | **프로젝트 플러그인** | Project Plugin | `ORIGIN_PROJECT`, 발행자 `claire` | 프로젝트 플러그인 폴더 `<app root>/plugins`와 `plugins/project.lock`에 있다. 출처 값 `project`(플러그인 폴더의 것은 `plugin_folder`) |
+| 출처 하나의 플러그인 유형 | **적재 어댑터** | Ingest Adapter | 플러그인 유형 `ingest_adapter` | 레지스트리 항목(fetcher, 웹 어댑터)을 준다. "웹 어댑터"는 레지스트리 항목의 한 종류이고, 적재 어댑터 안에 들어갈 수 있다 |
+| 플러그인 버전 | **플러그인 리비전 · 추종 커밋** | Plugin Revision · Core Commit | `revision`, `core_commit` | 버전은 이 두 값이다(`r3 @ 6010d69b`). 리비전은 커밋된 변경마다 1씩 오른다. 추종 커밋은 작성자가 기준으로 삼은 코어 커밋의 40자 해시다. "기여 리비전"(`kb_contribution_revisions`)과 다르다. API 수준(`api`)은 버전이 아니라 호환성 필드다 |
+| 배타 선택 | **겹침** | Overlap | `overlap_group`, 상태 `overlap`, 오류 `plugin_overlap` | 같은 유형의 두 플러그인이 같은 종류·이름의 항목이나 같은 호스트를 가지면 겹친다(`*`는 제외). 겹침 그룹에서 하나만 켤 수 있다 |
 | 판정 권한 없는 평가 | **Jev shadow 평가** | Jev Shadow Evaluation | `jev_mode = "shadow"` | 같은 후보를 Jev에 동시 질의하고 결과만 판정 기록에 남긴다 ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5) |

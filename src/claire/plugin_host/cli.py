@@ -1,4 +1,4 @@
-"""``claire plugin …`` (INGEST_ADAPTER_PLUGIN_DESIGN.md §10.3). ASD-STE100 English; ``--json`` gives the ``AgentOutput`` contract (C3)."""
+"""``claire plugin …`` (docs/implementation/INGESTION.md §2.2). ASD-STE100 English; ``--json`` gives the ``AgentOutput`` contract (C3)."""
 
 from __future__ import annotations
 

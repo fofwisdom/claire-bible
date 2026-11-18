@@ -534,7 +534,7 @@ def _admin_audit(conn: sqlite3.Connection, since: float) -> Any:
 
 
 def collect_plugins(settings: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """``diagnostics/plugins.json`` (INGEST_ADAPTER_PLUGIN_DESIGN.md S9): states, versions, digests, process reports, and load error texts. No plugin files."""
+    """``diagnostics/plugins.json`` (docs/implementation/INGESTION.md §2.2): states, versions, digests, process reports, and load error texts. No plugin files."""
     from .plugin_host.service import list_plugins
 
     data = list_plugins(settings)

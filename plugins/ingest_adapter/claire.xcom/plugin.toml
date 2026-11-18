@@ -1,9 +1,9 @@
-# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+# Manifest: docs/implementation/INGESTION.md section 2.2
 manifest = 1
 id = "claire.xcom"
 type = "ingest_adapter"
-revision = 1
-core_commit = "688049c3475c939f7cabe16c67bc18333022072f"
+revision = 2
+core_commit = "9b28e063c7cc7dd98706d8112466695015ce8b5d"
 api = 1
 entry = "adapter:register"
 license = "MIT"

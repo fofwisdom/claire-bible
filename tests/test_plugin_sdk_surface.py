@@ -1,4 +1,4 @@
-"""Snapshot of the plugin SDK surface (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.1).
+"""Snapshot of the plugin SDK surface (docs/implementation/INGESTION.md §2.2).
 
 A change of the snapshot needs a decision: a compatible addition keeps PLUGIN_API_LEVEL; a break needs a new level (and PLUGIN_API_LEVELS of the plugin host changes in the same commit). Write the new snapshot with:
 

@@ -1,4 +1,4 @@
-"""Source types that the core knows (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.5).
+"""Source types that the core knows (INGEST_ADAPTER_PLUGIN_DESIGN.md PL-D16).
 
 Core code branches only on these values. A plugin that gives audio or video uses ``video``. Any other value of a plugin is opaque to the core.
 

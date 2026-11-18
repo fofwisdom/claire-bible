@@ -1,4 +1,4 @@
-"""The network client of the plugin: ``register(ctx)`` sets the context; each module asks here for a client (S6)."""
+"""The network client of the plugin: ``register(ctx)`` sets the context; each module asks here for a client."""
 
 from __future__ import annotations
 

@@ -76,7 +76,7 @@ def mock_guarded_client(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """A test must not start the plugin store in the database of the repository data folder (INGEST_ADAPTER_PLUGIN_DESIGN.md §11 item 1).
+    """A test must not start the plugin store in the database of the repository data folder (docs/implementation/INGESTION.md §2.2).
 
     When the settings of the test point to ``data/claire.db`` of the repository, the plugin runtime reads and writes the records in a new temporary database. The project plugins of the repository then start enabled, as on a new server.
     """

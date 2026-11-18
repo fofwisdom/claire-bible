@@ -1,47 +1,47 @@
 # Project plugins: id, plugin revision, and digest. Written by `claire plugin lock`.
-# docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.2
+# docs/implementation/INGESTION.md section 2.2
 
 [[plugin]]
 id = "claire.discourse"
-revision = 1
-digest = "sha256:29b372d7e4520dee6873b5b9cf73c59516e128c4ac4d4c40def408fe48bac1b7"
+revision = 2
+digest = "sha256:bc962392017d9321d27f5753219bc0de2c57f8de194a73361d9c708b9461f5d8"
 
 [[plugin]]
 id = "claire.hoyolab"
-revision = 1
-digest = "sha256:e0c08f802f3222e956d4c5e42a3984408111c9395254972ac4269303a4e73ad2"
+revision = 2
+digest = "sha256:670274c1381c1b496f47916b0e1f7d56aa4b93cc6ae14d9cd70db50822109f4e"
 
 [[plugin]]
 id = "claire.law_go_kr"
-revision = 1
-digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fcd"
+revision = 2
+digest = "sha256:087db1cf2fc48521f48a6c5c67b135b0c6261bf2df0c5b0a99e59b0b9afc9c14"
 
 [[plugin]]
 id = "claire.naver_clip"
-revision = 1
-digest = "sha256:a50b1e1bafab00a2998e949329837fed8bbe128d4d5c899af172307a5df8d9ce"
+revision = 2
+digest = "sha256:714bd68cbf94d2c420cecb3c2a5150220975658ed04547e6930133effd764714"
 
 [[plugin]]
 id = "claire.share_link"
-revision = 1
-digest = "sha256:74ad9764311c0217a0af1b6362cb92d0f2b7fa0a2879b9e4e07291fc6a666205"
+revision = 2
+digest = "sha256:dd539589ba72a783ccd6e8738cff05527b3a4f1391574401df9de5253613b7dc"
 
 [[plugin]]
 id = "claire.uttu"
-revision = 1
-digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191c"
+revision = 2
+digest = "sha256:9370e6b0c0fd019e6daeb4f5728922c49572dd023bc439d9ec134b696d8e446e"
 
 [[plugin]]
 id = "claire.vmware_explore"
-revision = 1
-digest = "sha256:607f3189fc0bcf284ca0a9b49b8d3788aee8ac013b45934b3e25063ae1962c4a"
+revision = 2
+digest = "sha256:1af4f55f9c304da5380fdb03c486449b76b4c64ab10dc7feb662dc64ccb67e71"
 
 [[plugin]]
 id = "claire.xcom"
-revision = 1
-digest = "sha256:e463b95df4a281862d6e5a28ab60e6a5f5d6b9757a1a74dbf1183318cb92e3db"
+revision = 2
+digest = "sha256:ce45cda7c49e2c18dfa1831a02ee77ddba381706e3a9c01664a1b19e76e11e92"
 
 [[plugin]]
 id = "claire.youtube"
-revision = 1
-digest = "sha256:79541f925521d63ebe4aa923451254f233c4954fca3f4834811725208369227e"
+revision = 2
+digest = "sha256:3b8ed29a8b1b5faf3bc34d86c6209ba3a337ab174683ed507a43b64222a65e5e"

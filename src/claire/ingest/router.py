@@ -1,6 +1,6 @@
 """입력 라우팅 — payload 를 적절한 fetcher 로 보내 Document 를 만든다.
 
-사이트 규칙은 켜진 플러그인의 레지스트리 항목에서만 온다(INGEST_ADAPTER_PLUGIN_DESIGN.md §4.2). 공유 링크(share.google 등)는 project plugin claire.share_link가 해석해 ``reroute``로 다시 라우팅한다. fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
+사이트 규칙은 켜진 플러그인의 레지스트리 항목에서만 온다(docs/implementation/INGESTION.md §2.2). 공유 링크(share.google 등)는 project plugin claire.share_link가 해석해 ``reroute``로 다시 라우팅한다. fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
 """
 
 from __future__ import annotations

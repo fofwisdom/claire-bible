@@ -1,4 +1,4 @@
-"""Video and presentation PDF composition: a format service of the core (INGEST_ADAPTER_PLUGIN_DESIGN.md §4.2).
+"""Video and presentation PDF composition: a format service of the core (docs/implementation/INGESTION.md §2.2).
 
 A plugin that finds presentation PDFs for a video (for example claire.vmware_explore) downloads them, then uses ``extract_presentation`` and ``compose_video_presentations`` through ``claire.plugin_sdk``. Design: VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md.
 """

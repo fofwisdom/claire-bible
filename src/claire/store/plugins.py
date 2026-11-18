@@ -1,4 +1,4 @@
-"""Records of plugins: one ``claire.db`` ``server_settings`` row, key ``plugins`` (INGEST_ADAPTER_PLUGIN_DESIGN.md §8.2).
+"""Records of plugins: one ``claire.db`` ``server_settings`` row, key ``plugins`` (docs/implementation/INGESTION.md §2.2).
 
 Value (JSON)::
 

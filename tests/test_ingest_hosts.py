@@ -1,4 +1,4 @@
-"""Exact host rules of ingest (INGEST_ADAPTER_PLUGIN_DESIGN.md §1 item 4, unit PL0)."""
+"""Exact host rules of ingest (INGEST_ADAPTER_PLUGIN_DESIGN.md PL-D12)."""
 
 import pytest
 
