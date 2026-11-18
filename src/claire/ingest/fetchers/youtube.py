@@ -588,6 +588,9 @@ def fetch_youtube(
         },
     )
 
+# Hosts of YouTube links. Exact patterns (ingest/hosts.py).
+YOUTUBE_HOSTS = ("youtube.com", "*.youtube.com", "youtu.be", "*.youtu.be")
+
 from .base import BaseFetcher
 from ..registry import register_fetcher
 
@@ -595,13 +598,9 @@ from ..registry import register_fetcher
 class YouTubeFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        from urllib.parse import urlsplit
-        try:
-            parsed = urlsplit(url.lower())
-            host = parsed.netloc
-            return "youtube.com" in host or "youtu.be" in host
-        except Exception:
-            return False
+        from ..hosts import url_matches_any
+
+        return url_matches_any(url, YOUTUBE_HOSTS)
 
     @classmethod
     def name(cls) -> str:

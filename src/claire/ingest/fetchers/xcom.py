@@ -29,6 +29,11 @@ _UA = (
 
 # fxtwitter/vxtwitter 모두 호환 JSON 스키마(tweet.{text,author,...})를 돌려준다.
 _API_HOSTS = ("api.fxtwitter.com", "api.vxtwitter.com")
+# Hosts of tweet links. Exact patterns (ingest/hosts.py): "dropbox.com" is not an x.com host.
+XCOM_HOSTS = (
+    "x.com", "*.x.com", "twitter.com", "*.twitter.com",
+    "fxtwitter.com", "*.fxtwitter.com", "vxtwitter.com", "*.vxtwitter.com", "fixupx.com", "*.fixupx.com",
+)
 # 호스트 목록을 몇 바퀴 재순회할지(미러의 일시적 rate-limit 404 흡수).
 _ROUNDS = 3
 
@@ -535,13 +540,9 @@ from ..registry import register_fetcher
 class XComFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        from urllib.parse import urlsplit
-        try:
-            parsed = urlsplit(url.lower())
-            host = parsed.netloc
-            return "x.com" in host or "twitter.com" in host
-        except Exception:
-            return False
+        from ..hosts import url_matches_any
+
+        return url_matches_any(url, XCOM_HOSTS)
 
     @classmethod
     def name(cls) -> str:

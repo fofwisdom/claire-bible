@@ -55,21 +55,24 @@ class FetcherRegistry:
                     t_lower = t.lower()
                     
         if t_lower.startswith("http://") or t_lower.startswith("https://"):
-            parsed = urlsplit(t_lower)
-            host = parsed.netloc
-            path = parsed.path
-            if "youtube.com" in host or "youtu.be" in host:
+            from .fetchers.xcom import XCOM_HOSTS
+            from .fetchers.youtube import YOUTUBE_HOSTS
+            from .hosts import host_matches_any, url_host
+
+            host = url_host(t) or ""
+            path = urlsplit(t_lower).path
+            if host_matches_any(host, YOUTUBE_HOSTS):
                 return "youtube"
             from .fetchers.video import is_video_or_audio_url
             if is_video_or_audio_url(t):
                 return "video"
-            if "x.com" in host or "twitter.com" in host:
+            if host_matches_any(host, XCOM_HOSTS):
                 return "xcom"
-            if "share.google" in host or host.startswith("share."):
+            if host == "share.google" or host.startswith("share."):
                 return "redirect"
-            if "wiki.hoyolab.com" in host or (("hoyolab.com" in host) and ("/entry/" in path or "/character/" in path or "/entry_preview/" in path)):
+            if host == "wiki.hoyolab.com" or (host_matches_any(host, ("hoyolab.com", "*.hoyolab.com")) and ("/entry/" in path or "/character/" in path or "/entry_preview/" in path)):
                 return "hoyowiki"
-            if "hoyolab.com" in host and "/article/" in path:
+            if host_matches_any(host, ("hoyolab.com", "*.hoyolab.com")) and "/article/" in path:
                 return "hoyolab"
             return "web"
             
@@ -92,19 +95,15 @@ class FetcherRegistry:
         import urllib.parse
         parsed = urllib.parse.urlsplit(url)
         hostname = (parsed.hostname or "").lower()
+        from .hosts import host_matches_any
+
         for _, _, domains, cls in self.web_adapters:
             if not domains:
                 if not domain_only:
                     matches.append(cls)
                 continue
-            for domain in domains:
-                d = domain.lower()
-                if d.startswith("*.") and (hostname == d[2:] or hostname.endswith("." + d[2:]) or hostname.endswith(d[2:])):
-                    matches.append(cls)
-                    break
-                elif hostname == d:
-                    matches.append(cls)
-                    break
+            if host_matches_any(hostname.rstrip("."), (d.lower() for d in domains)):
+                matches.append(cls)
         return matches
 
 registry = FetcherRegistry()

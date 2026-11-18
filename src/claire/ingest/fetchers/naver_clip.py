@@ -33,20 +33,28 @@ _MEDIA_ID_QUERY_RE = re.compile(r"[?&](?:seedMediaId|mediaId)=([A-Fa-f0-9]{36,40
 _SHORTS_PATH_RE = re.compile(r"/shorts/([A-Fa-f0-9]{36,40})", re.IGNORECASE)
 
 
+# Hosts of Naver Clip links. Exact patterns (ingest/hosts.py): a query value "naver.me" is not a Naver link.
+NAVER_CLIP_HOSTS = (
+    "naver.me", "clip.naver.com", "*.clip.naver.com", "tv.naver.com", "*.tv.naver.com", "now.naver.com", "*.now.naver.com",
+)
+
+
 def is_naver_clip_url(url: str) -> bool:
     """Determine whether URL points to Naver Clip or Naver Shorts."""
     if not url:
         return False
-    u = url.strip().lower()
-    if "naver.me" in u:
+    from urllib.parse import urlsplit
+
+    from ..hosts import host_matches_any, url_host
+
+    host = url_host(url)
+    if host_matches_any(host, NAVER_CLIP_HOSTS):
         return True
-    if "clip.naver.com" in u:
-        return True
-    if "m.naver.com" in u and "/shorts" in u:
-        return True
-    if "tv.naver.com" in u or "now.naver.com" in u:
-        return True
-    return False
+    try:
+        path = urlsplit(url.strip()).path.lower()
+    except ValueError:
+        return False
+    return host == "m.naver.com" and path.startswith("/shorts")
 
 
 class NaverClipClient:

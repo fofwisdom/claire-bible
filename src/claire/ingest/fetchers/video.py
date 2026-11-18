@@ -458,24 +458,19 @@ def is_video_or_audio_url(url: str) -> bool:
     if not url:
         return False
     from urllib.parse import parse_qsl, unquote, urlsplit
+    from ..hosts import host_matches_any, url_host
+
     try:
         parsed = urlsplit(url)
-        host = (parsed.netloc or "").lower()
+        host = url_host(url)
         path = (parsed.path or "").lower()
-        if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
+        if (host_matches_any(host, ("vmware.com", "www.vmware.com")) and "/explore/video/" in path) or host_matches_any(host, ("brightcove.net", "*.brightcove.net")):
             return True
-        if "vimeo.com" in host:
+        if host_matches_any(host, ("vimeo.com", "*.vimeo.com", "tiktok.com", "*.tiktok.com", "naver.me", "chzzk.naver.com", "clip.naver.com", "*.clip.naver.com", "tv.naver.com", "*.tv.naver.com", "now.naver.com", "*.now.naver.com")):
             return True
-        if (
-            "tv.naver.com" in host
-            or "now.naver.com" in host
-            or "clip.naver.com" in host
-            or "chzzk.naver.com" in host
-            or ("naver.com" in host and ("/v/" in path or "/shorts" in path))
-            or "naver.me" in host
-            or "tiktok.com" in host
-            or ("instagram.com" in host and "/reel" in path)
-        ):
+        if host_matches_any(host, ("naver.com", "*.naver.com")) and ("/v/" in path or "/shorts" in path):
+            return True
+        if host_matches_any(host, ("instagram.com", "*.instagram.com")) and "/reel" in path:
             return True
         # 1. 경로 확장자 검사
         if any(path.endswith(ext) for ext in MEDIA_EXTENSIONS):

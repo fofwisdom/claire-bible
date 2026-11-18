@@ -41,6 +41,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 - `register_fetcher(name, priority)` and `register_web_adapter(name, domains, priority)` are class decorators. Higher priority comes first.
 - `_ensure_builtins` imports the built-in modules on first use: `law`, `discourse`, `video`, `youtube`, `xcom`, `hoyowiki`, `hoyolab`, `naver_clip`, `uttu`.
 - `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It asks the registered fetchers first, then uses URL rules (YouTube, media URL, x.com, share redirect, HoYoWiki, HoYoLAB, else `web`), then local file rules, else `text`.
+- Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, and there is no substring match (`dropbox.com` is not an x.com host). [code]
 - `get_matching_web_adapters(url, domain_only)` returns web adapters whose domain list matches the host. An adapter with no domain list matches every URL when `domain_only` is false.
 - `load_plugins_from_dir(plugin_dir)` and `load_entrypoints()` exist and have tests (`tests/test_registry.py`). No runtime code calls them. A drop-in file in `plugins/fetchers/` or an entry point in the group `claire.fetchers` is therefore not loaded by the server. [code]
 
