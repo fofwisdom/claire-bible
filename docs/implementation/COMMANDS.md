@@ -207,7 +207,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `federation prune` | `./cb-manuscript app federation prune [--apply] [--json]` | `uv run claire federation prune [...]` | 연합 클라이언트의 보존 기간 실행과 미디어 캐시 정리. 먼저 계정 보존 기간(계정 값과 서버 값 중 작은 값)을 넘긴 타임라인 항목을 지운다(별표·적재된 항목, 남는 항목의 부모, 자기 노트는 남긴다). 그다음 관리자 설정 `media_evict_days`(기본 30일) 동안 접근이 없는 항목과 어떤 타임라인 항목도 쓰지 않는 항목을 미디어 저장소의 파일과 함께 지운다. `api` 프로세스가 하루에 한 번 같은 일을 한다. `--apply`가 없으면 개수만 센다([`FEDERATION.md`](FEDERATION.md) §21.4) |
 | `feeds poll` | `./cb-manuscript app feeds poll [--account <ID>] [--feed <ID>] [--force] [--limit <N>] [--json]` | `uv run claire feeds poll [...]` | 계정 피드(RSS·Atom·JSON Feed)를 지금 폴링한다. 기본은 `api` 프로세스의 스케줄러처럼 폴링 시각이 된 피드만(최대 `--limit`, 기본 100) 조건부 `GET`으로 읽는다. `--force`는 시각 전이거나 백오프 중인 피드도 읽는다. 실패(429·5xx 등)는 백오프를 둔다([`FEDERATION.md`](FEDERATION.md) §15) |
 | `media migrate` | `./cb-manuscript app media migrate --to object-storage [--apply] [--dry-run] [--delete-source] [--json]` | `uv run claire media migrate [...]` | 로컬 미디어(`data/media`, `data/images`)를 오브젝트 스토리지 버킷으로 복사한다. 파일마다 올리고 다시 읽어 SHA-256을 비교하며, 같은 해시로 이미 있는 파일은 건너뛰므로 다시 실행할 수 있다. 기본은 dry-run이고 `--apply`가 실제로 복사한다. `--delete-source`는 모든 파일이 통과한 뒤에만 로컬 파일을 지우고, media 호스트(`CLAIRE_MEDIA_FQDN`)가 없으면 거부한다([`OPERATIONS.md`](OPERATIONS.md) "미디어 저장소") |
-| `migrate` | *(배포 시 install/update 단계에서 자동 실행)* | `uv run claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
+| `migrate` | *(배포 시 install/update 단계에서 자동 실행)* | `uv run claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 현재 스키마 버전으로 초기화/업그레이드하고 버전과 `schema_lineage`를 검증 |
 
 `CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
@@ -613,7 +613,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **RCA 전용 zstd 압축 아카이브**: 시스템 진단, 마스킹된 설정, 저장소 경로·mount·파일 identity, 테마별 read-only health, 텔레메트리, 인박스 실패 내역, 활성 공유 링크 인덱스, 프로바이더 로그를 format v3 `.tar.zst`로 패키징.[^telemetry-implementation]
   * **요청 기반 strict 타깃 역추적**: `target`으로 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 입력받는다. 복수 후보는 첫 문서로 임의 선택하지 않고 `ambiguous`, 미관측 대상은 `not_observed`, 문서 생성 전 실패 URL은 `failed_inbox`로 기록한다.
   * **인박스 이력**: `tracked_document/`에 URL·문서에 연결된 전체 `raw_inbox` 행을 포함한다. 관측성 데이터는 정본 `claire.db`에 신규 테이블을 추가하지 않는다.[^telemetry-implementation]
-  * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전·계보 및 이미지 태그를 기록한다.
+  * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전과 `schema_lineage` 및 이미지 태그를 기록한다.
   * **다운로드 내구성**: `telemetry.db`의 레코드와 원문 토큰을 포함하지 않는 권한 `0600` SHA-256 sidecar를 함께 기록한다. DB 레코드가 유실되거나 읽기 실패해도 사용자가 가진 토큰과 sidecar가 일치하면 유효기간 안의 파일을 제공한다. 생성 직후 같은 조회·경로 검증에 실패하면 URL을 반환하지 않는다.
   * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
   * **옵션**:

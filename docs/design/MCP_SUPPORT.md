@@ -1,6 +1,6 @@
 # MCP and OAuth 2.1 Support
 
-- **Status**: Implemented (read-only MCP tool set and the OAuth 2.1 authorization server). Design principles only, and a list of proposals that are not implemented. Current behavior: [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3, and [`TOKEN_EXCHANGE.md`](../implementation/TOKEN_EXCHANGE.md) for the token endpoint.
+- **Status**: Implemented (read-only MCP tool set and the OAuth 2.1 authorization server). Design principles only, and a list of proposals that are not implemented. Current behavior: [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3 and 2.5 (token endpoint).
 - **Date**: 2026-09-22 (implementation), proposals 2026-10-30 · condensed 2026-11-16. The first Korean version (flow diagram, metadata examples, tool table) is in git history before commit `d15ae8e0`.
 - **Protocols**: MCP Streamable HTTP (JSON-RPC 2.0), RFC 6749, RFC 6750, RFC 7636 (PKCE S256), RFC 7591 (dynamic client registration), RFC 8414, RFC 9728, RFC 8693.
 

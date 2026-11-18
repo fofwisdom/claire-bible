@@ -816,7 +816,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 ### 15.3 Routes
 
-All routes are `_any("owner")` in both modes: the owner of the account only, other principals get 404. A cookie request that changes state must come from the same origin (`AuthenticationMiddleware`). The contract is in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) §7 and `openapi.yaml`.
+All routes are `_any("owner")` in both modes: the owner of the account only, other principals get 404. A cookie request that changes state must come from the same origin (`AuthenticationMiddleware`). The routes are in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) §3 and `openapi.yaml`.
 
 | Method | Path | Function |
 | :--- | :--- | :--- |

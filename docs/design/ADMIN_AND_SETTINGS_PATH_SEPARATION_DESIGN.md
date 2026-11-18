@@ -1,7 +1,7 @@
 # Path Separation of `/admin` and `/settings` with One Console
 
 - **Document Identifier**: `DESIGN-ADMIN-SETTINGS-CONSOLE-20261104`
-- **Status**: Implemented. Design principles only. Current behavior: [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.9, §5.10 and [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md) §6.2.
+- **Status**: Implemented. Design principles only. Current behavior: [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.9, §5.10 and [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md) §2.2.
 - **Date**: 2026-11-04 (phases P1 to P5 done by 2026-11-05) · condensed 2026-11-16
 - **Related**: [`PRINCIPLES.md`](../PRINCIPLES.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md)
 

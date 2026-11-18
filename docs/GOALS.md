@@ -1,8 +1,6 @@
-# Claire Bible — 오리진 목표와 로드맵 (증강 계보)
+# Claire Bible — 목표와 로드맵
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/design/CLAIRE_ARCHITECTURE_ROADMAP.md`](design/CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
-
-> **[결정]** 테제 계보는 더 이상 없다(소유자, 2026-11-02). 이 저장소가 유일한 정본이다. 아래의 "증강 계보", "업스트림" 표현은 출발점을 설명하는 이력이다.
+**기준 문서:** 본 문서는 Claire Bible의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/design/CLAIRE_ARCHITECTURE_ROADMAP.md`](design/CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
 ---
 
@@ -10,7 +8,7 @@
 
 **"원천 지식의 무결성을 보존하고, 실세계 상호작용과 협업을 지원하는 프로덕션급 지식베이스."**
 
-증강 계보는 업스트림(테제 계보)의 핵심 가치인 '원문 보존', '결정론적 검증', '자동 복구' 철학을 온전히 계승하면서, 실세계 운영 환경에서 요구되는 멀티 테마 분리, 엔터프라이즈 표준 인증, 듀얼 포맷 문서 파이프라인, 멀티모달 적재 및 진단 관측성을 체계적으로 확장한다.
+Claire Bible은 '원문 보존', '결정론적 검증', '자동 복구' 철학을 지키면서, 실세계 운영 환경에서 요구되는 멀티 테마 분리, 엔터프라이즈 표준 인증, 듀얼 포맷 문서 파이프라인, 멀티모달 적재 및 진단 관측성을 체계적으로 확장한다.
 
 ### 범위 정의 (Scope Boundary)
 
@@ -52,7 +50,7 @@
    - 기본 테마 영구 보존 및 단일 DB(`data/claire.db`)의 `theme_id` 파티셔닝. 구현 정본은 [`THEMES.md`](implementation/THEMES.md)다.
    - 테마별 독립 Obsidian Vault 내보내기 및 FTS/벡터 색인 분리.
 7. **표준 인증 및 상호운용성**:
-   - RFC 8693 OAuth 2.0 Token Exchange(계정에 귀속된 세션 토큰만 교환, [`TOKEN_EXCHANGE.md`](implementation/TOKEN_EXCHANGE.md)).
+   - RFC 8693 OAuth 2.0 Token Exchange(계정에 귀속된 세션 토큰만 교환, [`API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md) §2.5).
    - 로컬 계정, 초대제 가입, 싱글·네트워크 서버 모드, 외부 IdP(OIDC·GitHub) 로그인. 구현 정본은 [`ACCOUNTS.md`](implementation/ACCOUNTS.md)다.
    - OpenAPI 3.1.0 공통 사양 정본([`openapi.yaml`](implementation/openapi.yaml)) 준수.
 8. **신뢰성 및 오퍼레이션**:
@@ -68,7 +66,7 @@
 
 ---
 
-## 4. 오리진 로드맵 (Origin Roadmaps)
+## 4. 로드맵 (Roadmaps)
 
 ### 트랙 1: 안정성, 복구력, 호스트 오케스트레이션
 - [x] 오류 Inbox 및 지수 백오프 기반 rate-limit 자동 복구

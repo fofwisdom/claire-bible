@@ -6,14 +6,14 @@
 - **기준 프로토콜 및 사양**:
   - OpenAPI 3.1.0 ([`openapi.yaml`](openapi.yaml))
   - Model Context Protocol (MCP) Streamable HTTP Transport (JSON-RPC 2.0)
-  - HTTP REST/ASGI 와이어 프로토콜 및 보안 계약 ([`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md))
+  - HTTP 경로 ([`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md))
   - OAuth 2.0 / 2.1 RFC 계열:
     - RFC 6749 (The OAuth 2.0 Authorization Framework) / RFC 6750 (Bearer Token Usage)
     - RFC 7636 (Proof Key for Code Exchange by OAuth Public Clients, PKCE S256)
     - RFC 7591 (OAuth 2.0 Dynamic Client Registration Protocol)
     - RFC 8414 (OAuth 2.0 Authorization Server Metadata)
     - RFC 9728 (OAuth 2.0 Protected Resource Metadata)
-    - RFC 8693 (OAuth 2.0 Token Exchange, [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md))
+    - RFC 8693 (OAuth 2.0 Token Exchange, §2.5)
 
 ---
 
@@ -246,7 +246,7 @@ curl -O -J "https://claire.example.com/support/bundle?token=sec_tok_xyz987..."
 
 ### 2.5 RFC 8693 OAuth 2.0 Token Exchange
 
-계정에 귀속된 세션 토큰을 같은 계정의 `readonly` Bearer 토큰으로 교환한다. 주입 토큰이나 계정에 귀속되지 않은 토큰은 400 `invalid_grant`로 거부한다. 현재 구현 범위는 [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) §7에 있다. (`application/x-www-form-urlencoded` 사용)
+계정에 귀속된 세션 토큰을 같은 계정의 `readonly` Bearer 토큰으로 교환한다. 주입 토큰이나 계정에 귀속되지 않은 토큰은 400 `invalid_grant`로 거부한다. (`application/x-www-form-urlencoded` 사용)
 ```bash
 curl -s -X POST https://claire.example.com/oauth/token \
      -H "Content-Type: application/x-www-form-urlencoded" \
@@ -255,6 +255,15 @@ curl -s -X POST https://claire.example.com/oauth/token \
      -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
      -d "scope=readonly"
 ```
+
+확인 기준: 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), `src/claire/api/oauth.py`의 `handle_token`. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+
+- **[코드] 받는 토큰**: `subject_token`은 `validate_session_binding`(`src/claire/store/accounts.py`)이 계정 귀속을 확인할 수 있는 승인된 세션 토큰(`auth_sessions`)이어야 한다. 없거나, 만료되었거나, 계정에 귀속되지 않은 토큰은 400 `invalid_grant`다. `subject_token`이 비어 있으면 400 `invalid_request`다.
+- **[코드] 계정 상태**: 귀속 계정이 없거나 상태가 `CREDENTIAL_ACCEPTING_STATUSES`(`setup_required`, `active`)가 아니면 400 `invalid_grant`다.
+- **[코드] 발급 토큰**: 그 계정에 귀속된 `readonly` OAuth 접근 토큰과 갱신 토큰이다. `expires_in`은 `OAUTH_ACCESS_TOKEN_TTL`(30일, `2592000`)이다. 클라이언트 식별자는 `token_exchange_client`다.
+- **[코드] 읽지 않는 매개변수**: `subject_token_type`, `scope`, `resource`, `audience`, `requested_token_type`, `actor_token`, `actor_token_type`의 값은 판정에 쓰지 않는다. 요청한 `scope`와 무관하게 `readonly`만 발급한다.
+- **[코드] 폴백 없음**: 계정을 정하지 못한 요청을 관리자 계정(`accounts.id = 1`)으로 발급하는 분기는 없다(PRINCIPLES C1). 집행: `tests/test_oauth_token_exchange.py`.
+- **[결정] Fedify 사이드카는 토큰 교환을 쓰지 않는다.** 사이드카에는 계정이 없으므로 계정 귀속 토큰을 받을 수 없다. 사이드카는 내부 연합 API 전용 서비스 자격증명(`data/auth/fedify_service.key`로 서명한 요청)을 쓴다([설계 원칙](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) "Decisions in Force" 4, 구현: [FEDERATION.md](FEDERATION.md) §5.2).
 
 ---
 

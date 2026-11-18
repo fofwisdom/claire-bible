@@ -2,7 +2,7 @@
 
 - **Status**: Implemented (phases FP1 to FP3). Design principles only. Current behavior: [`FEDERATION.md`](../implementation/FEDERATION.md) Sections 1 to 14. Phase FP4 (remote reading and two-way communication) has its own design: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md).
 - **Date**: 2026-11-10 · condensed 2026-11-16. The full first version (architecture, contracts, data model, work units FP1-1 to FP3-5, technical items FT1 to FT7) is in git history before commit `d15ae8e0`.
-- **Related**: [`PRINCIPLES.md`](../PRINCIPLES.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md), [`TOKEN_EXCHANGE.md`](../implementation/TOKEN_EXCHANGE.md).
+- **Related**: [`PRINCIPLES.md`](../PRINCIPLES.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md), [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) §2.5.
 
 ## Goal
 

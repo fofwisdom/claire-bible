@@ -1,20 +1,19 @@
-# Common Schema Version Contract
+# SQLite 스키마 버전
 
-이 문서는 SQLite 정본의 version 계약을 정의한다. 처음에는 Git 커밋 계보가 분리된 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 정본을 안전하게 공유하기 위해 만들었다. `meta.schema_version`과 `meta.schema_lineage`를 함께 호환성 판단에 사용한다.
+이 문서는 SQLite 정본 DB의 schema version과 마이그레이션을 적는다. 코드는 `meta.schema_version`과 `meta.schema_lineage`(고정 값 `claire-bible/common`)를 함께 호환성 판단에 쓴다.
 
-- **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). 공통 번호를 다른 계보와 예약할 필요가 없다. `schema_lineage` 값 `claire-bible/common`은 기존 DB와의 호환을 위해 그대로 쓴다.
 - **[결정] 스키마 확장은 조율하고, 쓰이지 않는 영역은 순차 소각한다** (소유자, 2026-11-02). 아래 "이후 스키마 변경 규칙"을 따른다.
 
-## v13 수렴 기준
+## Version 표
 
-공통 version v13은 새로운 사용자 기능을 추가하는 version이 아니다. 테제 계보 v9의 테이블, 컬럼과 인덱스를 공통 최소 schema로 다시 선언하고 `schema_lineage=claire-bible/common`을 추가하는 수렴 지점이다. 구현별 부가 컬럼과 테이블은 공통 최소 schema와 이름 또는 의미가 충돌하지 않는 한 보존한다.
+v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬럼과 인덱스를 최소 schema로 다시 선언하고 `schema_lineage=claire-bible/common`을 추가했다. 그 밖의 컬럼과 테이블은 최소 schema와 이름 또는 의미가 충돌하지 않으면 보존한다.
 
 | version | 상태 | 마이그레이션 처리 |
 |---|---|---|
-| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v15로 전환 |
-| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v15로 전환 가능 |
-| 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
-| 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `kb_id` 파티셔닝으로 승격 |
+| 1–9 | 초기 이력 | 멱등 마이그레이션 후 v15로 전환 |
+| 10–11 | 이전 이력 | 부가 schema를 보존하며 v15로 전환 가능 |
+| 12 | 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
+| 13 | 직전 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `kb_id` 파티셔닝으로 승격 |
 | 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`kb_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
 | 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 서버 설정, 테마·자격증명의 계정 귀속 |
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
@@ -53,9 +52,9 @@ Basis: commit d15ae8e0 (2026-11-16).
 - **[code]** Only after the export, it drops the two tables and their indexes and sets `meta.schema_version` to 11. Then the same `init_db` call migrates the database to the current version and writes `schema_lineage`.
 - **[decision]** v12 stays reserved. The recovery target is always v11.
 
-## v14 수렴 기준 (단일 데이터베이스 및 테마 파티셔닝)
+## v14 (단일 데이터베이스 및 테마 파티셔닝)
 
-공통 version v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/claire.db`)를 단일 정본 SQLite 데이터베이스(`data/claire.db`)로 통합하고, 논리적 테마 격리를 `kb_id` 컬럼과 복합 인덱스로 완비한 버전이다. 또한 외부 연동 및 테마 간 교차 적재를 위한 신디케이션(Syndication) 인프라를 구축하고, 옵시디언 볼트(Obsidian Vault) 마크다운 투영 서브시스템을 영구 제거하였다.
+v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/claire.db`)를 단일 정본 SQLite 데이터베이스(`data/claire.db`)로 통합하고, 논리적 테마 격리를 `kb_id` 컬럼과 복합 인덱스로 완비한 버전이다. 또한 외부 연동 및 테마 간 교차 적재를 위한 신디케이션(Syndication) 인프라를 구축하고, 옵시디언 볼트(Obsidian Vault) 마크다운 투영 서브시스템을 영구 제거하였다.
 
 1. **단일 DB 통합 및 `kb_id` 파티셔닝**:
    - `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`에 `kb_id INTEGER NOT NULL DEFAULT 0` 컬럼 추가.
@@ -75,18 +74,15 @@ Basis: commit d15ae8e0 (2026-11-16).
 ## v14 불변 규칙
 
 - `schema_version=14`와 `schema_lineage=claire-bible/common`의 의미를 재작성하지 않는다.
-- 공통 최소 객체를 변경해야 하면 다음 미사용 common version을 제안한다.
-- 구현 전용 객체를 v13의 필수 객체로 소급 편입하지 않는다.
 - version은 같지만 lineage가 없거나 다른 DB를 호환 대상으로 간주하지 않는다.
 - 미래 version과 알 수 없는 폐기 version을 현재 코드가 추측해 변경하지 않는다.
-- 별도 SQLite 저장소와 archive·registry 포맷은 각자의 namespace와 version을 사용한다. 보조 저장소의 version 변경은 공통 지식 DB version 증가를 뜻하지 않는다.
+- 별도 SQLite 저장소와 archive·registry 포맷은 각자의 namespace와 version을 사용한다. 보조 저장소의 version 변경은 지식 DB version 증가를 뜻하지 않는다.
 
 ## v15 (계정, P1)
 
 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02). 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다. 설계: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §13.1. 계정 동작은 [ACCOUNTS.md](ACCOUNTS.md)에 있다.
 
 - **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 15`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 15보다 크면 변경 없이 거부한다.
-- **[결정] 번호 예약 불필요**: 테제 계보가 없어졌으므로 v15는 다른 계보와 예약하지 않는다.
 - **[코드] 추가 객체**(`_migrate_v15_accounts`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등)
   - 테이블 `accounts`, `username_tombstones`, `server_settings`
   - 인덱스 `idx_accounts_single_admin`(관리자 한 명), `idx_knowledge_bases_account_personal`(계정마다 기본 테마 하나)
@@ -217,7 +213,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ### 별도 저장소: `data/auth/auth.db`
 
-- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 5`다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
+- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 5`다. 이 번호는 위 지식 DB version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
   - **v1 (P1/P3)**: 계정 자격증명(`auth_secrets`), 초대(`invitations`, `invitation_redemptions`), 사용량(`account_usage`), 로그인 스로틀(`login_throttle`), 단기 OIDC 상태(`oidc_states`).
   - **v2 (P4)**: `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열 추가(설계 §10.3, §13.3).
   - **v3 (P5)**: `oidc_states`에 계정 연결용 `account_id` 열 추가, 외부 IdP 계정 연결 테이블 `account_identities` 연동(설계 §12, §13.3).
@@ -233,7 +229,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 - **[code]** Exception: `connect_telemetry` runs `CREATE ... IF NOT EXISTS` and an `ALTER TABLE` on each connection, also when the Support Bundle only reads telemetry. See [`TELEMETRY.md`](TELEMETRY.md) §2.
 
-마이그레이션은 다음 계약을 따른다.
+마이그레이션은 다음 규칙을 따른다.
 
 1. source version, lineage와 필수 객체 서명을 쓰기 전에 확인한다.
 2. 삭제 또는 의미 변경이 필요한 데이터는 검증 가능한 형식으로 먼저 보존한다.
@@ -246,12 +242,10 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 1. **[결정]** 새 테이블·열은 기능 설계(모델 정의)에서 필요성과 소유 기능을 먼저 정하고, 문서·멱등 마이그레이션·이전 version 데이터 보존 테스트를 함께 제출한다. 무분별한 확장을 막기 위해서다.
 2. **[결정]** 더 이상 쓰이지 않는 스키마 영역은 순차 소각한다. 소각도 새 version으로 하며, 삭제할 데이터가 있으면 운영 경계 2번대로 먼저 보존한다. 예: v14 `users` 테이블은 v15부터 쓰지 않는다(소각 후보).
-3. 같은 version의 의미를 바꾸지 않는다. 이미 배포된 잘못된 version은 폐기하고 새 공통 번호를 사용한다.
-4. 새 기능 schema는 해당 기능의 정책 검토와 분리한다. 공통 계약 PR에 구현별 UI, 운영 도구 또는 무관한 기능 snapshot을 포함하지 않는다.
-5. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
-6. 새 version은 같은 커밋에서 위 version 표, 앞 version 절의 버전 상수 줄, 새 version 절을 함께 고친다. 다른 문서는 현재 번호를 적지 않고 이 표를 가리킨다. 공개 저장소(`origin`)에 올라간 version에 객체를 더하는 것도 3번의 의미 변경이다.
+3. 같은 version의 의미를 바꾸지 않는다. 이미 배포된 잘못된 version은 폐기하고 새 번호를 사용한다.
+4. 새 version은 같은 커밋에서 위 version 표, 앞 version 절의 버전 상수 줄, 새 version 절을 함께 고친다. 다른 문서는 현재 번호를 적지 않고 이 표를 가리킨다. 공개 저장소(`origin`)에 올라간 version에 객체를 더하는 것도 3번의 의미 변경이다.
 
-The retired v12 recovery is described above. Other stores have their own version contracts and do not share this version number: the telemetry database (no version marker now, see [`TELEMETRY.md`](TELEMETRY.md) §2), the Support Bundle archive (format 3) and sidecar registry (format 1), and the `cb-manuscript` backup archive (`BACKUP_FORMAT_VERSION` 1 in `ops/cb_manuscript.py`).
+The retired v12 recovery is described above. Other stores have their own versions and do not share this version number: the telemetry database (no version marker now, see [`TELEMETRY.md`](TELEMETRY.md) §2), the Support Bundle archive (format 3) and sidecar registry (format 1), and the `cb-manuscript` backup archive (`BACKUP_FORMAT_VERSION` 1 in `ops/cb_manuscript.py`).
 
 ## v25 (서버 설정 테이블 이름, 용어 "서버")
 

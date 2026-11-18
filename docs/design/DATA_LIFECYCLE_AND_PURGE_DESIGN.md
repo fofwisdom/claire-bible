@@ -5,7 +5,7 @@
 
 ## Goal / problem
 
-The upstream design kept everything: the inbox, the raw text files, and the model output. This is good when all input is useful. But auto-expansion and crawlers can ingest legacy or harmful text. Examples are an old API version, a wrong Bible translation, or a document with a license problem.
+The first design kept everything: the inbox, the raw text files, and the model output. This is good when all input is useful. But auto-expansion and crawlers can ingest legacy or harmful text. Examples are an old API version, a wrong Bible translation, or a document with a license problem.
 
 For research about the history of ideas, old text is valid context. For engineering documents and canonical texts, an old version is pollution. The model takes it as fact, and the graph gets wrong entities and relations. To keep such data can also be a legal or operational risk.
 
