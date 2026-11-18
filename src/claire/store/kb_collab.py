@@ -485,6 +485,20 @@ def apply_revision(conn: sqlite3.Connection, revision_id: int, *, now: float | N
     return True
 
 
+def replace_failed_copy(conn: sqlite3.Connection, revision_id: int, *, now: float | None = None) -> bool:
+    """The first merge of the contribution failed while its revision waited: point the contribution to the copy of the revision and complete the revision, only when the revision is still ``merging``, the contribution is ``failed`` with updates on, and its copy is still the previous copy of the revision (one statement for the condition). The state and the reason of the failure stay. False when no row matches."""
+    ts = time.time() if now is None else now
+    cur = conn.execute(
+        "UPDATE kb_contributions SET document_id=(SELECT document_id FROM kb_contribution_revisions WHERE id=?), revised_at=?, updated_at=? "
+        "WHERE state='failed' AND updates_frozen=0 AND EXISTS (SELECT 1 FROM kb_contribution_revisions r WHERE r.id=? AND r.state='merging' AND r.contribution_public_id=kb_contributions.public_id AND r.previous_document_id=kb_contributions.document_id)",
+        (int(revision_id), ts, ts, int(revision_id)),
+    )
+    if cur.rowcount != 1:
+        return False
+    conn.execute("UPDATE kb_contribution_revisions SET state='done', completed_at=? WHERE id=?", (ts, int(revision_id)))
+    return True
+
+
 def get_revision(conn: sqlite3.Connection, revision_id: int) -> dict[str, Any] | None:
     row = conn.execute(f"SELECT {', '.join(_REVISION_KEYS)} FROM kb_contribution_revisions WHERE id=?", (int(revision_id),)).fetchone()
     return None if row is None else dict(zip(_REVISION_KEYS, tuple(row)))
@@ -805,3 +819,12 @@ def list_moderation_log(conn: sqlite3.Connection, kb_id: int) -> list[dict[str, 
             (int(kb_id),),
         ).fetchall()
     ]
+
+
+def recent_remote_curations(conn: sqlite3.Connection, *, limit: int) -> list[dict[str, Any]]:
+    """The newest curations from shared knowledge bases of other servers, for the recent activity of the root page (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3): one row for each pair of knowledge base and remote source with a ``visible`` copy whose origin did not remove the document, with the time of the newest copy (its approval), the newest first. A row has ``kb_id``, ``remote_source_kb_iri``, and ``at``."""
+    rows = conn.execute(
+        "SELECT kb_id, remote_source_kb_iri, MAX(COALESCE(approved_at, contributed_at)) AS at FROM kb_contributions WHERE origin='curation' AND remote_source_kb_iri IS NOT NULL AND state='visible' AND origin_removed_at IS NULL GROUP BY kb_id, remote_source_kb_iri ORDER BY at DESC, kb_id LIMIT ?",
+        (int(limit),),
+    ).fetchall()
+    return [{"kb_id": int(r[0]), "remote_source_kb_iri": str(r[1]), "at": float(r[2])} for r in rows]

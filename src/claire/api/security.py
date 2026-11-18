@@ -567,7 +567,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/support/bundle"): _system("admin", "none"),
     ("GET", "/support/bundle"): _system("public", "none"),
     ("HEAD", "/support/bundle"): _system("public", "none"),
-    ("POST", "/graph/bundle"): _namespaced("owner", "maintain"),
+    # The data bundle of a shared knowledge base is for its moderators and the admin (design Section 13.2): the capability ``settings``. The owner of a personal knowledge base has each capability.
+    ("POST", "/graph/bundle"): _namespaced("owner", "settings"),
     ("GET", "/graph/bundle"): _any("public", "none"),
     ("HEAD", "/graph/bundle"): _any("public", "none"),
     ("GET", "/reference"): _system("public", "none"),

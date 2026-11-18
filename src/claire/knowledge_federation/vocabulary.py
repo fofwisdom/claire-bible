@@ -37,6 +37,7 @@ __all__ = [
     "ERROR_CODES",
     "FORGEFED_NS",
     "KNOWLEDGE_TYPES",
+    "LIMIT_REACHED",
     "MAX_SIGNATURE_ENTITIES",
     "OBJECT_KINDS",
     "REASON_CODES",
@@ -121,7 +122,9 @@ KNOWLEDGE_TYPES = ("real", "fictional")
 REASON_CODES = ("off_subject", "wrong_knowledge_type", "duplicate", "low_quality", "spam", "other")
 # The reason of a ``Reject`` of an automatic contribution: the server of the knowledge base accepts no automatic contributions now (Section 12.3 rule 1). It is not a reason of the reviewers, so a ``Delete`` cannot have it.
 AUTOMATIC_NOT_ACCEPTED = "automatic_not_accepted"
-REJECT_REASON_CODES = (*REASON_CODES, AUTOMATIC_NOT_ACCEPTED)
+# The reason of a ``Reject`` that a limit of the server of the knowledge base gave, not its reviewers: the pending contributions of the account or of its domain are at the limit now (KS3). The sender can offer the document again later. It is not a reason of the reviewers, so a ``Delete`` cannot have it.
+LIMIT_REACHED = "limit_reached"
+REJECT_REASON_CODES = (*REASON_CODES, AUTOMATIC_NOT_ACCEPTED, LIMIT_REACHED)
 MAX_SIGNATURE_ENTITIES = 256
 # The largest count of the wire form: the largest integer that each JSON reader keeps without a change (2^53), and that SQLite stores.
 MAX_COUNT = 2**53
@@ -153,7 +156,7 @@ TERMS: tuple[dict[str, Any], ...] = (
     {"term": ENTITIES, "kind": "property", "definition": {"@id": ENTITIES, "@type": "@json"}, "text": "The entities of an extraction, as one JSON array. Each entity has the keys \"name\", \"type\", \"norm_name\" (the name in its normal form; \"type\" and \"norm_name\" together are the key of the entity), \"aliases\", and \"observations\". The key \"sameAs\" is optional: identifiers of the same thing at an authority, for example \"wd:Q42\" (Wikidata), an ISBN, or an ORCID. The key \"proposed_type\" is optional."},
     {"term": RELATIONS, "kind": "property", "definition": {"@id": RELATIONS, "@type": "@json"}, "text": "The relations of an extraction, as one JSON array. Each relation has the keys \"source\" and \"target\" (each one the \"name\" of an entity of the same extraction) and \"type\". The key \"proposed_type\" is optional."},
     {"term": DOCUMENT, "kind": "property", "definition": {"@id": DOCUMENT, "@type": "@id"}, "text": "The document of a contribution."},
-    {"term": REASON_CODE, "kind": "property", "definition": {"@id": REASON_CODE}, "text": "The reason of the reviewers for a rejection or a removal: \"off_subject\", \"wrong_knowledge_type\", \"duplicate\", \"low_quality\", \"spam\", or \"other\". A rejection of an automatic contribution can also have \"automatic_not_accepted\": the server of the knowledge base accepts no automatic contributions now."},
+    {"term": REASON_CODE, "kind": "property", "definition": {"@id": REASON_CODE}, "text": "The reason of the reviewers for a rejection or a removal: \"off_subject\", \"wrong_knowledge_type\", \"duplicate\", \"low_quality\", \"spam\", or \"other\". A rejection of an automatic contribution can also have \"automatic_not_accepted\": the server of the knowledge base accepts no automatic contributions now. A rejection of a contribution can also have \"limit_reached\": the contributions of the account or of its server that wait for a decision are at a limit of the server of the knowledge base now. With these two values the account can offer the document again later."},
     {"term": AUTOMATIC, "kind": "property", "definition": {"@id": AUTOMATIC}, "text": "true in a contribution that the automatic rule of the account selected. A server that accepts no automatic contributions rejects such a contribution. A contribution without this term is one that the account selected itself."},
     {"term": ACCEPTS_AUTOMATIC, "kind": "property", "definition": {"@id": ACCEPTS_AUTOMATIC}, "text": "true when the server of a shared knowledge base accepts automatic contributions now, false when it rejects them. A server reads it before it sends an automatic contribution."},
     {"term": CAPABILITY, "kind": "property", "definition": {"@id": FORGEFED_NS + "capability", "@type": "@id"}, "text": "The grant that permits an activity. The term is the one of the ForgeFed vocabulary. In Claire, an offer of a remote collaborator refers to its grant."},
@@ -441,6 +444,8 @@ def _check_knowledge_base(obj: dict[str, Any], path: str) -> None:
         _check_signature(obj[SIGNATURE], _join(path, SIGNATURE))
     if ACCEPTS_AUTOMATIC in obj and not isinstance(obj[ACCEPTS_AUTOMATIC], bool):
         raise ContractError("invalid_field", _join(path, ACCEPTS_AUTOMATIC))
+    if "updated" in obj:
+        _time(obj, "updated", path)
 
 
 def _check_extraction(obj: dict[str, Any], path: str) -> None:
@@ -677,6 +682,8 @@ def validate_activity(value: Any) -> str:
             _check_knowledge_base(obj, "object")
             if obj["id"] != actor:
                 raise ContractError("actor_mismatch", "object.id")
+            # The time of the change of the record: the receiver refuses an ``Update`` that is not newer than the record that it has.
+            _time(obj, "updated", "object")
             return "update_knowledge_base"
         if object_kind == "document":
             _check_document(obj, "object", extraction_necessary=True)
@@ -730,7 +737,7 @@ def with_context(obj: dict[str, Any]) -> dict[str, Any]:
 def build_knowledge_base(kb: dict[str, Any], iris: dict[str, str]) -> dict[str, Any]:
     """Make the ``claire:KnowledgeBase`` of a shared knowledge base.
 
-    ``kb``: ``label``, ``description``, ``knowledge_type``, ``documents``, ``entities``, ``relations`` (the three counts), ``signature``, and ``accepts_automatic`` (a bool: the server accepts automatic contributions now, Section 12.3). The signature is ``None`` for a knowledge base that has no signature, else a dictionary with ``entities`` (rows ``[type, norm_name, weight]``), ``visible_documents``, and ``computed_at`` (seconds). The centroid of the embeddings does not go to other servers.
+    ``kb``: ``label``, ``description``, ``knowledge_type``, ``documents``, ``entities``, ``relations`` (the three counts), ``signature``, ``accepts_automatic`` (a bool: the server accepts automatic contributions now, Section 12.3), and ``updated`` (seconds: the time of the last change of the label, the description, the knowledge type, or ``accepts_automatic`` that the followers got; ``None`` when no follower got the record yet: then the object has no ``updated``). The signature is ``None`` for a knowledge base that has no signature, else a dictionary with ``entities`` (rows ``[type, norm_name, weight]``), ``visible_documents``, and ``computed_at`` (seconds). The centroid of the embeddings does not go to other servers.
     ``iris``: ``id``, ``url`` (the page), ``inbox``, ``outbox``, ``followers``, and ``documents`` (the collection).
     """
     obj: dict[str, Any] = {
@@ -749,6 +756,8 @@ def build_knowledge_base(kb: dict[str, Any], iris: dict[str, str]) -> dict[str, 
         RELATION_COUNT: _need(kb, "relations", "kb"),
         ACCEPTS_AUTOMATIC: _need(kb, "accepts_automatic", "kb"),
     }
+    if _need(kb, "updated", "kb") is not None:
+        obj["updated"] = _iso(kb["updated"], "kb.updated")
     signature = _need(kb, "signature", "kb")
     if signature is not None:
         signature = _mapping(signature, "kb.signature")
@@ -863,7 +872,7 @@ def build_undo_follow(*, activity_id: str, follow: dict[str, Any]) -> dict[str, 
 
 
 def build_update_knowledge_base(*, activity_id: str, knowledge_base: dict[str, Any]) -> dict[str, Any]:
-    """Make the ``Update`` of the record of a shared knowledge base for its followers. ``knowledge_base`` is the result of ``build_knowledge_base``."""
+    """Make the ``Update`` of the record of a shared knowledge base for its followers. ``knowledge_base`` is the result of ``build_knowledge_base`` with ``updated``: the receiver refuses an ``Update`` that is not newer than its record."""
     return _activity({"id": activity_id, "type": "Update", "actor": _need(knowledge_base, "id", "knowledge_base"), "object": knowledge_base, "to": [_need(knowledge_base, "followers", "knowledge_base")]})
 
 

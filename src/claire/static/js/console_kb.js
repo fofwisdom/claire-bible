@@ -802,6 +802,11 @@
           '<button type="button" class="claire-btn sec" id="kb-archive-btn">' + esc(t(archived ? "console.js.kb.settings_unarchive" : "console.js.kb.settings_archive")) + "</button>" +
           (isAdmin ? '<button type="button" class="claire-btn danger" id="kb-delete-btn">' + esc(t("console.js.kb.settings_delete")) + "</button>" : "") +
           "</div></form>";
+        // The data bundle of the knowledge base (design Section 13.2) is for its moderators and the admin: POST /kb/{number}/graph/bundle (capability "settings"). The bundle has the visible documents, their graph, and the contributions with the public number of the account with the credit. The link has a token and is valid for 24 hours.
+        settings += '<div class="claire-card" id="kb-bundle-card"><div class="claire-card-head"><h3>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_card")) + "</h3></div>" +
+          '<p class="claire-hint">' + esc(t("console.js.kb.bundle_hint")) + "</p>" +
+          '<div class="claire-actions"><button type="button" class="claire-btn" id="kb-bundle-btn">' + esc(t("console.js.kb.bundle_make")) + "</button></div>" +
+          '<div id="kb-bundle-result" role="status" aria-live="polite"></div></div>';
 
         // Collaborators of other servers (federation design Section 12.2): GET /kb/{number}/remote-collaborators; a grant has a term of 6 months, and Revoke ends it at once. The changes need a recent sign-in.
         people += '<div class="claire-card" id="kb-remote-collab-host"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.remote_collab_card")) + "</h3></div>" +
@@ -1015,6 +1020,20 @@
       var deleteBtn = host.querySelector("#kb-delete-btn");
       if (deleteBtn) deleteBtn.addEventListener("click", function () {
         dlgs().openDeleteKbDialog({ kbNumber: currentNum, kbLabel: view.kb.label, onDeleted: function () { window.location.assign("/admin/kb"); } });
+      });
+      var bundleBtn = host.querySelector("#kb-bundle-btn");
+      if (bundleBtn) bundleBtn.addEventListener("click", function () {
+        var box = host.querySelector("#kb-bundle-result");
+        bundleBtn.disabled = true;
+        box.innerHTML = '<p class="claire-hint">' + esc(t("console.js.kb.bundle_making")) + "</p>";
+        ui().request(kbUrl(currentNum, "graph/bundle"), { method: "POST", body: {} }).then(function (r) {
+          bundleBtn.disabled = false;
+          if (!r.ok || !r.data || !r.data.token) { box.innerHTML = '<div class="claire-note warn"><span>' + esc(ui().errorText(r)) + "</span></div>"; return; }
+          var b = r.data;
+          // The download address of the token is at the root of the server; it needs no sign-in.
+          box.innerHTML = '<p class="claire-hint" data-kb-bundle-counts>' + esc(t("console.js.kb.bundle_made", { documents: b.documents_count, entities: b.entities_count, relations: b.relations_count, contributions: b.contributions_count, expires: dateText(Date.parse(b.expires_at) / 1000) })) + "</p>" +
+            '<div class="claire-actions"><a class="claire-btn pri" id="kb-bundle-download" href="/graph/bundle?token=' + encodeURIComponent(b.token) + '" download>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_download")) + "</a></div>";
+        });
       });
 
       if (bound) return;

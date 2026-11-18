@@ -6000,17 +6000,22 @@ def rollback_document_graph_contributions(
     prune_orphans: bool = False,
     kb_id: int | None = None,
 ) -> dict[str, int]:
-    """Undo entity merges and optionally prune orphan graph nodes for the specified documents."""
+    """Undo the entity decisions of the specified documents and optionally prune orphan graph nodes.
+
+    A ``MERGE`` decision gives back the state of the entity before the merge; a ``CREATE_NEW`` decision removes from the entity what the document gave, when another document merged into the entity later (``extract.decision.rollback_resolution``). A value that a document that stays also gave stays. ``rolled_back_merges`` counts the ``MERGE`` decisions.
+    """
     if not target_ids:
         return {"rolled_back_merges": 0, "pruned_entities": 0, "pruned_relations": 0}
 
-    from ..extract.decision import get_resolution_log_from_meta, rollback_resolution
+    from ..extract.decision import Provenance, get_resolution_log_from_meta, rollback_resolution
 
     rolled_back_merges = 0
     pruned_entities = 0
     pruned_relations = 0
     # The entities that a rollback changed: the rollback removes the document from ``sources``, so the prune step below finds such an entity by this set.
     rolled_back_entities: set[str] = set()
+    # One record of what each document gave, for each knowledge base, for all documents of this call.
+    provenance: dict[int, Provenance] = {}
 
     for did in target_ids:
         doc_q = "SELECT meta, kb_id FROM documents WHERE id=?"
@@ -6026,11 +6031,13 @@ def rollback_document_graph_contributions(
         except Exception:
             continue
         decisions = get_resolution_log_from_meta(meta)
+        doc_kb_id = int(row["kb_id"])
+        given = provenance.setdefault(doc_kb_id, Provenance(conn, doc_kb_id))
         for decision in reversed(decisions):
-            if decision.decision == "MERGE" and not getattr(decision, "rolled_back", False):
-                # The merges of a document are in the knowledge base of the document: an entity of another knowledge base is not changed, and no entity changes its knowledge base.
-                if rollback_resolution(conn, decision, kb_id=int(row["kb_id"])):
-                    rolled_back_merges += 1
+            if decision.decision in ("MERGE", "CREATE_NEW"):
+                # The decisions of a document are in the knowledge base of the document: an entity of another knowledge base is not changed, and no entity changes its knowledge base.
+                if rollback_resolution(conn, decision, kb_id=doc_kb_id, document_id=did, gone=target_ids, provenance=given):
+                    rolled_back_merges += decision.decision == "MERGE"
                     rolled_back_entities.add(str(decision.target_entity_id))
 
     if prune_orphans:

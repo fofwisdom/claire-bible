@@ -11,6 +11,7 @@ Rules:
 - A record that a complete read does not contain is deleted: the knowledge base is not in the collection of its server now. A failed read deletes nothing.
 - When a domain block starts, the records of that domain are deleted (``purge_blocked``): there is no exchange with a blocked server (Section 6.3). A record has no document, so no copy is lost.
 - The memberships of a deleted record in local themes are deleted with it (``store.themes``).
+- The record keeps ``updated`` of the object (the time of the change of the record on its server). An ``Update`` whose ``updated`` is not after the stored one is refused (``stale_update``): an old ``Update`` that came late does not set an older label. A read whose item is older than the stored record keeps the stored record.
 """
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ RECORD_MAX_BYTES = 128 * 1024
 # The keys of a ``claire:KnowledgeBase`` that the record keeps (the wire contract, ``vocabulary``). Each other key of the object that came is not stored.
 RECORD_KEYS: tuple[str, ...] = (
     "id", "type", "name", "summary", "url", "inbox", "outbox", "followers", vocabulary.DOCUMENTS,
-    vocabulary.KNOWLEDGE_TYPE, vocabulary.DOCUMENT_COUNT, vocabulary.ENTITY_COUNT, vocabulary.RELATION_COUNT, vocabulary.SIGNATURE, vocabulary.ACCEPTS_AUTOMATIC,
+    vocabulary.KNOWLEDGE_TYPE, vocabulary.DOCUMENT_COUNT, vocabulary.ENTITY_COUNT, vocabulary.RELATION_COUNT, vocabulary.SIGNATURE, vocabulary.ACCEPTS_AUTOMATIC, "updated",
 )
 _MAX_ERROR_LENGTH = 200
 
@@ -353,7 +354,19 @@ def _content(payload: str | None) -> dict[str, Any] | None:
         return None
     value = json.loads(payload)
     value.pop(vocabulary.ACCEPTS_AUTOMATIC, None)
+    value.pop("updated", None)
     return value
+
+
+def _updated(obj: dict[str, Any] | None) -> float | None:
+    """The seconds of ``updated`` of a checked object or of a stored payload, or None when it has none."""
+    if obj is None or "updated" not in obj:
+        return None
+    return vocabulary.time_seconds(obj["updated"])
+
+
+def _stored_updated(kb: RemoteKnowledgeBase | None) -> float | None:
+    return None if kb is None or kb.payload is None else _updated(json.loads(kb.payload))
 
 
 def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: RemoteKnowledgeBase | None, *, now: float) -> None:
@@ -380,7 +393,7 @@ def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: 
 
 
 def apply_update(conn: sqlite3.Connection, obj: Any, *, domain: str, origin: str, now: float) -> str | None:
-    """Store the record of an ``Update`` that the knowledge base actor sent (design Section 9.3, unit KF3). Return ``None``, or the code of the refusal: the codes of an item of a read (``_check_item``), or ``too_many_knowledge_bases`` for a new record of a server that has ``PER_SERVER_MAX`` records."""
+    """Store the record of an ``Update`` that the knowledge base actor sent (design Section 9.3, unit KF3). Return ``None``, or the code of the refusal: the codes of an item of a read (``_check_item``), ``too_many_knowledge_bases`` for a new record of a server that has ``PER_SERVER_MAX`` records, or ``stale_update`` when ``updated`` of the object is not after ``updated`` of the stored record (an old ``Update`` that came late, or the same one again)."""
     try:
         checked = _check_item({key: value for key, value in obj.items() if key != "@context"} if isinstance(obj, dict) else obj, domain, origin)
     except _Refusal as exc:
@@ -388,6 +401,9 @@ def apply_update(conn: sqlite3.Connection, obj: Any, *, domain: str, origin: str
     current = get_by_iri(conn, checked["id"])
     if current is None and count_by_domain(conn).get(domain, 0) >= PER_SERVER_MAX:
         return "too_many_knowledge_bases"
+    stored, received = _stored_updated(current), _updated(checked)
+    if stored is not None and (received is None or received <= stored):
+        return "stale_update"
     _store(conn, checked, domain, current, now=now)
     return None
 
@@ -428,7 +444,12 @@ def record_batch(conn: sqlite3.Connection, domain: str, *, items: list[Any], ori
             continue
         if current is None or current.seen_at < started:
             seen += 1
-        _store(conn, obj, domain, current, now=now)
+        stored_time, read_time = _stored_updated(current), _updated(obj)
+        if current is not None and stored_time is not None and read_time is not None and read_time < stored_time:
+            # An ``Update`` that is newer than this read came first: the stored record stays, and the read counts it as seen.
+            conn.execute("UPDATE kf_remote_knowledge_bases SET seen_at=? WHERE id=?", (now, current.id))
+        else:
+            _store(conn, obj, domain, current, now=now)
         stored += 1
     conn.execute(
         "UPDATE kf_remote_kb_reads SET stored_count=stored_count+?, refused_count=refused_count+?, refused_code=COALESCE(refused_code, ?) WHERE domain=?",

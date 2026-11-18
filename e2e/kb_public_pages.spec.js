@@ -38,15 +38,28 @@ async function servePublicView(page, path, fromPath, view, ref) {
   });
 }
 
+// The data of the root page about other servers ("explore_federation_route" with "knowledge_federation.recent"): the three kinds of the recent activity. An account that is not public has "account" null.
+const FEDERATION = {
+  themes: [],
+  servers: [{ domain: 'b.example', software_name: 'claire-bible', software_version: '1.0.0', knowledge_bases: 1 }],
+  recent: [
+    { kind: 'curation', at: 1700000400, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', knowledge_base: { number: '101', label: 'Modern History', url: ORIGIN + '/kb/101/' } },
+    { kind: 'accepted_contribution', at: 1700000300, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', account: { username: 'ben', display_name: 'Ben' } },
+    { kind: 'accepted_contribution', at: 1700000200, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', account: null },
+    { kind: 'remote_knowledge_base', at: 1700000100, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', knowledge_type: 'fictional' }
+  ]
+};
+
 function installPublicApi(page, state) {
-  return installJsonApi(page, (u) => u.pathname === '/kb' || u.pathname === '/themes' || /^\/(kb|themes)\/\d+\//.test(u.pathname), ({ path, method }) => {
+  return installJsonApi(page, (u) => u.pathname === '/kb' || u.pathname === '/themes' || u.pathname === '/explore/federation' || /^\/(kb|themes)\/\d+\//.test(u.pathname), ({ path, method }) => {
     if (method !== 'GET') return null;
     if (path === '/kb') return [{ ...collection('/kb', 'knowledge_bases', state.kbs), personal_kb: null, multi_theme: true }];
     if (path === '/kb/101/') return [{ knowledge_base: state.kbs[0] }];
     if (path === '/kb/101/contributions') return [collection('/kb/101/contributions', 'contributions', state.contributions)];
     if (path === '/kb/101/members') return [collection('/kb/101/members', 'members', state.members)];
     if (path === '/themes') return [collection('/themes', 'themes', THEMES)];
-    if (path === '/themes/202/') return [THEME_202];
+    if (path === '/themes/202/') return [state.theme];
+    if (path === '/explore/federation') return [FEDERATION];
     return null;
   });
 }
@@ -79,6 +92,8 @@ function makeState(signedIn) {
     ]
   };
   if (!signedIn) state.contributions = state.contributions.map(publicView);
+  // The admin (and a reviewer of a shared knowledge base of the theme) gets the follow state of this server for each remote member; another reader gets "follows" false and no follow state.
+  state.theme = signedIn ? { ...THEME_202, follows: true, knowledge_bases: THEME_202.knowledge_bases.map((k) => (k.remote ? { ...k, follow: 'accepted' } : k)) } : { ...THEME_202, follows: false };
   return state;
 }
 
@@ -197,6 +212,9 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(origin).toHaveAttribute('target', '_blank');
   await expect(origin).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(remote.locator('tbody tr td').nth(1)).toHaveText('b.example');
+  // The admin sees if this server follows the remote knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.2 rule 2).
+  await expect(remote.locator('thead th').nth(2)).toHaveText('이 서버의 팔로우');
+  await expect(remote.locator('[data-follow-state="accepted"]')).toHaveText('팔로우 중');
   // A knowledge base of another server has no page and no action on this server.
   await expect(remote.locator('a[href^="/kb/"], [data-fork-kb]')).toHaveCount(0);
   await expect(root.locator('a.claire-tag[href="/kb/1000099/"]')).toContainText('Carol Notes');
@@ -226,6 +244,46 @@ test('the public pages without a sign-in: the link to the sign-in in place of th
   await expect(root.locator('a.claire-btn[href="/login?next=%2Fthemes%2F202%2F"]')).toHaveText('로그인하고 참여');
   await expect(root.locator('#th-contrib-btn, #th-make-kb-btn, [data-fork-kb]')).toHaveCount(0);
   await expect(root.locator('#th-remote-kbs a[href="https://b.example/kb/77/"]')).toHaveAttribute('rel', 'noopener noreferrer');
+  // A reader without a role gets no follow state.
+  await expect(root.locator('#th-remote-kbs thead th')).toHaveCount(2);
+  await expect(root.locator('[data-follow-state]')).toHaveCount(0);
+  await expectNoRawKeys(page);
+  expect(unknown).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('the part of the root page about other servers: the federated servers and the three kinds of the recent activity across servers', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  const { unknown } = await installPublicApi(page, makeState(false));
+  // The E2E server is in single mode and has no root page: the page of "/themes" gets the element of the root page that public_kb.js fills ("explore_accounts_route" in network mode).
+  await page.route((u) => u.pathname === '/themes', async (route) => {
+    const req = route.request();
+    if (req.resourceType() !== 'document') return route.fallback();
+    const res = await route.fetch();
+    const html = (await res.text()).replace('<main id="public-kb-root"', '<div id="public-home-federation"></div><main id="public-kb-root"');
+    expect(html).toContain('id="public-home-federation"');
+    return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+  });
+
+  await page.goto('/themes', { waitUntil: 'domcontentloaded' });
+  const host = page.locator('#public-home-federation');
+  await expect(host.locator('[data-federated-server="b.example"]')).toContainText('claire-bible 1.0.0');
+  const items = host.locator('[data-federation-recent]');
+  await expect(items).toHaveCount(4);
+  // A curation: the shared knowledge base of this server and the source on the other server.
+  await expect(items.nth(0)).toHaveAttribute('data-federation-recent', 'curation');
+  await expect(items.nth(0)).toContainText('다른 서버에서 가져온 문서:');
+  await expect(items.nth(0).locator('a[href="/kb/101/"]')).toHaveText('Modern History');
+  await expect(items.nth(0).locator('a[href="https://b.example/kb/77/"]')).toHaveAttribute('rel', 'noopener noreferrer');
+  // An approval of another server: a public account has a link to its profile; an account that is not public is not named.
+  await expect(items.nth(1)).toContainText('다른 서버가 승인한 기여:');
+  await expect(items.nth(1).locator('a[href="/@ben/"]')).toHaveText('Ben');
+  await expect(items.nth(2)).toHaveAttribute('data-federation-recent', 'accepted_contribution');
+  await expect(items.nth(2).locator('a[href^="/@"]')).toHaveCount(0);
+  await expect(items.nth(2)).not.toContainText('기여자:');
+  await expect(items.nth(3)).toContainText('새 공유 지식 베이스:');
+  await expect(items.nth(3)).toContainText('b.example');
   await expectNoRawKeys(page);
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);

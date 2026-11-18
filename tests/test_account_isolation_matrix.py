@@ -45,6 +45,7 @@ from claire.graph_bundle import create_graph_bundle, import_graph_bundle
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
+from claire.store import kb_collab
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
@@ -385,15 +386,17 @@ def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Pa
             (now,),
         )
         conn.execute(
-            "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, kb_id) "
-            "VALUES ('ent_alice', 'concept', 'AliceEntity', 'aliceentity', ?, ?, 21)",
+            "INSERT INTO entities (id, type, name, norm_name, sources, created_at, updated_at, kb_id) "
+            "VALUES ('ent_alice', 'concept', 'AliceEntity', 'aliceentity', '[\"doc_alice\"]', ?, ?, 21)",
             (now, now),
         )
         conn.execute(
-            "INSERT INTO relations (id, source_id, target_id, type, created_at, kb_id) "
-            "VALUES ('rel_alice', 'ent_alice', 'ent_alice', 'relates', ?, 21)",
+            "INSERT INTO relations (id, source_id, target_id, type, sources, created_at, kb_id) "
+            "VALUES ('rel_alice', 'ent_alice', 'ent_alice', 'relates', '[\"doc_alice\"]', ?, 21)",
             (now,),
         )
+        # Theme 21 is a shared knowledge base after version 28: each of its documents has a contribution, and its bundle has the visible content only (design Section 13.2).
+        kb_collab.add_contribution(conn, kb_id=21, document_id="doc_alice", origin="migration", state="visible", contributor_account_id=2, approved_at=now, now=now)
 
         # Seed Bob data (kb_id = 31)
         conn.execute(

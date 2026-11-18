@@ -12,6 +12,7 @@
 import type { DocumentLoader } from "@fedify/fedify";
 import { preloadedContexts, validatePublicUrl } from "jsr:@fedify/vocab-runtime@^2.4.5";
 import claireContext from "./claire_context_v1.json" with { type: "json" };
+import { PrivateAddressError } from "./pinned_fetch.ts";
 import type { InternalApi, KbRead, KnowledgeOutboxTask, RemoteRead, ServerReadResult } from "./internal_api.ts";
 
 export const CLAIRE_CONTEXT_IRI = "https://w3id.org/claire-bible/ns/v1";
@@ -275,7 +276,7 @@ export interface KnowledgeDeliveryDeps extends KnowledgeReadDeps {
   sign: (request: Request, privateKey: CryptoKey, keyId: URL) => Promise<Request>;
   // Throws for an address that is not public (publicAddressCheck). The POST of a delivery does not use the document loader, so it needs this check.
   checkAddress: (url: URL) => Promise<void>;
-  // The request function of the delivery. The default is the global fetch.
+  // The request function of the delivery. The sidecar gives pinnedFetch (pinned_fetch.ts), which connects only to an address that it checked, unless the development switch allow_private_addresses is on; without a value the global fetch is used. A PrivateAddressError of it ends the delivery as rejected (inbox_private_address).
   fetch?: typeof fetch;
 }
 
@@ -337,7 +338,9 @@ export async function deliverKnowledgeTask(deps: KnowledgeDeliveryDeps, task: Kn
     // The signal is given again: the signed request is a new Request object.
     response = await (deps.fetch ?? fetch)(await deps.sign(request, key.privateKey, key.keyId), { signal: timeout });
     await response.body?.cancel();
-  } catch {
+  } catch (error) {
+    // The address of the connection is checked again at the connection (DNS rebinding): an address that is not public now ends the delivery as the check above does.
+    if (error instanceof PrivateAddressError) return { result: "rejected", error: "inbox_private_address" };
     return { result: "retry", error: "inbox_unreachable" };
   }
   if (response.status >= 200 && response.status < 300) return { result: "delivered", error: null };

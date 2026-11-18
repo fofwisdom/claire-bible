@@ -310,11 +310,14 @@ def _sync_actor(conn: sqlite3.Connection, number: int, *, origin: str, now: floa
     obj = actors.knowledge_base_object(conn, number, origin=origin)
     assert obj is not None
     digest = actors.record_digest(obj)
-    state = conn.execute("SELECT record_digest FROM kf_kb_actor_state WHERE kb_number=?", (int(number),)).fetchone()
+    state = conn.execute("SELECT record_digest, updated_at FROM kf_kb_actor_state WHERE kb_number=?", (int(number),)).fetchone()
     if state is None or str(state[0]) != digest:
+        # ``updated`` of the record: whole seconds of the wire form, always after the time of the previous record, so that a follower can refuse an ``Update`` that is not newer than its record.
+        updated = float(int(now)) if state is None else float(max(int(now), int(float(state[1])) + 1))
         if state is not None and recipients:
+            obj["updated"] = vocabulary.iso_time(updated)
             enqueue(conn, vocabulary.build_update_knowledge_base(activity_id=f"{iris['id']}#updates/{int(now * 1000)}", knowledge_base=obj), signer=signer, recipients=recipients, origin=origin, now=now)
-        conn.execute("INSERT INTO kf_kb_actor_state (kb_number, record_digest, updated_at) VALUES (?, ?, ?) ON CONFLICT(kb_number) DO UPDATE SET record_digest=excluded.record_digest, updated_at=excluded.updated_at", (int(number), digest, now))
+        conn.execute("INSERT INTO kf_kb_actor_state (kb_number, record_digest, updated_at) VALUES (?, ?, ?) ON CONFLICT(kb_number) DO UPDATE SET record_digest=excluded.record_digest, updated_at=excluded.updated_at", (int(number), digest, updated))
     since = min(float(row["created_at"]) for row in all_followers)
     for contribution in kb_collab.changed_contributions(conn, int(kb["id"]), since=since):
         public_id = int(contribution["public_id"])

@@ -29,6 +29,7 @@ import { Accept, Activity, type Actor, Announce, Application, Article, Create, D
 import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
 // Federation of shared knowledge (units KF1 to KF3).
+import { pinnedFetch } from "./pinned_fetch.ts";
 import { ACCOUNT_SIGNER_PREFIX, KB_ACTOR_PATH, KNOWLEDGE_COLLECTION_PATHS, type KnowledgeDeliveryCounters, type KnowledgeDeliveryDeps, knowledgeDocumentOf, KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH, type KnowledgeReadCounters, processKnowledgeOutbox, processKnowledgeReads, processRemoteReads, publicAddressCheck, SERVER_SIGNER } from "./knowledge.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 // Outbound interactions (contract 1.6, unit FP4-9).
@@ -364,6 +365,8 @@ export class Sidecar {
       },
       sign: (request: Request, privateKey: CryptoKey, keyId: URL) => signRequest(request, privateKey, keyId, { currentTime: instant(this.#now()) }),
       checkAddress: publicAddressCheck(config.allow_private_addresses),
+      // The POST of a delivery connects only to the address that it checked (DNS rebinding, KNOWLEDGE_FEDERATION.md Section 14.5). The development switch permits private addresses: then the global fetch is used.
+      fetch: config.allow_private_addresses ? undefined : pinnedFetch(),
     };
   }
 

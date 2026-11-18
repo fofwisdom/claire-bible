@@ -35,6 +35,7 @@ KB_ROW = {
     "relations": 140,
     "signature": {"entities": [["person", "ada lovelace", 9], ["artifact", "analytical engine", 7], ["person", "charles babbage", 6]], "visible_documents": 12, "computed_at": T0 - 3600},
     "accepts_automatic": True,
+    "updated": T0 - 1800,
 }
 EXTRACTION_ROW = {
     "summary": "Ada Lovelace wrote notes about the Analytical Engine of Charles Babbage.",
@@ -159,6 +160,9 @@ def invalid_values() -> dict[str, dict[str, Any]]:
         "knowledge_base_accepts_automatic_not_a_boolean": ("object", "invalid_field", v.ACCEPTS_AUTOMATIC, _edit(objects["knowledge_base"], v.ACCEPTS_AUTOMATIC, "yes")),
         "offer_automatic_not_a_boolean": ("activity", "invalid_field", f"object.{v.AUTOMATIC}", _edit(automatic, f"object/{v.AUTOMATIC}", 1)),
         "delete_document_with_the_reason_of_a_reject": ("activity", "invalid_reason_code", v.REASON_CODE, _edit(activities["delete_document"], v.REASON_CODE, v.AUTOMATIC_NOT_ACCEPTED)),
+        "delete_document_with_the_reason_of_a_limit": ("activity", "invalid_reason_code", v.REASON_CODE, _edit(activities["delete_document"], v.REASON_CODE, v.LIMIT_REACHED)),
+        "update_knowledge_base_without_updated": ("activity", "missing_field", "object.updated", _edit(activities["update_knowledge_base"], "object/updated")),
+        "knowledge_base_updated_without_zone": ("object", "invalid_time", "updated", _edit(objects["knowledge_base"], "updated", "2026-11-16T12:00:00")),
     }
     return {name: {"validator": validator, "error": error, "path": path, "value": value} for name, (validator, error, path, value) in cases.items()}
 
@@ -241,7 +245,25 @@ def test_automatic_offer_and_its_refusal_between_two_servers() -> None:
     assert v.AUTOMATIC not in built_activities()["offer_contribution"]["object"]
     reject = v.build_reject_offer(activity_id=f"{KB}#rejects/offers/3", knowledge_base=KB, offer=offer["id"], offer_actor=ALICE, reason_code=v.AUTOMATIC_NOT_ACCEPTED)
     assert v.validate_activity(json.loads(json.dumps(reject))) == "reject_offer" and reject[v.REASON_CODE] == "automatic_not_accepted"
-    assert v.AUTOMATIC_NOT_ACCEPTED not in v.REASON_CODES and v.REJECT_REASON_CODES == (*v.REASON_CODES, v.AUTOMATIC_NOT_ACCEPTED)
+    assert v.AUTOMATIC_NOT_ACCEPTED not in v.REASON_CODES and v.REJECT_REASON_CODES == (*v.REASON_CODES, v.AUTOMATIC_NOT_ACCEPTED, v.LIMIT_REACHED)
+
+
+def test_reject_for_a_limit_of_the_receiver_is_valid_and_is_not_a_reason_of_the_reviewers() -> None:
+    """A ``Reject`` that a limit of the receiver gave has its own reason (``limit_reached``), so that the sender can offer the document again later; a ``Delete`` cannot have it."""
+    offer = built_activities()["offer_contribution"]
+    reject = v.build_reject_offer(activity_id=f"{KB}#rejects/offers/4", knowledge_base=KB, offer=offer["id"], offer_actor=ALICE, reason_code=v.LIMIT_REACHED)
+    assert v.validate_activity(json.loads(json.dumps(reject))) == "reject_offer" and reject[v.REASON_CODE] == "limit_reached"
+    assert v.LIMIT_REACHED not in v.REASON_CODES
+    assert "limit_reached" in v.vocabulary_page()
+
+
+def test_record_has_the_time_of_its_change_and_an_update_of_it_needs_the_time() -> None:
+    """The ``Update`` of a record has ``updated`` (the receiver refuses one that is not newer); a record that no follower got has none and is valid."""
+    update = json.loads(json.dumps(built_activities()["update_knowledge_base"]))
+    assert update["object"]["updated"] == "2026-11-16T11:30:00Z"
+    assert v.validate_activity(update) == "update_knowledge_base"
+    without = v.build_knowledge_base({**KB_ROW, "updated": None}, KB_IRIS)
+    assert "updated" not in without and v.validate_object(v.with_context(without), top_level=True) == "knowledge_base"
 
 
 def test_builder_refuses_input_without_a_necessary_key() -> None:

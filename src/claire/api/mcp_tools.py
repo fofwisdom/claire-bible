@@ -377,15 +377,15 @@ def get_mcp_tools_metadata() -> list[dict[str, Any]]:
         },
         {
             "name": "kb_candidates",
-            "description": "Documents of the personal knowledge base that fit a shared knowledge base or a theme, with scores (no LLM call)",
+            "description": "Documents of the personal knowledge base that fit a shared knowledge base, a theme, or a shared knowledge base of another server, with scores (no LLM call)",
             "read_only": True,
-            "parameters": ["kb", "theme", "include_uploads"],
+            "parameters": ["kb", "theme", "remote_knowledge_base", "include_uploads"],
         },
         {
             "name": "kb_submit",
-            "description": "Contribute documents of the personal knowledge base to themes (scope write)",
+            "description": "Contribute documents of the personal knowledge base to themes or to a shared knowledge base of another server (scope write)",
             "read_only": False,
-            "parameters": ["documents", "theme"],
+            "parameters": ["documents", "theme", "remote_knowledge_base"],
         },
     ]
 
@@ -666,23 +666,44 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         except KnowledgeBaseNotFound:
             return None
 
+    def _remote_record(conn: sqlite3.Connection, remote_id: Any) -> Any:
+        """The record of a shared knowledge base of another server by its ID on this server (``remote_id`` of the theme view and of ``GET /api/kb/remote-grants``), or None. A record of a blocked domain is None."""
+        from ..knowledge_federation import remote_kbs
+        from ..store import federation as federation_store
+
+        if isinstance(remote_id, bool) or not isinstance(remote_id, int):
+            return None
+        record = remote_kbs.get(conn, remote_id)
+        return None if record is None or federation_store.blocking_domain(conn, record.domain) is not None else record
+
     @mcp.tool()
-    async def kb_candidates(kb: str | int | None = None, theme: str | int | None = None, include_uploads: bool = False) -> dict:
-        """The documents of your personal knowledge base that fit a shared knowledge base (``kb``: its number) or the shared knowledge bases of a theme (``theme``: its number), with scores. Read only; the server makes no LLM call. Give ``kb`` or ``theme``, not the two. Use ``kb_submit`` to contribute documents."""
-        from .. import auto_contribution
+    async def kb_candidates(kb: str | int | None = None, theme: str | int | None = None, remote_knowledge_base: int | None = None, include_uploads: bool = False) -> dict:
+        """The documents of your personal knowledge base that fit a shared knowledge base (``kb``: its number), the shared knowledge bases of a theme (``theme``: its number; also the ones of other servers in the theme), or one shared knowledge base of another server (``remote_knowledge_base``: the ID of its record on this server), with scores. Read only; the server makes no LLM call. Give one of ``kb``, ``theme``, and ``remote_knowledge_base``. Use ``kb_submit`` to contribute documents.
+
+        A target of another server has ``remote`` true, ``server``, ``url`` (its page on that server), ``remote_knowledge_base``, and ``mode``: ``approved`` when you have a grant of the role collaborator of that knowledge base in its term, else ``pending`` (its reviewers decide). ``remote_state`` is ``on``, or the reason that no target of another server is in the result (``no_origin``, ``federation_off``, ``not_a_federation_actor``: your account needs a public profile and a USERNAME).
+        """
+        from .. import auto_contribution, contributions
+        from ..knowledge_federation import grants
         from ..store import themes as themes_store
 
         who = _personal_kb_of_principal()
         if who is None:
             return {"error": "account_required"}
         account_id, personal_id, _scope = who
-        if (kb is None) == (theme is None):
+        if sum(value is not None for value in (kb, theme, remote_knowledge_base)) != 1:
             return {"error": "kb_or_theme_required"}
 
         def _work() -> dict:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                if kb is not None:
+                records: list[Any] = []
+                kb_ids: list[int] = []
+                if remote_knowledge_base is not None:
+                    record = _remote_record(conn, remote_knowledge_base)
+                    if record is None:
+                        return {"error": "knowledge_base_not_found"}
+                    records = [record]
+                elif kb is not None:
                     try:
                         target = theme_mgr.get_kb_by_reference(kb)
                     except KnowledgeBaseNotFound:
@@ -698,6 +719,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                     if row is None or row["state"] != "active":
                         return {"error": "theme_not_found"}
                     kb_ids = [int(m["kb_id"]) for m in themes_store.theme_members(conn, int(row["id"]))]
+                    records = [r for r in (_remote_record(conn, int(m["remote_kb_id"])) for m in themes_store.remote_members(conn, theme_id=int(row["id"]))) if r is not None]
                 targets = []
                 document_keys = auto_contribution.personal_document_keys(conn, personal_id)  # one read of the personal knowledge base for all targets
                 for kb_id in kb_ids:
@@ -708,18 +730,30 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                     if not info.is_shared or info.state != "active":
                         continue
                     found = auto_contribution.candidates(conn, account_id=account_id, personal_kb_id=personal_id, kb_id=kb_id, include_uploads=bool(include_uploads), document_keys=document_keys)
-                    targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "documents": found})
-                return {"targets": targets}
+                    targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "remote": False, "documents": found})
+                # Federation design Section 12.3 rule 2 and shared knowledge base design Section 9.9 rule 7: the candidates of a shared knowledge base of another server use its signature. An offer goes out only with the canonical origin of this server and an account that is a federation actor.
+                remote_state = auto_contribution.remote_state(conn, account_id, contributions.canonical_origin(s)) if records else None
+                if remote_state == "on":
+                    now = time.time()
+                    for record in records:
+                        found = auto_contribution.remote_candidates(conn, account_id=account_id, personal_kb_id=personal_id, record=record, include_uploads=bool(include_uploads), document_keys=document_keys)
+                        mode = "approved" if grants.capability_for(conn, account_id=account_id, kb_iri=record.iri, now=now) is not None else "pending"
+                        targets.append({"kb": None, "label": record.label, "remote": True, "remote_knowledge_base": record.id, "server": record.domain, "url": record.url, "mode": mode, "documents": found})
+                result: dict[str, Any] = {"targets": targets}
+                if remote_state is not None:
+                    result["remote_state"] = remote_state
+                return result
             finally:
                 conn.close()
 
         return _timed_call("kb_candidates", _work)
 
     @mcp.tool()
-    async def kb_submit(documents: list[str], theme: str | int | None = None) -> dict:
-        """Contribute documents of your personal knowledge base to themes (the same as ``POST /submissions``). With ``theme`` (its number) you select the theme; without it the server uses the theme match of each document. A credential with the scope ``readonly`` cannot use this tool. The result gives the state of each target; a contribution of an account that is not a reviewer of the target waits for approval."""
+    async def kb_submit(documents: list[str], theme: str | int | None = None, remote_knowledge_base: int | None = None) -> dict:
+        """Contribute documents of your personal knowledge base to themes (the same as ``POST /submissions``). With ``theme`` (its number) you select the theme; without it the server uses the theme match of each document. A theme with shared knowledge bases of other servers sends an offer to each of them. With ``remote_knowledge_base`` (the ID of the record of a shared knowledge base of another server; not with ``theme``) the documents go only to that knowledge base: this needs a grant of the role collaborator of it in its term (``grant_required``). A credential with the scope ``readonly`` cannot use this tool. The result gives the state of each target; a contribution of an account that is not a reviewer of the target waits for approval. A target of another server has ``remote`` true and ``server``; its state is the decision of that server (``pending`` until it answers)."""
         from .. import contributions
         from ..ingest.service import run_waiting_merge_jobs
+        from ..knowledge_federation import offers as kf_offers
         from ..store import kb_collab
         from ..store import themes as themes_store
 
@@ -731,6 +765,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             return {"error": "scope_insufficient"}
         if not isinstance(documents, list) or not all(isinstance(d, str) and d.strip() for d in documents):
             return {"error": "documents_invalid"}
+        if remote_knowledge_base is not None and (isinstance(remote_knowledge_base, bool) or not isinstance(remote_knowledge_base, int) or theme is not None):
+            return {"error": "remote_knowledge_base_invalid"}
+        # The offers to other servers have IRIs of this server: only the configured public origin gives them (no fallback).
+        origin = contributions.canonical_origin(s)
+        if remote_knowledge_base is not None and origin is None:
+            return {"error": "public_origin_missing"}
 
         def _work() -> dict:
             conn = dbm.connect_existing(s.db_file)
@@ -746,7 +786,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                     theme_id = int(row["id"])
                 is_admin = conn.execute("SELECT role FROM accounts WHERE id=?", (account_id,)).fetchone()[0] == "admin"
                 try:
-                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=is_admin, personal_kb_id=personal_id, documents=[d.strip() for d in documents], theme_id=theme_id, origin=contributions.canonical_origin(s))
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=is_admin, personal_kb_id=personal_id, documents=[d.strip() for d in documents], theme_id=theme_id, origin=origin, remote_kb_id=remote_knowledge_base)
                 except contributions.ContributionError as exc:
                     conn.rollback()
                     return {"error": exc.code, **exc.extra}
@@ -765,8 +805,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                         info = theme_mgr.get_kb(kb_id)
                         state = made[kb_id]["state"] if kb_id in made else "skipped"
                         targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "state": state, **({"reason": reasons[kb_id]} if kb_id in reasons else {})})
+                    # The shared knowledge bases of other servers that got an offer, or that were skipped with a reason (federation design Section 12.1), as in ``GET /submissions/{number}``.
+                    for offer in kf_offers.outbound_of_item(conn, int(item["id"])):
+                        view = kf_offers.outbound_view(conn, offer)
+                        targets.append({"kb": None, "label": view["label"], "remote": True, "remote_knowledge_base": view["remote_id"], "server": view["server"], "url": view["url"], "state": view["state"], **({"reason": view["reason"]} if view["reason"] else {})})
                     entry = {"document": item["source_document_id"], "routed_by": item["routed_by"], "score": item["match_score"], "targets": targets}
-                    if item["theme_id"] is None:
+                    if item["theme_id"] is None and not any(target.get("remote") for target in targets):
                         entry["code"] = "no_theme"
                     items.append(entry)
                 return {"submission": ids.format_public_id(number), "items": items}

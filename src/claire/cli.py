@@ -1697,6 +1697,7 @@ def _theme_services_for_cycle(
             str(getattr(theme_settings, "db_file", "")),
             str(getattr(theme_settings, "data_dir", getattr(theme_settings, "vault_dir", ""))),
             _context_fingerprint(provider_context, provider_error),
+            _limits_fingerprint(theme_settings),
         )
         cached = state.services.get(theme.id)
         if cached is None or cached[0] != fingerprint:
@@ -1720,6 +1721,21 @@ def _theme_services_for_cycle(
     rotated = ordered[start:] + ordered[:start]
     state.next_kb_id = ids[(start + 1) % len(ids)]
     return rotated
+
+
+def _with_current_limits(settings: Any) -> Any:
+    """Return the settings with the values of data/ingest_limits.json as they are now. A loop daemon calls this at each cycle, so a change in the WebUI applies without a restart of the daemon."""
+    from .ingest_limit_manager import get_ingest_limit_manager
+
+    limits = get_ingest_limit_manager(settings.data_dir).get_settings_dict()
+    return settings.model_copy(update=limits)
+
+
+def _limits_fingerprint(theme_settings: Any) -> tuple:
+    """The limit values of the theme settings. When one changes, the loop makes the theme service again."""
+    from .ingest_limit_manager import DEFAULT_INGEST_LIMITS_CONFIG
+
+    return tuple((k, getattr(theme_settings, k, None)) for k in DEFAULT_INGEST_LIMITS_CONFIG["limits"])
 
 
 def _loop_error_text(exc: BaseException) -> str:
@@ -1800,6 +1816,7 @@ def cmd_recover_loop(args) -> int:
           f"max_attempts={args.max_attempts}). Ctrl+C stops it.", flush=True)
     while True:
         try:
+            s = _with_current_limits(s)
             cycle = _run_recover_cycle(s, args, state, IngestService)
             results = cycle["results"]
             if results:
@@ -1885,6 +1902,7 @@ def cmd_refresh_loop(args) -> int:
     print(f"claire refresh-loop starts (interval={args.interval}s, batch={args.batch}). Ctrl+C stops it.", flush=True)
     while True:
         try:
+            s = _with_current_limits(s)
             cycle = _run_refresh_cycle(s, args, state, IngestService)
             due = cycle["enqueued"]
             if due:
@@ -2040,6 +2058,7 @@ def cmd_expand_loop(args) -> int:
           "Ctrl+C stops it.", flush=True)
     while True:
         try:
+            s = _with_current_limits(s)
             cycle = _run_expand_cycle(s, args, state, IngestService)
             results = cycle["results"]
             if results:
@@ -5236,6 +5255,8 @@ def cmd_export_graph(args: Any) -> int:
     print(f"• Entities        : {info.entities_count}")
     print(f"• Relations       : {info.relations_count}")
     print(f"• Documents       : {info.documents_count}")
+    if info.shared:
+        print(f"• Contributions   : {info.contributions_count} (shared knowledge base: visible content only)")
     if info.review:
         print(
             f"• Review Evidence : decisions={info.review.get('decisions', 0)} "

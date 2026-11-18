@@ -186,8 +186,9 @@ def test_undo_removes_the_follower_and_a_personal_knowledge_base_is_no_actor(tmp
 
 
 def _record_of_b(a) -> int:
-    """A knows the shared knowledge base of B (the read of unit KF2). Return the ID of the record."""
+    """A knows the shared knowledge base of B (the read of unit KF2), as it was one hour before the ``Update`` of the fixture. Return the ID of the record."""
     kb = {key: value for key, value in fixture("objects", "knowledge_base").items() if key != "@context"}
+    kb["updated"] = "2026-11-16T10:30:00Z"
 
     def _store(conn: sqlite3.Connection) -> int:
         known_servers.note_server(conn, "b.example", source="admin", added_by=1, now=a.now)
@@ -234,6 +235,13 @@ def test_this_server_follows_a_theme_member_and_takes_changes_only_from_an_actor
 
     # Now the record follows the ``Update`` of its actor.
     assert a.deliver(fixture("activities", "update_knowledge_base"), signer=KB_IRI, recipient=None).json()["decision"] == "processed"
+    assert a.db(lambda conn: remote_kbs.get(conn, remote_id).label) == "Ada Lovelace and the Analytical Engine"
+    # An older ``Update`` that comes late does not set the older label (KNOWLEDGE_FEDERATION.md Section 14.2).
+    late = fixture("activities", "update_knowledge_base")
+    late["id"] += "/late"
+    late["object"].update({"name": "Old label", "updated": "2026-11-16T11:00:00Z"})
+    answer = a.deliver(late, signer=KB_IRI, recipient=None).json()
+    assert (answer["decision"], answer["reason"]) == ("refused", "stale_update")
     assert a.db(lambda conn: remote_kbs.get(conn, remote_id).label) == "Ada Lovelace and the Analytical Engine"
     # The knowledge base leaves the theme: the follow ends with an ``Undo`` of that ``Follow``.
     a.db(lambda conn: themes_store.set_admin_remote_member(conn, theme_id=theme_id, remote_kb_id=remote_id, pinned=False, excluded=False))

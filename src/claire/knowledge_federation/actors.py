@@ -60,6 +60,8 @@ __all__ = [
     "local_number",
     "outbox_collection",
     "record_digest",
+    "record_updated_at",
+    "record_updated_times",
     "remove_follower",
     "shared_kb",
 ]
@@ -203,7 +205,18 @@ def _object(conn: sqlite3.Connection, row: sqlite3.Row, origin: str) -> dict[str
     from ..store import themes as themes_store
 
     signatures = {int(sig["kb_id"]): sig for sig in themes_store.load_signatures(conn) if int(sig["kb_id"]) == int(row["id"])}
-    return collections.knowledge_base_object(conn, row, origin=origin, signatures=signatures)
+    return collections.knowledge_base_object(conn, row, origin=origin, signatures=signatures, updated=record_updated_at(conn, int(row["number"])))
+
+
+def record_updated_at(conn: sqlite3.Connection, number: int) -> float | None:
+    """The time of the record that the followers of the knowledge base actor have (``kf_kb_actor_state.updated_at``): ``updated`` of the ``claire:KnowledgeBase``. None when no follower got the record."""
+    row = conn.execute("SELECT updated_at FROM kf_kb_actor_state WHERE kb_number=?", (int(number),)).fetchone()
+    return None if row is None else float(row[0])
+
+
+def record_updated_times(conn: sqlite3.Connection) -> dict[int, float]:
+    """``record_updated_at`` of each knowledge base actor that has a state, by its number."""
+    return {int(row[0]): float(row[1]) for row in conn.execute("SELECT kb_number, updated_at FROM kf_kb_actor_state").fetchall()}
 
 
 def knowledge_base_object(conn: sqlite3.Connection, number: int, *, origin: str) -> dict[str, Any] | None:

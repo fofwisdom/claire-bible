@@ -424,7 +424,7 @@ The sidecar reads the root, then each page (`first`, then `next`): at most 60 pa
 - `GET /explore/federation` (public, network mode only) gives the data of the root page about other servers: `themes` (with the two counts), `servers` (the known servers that have records, with the domain, the software, and the count), and `recent` (the 20 newest records, `kind` `remote_knowledge_base`). A Claire server has no name setting; the domain is its name.
 - The root page (`explore_accounts_route`) has the themes first, each with the two counts and with the remote members (the origin link and the domain), then the element `#public-home-federation` that `public_kb.js` fills with the sections "Federated servers" and "Recent activity across servers".
 - `GET /api/kb/similar` gives the shared knowledge bases of this server and of other servers near the label and the seed entities that the account typed (`theme_judgement.subject_score`: the part of the terms that are a name in the signature or the label of the candidate, or the Jaccard of the words of the two labels). The dialog of `kb_dialogs.js` shows them before the account makes a new one.
-- Not implemented: the other kinds of recent activity of design Section 8.3 rule 3 (contributions that other servers approved, curations), because they come with the units KF3 and KF4.
+- The other kinds of recent activity of design Section 8.3 rule 3 (contributions that other servers approved, curations) are in Section 16.1.
 
 ### 11.7 Choices Made in the Code
 
@@ -567,7 +567,7 @@ Under `/internal/federation/v1`. Contract version 1.10.
 - `GET /kb/{number}/remote-sources` and the remote source of `POST /kb/{number}/curations`: [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) and the OpenAPI document. `ROUTE_POLICY`: `_namespaced("owner", "curate")`.
 - A contribution has `remote` and (full view) `origin_removed` in each route that gives a contribution.
 - `console_kb.js`, tab "Curation": the list of sources has the remote knowledge bases with their server and the follow state; the documents of a remote source come from `?source=`; the requests to copy are in a table. Tab "Review queue": a copy whose origin removed the document is in the list with the tag "Removed at the origin" and the decisions "Show again" and "Remove…" (a moderator or the admin).
-- Not implemented: the follow state on the public theme page (`public_kb.js`); the kinds "curation" of the recent activity on the root page (design Section 8.3 rule 3).
+- The follow state on the public theme page and the kind "curation" of the recent activity on the root page are in Section 16.
 
 ### 12.7 Sidecar
 
@@ -753,7 +753,7 @@ WebUI:
 2. The `id` of the document in an `Offer` is `{account actor}/documents/{document ID}`. It is an identifier only: no route serves it, because a personal knowledge base has no address for other servers (KD3, KS5). The same document gives the same IRI, so the receiver finds a second offer of it. The copy on the receiver has this IRI as `origin` and `claire:root`.
 3. A remote target is a theme member of the theme of the item (the same rule as a local target), or the direct choice with a grant. A direct choice without a grant is refused (403 `grant_required`): only a collaborator has `contribute_direct` without a membership, and a remote account cannot be a member (design Section 12.2 rule 4).
 4. The pending limit of the sender (shared knowledge base design Section 9.2 rule 5) counts the offers to the knowledge base that wait for an answer; an offer with a grant does not check it.
-5. A decision about an offer that needs no reviewer (an archived knowledge base, a duplicate, a tombstone, a pending limit) gets a `Reject` at once, so that the submission page of the sender shows it. The wire has only the reason codes of the vocabulary: a limit and an archived knowledge base are `other`; the local code is in `detail`. A problem of the activity itself (not the own document, a size limit, the daily limit, an unknown knowledge base) is a refusal of the journal without an answer.
+5. A decision about an offer that needs no reviewer (an archived knowledge base, a duplicate, a tombstone, a pending limit) gets a `Reject` at once, so that the submission page of the sender shows it. The wire has only the reason codes of the vocabulary: an archived knowledge base is `other`, and a pending limit is `limit_reached` (Section 16.4; before, `other`); the local code is in `detail`. A problem of the activity itself (not the own document, a size limit, the daily limit, an unknown knowledge base) is a refusal of the journal without an answer.
 6. An approval by a grant has `approved_at` and no `approved_by_account_id`; it is no decision for the reputation (no reviewer decided).
 7. The answer is not sent by the review route: `offers.sync` compares the rows with the contributions when the sidecar takes tasks, as `outbox.sync` does for the other activities of a knowledge base actor.
 8. There is no automatic check of the knowledge type: the reviewers decide with the reason code `wrong_knowledge_type` (shared knowledge base design Section 9.3 rule 4).
@@ -819,7 +819,7 @@ Copies, revisions, and entities:
 - The credit (`attributedTo`) and the root (`claire:root`) of a curation are kept only when they are on the origin of the knowledge base actor of the source; else the copy has no credit, and its root is the document itself. The credit and the root of an offer are those of the account actor (Section 13.4).
 - The limits of one document (Section 12.4) also have limits for each field: `url` 2048 characters (`document_too_large`); summary 10000 characters, at most 200 key claims of 2000 characters, a name, a normal name, an alias, a relation end 300 characters, a type 100 characters, at most 50 aliases and 50 observations of 2000 characters for each entity (`extraction_too_large`).
 - A revision (`update_document`, and a read again of Section 14.3): refused `invalid_time` when its time (`updated`, else `published`) is more than one day after now; then the limits of Section 14.1. Each copy keeps its first `canonical_url`, credit, and root. The time of the version of the origin is stored for each copy (`kb_contributions.remote_updated_at`): a copy with a later time keeps its version, and the handler refuses an `Update` that changes no copy for that reason (`stale_revision`). The wire time has whole seconds, so a version of the same second is applied, and the content hash decides if it is new. A new version that has the address or the content hash of another document of the knowledge base, or a tombstone, closes the revision of that copy (no new copy).
-- The journal forgets a processed row after 30 days, so the same activity can come again. A revision cannot apply an old state again (`remote_updated_at`). The other kinds: a `Delete` of a document changes nothing at a copy with a mark of the origin; an answer to an offer changes only a `pending` offer; a `Revoke` and an `Undo` change nothing a second time; a `Follow` makes a follower again (a server can follow again); an `Update` of a record can set an older label until the read of the next day. A third server cannot send an old activity again: the sidecar verifies the time of the HTTP signature (one hour, the default of Fedify).
+- The journal forgets a processed row after 30 days, so the same activity can come again. A revision cannot apply an old state again (`remote_updated_at`). The other kinds: a `Delete` of a document changes nothing at a copy with a mark of the origin; an answer to an offer changes only a `pending` offer; a `Revoke` and an `Undo` change nothing a second time; a `Follow` makes a follower again (a server can follow again); an `Update` of a record that is not newer than the stored record is refused (`stale_update`, Section 16.3). A third server cannot send an old activity again: the sidecar verifies the time of the HTTP signature (one hour, the default of Fedify).
 - Authority identifiers (design Section 10.4 rule 2, KS4): only `wd:Q…` (Wikidata), `isbn:` with 10 or 13 digits, and `orcid:` with the form of ORCID, at most 10 for each entity, are stored. An identifier makes a match only with an entity of the same type whose name or alias agrees with the name or an alias of the received entity. An entity gets the identifiers only when it matched by them or is new, not after a match by the name alone. No identifier goes to another server.
 - The merge jobs of `POST /knowledge-activities` and `POST /knowledge-remote-reads` run after the answer to the sidecar (a background task of the request).
 
@@ -858,7 +858,7 @@ The server becomes known again at its next contact. The tab "Known servers" of `
 
 - Each request to another server of the knowledge federation has a timeout of 15 seconds (`REQUEST_TIMEOUT_MS`: the GET requests of the document loader get a signal, and the POST of a delivery gets one too).
 - Each task has a time limit of 60 seconds (`TASK_SECONDS`, `withDeadline`): the read of one server (NodeInfo and the server actor; result `read_timeout`), one delivery (result `retry` with `delivery_timeout`), one read for a curation (`read_timeout`). The read of a `/kb` collection has its limit of 240 seconds also for a request that waits (`read_timeout`). One other server cannot hold the loop of `main.ts`.
-- The POST of a delivery is refused for an inbox at an address that is not public (`rejected` with `inbox_private_address`; `validatePublicUrl` of `@fedify/vocab-runtime`, not while the development switch `allow_private_addresses` is on). The document loader has this check for each GET. The check does not pin the address of the connection.
+- The POST of a delivery is refused for an inbox at an address that is not public (`rejected` with `inbox_private_address`; `validatePublicUrl` of `@fedify/vocab-runtime`, not while the development switch `allow_private_addresses` is on). The document loader has this check for each GET. The POST pins the address that it checked (Section 16.5).
 - The read of a `/kb` collection needs the scheme of this server (`collection_invalid`), as a read for a curation does.
 - A 404 or 410 of the origin in a read for a curation gives `origin_removed` (Section 14.3).
 - `deno.json` and `deno.lock` did not change.
@@ -892,6 +892,7 @@ The context `v1` was not served yet, so the new terms are in `v1` (design Sectio
 | `claire:automatic` | `claire:Contribution` | Optional boolean. `true`: the automatic rule of the account selected the document. |
 | `claire:acceptsAutomatic` | `claire:KnowledgeBase` (the `/kb` collection, the actor document, `Update` of the record) | Optional boolean. The state of `access.auto_contribution_accepted` of the server now. |
 | `automatic_not_accepted` | `claire:reasonCode` of a `Reject` only | The server accepts no automatic contributions now. It is not a reason code of the reviewers (`vocabulary.REASON_CODES` stays the list of `contributions.REASON_CODES`); a `Delete` with it is `invalid_reason_code`. |
+| `limit_reached` | `claire:reasonCode` of a `Reject` only | Added after unit KF5 (Section 16.4): a pending limit of the receiver. The same rules as `automatic_not_accepted`. |
 
 The fixtures of `objects/`, `activities/`, `invalid/`, and `internal/` were written again; `invalid/` has three new files (`knowledge_base_accepts_automatic_not_a_boolean`, `offer_automatic_not_a_boolean`, `delete_document_with_the_reason_of_a_reject`).
 
@@ -944,10 +945,10 @@ The sidecar needs no change: an automatic `Offer` is an `Offer` of the account a
 4. Remote targets of `memberships`: a remote account is never a member (design Section 12.2 rule 4); a grant in its term is its role collaborator, and the shared knowledge base design Section 9.9 rule 1 counts a collaborator in `memberships`.
 5. `mutual` has no remote target. Design Section 12.2 rule 6 says that a mutual collaboration between accounts of different servers uses the same grants; the request and the acceptance of such a collaboration between two servers have no activity in design Section 9.3. Thus the effect that exists across servers is the grant (`memberships`).
 6. A remote target has no withdrawal (the vocabulary has no `Undo` of an `Offer`, Section 13.8 item 9). The account can pause the rule and set "never contribute" (shared knowledge base design Section 9.9 rule 6).
-7. The duplicate and tombstone checks of a remote target are on the receiver (`Reject` with `duplicate`); the sender does not have the documents of the other server. A rejected offer (any reason but `automatic_not_accepted`) keeps the document from that knowledge base (design Section 9.9 rule 2). A `Reject` at once for a pending limit of the receiver has the reason `other` (Section 13.8 item 5), so it also keeps the document out.
+7. The duplicate and tombstone checks of a remote target are on the receiver (`Reject` with `duplicate`); the sender does not have the documents of the other server. A rejected offer (any reason but `automatic_not_accepted`) keeps the document from that knowledge base (design Section 9.9 rule 2). A `Reject` at once for a pending limit of the receiver has the reason `limit_reached` (Section 16.4): as `automatic_not_accepted`, it does not keep the document out.
 8. The candidates of a remote target have no seed entities: the record has none. A remote knowledge base without a signature has a score only through a local theme.
 9. A grant that comes (`Grant`) starts no run; the next event of the local rule (a new document, a judgement run) sends the documents.
-10. The MCP tool `kb_candidates` gives local knowledge bases only.
+10. The MCP tools `kb_candidates` and `kb_submit` have the targets of other servers (Section 16.2).
 
 ### 15.8 Tests
 
@@ -958,3 +959,41 @@ The sidecar needs no change: an automatic `Offer` is an `Offer` of the account a
 | `tests/test_knowledge_federation_vocabulary.py` | The new terms in the context and the page, the fixtures, an automatic offer and its `Reject`. |
 
 Not verified: an exchange between two real sidecars over a network; the new WebUI parts with a remote target in a browser (the Playwright specs cover the pages without a remote target).
+
+## 16. Remaining Items After Unit KF5
+
+Design: Sections 8.3 rule 3, 9.2 rule 2, 9.3, 12.3, and 14; [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) Section 9.9 rule 7. No new route and no schema version. Tests: `tests/test_knowledge_federation_remaining.py`, `sidecar/fedify/tests/pinned_fetch_test.ts`.
+
+### 16.1 Recent Activity of the Root Page (design Section 8.3 rule 3)
+
+`knowledge_federation/recent.py` (`recent_activity`) makes `recent` of `GET /explore/federation` from three stores, the newest first, at most 20 items:
+
+| `kind` | Source | Keys |
+| :--- | :--- | :--- |
+| `remote_knowledge_base` | `remote_kbs.list_all` (`first_seen_at`) | `label`, `url`, `knowledge_type` |
+| `accepted_contribution` | `offers.recent_accepted`: the rows `accepted` of `kf_outbound_offers`, one for each pair of account and knowledge base (the newest `decided_at`) | `label`, `url` (the record; null without one), `account` |
+| `curation` | `kb_collab.recent_remote_curations`: the `visible` copies with the origin `curation` and a remote source whose origin did not remove them, one for each pair of knowledge base and source (the newest approval) | `label`, `url` (the source), `knowledge_base` (`number`, `label`, `url` of the shared knowledge base of this server) |
+
+Privacy: `account` is `{"username", "display_name"}` only for an account that is `active` with a public profile and a USERNAME now, else null; no item has a document or a title (a document of an offer is in a personal knowledge base, KD3, KS5); a domain that a block applies to is not in the list. `public_kb.js` (`recentItemHtml`) shows each kind with the catalog keys `kb.pub.recent_accepted`, `kb.pub.recent_by`, `kb.pub.recent_curation`.
+
+### 16.2 Follow State on the Public Theme Page and MCP Targets of Other Servers
+
+- `GET /themes/{number}/` (`theme_page_route`): `follows` true for the admin and for a reviewer (capability `review`) of a shared knowledge base of this server in the theme; then each remote member has `follow` (`outbox.follow_states`: `pending`, `accepted`, or null) and the answer has `Cache-Control: private, no-store`. Each other reader, also an anonymous one, gets `follows` false: the design gives the follow state to no public page (Section 9.2 rule 2 tells why a server follows, not who sees it). `renderThemeDetail` shows the column "Followed by this server" (`kb.pub.col_follow`, `kb.pub.follow.*`) only with `follows`.
+- MCP (`api/mcp_tools.py`): `kb_candidates` takes `theme` (also the remote members of the theme), `kb`, or `remote_knowledge_base` (the record ID). A remote target has `remote` true, `remote_knowledge_base`, `server`, `url`, `mode` (`approved` with a grant in its term, else `pending`; a manual offer is not automatic, so `closed` does not apply) and the documents of `auto_contribution.remote_candidates`. `remote_state` (`auto_contribution.remote_state`) tells why no remote target is in the result. `kb_submit` takes `remote_knowledge_base` (not with `theme`) and calls `contributions.submit_to_themes` as `POST /submissions` does (`grant_required` without a grant); the remote targets of the result come from `offers.outbound_view`. Reading: shared knowledge base design Section 9.9 rule 7 gives the account's agent the candidates "for a knowledge base or a theme", and federation design Section 12.3 rule 2 lets the rule have remote targets; thus the agent sees them.
+
+### 16.3 Time of a Record (`updated`)
+
+- The `claire:KnowledgeBase` of this server has `updated` (whole seconds) when a follower got the record: the time of `kf_kb_actor_state` (`actors.record_updated_at`). `outbox.sync` makes each new time at least one second after the time before, and the `Update` of a record has it. The validator needs `updated` in the object of an `Update` of a record (`missing_field`); in another record it is optional.
+- The receiver keeps `updated` in the payload of the record (`remote_kbs.RECORD_KEYS`; no new column). `apply_update` refuses an `Update` whose `updated` is not after the stored one (`stale_update`). A read whose item is older than the stored record keeps the record and marks it seen; another read stores the item. A change of `updated` alone does not change `changed_at`.
+
+### 16.4 Reason `limit_reached`
+
+The pending limits of the receiver for a remote account and for its domain (Section 13.4) give a `Reject` at once with `limit_reached` (`vocabulary.LIMIT_REACHED`, in `REJECT_REASON_CODES`; `detail` keeps `pending_limit` or `domain_pending_limit`). The sender has it in `offers.RETRY_REASONS`: the automatic rule can offer the document again later; the submission page shows `kb.reason.limit_reached`. A `Delete` with it is `invalid_reason_code`. The context `v1` did not change (a reason is a value, not a term); the vocabulary page has the value. The daily limit of a domain stays a refusal of the journal without an answer (KS2: an answer to each offer of a flood is more work for this server). An archived knowledge base stays `other`.
+
+### 16.5 Pinned Address of a Delivery (sidecar)
+
+`sidecar/fedify/src/pinned_fetch.ts` (`pinnedFetch`) is the request function of a delivery while `allow_private_addresses` is off. It resolves the name one time (`node:dns` lookup, all addresses), refuses the request when one address is not public (`isValidPublicIPv4Address`, `isValidPublicIPv6Address` of `@fedify/vocab-runtime`; result `rejected` with `inbox_private_address`), connects to the first address (`Deno.connect`), starts TLS with the name of the URL (`Deno.startTls`: SNI and the check of the certificate use the name), and sends one HTTP/1.1 request with the signed headers, the `Host` of the URL, and `Connection: close`. It reads only the status line (a 1xx answer is skipped). Why not `fetch`: Fedify 2.4.5 pins on Node.js and Bun only, and `Deno.createHttpClient` can send to a fixed TCP address only without TLS. Without the permission `net` for each host (the tests) the global `fetch` sends the request, as `openPublicFetch` of Fedify does; the image has `--allow-net` without a list ([`FEDERATION.md`](FEDERATION.md) Section 9.3). `deno.json` and `deno.lock` did not change.
+
+### 16.6 Public Origin of the IRIs That Leave the Server
+
+`_public_origin` of `api/namespace.py` falls back to the address of the request; the page links keep it. The routes that build IRIs for other servers use `_federation_origin` (`contributions.canonical_origin`: the configured public URL only): `POST`, `DELETE /kb/{number}/remote-collaborators` and `POST /submissions` with `remote_knowledge_base` give 409 `public_origin_missing` without it; a submission to a theme then has the targets of this server only (`submit_to_themes` with `origin` None). The internal routes of the sidecar, the automatic rule, and the MCP tools use the same value. `create_app` stops when the settings give no valid public URL (`WebRuntimeConfig.from_settings`), so a running server always has it; readiness check GF5 fails for the same settings, and GF7 needs the public origin.

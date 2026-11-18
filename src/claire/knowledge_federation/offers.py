@@ -55,6 +55,7 @@ __all__ = [
     "pending_contributions_of_domain",
     "pending_outbound",
     "purge_account",
+    "recent_accepted",
     "record_decision",
     "record_inbound",
     "result_removed",
@@ -71,8 +72,8 @@ INBOUND_STATES: tuple[str, ...] = ("pending", "accepted", "rejected", "closed")
 INBOUND_RETENTION_SECONDS = 30 * 86400.0
 # The reasons that a remote target gets no offer.
 SKIP_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "document_not_extracted", "document_too_large", "title_too_long", "extraction_too_large", "contribution_duplicate", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
-# The reasons of a skipped target that can change before the next run of the automatic rule: such a row does not keep the document from that knowledge base. A ``Reject`` with ``vocabulary.AUTOMATIC_NOT_ACCEPTED`` is the same: the other server can accept automatic contributions later.
-RETRY_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
+# The reasons of a skipped target that can change before the next run of the automatic rule: such a row does not keep the document from that knowledge base. A ``Reject`` with ``vocabulary.AUTOMATIC_NOT_ACCEPTED`` or ``vocabulary.LIMIT_REACHED`` is the same: the other server can accept automatic contributions later, and its pending limits can have room later.
+RETRY_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED, vocabulary.LIMIT_REACHED)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kf_outbound_offers (
@@ -248,6 +249,16 @@ def automatic_offered(conn: sqlite3.Connection, *, account_id: int, kb_iri: str)
         f"SELECT DISTINCT source_document_id FROM kf_outbound_offers WHERE account_id=? AND kb_iri=? AND NOT (state IN ('skipped', 'rejected') AND COALESCE(reason_code, '') IN ({marks}))",
         (int(account_id), kb_iri, *RETRY_REASONS),
     ).fetchall()}
+
+
+def recent_accepted(conn: sqlite3.Connection, *, limit: int) -> list[dict[str, Any]]:
+    """The newest decisions of other servers that approved offers of accounts of this server, for the recent activity of the root page (design Section 8.3 rule 3): one row for each pair of account and knowledge base, with the time of the newest approval, the newest first. A row has ``account_id`` (None after a purge with records kept), ``kb_iri``, ``domain``, and ``at``. A domain that a block applies to now is not in the result."""
+    rows = conn.execute(
+        "SELECT account_id, kb_iri, domain, MAX(decided_at) AS at FROM kf_outbound_offers WHERE state='accepted' AND decided_at IS NOT NULL GROUP BY account_id, kb_iri ORDER BY at DESC, kb_iri LIMIT ?",
+        (int(limit) * 2,),
+    ).fetchall()
+    out = [{"account_id": None if row[0] is None else int(row[0]), "kb_iri": str(row[1]), "domain": str(row[2]), "at": float(row[3])} for row in rows]
+    return [row for row in out if federation_store.blocking_domain(conn, row["domain"]) is None][: int(limit)]
 
 
 def outbound_view(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:

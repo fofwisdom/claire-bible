@@ -207,7 +207,7 @@ def _meta(conn: sqlite3.Connection, key: str) -> Any:
 
 def test_manifest_v2_and_checksum_cover_review_tables(exported: dict[str, Any]) -> None:
     manifest = exported["manifest"]
-    assert manifest["bundle_version"] == 3
+    assert manifest["bundle_version"] == 4
     review = manifest["review"]
     assert review["schema_version"] == 2
     assert review["shadow_decisions"] == 1
@@ -353,7 +353,7 @@ def test_no_secrets_or_raw_text_in_bundle(exported: dict[str, Any]) -> None:
 def test_import_skips_review_tables(exported: dict[str, Any]) -> None:
     target = exported["tmp"] / "target.db"
     result = import_graph_bundle(target, exported["info"].filepath)
-    assert result["bundle_version"] == 3
+    assert result["bundle_version"] == 4
     assert result["review_tables"]["review_decisions"] == 2
     assert result["entities_count"] == 6
     conn = sqlite3.connect(str(target))

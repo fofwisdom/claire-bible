@@ -462,7 +462,7 @@
   - `account_telegram_bots`: one row for each account (`account_id` primary key). `bot_id` is `UNIQUE`, thus two accounts cannot register the same bot. The token is encrypted with AES-256-GCM. The AAD is `telegram|account_id|key_id`, thus a ciphertext moved to another row does not decrypt. `status` is `pending`, `running`, `error`, or `disabled`, and `last_error` holds the last runner error.
   - `account_backup_policies`: `schedule` (`off`, `daily`, `weekly`, default `off`), `keep` (1 to 10, default 3), and the result of the last scheduled run (`last_run_at`, `last_status`, `last_error`).
 - **[코드]** `data/telemetry.db` `support_bundles` has the column `account_id` (`_migrate_support_bundles_account_id` in `src/claire/store/telemetry.py`). NULL is a server bundle of the administrator.
-- **[코드]** The graph bundle registry records `account_id`, the owner of the theme (`src/claire/graph_bundle.py`).
+- **[코드]** The graph bundle registry records `account_id`, the owner of the theme (`src/claire/graph_bundle.py`). For a shared knowledge base it records the moderator or the admin that made the bundle ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) Section 6.3).
 - **[코드]** Account backups are files in `data/account_backups/<account_id>/` (`<backup_id>.tar.zst` and a JSON record). The server backup (`./cb-manuscript backup`) includes this directory in the `data` component ([OPERATIONS.md](OPERATIONS.md)).
 
 ### 14.3 Telegram bot

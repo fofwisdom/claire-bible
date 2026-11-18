@@ -3,6 +3,7 @@
 This module exports graph topology snapshots without vector embeddings or secret credentials.
 Each bundle contains manifest.json and clean graph_export.db with entities, relations, and sanitized document metadata.
 Format v2 adds review_* tables with the resolution pipeline's decision evidence (graph_bundle_review); importers skip them.
+Format v4 adds the table ``contributions``. The bundle of a shared knowledge base has only its visible content (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2): see ``_shared_kb_scope``.
 Active bundles expire after 24 hours (GRAPH_BUNDLE_TTL_SECONDS).
 """
 
@@ -28,13 +29,16 @@ import zstandard as zstd
 
 from .config import ROOT, Settings, get_settings
 from .graph_bundle_review import count_review_tables, export_review_evidence
+from . import ids
+from .store import accounts as accounts_store
 from .store import db as dbm
+from .store import kb_collab
 
 logger = logging.getLogger(__name__)
 
 GRAPH_BUNDLE_TTL_SECONDS = 24 * 3600  # 86400 seconds (24 hours)
 _GRAPH_BUNDLE_TOKEN_PREFIX = "gb3_"
-GRAPH_BUNDLE_FORMAT_VERSION = 3  # 3: the manifest key ``kb_id`` (claire.db version 27). 1 and 2 have ``theme_id``.
+GRAPH_BUNDLE_FORMAT_VERSION = 4  # 4: the table ``contributions`` and the manifest keys ``shared`` and ``contributions_count``. 3: the manifest key ``kb_id`` (claire.db version 27). 1 and 2 have ``theme_id``.
 _BUNDLE_REGISTRY_DIRNAME = ".registry"
 _BUNDLE_REGISTRY_FORMAT_VERSION = 2  # 2: the key ``kb_id``. Version 1 sidecars have ``theme_id`` and stay readable.
 
@@ -80,6 +84,8 @@ class GraphBundleInfo:
     expires_at: float
     download_url: str
     review: dict[str, Any] = field(default_factory=dict)
+    shared: bool = False
+    contributions_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert bundle info to a dictionary."""
@@ -97,6 +103,8 @@ class GraphBundleInfo:
             "created_at": datetime.fromtimestamp(self.created_at, timezone.utc).isoformat(),
             "expires_at": datetime.fromtimestamp(self.expires_at, timezone.utc).isoformat(),
             "review": dict(self.review),
+            "shared": self.shared,
+            "contributions_count": self.contributions_count,
         }
 
     @classmethod
@@ -122,6 +130,8 @@ class GraphBundleInfo:
             expires_at=_epoch(value["expires_at"]),
             download_url=str(value["download_url"]),
             review=dict(value.get("review") or {}),
+            shared=bool(value.get("shared", False)),
+            contributions_count=int(value.get("contributions_count", 0)),
         )
 
 
@@ -471,6 +481,66 @@ def purge_expired_graph_bundles(
     return purged_count
 
 
+def _shared_kb_scope(source_conn: sqlite3.Connection, kb_id: int) -> tuple[set[str], list[dict[str, Any]]] | None:
+    """The visible content of a shared knowledge base, or None when ``kb_id`` is not a shared knowledge base.
+
+    The design gives the data bundle of a shared knowledge base to its moderators and the admin (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2). The bundle has the content that each reader sees: a document is in the bundle when it is not hidden and its contribution is ``visible`` (the rule of a fork, Section 9.8). Thus pending, hidden, failed, and removed copies are not in the bundle. Return the IDs of these documents and their contributions.
+    """
+    tables = {r[0] for r in source_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "knowledge_bases" not in tables or "kb_contributions" not in tables:
+        return None
+    row = source_conn.execute("SELECT is_personal, account_id FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
+    if row is None or int(row[0] or 0) or row[1] is not None:
+        return None
+    document_ids: set[str] = set()
+    visible: list[dict[str, Any]] = []
+    for contribution in kb_collab.list_contributions(source_conn, int(kb_id), state="visible"):
+        document_id = contribution["document_id"]
+        if not document_id or source_conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=? AND hidden=0", (document_id, int(kb_id))).fetchone() is None:
+            continue
+        document_ids.add(str(document_id))
+        visible.append(contribution)
+    return document_ids, visible
+
+
+def _visible_sources(raw: Any, document_ids: set[str]) -> list[str]:
+    """The source documents of an entity or a relation that are in the bundle."""
+    try:
+        sources = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(d) for d in sources if str(d) in document_ids] if isinstance(sources, list) else []
+
+
+def _contribution_rows(source_conn: sqlite3.Connection, contributions: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """The rows of the table ``contributions``: the public data of each contribution, as in the contribution list for each reader.
+
+    The credit is the public number of the account; NULL for a deleted account and for a contributor of another server (its actor is in ``remote_credit``). The bundle has no internal account ID, no reason of a decision, no reviewer, and no source document of a personal knowledge base.
+    """
+    numbers: dict[int, str | None] = {}
+    rows: list[tuple[Any, ...]] = []
+    for c in contributions:
+        account_id = c["contributor_account_id"]
+        if account_id is not None and int(account_id) not in numbers:
+            try:
+                numbers[int(account_id)] = ids.format_public_id(accounts_store.AccountStore(source_conn).get(int(account_id)).public_id)
+            except accounts_store.AccountNotFound:
+                numbers[int(account_id)] = None
+        rows.append((
+            ids.format_public_id(int(c["public_id"])),
+            str(c["document_id"]),
+            c["origin"],
+            None if account_id is None else numbers[int(account_id)],
+            c["remote_credit_iri"],
+            c["remote_source_iri"],
+            c["remote_source_kb_iri"],
+            c["approved_at"],
+            c["contributed_at"],
+            c["revised_at"],
+        ))
+    return rows
+
+
 def create_graph_bundle(
     settings: Settings | Any | None = None,
     kb_id: int | str = 0,
@@ -482,6 +552,7 @@ def create_graph_bundle(
     """Create a compressed graph data bundle with entities, relations, and documents.
 
     ``account_id`` records the owner account in the registry. When it is None, the owner of the theme is used.
+    For a shared knowledge base the bundle has only its visible content and the table ``contributions`` (``_shared_kb_scope``).
     """
     s = settings or get_settings()
     data_dir = getattr(s, "data_dir", Path("data"))
@@ -539,6 +610,9 @@ def create_graph_bundle(
     documents_count = 0
     entity_ids: set[str] = set()
     document_ids: set[str] = set()
+    shared_scope = _shared_kb_scope(source_conn, resolved_kb_id)
+    visible_ids: set[str] = shared_scope[0] if shared_scope is not None else set()
+    contribution_rows = _contribution_rows(source_conn, shared_scope[1]) if shared_scope is not None else []
 
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
@@ -604,6 +678,23 @@ def create_graph_bundle(
         export_conn.execute("CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(type);")
 
         export_conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_id ON documents(id);")
+        # Format 4: the public data of the contributions of a shared knowledge base. Empty for each other knowledge base.
+        export_conn.execute(
+            """
+            CREATE TABLE contributions (
+                number TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                contributor_account TEXT,
+                remote_credit TEXT,
+                remote_source TEXT,
+                remote_source_kb TEXT,
+                approved_at REAL,
+                contributed_at REAL,
+                revised_at REAL
+            );
+            """
+        )
 
         # Discover tables in source database
         source_tables = {
@@ -619,6 +710,13 @@ def create_graph_bundle(
             params = (resolved_kb_id,) if has_theme else ()
             rows_ent = []
             for r in source_conn.execute(query, params):
+                entity_sources = r["sources"] if "sources" in src_cols else None
+                if shared_scope is not None:
+                    # An entity of a shared knowledge base is in the bundle when one of its source documents is in it. Its sources keep only those documents.
+                    kept = _visible_sources(entity_sources, visible_ids)
+                    if not kept:
+                        continue
+                    entity_sources = json.dumps(kept)
                 rows_ent.append((
                     r["id"],
                     r["type"],
@@ -627,7 +725,7 @@ def create_graph_bundle(
                     r["aliases"] if "aliases" in src_cols else None,
                     r["props"] if "props" in src_cols else None,
                     r["observations"] if "observations" in src_cols else None,
-                    r["sources"] if "sources" in src_cols else None,
+                    entity_sources,
                     r["provisional"] if "provisional" in src_cols else 0,
                     r["created_at"] if "created_at" in src_cols else 0.0,
                     r["updated_at"] if "updated_at" in src_cols else 0.0,
@@ -651,6 +749,13 @@ def create_graph_bundle(
             params = (resolved_kb_id,) if has_theme else ()
             rows_rel = []
             for r in source_conn.execute(query, params):
+                relation_sources = r["sources"] if "sources" in src_cols else None
+                if shared_scope is not None:
+                    # A relation of a shared knowledge base is in the bundle when its two entities and one of its source documents are in it.
+                    kept = _visible_sources(relation_sources, visible_ids)
+                    if not kept or r["source_id"] not in entity_ids or r["target_id"] not in entity_ids:
+                        continue
+                    relation_sources = json.dumps(kept)
                 rows_rel.append((
                     r["id"],
                     r["type"],
@@ -658,7 +763,7 @@ def create_graph_bundle(
                     r["target_id"],
                     r["confidence"] if "confidence" in src_cols else 1.0,
                     r["props"] if "props" in src_cols else None,
-                    r["sources"] if "sources" in src_cols else None,
+                    relation_sources,
                     r["provisional"] if "provisional" in src_cols else 0,
                     r["created_at"] if "created_at" in src_cols else 0.0,
                 ))
@@ -682,6 +787,8 @@ def create_graph_bundle(
             params = (resolved_kb_id,) if has_theme else ()
             rows_doc = []
             for r in source_conn.execute(query, params):
+                if shared_scope is not None and str(r["id"]) not in visible_ids:
+                    continue
                 created_val = 0.0
                 if has_created and r["created_at"] is not None:
                     try:
@@ -711,6 +818,8 @@ def create_graph_bundle(
             )
             documents_count = len(rows_doc)
             document_ids = {row[0] for row in rows_doc}
+
+        export_conn.executemany("INSERT INTO contributions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", contribution_rows)
 
         # Review evidence for engine adoption reviews (TypeSafe AI Jev): baseline decisions, candidate pairs, judge telemetry
         review_summary = export_review_evidence(
@@ -746,6 +855,8 @@ def create_graph_bundle(
             "entities_count": entities_count,
             "relations_count": relations_count,
             "documents_count": documents_count,
+            "shared": shared_scope is not None,
+            "contributions_count": len(contribution_rows),
             "graph_export_sha256": export_sha256,
             "format": "sqlite",
             "review": review_summary,
@@ -806,6 +917,8 @@ def create_graph_bundle(
         expires_at=expires_at,
         download_url=download_url,
         review=review_summary,
+        shared=shared_scope is not None,
+        contributions_count=len(contribution_rows),
     )
 
 

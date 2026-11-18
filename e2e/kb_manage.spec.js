@@ -76,6 +76,8 @@ async function installApi(page, state) {
       if (body.action === 'reject') Object.assign(row, { state: 'rejected', reason: body.reason });
       return [{ ok: true, contribution: row }];
     }
+    // The data bundle of the knowledge base ("create_graph_bundle_route", "GraphBundleInfo.to_dict"): a moderator or the admin makes it; the download address has the token.
+    if (path === '/kb/101/graph/bundle' && method === 'POST') return [{ bundle_id: 'gb_20261118_000000_e2e00001', download_url: 'http://127.0.0.1:8766/graph/bundle?token=gb3_e2eBundleToken', token: 'gb3_e2eBundleToken', filename: 'graph_bundle_gb_20261118_000000_e2e00001.tar.zst', kb_id: 101, entities_count: 120, relations_count: 80, documents_count: 30, contributions_count: 28, shared: true, size_bytes: 4096, created_at: '2026-11-18T00:00:00+00:00', expires_at: '2026-11-19T00:00:00+00:00', review: {} }];
     const remove = /^\/kb\/101\/contributions\/(\d+)\/remove$/.exec(path);
     if (remove && method === 'POST') {
       state.contributions = state.contributions.map((c) => (c.number === remove[1] ? { ...c, state: 'removed', reason: body.reason, origin_removed: c.origin_removed ? { ...c.origin_removed, waiting: false } : null } : c));
@@ -360,6 +362,30 @@ test('/settings/kb/101 archived: no approve, reject, hide, or remove control, no
   await rows.nth(0).click();
   await expect(queue.locator('[data-q-approve="9001"]')).toBeVisible();
   await expect(queue.locator('[data-q-reject="9001"]')).toBeVisible();
+  await expectNoRawKeys(page);
+  expect(unknown).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('/settings/kb/101 settings: a moderator makes the data bundle of the knowledge base and gets the download link', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  await authenticateOwner(page, 'kbmanage5');
+  const state = makeState();
+  const { calls, unknown } = await installApi(page, state);
+  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await tab(page, 'settings').click();
+  const card = page.locator('#kb-bundle-card');
+  await expect(card).toBeVisible();
+  await expect(card.locator('h3')).toHaveText('데이터 번들');
+  await expect(card.locator('.claire-hint').first()).toContainText('심사를 기다리는 기여와 숨긴 기여는 들어가지 않습니다');
+  await expect(page.locator('#kb-bundle-download')).toHaveCount(0);
+  await page.locator('#kb-bundle-btn').click();
+  await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.path === '/kb/101/graph/bundle').length).toBe(1);
+  // The result: the counts of the bundle and the link with the token at the root of this server.
+  await expect(card.locator('[data-kb-bundle-counts]')).toContainText('문서 30개');
+  await expect(card.locator('[data-kb-bundle-counts]')).toContainText('기여 28개');
+  await expect(page.locator('#kb-bundle-download')).toHaveAttribute('href', '/graph/bundle?token=gb3_e2eBundleToken');
   await expectNoRawKeys(page);
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);

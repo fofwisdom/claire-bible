@@ -64,13 +64,28 @@
     return '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(label) + "</a>";
   }
 
-  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3). GET /explore/federation gives "servers" (domain, software_name, software_version, knowledge_bases = the count) and "recent" (kind, at, server, label, url, knowledge_type). The page has the styles of explore_accounts.html. With no known server that has shared knowledge bases, the part shows nothing.
+  // One item of the recent activity across servers. "remote_knowledge_base": a new shared knowledge base of another server. "accepted_contribution": another server approved a contribution of an account of this server ("account" is null when the account must not be named). "curation": a shared knowledge base of this server ("knowledge_base") copied documents of a knowledge base of another server. "label" and "url" are null when this server has no record of the knowledge base of the other server: then the item shows the server only.
+  function recentItemHtml(it) {
+    var remote = it.url && it.label ? remoteLink(it.url, it.label) : "";
+    var server = '<span class="themes-count">(' + esc(it.server) + (it.kind === "remote_knowledge_base" ? " · " + esc(typeLabel(it.knowledge_type)) : "") + ")</span>";
+    if (it.kind === "accepted_contribution") {
+      var who = it.account ? " " + esc(t("kb.pub.recent_by")) + ' <a href="/@' + esc(encodeURIComponent(it.account.username)) + '/">' + esc(it.account.display_name || it.account.username) + "</a>" : "";
+      return esc(t("kb.pub.recent_accepted")) + " " + remote + server + who;
+    }
+    if (it.kind === "curation") {
+      var local = it.knowledge_base ? '<a href="' + esc(kbHref(it.knowledge_base.number)) + '">' + esc(it.knowledge_base.label) + "</a>" : "";
+      return esc(t("kb.pub.recent_curation")) + " " + local + " ← " + remote + server;
+    }
+    return esc(t("kb.pub.recent_remote_kb")) + " " + remote + server;
+  }
+
+  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3). GET /explore/federation gives "servers" (domain, software_name, software_version, knowledge_bases = the count) and "recent" (kind, at, server, label, url, and the keys of each kind: recentItemHtml). The page has the styles of explore_accounts.html. With no known server that has shared knowledge bases and no recent activity, the part shows nothing.
   function renderHomeFederation(host) {
     ui().request("/explore/federation").then(function (r) {
       var servers = (r.ok && r.data && r.data.servers) || [];
       var recent = (r.ok && r.data && r.data.recent) || [];
       if (!servers.length && !recent.length) { host.innerHTML = ""; return; }
-      var h = "<h2>" + esc(t("kb.pub.servers_title")) + "</h2>";
+      var h = servers.length ? "<h2>" + esc(t("kb.pub.servers_title")) + "</h2>" : "";
       h += servers.map(function (sv) {
         var software = sv.software_name ? sv.software_name + (sv.software_version ? " " + sv.software_version : "") : "";
         return '<article class="account-card" data-federated-server="' + esc(sv.domain) + '"><div class="account-header"><span class="account-name">' + remoteLink("https://" + sv.domain + "/", sv.domain) + "</span>" +
@@ -79,7 +94,7 @@
       }).join("");
       if (recent.length) {
         h += "<h2>" + esc(t("kb.pub.recent_title")) + "</h2>" + '<article class="account-card"><ul class="themes-list">' + recent.map(function (it) {
-          return '<li data-federation-recent="' + esc(it.kind) + '">' + esc(t("kb.pub.recent_remote_kb")) + " " + remoteLink(it.url, it.label) + '<span class="themes-count">(' + esc(it.server) + " · " + esc(typeLabel(it.knowledge_type)) + ")</span></li>";
+          return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
         }).join("") + "</ul></article>";
       }
       host.innerHTML = h;
@@ -129,7 +144,7 @@
     }
   }
 
-  // GET /themes/{number}/: the theme with its knowledge bases: the shared ones of this server, the shared ones of other servers ("remote" true, with "server" and the origin link "url"; KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2 rule 3), then the attached public personal ones.
+  // GET /themes/{number}/: the theme with its knowledge bases: the shared ones of this server, the shared ones of other servers ("remote" true, with "server" and the origin link "url"; KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2 rule 3), then the attached public personal ones. "follows" true: the requester is a reviewer of a shared knowledge base of this server in the theme, or the admin, and each remote one has "follow" ("pending", "accepted", or null: this server does not follow it). Another reader gets no follow state.
   function renderThemeDetail(host, bs, ref) {
     ui().request(themeHref(ref)).then(function (r) {
       var h = publicNavHtml("themes");
@@ -182,7 +197,9 @@
           columns: [
             { label: t("kb.pub.col_name"), render: function (k) { return "<strong>" + remoteLink(k.url, k.label) + "</strong>"; } },
             { label: t("kb.pub.col_server"), render: function (k) { return esc(k.server); } }
-          ],
+          ].concat(th.follows ? [
+            { label: t("kb.pub.col_follow"), render: function (k) { return '<span class="claire-tag' + (k.follow === "accepted" ? " ok" : k.follow === "pending" ? " warn" : "") + '" data-follow-state="' + esc(k.follow || "none") + '">' + esc(t("kb.pub.follow." + (k.follow || "none"))) + "</span>"; } }
+          ] : []),
           rows: remoteKbs
         });
         h += "</section>";

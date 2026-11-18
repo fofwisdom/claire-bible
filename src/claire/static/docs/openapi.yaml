@@ -1059,9 +1059,14 @@ paths:
         knowledge bases of this server and of other servers). `servers`: the known servers that have
         shared knowledge bases in the store of remote knowledge bases, each with `domain`,
         `software_name`, `software_version`, and `knowledge_bases` (the count); a blocked server is not
-        in the list. `recent`: the 20 newest records of the store, each with `kind`
-        (`remote_knowledge_base`), `at`, `server`, `label`, `url` (the page on its own server), and
-        `knowledge_type`. Network mode only: single mode has no root page (404).
+        in the list. `recent`: the 20 newest items of the recent activity, each with `kind`, `at`,
+        `server`, `label`, and `url` (the knowledge base of the other server and its page there; null
+        without a record): `remote_knowledge_base` (a new record, with `knowledge_type`),
+        `accepted_contribution` (another server approved contributions of an account of this server;
+        `account` is `{"username", "display_name"}`, or null when the account is not active with a
+        public profile and a USERNAME), and `curation` (a shared knowledge base of this server copied
+        documents of another server; `knowledge_base` is `{"number", "label", "url"}`). No item has a
+        document; a blocked domain is not in it. Network mode only: single mode has no root page (404).
       operationId: getFederationOverview
       x-claire-access: public
       security:
@@ -1639,7 +1644,7 @@ paths:
         '403':
           description: '`step_up_requires_session`, `kb_capability_required`, or `scope_insufficient`.'
         '409':
-          description: '`blocked_domain` or `federation_off`.'
+          description: '`blocked_domain`, `federation_off`, or `public_origin_missing` (the settings give no public URL; the IRIs of `Grant` come only from the configured public origin).'
 
   /kb/{number}/remote-collaborators/{grant}:
     delete:
@@ -1673,7 +1678,7 @@ paths:
         '404':
           description: '`grant_not_found`.'
         '409':
-          description: '`grant_not_active`.'
+          description: '`grant_not_active`, or `public_origin_missing` (the switch `federation` is on and the settings give no public URL; the grant does not change).'
 
   /api/kb/remote-grants:
     get:
@@ -1720,6 +1725,44 @@ paths:
           description: '`kb_fork_shared_only` for a personal knowledge base that the requester reads; `scope_insufficient`.'
         '404':
           description: No knowledge base, or a private personal knowledge base of another account.
+
+  /kb/{number}/graph/bundle:
+    post:
+      summary: Make the data bundle of a knowledge base
+      description: >-
+        For a moderator of the shared knowledge base or the admin (capability `settings`; design
+        Section 13.2). The bundle has only the visible content: the documents that are not hidden
+        and have a `visible` contribution (title, address, source type, date; not the text), the
+        entities and relations of these documents, the review evidence of these documents, and the
+        table `contributions` with the public number of the account with the credit. Pending,
+        hidden, rejected, removed, and failed copies are not in it. The token of the response
+        downloads the bundle with `GET /graph/bundle?token=…` for 24 hours. The registry records
+        the account that made the bundle.
+      operationId: createKnowledgeBaseBundle
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: '`{"bundle_id", "token", "download_url", "filename", "kb_id", "entities_count", "relations_count", "documents_count", "contributions_count", "shared", "size_bytes", "created_at", "expires_at", "review"}`'
+        '403':
+          description: '`kb_capability_required` (not a moderator or the admin) or `scope_insufficient`.'
+        '404':
+          description: No such knowledge base, or an anonymous request.
 
   /submissions:
     post:
@@ -1770,6 +1813,8 @@ paths:
           description: '`grant_required`.'
         '404':
           description: '`document_not_found`, `theme_not_found`, or `knowledge_base_not_found`.'
+        '409':
+          description: '`public_origin_missing`: `remote_knowledge_base` while the settings give no public URL (the IRIs of an offer come only from the configured public origin).'
     get:
       summary: Submissions of the requester
       operationId: listSubmissions

@@ -209,8 +209,12 @@ def _band(score: float, thresholds: dict[str, Any]) -> str:
 def _export_decisions_and_heatmaps(
     source_conn: sqlite3.Connection,
     export_conn: sqlite3.Connection,
+    document_ids: set[str],
 ) -> dict[str, Any]:
-    """Flatten documents.meta resolution_log and heatmap provenance into review tables."""
+    """Flatten documents.meta resolution_log and heatmap provenance into review tables.
+
+    Only the exported documents (``document_ids``) give rows. The source database has the documents of all knowledge bases of the server, thus a document of another knowledge base never goes into the bundle.
+    """
     doc_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(documents)").fetchall()}
     if "meta" not in doc_cols:
         return {"status": "missing", "reason": "documents.meta column not found"}
@@ -229,6 +233,8 @@ def _export_decisions_and_heatmaps(
         "WHERE meta LIKE '%\"resolution_log\"%' OR meta LIKE '%\"heatmap_matrix\"%'"
     )
     for row in cursor:
+        if row["id"] not in document_ids:
+            continue
         try:
             meta = json.loads(row["meta"]) if isinstance(row["meta"], str) else row["meta"]
         except (TypeError, ValueError):
@@ -648,7 +654,7 @@ def export_review_evidence(
     export_conn.executescript(_REVIEW_SCHEMA)
     thresholds = review_thresholds(settings)
 
-    decisions = _guarded("decisions", _export_decisions_and_heatmaps, source_conn, export_conn)
+    decisions = _guarded("decisions", _export_decisions_and_heatmaps, source_conn, export_conn, document_ids)
     pairs_result = _guarded("candidate_pairs", _export_candidate_pairs, source_conn, export_conn, entity_ids, thresholds)
     if isinstance(pairs_result, tuple):
         embeddings, pairs = pairs_result

@@ -1,7 +1,9 @@
 """원문 슬라이싱 구성 및 .env 환경설정 동적 반영 단위 테스트."""
 
 import pytest
+from claire import ingest_limit_manager
 from claire.config import Settings, get_settings
+
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.table_budget import (
     extract_tables_from_text,
@@ -10,6 +12,11 @@ from claire.extract.table_budget import (
 )
 from claire.ingest.fetchers.textfile import fetch_file
 from claire.ontology.base import Document
+
+
+def get_ingest_limit_manager():
+    """The limit manager of the default data folder (tests/conftest.py gives a temporary one for each test)."""
+    return ingest_limit_manager.get_ingest_limit_manager()
 
 
 def test_slice_document_text_table_exemption_vs_strict():
@@ -53,8 +60,8 @@ def test_doc_to_prompt_dynamic_budget(monkeypatch):
     assert prose in prompt_default
     assert table in prompt_default
 
-    # 2. 커스텀 설정 (extract_char_budget = 3,000)
-    monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "3000")
+    # 2. 커스텀 설정 (extract_char_budget = 3,000). After the first start, the value comes from data/ingest_limits.json (the WebUI), not from the environment.
+    get_ingest_limit_manager().update_config({"limits": {"extract_char_budget": 3000}})
     get_settings.cache_clear()
     prompt_custom = doc_to_prompt(doc)
     assert table in prompt_custom  # 표는 보존됨
@@ -105,8 +112,8 @@ def test_fetch_file_dynamic_raw_char_budget(tmp_path, monkeypatch):
     assert doc.meta["raw_chars"] == 5000
     assert len(doc.raw_text) == 5000
 
-    # 2. raw_char_budget=15000 설정 (절단되지 않음)
-    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "15000")
+    # 2. raw_char_budget=15000 설정 (절단되지 않음). After the first start, the value comes from data/ingest_limits.json (the WebUI).
+    get_ingest_limit_manager().update_config({"limits": {"raw_char_budget": 15000}})
     get_settings.cache_clear()
 
     doc2 = fetch_file(str(test_file))

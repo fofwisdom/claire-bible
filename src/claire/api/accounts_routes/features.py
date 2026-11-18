@@ -213,6 +213,20 @@ def _owned_themes(ctx: AccountsContext, account_id: int) -> list[Any]:
     return list(get_kb_manager(_settings(ctx)).list_account_kbs(account_id))
 
 
+def _knowledge_bases_by_id(ctx: AccountsContext, kb_ids: list[int]) -> list[Any]:
+    """The knowledge bases with these IDs that still exist. A deleted knowledge base is not in the result."""
+    from ...store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
+
+    manager = get_kb_manager(_settings(ctx))
+    found = []
+    for kb_id in kb_ids:
+        try:
+            found.append(manager.get_kb(kb_id))
+        except KnowledgeBaseNotFound:
+            continue
+    return found
+
+
 def _theme_ref(theme: Any) -> str:
     from ... import ids
 
@@ -396,10 +410,16 @@ def routes(ctx: AccountsContext) -> list[Route]:
         s = _settings(ctx)
         items = await asyncio.to_thread(list_account_graph_bundles, s.data_dir, principal.account_id)
         themes = await asyncio.to_thread(_owned_themes, ctx, principal.account_id)
+        listed = list(themes)
+        owned_ids = {t.id for t in themes}
+        # A moderator also has bundles of shared knowledge bases (shared knowledge base design Section 13.2): the list gives their labels too, so the page never shows an internal knowledge base ID.
+        bundle_kb_ids = {int(b["kb_id"]) for b in items if b.get("kb_id") is not None} - owned_ids
+        if bundle_kb_ids:
+            listed.extend(await asyncio.to_thread(_knowledge_bases_by_id, ctx, sorted(bundle_kb_ids)))
         return JSONResponse(
             {
                 "bundles": items,
-                "themes": [{"theme": _theme_ref(t), "kb_id": t.id, "label": t.label, "icon": t.icon} for t in themes],
+                "themes": [{"theme": _theme_ref(t), "kb_id": t.id, "label": t.label, "icon": t.icon} for t in listed],
             },
             headers=NO_STORE,
         )

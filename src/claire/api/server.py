@@ -929,9 +929,20 @@ def create_app(
 
         - ``themes``: the active themes, the one with the most recent activity first, with the counts of the shared knowledge bases of this server and of other servers.
         - ``servers``: the known servers that have shared knowledge bases in the store of remote knowledge bases, with the domain, the software, and the count. A blocked server is not in the list.
-        - ``recent``: the newest records of the store, the newest first. ``kind`` is ``remote_knowledge_base``: a new shared knowledge base of another server.
+        - ``recent``: the recent activity across servers, the newest first (``knowledge_federation.recent``): ``remote_knowledge_base`` (a new shared knowledge base of another server), ``accepted_contribution`` (another server approved a contribution of an account of this server; the account is named only when its profile is public), and ``curation`` (a shared knowledge base of this server copied documents of another server). No item has a document.
         """
+        from ..knowledge_federation import recent as kf_recent
+
         origin = _public_origin(request).rstrip("/")
+
+        def _local_kb(kb_id: int) -> dict[str, Any] | None:
+            try:
+                kb = theme_mgr.get_kb(int(kb_id))
+            except KnowledgeBaseNotFound:
+                return None
+            if not kb.is_shared or not kb.is_public or kb.number is None:
+                return None
+            return {"number": ids.format_public_id(kb.number), "label": kb.label, "url": f"{origin}{kb_base_path(kb.number)}"}
 
         def _build() -> dict[str, Any]:
             views = _active_theme_views(origin=origin)
@@ -946,12 +957,13 @@ def create_app(
                     for server in kf_known_servers.list_servers(conn)
                     if server.domain in counts
                 ]
+                recent = kf_recent.recent_activity(conn, local_kb=_local_kb, domain_of=lambda iri: urlsplit(iri).hostname or None, limit=FEDERATION_RECENT_MAX)
             finally:
                 conn.close()
             return {
                 "themes": [{"number": v["number"], "url": v["url"], "label": v["label"], "knowledge_type": v["knowledge_type"], "local_knowledge_bases": v["shared_knowledge_bases"], "remote_knowledge_bases": v["remote_knowledge_bases"]} for v in views],
                 "servers": servers,
-                "recent": [{"kind": "remote_knowledge_base", "at": kb.first_seen_at, "server": kb.domain, "label": kb.label, "url": kb.url, "knowledge_type": kb.knowledge_type} for kb in remote[:FEDERATION_RECENT_MAX]],
+                "recent": recent,
             }
 
         return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "public, max-age=60"})
@@ -1802,6 +1814,10 @@ def create_app(
             "published_at": row["published_at"], "end_time": row["end_time"], "revoked_at": row["revoked_at"],
         }
 
+    def _federation_origin() -> str | None:
+        """The canonical origin of this server for an IRI that leaves the server (the actors and the activities of the knowledge federation): the configured public URL only (``contributions.canonical_origin``), never the address of the request (no fallback). None when the settings give none: then a route that must send an activity refuses with ``public_origin_missing``."""
+        return contributions.canonical_origin(s)
+
     async def kb_remote_collaborators_route(request: Request) -> Response:
         """``GET /kb/{number}/remote-collaborators`` (capability ``people``): the grants of the role ``collaborator`` that this shared knowledge base gave to accounts of other servers, the newest first, with their end times.
 
@@ -1814,7 +1830,6 @@ def create_app(
 
         kb = _shared_kb_of_path(request)
         principal = request_principal(request)
-        canonical = _public_origin(request)
         if request.method != "POST":
             def _list() -> list[dict[str, Any]]:
                 conn = dbm.connect_existing(s.db_file, readonly=True)
@@ -1835,11 +1850,15 @@ def create_app(
         if refused is not None:
             return refused
 
+        canonical = _federation_origin()
+
         def _give() -> JSONResponse:
             conn = dbm.connect_existing(s.db_file)
             try:
                 if not kf_access.federation_on(conn):
                     return JSONResponse({"error": "federation_off"}, status_code=409)
+                if canonical is None:
+                    return JSONResponse({"error": "public_origin_missing"}, status_code=409)
                 domain = kf_access.remote_server_domain(actor, canonical)
                 parts = urlsplit(actor)
                 # The target is an account actor of another Claire server (``/ap/actors/{public ID}``), not its server actor.
@@ -1876,22 +1895,27 @@ def create_app(
         refused = step_up_response(principal)
         if refused is not None:
             return refused
-        canonical = _public_origin(request)
+        canonical = _federation_origin()
 
         def _revoke() -> JSONResponse:
+            from ..knowledge_federation import access as kf_access
+
             conn = dbm.connect_existing(s.db_file)
             try:
                 now = time.time()
                 grant = kf_grants.get_issued(conn, int(raw))
                 if grant is None or int(grant["kb_number"]) != int(kb.number):
                     return JSONResponse({"error": "grant_not_found"}, status_code=404)
+                federation = kf_access.federation_on(conn)
+                if federation and canonical is None:
+                    # The ``Revoke`` needs the IRI of the knowledge base actor: the grant does not end without it, so that the other server is not left with a grant that this server ended.
+                    return JSONResponse({"error": "public_origin_missing"}, status_code=409)
                 if kf_grants.issued_state(grant, now) != "active" or not kf_grants.revoke(conn, int(grant["id"]), account_id=int(principal.account_id), now=now):
                     return JSONResponse({"error": "grant_not_active"}, status_code=409)
-                kb_iri = kf_collections.knowledge_base_iris(canonical, int(kb.number))["id"]
-                from ..knowledge_federation import access as kf_access
 
                 # No ``Revoke`` goes to an address that is not one of another server now; the grant ends on this server, which is the authority for it.
-                if kf_access.federation_on(conn) and kf_access.remote_server_domain(grant["actor_iri"], canonical) is not None:
+                if federation and canonical is not None and kf_access.remote_server_domain(grant["actor_iri"], canonical) is not None:
+                    kb_iri = kf_collections.knowledge_base_iris(canonical, int(kb.number))["id"]
                     kf_outbox.enqueue(conn, kf_vocabulary.build_revoke(activity_id=f"{grant['grant_iri']}/revoke", knowledge_base=kb_iri, account_actor=grant["actor_iri"], grant=grant["grant_iri"]), signer=str(int(kb.number)), recipients=[grant["actor_iri"]], origin=canonical, now=now)
                 kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=int(principal.account_id), action="remote_collaborator_revoke", target=str(grant["actor_iri"]), now=now)
                 conn.commit()
@@ -2274,7 +2298,10 @@ def create_app(
         remote_kb_id = body.get("remote_knowledge_base")
         if "remote_knowledge_base" in body and (isinstance(remote_kb_id, bool) or not isinstance(remote_kb_id, int) or "theme" in body):
             raise HTTPException(status_code=400, detail="remote_knowledge_base_invalid")
-        canonical = _public_origin(request)
+        # The offers to other servers have IRIs of this server: only the configured public origin gives them. Without it a direct choice of a remote knowledge base is refused, and a theme has only the targets of this server.
+        canonical = _federation_origin()
+        if remote_kb_id is not None and canonical is None:
+            return JSONResponse({"error": "public_origin_missing"}, status_code=409)
 
         def _submit() -> JSONResponse:
             try:
@@ -2426,14 +2453,46 @@ def create_app(
             conn.close()
 
     async def theme_page_route(request: Request, number: int) -> Response:
-        """``/themes/{number}/``: one theme, as JSON or as the HTML page that shows this JSON (content negotiation of the namespace design Section 6.5)."""
+        """``/themes/{number}/``: one theme, as JSON or as the HTML page that shows this JSON (content negotiation of the namespace design Section 6.5).
+
+        ``follows`` is true for a reviewer (capability ``review``) of a shared knowledge base of this server that is a member of the theme, and for the admin: then each shared knowledge base of another server has ``follow``, the state of the follow of this server (``pending``, ``accepted``, or null; KNOWLEDGE_FEDERATION_DESIGN.md Section 9.2 rule 2), and the answer has ``Cache-Control: private, no-store``. Each other reader gets ``follows`` false and no follow state: the design gives the follow state to no public page.
+        """
+        from ..knowledge_federation import outbox as kf_outbox
+
         origin = _public_origin(request)
+        principal = request_principal(request)
+
+        def _sees_follows(view: dict[str, Any]) -> bool:
+            if principal.account_id is None:
+                return False
+            if principal.server_role == "admin":
+                return True
+            for entry in view["knowledge_bases"]:
+                if entry["remote"] or entry["is_personal"] or entry["number"] is None:
+                    continue
+                try:
+                    kb = theme_mgr.get_kb_by_reference(entry["number"])
+                except KnowledgeBaseNotFound:
+                    continue
+                if _kb_decide(request, kb, "review") == "allow":
+                    return True
+            return False
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 theme = themes_store.get_theme_by_number(conn, number)
-                return None if theme is None or theme["state"] != "active" else _theme_view(conn, theme, origin=origin)
+                if theme is None or theme["state"] != "active":
+                    return None
+                view = _theme_view(conn, theme, origin=origin)
+                view["follows"] = _sees_follows(view)
+                if view["follows"]:
+                    states = kf_outbox.follow_states(conn)
+                    for entry in view["knowledge_bases"]:
+                        if entry["remote"]:
+                            record = remote_kbs.get(conn, int(entry["remote_id"]))
+                            entry["follow"] = None if record is None else states.get(record.iri)
+                return view
             finally:
                 conn.close()
 
@@ -2441,7 +2500,7 @@ def create_app(
         if view is None:
             raise HTTPException(status_code=404, detail="theme not found")
         if not collections.wants_html(request):
-            return JSONResponse(view)
+            return JSONResponse(view, headers={"Cache-Control": "private, no-store"} if view["follows"] else None)
         return await asyncio.to_thread(_public_page, request, view="theme_detail", title=view["label"], ref=view["number"])
 
     def _admin_themes_payload(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:
@@ -6423,6 +6482,8 @@ def create_app(
 
         theme, _, _ = _get_theme_ctx(request, body)
         kb_id = theme.id
+        # The data bundle of a shared knowledge base (design Section 13.2) is for its moderators and the admin: the capability ``settings`` of the route. The registry records the account that made it, because a shared knowledge base has no owner account.
+        bundle_account = request_principal(request).account_id if theme.is_shared else None
 
         source_channel = str(body.get("source_channel") or "api")
         if source_channel not in {"api", "telegram_command", "telegram_callback"}:
@@ -6433,6 +6494,7 @@ def create_app(
                 s,
                 kb_id=kb_id,
                 request_context={"channel": source_channel},
+                account_id=bundle_account,
             )
             return info.to_dict()
 

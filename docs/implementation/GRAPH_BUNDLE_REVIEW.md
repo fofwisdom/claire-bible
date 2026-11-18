@@ -125,11 +125,12 @@ When the candidate loop starts, `_finish` writes:
 
 ### 6.1 Bundle [code]
 
-- Create: `claire export-graph [-t THEME] [-o PATH] [--json]` (CLI), or `POST /graph/bundle` (role `owner`). Download: `GET /graph/bundle?token=…` (token only). A bundle expires after 24 hours (`GRAPH_BUNDLE_TTL_SECONDS`).
-- Archive: `.tar.zst` with `manifest.json` and `graph_export.db`. The export database has `entities`, `relations`, `documents` (`id`, `title`, `url`, `source_type`, `created_at`), and the `review_*` tables.
-- `manifest.json`: `bundle_version` (`GRAPH_BUNDLE_FORMAT_VERSION = 2`), counts, `graph_export_sha256` (hash of the whole export database, review tables included), and `review` (the summary that `export_review_evidence` returns).
-- Import: `claire import-graph <bundle> [-t THEME] [--target-db PATH] [--json]`. Import does not copy `review_*` tables. The result reports `bundle_version` (1 when absent) and `review_tables` (row counts). Format v1 bundles import.
+- Create: `claire export-graph [-t THEME] [-o PATH] [--json]` (CLI), `POST /graph/bundle` (scope `owner`, capability `settings`: the owner of a personal knowledge base; in a shared knowledge base a moderator or the admin, Section 6.3), or `POST /api/me/data-bundles` (the personal knowledge base of the account). Download: `GET /graph/bundle?token=…` (token only). A bundle expires after 24 hours (`GRAPH_BUNDLE_TTL_SECONDS`).
+- Archive: `.tar.zst` with `manifest.json` and `graph_export.db`. The export database has `entities`, `relations`, `documents` (`id`, `title`, `url`, `source_type`, `created_at`), `contributions` (Section 6.3; empty for a personal knowledge base), and the `review_*` tables.
+- `manifest.json`: `bundle_version` (`GRAPH_BUNDLE_FORMAT_VERSION = 4`; 3 added the key `kb_id`, 4 added the table `contributions`), `kb_id`, counts, `shared` (true for a shared knowledge base), `contributions_count`, `graph_export_sha256` (hash of the whole export database, review tables included), and `review` (the summary that `export_review_evidence` returns).
+- Import: `claire import-graph <bundle> [-t THEME] [--target-db PATH] [--json]`. Import does not copy the `review_*` tables or the table `contributions`. The result reports `bundle_version` (1 when absent) and `review_tables` (row counts). Format v1 bundles import.
 - The procedure that uses a bundle for graph checks in development mode: [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §11.2.
+- The review evidence has only the decisions and heatmaps of the exported documents (`_export_decisions_and_heatmaps`). The source database has the documents of all knowledge bases of the server, thus a document of another knowledge base never goes into the bundle.
 
 ### 6.2 Review evidence tables (`REVIEW_SCHEMA_VERSION = 2`) [code]
 
@@ -150,6 +151,17 @@ Rules:
 - **Judge calls** (`_export_judge_calls`): `telemetry.db` opens read-only. Only rows whose `document_id` is in the exported documents are copied (theme isolation). Columns such as `output_snippet` and `error_message` are not copied. Successful calls without `document_id` are only aggregated in `unattributed_success` (count, duration p50/p95/max, input size p50/p95).
 - **Shadow summary** (`_shadow_summary`): decisions with a shadow record, counts by status and model, latency p50/p95/max, total input tokens, agreement with the System 2 judge at thresholds 0.5 and 0.9 (cells `both_same`, `both_different`, `jev_same_llm_different`, `jev_different_llm_same`), and the Jev "same" rate for each outcome.
 - `coverage.heatmap_generator_notes` marks old `jev` heatmaps as stub output.
+
+### 6.3 Bundle of a shared knowledge base [code]
+
+Design: [SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) Section 13.2 ("a data bundle of a shared knowledge base: moderators and the admin").
+
+- Route: `POST /kb/{number}/graph/bundle` (scope `owner`, capability `settings` in `ROUTE_POLICY`). A member and a collaborator get 403 `kb_capability_required`. The registry records the account that made the bundle (`create_graph_bundle_route`), thus the bundle is in the list of `GET /api/me/data-bundles` of that account. The console control is the card "Data bundle" (`#kb-bundle-card`) on the settings tab of `/settings/kb/{number}` (`console_kb.js`).
+- Content (`_shared_kb_scope`): a document is in the bundle when it is not hidden and its contribution is `visible`. This is the rule of a fork (design Section 9.8 rule 5): pending, hidden, rejected, removed, failed, and merging copies are not in the bundle. A moderator also sees the pending and hidden copies in the console, but the bundle has only the content that each reader sees.
+- An entity is in the bundle when one of its source documents is in it; a relation when its two entities and one of its source documents are in it. `sources` keeps only the documents of the bundle.
+- The table `contributions` (`_contribution_rows`) has one row for each document of the bundle: `number` (public number of the contribution), `document_id`, `origin`, `contributor_account` (the public number of the account with the credit; NULL for a deleted account and for an account of another server), `remote_credit` (the actor with the credit on another server), `remote_source`, `remote_source_kb`, `approved_at`, `contributed_at`, `revised_at`. It has no internal account ID, no display name, no reason of a decision, no reviewer, no curator, and no source document of a personal knowledge base.
+- The CLI `claire export-graph -t <kb>` makes the same bundle for a shared knowledge base and prints the count of contributions.
+- Tests: `tests/test_kb_bundle.py` (end-to-end: the roles, the content, the download, the registry; the bundle of a personal knowledge base has an empty table `contributions`), `e2e/kb_manage.spec.js` (the console control).
 
 ---
 

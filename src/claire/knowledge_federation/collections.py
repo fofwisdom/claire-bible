@@ -33,8 +33,8 @@ def knowledge_base_iris(origin: str, number: int) -> dict[str, str]:
     return {"id": actor, "url": f"{origin}/kb/{public}/", "inbox": f"{actor}/inbox", "outbox": f"{actor}/outbox", "followers": f"{actor}/followers", "documents": f"{actor}/documents"}
 
 
-def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, origin: str, signatures: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document, and the entities and relations that only hidden documents have, do not count. ``claire:acceptsAutomatic`` is the state of the switches of this server now (``access.auto_contribution_accepted``, design Section 12.3 rule 1)."""
+def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, origin: str, signatures: dict[int, dict[str, Any]], updated: float | None) -> dict[str, Any]:
+    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document, and the entities and relations that only hidden documents have, do not count. ``claire:acceptsAutomatic`` is the state of the switches of this server now (``access.auto_contribution_accepted``, design Section 12.3 rule 1). ``updated``: the time of the record that the followers have (``actors.record_updated_at``), or None when no follower got it."""
     kb_id, number, label, description, knowledge_type = tuple(row)
     signature_row = signatures.get(int(kb_id))
     kb = {
@@ -45,6 +45,7 @@ def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *,
         **dict(zip(("entities", "relations"), visible_graph_counts(conn, int(kb_id)))),
         "signature": None if signature_row is None else theme_judgement.wire_signature(signature_row),
         "accepts_automatic": access.auto_contribution_accepted(conn),
+        "updated": updated,
     }
     return vocabulary.build_knowledge_base(kb, knowledge_base_iris(origin, int(number)))
 
@@ -84,12 +85,15 @@ def kb_collection_page(conn: sqlite3.Connection, *, origin: str, max_id: int | N
         args.append(int(max_id))
     rows = conn.execute(sql + " ORDER BY number DESC LIMIT ?", (*args, KB_PAGE_SIZE)).fetchall()
     signatures = {int(row["kb_id"]): row for row in themes_store.load_signatures(conn)}
+    from . import actors  # ``actors`` imports this module
+
+    updated = actors.record_updated_times(conn)
     page: dict[str, Any] = {
         "@context": list(vocabulary.WIRE_CONTEXT),
         "id": f"{collection}?page=true" + ("" if max_id is None else f"&max_id={ids.format_public_id(int(max_id))}"),
         "type": "OrderedCollectionPage",
         "partOf": collection,
-        "orderedItems": [knowledge_base_object(conn, row, origin=origin, signatures=signatures) for row in rows],
+        "orderedItems": [knowledge_base_object(conn, row, origin=origin, signatures=signatures, updated=updated.get(int(row[1]))) for row in rows],
     }
     if len(rows) == KB_PAGE_SIZE:
         page["next"] = f"{collection}?page=true&max_id={ids.format_public_id(int(rows[-1][1]))}"
