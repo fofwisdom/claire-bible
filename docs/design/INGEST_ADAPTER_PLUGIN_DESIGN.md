@@ -57,7 +57,7 @@ Facts at the basis commit:
 | plugin version | 플러그인 버전 | The pair (plugin revision, core commit), as O4 says. Written `r3 @ 6010d69b`. |
 | plugin digest | 플러그인 다이제스트 | A SHA-256 value of all files of the plugin (§6.3). |
 | project plugin | 프로젝트 플러그인 | A plugin that the project makes. It is in the project path `<app root>/plugins/` and in `plugins/project.lock` (O8). |
-| user plugin | 이용자 플러그인 | A plugin that a user puts on the server. It is in the user path `<data dir>/plugins/` (O8). |
+| user plugin | 이용자 플러그인 | A plugin that a user puts on the server. It is in the user path `<data dir>/user-plugins/` (O8). |
 | overlap | 겹침 | Two plugins of the same type whose `provides` claim the same entry name or the same host (§6.4, O6). |
 | maturity | 성숙도 | Manifest field: `experimental`, `stable`, or `deprecated`. |
 | state | 상태 | Loading state that the server computes (§8.1). |
@@ -85,7 +85,7 @@ Proposal for the owner: add "plugin", "ingest adapter", "plugin revision", "core
 | PL-D6 | **The server administrator switches plugins on and off** in the console `/admin/plugins`. A member cannot. | A plugin is code that runs in the server process for all accounts. |
 | PL-D7 | **Records, not implicit state.** At the first start of the plugin store on a server, the store writes an `enabled` record for each project plugin (O7, §11). After that, a plugin without a record is `new` and does not load. | O7. The first start is the first deployment of a new server, or the upgrade that brings plugins to an existing server; both keep the present behavior. A later project plugin needs a choice of the administrator (C1). |
 | PL-D8 | **Discovery does not execute code.** The server imports a plugin only when its state is `enabled`. | A plugin that the administrator did not switch on must not run. |
-| PL-D9 | **The path decides the origin (O8).** The project path `<app root>/plugins/` holds only project plugins; the lock `project.lock` checks their integrity. The user path `<data dir>/plugins/` holds only user plugins; they load only with an approved digest, and a change of one file stops a user plugin until the administrator approves the new digest. | O8. A project plugin is trusted with the release; an upgrade must not need a new approval for each one. An approval of a user plugin must apply to the code that the administrator saw. |
+| PL-D9 | **The path decides the origin (O8).** The project path `<app root>/plugins/` holds only project plugins; the lock `project.lock` checks their integrity. The user path `<data dir>/user-plugins/` holds only user plugins; they load only with an approved digest, and a change of one file stops a user plugin until the administrator approves the new digest. | O8. A project plugin is trusted with the release; an upgrade must not need a new approval for each one. An approval of a user plugin must apply to the code that the administrator saw. |
 | PL-D10 | **The plugin imports only the plugin SDK from the core. The core never imports a plugin module.** | Then a change inside the core does not break plugins, and a plugin can move without a core edit. |
 | PL-D11 | **Explicit registration.** The manifest names an entry function `register(ctx)`. The import of a plugin module has no registration side effect. The class decorators `register_fetcher` and `register_web_adapter` are removed. | The loader can attach each entry to its plugin, compare it with the manifest, and leave it out when the plugin is switched off. |
 | PL-D12 | **Declared hosts decide the match.** The registry calls `can_handle` only for a URL whose host matches the `hosts` of the entry (§7.3). Host patterns are exact, never substring. | The console shows the true reach of a plugin. It removes the substring errors of §1 item 4. |
@@ -146,10 +146,10 @@ plugins/                         # project path; in Git; in the image at /app/pl
       tests/
         test_claire_youtube.py   # unique file name (§14 rule 2)
         fixtures/                # recorded responses; tests never use the network
-<data dir>/plugins/ingest/<id>/  # user path; in the image /app/data/plugins, on the host ${CB_DATA_DIR}/plugins
+<data dir>/user-plugins/ingest/<id>/  # user path; in the image /app/data/user-plugins, on the host ${CB_DATA_DIR}/user-plugins
 ```
 
-- **Two paths, one layout (O8, PL-D9).** The project path is `<app root>/plugins`. The app root comes from `config.resolve_app_root` (`CLAIRE_APP_ROOT` in the image, the checkout in a source tree). The user path is `<data dir>/plugins`. In a container, each upgrade replaces `/app`, and only the data volume is writable for an operator. In a checkout, the data folder is ignored by Git, so a user plugin never shows as a change of the repository.
+- **Two paths, one layout (O8, PL-D9).** The project path is `<app root>/plugins`. The app root comes from `config.resolve_app_root` (`CLAIRE_APP_ROOT` in the image, the checkout in a source tree). The user path is `<data dir>/user-plugins`. Its name says that it is for users only; the two paths never have the same folder name. In a container, each upgrade replaces `/app`, and only the data volume is writable for an operator. In a checkout, the data folder is ignored by Git, so a user plugin never shows as a change of the repository.
 - **The project path holds only project plugins.** Each folder there must have the publisher `claire` and an item in `project.lock`; other folders get the state `invalid`. A folder whose digest differs from the lock gets the state `unlocked` (§8.1): a contributor runs `claire plugin lock` (§6.2).
 - **The user path holds only user plugins.** A plugin there with the publisher `claire`, or with an id of a project plugin, gets the state `invalid` (no shadowing).
 - `.gitignore` stops to ignore `plugins/`.
@@ -371,6 +371,7 @@ Out-of-process isolation is possible later for user plugins (§12). It is not in
 ### 10.1 Console `/admin/plugins`
 
 - A new section of the sidebar group `admin_system`, after `providers` and `limits` (`ADMIN_CONSOLE_GROUP_5_SPECS` in `api/accounts_routes/console.py`). Rule: administrator only; 404 for all other callers (stealth 404).
+- Above the table, the page shows the user path of this server (for example `/app/data/user-plugins/ingest/` in the image) with the text that user plugins go there and project plugins come only with a release.
 - A table with a caption. One row for each plugin: name and id, type, version (`r3 @ 6010d69b`; the full hash in the details), origin (project or user), maturity, state badge, switch. The rows of one overlap group are shown together, with the shared hosts. Above the table, the server shows the commit of the running core, as the support bundle finds it (`support_bundle._get_git_commit_and_source`), so that the administrator can compare. On a narrow container, the table becomes stacked rows (the present `.claire-table td[data-label]` pattern).
 - The switch is `<input type="checkbox" switch>` with a label. For a state that cannot load, the switch is `disabled`, and `aria-describedby` points to the reason text.
 - A `<details>` element in each row shows the description, the `provides` list with hosts, the permissions, the requirements, the current and the approved digest, maintainers, license, the load error, and the process reports.
@@ -426,6 +427,7 @@ ASD-STE100 English, `--json` with the `AgentOutput` contract (C3). On a deployed
 | The plugin that was enabled first wins an overlap | A hidden choice (C1). |
 | A detection of "first deployment" by the absence of `claire.db` | Other processes can make `claire.db` before `claire migrate`. A key of the plugin store is exact. |
 | A project plugin that differs from the lock loads as a user plugin (revision 2) | O8: the two kinds have separate paths. |
+| The user path `<data dir>/plugins` (revision 3) | The same folder name as the project path `plugins/`. A person cannot see that the folder is for users only. |
 | A file upload in the console | Not requested. An upload is a folder that the user puts into the user path (O8). |
 | A sandbox now (subprocess with JSON-RPC, or WebAssembly) | Real isolation, but the media adapters need yt-dlp, ffmpeg, and Chromium. High cost for a server that has no third-party plugin yet. Possible later for user plugins only. |
 | On and off for each account | Not requested. A plugin is server code. |
