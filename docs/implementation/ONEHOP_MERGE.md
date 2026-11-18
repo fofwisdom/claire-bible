@@ -79,6 +79,10 @@ A child that is stored as a new document does not go into the queue again, becau
 
 ## 7. Known limits
 
-- [code] `CLAIRE_EXPAND_CHAR_BUDGET` and `CLAIRE_RESEARCH_CONTEXT_BUDGET` exist in `Settings` and in the limit manager, but the expansion code does not read them. The context length (2000) and the child preview length (4000) are fixed in the code.
+- [code] `CLAIRE_EXPAND_CHAR_BUDGET` and `CLAIRE_RESEARCH_CONTEXT_BUDGET` exist in `Settings`, in the limit manager, and in the WebUI, but no code reads them. The lengths are fixed in the code:
+  - `build_parent_context` (`expand/follow.py`) and `build_context` (`expand/research.py`) keep 2000 characters of the document detail (or of the raw text).
+  - `IngestService.expand_document` gives the judge 4000 characters of the fetched child.
+  - `extract/prompts.py` cuts again: `research_prompt` keeps 8000 characters of the context, `judge_research_prompt` keeps 6000 of the context and 8000 of the report, `select_followups_prompt` keeps 6000 of the context.
+- [code] `expand_max`, `auto_expand`, and `watch_interval_days` come from `data/ingest_limits.json` (WebUI `/admin/limits`). The loop daemons read the file at each cycle. The Telegram bot uses the values from its start.
 - [code] The merge restore does not remove entities and relations that a failed re-extraction already committed (§4.1 step 6).
 - [unverified] The accuracy of `same_subject` on real Gemini output is not measured. The milestone for this measurement (M5 of the original plan) was not done.

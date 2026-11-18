@@ -49,7 +49,7 @@ graph TD
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
 5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
 6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
-7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다.
+7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다. 파일이 이미 있으면 파일에 없는 키(나중 버전에서 추가된 키)만 이전한다. 설정 소스는 값을 별칭(`CLAIRE_*`) 이름으로 넘기므로 export된 환경변수보다 우선한다. `recover-loop`, `refresh-loop`, `expand-loop`는 주기마다 이 파일을 다시 읽으므로, WebUI 변경은 재시작 없이 적용된다. `bot`(텔레그램)은 시작 시점의 값을 쓴다.
 
 ---
 
@@ -220,7 +220,9 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_EXPAND_MAX` | `5` | 정수 | 1개 문서 적재 시 1홉 확장으로 탐색/적재할 최대 링크 수. |
 | `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화된다. ([ONEHOP_MERGE.md](ONEHOP_MERGE.md) 참조) |
-| `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
+| `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위, 0보다 큼) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
+
+이 세 변수는 `data/ingest_limits.json`의 `expand_max`, `auto_expand`, `watch_interval_days`로 이전된다. 서버 관리자는 `/admin/limits`의 **1홉 자동확장 및 주기 크롤링** 구역에서 설정한다(§2.11 참조).
 
 ---
 
@@ -282,8 +284,8 @@ TypeSafe AI Jev는 관리자 컨텍스트에서 플래그와 API 키가 모두 �
 | `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산된다. |
 | `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([INGESTION.md](INGESTION.md) §8.2 참조) |
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
-| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다(맥락 2000자, 자식 미리보기 4000자 고정). |
-| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. |
+| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [ONEHOP_MERGE.md](ONEHOP_MERGE.md) §7 참조. |
+| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [ONEHOP_MERGE.md](ONEHOP_MERGE.md) §7 참조. |
 | `CLAIRE_VIDEO_MAX_EXTRACT_CHARS` | `200000` | 정수 (글자 수) | 비디오 전사 텍스트 추출 상한. |
 | `CLAIRE_VLM_MAX_IMAGES` | `20` | 정수 | 문서 하나에서 VLM으로 전사할 최대 이미지 수. |
 

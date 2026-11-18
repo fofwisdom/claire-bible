@@ -3,7 +3,6 @@
 import pytest
 from claire import ingest_limit_manager
 from claire.config import Settings, get_settings
-
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.table_budget import (
     extract_tables_from_text,

@@ -23,6 +23,8 @@ from .config import ROOT
 log = logging.getLogger("claire.ingest_limits")
 
 INGEST_LIMITS_CONFIG_FILENAME = "ingest_limits.json"
+# The folder of the env files that the migration reads and comments out. The tests set it to a temporary folder.
+ENV_ROOT: Path = ROOT
 
 DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
     "version": 1,
@@ -48,6 +50,8 @@ DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
         # 5. 1홉 확장 탐색 상황
         "expand_char_budget": 2000,
         "expand_max": 5,
+        "auto_expand": True,
+        "watch_interval_days": 1.0,
         # 6. 심층 리서치 상황
         "research_context_budget": 8000,
         # 7. 미디어 / 프레젠테이션 / 비디오 수집 상황
@@ -77,6 +81,8 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
     "CLAIRE_EMBED_CHAR_BUDGET",
     "CLAIRE_EXPAND_CHAR_BUDGET",
     "CLAIRE_EXPAND_MAX",
+    "CLAIRE_AUTO_EXPAND",
+    "CLAIRE_WATCH_INTERVAL_DAYS",
     "CLAIRE_RESEARCH_CONTEXT_BUDGET",
     "CLAIRE_PRESENTATION_PDF_MAX_BYTES",
     "CLAIRE_VIDEO_MAX_EXTRACT_CHARS",
@@ -183,7 +189,7 @@ class IngestLimitManager:
                 self.data_dir = (ROOT / "data").resolve()
 
         self.registry_path = self.data_dir / INGEST_LIMITS_CONFIG_FILENAME
-        self._env_files = env_files or [ROOT / ".env", ROOT / ".env.dev"]
+        self._env_files = env_files or [ENV_ROOT / ".env", ENV_ROOT / ".env.dev"]
         if auto_migrate:
             self.migrate_from_env_if_needed()
 
@@ -303,10 +309,20 @@ class IngestLimitManager:
                 raise ValueError(f"pdf_default_effort must be empty or one of {VALID_EFFORTS}, got '{eff}'")
             curr_limits["pdf_default_effort"] = eff
 
+        if "watch_interval_days" in incoming_limits:
+            try:
+                days = float(incoming_limits["watch_interval_days"])
+            except (TypeError, ValueError) as err:
+                raise ValueError(f"Invalid number for watch_interval_days: {err}") from err
+            if not days > 0:
+                raise ValueError("watch_interval_days must be greater than 0")
+            curr_limits["watch_interval_days"] = days
+
         bool_fields = (
             "pdf_exclude_appendix",
             "pdf_exclude_references",
             "pdf_detect_encoding_flaws",
+            "auto_expand",
         )
         for bf in bool_fields:
             if bf in incoming_limits:
@@ -325,17 +341,8 @@ class IngestLimitManager:
         limits = cfg.get("limits", {})
         return dict(limits)
 
-    def migrate_from_env_if_needed(self, force: bool = False) -> bool:
-        """기존 환경변수(.env / .env.dev 및 os.environ)의 적재 제한 설정을 ingest_limits.json으로 마이그레이션한다.
-
-        마이그레이션 완료 후 .env 파일의 해당 변수 선언을 주석처리하여 사용을 종료한다.
-        """
-        needs_migration = not self.registry_path.is_file() or force
-        if not needs_migration:
-            for f in self._env_files:
-                comment_out_env_file_limits(f, MIGRATED_LIMIT_ENV_VARS)
-            return False
-
+    def _collect_env_limit_values(self) -> dict[str, str]:
+        """Read the limit variables from the env files and from the process environment (the process environment wins)."""
         collected: dict[str, str] = {}
         for f in reversed(self._env_files):
             collected.update(_parse_env_file_values(f))
@@ -343,9 +350,12 @@ class IngestLimitManager:
             v = os.environ.get(k)
             if v is not None and v != "":
                 collected[k] = v
+        return collected
 
-        cfg = copy.deepcopy(DEFAULT_INGEST_LIMITS_CONFIG)
-        lims = cfg["limits"]
+    @staticmethod
+    def _limits_from_env_values(collected: dict[str, str]) -> dict[str, Any]:
+        """Convert the collected env values to limit fields. A value that is not valid is ignored, and the field keeps its current value."""
+        lims: dict[str, Any] = {}
 
         int_mappings = {
             "CLAIRE_RAW_CHAR_BUDGET": "raw_char_budget",
@@ -373,10 +383,19 @@ class IngestLimitManager:
             "CLAIRE_PDF_EXCLUDE_APPENDIX": "pdf_exclude_appendix",
             "CLAIRE_PDF_EXCLUDE_REFERENCES": "pdf_exclude_references",
             "CLAIRE_PDF_DETECT_ENCODING_FLAWS": "pdf_detect_encoding_flaws",
+            "CLAIRE_AUTO_EXPAND": "auto_expand",
         }
         for env_k, field_k in bool_mappings.items():
             if env_k in collected and collected[env_k].strip():
                 lims[field_k] = collected[env_k].strip().lower() in ("1", "true", "yes", "on")
+
+        if "CLAIRE_WATCH_INTERVAL_DAYS" in collected and collected["CLAIRE_WATCH_INTERVAL_DAYS"].strip():
+            try:
+                days = float(collected["CLAIRE_WATCH_INTERVAL_DAYS"].strip())
+            except ValueError:
+                days = 0.0
+            if days > 0:
+                lims["watch_interval_days"] = days
 
         if "CLAIRE_PDF_PARSER" in collected and collected["CLAIRE_PDF_PARSER"].strip():
             p = collected["CLAIRE_PDF_PARSER"].strip().lower()
@@ -403,9 +422,47 @@ class IngestLimitManager:
             if eff in VALID_EFFORTS:
                 lims["pdf_classifier_effort"] = eff
 
+        return lims
+
+    def migrate_from_env_if_needed(self, force: bool = False) -> bool:
+        """기존 환경변수(.env / .env.dev 및 os.environ)의 적재 제한 설정을 ingest_limits.json으로 마이그레이션한다.
+
+        파일이 없으면 모든 키를 이전한다. 파일이 있으면 파일에 아직 없는 키(나중에 추가된 키)만 이전한다.
+        마이그레이션 완료 후 .env 파일의 해당 변수 선언을 주석처리하여 사용을 종료한다.
+        """
+        if self.registry_path.is_file() and not force:
+            changed = self._migrate_missing_keys()
+            for f in self._env_files:
+                comment_out_env_file_limits(f, MIGRATED_LIMIT_ENV_VARS)
+            return changed
+
+        cfg = copy.deepcopy(DEFAULT_INGEST_LIMITS_CONFIG)
+        cfg["limits"].update(self._limits_from_env_values(self._collect_env_limit_values()))
         self.save_config(cfg)
         for f in self._env_files:
             comment_out_env_file_limits(f, MIGRATED_LIMIT_ENV_VARS)
+        return True
+
+    def _migrate_missing_keys(self) -> bool:
+        """Add the limit keys that the file does not have yet (keys added in a later version). The env value is used if it exists, else the default."""
+        try:
+            raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning("Failed to read %s for the migration of new keys: %s", self.registry_path, exc)
+            return False
+        raw_limits = raw.get("limits") if isinstance(raw, dict) else None
+        if not isinstance(raw_limits, dict):
+            return False
+        missing = [k for k in DEFAULT_INGEST_LIMITS_CONFIG["limits"] if k not in raw_limits]
+        if not missing:
+            return False
+        from_env = self._limits_from_env_values(self._collect_env_limit_values())
+        cfg = self.get_config()
+        for k in missing:
+            if k in from_env:
+                cfg["limits"][k] = from_env[k]
+        self.save_config(cfg)
+        log.info("Added new ingest limit keys to %s: %s", self.registry_path, ", ".join(missing))
         return True
 
 

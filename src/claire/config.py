@@ -239,9 +239,15 @@ class _IngestLimitsJsonSettingsSource(PydanticBaseSettingsSource):
             from .ingest_limit_manager import get_ingest_limit_manager
 
             ilm = get_ingest_limit_manager(data_dir=data_dir)
-            return ilm.get_settings_dict()
+            limits = ilm.get_settings_dict()
         except Exception:
             return {}
+        # The environment sources give a value under the alias (CLAIRE_*). With the field name, an exported variable or a .env line would win over this file. Give the alias, so that this source has the higher priority.
+        fields = self.settings_cls.model_fields
+        return {
+            (fields[name].alias or name) if name in fields else name: value
+            for name, value in limits.items()
+        }
 
 
 PROVIDER_UNAVAILABLE = "unavailable"

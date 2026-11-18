@@ -18,3 +18,38 @@ def korean_interface(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("CLAIRE_LANG", "ko")
     with use_locale("ko"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_limit_manager_files(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A test must not read or change the files of the repository through the limit manager.
+
+    - The env files (``.env``, ``.env.dev``) that the migration reads and comments out: an empty temporary folder.
+    - The limits file of the repository data folder (``data/ingest_limits.json``): a new temporary data folder for each test. At its first use in the test, the manager makes the file from the variables of the test, as a real first start does.
+    """
+    from pathlib import Path
+
+    import claire.ingest_limit_manager as ilm
+
+    monkeypatch.setattr(ilm, "ENV_ROOT", tmp_path_factory.mktemp("env-root"))
+    repo_data = (ilm.ROOT / "data").resolve()
+    isolated_data = tmp_path_factory.mktemp("limits-data")
+    real_get = ilm.get_ingest_limit_manager
+
+    def isolated_get(data_dir=None):
+        if data_dir is None:
+            import os
+
+            cand = os.environ.get("CB_DATA_DIR") or os.environ.get("CLAIRE_DB_PATH")
+            if not cand:
+                return real_get(isolated_data)
+            data_dir = Path(cand).parent if cand.endswith(".db") else Path(cand)
+        p = Path(data_dir)
+        if (p if p.is_absolute() else ilm.ROOT / p).resolve() == repo_data:
+            return real_get(isolated_data)
+        return real_get(data_dir)
+
+    monkeypatch.setattr(ilm, "get_ingest_limit_manager", isolated_get)
+    ilm._INGEST_LIMIT_MANAGERS.clear()
+    yield
+    ilm._INGEST_LIMIT_MANAGERS.clear()

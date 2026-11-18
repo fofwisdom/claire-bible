@@ -216,3 +216,70 @@ def test_api_limits_endpoints(tmp_path: Path):
     resp_alias = client.get("/ingest-limits", headers=headers)
     assert resp_alias.status_code == 200
     assert resp_alias.json()["limits"]["raw_char_budget"] == 45000
+
+
+def test_ingest_limit_manager_adds_new_keys_to_existing_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A file from an older version gets the new keys: the value of the env file if it exists, else the default. The keys that the file has do not change."""
+    monkeypatch.delenv("CLAIRE_AUTO_EXPAND", raising=False)
+    monkeypatch.delenv("CLAIRE_WATCH_INTERVAL_DAYS", raising=False)
+    monkeypatch.delenv("CLAIRE_RAW_CHAR_BUDGET", raising=False)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "ingest_limits.json").write_text(
+        json.dumps({"version": 1, "limits": {"raw_char_budget": 12345, "expand_max": 3}, "updated_at": 1.0}),
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text("CLAIRE_RAW_CHAR_BUDGET=999\nCLAIRE_AUTO_EXPAND=0\nCLAIRE_WATCH_INTERVAL_DAYS=2.5\n", encoding="utf-8")
+
+    manager = IngestLimitManager(data_dir=data_dir, auto_migrate=True, env_files=[env_file])
+
+    saved = json.loads(manager.registry_path.read_text(encoding="utf-8"))["limits"]
+    assert saved["raw_char_budget"] == 12345
+    assert saved["expand_max"] == 3
+    assert saved["auto_expand"] is False
+    assert saved["watch_interval_days"] == 2.5
+    assert saved["embed_char_budget"] == 8000
+    env_content = env_file.read_text(encoding="utf-8")
+    assert "# CLAIRE_AUTO_EXPAND=0" in env_content
+    assert "# CLAIRE_WATCH_INTERVAL_DAYS=2.5" in env_content
+
+    # A second start finds no missing key and does not write the file again.
+    before = manager.registry_path.read_text(encoding="utf-8")
+    assert manager.migrate_from_env_if_needed() is False
+    assert manager.registry_path.read_text(encoding="utf-8") == before
+
+
+def test_ingest_limit_manager_expand_and_watch_validation(tmp_path: Path):
+    """auto_expand is a boolean, and watch_interval_days must be a number greater than 0."""
+    manager = IngestLimitManager(data_dir=tmp_path / "data", auto_migrate=False)
+
+    with pytest.raises(ValueError, match="watch_interval_days must be greater than 0"):
+        manager.update_config({"limits": {"watch_interval_days": 0}})
+    with pytest.raises(ValueError, match="Invalid number for watch_interval_days"):
+        manager.update_config({"limits": {"watch_interval_days": ""}})
+
+    cfg = manager.update_config({"limits": {"auto_expand": False, "watch_interval_days": "0.5"}})
+    assert cfg["limits"]["auto_expand"] is False
+    assert cfg["limits"]["watch_interval_days"] == 0.5
+
+    settings = Settings(db_path=str(tmp_path / "data" / "claire.db"))
+    assert settings.auto_expand is False
+    assert settings.watch_interval_days == 0.5
+
+
+def test_loop_settings_follow_the_limits_file(tmp_path: Path):
+    """A loop daemon reads the limits file at each cycle, and a changed limit gives a new service fingerprint."""
+    from claire.cli import _limits_fingerprint, _with_current_limits
+
+    data_dir = tmp_path / "data"
+    manager = IngestLimitManager(data_dir=data_dir, auto_migrate=False)
+    manager.update_config({"limits": {"auto_expand": True, "watch_interval_days": 1}})
+    settings = _with_current_limits(Settings(db_path=str(data_dir / "claire.db")))
+    first = _limits_fingerprint(settings)
+
+    manager.update_config({"limits": {"auto_expand": False, "watch_interval_days": 7}})
+    settings = _with_current_limits(settings)
+    assert settings.auto_expand is False
+    assert settings.watch_interval_days == 7.0
+    assert _limits_fingerprint(settings) != first

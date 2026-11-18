@@ -206,7 +206,7 @@ def test_sorcerer_custom_env(monkeypatch):
     assert s2.effective_sorcerer == "owner"
 
 
-def test_slicing_config_defaults(monkeypatch):
+def test_slicing_config_defaults(monkeypatch, tmp_path):
     monkeypatch.delenv("CLAIRE_RAW_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", raising=False)
     monkeypatch.delenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", raising=False)
@@ -216,6 +216,7 @@ def test_slicing_config_defaults(monkeypatch):
     monkeypatch.delenv("CLAIRE_EMBED_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_EXPAND_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_RESEARCH_CONTEXT_BUDGET", raising=False)
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
 
     settings = Settings(_env_file=None)
 
@@ -231,18 +232,21 @@ def test_slicing_config_defaults(monkeypatch):
     assert settings.research_context_budget == 8000
 
 
-def test_slicing_config_custom_env(monkeypatch):
-    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "15000")
-    monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "80000")
-    monkeypatch.setenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", "1048576")
-    monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "10000")
-    monkeypatch.setenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", "25000")
-    monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "strict")
-    monkeypatch.setenv("CLAIRE_EMBED_CHAR_BUDGET", "4000")
-    monkeypatch.setenv("CLAIRE_EXPAND_CHAR_BUDGET", "1500")
-    monkeypatch.setenv("CLAIRE_RESEARCH_CONTEXT_BUDGET", "5000")
-
-    settings = Settings(_env_file=None)
+def test_slicing_config_custom_values(monkeypatch, tmp_path):
+    # The limit fields come from data/ingest_limits.json, which wins over the environment. A constructor argument wins over the file.
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
+    settings = Settings(
+        _env_file=None,
+        CLAIRE_RAW_CHAR_BUDGET=15000,
+        CLAIRE_PDF_MAX_EXTRACT_CHARS=80000,
+        CLAIRE_PRESENTATION_PDF_MAX_BYTES=1048576,
+        CLAIRE_EXTRACT_CHAR_BUDGET=10000,
+        CLAIRE_MERGED_EXTRACT_CHAR_BUDGET=25000,
+        CLAIRE_SLICING_STRATEGY="strict",
+        CLAIRE_EMBED_CHAR_BUDGET=4000,
+        CLAIRE_EXPAND_CHAR_BUDGET=1500,
+        CLAIRE_RESEARCH_CONTEXT_BUDGET=5000,
+    )
 
     assert settings.raw_char_budget == 15000
     assert settings.pdf_max_extract_chars == 80000
@@ -256,18 +260,32 @@ def test_slicing_config_custom_env(monkeypatch):
     assert settings.research_context_budget == 5000
 
 
-def test_slicing_strategy_invalid(monkeypatch):
-    monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "invalid_strategy")
+def test_ingest_limits_file_wins_over_exported_variable(monkeypatch, tmp_path):
+    from claire.ingest_limit_manager import IngestLimitManager
+
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
+    IngestLimitManager(data_dir=tmp_path, auto_migrate=False).update_config({"limits": {"raw_char_budget": 111, "auto_expand": False}})
+    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "777")
+    monkeypatch.setenv("CLAIRE_AUTO_EXPAND", "1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.raw_char_budget == 111
+    assert settings.auto_expand is False
+
+
+def test_slicing_strategy_invalid(monkeypatch, tmp_path):
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
 
     with pytest.raises(ValidationError, match="CLAIRE_SLICING_STRATEGY must be 'table-exemption' or 'strict'"):
-        Settings(_env_file=None)
+        Settings(_env_file=None, CLAIRE_SLICING_STRATEGY="invalid_strategy")
 
 
-def test_presentation_pdf_max_bytes_must_be_positive(monkeypatch):
-    monkeypatch.setenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", "0")
+def test_presentation_pdf_max_bytes_must_be_positive(monkeypatch, tmp_path):
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
 
     with pytest.raises(ValidationError, match="greater than 0"):
-        Settings(_env_file=None)
+        Settings(_env_file=None, CLAIRE_PRESENTATION_PDF_MAX_BYTES=0)
 
 
 def test_codex_config_defaults(monkeypatch):
