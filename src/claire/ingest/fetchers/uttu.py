@@ -12,7 +12,6 @@ from bs4 import BeautifulSoup
 
 from ...config import get_settings
 from .adoc_text import adoc_cell, adoc_table
-from ..registry import register_web_adapter
 from .base import BaseWebAdapter, WebAdapterResult, fetch_settings
 from .http import SafeHttpClient
 
@@ -467,7 +466,6 @@ def _format_dialog_steps(dialog_steps: dict[str, Any]) -> str:
     return "\n\n".join(lines).strip()
 
 
-@register_web_adapter(name="uttu", domains=_UTTU_DOMAINS, priority=35)
 class UttuAdapter(BaseWebAdapter):
     """Web adapter for uttu.merui.net Reverse: 1999 database and story reader."""
 

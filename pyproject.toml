@@ -48,6 +48,6 @@ only-include = ["src/claire"]
 sources = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "plugins"]
 asyncio_mode = "auto"
 pythonpath = [".", "src"]

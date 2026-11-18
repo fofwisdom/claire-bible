@@ -534,9 +534,7 @@ def _published_at(tweet: dict) -> str | None:
     return tweet.get("created_at") or None
 
 from .base import BaseFetcher
-from ..registry import register_fetcher
 
-@register_fetcher("xcom", priority=90)
 class XComFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:

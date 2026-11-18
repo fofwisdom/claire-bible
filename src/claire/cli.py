@@ -8,6 +8,7 @@ Command Groups:
   Providers & Themes:    providers, theme
   Services & Daemons:    bot, serve-api, recover-loop, refresh-loop, expand-loop
   Ingestion & Search:    ingest, search, hoyowiki
+  Plugins:               plugin
   Presentations:         presentation
   Reprocess & Backfill:  reprocess, regenerate, summary-regenerate, reextract, backfill-detail, backfill-summary, backfill-images, recompile-html, video-reprocess
   Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill, media
@@ -1488,13 +1489,22 @@ def cmd_repo(_args) -> int:
     return 0
 
 
+def _set_plugin_process(name: str) -> None:
+    """A long-running process writes data/run/plugins_<name>.json (INGEST_ADAPTER_PLUGIN_DESIGN.md §8.3 item 4)."""
+    from .plugin_host.runtime import runtime
+
+    runtime().set_process_name(name)
+
+
 def cmd_bot(_args) -> int:
+    _set_plugin_process("bot")
     from .telegram_bot import run_bot
 
     return run_bot()
 
 
 def cmd_serve_api(_args) -> int:
+    _set_plugin_process("api")
     from .api.server import run_api
 
     return run_api()
@@ -1806,6 +1816,7 @@ def _run_recover_cycle(
 
 def cmd_recover_loop(args) -> int:
     """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
+    _set_plugin_process("recover_loop")
     import time
 
     from .ingest.service import IngestService
@@ -1903,6 +1914,7 @@ def cmd_refresh_run(args) -> int:
 
 def cmd_refresh_loop(args) -> int:
     """갱신 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
+    _set_plugin_process("refresh_loop")
     import time
 
     from .ingest.service import IngestService
@@ -2119,6 +2131,7 @@ def _run_expand_cycle(
 
 def cmd_expand_loop(args) -> int:
     """자동 확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
+    _set_plugin_process("expand_loop")
     import time
 
     from .ingest.service import IngestService
@@ -4666,6 +4679,20 @@ def cmd_liveness(_args) -> int:
     return 0 if rep["ok"] else 1
 
 
+def _migrate_plugin_store(s) -> int:
+    """First start of the plugin store (INGEST_ADAPTER_PLUGIN_DESIGN.md §11 item 1). The operator does nothing."""
+    from .plugin_host.service import start_store
+
+    try:
+        count = start_store(s)
+    except Exception as e:  # noqa: BLE001
+        print(f"migrate: plugin store error: {e}", file=sys.stderr)
+        return 1
+    if count is not None:
+        print(f"plugin store started: {count} project plugins enabled")
+    return 0
+
+
 def cmd_migrate(_args) -> int:
     """DB 스키마를 명시적으로 초기화/업그레이드하고 버전을 검증한다."""
     from .health import require_current_schema
@@ -4719,7 +4746,7 @@ def cmd_migrate(_args) -> int:
             f"schema_version={version} expected={dbm.SCHEMA_VERSION} "
             f"lineage={dbm.SCHEMA_LINEAGE}"
         )
-        return 0
+        return _migrate_plugin_store(s)
 
     from .store.knowledge_base import KnowledgeBaseManager
 
@@ -4755,7 +4782,9 @@ def cmd_migrate(_args) -> int:
         f"migrate: themes={len(targets)} succeeded={len(successes)} "
         f"failed={len(failures)}"
     )
-    return 0 if not failures else 1
+    if failures:
+        return 1
+    return _migrate_plugin_store(s)
 
 
 def cmd_hoyowiki(args) -> int:
@@ -5433,6 +5462,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true", help="output result in JSON format")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    from .plugin_host.cli import add_parser as _add_plugin_parser
+
+    _add_plugin_parser(sub)
 
     sub.add_parser(
         "preflight",

@@ -592,9 +592,7 @@ def fetch_youtube(
 YOUTUBE_HOSTS = ("youtube.com", "*.youtube.com", "youtu.be", "*.youtu.be")
 
 from .base import BaseFetcher
-from ..registry import register_fetcher
 
-@register_fetcher("youtube", priority=90)
 class YouTubeFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:

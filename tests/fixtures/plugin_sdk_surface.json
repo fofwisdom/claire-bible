@@ -1,0 +1,181 @@
+{
+  "BROWSER_USER_AGENT": {
+    "value": "'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'"
+  },
+  "BaseFetcher": {
+    "class": "BaseFetcher",
+    "methods": {
+      "can_handle": "(cls, url: 'str') -> 'bool'",
+      "fetch": "(cls, url: 'str', **kwargs: 'Any') -> 'Document'"
+    }
+  },
+  "BaseWebAdapter": {
+    "class": "BaseWebAdapter",
+    "methods": {
+      "name": "(cls) -> 'str'",
+      "try_fetch": "(cls, url: 'str', **kwargs: 'Any') -> 'WebAdapterResult | None'"
+    }
+  },
+  "CaptionAcquisition": {
+    "class": "CaptionAcquisition",
+    "methods": {
+      "__init__": "(self, status: 'str' = 'absent', text: 'str' = '', language: 'str | None' = None, source: 'str | None' = None, format: 'str | None' = None, content_hash: 'str | None' = None, error: 'str | None' = None) -> None"
+    }
+  },
+  "Document": {
+    "class": "Document",
+    "methods": {}
+  },
+  "FetchError": {
+    "class": "FetchError",
+    "methods": {}
+  },
+  "HTTPError": {
+    "class": "httpx.HTTPError"
+  },
+  "HTTPStatusError": {
+    "class": "httpx.HTTPStatusError"
+  },
+  "IngestSession": {
+    "class": "IngestSession",
+    "methods": {
+      "__init__": "(self, settings: 'Any', conn: 'Any', provider: 'Any', vstore: 'Any') -> 'None'",
+      "ingest": "(self, url: 'str', *, source: 'str', full_content: 'bool' = True) -> 'Any'"
+    }
+  },
+  "MediaResponseDetected": {
+    "class": "MediaResponseDetected",
+    "methods": {
+      "__init__": "(self, message: 'str', url: 'str', content_type: 'str' = '')"
+    }
+  },
+  "PLUGIN_API_LEVEL": {
+    "value": "1"
+  },
+  "PluginContext": {
+    "class": "PluginContext",
+    "methods": {
+      "__init__": "(self, manifest: 'Manifest', folder: 'Path', origin: 'str') -> 'None'",
+      "cli_command": "(self, name: 'str', build_parser: 'Callable[[Any], None]', run: 'Callable[[Any], int]') -> 'None'",
+      "fetcher": "(self, cls: 'type', *, name: 'str', priority: 'int', hosts: 'tuple[str, ...] | list[str]') -> 'None'",
+      "http_client": "(self, **kwargs: 'Any') -> 'Any'",
+      "safe_get": "(self, url: 'str', *, timeout: 'float' = 30.0, max_size: 'int' = 10485760, **kwargs: 'Any') -> 'Any'",
+      "web_adapter": "(self, cls: 'type', *, name: 'str', priority: 'int', hosts: 'tuple[str, ...] | list[str]') -> 'None'"
+    }
+  },
+  "ProviderUnavailableError": {
+    "class": "ProviderUnavailableError",
+    "methods": {}
+  },
+  "RequestError": {
+    "class": "httpx.RequestError"
+  },
+  "Response": {
+    "class": "httpx.Response"
+  },
+  "Settings": {
+    "class": "Settings",
+    "methods": {
+      "model_post_init": "(self: 'BaseModel', context: 'Any', /) -> 'None'",
+      "provider_unavailable_reason": "(self, kind: 'str') -> 'str | None'",
+      "settings_customise_sources": "(cls, settings_cls: 'type[BaseSettings]', init_settings, env_settings, dotenv_settings, file_secret_settings)"
+    }
+  },
+  "SourceAttachment": {
+    "class": "SourceAttachment",
+    "methods": {}
+  },
+  "TimeoutException": {
+    "class": "httpx.TimeoutException"
+  },
+  "WebAdapterResult": {
+    "class": "WebAdapterResult",
+    "methods": {
+      "__init__": "(self, title: 'str | None', text: 'str | None', links: 'list[str]', anchors: 'dict[str, str]', images: 'list[dict[str, Any]]', is_pdf: 'bool' = False, doc_type: 'str' = 'web', parser_info: 'dict[str, Any] | None' = None, biblio: 'dict[str, Any] | None' = None) -> None"
+    }
+  },
+  "acquire_caption": {
+    "function": "(info: 'dict[str, Any]', target_languages: 'list[str]', ydl: 'Any') -> 'CaptionAcquisition'"
+  },
+  "adoc_cell": {
+    "function": "(text: 'str') -> 'str'"
+  },
+  "adoc_link_text": {
+    "function": "(text: 'str') -> 'str'"
+  },
+  "adoc_list_item": {
+    "function": "(text: 'str', depth: 'int' = 0) -> 'str'"
+  },
+  "adoc_table": {
+    "function": "(rows: 'list[list[str]]', caption: 'str' = '') -> 'str'"
+  },
+  "attach_usage_hooks": {
+    "function": "(provider: 'Any', settings: 'Any') -> 'Any'"
+  },
+  "canonicalize_url": {
+    "function": "(url: 'str') -> 'str'"
+  },
+  "content_hash": {
+    "function": "(*parts: 'str') -> 'str'"
+  },
+  "delete_cached_video_file": {
+    "function": "(data_dir: 'Path', url: 'str', *, canonical_url: 'str | None' = None) -> 'bool'"
+  },
+  "emit_progress": {
+    "function": "(msg: 'str') -> 'None'"
+  },
+  "extract_html": {
+    "function": "(html: 'str', base_url: 'str | None' = None) -> 'tuple[str | None, str, list[str], dict[str, str], str | None, list[dict]]'"
+  },
+  "extract_pdf_bytes": {
+    "function": "(data: 'bytes', url: 'str | None' = None, fallback_title: 'str | None' = None, engine: 'str | None' = None) -> 'PdfExtractResult'"
+  },
+  "fetch_settings": {
+    "function": "(settings: 'Any' = None, fallback: 'Any' = None) -> 'Any'"
+  },
+  "fetch_web": {
+    "function": "(url: 'str', *, full_content: 'bool' = False) -> 'Document'"
+  },
+  "find_ffmpeg_executable": {
+    "function": "(ffmpeg_bin: 'str' = 'ffmpeg') -> 'str | None'"
+  },
+  "format_chapters": {
+    "function": "(chapters: 'list[dict[str, Any]] | None') -> 'str'"
+  },
+  "get_cached_video_file": {
+    "function": "(data_dir: 'Path', url: 'str', *, canonical_url: 'str | None' = None, max_age_sec: 'float' = 259200, min_size_bytes: 'int' = 1024) -> 'Path | None'"
+  },
+  "get_transcript_provider": {
+    "function": "(settings: 'Any' = None) -> 'TranscriptProvider'"
+  },
+  "get_vision_provider": {
+    "function": "(settings: 'Any' = None) -> 'VisionTranscriptProvider'"
+  },
+  "host_matches_any": {
+    "function": "(host: 'str | None', patterns: 'Iterable[str]') -> 'bool'"
+  },
+  "ingest_session": {
+    "function": "(args: 'Any') -> 'Iterator[IngestSession]'"
+  },
+  "parse_ytdlp_extractor_args": {
+    "function": "(args_str: 'str') -> 'dict[str, dict[str, list[str]]]'"
+  },
+  "render_html_cdp": {
+    "function": "(url: 'str', *, wait_seconds: 'float' = 2.5, click_tab_label: 'str | None' = None, interaction_timeout_seconds: 'float' = 12.0, post_click_wait_seconds: 'float' = 1.5) -> 'str'"
+  },
+  "reroute": {
+    "function": "(url: 'str', *, full_content: 'bool' = False) -> 'Document'"
+  },
+  "save_video_file_to_cache": {
+    "function": "(data_dir: 'Path', url: 'str', source_path: 'Path', *, canonical_url: 'str | None' = None) -> 'Path | None'"
+  },
+  "slice_document_text": {
+    "function": "(text: 'str', limit: 'int', strategy: 'str' = 'table-exemption') -> 'tuple[str, bool, int, int]'"
+  },
+  "slice_pdf_text": {
+    "function": "(text: 'str', limit: 'int', *, strategy: 'str' = 'table-exemption', exclude_appendix: 'bool' = True, exclude_references: 'bool' = True) -> 'tuple[str, bool, bool, bool, int, int]'"
+  },
+  "url_host": {
+    "function": "(url: 'str') -> 'str | None'"
+  }
+}

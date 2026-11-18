@@ -72,3 +72,38 @@ def mock_guarded_client(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(f"{module_path}.guarded_client", _factory)
 
     return _install
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A test must not start the plugin store in the database of the repository data folder (INGEST_ADAPTER_PLUGIN_DESIGN.md §11 item 1).
+
+    When the settings of the test point to ``data/claire.db`` of the repository, the plugin runtime reads and writes the records in a new temporary database. The project plugins of the repository then start enabled, as on a new server.
+    """
+    from pathlib import Path
+
+    from claire.config import ROOT
+    from claire.plugin_host import runtime as rt
+
+    repo_db = (Path(ROOT) / "data" / "claire.db").resolve()
+    real = rt.server_db_file
+    isolated: dict[str, Path] = {}
+
+    def isolated_db(settings=None):
+        path = real(settings)
+        if Path(path).resolve() != repo_db:
+            return path
+        if "db" not in isolated:
+            from claire.store import db as dbm
+
+            target = tmp_path_factory.mktemp("plugin-records") / "claire.db"
+            conn = dbm.connect(target)
+            dbm.init_db(conn)
+            conn.close()
+            isolated["db"] = target
+        return isolated["db"]
+
+    monkeypatch.setattr(rt, "server_db_file", isolated_db)
+    rt.runtime().invalidate()
+    yield
+    rt.runtime().invalidate()

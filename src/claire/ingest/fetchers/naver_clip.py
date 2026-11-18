@@ -20,7 +20,6 @@ from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from ..registry import register_fetcher
 from .base import BaseFetcher, FetchError, attach_usage_hooks, fetch_settings
 from .http import guarded_client
 from .http_policy import BROWSER_USER_AGENT
@@ -336,7 +335,6 @@ def fetch_naver_clip(
     )
 
 
-@register_fetcher("naver_clip", priority=120)
 class NaverClipFetcher(BaseFetcher):
     """Fetcher for Naver Clip and Shorts videos."""
 

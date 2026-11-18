@@ -14,7 +14,6 @@ import re
 import urllib.parse
 from lxml import html as lh
 
-from ..registry import register_web_adapter
 from .base import BaseWebAdapter, WebAdapterResult
 
 _LAW_HOSTS = ("law.go.kr", "www.law.go.kr")
@@ -96,7 +95,6 @@ def try_law_kr(
         return None
 
 
-@register_web_adapter(name="law", domains=("law.go.kr", "*.law.go.kr"), priority=20)
 class LawKrAdapter(BaseWebAdapter):
     @classmethod
     def name(cls) -> str:

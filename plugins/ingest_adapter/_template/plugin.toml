@@ -1,0 +1,34 @@
+# Manifest of a plugin: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1.
+# `claire plugin new <id> --type ingest_adapter` copies this folder and fills the values in double underscores.
+manifest = 1
+id = "__ID__"
+type = "ingest_adapter"
+revision = 1
+core_commit = "__CORE_COMMIT__"
+api = __API__
+entry = "adapter:register"
+license = "MIT"
+maturity = "experimental"
+maintainers = []
+
+[text.en]
+name = "__NAME__"
+description = "Gets the text of the pages of example.com. Change this text: write in ASD-STE100."
+
+[[provides]]
+kind = "web_adapter"
+name = "__NAME__"
+priority = 50
+hosts = ["example.com", "*.example.com"]
+source_types = []
+
+[permissions]
+network = ["example.com", "*.example.com"]
+private_network = false
+network_modules = []
+executables = []
+providers = []
+
+[requires]
+distributions = []
+executables = []

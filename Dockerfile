@@ -21,6 +21,8 @@ RUN uv sync --locked --no-dev --no-install-project --extra stealth --extra audio
 
 # 애플리케이션 소스 변경은 위의 대형 의존성 레이어를 무효화하지 않는다.
 COPY src/ ./src/
+# Project plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §5). The plugin folder of the server administrator is a read-only mount at /app/var/plugins.
+COPY plugins/ ./plugins/
 RUN uv pip install --no-cache --no-deps . \
     && uv cache clean && rm -rf /root/.cache \
     && groupadd -g 1000 claire 2>/dev/null || true \

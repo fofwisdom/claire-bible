@@ -21,15 +21,15 @@ def test_registry_get_matching_web_adapters_domain_only():
     uttu_url = "https://uttu.merui.net/story/trails/101039/kr/"
     discourse_url = "https://community.example.com/t/topic/1234"
 
-    domain_adapters = registry.get_matching_web_adapters(uttu_url, domain_only=True)
-    assert any(a.name() == "uttu" for a in domain_adapters)
+    domain_adapters = registry.web_adapter_entries(uttu_url, domain_only=True)
+    assert any(a.name == "uttu" for a in domain_adapters)
 
     # Discourse adapter has no domains configured, so domain_only=True should exclude it
-    domain_adapters_discourse = registry.get_matching_web_adapters(discourse_url, domain_only=True)
-    assert not any(a.name() == "discourse" for a in domain_adapters_discourse)
+    domain_adapters_discourse = registry.web_adapter_entries(discourse_url, domain_only=True)
+    assert not any(a.name == "discourse" for a in domain_adapters_discourse)
 
-    all_adapters_discourse = registry.get_matching_web_adapters(discourse_url, domain_only=False)
-    assert any(a.name() == "discourse" for a in all_adapters_discourse)
+    all_adapters_discourse = registry.web_adapter_entries(discourse_url, domain_only=False)
+    assert any(a.name == "discourse" for a in all_adapters_discourse)
 
 
 def test_resolve_uttu_language():

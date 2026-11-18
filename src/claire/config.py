@@ -587,6 +587,8 @@ class Settings(BaseSettings):
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
+    # Plugin folder of the server administrator (INGEST_ADAPTER_PLUGIN_DESIGN.md §5). Not in the data folder.
+    plugins_path: str = Field(default="var/plugins", alias="CLAIRE_PLUGINS_DIR")
     # Deprecated: The vault subsystem is removed. Retained for backward compatibility.
     vault_path: str = Field(default="", alias="CLAIRE_VAULT_PATH")
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
@@ -1173,6 +1175,12 @@ class Settings(BaseSettings):
     def data_dir(self) -> Path:
         """raw 보관 등 데이터 루트. db 파일의 부모 디렉터리."""
         return self.db_file.parent
+
+    @property
+    def plugins_dir(self) -> Path:
+        """The plugin folder (``CLAIRE_PLUGINS_DIR``). A relative path is under the app root."""
+        p = Path(self.plugins_path)
+        return p if p.is_absolute() else ROOT / p
 
     @property
     def vault_dir(self) -> Path:

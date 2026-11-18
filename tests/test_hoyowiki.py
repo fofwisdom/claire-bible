@@ -295,6 +295,6 @@ def test_registry_integration():
     assert issubclass(fetcher_cls, BaseFetcher)
 
     # Get web adapters
-    adapters = registry.get_matching_web_adapters(url)
+    adapters = [e.cls for e in registry.web_adapter_entries(url)]
     assert HoyowikiAdapter in adapters
     assert issubclass(HoyowikiAdapter, BaseWebAdapter)

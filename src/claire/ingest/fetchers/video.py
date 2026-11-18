@@ -523,10 +523,8 @@ def resolve_media_title(url: str, raw_title: str | None = None) -> str:
 
 
 from .base import BaseFetcher
-from ..registry import register_fetcher
 
 
-@register_fetcher("video", priority=80)
 class VideoFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:

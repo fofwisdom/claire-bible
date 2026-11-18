@@ -14,7 +14,6 @@ from ...extract.table_budget import slice_document_text
 from ...extract.vision.factory import get_vision_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from ..registry import register_fetcher, register_web_adapter
 from .base import (
     BaseFetcher,
     BaseWebAdapter,
@@ -333,7 +332,6 @@ def try_hoyolab_adapter(url: str, **kwargs: Any) -> WebAdapterResult | None:
         return None
 
 
-@register_fetcher("hoyolab", priority=115)
 class HoYoLabFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
@@ -348,7 +346,6 @@ class HoYoLabFetcher(BaseFetcher):
         return fetch_hoyolab(url, **kwargs)
 
 
-@register_web_adapter(name="hoyolab", domains=("hoyolab.com", "*.hoyolab.com"), priority=38)
 class HoYoLabAdapter(BaseWebAdapter):
     @classmethod
     def name(cls) -> str:

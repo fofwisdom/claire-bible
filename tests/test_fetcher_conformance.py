@@ -1,21 +1,31 @@
-import pytest
-from claire.ingest.registry import registry
-from claire.ingest.fetchers.base import BaseFetcher, BaseWebAdapter
+"""Every registry entry follows the contract (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2), with the network blocked for can_handle."""
 
-def test_fetchers_conformance():
-    """Verify that all registered fetchers subclass BaseFetcher and implement abstract methods."""
-    fetchers = registry.fetchers
-    for priority, name, cls in fetchers:
-        assert issubclass(cls, BaseFetcher), f"{name} ({cls.__name__}) does not inherit from BaseFetcher"
-        assert hasattr(cls, 'can_handle'), f"{name} is missing 'can_handle'"
-        assert hasattr(cls, 'fetch'), f"{name} is missing 'fetch'"
-        # In Python, abstract methods must be implemented to be instantiated,
-        # but since they might be used class-methods, let's just assert existence.
-        
-def test_web_adapters_conformance():
-    """Verify that all registered web adapters subclass BaseWebAdapter."""
-    adapters = registry.web_adapters
-    for priority, name, domains, cls in adapters:
-        assert issubclass(cls, BaseWebAdapter), f"{name} ({cls.__name__}) does not inherit from BaseWebAdapter"
-        assert hasattr(cls, 'name'), f"{name} is missing 'name'"
-        assert hasattr(cls, 'try_fetch'), f"{name} is missing 'try_fetch'"
+import socket
+
+import pytest
+
+from claire.ingest.fetchers.base import BaseFetcher, BaseWebAdapter
+from claire.ingest.registry import registry
+
+
+@pytest.fixture
+def no_network(monkeypatch):
+    def _blocked(*args, **kwargs):
+        raise AssertionError("can_handle must not use the network")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _blocked)
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+
+
+def test_entries_follow_the_contract(no_network):
+    entries = registry.entries()
+    assert entries, "the registry has no entry"
+    names = [(e.kind, e.name) for e in entries]
+    assert len(names) == len(set(names)), "two entries of one kind have the same name"
+    for entry in entries:
+        assert entry.hosts, entry.name
+        if entry.kind == "fetcher":
+            assert issubclass(entry.cls, BaseFetcher), entry.name
+            entry.cls.can_handle("https://example.test/a")
+        else:
+            assert issubclass(entry.cls, BaseWebAdapter), entry.name

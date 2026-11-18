@@ -23,7 +23,6 @@ from ..normalize import canonicalize_url, content_hash
 from .base import BaseFetcher, BaseWebAdapter, FetchError, WebAdapterResult, fetch_settings
 from .http import SafeHttpClient
 from .http_policy import BROWSER_USER_AGENT
-from ..registry import register_fetcher, register_web_adapter
 
 log = logging.getLogger(__name__)
 
@@ -726,7 +725,6 @@ def crawl_hoyowiki(
                 page_num += 1
 
 
-@register_fetcher("hoyowiki", priority=120)
 class HoyowikiFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
@@ -742,7 +740,6 @@ class HoyowikiFetcher(BaseFetcher):
         return fetch_hoyowiki(url, **kwargs)
 
 
-@register_web_adapter(name="hoyowiki", domains=("wiki.hoyolab.com", "*.hoyolab.com"), priority=40)
 class HoyowikiAdapter(BaseWebAdapter):
     @classmethod
     def name(cls) -> str:

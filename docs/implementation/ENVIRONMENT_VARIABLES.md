@@ -203,6 +203,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않는다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식이다. |
 | `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
 | `CLAIRE_VAULT_PATH` | `""` | 상대/절대 디렉터리 경로 (레거시 잔여) | Obsidian Vault 동기화 기능이 영구 제거되어 기본값은 빈 문자열(`""`)이다. 과거 환경 호환성을 위해 필드만 유지된다. |
+| `CLAIRE_PLUGINS_DIR` | `var/plugins` | 상대/절대 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 데이터 폴더와 분리된다. 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. 이미지는 기본값(`/app/var/plugins`, 읽기 전용 마운트)을 쓴다. 프로젝트 플러그인 폴더는 `<app root>/plugins`로 고정이다 ([`INGESTION.md`](INGESTION.md) §2). |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §1 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |

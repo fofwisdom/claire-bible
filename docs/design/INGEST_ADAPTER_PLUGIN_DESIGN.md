@@ -1,6 +1,6 @@
 # Ingest Adapters as Plugins
 
-- **Status**: Planned. Not implemented. Current behavior of fetchers, web adapters, and the registry: [`INGESTION.md`](../implementation/INGESTION.md) §2. Units PL0 to PL4 (§13).
+- **Status**: In progress. PL0 and PL1 are implemented; PL2 to PL4 are not. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §2.2 (registry, plugin host, states, records). Units PL0 to PL4 (§13).
 - **Date**: 2026-11-18 · revisions 2 to 7 on 2026-11-19 · basis commit `b869440` (each fact in §1 and §4 was read in the code at this commit)
 - **Related**: [`FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md`](FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) (its decisions 1 to 7 stay in force), [`ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md`](ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md), [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md), [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md), [`I18N_DESIGN.md`](I18N_DESIGN.md)
 
@@ -208,7 +208,7 @@ executables = ["ffmpeg"]
 providers = ["stt"]
 
 [requires]
-distributions = ["yt-dlp", "youtube-transcript-api"]     # PEP 508; checked, never installed
+distributions = ["youtube-transcript-api"]              # distribution names; checked, never installed
 executables = []
 ```
 
@@ -386,7 +386,7 @@ A failure of one plugin never stops the start of a process (operator rule). It c
 | S1 | Discovery reads TOML and file hashes only. No import, no `.pth` file, no change to `sys.path` (PL-D8). |
 | S2 | Only the administrator switches a plugin. Switching on needs a recent sign-in (`security.step_up_response`: 401 `reauth_required`, 403 `step_up_requires_session` for a bearer token). Switching off needs only the administrator session: it is the emergency stop and it must be fast. |
 | S3 | The request to switch on carries the digest that the administrator saw. When the files changed after the page was read, the server answers 409 `plugin_changed` and changes nothing. |
-| S4 | The loader refuses symbolic links, files outside the folder of the plugin, and files or folders that other users can write. In the plugin folder, each file must belong to the process user or to `root`, or the mount must be read-only. |
+| S4 | The loader refuses symbolic links, files outside the folder of the plugin, and files or folders that other users can write (world-writable, or group-writable by a group that is not the group of the process). In the plugin folder, each file must belong to the process user or to `root`, or the mount must be read-only. |
 | S5 | Separate paths and no shadowing (§5, O8). |
 | S6 | Network access goes through `ctx.http_client()` or `ctx.safe_get()`: the private network guard (principle B2) plus the host list of `permissions.network`. An import check finds direct network modules (`httpx`, `requests`, `urllib.request`, `http.client`, `socket`, `aiohttp`, `yt_dlp`, `curl_cffi`, `scrapling`, `playwright`) and process modules (`subprocess`, `os.system`, `os.exec*`); the SDK keeps the list. A plugin can import only the network modules that it names in `permissions.network_modules`. The console shows a badge "direct network" for them. The check is static: it does not stop code that hides its imports. |
 | S7 | The SDK gives the fetch settings only. It gives no access to `SecretService`, `auth.db`, or the tokens of accounts. |

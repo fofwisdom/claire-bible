@@ -72,7 +72,7 @@ class FetchScraplingResult(tuple):
 
 
 def fetch_web(url: str, *, full_content: bool = False) -> Document:
-    from ..registry import registry
+    from ..registry import registry, report_entry_error
 
     via = "static"
     title: str | None = None
@@ -89,10 +89,10 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     guard_err: str | None = None
 
     # 1) 도메인 특화 Web Adapter 우선 시도 (heavy UI boilerplate 사이트 등)
-    domain_adapters = registry.get_matching_web_adapters(url, domain_only=True)
-    for adapter_class in domain_adapters:
+    domain_adapters = registry.web_adapter_entries(url, domain_only=True)
+    for adapter_entry in domain_adapters:
         try:
-            res_ad = adapter_class.try_fetch(url)
+            res_ad = adapter_entry.cls.try_fetch(url)
             if res_ad is not None:
                 r_title, r_text, r_links, r_anchors, r_images = (
                     res_ad.title, res_ad.text, res_ad.links, res_ad.anchors, res_ad.images
@@ -101,7 +101,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                 if r_usable:
                     title, text, links, anchors, images, via = (
                         r_title or "", r_text, r_links or [], r_anchors or {},
-                        r_images or [], adapter_class.name()
+                        r_images or [], adapter_entry.name
                     )
                     usable, guard_err, is_pdf = True, None, getattr(res_ad, "is_pdf", False)
                     doc_type = getattr(res_ad, "doc_type", None) or ("pdf" if is_pdf else "web")
@@ -111,14 +111,14 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                 elif r_text and len(r_text) > len(text or ""):
                     title, text, links, anchors, images, via = (
                         r_title or "", r_text, r_links or [], r_anchors or {},
-                        r_images or [], adapter_class.name()
+                        r_images or [], adapter_entry.name
                     )
                     usable, guard_err, is_pdf = r_usable, r_guard_err, getattr(res_ad, "is_pdf", False)
                     doc_type = getattr(res_ad, "doc_type", None) or ("pdf" if is_pdf else "web")
                     if getattr(res_ad, "parser_info", None):
                         parser_info = res_ad.parser_info
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - the next step of the chain runs (§7.3 item 4)
+            report_entry_error(adapter_entry, exc)
 
     # 2) 도메인 어댑터 결과가 없거나 미달 시 정적 추출(_fetch_static) 진행
     if not usable:
@@ -136,18 +136,18 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
 
     # 3) Registry 기반 일반 Web Adapter 에스컬레이션
     if not usable:
-        for adapter_class in registry.get_matching_web_adapters(url):
-            if adapter_class in domain_adapters:
+        for adapter_entry in registry.web_adapter_entries(url):
+            if adapter_entry in domain_adapters:
                 continue
             try:
-                res = adapter_class.try_fetch(url)
+                res = adapter_entry.cls.try_fetch(url)
                 if res is not None:
                     r_title, r_text, r_links, r_anchors, r_images = res.title, res.text, res.links, res.anchors, res.images
                     r_usable, r_guard_err = _is_usable(r_title or title, r_text)
                     if r_usable:
                         title, text, links, anchors, images, via = (
                             r_title or title, r_text, r_links or links, r_anchors or anchors,
-                            r_images or images, adapter_class.name()
+                            r_images or images, adapter_entry.name
                         )
                         usable, guard_err, is_pdf = True, None, getattr(res, "is_pdf", False)
                         if getattr(res, "parser_info", None):
@@ -156,13 +156,13 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                     elif r_text and len(r_text) > len(text or ""):
                         title, text, links, anchors, images, via = (
                             r_title or title, r_text, r_links or links, r_anchors or anchors,
-                            r_images or images, adapter_class.name()
+                            r_images or images, adapter_entry.name
                         )
                         usable, guard_err, is_pdf = r_usable, r_guard_err, getattr(res, "is_pdf", False)
                         if getattr(res, "parser_info", None):
                             parser_info = res.parser_info
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - the next step of the chain runs (§7.3 item 4)
+                report_entry_error(adapter_entry, exc)
 
     # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.

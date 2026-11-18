@@ -145,6 +145,7 @@ APP_ONE_OFF_COMMANDS = {
     "truncation-backfill",
     "backfill-truncation",
     "hoyowiki",
+    "plugin",
     "stt-scan",
     "scan-stt",
     "stt-backfill",

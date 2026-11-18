@@ -33,6 +33,7 @@
    * [3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)](#316-지식그래프-엔티티-대표-레이블-관리-entity)
    * [3.17 계정 퇴역 이름 초기화 (`release-username`)](#317-계정-퇴역-이름-초기화-release-username)
    * [3.18 그래프 번들 (`export-graph`, `import-graph`)](#318-그래프-번들-export-graph-import-graph)
+   * [3.19 플러그인 (`plugin`)](#319-플러그인-plugin)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -917,6 +918,21 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 * `claire export-graph [-t <theme>] [-o <path>] [--json]`: 엔티티·관계·정제된 문서 메타와 검토 증거(`review_*`)를 `.tar.zst` 번들로 만든다. 벡터와 비밀값은 넣지 않는다.
 * `claire import-graph <bundle> [-t <theme>] [--target-db <path>] [--json]`: 그래프 테이블만 가져온다. `review_*` 테이블은 적재하지 않는다.
 * 현재 동작: [GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §6.
+
+### 3.19 플러그인 (`plugin`)
+
+적재 어댑터 플러그인의 상태 조회, 켜기·끄기, 기여자용 점검. 현재 동작: [INGESTION.md](INGESTION.md) §2.2. 모든 하위 명령은 `--json`(`AgentOutput`)을 받는다.
+
+| 명령 | 설명 |
+| :--- | :--- |
+| `claire plugin list` | 두 폴더(프로젝트 플러그인 폴더, 플러그인 폴더)의 모든 플러그인과 상태, 버전(`r<리비전> @ <추종 커밋 8자>`), 알 수 없는 폴더 |
+| `claire plugin show <id>` | 매니페스트, 다이제스트, 레코드, 겹침 그룹 |
+| `claire plugin enable <id> --digest <sha256:…> [--replace <id> …]` | 호스트 운영자 경로. 콘솔과 같은 검사(다이제스트 일치, 겹침 그룹의 켜진 플러그인을 `--replace`에 정확히 나열)와 감사 기록. 거부되면 종료 코드 4(인자 누락 2) |
+| `claire plugin disable <id>` | 끄기 |
+| `claire plugin check [<folder>]` | 기여자용: 매니페스트, 다이제스트, lock, 프로젝트 플러그인과의 겹침(프로젝트 플러그인만 실패), import 검사, 추종 커밋이 `HEAD`의 조상인지, `register(ctx)`와 `[[provides]]` 일치. 서버 상태는 쓰지 않는다 |
+| `claire plugin lock` | `plugins/project.lock`을 쓴다. `HEAD`의 lock과 다이제스트가 다르면 리비전이 `HEAD`보다 커야 한다(아니면 종료 코드 4) |
+| `claire plugin new <id> --type ingest_adapter` | `plugins/ingest_adapter/_template`을 복사한다. `claire.` id는 프로젝트 플러그인 폴더로, 그 밖은 플러그인 폴더로. 추종 커밋은 실행 중인 코어의 커밋. 컨테이너에서는 플러그인 폴더가 읽기 전용이라 종료 코드 4 |
+| `claire plugin run <id> <command> [arguments]` | 켜진 플러그인의 명령. 켜지지 않았으면 종료 코드 4 |
 
 ---
 

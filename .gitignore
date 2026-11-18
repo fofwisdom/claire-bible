@@ -46,8 +46,8 @@ claire-graph*.png
 .AppleDouble
 .LSOverride
 
-# Local drop-in plugins
-plugins/
+# Plugin folder of the server administrator (CB_PLUGINS_DIR, CLAIRE_PLUGINS_DIR)
+var/
 
 # Extra custom CA certificates
 certs/*.crt

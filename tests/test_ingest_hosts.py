@@ -31,9 +31,9 @@ def test_no_site_fetcher_for_other_hosts(url):
 
 
 def test_web_adapter_subdomain_pattern_does_not_match_other_domain():
-    names = {cls.name() for cls in registry.get_matching_web_adapters("https://nothoyolab.com/a", domain_only=True)}
+    names = {e.name for e in registry.web_adapter_entries("https://nothoyolab.com/a", domain_only=True)}
     assert names == set()
-    names = {cls.name() for cls in registry.get_matching_web_adapters("https://www.hoyolab.com/article/1", domain_only=True)}
+    names = {e.name for e in registry.web_adapter_entries("https://www.hoyolab.com/article/1", domain_only=True)}
     assert {"hoyolab", "hoyowiki"} <= names
 
 

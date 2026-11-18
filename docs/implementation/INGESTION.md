@@ -34,32 +34,43 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 4. Else the router dispatches on the kind: `hoyolab`, `hoyowiki`, `video`, `youtube`, `redirect` (at most two levels, then `fetch_web`), `xcom`, `file` (`fetch_file`), `web` (`fetch_web`), else `text` (`fetch_text`).
 5. `_call_fetcher` passes `full_content`. If the fetcher does not accept it (`TypeError`), the router calls it without the argument.
 
-### 2.2 `FetcherRegistry`
+### 2.2 `FetcherRegistry` and plugins
 
-`src/claire/ingest/registry.py` keeps one module object, `registry`. [code]
+`src/claire/ingest/registry.py` keeps one module object, `registry`. Design: [`INGEST_ADAPTER_PLUGIN_DESIGN.md`](../design/INGEST_ADAPTER_PLUGIN_DESIGN.md). [code]
 
-- `register_fetcher(name, priority)` and `register_web_adapter(name, domains, priority)` are class decorators. Higher priority comes first.
-- `_ensure_builtins` imports the built-in modules on first use: `law`, `discourse`, `video`, `youtube`, `xcom`, `hoyowiki`, `hoyolab`, `naver_clip`, `uttu`.
-- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It asks the registered fetchers first, then uses URL rules (YouTube, media URL, x.com, share redirect, HoYoWiki, HoYoLAB, else `web`), then local file rules, else `text`.
-- Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, and there is no substring match (`dropbox.com` is not an x.com host). [code]
-- `get_matching_web_adapters(url, domain_only)` returns web adapters whose domain list matches the host. An adapter with no domain list matches every URL when `domain_only` is false.
-- `load_plugins_from_dir(plugin_dir)` and `load_entrypoints()` exist and have tests (`tests/test_registry.py`). No runtime code calls them. A drop-in file in `plugins/fetchers/` or an entry point in the group `claire.fetchers` is therefore not loaded by the server. [code]
+- An entry (`RegisteredEntry` in `src/claire/plugin_host/context.py`) has a kind (`fetcher` or `web_adapter`), a name, a priority, host patterns, a class, and a plugin id (`None` for a core entry). The entries come from `_core_entries()` and from the enabled plugins (`plugin_host.runtime`). Order: priority (higher first), then plugin id, then name.
+- Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, `*` matches every host, and there is no substring match (`dropbox.com` is not an x.com host). The registry calls `can_handle` only for a URL whose host matches the entry. An exception from `can_handle` is "no match" and is logged with the entry.
+- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), then the URL rules that are not entries yet (share redirect, HoYoWiki, HoYoLAB, else `web`), then local file rules, else `text`.
+- `web_adapter_entries(url, domain_only)` returns web adapter entries whose hosts match. An entry with `*` is general and comes only when `domain_only` is false.
+- The old drop-in loader (`load_plugins_from_dir`, `load_entrypoints`, `plugins/fetchers/`) and the decorators `register_fetcher` and `register_web_adapter` are removed.
 
-Registered fetchers and adapters: [code]
+Core entries at this commit (the site entries move to project plugins in unit PL2): [code]
 
-| Kind | Name | Priority | Module |
-|---|---|---|---|
-| fetcher | `naver_clip` | 120 | `src/claire/ingest/fetchers/naver_clip.py` |
-| fetcher | `hoyowiki` | 120 | `src/claire/ingest/fetchers/hoyowiki.py` |
-| fetcher | `hoyolab` | 115 | `src/claire/ingest/fetchers/hoyolab.py` |
-| fetcher | `youtube` | 90 | `src/claire/ingest/fetchers/youtube.py` |
-| fetcher | `xcom` | 90 | `src/claire/ingest/fetchers/xcom.py` |
-| fetcher | `video` | 80 | `src/claire/ingest/fetchers/video.py` |
-| web adapter | `hoyowiki` (HoYoLAB wiki hosts) | 40 | `src/claire/ingest/fetchers/hoyowiki.py` |
-| web adapter | `hoyolab` (HoYoLAB hosts) | 38 | `src/claire/ingest/fetchers/hoyolab.py` |
-| web adapter | `uttu` | 35 | `src/claire/ingest/fetchers/uttu.py` |
-| web adapter | `discourse` (no domain list) | 30 | `src/claire/ingest/fetchers/discourse.py` |
-| web adapter | `law` (`law.go.kr`) | 20 | `src/claire/ingest/fetchers/law.py` |
+| Kind | Name | Priority | Hosts | Module |
+|---|---|---|---|---|
+| fetcher | `naver_clip` | 120 | Naver Clip hosts | `src/claire/ingest/fetchers/naver_clip.py` |
+| fetcher | `hoyowiki` | 120 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyowiki.py` |
+| fetcher | `hoyolab` | 115 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
+| fetcher | `youtube` | 90 | YouTube hosts | `src/claire/ingest/fetchers/youtube.py` |
+| fetcher | `xcom` | 90 | x.com, Twitter, and mirror hosts | `src/claire/ingest/fetchers/xcom.py` |
+| fetcher | `video` | 80 | `*` (`is_video_or_audio_url`) | `src/claire/ingest/fetchers/video.py` |
+| web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyowiki.py` |
+| web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
+| web adapter | `uttu` | 35 | `uttu.merui.net`, `*.merui.net` | `src/claire/ingest/fetchers/uttu.py` |
+| web adapter | `discourse` | 30 | `*` | `src/claire/ingest/fetchers/discourse.py` |
+| web adapter | `law` | 20 | `law.go.kr`, `*.law.go.kr` | `src/claire/ingest/fetchers/law.py` |
+
+#### Plugins [code]
+
+- Folders: the project plugin folder `<app root>/plugins` (in Git; `plugins/project.lock` holds id, revision, and digest of each project plugin) and the plugin folder of the server administrator `CLAIRE_PLUGINS_DIR` (default `<app root>/var/plugins`). Each plugin is `<folder>/ingest_adapter/<id>/` with `plugin.toml`. A folder name that starts with `_` or `.` never loads (`plugins/ingest_adapter/_template`).
+- `src/claire/plugin_host/`: `manifest.py` (parser; unknown keys are errors), `files.py` (digest: SHA-256 of the sorted `sha256sum` lines; symbolic links, world-writable files, and group-writable files of another group are refused; in the plugin folder each file belongs to the process user or `root`, or the mount is read-only), `lock.py`, `importcheck.py` (AST: only `claire.plugin_sdk` from the core; network modules only when `permissions.network_modules` names them; process modules only with `permissions.executables`; `tests/` not checked), `discovery.py` (states and overlap groups, no import), `runtime.py` (loading), `service.py` (list, switch, delete record, audit), `cli.py`.
+- States in check order: `invalid`, `unlocked`, `incompatible`, `missing_requirement`, `new`, `disabled`, `changed`, `overlap`, `enabled`; a load attempt can give `failed` (exception) or `invalid` (`register(ctx)` differs from `[[provides]]`); a record without a folder is `removed`. `requires.distributions` holds distribution names; the check is that the distribution is installed.
+- Overlap: two plugins of one type overlap when entries have the same name or a common host (`*` is no overlap). Only one plugin of an overlap group can be on; when two records are on, both get `overlap` and neither loads.
+- Records: one `claire.db` `server_settings` row, key `plugins` (`src/claire/store/plugins.py`). When the row is absent and at least one valid project plugin exists, the first refresh or `claire migrate` writes it with an `enabled` record for each project plugin.
+- `runtime().current()` gives a snapshot at most one second old (a switch in the same process reads again at once). An enabled plugin is imported once as `claire_plugins.ingest_adapter.<id with "." changed to "_">`; new code of a loaded plugin needs a restart (`restart_needed` in the report). A failure changes only the state of that plugin. The long-running processes (`api`, `bot`, `recover_loop`, `refresh_loop`, `expand_loop`) write `data/run/plugins_<process>.json`.
+- `fetch_web` logs an exception of a web adapter with the plugin id and the entry, counts it in the process report, and continues with the next step.
+- `claire.plugin_sdk` (API level 1) is the surface for plugins; `tests/test_plugin_sdk_surface.py` keeps its snapshot. `claire.plugin_sdk.testing.load_plugin` loads a plugin for its tests without records.
+- `ctx.http_client()` and `ctx.safe_get()` add the host list of `permissions.network` to the private network guard on each request and redirect hop. Without `permissions.private_network`, a plugin never reaches private addresses, whatever the server allows.
 
 ### 2.3 Fetcher contract
 
@@ -70,7 +81,7 @@ Registered fetchers and adapters: [code]
 - `WebAdapterResult` is a dataclass: `title`, `text`, `links`, `anchors`, `images`, `is_pdf`, `doc_type`, `parser_info`, `biblio`.
 - `FetchError`: the message goes to the user and to `raw_inbox.error`.
 
-`tests/test_fetcher_conformance.py` checks every registered fetcher and adapter against this contract. [code]
+`tests/test_fetcher_conformance.py` checks every registry entry against this contract and runs `can_handle` with the network blocked. [code]
 
 ## 3. Web fetch chain
 

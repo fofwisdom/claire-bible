@@ -34,7 +34,7 @@ def extract_shared_url(payload: str) -> str | None:
 def classify(payload: str) -> str:
     """payload → 라우팅 종류. telegram_bot.classify_input 과 정합.
 
-    종류: youtube | video | xcom | redirect | web | file | text
+    종류: 레지스트리 fetcher 항목 이름(예: video, youtube) | redirect | web | file | text
     """
     from .registry import registry
     return registry.classify(payload)
@@ -64,7 +64,7 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             t = shared
     kind = classify(t)
 
-    if kind in ("web", "youtube", "video", "xcom", "redirect", "hoyowiki", "hoyolab"):
+    if t.lower().startswith(("http://", "https://")):
         t = _clean_url(t)
 
     def _call_fetcher(fn, *args, **kwargs):

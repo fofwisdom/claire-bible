@@ -77,11 +77,12 @@ def test_naver_tv_url_recognition():
         "https://m.tv.naver.com/v/101263731",
         "https://now.naver.com/v/12345678",
     ]
+    # The kind is the name of the registry entry (INGEST_ADAPTER_PLUGIN_DESIGN.md §4.3).
     for u in urls:
-        assert classify(u) == "video"
+        assert classify(u) == "naver_clip"
 
     shared = "NAVER ENGINEERING DAY 2026 세션 https://tv.naver.com/v/101263731"
-    assert classify(shared) == "video"
+    assert classify(shared) == "naver_clip"
 
 
 def test_direct_media_url_with_query_params():

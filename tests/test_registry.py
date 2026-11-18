@@ -1,83 +1,73 @@
-import pytest
-from pathlib import Path
-from claire.ingest.registry import (
-    FetcherRegistry, 
-    register_fetcher, 
-    register_web_adapter,
-    registry,
-    load_plugins_from_dir,
-    load_entrypoints,
-)
+"""Registry of fetchers and web adapters: entries with hosts and plugin ids (INGEST_ADAPTER_PLUGIN_DESIGN.md §7.2, §7.3)."""
 
-def test_registry_initialization():
-    r = FetcherRegistry()
-    assert r.fetchers == []
-    assert r.web_adapters == []
+from claire.ingest.fetchers.base import BaseFetcher, BaseWebAdapter
+from claire.ingest.registry import Entry, FetcherRegistry
 
-def test_register_fetcher():
-    r = FetcherRegistry()
-    
-    @r.register_fetcher("test_fetcher", priority=50)
-    class TestFetcher:
-        pass
-        
-    assert any(name == "test_fetcher" for _, name, _ in r.fetchers)
-    assert any(cls == TestFetcher for _, _, cls in r.fetchers)
 
-def test_register_web_adapter():
-    r = FetcherRegistry()
-    
-    @r.register_web_adapter("test_adapter", domains=("example.com", "*.example.com"), priority=50)
-    class TestAdapter:
-        pass
-        
-    assert any(name == "test_adapter" for _, name, _, _ in r.web_adapters)
-    assert any(cls == TestAdapter for _, _, _, cls in r.web_adapters)
-    
-    # Test domain matching
-    matches = r.get_matching_web_adapters("https://example.com/page")
-    assert TestAdapter in matches
-    sub_matches = r.get_matching_web_adapters("https://sub.example.com/page")
-    assert TestAdapter in sub_matches
-    non_matches = r.get_matching_web_adapters("https://other.com/page")
-    assert TestAdapter not in non_matches
+class _Fetcher(BaseFetcher):
+    @classmethod
+    def can_handle(cls, url):
+        return "/item/" in url
 
-def test_module_level_decorators():
-    old_fetchers = list(registry.fetchers)
-    old_adapters = list(registry.web_adapters)
-    
-    try:
-        @register_fetcher("global_fetcher", priority=80)
-        class GlobalFetcher:
-            pass
-            
-        @register_web_adapter("global_adapter", priority=80)
-        class GlobalAdapter:
-            pass
-            
-        assert any(name == "global_fetcher" for _, name, _ in registry.fetchers)
-        assert any(name == "global_adapter" for _, name, _, _ in registry.web_adapters)
-    finally:
-        registry.fetchers = old_fetchers
-        registry.web_adapters = old_adapters
+    @classmethod
+    def fetch(cls, url, **kwargs):
+        raise NotImplementedError
 
-def test_load_plugins_from_dir(tmp_path: Path):
-    plugin_dir = tmp_path / "plugins"
-    plugin_dir.mkdir()
-    plugin_file = plugin_dir / "my_plugin.py"
-    plugin_file.write_text("""
-from claire.ingest.registry import register_fetcher
 
-@register_fetcher("my_plugin_fetcher", priority=200)
-class MyPluginFetcher:
-    pass
-""")
-    
-    old_fetchers = list(registry.fetchers)
-    
-    try:
-        load_plugins_from_dir(plugin_dir)
-        assert any(name == "my_plugin_fetcher" for _, name, _ in registry.fetchers)
-    finally:
-        registry.fetchers = old_fetchers
+class _Broken(BaseFetcher):
+    @classmethod
+    def can_handle(cls, url):
+        raise RuntimeError("bad")
 
+    @classmethod
+    def fetch(cls, url, **kwargs):
+        raise NotImplementedError
+
+
+class _Adapter(BaseWebAdapter):
+    @classmethod
+    def name(cls):
+        return "a"
+
+    @classmethod
+    def try_fetch(cls, url, **kwargs):
+        return None
+
+
+def _registry(*entries):
+    return FetcherRegistry(core_entries=lambda: [], plugin_entries=lambda: list(entries))
+
+
+def test_can_handle_runs_only_for_declared_hosts():
+    r = _registry(Entry("fetcher", "item", 50, ("example.test",), _Fetcher, "p.one"))
+    assert r.classify("https://example.test/item/1") == "item"
+    assert r.classify("https://other.test/item/1") == "web"
+    assert r.classify("https://example.test/page") == "web"
+    assert r.get_fetcher("https://example.test/item/1") is _Fetcher
+
+
+def test_order_is_priority_then_plugin_id():
+    a = Entry("fetcher", "a", 10, ("*",), _Fetcher, "p.b")
+    b = Entry("fetcher", "b", 10, ("*",), _Fetcher, "p.a")
+    c = Entry("fetcher", "c", 20, ("*",), _Fetcher, "p.c")
+    assert [e.name for e in _registry(a, b, c).entries()] == ["c", "b", "a"]
+
+
+def test_can_handle_error_is_no_match():
+    r = _registry(Entry("fetcher", "broken", 99, ("*",), _Broken, "p.x"), Entry("fetcher", "item", 50, ("*",), _Fetcher, "p.y"))
+    assert r.classify("https://example.test/item/1") == "item"
+
+
+def test_general_web_adapter_only_without_domain_only():
+    general = Entry("web_adapter", "general", 30, ("*",), _Adapter, "p.g")
+    site = Entry("web_adapter", "site", 40, ("example.test", "*.example.test"), _Adapter, "p.s")
+    r = _registry(general, site)
+    assert [e.name for e in r.web_adapter_entries("https://www.example.test/a", domain_only=True)] == ["site"]
+    assert [e.name for e in r.web_adapter_entries("https://www.example.test/a")] == ["site", "general"]
+    assert [e.name for e in r.web_adapter_entries("https://other.test/a", domain_only=True)] == []
+
+
+def test_shared_url_text_uses_the_last_token():
+    r = _registry(Entry("fetcher", "item", 50, ("example.test",), _Fetcher, "p.one"))
+    assert r.classify("A title https://example.test/item/2") == "item"
+    assert r.classify("just a note") == "text"
