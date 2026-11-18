@@ -83,7 +83,9 @@ def test_e2e_moderator_makes_the_bundle_of_the_visible_content(world, no_llm, tm
     info = made.json()
     assert (info["shared"], info["documents_count"], info["entities_count"], info["relations_count"], info["contributions_count"]) == (True, 1, 3, 2, 1)
     # The registry records the moderator that made the bundle: the bundle is in its list of data bundles.
-    assert [b["bundle_id"] for b in list_account_graph_bundles(world.settings.data_dir, ANN)] == [info["bundle_id"]]
+    listed = list_account_graph_bundles(world.settings.data_dir, ANN, public_url="https://kb.example")
+    assert [b["bundle_id"] for b in listed] == [info["bundle_id"]]
+    assert listed[0]["download_url"] == f"https://kb.example/graph/bundle?token={info['token']}"
 
     manifest, export = _open_bundle(client, info["token"], tmp_path / "bundle")
     try:

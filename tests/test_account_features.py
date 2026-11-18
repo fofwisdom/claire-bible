@@ -284,7 +284,9 @@ def test_account_support_bundle_is_scoped_to_caller(env):
     assert bundle["target_doc_id"] == "alpha-d1"
     listed = c.request("GET", "/api/me/support-bundles", session=env.sa).json()["bundles"]
     assert [b["bundle_id"] for b in listed] == [bundle["bundle_id"]]
-    assert "token" not in json.dumps(listed)
+    # The owner gets the token address in the list, thus the copy link of the row does not go away. The list has no other token field.
+    assert listed[0]["download_url"] == bundle["download_url"]
+    assert "token" not in listed[0]
     # 다른 계정은 목록에서 보지 못하고 내려받지 못한다.
     assert c.request("GET", "/api/me/support-bundles", session=env.sb).json()["bundles"] == []
     assert c.request("GET", f"/api/me/support-bundles/download?bundle_id={bundle['bundle_id']}", session=env.sb).status_code == 404
@@ -322,7 +324,9 @@ def test_data_bundle_lifecycle_and_isolation(env):
     assert r.status_code == 200, r.text
     created = r.json()["bundle"]
     assert created["entities_count"] == 1 and created["documents_count"] == 1
-    assert [b["bundle_id"] for b in c.request("GET", "/api/me/data-bundles", session=env.sa).json()["bundles"]] == [created["bundle_id"]]
+    listed = c.request("GET", "/api/me/data-bundles", session=env.sa).json()["bundles"]
+    assert [b["bundle_id"] for b in listed] == [created["bundle_id"]]
+    assert listed[0]["download_url"] == created["download_url"] and "token" not in listed[0]
     assert c.request("GET", "/api/me/data-bundles", session=env.sb).json()["bundles"] == []
     assert c.request("GET", f"/api/me/data-bundles/download?bundle_id={created['bundle_id']}", session=env.sb).status_code == 404
     dl = c.request("GET", f"/api/me/data-bundles/download?bundle_id={created['bundle_id']}", session=env.sa)

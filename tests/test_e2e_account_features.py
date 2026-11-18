@@ -190,6 +190,8 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     for kind, bundle_id in (("support-bundles", support_id), ("data-bundles", data_id)):
         listed = _call(env, "GET", f"/api/me/{kind}", alice).json()["bundles"]
         assert [b["bundle_id"] for b in listed] == [bundle_id]
+        # The list gives the same token address to the owner at each time: the copy link of the row stays after a reload.
+        assert listed[0]["download_url"] == {"support-bundles": support_url, "data-bundles": data_url}[kind]
         dl = _call(env, "GET", f"/api/me/{kind}/download?bundle_id={bundle_id}", alice)
         assert dl.status_code == 200 and dl.content[:4] == b"\x28\xb5\x2f\xfd"  # zstd 매직
         assert _call(env, "DELETE", f"/api/me/{kind}?bundle_id={bundle_id}", alice).status_code == 200

@@ -408,7 +408,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         from ...graph_bundle import list_account_graph_bundles
 
         s = _settings(ctx)
-        items = await asyncio.to_thread(list_account_graph_bundles, s.data_dir, principal.account_id)
+        items = await asyncio.to_thread(lambda: list_account_graph_bundles(s.data_dir, principal.account_id, public_url=str(s.public_url or "")))
         themes = await asyncio.to_thread(_owned_themes, ctx, principal.account_id)
         listed = list(themes)
         owned_ids = {t.id for t in themes}

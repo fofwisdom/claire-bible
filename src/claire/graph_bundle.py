@@ -186,7 +186,9 @@ def _write_bundle_sidecar(
     payload = {
         "registry_format_version": _BUNDLE_REGISTRY_FORMAT_VERSION,
         "token_sha256": _bundle_token_digest(token),
-        **{key: value for key, value in record.items() if key != "token"},
+        **record,
+        # The owner copies the token address from the list at each time, thus the sidecar (mode 0600) keeps the token.
+        "token": token,
     }
     descriptor, tmp_name = tempfile.mkstemp(prefix=".graph-bundle-", dir=registry_dir)
     try:
@@ -350,9 +352,16 @@ def _record_account_id(record: dict[str, Any]) -> int:
     return dbm.ADMIN_ACCOUNT_ID
 
 
-def _public_bundle_record(record: dict[str, Any]) -> dict[str, Any]:
-    """Registry record without token digest or file path."""
+def graph_bundle_download_url(public_url: str, token: str) -> str:
+    """Token address of a graph bundle."""
+    return f"{public_url.rstrip('/')}/graph/bundle?token={token}"
+
+
+def _public_bundle_record(record: dict[str, Any], public_url: str | None) -> dict[str, Any]:
+    """Registry record without token digest or file path. With ``public_url`` (the list for the owner) it has the token address ``download_url``; a sidecar from before the token was kept has no address."""
+    token = record.get("token")
     return {
+        "download_url": graph_bundle_download_url(public_url, token) if public_url is not None and isinstance(token, str) and token else None,
         "bundle_id": record.get("bundle_id"),
         "filename": record.get("filename"),
         "kb_id": record.get("kb_id"),
@@ -368,11 +377,13 @@ def _public_bundle_record(record: dict[str, Any]) -> dict[str, Any]:
 def list_account_graph_bundles(
     data_dir: Path | str | None,
     account_id: int,
+    *,
+    public_url: str,
     now_epoch: float | None = None,
 ) -> list[dict[str, Any]]:
-    """List active graph bundles of one account. The result has no token and no file path."""
+    """List active graph bundles of one account, each with its token address for the owner. The result has no file path."""
     return [
-        _public_bundle_record(r)
+        _public_bundle_record(r, public_url)
         for r in list_active_graph_bundles(data_dir, now_epoch=now_epoch)
         if _record_account_id(r) == int(account_id)
     ]
@@ -417,7 +428,7 @@ def find_account_graph_bundle(
     path = _validated_archive_path(data_dir, raw)
     if path is None or not path.is_file():
         return None
-    return {**_public_bundle_record(raw), "filepath": str(path)}
+    return {**_public_bundle_record(raw, None), "filepath": str(path)}
 
 
 def delete_account_graph_bundle(
@@ -901,7 +912,7 @@ def create_graph_bundle(
     _write_bundle_sidecar(data_dir, token=token, record=sidecar_record)
 
     public_url = getattr(s, "public_url", "http://127.0.0.1:8765").rstrip("/")
-    download_url = f"{public_url}/graph/bundle?token={token}"
+    download_url = graph_bundle_download_url(public_url, token)
 
     return GraphBundleInfo(
         bundle_id=bundle_id,

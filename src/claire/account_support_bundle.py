@@ -416,8 +416,11 @@ def create_account_support_bundle(
     )
 
 
-def _public_record(record: dict[str, Any]) -> dict[str, Any]:
+def _public_record(settings: Settings, record: dict[str, Any]) -> dict[str, Any]:
+    """Record for the owner of the bundle. ``download_url`` is the token address: the owner can copy it from the list at each time."""
+    token = str(record.get("token") or "")
     return {
+        "download_url": format_download_url(settings, token) if token else None,
         "bundle_id": record["bundle_id"],
         "filename": record["filename"],
         "days_covered": record.get("days_covered"),
@@ -429,8 +432,8 @@ def _public_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_account_support_bundles(settings: Settings, *, account_id: int, now_epoch: float | None = None) -> list[dict[str, Any]]:
-    """계정의 활성 번들 메타데이터. 다운로드 토큰은 싣지 않는다."""
-    return [_public_record(r) for r in list_active_support_bundles(settings.data_dir, now_epoch=now_epoch, account_id=account_id)]
+    """Active bundles of the account, each with its token address (``download_url``) for the owner."""
+    return [_public_record(settings, r) for r in list_active_support_bundles(settings.data_dir, now_epoch=now_epoch, account_id=account_id)]
 
 
 def find_account_support_bundle(

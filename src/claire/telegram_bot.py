@@ -2474,29 +2474,34 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         sub_args = args[1:]
         from .graph_bundle import (
+            graph_bundle_download_url,
             list_active_graph_bundles,
             purge_expired_graph_bundles,
         )
 
         if sub_args and sub_args[0].lower() == "list":
+            pub_url = s.public_url.rstrip('/') if s.public_url else ""
             if is_admin_bot:
                 bundles = await asyncio.to_thread(list_active_graph_bundles, s.data_dir)
             else:
                 from .graph_bundle import list_account_graph_bundles
 
-                bundles = await asyncio.to_thread(list_account_graph_bundles, s.data_dir, bot_account_id)
+                bundles = await asyncio.to_thread(lambda: list_account_graph_bundles(s.data_dir, bot_account_id, public_url=pub_url))
             if not bundles:
                 await msg.reply_text(_t("bot.export.list_empty"))
                 return
             import datetime
-            pub_url = s.public_url.rstrip('/') if s.public_url else ""
             lines = [_t("bot.export.list_title")]
             for b in bundles:
-                e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M")
+                # The registry record has epoch seconds; the record of the account list has ISO text.
+                raw_expires = b["expires_at"]
+                expires_dt = datetime.datetime.fromisoformat(raw_expires).astimezone() if isinstance(raw_expires, str) else datetime.datetime.fromtimestamp(raw_expires)
+                e_str = expires_dt.strftime("%Y-%m-%d %H:%M")
                 size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
                 theme_str = f"{_t('bot.label.theme')} #{b.get('kb_id', 0)}"
                 token_val = b.get("token")
-                token_part = f"\n  ↳ {_t('bot.label.link')}: {pub_url}/graph/bundle?token={token_val}" if token_val and pub_url else ""
+                link = b.get("download_url") or (graph_bundle_download_url(pub_url, token_val) if token_val else None)
+                token_part = f"\n  ↳ {_t('bot.label.link')}: {link}" if link else ""
                 lines.append(_t("bot.export.list_item", bundle_id=b["bundle_id"], theme=theme_str, size=size_kb, entities=b.get("entities_count", 0), relations=b.get("relations_count", 0), expires=e_str, link=token_part))
             await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
             return

@@ -225,6 +225,7 @@
         [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
         cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
+        if (b.download_url) cell.appendChild(copyLinkButton(b.download_url, host.closest("section")));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/support-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadSupport);
         }, "trash", tr("common.action.delete")));
@@ -247,6 +248,7 @@
         [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
         cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
+        if (b.download_url) cell.appendChild(copyLinkButton(b.download_url, host.closest("section")));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/data-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadData);
         }, "trash", tr("common.action.delete")));
@@ -267,38 +269,18 @@
     });
   }
 
-  /* Show the token address of a new bundle below its form. The list API does not return the token, thus this panel is the only place that has the address. */
-  function showShare(form, bundle) {
-    var panel = form.parentNode.querySelector("[data-bundle-share]");
-    if (!panel) {
-      panel = el("div", null, { "class": "feature-share", "data-bundle-share": "" });
-      form.parentNode.insertBefore(panel, form.nextSibling);
-    }
-    clear(panel);
-    if (!bundle || !bundle.download_url) { panel.hidden = true; return; }
-    panel.hidden = false;
-    var row = el("div", null, { "class": "feature-inline" });
-    var label = el("label", tr("console.js.bundles.share.label"), { "class": "feature-field" });
-    var field = el("input", null, { type: "text", readonly: "", "class": "pref-input", "data-bundle-share-url": "" });
-    field.value = bundle.download_url;
-    field.addEventListener("focus", function () { field.select(); });
-    label.appendChild(field);
-    row.appendChild(label);
-    var status = el("p", null, { "class": "result", role: "status", "aria-live": "polite", "data-bundle-share-status": "" });
-    row.appendChild(actionButton(tr("console.js.bundles.share.copy"), function () {
-      copyText(bundle.download_url, field).then(function () {
-        status.textContent = tr("console.js.bundles.share.copied");
-        status.setAttribute("data-state", "ok");
+  /* The copy control of a bundle row. The list gives the token address of each bundle to its owner, thus the control stays as long as the bundle. */
+  function copyLinkButton(url, scope) {
+    return actionButton(tr("console.js.bundles.share.copy"), function (button) {
+      var field = el("input", null, { type: "text", readonly: "", "class": "sr-only", "aria-hidden": "true", tabindex: "-1" });
+      field.value = url;
+      button.parentNode.appendChild(field);
+      copyText(url, field).then(function () {
+        show(scope, tr("console.js.bundles.share.copied"), false);
       }).catch(function () {
-        field.select();
-        status.textContent = tr("console.js.bundles.share.copy_failed");
-        status.setAttribute("data-state", "error");
-      });
-    }, "clipboard"));
-    row.appendChild(downloadLink(bundle.download_url, tr("console.js.bundles.share.download"), "download"));
-    panel.appendChild(row);
-    panel.appendChild(status);
-    panel.appendChild(el("p", tr("console.js.bundles.share.hint", { expires: formatIso(bundle.expires_at) }), { "class": "hint" }));
+        window.prompt(tr("console.js.bundles.share.copy_failed"), url);
+      }).then(function () { field.remove(); });
+    }, "clipboard");
   }
 
   function initBundles() {
@@ -313,7 +295,6 @@
         show(sForm, tr("console.js.features.bundles.making"), false);
         request("POST", "/api/me/support-bundles", payload).then(function (r) {
           show(sForm, r.ok ? tr("console.js.features.bundles.support_made") : errorText(r.status, r.body), !r.ok);
-          showShare(sForm, r.ok ? r.body.bundle : null);
           return loadSupport();
         }).catch(function () { show(sForm, tr("console.js.common.network_error"), true); });
       });
@@ -326,7 +307,6 @@
         show(dForm, tr("console.js.features.bundles.making"), false);
         request("POST", "/api/me/data-bundles", { kb: theme }).then(function (r) {
           show(dForm, r.ok ? tr("console.js.features.bundles.data_made") : errorText(r.status, r.body), !r.ok);
-          showShare(dForm, r.ok ? r.body.bundle : null);
           return loadData();
         }).catch(function () { show(dForm, tr("console.js.common.network_error"), true); });
       });
