@@ -20,15 +20,6 @@ from claire.store.video_cache import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _presentation_absent(monkeypatch):
-    monkeypatch.setattr(
-        "claire.ingest.fetchers.video.discover_presentations",
-        lambda _url: type(
-            "Discovery", (), {"status": "absent", "candidates": [], "error": None}
-        )(),
-    )
-
 
 def test_video_cache_id_extraction():
     url_bc = "https://www.vmware.com/explore/video/6403821842112"

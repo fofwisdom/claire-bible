@@ -32,6 +32,11 @@ revision = 1
 digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191c"
 
 [[plugin]]
+id = "claire.vmware_explore"
+revision = 1
+digest = "sha256:607f3189fc0bcf284ca0a9b49b8d3788aee8ac013b45934b3e25063ae1962c4a"
+
+[[plugin]]
 id = "claire.xcom"
 revision = 1
 digest = "sha256:e463b95df4a281862d6e5a28ab60e6a5f5d6b9757a1a74dbf1183318cb92e3db"

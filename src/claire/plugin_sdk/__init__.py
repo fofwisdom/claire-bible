@@ -25,6 +25,8 @@ from ..ingest.fetchers.captions import CaptionAcquisition, acquire_caption, form
 from ..ingest.fetchers.http import MediaResponseDetected
 from ..ingest.fetchers.http_policy import BROWSER_USER_AGENT
 from ..ingest.fetchers.pdf import extract_pdf_bytes, slice_pdf_text
+from ..ingest.fetchers.presentation import PresentationExtract, PresentationFetchError, compose_video_presentations, extract_presentation
+from ..ingest.fetchers.video import fetch_video as fetch_media
 from ..ingest.fetchers.video import parse_ytdlp_extractor_args
 from ..ingest.fetchers.web import _extract_html as extract_html
 from ..ingest.fetchers.web import fetch_web, render_html_cdp
@@ -51,6 +53,8 @@ __all__ = [
     "MediaResponseDetected",
     "PLUGIN_API_LEVEL",
     "PluginContext",
+    "PresentationExtract",
+    "PresentationFetchError",
     "ProviderUnavailableError",
     "RequestError",
     "Response",
@@ -65,11 +69,14 @@ __all__ = [
     "adoc_table",
     "attach_usage_hooks",
     "canonicalize_url",
+    "compose_video_presentations",
     "content_hash",
     "delete_cached_video_file",
     "emit_progress",
     "extract_html",
+    "extract_presentation",
     "extract_pdf_bytes",
+    "fetch_media",
     "fetch_settings",
     "fetch_web",
     "find_ffmpeg_executable",

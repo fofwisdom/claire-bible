@@ -15,13 +15,6 @@ from claire.ingest.fetchers.video import (
 from claire.ontology.base import Document
 
 
-@pytest.fixture(autouse=True)
-def _presentation_absent(monkeypatch):
-    monkeypatch.setattr(
-        "claire.ingest.fetchers.video.discover_presentations",
-        lambda _url: SimpleNamespace(status="absent", candidates=[], error=None),
-    )
-
 
 def test_parse_ytdlp_extractor_args():
     parsed = parse_ytdlp_extractor_args("generic:impersonate")
@@ -33,7 +26,7 @@ def test_parse_ytdlp_extractor_args():
 
 
 def test_classify_video_urls():
-    assert classify("https://www.vmware.com/explore/video/6403821753112") == "video"
+    # VMware Explore pages go to the project plugin claire.vmware_explore (its own tests).
     assert classify("https://players.brightcove.net/6164421911001/default_default/index.html?videoId=6403821753112") == "video"
     assert classify("https://vimeo.com/12345678") == "video"
     assert classify("https://example.com/stream/presentation.mp4") == "video"
@@ -41,9 +34,8 @@ def test_classify_video_urls():
 
 
 def test_resolve_video_target_url():
-    vm_url = "https://www.vmware.com/explore/video/6403821753112"
-    resolved = resolve_video_target_url(vm_url)
-    assert "players.brightcove.net/6164421911001/default_default/index.html?videoId=6403821753112" in resolved
+    # The VMware Explore rule is in the project plugin claire.vmware_explore (brightcove_player_url).
+    assert resolve_video_target_url("https://www.vmware.com/explore/video/6403821753112") == "https://www.vmware.com/explore/video/6403821753112"
 
     html_snippet = '<div data-account="12345" data-video-id="67890"></div>'
     resolved_html = resolve_video_target_url("https://example.com/page", html_snippet)

@@ -22,19 +22,10 @@ from .captions import (
     format_chapters,
     is_valid_speech_vtt,
 )
-from .presentation_vmware_explore import (
-    PresentationDiscovery,
-    compose_video_presentations,
-    discover_presentations,
-    download_presentation,
-    extract_presentation,
-    vmware_explore_video_id,
-)
 
 logger = logging.getLogger(__name__)
 
-# VMware Explore 및 Brightcove 패턴 정규식
-_VMWARE_EXPLORE_RE = re.compile(r"vmware\.com/explore/video/(\d+)", re.IGNORECASE)
+# Brightcove 플레이어 임베드 패턴 정규식 (여러 사이트가 쓰는 일반 플레이어; VMware Explore 전용 규칙은 project plugin claire.vmware_explore)
 _BRIGHTCOVE_ACCOUNT_RE = re.compile(r"data-account=[\"'](\d+)[\"']", re.IGNORECASE)
 _BRIGHTCOVE_VIDEO_RE = re.compile(r"data-video-id=[\"'](\d+)[\"']", re.IGNORECASE)
 _HTML5_VIDEO_SRC_RE = re.compile(
@@ -49,25 +40,14 @@ _OG_VIDEO_RE = re.compile(
 
 def resolve_video_target_url(url: str, html_text: str = "") -> str:
     """웹페이지 URL 또는 HTML 내용에서 yt-dlp가 직접 해석 가능한 표준 비디오/임베드 URL로 변환."""
-    # 1. VMware Explore 비디오 페이지 -> Brightcove 공식 임베드 URL
-    m_vmware = _VMWARE_EXPLORE_RE.search(url)
-    if m_vmware:
-        video_id = m_vmware.group(1)
-        account_id = "6164421911001"  # Broadcom / VMware Explore 기본 Account ID
-        if html_text:
-            acc_match = _BRIGHTCOVE_ACCOUNT_RE.search(html_text)
-            if acc_match:
-                account_id = acc_match.group(1)
-        return f"https://players.brightcove.net/{account_id}/default_default/index.html?videoId={video_id}"
-
-    # 2. 일반 HTML 내 Brightcove 임베드 태그 탐색
+    # 1. 일반 HTML 내 Brightcove 임베드 태그 탐색
     if html_text:
         acc_m = _BRIGHTCOVE_ACCOUNT_RE.search(html_text)
         vid_m = _BRIGHTCOVE_VIDEO_RE.search(html_text)
         if acc_m and vid_m:
             return f"https://players.brightcove.net/{acc_m.group(1)}/default_default/index.html?videoId={vid_m.group(1)}"
 
-        # 3. HTML5 <video> 또는 og:video 추출
+        # 2. HTML5 <video> 또는 og:video 추출
         v_src = _HTML5_VIDEO_SRC_RE.search(html_text)
         if v_src:
             src = v_src.group(1) or v_src.group(2)
@@ -104,8 +84,12 @@ def fetch_video(
     full_content: bool = False,
     preferred_languages: list[str] | None = None,
     settings: Settings | None = None,
+    media_url: str | None = None,
 ) -> Document:
-    """비디오 URL에서 메타데이터와 CC 또는 STT를 추출하여 Document를 생성한다."""
+    """비디오 URL에서 메타데이터와 CC 또는 STT를 추출하여 Document를 생성한다.
+
+    The media service of the core (``claire.plugin_sdk.fetch_media``). ``media_url`` is the URL that yt-dlp reads when a plugin knows it (for example a Brightcove player URL); the document keeps ``url``.
+    """
     settings = fetch_settings(settings, get_settings)
     target_langs = (
         preferred_languages
@@ -113,29 +97,8 @@ def fetch_video(
         else settings.effective_preferred_languages
     )
 
-    presentation_discovery: PresentationDiscovery | None = None
-    presentations = []
-    if vmware_explore_video_id(url) is not None:
-        emit_progress("영상 페이지 자료 탐색 중…")
-        presentation_discovery = discover_presentations(url)
-        if presentation_discovery.status == "discovery_failed":
-            raise FetchError(
-                "presentation_pdf.discovery_failed: "
-                f"{presentation_discovery.error or 'unable to determine availability'}"
-            )
-        for candidate in presentation_discovery.candidates:
-            emit_progress("Presentation PDF 검증·추출 중…")
-            attachment = download_presentation(candidate, settings)
-            presentations.append(
-                extract_presentation(
-                    attachment,
-                    settings,
-                    full_content=full_content,
-                )
-            )
-
     emit_progress("발행자 CC 확인 및 필요 시 STT 처리 중…")
-    resolved_url = resolve_video_target_url(url)
+    resolved_url = media_url or resolve_video_target_url(url)
 
     ext_args = parse_ytdlp_extractor_args(
         getattr(settings, "ytdlp_extractor_args", "generic:impersonate")
@@ -429,11 +392,6 @@ def fetch_video(
             "caption_error": caption.error,
         },
     )
-    if presentation_discovery is not None:
-        if presentation_discovery.status == "available":
-            emit_progress("자막·Presentation PDF 결합 중…")
-            return compose_video_presentations(doc, presentations)
-        doc.meta["presentation_pdf"] = {"status": "absent"}
     return doc
 
 MEDIA_EXTENSIONS = (
@@ -455,7 +413,7 @@ def is_video_or_audio_url(url: str) -> bool:
         parsed = urlsplit(url)
         host = url_host(url)
         path = (parsed.path or "").lower()
-        if (host_matches_any(host, ("vmware.com", "www.vmware.com")) and "/explore/video/" in path) or host_matches_any(host, ("brightcove.net", "*.brightcove.net")):
+        if host_matches_any(host, ("brightcove.net", "*.brightcove.net")):
             return True
         # Media host hints: hosts for which yt-dlp is the complete fetcher (INGEST_ADAPTER_PLUGIN_DESIGN.md PL-D2). Naver Clip has its own project plugin (claire.naver_clip).
         if host_matches_any(host, ("vimeo.com", "*.vimeo.com", "tiktok.com", "*.tiktok.com", "chzzk.naver.com")):

@@ -63,6 +63,18 @@
       "web_adapter": "(self, cls: 'type', *, name: 'str', priority: 'int', hosts: 'tuple[str, ...] | list[str]') -> 'None'"
     }
   },
+  "PresentationExtract": {
+    "class": "PresentationExtract",
+    "methods": {
+      "__init__": "(self, attachment: 'SourceAttachment', text: 'str', extracted_title: 'str | None', links: 'list[str]', parser_requested: 'str', parser_used: 'str', parser_fallback: 'bool', parser_fallback_reason: 'str | None', orig_chars: 'int', raw_chars: 'int', truncated: 'bool') -> None"
+    }
+  },
+  "PresentationFetchError": {
+    "class": "PresentationFetchError",
+    "methods": {
+      "__init__": "(self, status: 'str', detail: 'str')"
+    }
+  },
   "ProviderUnavailableError": {
     "class": "ProviderUnavailableError",
     "methods": {}
@@ -115,6 +127,9 @@
   "canonicalize_url": {
     "function": "(url: 'str') -> 'str'"
   },
+  "compose_video_presentations": {
+    "function": "(video_doc: 'Document', presentations: 'list[PresentationExtract]') -> 'Document'"
+  },
   "content_hash": {
     "function": "(*parts: 'str') -> 'str'"
   },
@@ -129,6 +144,12 @@
   },
   "extract_pdf_bytes": {
     "function": "(data: 'bytes', url: 'str | None' = None, fallback_title: 'str | None' = None, engine: 'str | None' = None) -> 'PdfExtractResult'"
+  },
+  "extract_presentation": {
+    "function": "(attachment: 'SourceAttachment', settings: 'Settings', *, full_content: 'bool' = False) -> 'PresentationExtract'"
+  },
+  "fetch_media": {
+    "function": "(url: 'str', *, full_content: 'bool' = False, preferred_languages: 'list[str] | None' = None, settings: 'Settings | None' = None, media_url: 'str | None' = None) -> 'Document'"
   },
   "fetch_settings": {
     "function": "(settings: 'Any' = None, fallback: 'Any' = None) -> 'Any'"

@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.vmware_explore"
+type = "ingest_adapter"
+revision = 1
+core_commit = "4cf87b533713fdf78dceec3126d00dc7671dbd36"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "VMware Explore"
+description = "Gets VMware Explore session videos with their captions or speech to text, finds the presentation PDF of the session, and makes one document with the video text and the PDF text."
+
+[text.ko]
+name = "VMware Explore"
+description = "VMware Explore 세션 영상을 자막이나 음성 인식과 함께 가져오고, 세션의 발표자료 PDF를 찾아 영상 본문과 PDF 본문을 한 문서로 결합한다."
+
+[[provides]]
+kind = "fetcher"
+name = "vmware_explore"
+priority = 110
+hosts = ["vmware.com", "www.vmware.com"]
+source_types = ["video"]
+
+[permissions]
+network = ["vmware.com", "www.vmware.com", "static.rainfocus.com"]
+private_network = false
+network_modules = []
+executables = []
+providers = ["stt"]
+
+[requires]
+distributions = []
+executables = []
