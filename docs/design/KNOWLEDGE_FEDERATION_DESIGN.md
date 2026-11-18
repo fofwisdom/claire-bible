@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Planned, not implemented (draft, Rev. 8). The owner direction of Section 2 and the decisions KD1 to KD9 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. No question is open (Section 16). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16).
+- **Status**: Units KF0 to KF5 are implemented; the current behavior is in [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md). Planned, not implemented: unit KF6 (the readiness checks GF8 to GF17, Section 14.1) and the acceptance path (Section 14.2). Draft, Rev. 9. The owner direction of Section 2 and the decisions KD1 to KD12 of Section 2.1 are locked (KD1 to KD9: 2026-11-16; KD10 to KD12: 2026-11-18). All other content is a **proposal**. Open questions: PQ14 and PQ15 (Section 16). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16).
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -13,7 +13,9 @@
   - Rev. 6 (2026-11-16): answers to PQ3 to PQ9 and PQ13 (KD1 to KD8, Section 2.1). Review of the owner proposal for PQ2 (the domain `claire.bible`) with the policy of the `.bible` registry (Section 16).
   - Rev. 7 (2026-11-16): answer to PQ2: the identifiers are on `w3id.org` (KD9). The registration is a pull request of the owner when the target is live (Section 9.1).
   - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The areas of the admin console (Section 6.5) are tabs of the section `/admin/federation` in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md).
+  - Rev. 9 (2026-11-18, base commit `33748825`): owner decisions KD10 to KD12. The readiness checks of the knowledge federation GF8 to GF17 and the contract change with the sidecar (Section 14.1), the acceptance path KA1 to KA5 (Section 14.2), unit KF6 (Section 17), and the open questions PQ14 and PQ15 (Section 16).
 - **Related Documents**:
+  - [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) (the development network of two servers for the acceptance path, KD12)
   - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout and tabs of the console)
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -50,7 +52,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 
 Production state (owner, 2026-11-16): the production server is in network mode, and its admin has a USERNAME.
 
-### 2.1 Decisions (2026-11-16)
+### 2.1 Decisions (2026-11-16 and 2026-11-18)
 
 | ID | Question | Decision |
 | :--- | :--- | :--- |
@@ -63,6 +65,9 @@ Production state (owner, 2026-11-16): the production server is in network mode, 
 | KD7 | PQ9: authority identifiers | Entities carry authority identifiers in `sameAs` when they have them; the receiver matches them first; linking to an authority is later work (Section 10.4). |
 | KD8 | PQ13: domain block level "limit" | Yes, as a later step after the existing block (Section 6.3). |
 | KD9 | PQ2: the IRI of the JSON-LD context | Option B: the identifiers are under `https://w3id.org/claire-bible/` and redirect (302) to `https://claire.bible/`. The context is `https://w3id.org/claire-bible/ns/v1`; the vocabulary terms are `https://w3id.org/claire-bible/ns#…` (Sections 9.1, 16). |
+| KD10 | Order of the remaining checks (2026-11-18) | Before the remaining checks of the knowledge federation (a real exchange between two servers with real sidecars, the check of the JSON-LD context before it is hosted, the calibration of thresholds and limits), the readiness checks GF1 to GF7 must pass. The order of all steps is the acceptance path (Section 14.2). |
+| KD11 | Readiness of the knowledge federation (2026-11-18) | GF1 to GF7 examine only that one server is ready for the federation of accounts. The paths of the knowledge federation need new readiness checks, GF8 and later (Section 14.1). |
+| KD12 | Development stack (2026-11-18) | The Docker development stack can be used when it is necessary. It must become a common environment, so that the community can contribute code ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md), decision CD1). |
 
 ---
 
@@ -433,6 +438,171 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 
 The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
+### 14.1 Readiness Checks of the Knowledge Federation (KD11)
+
+The readiness checks GF1 to GF7 ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2) examine the federation of accounts: the server mode, the sidecar heartbeat with the contract version, the service key, the master key, https in production, the WebFinger path through the public origin (GF6), and the OAuth metadata through the public origin (GF7) **[code]**. They do not examine the paths, the keys, the loops, and the settings that the knowledge federation uses (KD11). The checks GF8 to GF17 of this section examine them. The content of this section is a **[proposal]**; only KD10 and KD11 are decisions.
+
+#### 14.1.1 Rules for All Checks
+
+1. **Small and decidable.** Each check examines one thing. It gives "passed" or "failed" and a detail text that tells what to examine.
+2. **No request to another server.** A check reads the database, a file, or the heartbeat record, or it sends requests to the public origin of this server only, as GF6 and GF7 do. The public origin is the configured public URL (`WebRuntimeConfig.public_origin` in Claire, `canonical_origin` of the config in the sidecar).
+3. **No change of data by Claire.** A check of Claire writes nothing. GF14 and GF15 read an actor document through the public origin; as each first read by another server, this read can make the keys of that actor ([`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md) Section 12.2). The self-check of the sidecar stores nothing (Section 14.1.4).
+4. **Two sources.** A check of Claire runs in the process that makes the report: the `api` process for `GET /api/admin/federation`, the CLI process for `claire server check --federation`. A check of the sidecar runs in the sidecar at each heartbeat, and Claire reads its result in the heartbeat record, as GF6 does.
+5. **Client of the requests of Claire.** The rules of GF7 apply: no redirects, no proxy settings of the environment, a timeout of 5 seconds for each request, and a limit for the size of each answer. The requests trust the certificate authorities of the system trust store of the process (in the image: the public authorities and the files of `/extra-certs`, which the entrypoint adds **[code]** `scripts/docker-entrypoint.sh`). Today GF7 uses `httpx` with `trust_env=False`; `httpx` 0.28.1 then trusts only the bundle of `certifi` **[code]**. Thus a server behind a private certificate authority fails GF7, for example a server of the development network ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) Section 6.4). This rule applies to GF7 too. The checks with requests run at the same time, with a limit of 20 seconds for all of them; a check that does not end in that time fails with the detail "The check did not end in 20 seconds."
+6. **Group, level, and scope.** Each item has `group` (`account` for GF1 to GF7, `knowledge` for GF8 to GF17), `level` (`required` or `warning`), and `applies` (true or false). An item that does not apply has `passed` true and a detail that tells why. Each check sets the three values itself; no value has a default. `report.passed` is true when each `required` item passes. A `warning` item never changes `report.passed`.
+7. **Modes and switches.** Each check applies in network mode and in single mode, because the mode is not a condition of the knowledge federation (Section 15 rule 5). GF14, GF15, and GF16 apply only while the switch `federation` is `on`, because the sidecar gives 404 for each federation path while the switch is `off` **[code]**. The other checks apply in each state of the switch, so that they can pass before the admin sets it to `on`. No check needs `kb_auto_contribution` `on` (KD4): GF13 examines its value, and GF15 compares it with the actor document.
+8. **Gate.** **[proposal, PQ14]** The change of `federation` to `on` (`POST /api/admin/federation`) needs each required item that applies at that time: GF1 to GF7 and GF8 to GF13. GF14 to GF16 apply after the change, and the acceptance path needs them (Section 14.2). A required item that fails while the switch is `on` starts no automatic action; the report shows it, as for GF1 to GF7 today.
+9. **Text.** The API and the CLI give the detail in English (ASD-STE100), as GF1 to GF7 do. Each item also has a `code` (for example `paths_not_routed`) and the values of its detail. The console shows the text of the catalog key of that code in English or Korean ([`I18N_DESIGN.md`](I18N_DESIGN.md) ID5). Unit KF6 gives codes to GF1 to GF7 too, so that the console has one method to show an item. The CLI is not localized (ID6).
+
+#### 14.1.2 Summary
+
+| ID | Name | Source | Requests to the public origin | Applies | Level |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| GF8 | Knowledge federation paths reach this sidecar | Sidecar self-check | Sidecar: 7 GET | Always | Required |
+| GF9 | Signed request through the public origin | Sidecar self-check | Sidecar: 1 POST | Always | Required |
+| GF10 | Inbox body of the largest size through the public origin | Claire | 1 POST | Always | Required |
+| GF11 | Knowledge federation loops of the sidecar make progress | Heartbeat | None | Always | Required |
+| GF12 | Actor keys can be decrypted | Claire | None | Always | Required |
+| GF13 | Settings of the knowledge federation and the public name | Claire | None | Always | Required |
+| GF14 | First-contact documents through the public origin | Claire | 3 GET | Switch `on` | Required |
+| GF15 | Knowledge base actor document through the public origin | Claire | 1 GET | Switch `on` and a shared knowledge base exists | Required |
+| GF16 | Collections refuse an unsigned read | Claire | 2 or 3 GET | Switch `on` | Required |
+| GF17 | JSON-LD context and vocabulary page through the public origin | Claire | 2 GET | Always | Warning |
+
+Not a check: the clock of the server. Other servers refuse an HTTP signature with a time that is more than one hour wrong **[code]** (KNOWLEDGE_FEDERATION.md Section 14.2), but a check of the clock needs a request to another time source, and rule 2 does not permit that.
+
+#### 14.1.3 The Checks
+
+**GF8: Knowledge federation paths reach this sidecar.**
+
+- Shows: the reverse proxy sends each path of the knowledge federation to this sidecar process. GF6 shows this for `/.well-known/webfinger` only; a proxy can have a rule for that path and no rule for `/nodeinfo/` or `/ap/`.
+- How (sidecar, at each heartbeat): one `GET {origin}{path}` for each path of this list: `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/server`, `/ap/kb`, `/ap/themes`, `/ap/kb/0` (a path below `/ap/kb/`; 0 is never the number of a knowledge base), and `/ap/inbox`. No redirects, a timeout of 10 seconds, all requests at the same time. A path passes when the answer has the header `X-Claire-Fedify-Server` with the value of this sidecar process **[code]** (FEDERATION.md Section 7.2). The status of the answer is not important, so that the check passes also while the switch is `off` (each answer is then 404).
+- Passed: the heartbeat is recent (the limit of GF2), and its `knowledge_self_check.failed_paths` is an empty list.
+- Details on failure: "There is no recent sidecar heartbeat. The result of the knowledge self-check is not known." / "The sidecar did not do the knowledge self-check yet." / "The public origin does not send these paths to this sidecar: {paths}. Examine the reverse proxy rules: exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/."
+- Requests: from the sidecar to the public origin of this server only.
+
+**GF9: Signed request through the public origin.**
+
+- Shows: a signed `POST` goes through the reverse proxy to this sidecar without a change of the parts that a signature covers: the `Host` header, the `Date` header, the digest headers, the signature headers, and the body. Other servers verify each delivery and each signed read with these parts; FEDERATION.md Section 10 tells the proxy to keep them **[code]**.
+- How (sidecar, at each heartbeat): at its start the sidecar makes one key pair in memory, the self-check key. It is not an actor key, it is not in `auth.db`, and it never leaves the process. The sidecar sends one `POST {origin}/ap/self-check` with a small JSON body that contains a random value (the nonce). It signs the request with the self-check key and with the same function as a delivery (`signRequest` of Fedify). The handler of `/ap/self-check` in the same process (Section 14.1.4) verifies the request with the same function as an inbox (`verifyRequest` of Fedify) and only the self-check key, compares `Host` with the authority of the public origin, and records the result for the nonce in memory. The check reads that result. While the switch `federation` is `off`, the sidecar cannot get the actor keys **[code]** (FEDERATION.md Section 5.3); the self-check key makes the check possible before the admin sets the switch to `on`. The keys of the actors are examined by GF12, GF14, and GF15.
+- Passed: the result of the last self-check is `ok`.
+- Details on failure, for each result code: `not_routed`: "The signed self-check request did not reach this sidecar. Examine the reverse proxy rules for the prefix /ap/." / `host_changed`: "The reverse proxy changed the Host header. It must send the Host of the request without a change, because the signature includes it." / `signature_invalid`: "The signature of the self-check request did not verify after the reverse proxy. The proxy must send the body and the headers Date, Digest, Content-Digest, Signature, and Signature-Input without a change." / `tls_error`: "The sidecar cannot verify the TLS certificate of the public origin. Give the sidecar the certificate authority of the origin." / `dns_error`: "The sidecar cannot resolve the name of the public origin." / `request_failed`: "The self-check request to the public origin failed ({error})." The two texts of GF8 for a heartbeat that is not recent and for a self-check that was not done also apply.
+- Requests: from the sidecar to the public origin of this server only.
+
+**GF10: Inbox body of the largest size through the public origin.**
+
+- Shows: the reverse proxy accepts a request body of the largest size that the sidecar accepts on an inbox. A proxy with a lower limit refuses a large contribution (an `Offer` with a document and its extraction) with 413 before the sidecar gets it.
+- How (Claire): one `POST {origin}/ap/inbox` without a signature, with `Content-Type: application/activity+json` and a body of `inbox_body_bytes` minus 8192 bytes (1040384 bytes now) **[code]** (FEDERATION.md Section 5.3, KNOWLEDGE_FEDERATION.md Section 10.6 item 1). The sidecar refuses the request (401 without a signature, or 404 while the switch is `off`) and does not give it to Claire.
+- Passed: the answer has the header `X-Claire-Fedify-Server` (any value), and its status is not 413.
+- Details on failure: "The public origin refused an inbox body of {n} bytes (HTTP {status}). The reverse proxy must accept a request body of {n} bytes or more on the paths below /ap/." / "The answer did not come from a sidecar (no header X-Claire-Fedify-Server). Examine the reverse proxy rules for the prefix /ap/." / "The request to the public origin failed ({error})."
+- Requests: from Claire to the public origin of this server only. The sidecar can write a log line for the refused request **[unverified]**.
+
+**GF11: Knowledge federation loops of the sidecar make progress.**
+
+- Shows: the two loops of the knowledge federation run and reach Claire: `knowledge_reads` (the reads of known servers and of `/kb` collections, each 60 seconds) and `knowledge_exchange` (the reads for curations and the outbound activities, each 5 seconds) **[code]** (`sidecar/fedify/src/main.ts`). A loop asks Claire for work also when there is no work, so the check works on a server that knows no other server. The age of the last lease is not used, because a lease exists only when there is work.
+- How (heartbeat): for each loop the heartbeat has `running`, `progress_at` (the end of the last step or pass that ended without an error), the last error code, and its time (Section 14.1.4).
+- Passed: for each loop, `progress_at` is at most 300 seconds old. The limit is more than the longest step, the read of a `/kb` collection, which has a limit of 240 seconds **[code]** (KNOWLEDGE_FEDERATION.md Section 11.4).
+- Details on failure: "The sidecar heartbeat has no state of the knowledge federation loops." / "The loop {loop} of the sidecar made no progress in the last 300 seconds. Last error: {code, or none}."
+- Requests: none.
+
+**GF12: Actor keys can be decrypted.**
+
+- Shows: the master key of this server decrypts each private key in `actor_keys` (`auth.db`): the server actor (0), the account actors, and the knowledge base actors (negative numbers) **[code]** (FEDERATION.md Section 6, KNOWLEDGE_FEDERATION.md Section 12.2). GF4 shows only that the master key loads. After a restore with a different master key, no actor key decrypts, and the sidecar cannot sign a delivery or a signed read.
+- How (Claire): it reads each row and decrypts the private key with the additional authenticated data of its row. It makes no key.
+- Passed: each row decrypts. A server with no row passes, with the detail "There is no actor key yet."
+- Details on failure: "{n} actor keys cannot be decrypted with the master key (actors: {at most five numbers}). The master key is not the key that encrypted them." / "The actor key store cannot be read ({error})."
+- Requests: none.
+
+**GF13: Settings of the knowledge federation and the public name.**
+
+- Shows: the stored values of the knowledge federation are valid, so that no loop and no handler stops with an error of the data, and other servers can resolve the public name.
+- How (Claire, read only): (1) `federation` and `kb_auto_contribution` are `off` or `on`. (2) Each key of `contributions.LIMITS` that has a row in `server_settings` has an integer of its lowest value or more (the limits of KNOWLEDGE_FEDERATION.md Sections 13.4 and 14.1); today `read_limits` raises an error at run time for such a row **[code]**. (3) `theme_match_threshold`, `auto_match_threshold`, and `auto_run_documents` read without an error with their rules. (4) In production, the host of the public origin is not below a special-use name: `test`, `example`, `invalid`, `localhost` (RFC 6761), or `local` (RFC 6762). In development, a name below `test` is the rule of the development network.
+- Passed: all four parts.
+- Details on failure: "The server setting {key} has a value that is not valid: {value}." / "The host {host} of the public origin is below the special-use name {suffix}. Other servers cannot resolve it."
+- Requests: none.
+
+**GF14: First-contact documents through the public origin.**
+
+- Shows: another server gets what it reads at its first contact with this server **[code]** (KNOWLEDGE_FEDERATION.md Section 10.6 item 3): NodeInfo, the document of its link, and the server actor with its key.
+- How (Claire): `GET {origin}/.well-known/nodeinfo` gives 200 and JSON with a link whose `href` is `{origin}/nodeinfo/2.1`. A `GET` of that link gives 200 and JSON with `software.name` `claire-bible`, the version of this Claire, and `activitypub` in `protocols`. `GET {origin}/ap/actors/server` with `Accept: application/activity+json` gives 200, the type `Application`, the `id` `{origin}/ap/actors/server`, an `inbox` on the origin, `publicKey.owner` equal to `id`, and a `publicKey.publicKeyPem` that is the stored public key of the server actor.
+- Passed: all steps.
+- Details: not applicable while the switch is `off`: "The switch federation is off. The sidecar gives 404 for each federation path while it is off." / on failure: "NodeInfo through the public origin: {problem}." / "The server actor through the public origin: {problem}." / "The public key of the server actor through the public origin is not the stored key. Examine caches between the reverse proxy and the sidecar."
+- Requests: from Claire to the public origin of this server only.
+
+**GF15: Knowledge base actor document through the public origin.**
+
+- Shows: another server can read the actor of a shared knowledge base, verify its signatures, and find the addresses for a follow and an offer.
+- How (Claire): the shared knowledge base with the lowest number. `GET {origin}/ap/kb/{n}` gives 200 and `application/activity+json`; the type has `Group` and `claire:KnowledgeBase`; `id` is `{origin}/ap/kb/{n}`; `inbox` is `{id}/inbox`; `followers`, `outbox`, and `claire:documents` are on the origin; `publicKey.owner` is `id`; `publicKey.publicKeyPem` is the stored public key of that actor; `claire:acceptsAutomatic` is true only when `federation` and `kb_auto_contribution` are both `on` now **[code]** (KNOWLEDGE_FEDERATION.md Sections 4.1, 12.2, and 15.5).
+- Passed: all parts.
+- Details: not applicable: the text of GF14 for the switch, or "There is no shared knowledge base." / on failure: "The actor document of the knowledge base {n} through the public origin: {problem}." / "claire:acceptsAutomatic is {value} in the document, but the switches give {expected}. A cache between the reverse proxy and the sidecar can give old documents."
+- Requests: from Claire to the public origin of this server only.
+
+**GF16: Collections refuse an unsigned read.**
+
+- Shows: control KS1 works through the reverse proxy. A cache in front of the sidecar that keeps a signed answer can give it to each client, and thus go around domain blocks.
+- How (Claire): `GET {origin}/ap/kb`, `GET {origin}/ap/themes`, and, when a shared knowledge base exists, `GET {origin}/ap/kb/{n}/documents` for the lowest number, each without a signature and with `Accept: application/activity+json`.
+- Passed: each answer is 404.
+- Details: not applicable: the text of GF14 for the switch / on failure: "The public origin gave HTTP {status} for an unsigned read of {path}. A collection of shared knowledge must give 404 to a request without a signature (KS1). Examine caches in front of the sidecar."
+- Requests: from Claire to the public origin of this server only.
+
+**GF17: JSON-LD context and vocabulary page through the public origin.**
+
+- Shows: the reverse proxy gives `/ns/v1` and `/ns` of Claire without a change (Section 9.1 rule 3).
+- How (Claire): `GET {origin}/ns/v1` gives 200 without a redirect, `Content-Type: application/ld+json`, `Access-Control-Allow-Origin: *`, and a body that is the context document of this version (`static/ns/v1.jsonld`). `GET {origin}/ns` gives 200 and `text/html`. The routes work in each state of the switch **[code]** (KNOWLEDGE_FEDERATION.md Section 7.1).
+- Passed: both requests.
+- Details on failure: "GET /ns/v1 through the public origin: {problem}." / "GET /ns through the public origin: {problem}." The problems are: the status, a redirect, the media type, no CORS header, or a body that is not the context document of this version.
+- Requests: from Claire to the public origin of this server only.
+- Level: warning, because Claire servers never get the context from the network (Section 9.1 rule 2); software of other kinds can. Step KA4 needs it on the server that hosts the context (Section 14.2).
+
+#### 14.1.4 Contract Change with the Sidecar
+
+1. **Heartbeat.** `POST /internal/federation/v1/heartbeat` gets two necessary fields. Times are Unix seconds; a code is 1 to 64 characters of `a-z`, `0-9`, and `_`.
+
+   ```json
+   {
+     "knowledge_self_check": {
+       "checked_at": 1800000300.0,
+       "failed_paths": [],
+       "signed": {"result": "ok"}
+     },
+     "loops": {
+       "knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null},
+       "knowledge_exchange": {"running": true, "progress_at": 1800000299.0, "error": null, "error_at": null}
+     }
+   }
+   ```
+
+   Before the first self-check, `checked_at`, `failed_paths`, and `signed.result` are null. `signed.result` is `ok` or one of the codes of GF9. The other fields of the heartbeat do not change.
+2. **Self-check path.** The sidecar gets the public path `POST /ap/self-check`. It answers 202 only for a request that this process signed with its self-check key in the last 60 seconds, with a nonce that it did not see before; each other request gets the same 404 as an unknown path. It answers in each state of the switch `federation`, because GF9 must pass before the switch is `on`. It never calls Claire and stores nothing; the result of a nonce stays in memory for 60 seconds. The prefix `/ap/` of the reverse proxy rules (FEDERATION.md Section 10) already sends the path to the sidecar.
+3. **Cadence.** The knowledge self-check runs at each heartbeat (each 30 seconds), as the self-check of GF6, also while the switch is `off`. Its requests run at the same time, with a limit of 20 seconds, so that a heartbeat is not late. Thus the age of the result is the age of the heartbeat.
+4. **Version.** The contract version becomes 1.12. The rules of FEDERATION.md Section 5.4 apply: Claire and the sidecar come from the same commit, and the shapes are sealed. A sidecar of version 1.11 sends a heartbeat without the new fields; Claire refuses it (400 `invalid_request`), records nothing, and GF2 fails. An absent field gets no default value.
+5. **Fixtures.** The contract fixtures of the heartbeat get the new fields; the Python and Deno tests read the same files, as today.
+
+#### 14.1.5 Report and Console
+
+- `GET /api/admin/federation`: each item of `readiness.items` has `group`, `level`, `applies`, and `code`; `readiness.passed` follows rule 6 of Section 14.1.1; `heartbeat` has the new fields.
+- `POST /api/admin/federation` with `on`: the gate of rule 8; `failures` has each required item that applies and fails.
+- CLI: `claire server check --federation [--json]` gives all items in the two groups. The exit code is 0 only when `passed` is true. The help text names GF1 to GF17.
+- Console `/admin/federation`, tab "Switches and state" (Section 6.5): the readiness table has two groups, each with a heading row and its own summary: "Federation of accounts (GF1 to GF7)" and "Federation of shared knowledge (GF8 to GF17)". A column shows the level (required, warning). An item that does not apply shows "Does not apply" and its reason. The sidecar card shows each loop of GF11 (the age of its progress and its last error). The new text has catalog keys in `en` and `ko` (ID5).
+
+### 14.2 Acceptance Path of the Knowledge Federation (KD10)
+
+The order of the steps is the direction of the owner (2026-11-18): GF1 to GF7 pass; then GF8 and later pass; then a real exchange between two servers with real sidecars; then the check of the JSON-LD context before it is hosted; then the calibration of thresholds and limits with real data. The content of each step is a **[proposal]**.
+
+| Step | Content | Completion criteria |
+| :--- | :--- | :--- |
+| KA1 | GF1 to GF7 on each server of the exchange | `claire server check --federation --json` gives "passed" for GF1 to GF7 on server A and on server B of the development network ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) phase DE4) |
+| KA2 | GF8 to GF17 | Unit KF6 is complete. With the switch `off`, GF8 to GF13 pass on A and B; the admin of each server sets the switch to `on`; then GF14 to GF16 pass on A and B; GF17 passes, or its warning has a known reason |
+| KA3 | Real exchange between two servers | Each completion criterion of KF1 to KF5 (Section 17) passes between A and B with real sidecars, real TLS, real DNS, and the reverse proxy rules of FEDERATION.md Section 10. The tests act only through the public routes and the federation paths: no direct call of an internal route and no direct row in a database. One test with the marker `devnet` for each criterion. The tests of today simulate the sidecars and the network **[code]** (KNOWLEDGE_FEDERATION.md Sections 10.7, 11.8, 12.10, 13.9, 15.8) |
+| KA4 | Check of the JSON-LD context before it is hosted | A JSON-LD processor expands each fixture of `tests/fixtures/knowledge_federation/objects/` and `activities/` with the context `v1` and compacts it again to the same compact names, and no term is lost. The IRIs of `Grant`, `Revoke`, and `capability` agree with the ForgeFed specification (today they come from memory, KNOWLEDGE_FEDERATION.md Section 8 item 3). The owner reads the vocabulary page. Then `v1` is frozen (Section 9.1 rule 2), `claire.bible` serves `/ns/v1` and `/ns` and GF17 passes there, and the owner opens the pull request on `w3id.org` (Section 9.1 rule 4, KF0) |
+| KA5 | Calibration of thresholds and limits with real data | `theme_match_threshold` (the attachment of a remote knowledge base to a local theme), `auto_match_threshold`, `auto_run_documents`, the limits of KNOWLEDGE_FEDERATION.md Sections 13.4 and 14.1, and the time limits of the sidecar (Section 14.5 there) are compared with the data of servers that federate. The owner collects the numbers on servers of the owner. An agent works only with the numbers that the owner gives, because agents do not operate production. Each new default is a decision of the owner with its data |
+
+Rules:
+
+1. A step starts only after the step before it is complete.
+2. A change of a path, a key, a loop, a setting, or the reverse proxy rules in a later step repeats KA1 and KA2.
+3. KA1 to KA3 use the development network of two servers (KD12; scope: PQ15). KA4 and KA5 need servers of the owner on the internet; the owner does the steps on production.
+
 ---
 
 ## 15. Single Mode (CT33, confirmed)
@@ -450,7 +620,9 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
 Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnership) by the owner direction of Section 2: federation without an agreement, relay for the server-level subscription. PQ11 (the term "directory") is applied with the unification of terms: the text uses "the `/kb` collection of another server"; the owner can reverse it. PQ12 (relay) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) in Rev. 5.
 
-Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8), PQ2 (KD9). No question is open.
+Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8), PQ2 (KD9).
+
+Open since 2026-11-18: PQ14 and PQ15 (at the end of this section).
 
 ### PQ2: The IRI of the Claire JSON-LD Context (Section 9.1), Answered (KD9)
 
@@ -475,6 +647,28 @@ Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), P
 
 **Answer (owner, 2026-11-16):** B (KD9).
 
+### PQ14: Do GF8 to GF13 Gate the Switch `federation`? (Section 14.1.1 rule 8)
+
+The one switch `federation` turns on the federation of accounts and the federation of shared knowledge (Section 14). Today only GF1 to GF7 gate the change to `on` **[code]**.
+
+| Option | Rule | Effect |
+| :--- | :--- | :--- |
+| A (proposal) | The change to `on` needs each required item that applies: GF1 to GF7 and GF8 to GF13. GF14 to GF16 show after the change. | A server whose proxy has no rule for `/ap/` or `/nodeinfo/`, or whose actor keys do not decrypt, cannot turn on the federation by mistake. An admin who wants only the federation of accounts must also make the knowledge paths work, because one switch turns on both. |
+| B | Only GF1 to GF7 gate. GF8 to GF17 show in the report only. | No new condition for admins. A server can federate accounts while the knowledge paths do not work, and other servers then record read errors for it. |
+| C | B for one release with a note in the console, then A. | Admins of existing servers get time to change the proxy before the gate starts. |
+
+**Recommendation:** A. The paths that GF8 to GF10 examine are the same prefix rules that GF6 already needs, so a correct proxy passes them at once. The gate does not change a server that has the switch `on` now: the gate applies only to the change.
+
+### PQ15: Is the Development Network Enough for Step KA3? (Section 14.2)
+
+| Option | Scope of KA3 | Effect |
+| :--- | :--- | :--- |
+| A | Only the two servers of the development network | Repeatable as a test; each contributor can run it. It does not show the effects of a proxy or a network of a real operator. |
+| B | The development network and two servers on the internet before KA4 | Shows the real network before the context is hosted, but needs a second server of the owner on the internet at this step. |
+| C (proposal) | A for KA3; the first exchange of a server of the owner with another server on the internet is a part of KA5 | KA3 stays a test. The real network gives its data in KA5, where the owner works on production anyway. |
+
+**Recommendation:** C.
+
 ---
 
 ## 17. Phases
@@ -489,5 +683,8 @@ Precondition: units CT-0 to CT-9 of the shared knowledge base design, and the fe
 | KF3 | Knowledge base actors, curation across servers, revisions, removal at the origin | A revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue |
 | KF4 | Contributions across servers (`Offer`, `Accept` with `result`, `Reject`), remote collaborators (`Grant`, `Revoke`) | E2E test: an account of A contributes to a shared knowledge base of B; a reviewer of B approves; the submission page on A shows the decision; after a grant, the next contribution needs no approval; after `Revoke`, it needs approval again |
 | KF5 | Automatic contribution across servers | With `kb_auto_contribution` on both servers, a new shared knowledge base on B gets the matching documents of an account of A after a run |
+| KF6 | Readiness checks GF8 to GF17 (Section 14.1): the checks of Claire, the knowledge self-check and the loop state of the sidecar in the heartbeat, the path `/ap/self-check`, contract version 1.12, the trust store of the readiness requests (also for GF7), the gate (PQ14), and the two groups of the report in `/admin/federation` and in the CLI | On the development network ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) phase DE5) each check passes on both servers. For each check, one fault makes it fail with its detail: a proxy without the rule for `/ap/` (GF8), a proxy that changes `Host` (GF9), a body limit of 64 KiB (GF10), a stopped loop (GF11), a different master key (GF12), a stored limit of 0 (GF13), a proxy that sends `/nodeinfo/` to Claire (GF14), a cache that gives an old actor document (GF15), a cache that gives `/ap/kb` without a signature (GF16), and `/ns/v1` without the CORS header (GF17: a warning, and `report.passed` stays true). With PQ14 A, the change to `on` is refused while GF8 to GF13 fail. E2E test: the console shows the two groups, the level, and "Does not apply" |
+
+After KF6, the acceptance path of Section 14.2 (KA1 to KA5) applies.
 
 Later work: federation of merge decisions; links between duplicate knowledge; a function that links entities to an authority; idea I1 (follows of persons of the open fediverse to a knowledge base actor).
