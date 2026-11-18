@@ -1,4 +1,4 @@
-"""uttu.merui.net (UTTU Archive) web adapter for Reverse: 1999 story viewer and database pages."""
+"""uttu.merui.net (UTTU Archive) web adapter for Reverse: 1999 story viewer and database pages (project plugin claire.uttu)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,19 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ...config import get_settings
-from .adoc_text import adoc_cell, adoc_table
-from .base import BaseWebAdapter, WebAdapterResult, fetch_settings
-from .http import SafeHttpClient
+from claire.plugin_sdk import BaseWebAdapter, PluginContext, WebAdapterResult, adoc_cell, adoc_table, fetch_settings
 
 logger = logging.getLogger(__name__)
 
 _UTTU_DOMAINS = ("uttu.merui.net", "*.merui.net")
+
+_ctx: PluginContext | None = None
+
+
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    ctx.web_adapter(UttuAdapter, name="uttu", priority=35, hosts=_UTTU_DOMAINS)
 
 _COMMON_CHARACTER_PREFIX_MAP: dict[str, str] = {
     "3001": "버틴",
@@ -100,7 +105,7 @@ def resolve_uttu_language(url: str, settings: Any = None) -> str:
             return q_lang
 
     # 3. System settings
-    s = fetch_settings(settings, get_settings)
+    s = fetch_settings(settings)
     pref = ""
     if getattr(s, "effective_preferred_languages", None):
         pref = s.effective_preferred_languages[0]
@@ -479,9 +484,9 @@ class UttuAdapter(BaseWebAdapter):
             return None
 
         timeout = kwargs.get("timeout", 25.0)
-        client = SafeHttpClient(timeout=timeout)
+        assert _ctx is not None, "register(ctx) was not called"
         try:
-            resp = client.get(url)
+            resp = _ctx.safe_get(url, timeout=timeout)
             if resp.status_code >= 400:
                 return None
             html_text = resp.text

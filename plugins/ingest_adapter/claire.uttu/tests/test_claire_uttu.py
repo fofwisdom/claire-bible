@@ -7,13 +7,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.ingest.fetchers.base import WebAdapterResult
-from claire.ingest.fetchers.uttu import (
-    UttuAdapter,
-    _format_chapter_content,
-    resolve_uttu_language,
-)
+from pathlib import Path
+
 from claire.ingest.registry import registry
+from claire.plugin_sdk import WebAdapterResult
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def adapter(monkeypatch):
+    module = load_plugin(FOLDER).module("adapter")
+    for name in ("UttuAdapter", "_format_chapter_content", "resolve_uttu_language"):
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return module
 
 
 def test_registry_get_matching_web_adapters_domain_only():
@@ -131,7 +139,7 @@ def test_try_fetch_story_single_part():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -182,7 +190,7 @@ def test_try_fetch_story_full():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -224,7 +232,7 @@ def test_try_fetch_database_page_multilingual_and_modals():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -325,7 +333,7 @@ def test_try_fetch_story_cross_chapter_headicon_resolution():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -393,7 +401,7 @@ def test_try_fetch_event_trail_detail_fragment():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -463,7 +471,7 @@ def test_try_fetch_event_trail_dialog_steps():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None
@@ -519,7 +527,7 @@ def test_try_fetch_event_part_only():
     mock_resp.status_code = 200
     mock_resp.text = page_html
 
-    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+    with patch("claire.ingest.fetchers.http.SafeHttpClient.get", return_value=mock_resp):
         res = UttuAdapter.try_fetch(url)
 
         assert res is not None

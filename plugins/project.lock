@@ -10,3 +10,8 @@ digest = "sha256:29b372d7e4520dee6873b5b9cf73c59516e128c4ac4d4c40def408fe48bac1b
 id = "claire.law_go_kr"
 revision = 1
 digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fcd"
+
+[[plugin]]
+id = "claire.uttu"
+revision = 1
+digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191c"

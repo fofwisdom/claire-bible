@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.uttu"
+type = "ingest_adapter"
+revision = 1
+core_commit = "f751418ad74be497f983c826bcc3f4834d6a09ae"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "UTTU Archive (Reverse: 1999)"
+description = "Gets the story chapters and the database pages of uttu.merui.net. It writes the dialogs of a chapter with the names of the speakers, and tables as AsciiDoc."
+
+[text.ko]
+name = "UTTU 아카이브 (리버스: 1999)"
+description = "uttu.merui.net의 스토리 장과 데이터베이스 페이지를 가져온다. 장의 대사는 화자 이름과 함께, 표는 AsciiDoc 표로 쓴다."
+
+[[provides]]
+kind = "web_adapter"
+name = "uttu"
+priority = 35
+hosts = ["uttu.merui.net", "*.merui.net"]
+source_types = ["web"]
+
+[permissions]
+network = ["uttu.merui.net", "*.merui.net"]
+private_network = false
+network_modules = []
+executables = []
+providers = []
+
+[requires]
+distributions = []
+executables = []

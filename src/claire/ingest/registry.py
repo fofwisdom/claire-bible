@@ -23,7 +23,7 @@ _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
 def _core_entries() -> list[Entry]:
     """Format routes of the core and the site adapters that are not moved to plugins yet (unit PL2 moves them)."""
-    from .fetchers import hoyolab, hoyowiki, naver_clip, uttu, video, xcom, youtube
+    from .fetchers import hoyolab, hoyowiki, naver_clip, video, xcom, youtube
 
     hoyolab_hosts = ("hoyolab.com", "*.hoyolab.com")
     return [
@@ -35,7 +35,6 @@ def _core_entries() -> list[Entry]:
         Entry("fetcher", "video", 80, ("*",), video.VideoFetcher, None),
         Entry("web_adapter", "hoyowiki", 40, ("wiki.hoyolab.com", "*.hoyolab.com"), hoyowiki.HoyowikiAdapter, None),
         Entry("web_adapter", "hoyolab", 38, hoyolab_hosts, hoyolab.HoYoLabAdapter, None),
-        Entry("web_adapter", "uttu", 35, uttu._UTTU_DOMAINS, uttu.UttuAdapter, None),
     ]
 
 

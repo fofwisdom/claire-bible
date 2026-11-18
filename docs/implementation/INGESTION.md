@@ -56,7 +56,6 @@ Core entries at this commit (the site entries move to project plugins in unit PL
 | fetcher | `video` | 80 | `*` (`is_video_or_audio_url`) | `src/claire/ingest/fetchers/video.py` |
 | web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyowiki.py` |
 | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
-| web adapter | `uttu` | 35 | `uttu.merui.net`, `*.merui.net` | `src/claire/ingest/fetchers/uttu.py` |
 
 Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of the plugin store): [code]
 
@@ -64,6 +63,7 @@ Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of t
 |---|---|---|---|---|
 | `claire.law_go_kr` | web adapter | `law` | 20 | `law.go.kr`, `*.law.go.kr` |
 | `claire.discourse` | web adapter | `discourse` | 30 | `*` (general, after the static fetch) |
+| `claire.uttu` | web adapter | `uttu` | 35 | `uttu.merui.net`, `*.merui.net` |
 
 #### Plugins [code]
 
