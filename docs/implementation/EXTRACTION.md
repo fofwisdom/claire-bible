@@ -44,7 +44,7 @@ Consumers: [code]
 
 - Caption and track selection in `src/claire/ingest/fetchers/youtube.py`, `src/claire/ingest/fetchers/naver_clip.py`, and `src/claire/ingest/fetchers/video.py`.
 - The VLM target language in `src/claire/extract/vision/gemini_vision.py`, `src/claire/extract/vision/mock_vision.py`, `src/claire/ingest/fetchers/web.py`, and `src/claire/ingest/fetchers/hoyolab.py` (also the HoYoLAB API language tag).
-- The language tag in `src/claire/ingest/fetchers/uttu.py`.
+- The language tag in `plugins/ingest_adapter/claire.uttu/adapter.py` (project plugin `claire.uttu`).
 - The `preflight` output line `preferred langs` in `src/claire/cli.py`.
 
 The extraction prompts, the detail render, and the search tokenizer ([I18N.md](I18N.md) §7) do not read this setting. The entity label language of a viewer (`src/claire/ontology/label_language.py`) and the UI locale are different settings.
