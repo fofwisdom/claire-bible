@@ -547,8 +547,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 * `claire expand-run [--limit N]`: 자동 확장 큐(`expand_queue`)에 대기 중인 문서의 링크를 선별하여 확장 게이트를 통과한 링크를 1회 적재.
 * `claire expand-shadow list [-t THEME] [--limit N] [--pending] [--json]`: 동일 주제 출처 병합의 섀도 기록(`same_subject_shadow`)을 부모·자식 제목과 함께 최신순으로 보여 준다. `--pending`은 사람 판정이 없는 기록만 보인다.
-* `claire expand-shadow verdict ID same|different|clear [--note TEXT]`: 기록 하나에 사람 판정을 단다(`same`: 같은 주제라 병합이 맞음, `different`: 아님, `clear`: 판정 삭제). 없는 기록이면 종료 코드 1.
-* `claire expand-shadow report [-t THEME] [--json]`: 모델 판정과 사람 판정을 비교해 TP·FP·FN·TN, 정밀도, 재현율, 정확도를 보인다. 분모가 0인 값은 null("no data")이다 ([EXPANSION.md](EXPANSION.md) §3.1).
+* `claire expand-shadow report [-t THEME] [--json]`: 모델 판정과 사람 판정(서버 관리자가 WebUI `/admin/limits`에서 단다. CLI에는 판정 명령이 없다)을 비교해 TP·FP·FN·TN, 정밀도, 재현율, 정확도를 보인다. 분모가 0인 값은 null("no data")이다 ([EXPANSION.md](EXPANSION.md) §3.1).
 * `claire expand-loop [--interval N] [--batch N]`: 모든 활성 테마의 링크 확장을 전역 batch 한도 안에서 순환 처리하는 데몬 루프. 확장 알림은 적재 결과와 링크를 테마별로 묶는다. 세 상주 루프는 매 cycle 레지스트리를 다시 읽어 신규·삭제 테마를 반영하고, 한 테마의 오류를 다른 테마 처리와 격리한다.[^multi-theme-operations]
 
 ---

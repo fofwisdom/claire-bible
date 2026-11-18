@@ -1,6 +1,6 @@
 """E2E: the shadow mode of the same-subject source merge, from the setting to the report (docs/implementation/EXPANSION.md §3.1).
 
-The administrator sets the mode "shadow" through the limits API, automatic expansion records the judgements, a human gives verdicts with ``claire expand-shadow verdict``, and ``claire expand-shadow report`` gives precision and recall. The mock provider judges: no trigger word = same subject, "별개주제" = different subject.
+The administrator sets the mode "shadow" through the limits API, automatic expansion records the judgements, the administrator gives verdicts through the admin API of the WebUI, and ``claire expand-shadow report`` (read only, for agents) gives precision and recall. The CLI has no verdict command: a verdict is the decision of a person. The mock provider judges: no trigger word = same subject, "별개주제" = different subject.
 """
 
 from __future__ import annotations
@@ -85,11 +85,20 @@ def test_shadow_mode_from_setting_to_report(tmp_path: Path, monkeypatch: pytest.
     assert by_url[SAME]["same_subject"] is True and by_url[OTHER]["same_subject"] is False
     assert by_url[SAME]["parent_title"] == "post" and by_url[SAME]["child_title"] == "repo"
 
-    # 3. A human gives the verdicts: the model was right about SAME and wrong about OTHER.
-    assert _run(["expand-shadow", "verdict", str(by_url[SAME]["id"]), "same", "--note", "official repository"], capsys)[0] == 0
-    assert _run(["expand-shadow", "verdict", str(by_url[OTHER]["id"]), "same"], capsys)[0] == 0
-    code, _ = _run(["expand-shadow", "verdict", "9999", "same"], capsys)
-    assert code == 1
+    # 3. The administrator gives the verdicts in the WebUI: the model was right about SAME and wrong about OTHER.
+    shadow = client.get("/api/admin/expansion/shadow?pending=1", headers=headers).json()
+    assert shadow["mode"] == "shadow" and shadow["report"]["pending"] == 2
+    api_ids = {r["child"]["url"]: r["id"] for r in shadow["records"]}
+    assert api_ids == {SAME: by_url[SAME]["id"], OTHER: by_url[OTHER]["id"]}
+    put = client.put(f"/api/admin/expansion/shadow/{api_ids[SAME]}/verdict", headers=headers, json={"verdict": "same", "note": "official repository"})
+    assert put.status_code == 200 and put.json()["record"]["verdict"] == "same" and put.json()["record"]["verdict_note"] == "official repository"
+    assert client.put(f"/api/admin/expansion/shadow/{api_ids[OTHER]}/verdict", headers=headers, json={"verdict": "same"}).status_code == 200
+    assert client.put("/api/admin/expansion/shadow/9999/verdict", headers=headers, json={"verdict": "same"}).status_code == 404
+    assert client.put(f"/api/admin/expansion/shadow/{api_ids[OTHER]}/verdict", headers=headers, json={"verdict": "maybe"}).status_code == 400
+    # The CLI of the agents has no verdict command.
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["expand-shadow", "verdict", str(api_ids[SAME]), "same"])
+    capsys.readouterr()
 
     # 4. The report compares the model with the verdicts.
     code, out = _run(["expand-shadow", "report", "--json"], capsys)

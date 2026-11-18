@@ -62,13 +62,14 @@ Result of `expand_document`: `{document_id, candidates, selected, stored, shadow
 
 Owner decision (2026-11-18): the merge is off by default, and only the shadow mode can be enabled, to collect data about its value. No setting value merges: `same_subject_merge` accepts `"off"` and `"shadow"` only (`IngestLimitManager.update_config`, the validator of `Settings`). [code]
 
-`claire expand-shadow` (`cmd_expand_shadow` in `src/claire/cli.py`) works with the records: [code]
+A verdict is the decision of a person, so only the WebUI gives it. The server administrator reviews the records in the card "동일 주제 출처 병합 검토" on `/admin/limits` (`initExpansionReview` in `src/claire/static/js/console_admin.js`): each record shows the parent and the child (titles and links), the model judgement with its scores and reason, and the current verdict, with the buttons "같은 주제", "다른 주제", and "판정 삭제" and an optional note. The card also shows the report. It uses `GET /api/admin/expansion/shadow` and `PUT /api/admin/expansion/shadow/{record_id}/verdict` ([API_HTTP_CONTRACT.md](API_HTTP_CONTRACT.md)). The admin sees and judges only the records of the knowledge bases of the admin account; member knowledge bases are private. The verdict keeps the account that gave it (`verdict_by`). [code]
+
+`claire expand-shadow` (`cmd_expand_shadow` in `src/claire/cli.py`) reads the records for agents. It does not change data: [code]
 
 - `list [-t THEME] [--limit N] [--pending] [--json]` shows the records, the newest first, with the titles of the parent and the child (`list_same_subject_shadow`). `--pending` shows only records without a verdict.
-- `verdict ID same|different|clear [--note TEXT] [-t THEME]` sets the human verdict of one record (`set_same_subject_verdict`): `same` = the child is the same subject as the parent, so the merge would be correct; `different` = it is not; `clear` removes the verdict, its note, and its time. A record that does not exist gives exit code 1.
 - `report [-t THEME] [--json]` compares the model judgement with the verdicts (`same_subject_shadow_report`). The positive class is "same subject". Precision = TP / (TP + FP), recall = TP / (TP + FN), accuracy = (TP + TN) / records with a verdict. A value is null ("no data") when its denominator is 0. Records without a verdict do not count.
 
-The columns `verdict`, `verdict_note`, and `verdict_at` keep the verdict. [code]
+The columns `verdict` (`same`: the child is the same subject as the parent, so the merge would be correct; `different`: it is not), `verdict_note`, `verdict_at`, and `verdict_by` keep the verdict (`set_same_subject_verdict`). [code]
 
 The records follow the documents: a purge (`purge_document_cascade`) deletes the records of a purged parent or child, `dedup-merge` moves them to the keeper, and the deletion of a knowledge base, the reset of a knowledge base, the purge of an account, and the conversion to a shared knowledge base delete the rows of that knowledge base. [code]
 
@@ -91,7 +92,7 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
 
 ## 5. Tests
 
-`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, the merge function), `tests/test_schema_v35.py` (source names, shadow records, verdicts and report, telemetry), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts, and report through the API and the commands), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
+`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, the merge function), `tests/test_schema_v35.py` (source names, shadow records, verdicts and report, telemetry), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts through the admin API, and the report command), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section and the review card). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
 
 ## 6. Known limits
 
@@ -100,5 +101,4 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
   - `IngestService.expand_document` gives the judge 4000 characters of the fetched child.
   - `extract/prompts.py` cuts again: `research_prompt` keeps 8000 characters of the context, `judge_gate_prompt` keeps 6000 of the context and 8000 of the report, `select_followups_prompt` keeps 6000 of the context.
 - [code] Automatic expansion is on by default (`auto_expand=True`, `expand_max=5`). Members need the tier feature `expand` or their own key. Shared knowledge bases are not expanded.
-- [code] Verdicts are given only with the command line. No WebUI shows or judges the records.
 - [unverified] The accuracy of `same_subject` on real model output is not measured (M5 of the original plan). The shadow records with verdicts and `expand-shadow report` are the tools for this measurement.

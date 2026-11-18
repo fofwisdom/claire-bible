@@ -538,6 +538,12 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<p class="hint">{escape(t("console.admin.limits.loading"))}</p>'
             "</div>"
             "</div>"
+            # The review of the shadow records of the same-subject source merge (EXPANSION.md §3.1). console_admin.js fills it from GET /api/admin/expansion/shadow.
+            f'<div class="card" id="admin-expansion-review-card" aria-label="{escape(t("console.js.admin.expansion_review.title"))}">'
+            '<div id="admin-expansion-review-host">'
+            f'<p class="hint">{escape(t("console.admin.limits.loading"))}</p>'
+            "</div>"
+            "</div>"
         )
         return body, {}
 

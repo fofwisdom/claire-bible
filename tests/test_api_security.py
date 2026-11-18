@@ -515,6 +515,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/support/bundle"),
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),
+        *((m, "/api/admin/expansion/shadow") for m in ("GET", "HEAD")), ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"),
         *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
         *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(

@@ -2970,6 +2970,74 @@ def create_app(
 
         return await asyncio.to_thread(_work)
 
+    def _shadow_record_view(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": int(row["id"]),
+            "parent": {"document_id": row["parent_document_id"], "title": row["parent_title"], "url": row["parent_url"]},
+            "child": {"document_id": row["child_document_id"], "title": row["child_title"], "url": row["child_url"]},
+            "same_subject": bool(row["same_subject"]),
+            "relevance": row["relevance"],
+            "quality": row["quality"],
+            "interpretation": row["interpretation"] or "",
+            "reason": row["reason"] or "",
+            "created_at": row["created_at"],
+            "verdict": row["verdict"],
+            "verdict_note": row["verdict_note"] or "",
+            "verdict_at": row["verdict_at"],
+        }
+
+    async def admin_expansion_shadow_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/expansion/shadow``: the shadow records of the same-subject source merge in the knowledge bases of the admin account, and the report (docs/implementation/EXPANSION.md §3.1). Query: ``pending=1`` (only records without a verdict), ``limit`` (default 50, 0 = all)."""
+        principal = request_principal(request)
+        pending = request.query_params.get("pending") == "1"
+        try:
+            limit = int(request.query_params.get("limit", "50"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="limit_invalid") from None
+        if limit < 0:
+            raise HTTPException(status_code=400, detail="limit_invalid")
+
+        def _load() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                rows = dbm.list_same_subject_shadow(conn, kb_id=None, account_id=principal.account_id, limit=limit, pending=pending)
+                report = dbm.same_subject_shadow_report(conn, kb_id=None, account_id=principal.account_id)
+            finally:
+                conn.close()
+            return {"mode": s.same_subject_merge, "report": report, "records": [_shadow_record_view(r) for r in rows]}
+
+        return JSONResponse(await asyncio.to_thread(_load))
+
+    async def admin_expansion_shadow_verdict_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/expansion/shadow/{record_id}/verdict``: the server administrator gives the human verdict of one record. Body: ``{"verdict": "same" | "different" | null, "note": "..."}``. Answer: ``{"ok", "record", "report"}``; 404 ``shadow_record_not_found``; 400 ``verdict_invalid``."""
+        principal = request_principal(request)
+        try:
+            record_id = int(request.path_params["record_id"])
+        except (KeyError, ValueError):
+            raise HTTPException(status_code=404, detail="shadow_record_not_found") from None
+        body = await _json_object(request)
+        if set(body) - {"verdict", "note"} or "verdict" not in body:
+            raise HTTPException(status_code=400, detail="verdict_invalid")
+        verdict = body["verdict"]
+        note = body.get("note") or ""
+        if verdict is not None and verdict not in dbm.SAME_SUBJECT_VERDICTS:
+            raise HTTPException(status_code=400, detail="verdict_invalid")
+        if not isinstance(note, str) or len(note) > 500:
+            raise HTTPException(status_code=400, detail="verdict_invalid")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if not dbm.set_same_subject_verdict(conn, record_id, verdict, verdict_by=principal.account_id, note=note, account_id=principal.account_id):
+                    return JSONResponse({"error": "shadow_record_not_found"}, status_code=404)
+                row = next(r for r in dbm.list_same_subject_shadow(conn, kb_id=None, account_id=principal.account_id) if int(r["id"]) == record_id)
+                report = dbm.same_subject_shadow_report(conn, kb_id=None, account_id=principal.account_id)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True, "record": _shadow_record_view(row), "report": report})
+
+        return await asyncio.to_thread(_work)
+
     async def admin_themes_judge_route(request: Request) -> JSONResponse:
         """``POST /api/admin/themes/judge``: the admin starts a run of the judgement (design Section 8.2 rule 10)."""
 
@@ -6648,6 +6716,8 @@ def create_app(
         Route("/api/admin/auto-contribution", admin_auto_contribution_route, methods=["GET", "HEAD", "PUT"]),
         Route("/api/reputation", reputation_route, methods=["GET", "HEAD"]),
         Route("/api/admin/reputations", admin_reputations_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/expansion/shadow", admin_expansion_shadow_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/expansion/shadow/{record_id}/verdict", admin_expansion_shadow_verdict_route, methods=["PUT"]),
         Route("/api/admin/reputations/settings", admin_reputation_settings_route, methods=["PUT"]),
         Route("/api/admin/themes", admin_themes_route, methods=["GET", "HEAD", "POST"]),
         Route("/api/admin/themes/settings", admin_themes_settings_route, methods=["PUT"]),

@@ -1366,6 +1366,62 @@ paths:
         '200':
           description: '`{"level", "fiction_share", "fiction_like_documents", "visible_documents", "approval_rate", "decisions", "limits": {"pending", "auto_documents"}, "documents": [...]}`'
 
+  /api/admin/expansion/shadow:
+    get:
+      summary: Shadow records of the same-subject source merge in the knowledge bases of the admin account, and the report
+      operationId: listSameSubjectShadow
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: pending
+          in: query
+          required: false
+          schema: {type: string, enum: ["1"]}
+          description: '"1": only records without a human verdict.'
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 0, default: 50}
+          description: Maximum records (0 = all). 400 `limit_invalid` for a value that is not a number of 0 or more.
+      responses:
+        '200':
+          description: '`{"mode": "off" | "shadow", "report": {"records", "judged", "pending", "tp", "fp", "fn", "tn", "precision", "recall", "accuracy"}, "records": [{"id", "parent": {"document_id", "title", "url"}, "child": {"document_id", "title", "url"}, "same_subject", "relevance", "quality", "interpretation", "reason", "created_at", "verdict", "verdict_note", "verdict_at"}]}`. A metric is null when its denominator is 0.'
+
+  /api/admin/expansion/shadow/{record_id}/verdict:
+    put:
+      summary: Give the human verdict of one shadow record
+      operationId: setSameSubjectVerdict
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict: {type: string, enum: [same, different], nullable: true, description: 'null removes the verdict.'}
+                note: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: '`{"ok": true, "record": {...}, "report": {...}}`'
+        '400':
+          description: '`verdict_invalid`'
+        '404':
+          description: '`shadow_record_not_found` (also for a record of a knowledge base of another account)'
+
   /api/admin/reputations:
     get:
       summary: Reputation of each active account, and the settings

@@ -480,6 +480,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # Reputation (design Section 8.6): the account sees its own; the admin sees all levels and sets the numbers.
     ("GET", "/api/reputation"): _system("read", "none"),
     ("HEAD", "/api/reputation"): _system("read", "none"),
+    ("GET", "/api/admin/expansion/shadow"): _system("admin", "none"),
+    ("HEAD", "/api/admin/expansion/shadow"): _system("admin", "none"),
+    ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"): _system("admin", "none"),
     ("GET", "/api/admin/reputations"): _system("admin", "none"),
     ("HEAD", "/api/admin/reputations"): _system("admin", "none"),
     ("PUT", "/api/admin/reputations/settings"): _system("admin", "none"),

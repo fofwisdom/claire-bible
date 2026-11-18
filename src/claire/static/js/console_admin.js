@@ -1434,6 +1434,89 @@
   }
 
   // /admin/themes (design Section 10.3): the themes, the last judgement run, the thresholds, the reputation numbers, the adjustments of Section 8.3, and the agreement of decisions.
+  // The review of the shadow records of the same-subject source merge (docs/implementation/EXPANSION.md §3.1): a person gives each record a verdict, and the report compares the model with the verdicts. Only this WebUI gives verdicts; the CLI of the agents reads only.
+  function initExpansionReview(host) {
+    var ui = window.ClaireUi;
+    if (!host || !ui) return;
+    var pendingOnly = true;
+
+    function percent(value) { return value == null ? tr("console.js.admin.expansion_review.no_data") : (Math.round(Number(value) * 1000) / 10) + "%"; }
+    function score(value) { return value == null ? "—" : Number(value).toFixed(2); }
+    function link(title, url, fallback) {
+      var text = ui.esc(title || fallback);
+      return url ? '<a href="' + ui.esc(url) + '" target="_blank" rel="noopener noreferrer">' + text + "</a>" : text;
+    }
+
+    function render(data) {
+      var report = data.report || {};
+      var records = data.records || [];
+      var h = "<h2>" + ui.esc(tr("console.js.admin.expansion_review.title")) + "</h2>";
+      h += '<p class="hint">' + ui.esc(tr("console.js.admin.expansion_review.desc")) + "</p>";
+      if (data.mode !== "shadow") h += '<p class="hint" data-review-mode-off>' + ui.esc(tr("console.js.admin.expansion_review.mode_off")) + "</p>";
+      h += '<dl class="claire-review-stats" data-review-report>';
+      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.records")) + "</dt><dd>" + ui.esc(report.records || 0) + "</dd></div>";
+      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.judged")) + "</dt><dd>" + ui.esc(report.judged || 0) + "</dd></div>";
+      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.pending")) + "</dt><dd>" + ui.esc(report.pending || 0) + "</dd></div>";
+      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.precision")) + '</dt><dd data-metric="precision">' + ui.esc(percent(report.precision)) + "</dd></div>";
+      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.recall")) + '</dt><dd data-metric="recall">' + ui.esc(percent(report.recall)) + "</dd></div>";
+      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.accuracy")) + '</dt><dd data-metric="accuracy">' + ui.esc(percent(report.accuracy)) + "</dd></div>";
+      h += "</dl>";
+      h += '<p class="hint">' + ui.esc(tr("console.js.admin.expansion_review.matrix", { tp: report.tp || 0, fp: report.fp || 0, fn: report.fn || 0, tn: report.tn || 0 })) + "</p>";
+      h += '<label><input type="checkbox" data-review-pending ' + (pendingOnly ? "checked" : "") + "/> " + ui.esc(tr("console.js.admin.expansion_review.pending_only")) + "</label>";
+      if (!records.length) {
+        h += '<p class="hint" data-review-empty>' + ui.esc(tr("console.js.admin.expansion_review.empty")) + "</p>";
+      }
+      h += '<ul class="claire-review-list" data-review-list>';
+      records.forEach(function (r) {
+        var model = r.same_subject ? tr("console.js.admin.expansion_review.model_same") : tr("console.js.admin.expansion_review.model_different");
+        var verdict = r.verdict ? tr("console.js.admin.expansion_review.verdict_" + r.verdict) : tr("console.js.admin.expansion_review.verdict_none");
+        h += '<li data-record="' + ui.esc(r.id) + '">';
+        h += "<div><strong>#" + ui.esc(r.id) + "</strong> " + link(r.parent.title, r.parent.url, r.parent.document_id) + " → " + link(r.child.title, r.child.url, r.child.url) + "</div>";
+        h += '<div class="hint">' + ui.esc(tr("console.js.admin.expansion_review.model", { model: model, relevance: score(r.relevance), quality: score(r.quality) })) + "</div>";
+        if (r.reason) h += '<div class="hint">' + ui.esc(tr("console.js.admin.expansion_review.reason", { reason: r.reason })) + "</div>";
+        h += '<div data-review-verdict>' + ui.esc(tr("console.js.admin.expansion_review.verdict", { verdict: verdict })) + (r.verdict_note ? " — " + ui.esc(r.verdict_note) : "") + "</div>";
+        h += '<div class="claire-actions">';
+        h += '<input type="text" class="claire-input" maxlength="500" data-review-note placeholder="' + ui.esc(tr("console.js.admin.expansion_review.note")) + '" value="' + ui.esc(r.verdict_note || "") + '"/>';
+        h += '<button type="button" class="btn" data-verdict="same">' + ui.esc(tr("console.js.admin.expansion_review.set_same")) + "</button>";
+        h += '<button type="button" class="btn" data-verdict="different">' + ui.esc(tr("console.js.admin.expansion_review.set_different")) + "</button>";
+        if (r.verdict) h += '<button type="button" class="sec" data-verdict="clear">' + ui.esc(tr("console.js.admin.expansion_review.clear")) + "</button>";
+        h += "</div></li>";
+      });
+      h += "</ul>";
+      host.innerHTML = h;
+      host.querySelector("[data-review-pending]").addEventListener("change", function (ev) {
+        pendingOnly = ev.target.checked;
+        load();
+      });
+      host.querySelectorAll("[data-verdict]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var item = btn.closest("[data-record]");
+          var value = btn.getAttribute("data-verdict");
+          var note = item.querySelector("[data-review-note]").value;
+          ui.request("/api/admin/expansion/shadow/" + encodeURIComponent(item.getAttribute("data-record")) + "/verdict", {
+            method: "PUT",
+            body: { verdict: value === "clear" ? null : value, note: value === "clear" ? "" : note }
+          }).then(function (res) {
+            if (!res.ok) { ui.toast(ui.errorText(res), "danger"); return; }
+            ui.toast(tr("console.js.admin.expansion_review.saved"), "success");
+            load();
+          });
+        });
+      });
+    }
+
+    function load() {
+      ui.request("/api/admin/expansion/shadow?limit=100" + (pendingOnly ? "&pending=1" : "")).then(function (res) {
+        if (!res.ok) {
+          host.innerHTML = '<p class="hint">' + ui.esc(ui.errorText(res)) + "</p>";
+          return;
+        }
+        render(res.data || {});
+      });
+    }
+    load();
+  }
+
   function initAdminThemesV2(host) {
     var ui = window.ClaireUi;
     var dlgs = window.ClaireKbDialogs;
@@ -1723,6 +1806,7 @@
       if (limHost && typeof panels.renderLimitManager === "function") {
         panels.renderLimitManager(limHost, { showClose: false, canWrite: true, isAdmin: true });
       }
+      initExpansionReview(document.getElementById("admin-expansion-review-host"));
     } else if (section === "themes") {
       var themeHost = document.getElementById("admin-themes-host");
       if (themeHost) initAdminThemesV2(themeHost);

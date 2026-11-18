@@ -66,7 +66,7 @@ def test_verdict_columns_are_added_to_a_table_of_an_earlier_v35_build(tmp_path: 
     conn.commit()
     dbm.init_db(conn)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(same_subject_shadow)")}
-    assert {"verdict", "verdict_note", "verdict_at"} <= cols
+    assert {"verdict", "verdict_note", "verdict_at", "verdict_by"} <= cols
     assert conn.execute("SELECT COUNT(*) FROM same_subject_shadow WHERE verdict IS NULL").fetchone()[0] == 1
     conn.close()
 
@@ -83,10 +83,11 @@ def test_verdict_and_report(tmp_path: Path):
     assert empty["precision"] is None and empty["recall"] is None and empty["accuracy"] is None  # no data, no estimate
 
     for name, verdict in (("tp", "same"), ("fp", "different"), ("fn", "same"), ("tn", "different")):
-        assert dbm.set_same_subject_verdict(conn, ids[name], verdict, note=f"note {name}")
-    assert not dbm.set_same_subject_verdict(conn, 9999, "same")
+        assert dbm.set_same_subject_verdict(conn, ids[name], verdict, verdict_by=1, note=f"note {name}")
+    assert not dbm.set_same_subject_verdict(conn, 9999, "same", verdict_by=1)
     with pytest.raises(ValueError):
-        dbm.set_same_subject_verdict(conn, ids["tp"], "maybe")
+        dbm.set_same_subject_verdict(conn, ids["tp"], "maybe", verdict_by=1)
+    assert conn.execute("SELECT verdict_by FROM same_subject_shadow WHERE id=?", (ids["tp"],)).fetchone()[0] == 1
     report = dbm.same_subject_shadow_report(conn)
     assert (report["tp"], report["fp"], report["fn"], report["tn"]) == (1, 1, 1, 1)
     assert (report["judged"], report["pending"]) == (4, 1)
@@ -94,7 +95,23 @@ def test_verdict_and_report(tmp_path: Path):
     assert [r["id"] for r in dbm.list_same_subject_shadow(conn, pending=True)] == [ids["open"]]
 
     # Removing a verdict removes its note and time.
-    assert dbm.set_same_subject_verdict(conn, ids["tp"], None)
-    row = conn.execute("SELECT verdict, verdict_note, verdict_at FROM same_subject_shadow WHERE id=?", (ids["tp"],)).fetchone()
-    assert tuple(row) == (None, None, None)
+    assert dbm.set_same_subject_verdict(conn, ids["tp"], None, verdict_by=1)
+    row = conn.execute("SELECT verdict, verdict_note, verdict_at, verdict_by FROM same_subject_shadow WHERE id=?", (ids["tp"],)).fetchone()
+    assert tuple(row) == (None, None, None, None)
+    conn.close()
+
+
+def test_account_scope_of_the_records(tmp_path: Path):
+    """The WebUI of an account sees and judges only the records of its own knowledge bases (a knowledge base without an owner belongs to the admin account)."""
+    conn = _db(tmp_path)
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")  # the account 5 is not needed for the scope; the default knowledge base 0 belongs to the admin account
+    conn.execute("INSERT INTO knowledge_bases(id, seq, label, account_id, created_at, updated_at) VALUES (77, 77, 'member', 5, 1, 1)")
+    conn.commit()
+    admin_record = dbm.record_same_subject_shadow(conn, kb_id=0, parent_document_id="p", child_url="https://a.example/", child_document_id=None, same_subject=True, relevance=0.9, quality=0.9)
+    member_record = dbm.record_same_subject_shadow(conn, kb_id=77, parent_document_id="q", child_url="https://m.example/", child_document_id=None, same_subject=True, relevance=0.9, quality=0.9)
+    assert [r["id"] for r in dbm.list_same_subject_shadow(conn, account_id=1)] == [admin_record]
+    assert dbm.same_subject_shadow_report(conn, account_id=1)["records"] == 1
+    assert not dbm.set_same_subject_verdict(conn, member_record, "same", verdict_by=1, account_id=1)
+    assert dbm.set_same_subject_verdict(conn, member_record, "same", verdict_by=5, account_id=5)
     conn.close()

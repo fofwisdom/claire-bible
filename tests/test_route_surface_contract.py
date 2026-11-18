@@ -89,8 +89,8 @@ SYSTEM = {
     "/api/kb/similar", "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
     "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
 }
-# The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2).
-SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge")}
+# The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2), and reviews the shadow records of the same-subject source merge (EXPANSION.md §3.1).
+SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), *((m, "/api/admin/expansion/shadow") for m in ("GET", "HEAD")), ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge")}
 ADMIN_KEYS = {
     *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),

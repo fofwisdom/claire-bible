@@ -1982,7 +1982,7 @@ def cmd_expand_run(args) -> int:
 
 
 def cmd_expand_shadow(args) -> int:
-    """The shadow records of the same-subject source merge: list them, set a human verdict, or compare the model with the verdicts."""
+    """The shadow records of the same-subject source merge: list them, or compare the model with the human verdicts. Read only: a verdict is the decision of a person and is given in the WebUI (/admin/limits)."""
     import json as _json
 
     s, theme = get_effective_settings(args)
@@ -1990,15 +1990,7 @@ def cmd_expand_shadow(args) -> int:
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
-        action = args.shadow_action
-        if action == "verdict":
-            verdict = None if args.verdict == "clear" else args.verdict
-            if not dbm.set_same_subject_verdict(conn, args.record_id, verdict, note=args.note or "", kb_id=kb_id):
-                print(f"[error] Shadow record {args.record_id} does not exist.", file=sys.stderr)
-                return 1
-            print(f"Shadow record {args.record_id}: verdict {verdict or 'removed'}.")
-            return 0
-        if action == "report":
+        if args.shadow_action == "report":
             report = dbm.same_subject_shadow_report(conn, kb_id=kb_id)
             report["mode"] = s.same_subject_merge
             if args.json:
@@ -5853,8 +5845,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pxs = sub.add_parser(
         "expand-shadow",
-        help="list, judge, and evaluate the shadow records of the same-subject source merge",
-        description="Work with the records that automatic expansion writes when the same-subject source merge is in the mode 'shadow'. 'list' shows the records, 'verdict' sets the human verdict of one record, and 'report' compares the model judgement with the verdicts (precision, recall, accuracy).",
+        help="read the shadow records of the same-subject source merge and their evaluation",
+        description="Read the records that automatic expansion writes when the same-subject source merge is in the mode 'shadow'. 'list' shows the records, and 'report' compares the model judgement with the human verdicts (precision, recall, accuracy). The command does not change data: the server administrator gives the verdicts in the WebUI (/admin/limits).",
     )
     pxs_sub = pxs.add_subparsers(dest="shadow_action", required=True)
     pxs_list = pxs_sub.add_parser("list", help="show the records, the newest first")
@@ -5862,11 +5854,6 @@ def build_parser() -> argparse.ArgumentParser:
     pxs_list.add_argument("--limit", type=int, default=50, help="maximum records to show (0 = all, default: 50)")
     pxs_list.add_argument("--pending", action="store_true", help="show only the records without a verdict")
     pxs_list.add_argument("--json", action="store_true", help="output the summary and the records in JSON format")
-    pxs_verdict = pxs_sub.add_parser("verdict", help="set the human verdict of one record")
-    pxs_verdict.add_argument("record_id", type=int, help="the record number (#N in 'list')")
-    pxs_verdict.add_argument("verdict", choices=["same", "different", "clear"], help="same: the child is the same subject as the parent (the merge would be correct); different: it is not; clear: remove the verdict")
-    pxs_verdict.add_argument("--note", default="", help="a short reason for the verdict")
-    pxs_verdict.add_argument("-t", "--theme", default=None, help="the theme of the record (default: any theme)")
     pxs_report = pxs_sub.add_parser("report", help="compare the model judgement with the human verdicts")
     pxs_report.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
     pxs_report.add_argument("--json", action="store_true", help="output the report in JSON format")

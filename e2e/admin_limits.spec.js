@@ -69,3 +69,71 @@ test('/admin/limits: the server administrator sets automatic expansion, the shad
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+// The review of the shadow records of the same-subject source merge, against answers in the shapes of api/server.py: "admin_expansion_shadow_route" ({mode, report, records}) and "admin_expansion_shadow_verdict_route" ({ok, record, report}). The verdict is given only here; the CLI of the agents reads only.
+function shadowReport(records) {
+  const judged = records.filter((r) => r.verdict);
+  const count = (model, human) => judged.filter((r) => r.same_subject === model && (r.verdict === 'same') === human).length;
+  const tp = count(true, true), fp = count(true, false), fn = count(false, true), tn = count(false, false);
+  const ratio = (a, b) => (b ? a / b : null);
+  return { records: records.length, judged: judged.length, pending: records.length - judged.length, tp, fp, fn, tn, precision: ratio(tp, tp + fp), recall: ratio(tp, tp + fn), accuracy: ratio(tp + tn, judged.length) };
+}
+
+test('/admin/limits: the server administrator gives verdicts to the shadow records, and the report follows', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  await authenticateOwner(page, 'admlimits2');
+  const records = [
+    { id: 11, parent: { document_id: 'doc_p', title: 'GeekNews: Tool X', url: 'https://news.example/x' }, child: { document_id: 'doc_c1', title: 'Tool X repository', url: 'https://git.example/x' }, same_subject: true, relevance: 0.92, quality: 0.81, interpretation: '', reason: 'the official repository of the tool', created_at: 1700000200, verdict: null, verdict_note: '', verdict_at: null },
+    { id: 10, parent: { document_id: 'doc_p', title: 'GeekNews: Tool X', url: 'https://news.example/x' }, child: { document_id: 'doc_c2', title: 'Tool Y', url: 'https://y.example/' }, same_subject: false, relevance: 0.75, quality: 0.7, interpretation: '', reason: 'a different project', created_at: 1700000100, verdict: null, verdict_note: '', verdict_at: null },
+  ];
+  const { calls, unknown } = await installJsonApi(page, (u) => u.pathname === '/limits' || u.pathname.startsWith('/api/admin/expansion/'), ({ path, method, query, body }) => {
+    if (path === '/limits' && method === 'GET') return [{ version: 1, limits: { ...DEFAULT_LIMITS, same_subject_merge: 'shadow' }, updated_at: 1700000000 }];
+    if (path === '/api/admin/expansion/shadow' && method === 'GET') {
+      const shown = query.get('pending') === '1' ? records.filter((r) => !r.verdict) : records;
+      return [{ mode: 'shadow', report: shadowReport(records), records: shown }];
+    }
+    const m = path.match(/^\/api\/admin\/expansion\/shadow\/(\d+)\/verdict$/);
+    if (m && method === 'PUT') {
+      const rec = records.find((r) => r.id === Number(m[1]));
+      if (!rec) return [{ error: 'shadow_record_not_found' }, 404];
+      rec.verdict = body.verdict; rec.verdict_note = body.verdict ? body.note : ''; rec.verdict_at = body.verdict ? 1700000300 : null;
+      return [{ ok: true, record: rec, report: shadowReport(records) }];
+    }
+    return null;
+  });
+
+  await page.goto('/admin/limits', { waitUntil: 'domcontentloaded' });
+  const review = page.locator('#admin-expansion-review-host');
+  await expect(review.locator('[data-record]')).toHaveCount(2);
+  await expect(review.locator('[data-review-mode-off]')).toHaveCount(0);
+  await expect(review.locator('[data-metric="precision"]')).not.toContainText('%');
+  await expect(review.locator('[data-record="11"]')).toContainText('Tool X repository');
+  await expect(review.locator('[data-record="11"]')).toContainText('the official repository of the tool');
+  await expectNoRawKeys(page);
+
+  // The model is right about #11 and wrong about #10.
+  await review.locator('[data-record="11"] [data-review-note]').fill('official repository');
+  await review.locator('[data-record="11"] [data-verdict="same"]').click();
+  await expect(review.locator('[data-record]')).toHaveCount(1);
+  await review.locator('[data-record="10"] [data-verdict="same"]').click();
+  await expect(review.locator('[data-review-empty]')).toBeVisible();
+  await expect(review.locator('[data-metric="precision"]')).toHaveText('100%');
+  await expect(review.locator('[data-metric="recall"]')).toHaveText('50%');
+
+  // All records: the verdict shows, and it can be removed.
+  await review.locator('[data-review-pending]').uncheck();
+  await expect(review.locator('[data-record]')).toHaveCount(2);
+  await expect(review.locator('[data-record="11"] [data-review-verdict]')).toContainText('official repository');
+  await review.locator('[data-record="10"] [data-verdict="clear"]').click();
+  await expect(review.locator('[data-metric="recall"]')).toHaveText('100%');
+
+  const puts = calls.filter((c) => c.method === 'PUT');
+  expect(puts.map((c) => [c.path, c.body])).toEqual([
+    ['/api/admin/expansion/shadow/11/verdict', { verdict: 'same', note: 'official repository' }],
+    ['/api/admin/expansion/shadow/10/verdict', { verdict: 'same', note: '' }],
+    ['/api/admin/expansion/shadow/10/verdict', { verdict: null, note: '' }],
+  ]);
+  expect(unknown).toEqual([]);
+  expect(errors).toEqual([]);
+});

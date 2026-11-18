@@ -322,6 +322,6 @@ The retired v12 recovery is described above. Other stores have their own version
 
 - **[코드] 버전 상수**: `SCHEMA_VERSION = 35`.
 - **[코드]** The step `_migrate_v35_expansion_source_names` runs at each start and is idempotent. In `raw_inbox.source`, `onehop:<parent id>` becomes `expand:<parent id>`, and `telegram-expand` becomes `expand-proposal` (terms: [`GLOSSARY.md`](GLOSSARY.md)). No other row changes.
-- **[코드]** The schema script makes the table `same_subject_shadow` and its index `idx_same_subject_shadow_kb`. Automatic expansion writes a row in the mode `same_subject_merge = "shadow"`, and `claire expand-shadow verdict` writes the human verdict (`verdict`, `verdict_note`, `verdict_at`) ([`EXPANSION.md`](EXPANSION.md) §3.1). The step v35 adds the verdict columns to a table of an earlier build of v35 (`_ensure_column`).
+- **[코드]** The schema script makes the table `same_subject_shadow` and its index `idx_same_subject_shadow_kb`. Automatic expansion writes a row in the mode `same_subject_merge = "shadow"`, and the WebUI (`PUT /api/admin/expansion/shadow/{record_id}/verdict`) writes the human verdict (`verdict`, `verdict_note`, `verdict_at`, `verdict_by`) ([`EXPANSION.md`](EXPANSION.md) §3.1). The step v35 adds the verdict columns to a table of an earlier build of v35 (`_ensure_column`).
 - **[코드]** `telemetry.db` (not versioned): `connect_telemetry` changes the call type `judge_research` to `judge_gate` at each connection (`_migrate_gate_call_type`).
 - **[테스트]** `tests/test_schema_v35.py`.

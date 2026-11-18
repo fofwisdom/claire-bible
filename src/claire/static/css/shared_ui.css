@@ -173,3 +173,12 @@ dialog.claire-dlg::backdrop { background: rgba(15, 23, 42, .52); overflow: hidde
 .claire-pubnav a[aria-current="page"] { background: var(--active); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 body.claire-public-body { overflow: auto; height: auto; min-height: 100dvh; display: block; }
+
+/* The review of the shadow records of the same-subject source merge (/admin/limits). */
+.claire-review-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; }
+.claire-review-stats > div { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.claire-review-stats dt { font-size: 11px; opacity: 0.8; }
+.claire-review-stats dd { margin: 2px 0 0; font-weight: 600; }
+.claire-review-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.claire-review-list > li { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.claire-review-list .claire-input { flex: 1 1 200px; min-width: 0; }
