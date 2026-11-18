@@ -2,6 +2,11 @@
 # docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.2
 
 [[plugin]]
+id = "claire.discourse"
+revision = 1
+digest = "sha256:29b372d7e4520dee6873b5b9cf73c59516e128c4ac4d4c40def408fe48bac1b7"
+
+[[plugin]]
 id = "claire.law_go_kr"
 revision = 1
 digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fcd"

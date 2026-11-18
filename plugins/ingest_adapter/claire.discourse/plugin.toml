@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.discourse"
+type = "ingest_adapter"
+revision = 1
+core_commit = "995c028deeb4ed96a8304a6d152afdf8df24f4fe"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "Discourse forums"
+description = "Gets the posts of a Discourse topic from the topic JSON API. It works for each Discourse forum: the answer must have post_stream."
+
+[text.ko]
+name = "Discourse 포럼"
+description = "Discourse 토픽의 글을 토픽 JSON API로 가져온다. post_stream이 있는 응답이면 어느 Discourse 포럼에서나 동작한다."
+
+[[provides]]
+kind = "web_adapter"
+name = "discourse"
+priority = 30
+hosts = ["*"]
+source_types = ["web"]
+
+[permissions]
+network = ["*"]
+private_network = false
+network_modules = []
+executables = []
+providers = []
+
+[requires]
+distributions = []
+executables = []

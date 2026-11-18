@@ -1,4 +1,4 @@
-"""Discourse 포럼 어댑터 — 토픽 `.json` API 로 본문을 정적으로 가져온다.
+"""Discourse 포럼 어댑터 (project plugin claire.discourse) — 토픽 `.json` API 로 본문을 정적으로 가져온다.
 
 Discourse 는 본문을 JS 로 렌더링해 정적 HTML 스크랩이 제목만 건진다(예: pytorch.kr). 대신 토픽 URL 에 `.json` 을 붙이면 `post_stream.posts[].cooked`(렌더된 HTML)를 준다. 호스트 하드코딩 없이 *범용*으로: .json 응답에 `post_stream` 키가 있으면 Discourse 로 간주.
 """
@@ -8,7 +8,16 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit, urlunsplit
 
-from .base import BaseWebAdapter, WebAdapterResult
+from claire.plugin_sdk import BaseWebAdapter, PluginContext, WebAdapterResult
+
+_ctx: PluginContext | None = None
+
+
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    # A general adapter: every host, after the static fetch; it gives nothing for a page that is not a Discourse topic.
+    ctx.web_adapter(DiscourseAdapter, name="discourse", priority=30, hosts=("*",))
 
 # Discourse 토픽 경로: /t/<slug>/<id> (뒤에 /<post_number> 가 붙을 수 있음)
 _TOPIC_RE = re.compile(r"^(/t/[^/]+/\d+)")
@@ -32,10 +41,9 @@ def try_discourse(url: str) -> tuple[str | None, str, list[str]] | None:
     if not json_url:
         return None
 
-    from .http import guarded_client
-
+    assert _ctx is not None, "register(ctx) was not called"
     try:
-        with guarded_client(follow_redirects=True, timeout=20,
+        with _ctx.http_client(follow_redirects=True, timeout=20,
                           headers={"User-Agent": "Mozilla/5.0 (claire)"}) as client:
             resp = client.get(json_url)
         if resp.status_code >= 400:
@@ -78,10 +86,7 @@ class DiscourseAdapter(BaseWebAdapter):
 
     @classmethod
     def try_fetch(cls, url: str, **kwargs) -> WebAdapterResult | None:
-        import sys
-        mod = sys.modules[__name__]
-        fn = getattr(mod, "try_discourse", try_discourse)
-        res = fn(url)
+        res = try_discourse(url)
         if res is None:
             return None
         title, text, links = res
