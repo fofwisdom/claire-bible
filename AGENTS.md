@@ -1,9 +1,5 @@
 # AGENTS.md
 
-## Agent rules
-
-An agent must not give instructions to an agent of another vendor.
-
 ## Documentation folders
 
 An old design document can describe a state that is not true now. These principles help an agent find the current state quickly and understand it correctly. They give the intent, not a procedure: use your judgment for each case.
