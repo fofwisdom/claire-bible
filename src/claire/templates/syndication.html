@@ -26,7 +26,7 @@
 
   <!-- Stage bar (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 6, RD14): collection, ingestion, publication. Stage 1 opens the federation client view; stages 2 and 3 open the knowledge base view. For the owner only. -->
   <nav id="stagebar" class="synd-stagebar" data-i18n-aria-label="home.flow.label" hidden>
-    <button type="button" class="synd-stage" data-stage-btn="collect" style="--stage:var(--stage-collect)"><b data-i18n="home.flow.collect">1 · Collection</b> <small data-i18n="synd.stage.collect_sub">Federation client · account</small><span class="synd-stage-counts" id="stage-collect-counts"></span></button>
+    <button type="button" class="synd-stage" data-stage-btn="collect" style="--stage:var(--stage-collect)"><b data-i18n="home.flow.collect">1 · Interaction</b> <small data-i18n="synd.stage.collect_sub">Federation client · account</small><span class="synd-stage-counts" id="stage-collect-counts"></span></button>
     <button type="button" class="synd-stage" data-stage-btn="ingest" style="--stage:var(--stage-ingest)"><b data-i18n="home.flow.ingest">2 · Ingestion</b> <small data-i18n="synd.stage.ingest_sub">Knowledge base · theme</small><span class="synd-stage-counts" id="stage-ingest-counts"></span></button>
     <button type="button" class="synd-stage" data-stage-btn="publish" style="--stage:var(--stage-publish)"><b data-i18n="home.flow.publish">3 · Publication</b> <small data-i18n="synd.stage.publish_sub">Sent by the federation client</small><span class="synd-stage-counts" id="stage-publish-counts"></span></button>
   </nav>
@@ -124,7 +124,7 @@
           <div id="client-feed-candidates" class="tt-tree-children"></div>
           <div id="client-feeds" class="tt-tree-children"></div>
         </details>
-        <p class="synd-note" data-i18n="synd.client.collect_note">Collection is not ingestion. A post enters a theme only when you take it in.</p>
+        <p class="synd-note" data-i18n="synd.client.collect_note">Interaction is not ingestion. A post enters a theme only when you take it in.</p>
       </aside>
       <div class="tt-main-area">
         <section id="client-list-pane" class="synd-column tt-stream" data-i18n-aria-label="synd.client.list_label">
