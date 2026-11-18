@@ -62,10 +62,14 @@ __all__ = [
     "ConfigResponse",
     "DomainBlocksResponse",
     "FollowersResponse",
+    "HeartbeatLoops",
     "HeartbeatRequest",
     "HeartbeatResponse",
     "InboxEventRequest",
     "InboxEventResponse",
+    "KnowledgeSelfCheck",
+    "LoopState",
+    "SignedSelfCheck",
     "TimelineEventRequest",
     "TimelineEventResponse",
     "TimelineInterestResponse",
@@ -75,7 +79,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.11"
+CONTRACT_VERSION = "1.12"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -138,11 +142,46 @@ class SelfCheck(_Sealed):
     checked_at: float | None
 
 
+SignedSelfCheckResult = Literal["ok", "not_routed", "host_changed", "signature_invalid", "tls_error", "dns_error", "request_failed"]
+
+
+class SignedSelfCheck(_Sealed):
+    """Result of the signed POST self-check of the sidecar (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4, GF9)."""
+
+    result: SignedSelfCheckResult | None
+
+
+class KnowledgeSelfCheck(_Sealed):
+    """Result of the knowledge federation self-check of the sidecar (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4, GF8 and GF9)."""
+
+    checked_at: float | None
+    failed_paths: Annotated[list[Annotated[str, Field(min_length=1, max_length=128)]], Field(max_length=16)] | None
+    signed: SignedSelfCheck
+
+
+class LoopState(_Sealed):
+    """Progress and last error of one background loop of the sidecar (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4, GF11)."""
+
+    running: bool
+    progress_at: float | None
+    error: Annotated[str, Field(pattern=r"^[a-z0-9_]{1,64}$")] | None
+    error_at: float | None
+
+
+class HeartbeatLoops(_Sealed):
+    """State of the two knowledge federation loops of the sidecar (GF11)."""
+
+    knowledge_reads: LoopState
+    knowledge_exchange: LoopState
+
+
 class HeartbeatRequest(_Sealed):
     contract_version: str = Field(pattern=r"^[0-9]{1,4}\.[0-9]{1,4}$")
     sidecar_version: str = Field(min_length=1, max_length=64)
     queue_depth: int = Field(ge=0)
     self_check: SelfCheck
+    knowledge_self_check: KnowledgeSelfCheck
+    loops: HeartbeatLoops
 
 
 class HeartbeatResponse(_Sealed):

@@ -213,6 +213,18 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
     assert default_port.public_origin == "https://claire.example.test"
     assert default_port.cors_allowed_origins == {"https://client.example.test"}
 
+    dev_test_domain = security.WebRuntimeConfig.from_settings(_settings(tmp_path, public_url="https://a.claire.test/"))
+    assert dev_test_domain.expected_authority == "a.claire.test"
+    assert dev_test_domain.public_origin == "https://a.claire.test"
+    assert dev_test_domain.secure_cookie is False
+
+    fqdn_settings = _settings(tmp_path, public_url="")
+    fqdn_settings.fqdn = "b.claire.test"
+    dev_test_fqdn = security.WebRuntimeConfig.from_settings(fqdn_settings)
+    assert dev_test_fqdn.expected_authority == "b.claire.test"
+    assert dev_test_fqdn.public_origin == "https://b.claire.test"
+    assert dev_test_fqdn.secure_cookie is False
+
 
 @pytest.mark.parametrize(
     ("change", "match"),
@@ -221,6 +233,9 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
         ({"environment": "staging"}, "CLAIRE_ENVIRONMENT"),
         ({"environment": " Development "}, "canonical lowercase"),
         ({"public_url": "https://192.0.2.10"}, "development public URL"),
+        ({"public_url": "http://a.claire.test/"}, "development public URL"),
+        ({"public_url": "https://test/"}, "development public URL"),
+        ({"public_url": "https://claire.example.com/"}, "development public URL"),
         ({"public_url": "http://192.0.2.10:0"}, "port"),
         (
             {

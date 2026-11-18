@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
 import { InternalApi } from "../src/internal_api.ts";
-import { CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, publicSelfCheck, Sidecar, SIDECAR_HEADER } from "../src/sidecar.ts";
+import { CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, KNOWLEDGE_SELF_CHECK_PATHS, publicSelfCheck, SELF_CHECK_PATH, SELF_CHECK_TTL_SECONDS, Sidecar, SIDECAR_HEADER } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY } from "./fixtures.ts";
 
 const ORIGIN = "https://claire.example.com";
@@ -278,4 +278,131 @@ Deno.test("the source permits private network addresses only through the develop
   const sidecar = Deno.readTextFileSync(new URL("../src/sidecar.ts", import.meta.url));
   assert.ok(sidecar.includes(`this.#build(config.canonical_origin, config.allow_private_addresses)`));
   assert.ok(sidecar.includes(`createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, ${option} })`));
+});
+
+Deno.test("knowledgeSelfCheck passes through sidecar while federation is off and rejects nonce replay", async () => {
+  const fake = fakeClaire();
+  fake.config = { federation: "off" };
+  const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
+  const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
+  const config = await sidecar.config();
+  let capturedSigned: Request | null = null;
+
+  const result = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    if (new URL(req.url).pathname === SELF_CHECK_PATH && req.method === "POST") {
+      capturedSigned = req.clone();
+    }
+    return await sidecar.handle(req);
+  });
+
+  assert.equal(result.checked_at, fake.now);
+  assert.deepEqual(result.failed_paths, []);
+  assert.equal(result.signed.result, "ok");
+  assert.ok(capturedSigned !== null);
+
+  // Replay of the same signed self-check request gets 404.
+  const replay = await sidecar.handle(capturedSigned);
+  assert.equal(replay.status, 404);
+
+  // GET and unknown nonces also get 404.
+  assert.equal((await sidecar.handle(new Request(`${config.canonical_origin}${SELF_CHECK_PATH}`, { method: "GET" }))).status, 404);
+  assert.equal((await sidecar.handle(new Request(`${config.canonical_origin}${SELF_CHECK_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: "unknown" }) }))).status, 404);
+});
+
+Deno.test("knowledgeSelfCheck detects missing routes, host changes, signature changes, TLS errors, and DNS errors", async () => {
+  const fake = fakeClaire();
+  const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
+  const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
+  const config = await sidecar.config();
+
+  // Reverse proxy drops /ap/themes and /ap/self-check.
+  const missingProxy = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    const path = new URL(req.url).pathname;
+    if (path === "/ap/themes" || path === SELF_CHECK_PATH) return new Response("not here", { status: 404 });
+    return await sidecar.handle(req);
+  });
+  assert.deepEqual(missingProxy.failed_paths, ["/ap/themes"]);
+  assert.equal(missingProxy.signed.result, "not_routed");
+
+  // Reverse proxy alters Host header.
+  const hostChanged = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    if (new URL(req.url).pathname === SELF_CHECK_PATH) {
+      const headers = new Headers(req.headers);
+      headers.set("host", "127.0.0.1:8000");
+      return await sidecar.handle(new Request(req.url, { method: req.method, headers, body: await req.arrayBuffer() }));
+    }
+    return await sidecar.handle(req);
+  });
+  assert.deepEqual(hostChanged.failed_paths, []);
+  assert.equal(hostChanged.signed.result, "host_changed");
+
+  // Reverse proxy alters the signed body.
+  const bodyChanged = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    if (new URL(req.url).pathname === SELF_CHECK_PATH) {
+      const raw = JSON.parse(await req.text()) as { nonce: string };
+      return await sidecar.handle(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify({ nonce: raw.nonce, extra: true }) }));
+    }
+    return await sidecar.handle(req);
+  });
+  assert.equal(bodyChanged.signed.result, "signature_invalid");
+
+  // TLS and DNS fetch failures map to signed codes.
+  const tlsFail = await sidecar.knowledgeSelfCheck(config, () => Promise.reject(new Error("certificate verify failed")));
+  assert.deepEqual(tlsFail.failed_paths, [...KNOWLEDGE_SELF_CHECK_PATHS]);
+  assert.equal(tlsFail.signed.result, "tls_error");
+
+  const dnsFail = await sidecar.knowledgeSelfCheck(config, () => Promise.reject(new Error("getaddrinfo ENOTFOUND")));
+  assert.equal(dnsFail.signed.result, "dns_error");
+
+  // Expired nonce cannot be reused after SELF_CHECK_TTL_SECONDS.
+  let savedExpired: Request | null = null;
+  await sidecar.knowledgeSelfCheck(config, (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    if (new URL(req.url).pathname === SELF_CHECK_PATH) savedExpired = req.clone();
+    return Promise.resolve(new Response(null, { status: 503 }));
+  });
+  fake.now += SELF_CHECK_TTL_SECONDS + 1;
+  assert.ok(savedExpired !== null);
+  assert.equal((await sidecar.handle(savedExpired)).status, 404);
+});
+
+Deno.test("runKnowledgeReads and runKnowledgeExchange update heartbeat loop state and clear errors on recovery", async () => {
+  const fake = fakeClaire();
+  fake.config = { federation: "off" };
+  const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
+  const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
+
+  await sidecar.runKnowledgeReads();
+  await sidecar.runKnowledgeExchange();
+  assert.deepEqual(sidecar.loops(), {
+    knowledge_reads: { running: false, progress_at: fake.now, error: null, error_at: null },
+    knowledge_exchange: { running: false, progress_at: fake.now, error: null, error_at: null },
+  });
+
+  // Failing API call records error and leaves progress_at unchanged.
+  const lastProgress = fake.now;
+  fake.now += 30;
+  fake.failStatus = 500;
+  await assert.rejects(() => sidecar.runKnowledgeReads());
+  const failedState = sidecar.loops();
+  assert.equal(failedState.knowledge_reads.running, false);
+  assert.equal(failedState.knowledge_reads.progress_at, lastProgress);
+  assert.ok(typeof failedState.knowledge_reads.error === "string" && failedState.knowledge_reads.error.length > 0);
+  assert.equal(failedState.knowledge_reads.error_at, fake.now);
+
+  // Recovery clears error and updates progress_at.
+  fake.failStatus = null;
+  await api.config();
+  fake.now += 15;
+  await sidecar.runKnowledgeReads();
+  assert.deepEqual(sidecar.loops().knowledge_reads, {
+    running: false,
+    progress_at: fake.now,
+    error: null,
+    error_at: null,
+  });
 });

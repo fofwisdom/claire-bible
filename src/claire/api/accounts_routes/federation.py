@@ -97,7 +97,7 @@ DOMAIN_BLOCK_NOTE_MAX_LENGTH = 200
 ACTOR_IRI_MAX_LENGTH = 2048
 
 _NO_STORE = {"Cache-Control": "no-store"}
-_HEARTBEAT_KEYS = ("received_at", "contract_version", "sidecar_version", "queue_depth", "self_check")
+_HEARTBEAT_KEYS = ("received_at", "contract_version", "sidecar_version", "queue_depth", "self_check", "knowledge_self_check", "loops")
 
 
 def _heartbeat_view(data_dir: Any) -> dict[str, Any] | None:
@@ -182,7 +182,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         return 400, {
                             "error": "readiness_failed",
                             "detail": "Federation readiness checks did not pass",
-                            "failures": [item.to_dict() for item in report.items if not item.passed],
+                            "failures": [item.to_dict() for item in report.items if item.level == "required" and item.applies and not item.passed],
                         }
                 auth_conn = open_auth_db(ctx)
                 try:

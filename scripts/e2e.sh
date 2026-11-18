@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Playwright E2E tests as a detached systemd user service. The run has a memory limit and a hard time limit, does not depend on the terminal or agent session that started it, and writes its state to files that each terminal can read. Supports git worktrees without duplicate node_modules or .venv directories.
+# Run Playwright E2E tests as a detached background process with a hard time limit and no forced memory cap. Writes state files so any terminal or session can inspect or stop the run. Supports git worktrees without duplicate node_modules or .venv directories.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,9 +9,9 @@ cd "$REPO_ROOT"
 PORT="${CLAIRE_E2E_PORT:-${CLAIRE_INJECT_PORT:-8766}}"
 UNIT="claire-e2e-$PORT"
 RUNS_DIR="$REPO_ROOT/data/e2e-runs"
+ACTIVE_FILE="$RUNS_DIR/active-$PORT"
 KEEP_RUNS=10
-MEM_MAX="${CLAIRE_E2E_MEM_MAX:-2400M}"
-# Time limit of the full run and of one Playwright process, in seconds. A full run takes about 6.5 minutes (18 spec files).
+# Time limit of the full run and of one Playwright process, in seconds.
 RUN_TIMEOUT="${CLAIRE_E2E_RUN_TIMEOUT:-1200}"
 SPEC_TIMEOUT="${CLAIRE_E2E_SPEC_TIMEOUT:-600}"
 
@@ -25,13 +25,13 @@ Usage: bash scripts/e2e.sh <command> [Playwright arguments]
   status         Show the state of the latest run.
   watch          Follow the output of the latest run until it ends.
   tmux           Open a tmux session that follows the latest run.
-  stop           Stop the run.
+  stop           Stop the active run.
 
 No arguments after run or start: each spec file runs in its own Playwright process.
 With arguments (a spec file name, -g <pattern>, and so on): one Playwright process gets them.
 A first argument that is not a command is an argument of run.
 
-Exit codes of run and wait: 0 passed, 1 failed, 2 stopped by the time limit, the memory limit, or a stop command, 3 still running after the wait time.
+Exit codes of run and wait: 0 passed, 1 failed, 2 stopped by the time limit or a stop command, 3 still running after the wait time.
 EOF
 }
 
@@ -45,8 +45,17 @@ resolve_main_root() {
   fi
 }
 
+prepend_path_if_missing() {
+  local dir="$1"
+  if [[ -d "$dir" && ":$PATH:" != *":$dir:"* ]]; then
+    export PATH="$dir:$PATH"
+  fi
+}
+
 resolve_tools() {
   local main_root
+  prepend_path_if_missing "$HOME/.local/bin"
+  prepend_path_if_missing "$HOME/.deno/bin"
   main_root="$(resolve_main_root)"
   if [[ -d "$REPO_ROOT/e2e/node_modules/@playwright/test" ]]; then
     E2E_NODE_MODULES="$REPO_ROOT/e2e/node_modules"
@@ -57,6 +66,10 @@ resolve_tools() {
     exit 1
   fi
   PLAYWRIGHT_BIN="$E2E_NODE_MODULES/.bin/playwright"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "node is not installed or not in PATH." >&2
+    exit 1
+  fi
   if [[ -z "${CLAIRE_E2E_PYTHON:-}" ]]; then
     if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
       export CLAIRE_E2E_PYTHON="$REPO_ROOT/.venv/bin/python"
@@ -65,13 +78,29 @@ resolve_tools() {
     fi
   fi
   export NODE_PATH="$E2E_NODE_MODULES${NODE_PATH:+:$NODE_PATH}"
-  if [[ " ${NODE_OPTIONS:-} " != *" --max-old-space-size="* ]]; then
-    export NODE_OPTIONS="--max-old-space-size=512${NODE_OPTIONS:+ $NODE_OPTIONS}"
-  fi
 }
 
-unit_active() {
-  systemctl --user is-active --quiet "$UNIT.service" 2>/dev/null
+pid_alive() {
+  local pid="$1" args
+  [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [[ "$args" == *"__supervisor"* ]]
+}
+
+active_run_dir() {
+  local dir pid
+  [[ -f "$ACTIVE_FILE" ]] || return 1
+  dir="$(cat "$ACTIVE_FILE" 2>/dev/null || true)"
+  if [[ -z "$dir" || ! -d "$dir" || -f "$dir/result" || ! -f "$dir/pid" ]]; then
+    return 1
+  fi
+  pid="$(cat "$dir/pid" 2>/dev/null || true)"
+  if pid_alive "$pid"; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  return 1
 }
 
 latest_dir() {
@@ -88,27 +117,28 @@ meta_value() {
   sed -n "s/^$2=//p" "$1/meta"
 }
 
-# Print the state of a run: running, passed, failed, stopped, timeout, oom-kill, or lost.
+# Print the state of a run: running, passed, failed, stopped, timeout, or lost.
 run_state() {
-  local dir="$1" result
+  local dir="$1" pid
   if [[ -f "$dir/result" ]]; then
     cat "$dir/result"
-  elif unit_active; then
-    echo running
+  elif [[ -f "$dir/pid" ]]; then
+    pid="$(cat "$dir/pid" 2>/dev/null || true)"
+    if pid_alive "$pid"; then
+      echo running
+    else
+      echo lost
+    fi
   else
-    result="$(systemctl --user show "$UNIT.service" -p Result --value 2>/dev/null || true)"
-    case "$result" in
-      timeout | oom-kill) echo "$result" ;;
-      *) echo lost ;;
-    esac
+    echo lost
   fi
 }
 
 explain_state() {
-  case "$1" in
-    timeout) echo "The run reached the time limit of ${RUN_TIMEOUT} s and systemd stopped it." ;;
-    oom-kill) echo "The run reached the memory limit of ${MEM_MAX} and the kernel stopped it." ;;
-    lost) echo "The run stopped without a result. Look at: journalctl --user -u $UNIT.service" ;;
+  local state="$1" dir="${2:-}"
+  case "$state" in
+    timeout) echo "The run reached the time limit of ${RUN_TIMEOUT} s and stopped." ;;
+    lost) echo "The run stopped without a result.${dir:+ Look at: $dir/supervisor.log}" ;;
   esac
 }
 
@@ -116,7 +146,48 @@ format_specs() {
   awk -F'\t' '{ printf "%-5s %-36s %4s s  %s\n", ($2 == 0 ? "PASS" : "FAIL"), $1, $3, $4 }'
 }
 
-# The internal command of the service: run Playwright and record the results.
+# The internal supervisor of the detached run: enforce RUN_TIMEOUT and record final state.
+supervisor() {
+  local dir="$1" worker_pid="" rc=0
+  shift
+  echo "$$" >"$dir/pid"
+
+  on_signal() {
+    if [[ ! -f "$dir/result" ]]; then
+      echo stopped >"$dir/result"
+    fi
+    rm -f "$dir/current"
+    if [[ -n "$worker_pid" ]]; then
+      kill -TERM "$worker_pid" 2>/dev/null || true
+    fi
+    if [[ -f "$ACTIVE_FILE" && "$(cat "$ACTIVE_FILE" 2>/dev/null || true)" == "$dir" ]]; then
+      rm -f "$ACTIVE_FILE"
+    fi
+    exit 2
+  }
+  trap on_signal TERM INT
+
+  timeout -k 10 "$RUN_TIMEOUT" bash "$SELF" __worker "$dir" "$@" &
+  worker_pid="$!"
+  wait "$worker_pid" || rc="$?"
+
+  if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
+    if [[ ! -f "$dir/result" ]]; then
+      echo timeout >"$dir/result"
+    fi
+    rm -f "$dir/current"
+    rc=2
+  elif [[ ! -f "$dir/result" ]]; then
+    echo lost >"$dir/result"
+    rm -f "$dir/current"
+  fi
+  if [[ -f "$ACTIVE_FILE" && "$(cat "$ACTIVE_FILE" 2>/dev/null || true)" == "$dir" ]]; then
+    rm -f "$ACTIVE_FILE"
+  fi
+  exit "$rc"
+}
+
+# The internal worker: run Playwright and record the results.
 worker() {
   local dir="$1" failed=0
   shift
@@ -157,19 +228,33 @@ worker() {
   exit "$failed"
 }
 
+spawn_detached() {
+  local dir="$1"
+  shift
+  if command -v setsid >/dev/null 2>&1; then
+    setsid bash "$SELF" __supervisor "$dir" "$@" </dev/null >"$dir/supervisor.log" 2>&1 &
+  else
+    local py="${CLAIRE_E2E_PYTHON:-python3}"
+    "$py" -c 'import os, subprocess, sys; log = open(sys.argv[1], "ab"); subprocess.Popen(sys.argv[2:], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)' "$dir/supervisor.log" bash "$SELF" __supervisor "$dir" "$@"
+  fi
+
+  local tries=0
+  while [[ ! -s "$dir/pid" && ! -f "$dir/result" && "$tries" -lt 100 ]]; do
+    sleep 0.05
+    tries=$((tries + 1))
+  done
+}
+
 cmd_start() {
   resolve_tools
-  if ! systemctl --user show-environment >/dev/null 2>&1; then
-    echo "The systemd user manager is not available. This script needs it to isolate the run." >&2
+  local existing_dir
+  if existing_dir="$(active_run_dir)"; then
+    echo "An E2E run is active on port $PORT ($(meta_value "$existing_dir" id)). Use 'status', 'wait', or 'stop'." >&2
     exit 1
   fi
-  if unit_active; then
-    echo "An E2E run is active on port $PORT (unit $UNIT.service). Use 'status', 'wait', or 'stop'." >&2
-    exit 1
-  fi
-  systemctl --user reset-failed "$UNIT.service" 2>/dev/null || true
+  rm -f "$ACTIVE_FILE"
 
-  local id dir total name env_args=()
+  local id dir total
   id="$(date +%Y%m%d-%H%M%S)"
   dir="$RUNS_DIR/$id"
   mkdir -p "$dir"
@@ -182,17 +267,12 @@ cmd_start() {
   : >"$dir/specs.tsv"
   : >"$dir/run.log"
   ln -sfn "$id" "$RUNS_DIR/latest"
+  printf '%s\n' "$dir" >"$ACTIVE_FILE"
   # Keep only the newest run directories.
   find "$RUNS_DIR" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n "+$((KEEP_RUNS + 1))" | xargs -r rm -rf
 
-  # A service does not get the environment of the caller. Give it the tool paths and all CLAIRE_ variables.
-  for name in PATH HOME LANG NODE_PATH NODE_OPTIONS PLAYWRIGHT_BROWSERS_PATH $(compgen -e | grep '^CLAIRE_' || true); do
-    if [[ -n "${!name:-}" ]]; then
-      env_args+=("--setenv=$name")
-    fi
-  done
-  systemd-run --user --quiet --unit="$UNIT" --description="Claire Playwright E2E run $id" --working-directory="$REPO_ROOT" -p "MemoryMax=$MEM_MAX" -p ManagedOOMMemoryPressure=kill -p "RuntimeMaxSec=$RUN_TIMEOUT" -p TimeoutStopSec=10 "${env_args[@]}" -- bash "$SELF" __worker "$dir" "$@"
-  echo "Started E2E run $id (unit $UNIT.service, time limit ${RUN_TIMEOUT} s, memory limit ${MEM_MAX})."
+  spawn_detached "$dir" "$@"
+  echo "Started E2E run $id (port $PORT, pid $(cat "$dir/pid" 2>/dev/null || echo unknown), time limit ${RUN_TIMEOUT} s)."
   echo "Results: $dir"
 }
 
@@ -228,7 +308,7 @@ cmd_wait() {
     sleep 2
   done
   echo "E2E run $(meta_value "$dir" id): $state"
-  explain_state "$state"
+  explain_state "$state" "$dir"
   case "$state" in
     passed) return 0 ;;
     failed)
@@ -244,7 +324,7 @@ cmd_status() {
   dir="$(latest_dir)"
   state="$(run_state "$dir")"
   echo "E2E run $(meta_value "$dir" id): $state"
-  explain_state "$state"
+  explain_state "$state" "$dir"
   echo "Results: $dir"
   if [[ "$state" == running ]]; then
     current="$(cat "$dir/current" 2>/dev/null || true)"
@@ -282,22 +362,32 @@ cmd_tmux() {
 }
 
 cmd_stop() {
-  local dir
-  if ! unit_active; then
+  local dir pid tries=0
+  if ! dir="$(active_run_dir)"; then
+    rm -f "$ACTIVE_FILE"
     echo "No E2E run is active on port $PORT."
     return 0
   fi
-  dir="$(latest_dir)"
-  systemctl --user stop "$UNIT.service"
+  pid="$(cat "$dir/pid")"
   if [[ ! -f "$dir/result" ]]; then
     echo stopped >"$dir/result"
   fi
+  rm -f "$dir/current"
+  kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  while pid_alive "$pid" && [[ "$tries" -lt 50 ]]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  if pid_alive "$pid"; then
+    kill -KILL -- -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$ACTIVE_FILE"
   echo "Stopped E2E run $(meta_value "$dir" id)."
 }
 
 command="${1:-run}"
 case "$command" in
-  run | start | wait | status | watch | tmux | stop | __worker) shift || true ;;
+  run | start | wait | status | watch | tmux | stop | __supervisor | __worker) shift || true ;;
   -h | --help | help)
     usage
     exit 0
@@ -316,5 +406,6 @@ case "$command" in
   watch) cmd_watch ;;
   tmux) cmd_tmux ;;
   stop) cmd_stop ;;
+  __supervisor) supervisor "$@" ;;
   __worker) worker "$@" ;;
 esac

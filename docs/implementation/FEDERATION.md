@@ -13,7 +13,7 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | WebFinger, NodeInfo, actor document, server actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
-| Server switch `federation`, readiness checks GF1 to GF7 | Implemented (API, CLI, and the console section `/admin/federation`) |
+| Server switch `federation`, readiness checks GF1 to GF17 | Implemented (API, CLI, and the console section `/admin/federation`) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
@@ -61,10 +61,10 @@ flowchart LR
 | `src/claire/api/federation_internal.py` | Unix socket listener, `ListenerRouter`, service key, `SignedRequestMiddleware`, `sign_request` |
 | `src/claire/api/federation_routes.py` | Route table and sealed models of the internal API, `CONTRACT_VERSION`, `read_heartbeat` |
 | `src/claire/store/actor_keys.py` | Key generation, encrypted storage, `ensure_actor_keys`, `load_actor_keys` |
-| `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF7 |
+| `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF17 |
 | `src/claire/api/accounts_routes/federation.py` | `GET` and `POST /api/admin/federation` |
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
-| `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check |
+| `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check, knowledge self-check (`/ap/self-check`), loop states |
 | `sidecar/fedify/src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 
 ## 3. Actor Rule
@@ -256,7 +256,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | Method | Path | Response fields |
 | :--- | :--- | :--- |
 | `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag` |
-| `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`). Response: `contract_version`, `federation`. |
+| `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`), `knowledge_self_check` (`checked_at`, `failed_paths`, `signed.result`), `loops` (`knowledge_reads`, `knowledge_exchange`). Response: `contract_version`, `federation`. |
 | `GET` | `/actors/by-username/{username}` | Actor record, or 404. The lookup changes the USERNAME to lowercase. |
 | `GET` | `/actors/{public_id}` | Actor record, 404, or 410 `{"error": "gone", "gone_at"}` for a purged actor (Section 8.5) |
 | `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `server`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
@@ -280,7 +280,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.11"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.12"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.12 (unit KF6 of the knowledge federation) added `knowledge_self_check` and `loops` to `POST /heartbeat` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17). No other route changed.
 - Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: while the switch `federation` is on, the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). No shape that existed changed.
 - Version 1.10 (unit KF3 of the knowledge federation) added the routes `knowledge-kb-actors`, `knowledge-outbox-tasks`, and `knowledge-remote-reads` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 12.5). No shape that existed changed.
 - Version 1.9 (unit KF2 of the knowledge federation) added `GET` and `POST /knowledge-kb-reads` and changed the answer of `GET /knowledge-collections/{name}` (`document` in place of `items`). The sidecar calls the routes of the knowledge federation from this version ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.4, 10.6, and 11.4).
@@ -378,9 +379,9 @@ Claire writes one log line for each event with the type, the decision, and the r
 - The switch is the key `federation` in `server_settings` of `claire.db`. Values: `off` and `on`. No row means `off`. An unknown value raises `RuntimeError` (`AccountStore.federation_state`). No schema version change was necessary.
 - `CB_FEDERATION=1` starts the sidecar container only. It does not change this switch.
 
-### 7.2 Checks GF1 to GF7
+### 7.2 Checks GF1 to GF17
 
-`check_federation_readiness` in `src/claire/accounts/federation_readiness.py` does all checks. The checks do not change data.
+`check_federation_readiness` in `src/claire/accounts/federation_readiness.py` does all checks. The checks do not change data. Unit KF6 added GF8 to GF17, item fields (`group`, `level`, `applies`, `code`, `values`), the system trust store helper (`_system_ssl_context()`, `SSL_CERT_FILE`), and a shared 20-second deadline for concurrent request checks ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17).
 
 | ID | Passes when |
 | :--- | :--- |
@@ -390,11 +391,13 @@ Claire writes one log line for each event with the type, the decision, and the r
 | GF4 | `SecretService` can load the master key (`CLAIRE_SECRET_KEY` or `{data_dir}/auth/master.key`). The check does not make a key file. |
 | GF5 | The environment is not `production`, or the canonical origin starts with `https://`. A runtime configuration that is not valid fails. |
 | GF6 | The heartbeat is recent and its `self_check.ok` is `true`. |
-| GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` returns status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, 65536 bytes at most. |
+| GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` returns status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, uses `_system_ssl_context()`, 65536 bytes at most. |
+| GF8–GF17 | Knowledge federation readiness checks (`group="knowledge"`): paths, signed `/ap/self-check`, largest inbox body, sidecar loops, actor key decryption, settings/host check, first-contact docs, KB actor, unsigned read refusal, and `/ns/v1` + `/ns` (warning). See [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17. |
 
+- Each item has `group` (`"account"` for GF1 to GF7, `"knowledge"` for GF8 to GF17), `level` (`"required"` for GF1 to GF16, `"warning"` for GF17), `applies` (`bool`), `passed` (`bool`), `code`, `detail`, and `values`. `report.passed` is true when all required items pass; a failing `warning` item does not make `report.passed` false.
 - The sidecar sends a heartbeat at its start and then each 30 seconds.
 - Public self-check of the sidecar (`publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. Each answer of the sidecar has the header `X-Claire-Fedify-Server` with a random value of that sidecar process. The check passes when the answer has the value of this process. The status of the answer is not important. This shows that the reverse proxy sends the federation paths to this sidecar. The header value shows no server data.
-- The sidecar does the self-check at each heartbeat, also while `federation` is `off` or the mode is `single` (the WebFinger answer is then 404, with the header). Thus GF6 can pass before the admin sets the switch to `on`. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
+- The sidecar does the self-check and knowledge self-check at each heartbeat, also while `federation` is `off` or the mode is `single` (the WebFinger answer is then 404, with the header). Thus GF6, GF8, and GF9 can pass before the admin sets the switch to `on`. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
 - GF7 shows that the reverse proxy still sends `/.well-known/oauth-authorization-server` to Claire. The process that does the check (the `api` process or the CLI process) sends the request.
 
 ### 7.3 Admin API
@@ -407,13 +410,13 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 {
   "federation": "off",
   "mode": "network",
-  "readiness": {"items": [{"id": "GF1", "name": "...", "passed": true, "detail": "..."}], "passed": false},
-  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.0", "sidecar_version": "0.1.0", "queue_depth": 0, "self_check": {"ok": null, "checked_at": null}}
+  "readiness": {"items": [{"id": "GF1", "name": "...", "group": "account", "level": "required", "applies": true, "passed": true, "code": "mode_network", "detail": "...", "values": {}}], "passed": false},
+  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 0, "self_check": {"ok": null, "checked_at": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}}
 }
 ```
 
 - `heartbeat` is `null` when there is no record.
-- Each request does all checks again, GF7 with its network request also. The result is not cached.
+- Each request does all checks again, GF7, GF10, GF14 to GF17 with their network requests also. The result is not cached.
 
 `POST /api/admin/federation` with the body `{"federation": "on"}` or `{"federation": "off"}`:
 
@@ -423,7 +426,7 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 | No recent authentication | 401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential |
 | Body is not an object with the one field `federation` and a known value | 400 `invalid_request` |
 | The value is the current state | 200 `{"federation": "<state>", "changed": false}`. No check, no audit row. |
-| Change to `on` and a check fails | 400 `{"error": "readiness_failed", "detail": "...", "failures": [...]}`. `failures` contains the items that did not pass. |
+| Change to `on` and a required check that applies fails | 400 `{"error": "readiness_failed", "detail": "...", "failures": [...]}`. `failures` contains the required items that apply and did not pass (GF1 to GF13; warning items such as GF17 do not block). |
 | Change accepted | 200 `{"federation": "<state>", "changed": true}`. Claire writes an `admin_audit` row with the action `federation.update`. |
 
 The change to `off` has no readiness condition.
@@ -501,7 +504,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 **Console sections.**
 
 - `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). In single mode the section shows a notice only and no USERNAME.
-- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF7, the last heartbeat of the sidecar, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because check GF7 sends a network request. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
+- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF17 in two groups (`account` and `knowledge`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
 ### 7.6 Publishing Routes (Unit FP3-1)

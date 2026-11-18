@@ -33,6 +33,7 @@ __all__ = [
     "generate_key_pair",
     "kb_actor_key_numbers",
     "load_kb_actor_keys",
+    "load_kb_public_jwks",
     "load_actor_keys",
     "load_public_jwks",
     "public_key_pem",
@@ -143,10 +144,19 @@ def _ensure(conn: sqlite3.Connection, account_id: int, secret_service: SecretSer
     return stored > 0
 
 
+def _load_public_jwks(conn: sqlite3.Connection, account_id: int) -> dict[str, dict[str, str]]:
+    rows = conn.execute("SELECT alg, public_jwk FROM actor_keys WHERE account_id=?", (account_id,)).fetchall()
+    return {str(alg): json.loads(public_jwk) for alg, public_jwk in rows}
+
+
 def load_public_jwks(conn: sqlite3.Connection, account_id: int) -> dict[str, dict[str, str]]:
     """Return the public JWK of each stored algorithm. This function does not decrypt."""
-    rows = conn.execute("SELECT alg, public_jwk FROM actor_keys WHERE account_id=?", (_check_account_id(account_id),)).fetchall()
-    return {str(alg): json.loads(public_jwk) for alg, public_jwk in rows}
+    return _load_public_jwks(conn, _check_account_id(account_id))
+
+
+def load_kb_public_jwks(conn: sqlite3.Connection, kb_number: int) -> dict[str, dict[str, str]]:
+    """Return the public JWK of each stored algorithm of a shared knowledge base actor. This function does not decrypt."""
+    return _load_public_jwks(conn, _kb_owner(kb_number))
 
 
 def load_actor_keys(conn: sqlite3.Connection, account_id: int, secret_service: SecretService) -> list[ActorKeyPair]:

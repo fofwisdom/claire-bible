@@ -1,7 +1,7 @@
 # Common Development Environment for Contributors
 
 - **Document Identifier**: `DESIGN-CONTRIBUTOR-DEVELOPMENT-ENVIRONMENT-20261118`
-- **Status**: Planned, not implemented (draft, Rev. 1). The owner decision CD1 of Section 2 is locked (2026-11-18). All other content is a **proposal**. Open questions: DQ1 to DQ7 (Section 13).
+- **Status**: Planned, not implemented for DE1 to DE6 containers/commands (Rev. 2). Locked decisions: CD1 (Section 2, 2026-11-18) and CD4 (`DQ1: A`, `.test` HTTPS origin and DNS role rules implemented in `security.py` and `host_router.py`, 2026-11-19). All other content is a **proposal**. Open questions: DQ2 to DQ7 (Section 13).
 - **Date**: 2026-11-18
 - **Base commit**: `33748825`. At the time of the reading, the working tree had changes of other work (the expansion modules, schema version 35). The **[code]** facts come from the files at that time.
 - **Related Documents**:
@@ -313,7 +313,7 @@ Rules that exist now and that the contributor documents state:
 | CD1 | The Docker development stack can be used when it is necessary and becomes a common environment for contributions (Section 2) | **[decision]** owner, 2026-11-18 |
 | CD2 | The host needs Docker with Compose, Git, Bash, and Python 3.11 with its standard library only; all other tools are in the toolbox image (Section 5) | **[proposal]** |
 | CD3 | Development domain `claire.test`; servers `a.claire.test` and `b.claire.test` at port 443 (Section 6.2) | **[proposal]** |
-| CD4 | Development origin rule for names below `test` with https (Section 6.3) | **[proposal]**, DQ1 |
+| CD4 | Development origin rule for names below `test` with https (Section 6.3, DQ1: A) | **[decision]** owner, 2026-11-19 |
 | CD5 | One private authority for each development network; the sidecar through `DENO_CERT`, Claire through `/extra-certs` and the system trust store, the toolbox through `SSL_CERT_FILE` (Section 6.4) | **[proposal]** |
 | CD6 | Each server is a Compose project of `docker-compose.yml` with one overlay; named volumes; no host ports (Sections 6.1, 6.8) | **[proposal]** |
 | CD7 | `devnet-edge` is internal; a sidecar is only on it; the Claire services also have `devnet-out` for ingestion (Section 6.1) | **[proposal]** |
@@ -341,15 +341,15 @@ Rules that exist now and that the contributor documents state:
 
 ## 13. Open Questions
 
-### DQ1: Development Origin Rule (Section 6.3)
+### DQ1: Development Origin Rule (Section 6.3), Answered (CD4)
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
-| A (proposal) | Development also accepts `https://<name>/` when the name is below `test`; role hosts with such names follow the production rules of `HostRoles` | TLS and names in development; a development name never resolves on the internet; production does not change |
+| A | Development also accepts `https://<name>/` when the name is below `test`; role hosts with such names follow the production rules of `HostRoles` | TLS and names in development; a development name never resolves on the internet; production does not change |
 | B | A third environment value (for example `devnet`) with its own rules | A clear separation, but each check of the environment in the code gets a third value |
 | C | The development network runs as `production` with a new switch for private addresses | Production gets a switch that weakens a rule of security; not recommended |
 
-**Recommendation:** A.
+**Answer (owner, 2026-11-19):** A (CD4). Implemented in `src/claire/api/security.py` and `src/claire/api/host_router.py`.
 
 ### DQ2: Access from the Host (Section 6.7)
 

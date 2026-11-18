@@ -570,3 +570,73 @@ test('/admin/federation: remove a known server with the confirmation of what is 
   await expectNoRawKeys(page);
   expect(errors).toEqual([]);
 });
+
+test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, not-applicable rows, warning item, and sidecar loop state', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  await authenticateOwner(page, 'fedadmin8');
+  await installApi(page);
+  const nowSec = Math.floor(Date.now() / 1000);
+  await page.route((u) => u.pathname === '/api/admin/federation', (route) => {
+    const items = [
+      { id: 'GF1', name: 'Server mode allows federation', group: 'account', level: 'required', applies: true, passed: true, code: 'mode_network', detail: 'The server mode is network.', values: {} },
+      { id: 'GF2', name: 'Sidecar heartbeat and contract version', group: 'account', level: 'required', applies: true, passed: true, code: 'heartbeat_ok', detail: 'Heartbeat ok.', values: { expected: '1' } },
+      { id: 'GF3', name: 'Service key file', group: 'account', level: 'required', applies: true, passed: true, code: 'service_key_ok', detail: 'Service key ok.', values: {} },
+      { id: 'GF4', name: 'Master key', group: 'account', level: 'required', applies: true, passed: true, code: 'master_key_ok', detail: 'Master key ok.', values: {} },
+      { id: 'GF5', name: 'Canonical origin uses HTTPS in production', group: 'account', level: 'required', applies: true, passed: true, code: 'https_ok', detail: 'HTTPS ok.', values: {} },
+      { id: 'GF6', name: 'Sidecar public self-check', group: 'account', level: 'required', applies: true, passed: true, code: 'webfinger_self_check_ok', detail: 'WebFinger ok.', values: {} },
+      { id: 'GF7', name: 'OAuth metadata through the public origin', group: 'account', level: 'required', applies: true, passed: true, code: 'oauth_metadata_ok', detail: 'Metadata ok.', values: {} },
+      { id: 'GF8', name: 'Knowledge federation paths reach this sidecar', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'paths_ok', detail: 'Paths ok.', values: {} },
+      { id: 'GF9', name: 'Signed request through the public origin', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'signed_ok', detail: 'Signed ok.', values: {} },
+      { id: 'GF10', name: 'Inbox body of the largest size through the public origin', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'inbox_body_ok', detail: 'Inbox body ok.', values: { bytes: 1040384 } },
+      { id: 'GF11', name: 'Knowledge federation loops of the sidecar make progress', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'loops_ok', detail: 'Loops ok.', values: {} },
+      { id: 'GF12', name: 'Actor keys can be decrypted', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'actor_keys_empty', detail: 'No actor key yet.', values: {} },
+      { id: 'GF13', name: 'Settings of the knowledge federation and the public name', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'settings_ok', detail: 'Settings ok.', values: {} },
+      { id: 'GF14', name: 'First-contact documents through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF15', name: 'Knowledge base actor document through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF16', name: 'Collections refuse an unsigned read', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF17', name: 'JSON-LD context and vocabulary page through the public origin', group: 'knowledge', level: 'warning', applies: true, passed: false, code: 'ns_context_failed', detail: 'Missing CORS header.', values: { problem: 'missing header Access-Control-Allow-Origin: *' } },
+    ];
+    return json(route, {
+      federation: 'off',
+      mode: 'network',
+      readiness: { passed: true, items },
+      heartbeat: {
+        received_at: nowSec - 3,
+        contract_version: '1.12',
+        sidecar_version: '0.1.0',
+        queue_depth: 0,
+        self_check: { ok: true, checked_at: nowSec - 3 },
+        knowledge_self_check: { checked_at: nowSec - 3, failed_paths: [], signed: { result: 'ok' } },
+        loops: {
+          knowledge_reads: { running: false, progress_at: nowSec - 12, error: null, error_at: null },
+          knowledge_exchange: { running: false, progress_at: nowSec - 40, error: 'ECONNREFUSED', error_at: nowSec - 20 },
+        },
+      },
+    });
+  });
+
+  await page.goto('/admin/federation', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#admin-federation-readiness-result')).toContainText('모든 필수 준비 검사를 통과했습니다 (경고 있음).');
+  await expect(page.locator('[data-readiness-group="account"]')).toContainText('계정 연합 (GF1–GF7)');
+  await expect(page.locator('[data-readiness-group-summary="account"]')).toContainText('필수 7/7 통과');
+  await expect(page.locator('[data-readiness-group="knowledge"]')).toContainText('공유 지식 연합 (GF8–GF17)');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('필수 6/6 통과');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('경고 1개');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('3개 해당 없음');
+
+  const gf14 = page.locator('tr[data-readiness-item="GF14"]');
+  await expect(gf14).toHaveAttribute('data-readiness-applies', '0');
+  await expect(gf14).toContainText('해당 없음');
+
+  const gf17 = page.locator('tr[data-readiness-item="GF17"]');
+  await expect(gf17).toHaveAttribute('data-readiness-level', 'warning');
+  await expect(gf17).toHaveAttribute('data-readiness-passed', '0');
+  await expect(gf17).toContainText('경고');
+  await expect(gf17).toContainText('실패');
+
+  await expect(page.locator('#admin-federation-heartbeat [data-sidecar-loop="knowledge_reads"]')).toContainText('없음');
+  await expect(page.locator('#admin-federation-heartbeat [data-sidecar-loop="knowledge_exchange"]')).toContainText('ECONNREFUSED');
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});

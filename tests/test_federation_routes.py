@@ -307,10 +307,14 @@ def test_response_models_are_sealed():
     [
         b"",
         b"[]",
-        b'{"contract_version": "1.2"}',
-        b'{"contract_version": "1.2", "sidecar_version": "0.1.0", "queue_depth": "3", "self_check": {"ok": true, "checked_at": 1.0}}',
-        b'{"contract_version": "1.2", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "extra": 1}',
-        b'{"contract_version": "one", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
+        b'{"contract_version": "1.12"}',
+        b'{"contract_version": "1.11", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
+        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
+        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}}',
+        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": "3", "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
+        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}, "extra": 1}',
+        b'{"contract_version": "one", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
+        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "bad_code"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
     ],
 )
 def test_heartbeat_refuses_a_request_outside_the_model(internal, body):

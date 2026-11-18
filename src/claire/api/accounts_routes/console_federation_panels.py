@@ -231,8 +231,8 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</div>"
         '<p class="result" id="admin-federation-readiness-result" role="status" aria-live="polite"></p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        f"<thead><tr><th>{escape(t('console.readiness.col_item'))}</th><th>{escape(t('console.readiness.col_name'))}</th><th>{escape(t('console.common.status'))}</th><th>{escape(t('console.readiness.col_detail'))}</th></tr></thead>"
-        f'<tbody id="admin-federation-readiness-tbody"><tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.federation.readiness.loading"))}</td></tr></tbody>'
+        f"<thead><tr><th>{escape(t('console.readiness.col_item'))}</th><th>{escape(t('console.readiness.col_name'))}</th><th>{escape(t('console.readiness.col_level'))}</th><th>{escape(t('console.common.status'))}</th><th>{escape(t('console.readiness.col_detail'))}</th></tr></thead>"
+        f'<tbody id="admin-federation-readiness-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.federation.readiness.loading"))}</td></tr></tbody>'
         "</table></div>"
         "</section>"
         f'<section class="card" id="admin-federation-sidecar" aria-label="{escape(t("console.federation.sidecar.label"))}">'

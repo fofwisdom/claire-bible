@@ -4002,7 +4002,7 @@ def cmd_share(args) -> int:
 def cmd_server(args) -> int:
     """Do the server readiness checks and print the report. The exit code is 0 only when all checks pass.
 
-    ``--network`` does the network-mode checks G1 to G9. ``--federation`` does the federation checks GF1 to GF7 (Fedify sidecar design Section 12). The admin API uses the same check functions.
+    ``--network`` does the network-mode checks G1 to G9. ``--federation`` does the federation checks GF1 to GF17 (Fedify sidecar design Section 12, KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1). The admin API uses the same check functions.
     """
     import json
     import sqlite3
@@ -6182,11 +6182,11 @@ def build_parser() -> argparse.ArgumentParser:
     psrv_check = psrv_sub.add_parser(
         "check",
         help="run readiness checks and exit with 0 only when all checks pass",
-        description="Run the network-mode readiness checks (G1-G9) or the federation readiness checks (GF1-GF7). The exit code is 0 only when all checks pass.",
+        description="Run the network-mode readiness checks (G1-G9) or the federation readiness checks (GF1-GF17). The exit code is 0 only when all required checks pass.",
     )
     psrv_kind = psrv_check.add_mutually_exclusive_group(required=True)
     psrv_kind.add_argument("--network", action="store_true", help="run the network-mode readiness checks G1-G9")
-    psrv_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF7")
+    psrv_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF17")
     psrv_check.add_argument("--json", action="store_true", help="output the readiness report in JSON format")
     psrv_check.set_defaults(func=cmd_server)
 

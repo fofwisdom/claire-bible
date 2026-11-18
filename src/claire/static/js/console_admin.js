@@ -771,7 +771,7 @@
     function errorText(res) {
       var body = res.body;
       if (body && body.error === "readiness_failed") {
-        var fails = (body.failures || []).map(function (f) { return f.id + " (" + (f.detail || f.name) + ")"; });
+        var fails = (body.failures || []).map(function (f) { return f.id + " (" + (readinessText(f).detail || f.name) + ")"; });
         return tr("console.js.admin.mode.readiness_failed") + " " + (fails.join(", ") || body.detail || "");
       }
       if (body && typeof body.error === "string" && FED_ERROR_TEXT[body.error]) return FED_ERROR_TEXT[body.error];
@@ -796,28 +796,134 @@
       attempt();
     }
 
+    function readinessGroupSummary(groupItems) {
+      var reqTotal = 0;
+      var reqPassed = 0;
+      var reqFailed = 0;
+      var warnFailed = 0;
+      var skipped = 0;
+      groupItems.forEach(function (item) {
+        if (item.applies === false) {
+          skipped += 1;
+          return;
+        }
+        if (item.level === "warning") {
+          if (!item.passed) warnFailed += 1;
+          return;
+        }
+        reqTotal += 1;
+        if (item.passed) reqPassed += 1;
+        else reqFailed += 1;
+      });
+      var parts = [tr("console.js.admin.readiness.group_summary.required", { passed: reqPassed, total: reqTotal })];
+      if (reqFailed > 0) parts.push(tr("console.js.admin.readiness.group_summary.failed", { count: reqFailed }));
+      if (warnFailed > 0) parts.push(tr("console.js.admin.readiness.group_summary.warnings", { count: warnFailed }));
+      if (skipped > 0) parts.push(tr("console.js.admin.readiness.group_summary.skipped", { count: skipped }));
+      return parts.join(" · ");
+    }
+
+    function readinessText(item) {
+      var nameKey = "console.js.admin.readiness.item." + String(item.id || "").toLowerCase() + ".name";
+      var nameText = tr(nameKey);
+      if (nameText === nameKey) nameText = item.name;
+      var detailText = item.detail;
+      if (item.code) {
+        var codeKey = "console.js.admin.readiness.code." + item.code;
+        var localized = tr(codeKey, item.values || {});
+        if (localized !== codeKey) detailText = localized;
+      }
+      return { name: nameText, detail: detailText };
+    }
+
     function renderReadiness(readiness) {
       if (!readinessTbody) return;
       clear(readinessTbody);
       var items = (readiness && readiness.items) || [];
-      items.forEach(function (item) {
-        var row = document.createElement("tr");
-        row.setAttribute("data-readiness-item", String(item.id));
-        row.setAttribute("data-readiness-passed", item.passed ? "1" : "0");
-        var tdId = document.createElement("td");
-        var code = document.createElement("code");
-        code.textContent = String(item.id);
-        tdId.appendChild(code);
-        var tdState = document.createElement("td");
-        var pill = document.createElement("span");
-        pill.className = item.passed ? "badge badge-enabled" : "badge badge-disabled";
-        pill.textContent = item.passed ? tr("console.js.admin.readiness.passed") : tr("console.js.admin.readiness.failed");
-        tdState.appendChild(pill);
-        [tdId, cell(item.name), tdState, cell(item.detail)].forEach(function (td) { row.appendChild(td); });
-        readinessTbody.appendChild(row);
+      if (!items.length) {
+        messageRow(readinessTbody, 5, tr("console.js.admin.readiness.empty"));
+        setResult(readinessResult, tr("console.js.admin.readiness.some_failed"), true);
+        return;
+      }
+      var groups = ["account", "knowledge"];
+      var ungrouped = items.filter(function (item) { return groups.indexOf(item.group) === -1; });
+      var renderGroup = function (groupId, groupItems) {
+        if (!groupItems.length) return;
+        if (groupId) {
+          var headRow = document.createElement("tr");
+          headRow.setAttribute("data-readiness-group", groupId);
+          headRow.style.background = "var(--surface-2, rgba(128,128,128,0.08))";
+          var th = document.createElement("th");
+          th.colSpan = 5;
+          th.style.textAlign = "left";
+          var titleSpan = document.createElement("strong");
+          titleSpan.textContent = tr("console.js.admin.readiness.group." + groupId + ".title");
+          var summarySpan = document.createElement("span");
+          summarySpan.setAttribute("data-readiness-group-summary", groupId);
+          summarySpan.style.marginLeft = "10px";
+          summarySpan.style.fontWeight = "400";
+          summarySpan.style.color = "var(--muted)";
+          summarySpan.textContent = readinessGroupSummary(groupItems);
+          th.appendChild(titleSpan);
+          th.appendChild(summarySpan);
+          headRow.appendChild(th);
+          readinessTbody.appendChild(headRow);
+        }
+        groupItems.forEach(function (item) {
+          var applies = item.applies !== false;
+          var level = item.level || "required";
+          var texts = readinessText(item);
+          var row = document.createElement("tr");
+          row.setAttribute("data-readiness-item", String(item.id));
+          if (groupId) row.setAttribute("data-readiness-group-of", groupId);
+          row.setAttribute("data-readiness-level", level);
+          row.setAttribute("data-readiness-applies", applies ? "1" : "0");
+          row.setAttribute("data-readiness-passed", item.passed ? "1" : "0");
+          var tdId = document.createElement("td");
+          var code = document.createElement("code");
+          code.textContent = String(item.id);
+          tdId.appendChild(code);
+          var tdLevel = document.createElement("td");
+          var levelTag = document.createElement("span");
+          levelTag.className = level === "warning" ? "claire-tag warn" : "claire-tag";
+          levelTag.textContent = tr("console.js.admin.readiness.level." + level);
+          tdLevel.appendChild(levelTag);
+          var tdState = document.createElement("td");
+          var pill = document.createElement("span");
+          if (!applies) {
+            pill.className = "badge";
+            pill.textContent = tr("console.js.admin.readiness.not_applicable");
+          } else {
+            pill.className = item.passed ? "badge badge-enabled" : (level === "warning" ? "claire-tag warn" : "badge badge-disabled");
+            pill.textContent = item.passed ? tr("console.js.admin.readiness.passed") : tr("console.js.admin.readiness.failed");
+          }
+          tdState.appendChild(pill);
+          [tdId, cell(texts.name), tdLevel, tdState, cell(texts.detail)].forEach(function (td) { row.appendChild(td); });
+          readinessTbody.appendChild(row);
+        });
+      };
+      groups.forEach(function (g) {
+        renderGroup(g, items.filter(function (item) { return item.group === g; }));
       });
-      if (!items.length) messageRow(readinessTbody, 4, tr("console.js.admin.readiness.empty"));
-      setResult(readinessResult, readiness && readiness.passed ? tr("console.js.admin.readiness.all_passed") : tr("console.js.admin.readiness.some_failed"), !(readiness && readiness.passed));
+      if (ungrouped.length) renderGroup("", ungrouped);
+      var warnFailed = items.some(function (item) { return item.applies !== false && item.level === "warning" && !item.passed; });
+      if (readiness && readiness.passed) {
+        setResult(readinessResult, tr(warnFailed ? "console.js.admin.readiness.required_passed_with_warning" : "console.js.admin.readiness.all_passed"), false);
+      } else {
+        setResult(readinessResult, tr("console.js.admin.readiness.some_failed"), true);
+      }
+    }
+
+    function formatLoopState(loop) {
+      if (!loop) return tr("console.js.admin.sidecar.loop_unavailable");
+      var progressText;
+      if (loop.progress_at == null) {
+        progressText = tr("console.js.admin.sidecar.loop_no_progress");
+      } else {
+        var ageSec = Math.max(0, Math.round((Date.now() / 1000) - Number(loop.progress_at)));
+        progressText = tr("console.js.admin.sidecar.loop_progress_age", { seconds: ageSec });
+      }
+      var errText = loop.error ? fedCodeText(loop.error) : tr("console.js.admin.sidecar.loop_error_none");
+      return tr("console.js.admin.sidecar.loop_summary", { progress: progressText, error: errText });
     }
 
     function renderHeartbeat(heartbeat) {
@@ -828,12 +934,15 @@
         rows = [[tr("console.js.admin.sidecar.heartbeat"), tr("console.js.admin.sidecar.no_heartbeat")]];
       } else {
         var check = heartbeat.self_check || {};
+        var loops = heartbeat.loops || {};
         rows = [
           [tr("console.js.admin.sidecar.last_heartbeat"), formatTs(heartbeat.received_at)],
           [tr("console.js.admin.sidecar.contract_version"), heartbeat.contract_version],
           [tr("console.js.admin.sidecar.sidecar_version"), heartbeat.sidecar_version],
           [tr("console.js.admin.sidecar.queue_depth"), heartbeat.queue_depth],
-          [tr("console.js.admin.sidecar.self_check"), check.ok === true ? tr("console.js.admin.readiness.passed") : (check.ok === false ? tr("console.js.admin.readiness.failed") : tr("console.js.admin.sidecar.self_check_pending"))]
+          [tr("console.js.admin.sidecar.self_check"), check.ok === true ? tr("console.js.admin.readiness.passed") : (check.ok === false ? tr("console.js.admin.readiness.failed") : tr("console.js.admin.sidecar.self_check_pending"))],
+          [tr("console.js.admin.sidecar.loop_knowledge_reads"), formatLoopState(loops.knowledge_reads), "knowledge_reads"],
+          [tr("console.js.admin.sidecar.loop_knowledge_exchange"), formatLoopState(loops.knowledge_exchange), "knowledge_exchange"]
         ];
       }
       heartbeatDl.setAttribute("data-heartbeat", heartbeat ? "present" : "absent");
@@ -841,6 +950,7 @@
         var dt = document.createElement("dt");
         dt.textContent = row[0];
         var dd = document.createElement("dd");
+        if (row[2]) dd.setAttribute("data-sidecar-loop", row[2]);
         dd.textContent = row[1] == null ? "-" : String(row[1]);
         heartbeatDl.appendChild(dt);
         heartbeatDl.appendChild(dd);

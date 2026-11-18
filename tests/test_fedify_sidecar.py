@@ -362,11 +362,11 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         finger = httpx.get(f"http://127.0.0.1:{sidecar_port}/.well-known/webfinger", params={"resource": f"acct:claire@127.0.0.1:{sidecar_port}"}, timeout=10)
         assert finger.status_code == 404 and finger.text == "Not Found"
 
-        # The readiness checks that depend on the sidecar pass. GF7 fails here only because this test has no reverse proxy that sends the other paths to Claire.
+        # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire.
         check = subprocess.run([sys.executable, "-m", "claire.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
         report = json.loads(check.stdout)
         items = {item["id"]: item["passed"] for item in report["data"]["items"]}
-        assert items == {"GF1": True, "GF2": True, "GF3": True, "GF4": True, "GF5": True, "GF6": True, "GF7": False}, check.stdout
+        assert items == {f"GF{i}": (i not in (7, 17)) for i in range(1, 18)}, check.stdout
     finally:
         if sidecar is not None:
             _stop(sidecar)

@@ -24,9 +24,10 @@
 // - Federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md, units KF1 and KF2, knowledge.ts): an inbound activity whose @context has the Claire context goes to Claire as a knowledge activity, with its JSON as it came; it is not an inbox event and not a timeline event. Such an activity does not go through the inbox listener of Fedify: Fedify reads an activity into its own vocabulary, which has no Grant and no Revoke, and it does not keep the JSON of each type as it came. The sidecar verifies the HTTP signature of the request and gives Claire the body and the actor of the key; Claire keeps the activity in its inbox journal and makes each other check. The collections /ap/kb and /ap/themes answer a signed GET: the sidecar verifies the signature, and Claire decides and gives the document. A job reads the known servers and their /kb collections with the key of the server actor.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
-import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue, signRequest, verifyRequest } from "@fedify/fedify";
-import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { type Context, createFederation, type Federation, generateCryptoKeyPair, importJwk, type InboxContext, type KvStore, type MessageQueue, signRequest, verifyRequest } from "@fedify/fedify";
+import { Accept, Activity, type Actor, Announce, Application, Article, Create, CryptographicKey, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
+import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.5";
+import { type ActorRecord, type ClientTask, type HeartbeatLoops, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, type KnowledgeSelfCheck, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type SignedSelfCheckCode, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
 // Federation of shared knowledge (units KF1 to KF3).
 import { pinnedFetch } from "./pinned_fetch.ts";
@@ -44,6 +45,11 @@ export const SERVER_ACTOR_USERNAME = "claire";
 export const KEY_CACHE_SECONDS = 60;
 export const CONFIG_CACHE_SECONDS = 5;
 export const SIDECAR_HEADER = "x-claire-fedify-server";
+export const SELF_CHECK_PATH = "/ap/self-check";
+export const SELF_CHECK_TTL_SECONDS = 60;
+export const SELF_CHECK_REQUEST_TIMEOUT_MS = 10_000;
+export const SELF_CHECK_DEADLINE_MS = 20_000;
+export const KNOWLEDGE_SELF_CHECK_PATHS = ["/.well-known/nodeinfo", "/nodeinfo/2.1", "/ap/actors/server", "/ap/kb", "/ap/themes", "/ap/kb/0", "/ap/inbox"] as const;
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 // The inbox of a knowledge base actor (/ap/kb/{number}/inbox) gets only activities of the knowledge federation. The actor document, its collections, and its documents are the paths of KB_ACTOR_PATH (unit KF3).
@@ -134,6 +140,28 @@ function notFound(): Response {
   return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 }
 
+function classifySelfCheckError(error: unknown): SignedSelfCheckCode {
+  const text = `${(error as { name?: string })?.name ?? ""} ${(error as { message?: string })?.message ?? String(error)}`.toLowerCase();
+  if (/(?:certificate|tls|ssl|handshake|unknown\s*issuer|self[- ]signed|peer.*cert)/.test(text)) return "tls_error";
+  if (/(?:dns|lookup|getaddrinfo|nxdomain|name or service not known|no such host|nodename nor servname|name resolution)/.test(text)) return "dns_error";
+  return "request_failed";
+}
+
+function loopErrorCode(error: unknown): string {
+  const raw = error instanceof InternalApiError ? error.code : (error as { name?: string })?.name ?? "error";
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64);
+  return normalized || "error";
+}
+
+type SelfCheckEntry = {
+  origin: string;
+  host: string;
+  createdAt: number;
+  expiresAt: number;
+  seen: boolean;
+  result: "ok" | "host_changed" | "signature_invalid" | null;
+};
+
 export class Sidecar {
   readonly #api: InternalApi;
   readonly #kv: KvStore;
@@ -154,6 +182,12 @@ export class Sidecar {
   readonly #gone = new Map<string, number>();
   // The paths in #gone that are deleted notes (unit FP4-9): the Tombstone has the former type Note.
   readonly #goneNotes = new Set<string>();
+  #selfCheckKey: Promise<CryptoKeyPair> | null = null;
+  readonly #selfChecks = new Map<string, SelfCheckEntry>();
+  readonly #loops: HeartbeatLoops = {
+    knowledge_reads: { running: false, progress_at: null, error: null, error_at: null },
+    knowledge_exchange: { running: false, progress_at: null, error: null, error_at: null },
+  };
 
   constructor(options: SidecarOptions) {
     this.#api = options.api;
@@ -187,6 +221,7 @@ export class Sidecar {
 
   async #respond(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === SELF_CHECK_PATH) return await this.#handleSelfCheck(request);
     if (!FEDERATION_PATHS.test(path)) return notFound();
     const inbox = INBOX_PATHS.test(path);
     if (inbox ? request.method !== "POST" : request.method !== "GET" && request.method !== "HEAD") {
@@ -253,6 +288,198 @@ export class Sidecar {
       }
     }
     return response;
+  }
+
+  async #getSelfCheckKey(): Promise<CryptoKeyPair> {
+    if (this.#selfCheckKey === null) {
+      this.#selfCheckKey = generateCryptoKeyPair("RSASSA-PKCS1-v1_5");
+    }
+    return await this.#selfCheckKey;
+  }
+
+  #pruneSelfChecks(now: number): void {
+    for (const [nonce, entry] of this.#selfChecks) {
+      if (entry.expiresAt <= now) this.#selfChecks.delete(nonce);
+    }
+  }
+
+  // Self-check path POST /ap/self-check (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4 item 2, GF9).
+  async #handleSelfCheck(request: Request): Promise<Response> {
+    const now = this.#now();
+    this.#pruneSelfChecks(now);
+    if (request.method !== "POST") return notFound();
+    const body = await readLimited(request, 4096);
+    if (body === null) return notFound();
+    let nonce: unknown = null;
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(body)) as { nonce?: unknown } | null;
+      nonce = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed.nonce : null;
+    } catch {
+      return notFound();
+    }
+    if (typeof nonce !== "string" || !nonce) return notFound();
+    const entry = this.#selfChecks.get(nonce);
+    if (entry === undefined || entry.seen || now < entry.createdAt || now - entry.createdAt > SELF_CHECK_TTL_SECONDS) return notFound();
+    entry.seen = true;
+
+    const requestHost = (request.headers.get("host") ?? new URL(request.url).host).toLowerCase();
+    if (requestHost !== entry.host) {
+      entry.result = "host_changed";
+      return notFound();
+    }
+
+    const signatureInput = request.headers.get("signature-input");
+    if (signatureInput !== null && signatureInput.split("=(").length !== signatureInput.split('"content-digest"').length) {
+      entry.result = "signature_invalid";
+      return notFound();
+    }
+
+    const headers = new Headers(request.headers);
+    for (const name of REMOVED_REQUEST_HEADERS) headers.delete(name);
+    const clean = new Request(request.url, { method: "POST", headers, body });
+
+    try {
+      const pair = await this.#getSelfCheckKey();
+      const actorUri = new URL(`${entry.origin}${SELF_CHECK_PATH}`);
+      const keyId = new URL(`${entry.origin}${SELF_CHECK_PATH}#main-key`);
+      const contextLoader = async (url: string) => {
+        if (url in preloadedContexts) {
+          return { contextUrl: null, documentUrl: url, document: (preloadedContexts as Record<string, unknown>)[url] };
+        }
+        throw new Error(`unexpected context fetch: ${url}`);
+      };
+      const actorDocument = await new Application({ id: actorUri, preferredUsername: "self-check", publicKey: new CryptographicKey({ id: keyId, owner: actorUri, publicKey: pair.publicKey }) }).toJsonLd({ contextLoader });
+      const keyDocument = await new CryptographicKey({ id: keyId, owner: actorUri, publicKey: pair.publicKey }).toJsonLd({ contextLoader });
+      const documentLoader = async (url: string) => {
+        if (url === keyId.href) return { contextUrl: null, documentUrl: url, document: keyDocument };
+        if (url === actorUri.href) return { contextUrl: null, documentUrl: url, document: actorDocument };
+        throw new Error(`unexpected document fetch: ${url}`);
+      };
+      const key = await verifyRequest(clean, { documentLoader, contextLoader, currentTime: instant(now) });
+      if (key !== null && key.id?.href === keyId.href && key.ownerId?.href === actorUri.href) {
+        entry.result = "ok";
+        return new Response(null, { status: 202 });
+      }
+    } catch {
+      // Verification failed; result stays signature_invalid.
+    }
+    entry.result = "signature_invalid";
+    return notFound();
+  }
+
+  async knowledgeSelfCheck(config: ServerConfig, fetcher: typeof fetch = fetch): Promise<KnowledgeSelfCheck> {
+    const started = this.#now();
+    this.#pruneSelfChecks(started);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new DOMException("self-check deadline", "TimeoutError")), SELF_CHECK_DEADLINE_MS);
+    const requestSignal = (): AbortSignal => AbortSignal.any([controller.signal, AbortSignal.timeout(SELF_CHECK_REQUEST_TIMEOUT_MS)]);
+
+    const checkPath = async (path: string): Promise<string | null> => {
+      try {
+        const response = await fetcher(`${config.canonical_origin}${path}`, { redirect: "manual", signal: requestSignal() });
+        await response.body?.cancel();
+        return response.headers.get(SIDECAR_HEADER) === this.marker ? null : path;
+      } catch {
+        return path;
+      }
+    };
+
+    const checkSigned = async (): Promise<SignedSelfCheckCode> => {
+      const nonce = crypto.randomUUID();
+      let originHost: string;
+      try {
+        originHost = new URL(config.canonical_origin).host.toLowerCase();
+      } catch {
+        return "request_failed";
+      }
+      this.#selfChecks.set(nonce, { origin: config.canonical_origin, host: originHost, createdAt: started, expiresAt: started + SELF_CHECK_TTL_SECONDS, seen: false, result: null });
+      const url = `${config.canonical_origin}${SELF_CHECK_PATH}`;
+      const pair = await this.#getSelfCheckKey();
+      const signed = await signRequest(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce }) }), pair.privateKey, new URL(`${url}#main-key`), { currentTime: instant(started) });
+      let response: Response;
+      try {
+        response = await fetcher(signed, { redirect: "manual", signal: requestSignal() });
+        await response.body?.cancel();
+      } catch (error) {
+        return classifySelfCheckError(error);
+      }
+      if (response.headers.get(SIDECAR_HEADER) !== this.marker) return "not_routed";
+      const recorded = this.#selfChecks.get(nonce)?.result ?? null;
+      if (response.status === 202 && recorded === "ok") return "ok";
+      if (recorded === "host_changed" || recorded === "signature_invalid") return recorded;
+      return "not_routed";
+    };
+
+    try {
+      const [pathResults, signedResult] = await Promise.all([
+        Promise.all(KNOWLEDGE_SELF_CHECK_PATHS.map((path) => checkPath(path))),
+        checkSigned(),
+      ]);
+      return {
+        checked_at: this.#now(),
+        failed_paths: pathResults.filter((p): p is string => p !== null),
+        signed: { result: signedResult },
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  loops(): HeartbeatLoops {
+    return {
+      knowledge_reads: { ...this.#loops.knowledge_reads },
+      knowledge_exchange: { ...this.#loops.knowledge_exchange },
+    };
+  }
+
+  async runKnowledgeReads(): Promise<void> {
+    const state = this.#loops.knowledge_reads;
+    if (state.running) return;
+    state.running = true;
+    try {
+      while ((await this.processKnowledgeReads()) >= KNOWLEDGE_READ_BATCH) {
+        state.progress_at = this.#now();
+        state.error = null;
+        state.error_at = null;
+      }
+      state.progress_at = this.#now();
+      state.error = null;
+      state.error_at = null;
+    } catch (error) {
+      state.error = loopErrorCode(error);
+      state.error_at = this.#now();
+      throw error;
+    } finally {
+      state.running = false;
+    }
+  }
+
+  async runKnowledgeExchange(): Promise<void> {
+    const state = this.#loops.knowledge_exchange;
+    if (state.running) return;
+    state.running = true;
+    try {
+      while ((await this.processKnowledgeRemoteReads()) >= KNOWLEDGE_READ_BATCH) {
+        state.progress_at = this.#now();
+        state.error = null;
+        state.error_at = null;
+      }
+      state.progress_at = this.#now();
+      while ((await this.processKnowledgeOutbox()) >= KNOWLEDGE_OUTBOX_BATCH) {
+        state.progress_at = this.#now();
+        state.error = null;
+        state.error_at = null;
+      }
+      state.progress_at = this.#now();
+      state.error = null;
+      state.error_at = null;
+    } catch (error) {
+      state.error = loopErrorCode(error);
+      state.error_at = this.#now();
+      throw error;
+    } finally {
+      state.running = false;
+    }
   }
 
   // The actor whose key made the valid HTTP signature of a request, or null when the request has no valid signature.

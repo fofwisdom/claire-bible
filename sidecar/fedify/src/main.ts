@@ -62,15 +62,24 @@ if (import.meta.main) {
   const beat = async () => {
     try {
       const config = await sidecar.config();
-      // The self-check runs also while federation is off: readiness check GF6 must pass before the admin can set the switch to `on`.
-      const selfCheck = { ok: await publicSelfCheck(config, sidecar.marker), checked_at: Date.now() / 1000 };
-      await api.heartbeat({ contract_version: CONTRACT_VERSION, sidecar_version: SIDECAR_VERSION, queue_depth: queueDepth(db), self_check: selfCheck });
+      // The self-checks run also while federation is off: GF6, GF8, and GF9 must pass before the admin sets the switch to `on`.
+      const [ok, knowledgeSelfCheck] = await Promise.all([
+        publicSelfCheck(config, sidecar.marker),
+        sidecar.knowledgeSelfCheck(config),
+      ]);
+      const selfCheck = { ok, checked_at: Date.now() / 1000 };
+      await api.heartbeat({
+        contract_version: CONTRACT_VERSION,
+        sidecar_version: SIDECAR_VERSION,
+        queue_depth: queueDepth(db),
+        self_check: selfCheck,
+        knowledge_self_check: knowledgeSelfCheck,
+        loops: sidecar.loops(),
+      });
     } catch (error) {
       console.error(`heartbeat failed: ${(error as Error).message}`);
     }
   };
-  beat();
-  setInterval(beat, HEARTBEAT_SECONDS * 1000);
 
   // One poll at a time. An error (for example: Claire is not available) stops this poll only.
   let polling = false;
@@ -110,37 +119,39 @@ if (import.meta.main) {
   setInterval(pollContext, OUTBOX_POLL_SECONDS * 1000);
 
   // The reads of the knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 8.1) have their own loop: Claire gives a server one time each day, and one read can make many requests.
-  let reading = false;
   const pollKnowledge = async () => {
-    if (reading) return;
-    reading = true;
     try {
-      while ((await sidecar.processKnowledgeReads()) >= KNOWLEDGE_READ_BATCH);
+      await sidecar.runKnowledgeReads();
     } catch (error) {
       console.error(`knowledge read poll failed: ${(error as Error).name}: ${(error as Error).message}`);
-    } finally {
-      reading = false;
     }
   };
-  pollKnowledge();
+  const initialKnowledgeReads = pollKnowledge();
   setInterval(pollKnowledge, KNOWLEDGE_POLL_SECONDS * 1000);
 
   // The outbound activities of the knowledge federation and the reads for curations (unit KF3) have their own loop: a reviewer waits for a read, and one delivery can wait for another server.
-  let exchanging = false;
   const pollKnowledgeExchange = async () => {
-    if (exchanging) return;
-    exchanging = true;
     try {
-      while ((await sidecar.processKnowledgeRemoteReads()) >= KNOWLEDGE_READ_BATCH);
-      while ((await sidecar.processKnowledgeOutbox()) >= KNOWLEDGE_OUTBOX_BATCH);
+      await sidecar.runKnowledgeExchange();
     } catch (error) {
       console.error(`knowledge exchange poll failed: ${(error as Error).name}: ${(error as Error).message}`);
-    } finally {
-      exchanging = false;
     }
   };
-  pollKnowledgeExchange();
+  const initialKnowledgeExchange = pollKnowledgeExchange();
   setInterval(pollKnowledgeExchange, OUTBOX_POLL_SECONDS * 1000);
+
+  void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled([initialKnowledgeReads, initialKnowledgeExchange]),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5_000);
+      }),
+    ]);
+    clearTimeout(timer);
+    await beat();
+  })();
+  setInterval(beat, HEARTBEAT_SECONDS * 1000);
 
   Deno.serve({ hostname: env("CLAIRE_FEDIFY_HOST", "0.0.0.0"), port: Number(env("CLAIRE_FEDIFY_PORT", "8790")) }, (request) => sidecar.handle(request));
 }

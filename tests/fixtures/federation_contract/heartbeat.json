@@ -3,18 +3,39 @@
     "method": "POST",
     "path": "/internal/federation/v1/heartbeat",
     "body": {
-      "contract_version": "1.11",
+      "contract_version": "1.12",
       "sidecar_version": "0.1.0",
       "queue_depth": 3,
       "self_check": {
         "ok": true,
         "checked_at": 1800000300.0
+      },
+      "knowledge_self_check": {
+        "checked_at": 1800000300.0,
+        "failed_paths": [],
+        "signed": {
+          "result": "ok"
+        }
+      },
+      "loops": {
+        "knowledge_reads": {
+          "running": false,
+          "progress_at": 1800000290.0,
+          "error": null,
+          "error_at": null
+        },
+        "knowledge_exchange": {
+          "running": true,
+          "progress_at": 1800000299.0,
+          "error": null,
+          "error_at": null
+        }
       }
     }
   },
   "status": 200,
   "response": {
-    "contract_version": "1.11",
+    "contract_version": "1.12",
     "federation": "on"
   }
 }

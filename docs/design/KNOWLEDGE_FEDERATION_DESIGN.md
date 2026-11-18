@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Units KF0 to KF5 are implemented; the current behavior is in [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md). Planned, not implemented: unit KF6 (the readiness checks GF8 to GF17, Section 14.1) and the acceptance path (Section 14.2). Draft, Rev. 9. The owner direction of Section 2 and the decisions KD1 to KD12 of Section 2.1 are locked (KD1 to KD9: 2026-11-16; KD10 to KD12: 2026-11-18). All other content is a **proposal**. Open questions: PQ14 and PQ15 (Section 16). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16).
+- **Status**: Units KF0 to KF6 are implemented; the current behavior is in [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md). Pending verification and execution: the acceptance path (Section 14.2, steps KA1 to KA5). Rev. 10. The owner direction of Section 2 and the decisions KD1 to KD14 of Section 2.1 are locked (KD1 to KD9: 2026-11-16; KD10 to KD12: 2026-11-18; KD13 to KD14: 2026-11-19). No open questions remain. Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16).
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -14,6 +14,7 @@
   - Rev. 7 (2026-11-16): answer to PQ2: the identifiers are on `w3id.org` (KD9). The registration is a pull request of the owner when the target is live (Section 9.1).
   - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The areas of the admin console (Section 6.5) are tabs of the section `/admin/federation` in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md).
   - Rev. 9 (2026-11-18, base commit `33748825`): owner decisions KD10 to KD12. The readiness checks of the knowledge federation GF8 to GF17 and the contract change with the sidecar (Section 14.1), the acceptance path KA1 to KA5 (Section 14.2), unit KF6 (Section 17), and the open questions PQ14 and PQ15 (Section 16).
+  - Rev. 10 (2026-11-19): owner decisions KD13 (`PQ14: A`) and KD14 (`PQ15: C`), and unit KF6 implementation complete.
 - **Related Documents**:
   - [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) (the development network of two servers for the acceptance path, KD12)
   - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout and tabs of the console)
@@ -68,6 +69,8 @@ Production state (owner, 2026-11-16): the production server is in network mode, 
 | KD10 | Order of the remaining checks (2026-11-18) | Before the remaining checks of the knowledge federation (a real exchange between two servers with real sidecars, the check of the JSON-LD context before it is hosted, the calibration of thresholds and limits), the readiness checks GF1 to GF7 must pass. The order of all steps is the acceptance path (Section 14.2). |
 | KD11 | Readiness of the knowledge federation (2026-11-18) | GF1 to GF7 examine only that one server is ready for the federation of accounts. The paths of the knowledge federation need new readiness checks, GF8 and later (Section 14.1). |
 | KD12 | Development stack (2026-11-18) | The Docker development stack can be used when it is necessary. It must become a common environment, so that the community can contribute code ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md), decision CD1). |
+| KD13 | PQ14: gate of `federation` switch (2026-11-19) | Option A: changing `federation` to `on` (`POST /api/admin/federation`) requires every required check that applies at that time (GF1 to GF7 and GF8 to GF13). GF14 to GF16 apply after the change; GF17 is a warning only (Section 14.1.1 rule 8). |
+| KD14 | PQ15: scope of KA3 (2026-11-19) | Option C: KA3 runs between the two servers of the development network; the first exchange of a server of the owner with another server on the internet is part of KA5 (Section 14.2). |
 
 ---
 
@@ -440,7 +443,7 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
 ### 14.1 Readiness Checks of the Knowledge Federation (KD11)
 
-The readiness checks GF1 to GF7 ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2) examine the federation of accounts: the server mode, the sidecar heartbeat with the contract version, the service key, the master key, https in production, the WebFinger path through the public origin (GF6), and the OAuth metadata through the public origin (GF7) **[code]**. They do not examine the paths, the keys, the loops, and the settings that the knowledge federation uses (KD11). The checks GF8 to GF17 of this section examine them. The content of this section is a **[proposal]**; only KD10 and KD11 are decisions.
+The readiness checks GF1 to GF7 ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2) examine the federation of accounts: the server mode, the sidecar heartbeat with the contract version, the service key, the master key, https in production, the WebFinger path through the public origin (GF6), and the OAuth metadata through the public origin (GF7) **[code]**. They do not examine the paths, the keys, the loops, and the settings that the knowledge federation uses (KD11). The checks GF8 to GF17 of this section examine them; unit KF6 implements them ([`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md) Section 17). Decisions: KD10, KD11, and KD13.
 
 #### 14.1.1 Rules for All Checks
 
@@ -451,7 +454,7 @@ The readiness checks GF1 to GF7 ([`FEDERATION.md`](../implementation/FEDERATION.
 5. **Client of the requests of Claire.** The rules of GF7 apply: no redirects, no proxy settings of the environment, a timeout of 5 seconds for each request, and a limit for the size of each answer. The requests trust the certificate authorities of the system trust store of the process (in the image: the public authorities and the files of `/extra-certs`, which the entrypoint adds **[code]** `scripts/docker-entrypoint.sh`). Today GF7 uses `httpx` with `trust_env=False`; `httpx` 0.28.1 then trusts only the bundle of `certifi` **[code]**. Thus a server behind a private certificate authority fails GF7, for example a server of the development network ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) Section 6.4). This rule applies to GF7 too. The checks with requests run at the same time, with a limit of 20 seconds for all of them; a check that does not end in that time fails with the detail "The check did not end in 20 seconds."
 6. **Group, level, and scope.** Each item has `group` (`account` for GF1 to GF7, `knowledge` for GF8 to GF17), `level` (`required` or `warning`), and `applies` (true or false). An item that does not apply has `passed` true and a detail that tells why. Each check sets the three values itself; no value has a default. `report.passed` is true when each `required` item passes. A `warning` item never changes `report.passed`.
 7. **Modes and switches.** Each check applies in network mode and in single mode, because the mode is not a condition of the knowledge federation (Section 15 rule 5). GF14, GF15, and GF16 apply only while the switch `federation` is `on`, because the sidecar gives 404 for each federation path while the switch is `off` **[code]**. The other checks apply in each state of the switch, so that they can pass before the admin sets it to `on`. No check needs `kb_auto_contribution` `on` (KD4): GF13 examines its value, and GF15 compares it with the actor document.
-8. **Gate.** **[proposal, PQ14]** The change of `federation` to `on` (`POST /api/admin/federation`) needs each required item that applies at that time: GF1 to GF7 and GF8 to GF13. GF14 to GF16 apply after the change, and the acceptance path needs them (Section 14.2). A required item that fails while the switch is `on` starts no automatic action; the report shows it, as for GF1 to GF7 today.
+8. **Gate.** **[decision, KD13]** The change of `federation` to `on` (`POST /api/admin/federation`) needs each required item that applies at that time: GF1 to GF7 and GF8 to GF13. GF14 to GF16 apply after the change, and the acceptance path needs them (Section 14.2). A required item that fails while the switch is `on` starts no automatic action; the report shows it, as for GF1 to GF7 today.
 9. **Text.** The API and the CLI give the detail in English (ASD-STE100), as GF1 to GF7 do. Each item also has a `code` (for example `paths_not_routed`) and the values of its detail. The console shows the text of the catalog key of that code in English or Korean ([`I18N_DESIGN.md`](I18N_DESIGN.md) ID5). Unit KF6 gives codes to GF1 to GF7 too, so that the console has one method to show an item. The CLI is not localized (ID6).
 
 #### 14.1.2 Summary
@@ -601,7 +604,7 @@ Rules:
 
 1. A step starts only after the step before it is complete.
 2. A change of a path, a key, a loop, a setting, or the reverse proxy rules in a later step repeats KA1 and KA2.
-3. KA1 to KA3 use the development network of two servers (KD12; scope: PQ15). KA4 and KA5 need servers of the owner on the internet; the owner does the steps on production.
+3. KA1 to KA3 use the development network of two servers (KD12; scope: KD14). KA4 and KA5 need servers of the owner on the internet; the owner does the steps on production.
 
 ---
 
@@ -622,7 +625,7 @@ Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnershi
 
 Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8), PQ2 (KD9).
 
-Open since 2026-11-18: PQ14 and PQ15 (at the end of this section).
+Answered on 2026-11-19: PQ14 (KD13), PQ15 (KD14). No open questions remain.
 
 ### PQ2: The IRI of the Claire JSON-LD Context (Section 9.1), Answered (KD9)
 
@@ -647,27 +650,27 @@ Open since 2026-11-18: PQ14 and PQ15 (at the end of this section).
 
 **Answer (owner, 2026-11-16):** B (KD9).
 
-### PQ14: Do GF8 to GF13 Gate the Switch `federation`? (Section 14.1.1 rule 8)
+### PQ14: Do GF8 to GF13 Gate the Switch `federation`? (Section 14.1.1 rule 8), Answered (KD13)
 
-The one switch `federation` turns on the federation of accounts and the federation of shared knowledge (Section 14). Today only GF1 to GF7 gate the change to `on` **[code]**.
+The one switch `federation` turns on the federation of accounts and the federation of shared knowledge (Section 14).
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
-| A (proposal) | The change to `on` needs each required item that applies: GF1 to GF7 and GF8 to GF13. GF14 to GF16 show after the change. | A server whose proxy has no rule for `/ap/` or `/nodeinfo/`, or whose actor keys do not decrypt, cannot turn on the federation by mistake. An admin who wants only the federation of accounts must also make the knowledge paths work, because one switch turns on both. |
+| A | The change to `on` needs each required item that applies: GF1 to GF7 and GF8 to GF13. GF14 to GF16 show after the change. | A server whose proxy has no rule for `/ap/` or `/nodeinfo/`, or whose actor keys do not decrypt, cannot turn on the federation by mistake. An admin who wants only the federation of accounts must also make the knowledge paths work, because one switch turns on both. |
 | B | Only GF1 to GF7 gate. GF8 to GF17 show in the report only. | No new condition for admins. A server can federate accounts while the knowledge paths do not work, and other servers then record read errors for it. |
 | C | B for one release with a note in the console, then A. | Admins of existing servers get time to change the proxy before the gate starts. |
 
-**Recommendation:** A. The paths that GF8 to GF10 examine are the same prefix rules that GF6 already needs, so a correct proxy passes them at once. The gate does not change a server that has the switch `on` now: the gate applies only to the change.
+**Answer (owner, 2026-11-19):** A (KD13).
 
-### PQ15: Is the Development Network Enough for Step KA3? (Section 14.2)
+### PQ15: Is the Development Network Enough for Step KA3? (Section 14.2), Answered (KD14)
 
 | Option | Scope of KA3 | Effect |
 | :--- | :--- | :--- |
 | A | Only the two servers of the development network | Repeatable as a test; each contributor can run it. It does not show the effects of a proxy or a network of a real operator. |
 | B | The development network and two servers on the internet before KA4 | Shows the real network before the context is hosted, but needs a second server of the owner on the internet at this step. |
-| C (proposal) | A for KA3; the first exchange of a server of the owner with another server on the internet is a part of KA5 | KA3 stays a test. The real network gives its data in KA5, where the owner works on production anyway. |
+| C | A for KA3; the first exchange of a server of the owner with another server on the internet is a part of KA5 | KA3 stays a test. The real network gives its data in KA5, where the owner works on production anyway. |
 
-**Recommendation:** C.
+**Answer (owner, 2026-11-19):** C (KD14).
 
 ---
 

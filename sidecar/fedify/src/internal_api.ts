@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.11";
+export const CONTRACT_VERSION = "1.12";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -53,11 +53,33 @@ export interface ActorKeys {
   keys: ActorKey[];
 }
 
+export type SignedSelfCheckCode = "ok" | "not_routed" | "host_changed" | "signature_invalid" | "tls_error" | "dns_error" | "request_failed";
+
+export interface KnowledgeSelfCheck {
+  checked_at: number | null;
+  failed_paths: string[] | null;
+  signed: { result: SignedSelfCheckCode | null };
+}
+
+export interface LoopState {
+  running: boolean;
+  progress_at: number | null;
+  error: string | null;
+  error_at: number | null;
+}
+
+export interface HeartbeatLoops {
+  knowledge_reads: LoopState;
+  knowledge_exchange: LoopState;
+}
+
 export interface Heartbeat {
   contract_version: string;
   sidecar_version: string;
   queue_depth: number;
   self_check: { ok: boolean | null; checked_at: number | null };
+  knowledge_self_check: KnowledgeSelfCheck;
+  loops: HeartbeatLoops;
 }
 
 export interface HeartbeatReply {

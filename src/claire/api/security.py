@@ -874,6 +874,16 @@ def _parse_dns_name(host: str) -> str:
     return host
 
 
+def _is_test_domain_host(host: str) -> bool:
+    """Return True when host is a DNS name below the special-use top-level label test (RFC 6761)."""
+    try:
+        normalized = _parse_dns_name(host)
+    except ValueError:
+        return False
+    labels = normalized.split(".")
+    return len(labels) >= 2 and labels[-1] == "test"
+
+
 def _parse_url(
     raw: str, *, environment: str, origin_only: bool = False
 ) -> tuple[str, str, str]:
@@ -910,10 +920,16 @@ def _parse_url(
 
     if not origin_only:
         if environment == "development":
-            if not isinstance(address, ipaddress.IPv4Address) or address.is_unspecified:
-                raise ValueError("development public URL must use a concrete IPv4 address")
-            if parsed.scheme != "http":
-                raise ValueError("development public URL must use http")
+            if address is not None:
+                if not isinstance(address, ipaddress.IPv4Address) or address.is_unspecified:
+                    raise ValueError("development public URL must use a concrete IPv4 address")
+                if parsed.scheme != "http":
+                    raise ValueError("development public URL must use http")
+            else:
+                if not _is_test_domain_host(host):
+                    raise ValueError("development public URL must use a concrete IPv4 address or a DNS name below .test")
+                if parsed.scheme != "https":
+                    raise ValueError("development public URL must use https for a .test name")
         else:
             if address is not None:
                 raise ValueError("production public URL must use a DNS hostname")
@@ -979,8 +995,10 @@ class WebRuntimeConfig:
         if not raw_pub:
             fqdn_val = getattr(settings, "fqdn", "") or getattr(settings, "effective_fqdn", "")
             if fqdn_val:
-                scheme = "https" if environment == "production" else "http"
-                raw_pub = f"{scheme}://{str(fqdn_val).strip()}/"
+                fqdn_text = str(fqdn_val).strip()
+                fqdn_host = fqdn_text.split(":", 1)[0].lower()
+                scheme = "https" if (environment == "production" or (environment == "development" and _is_test_domain_host(fqdn_host))) else "http"
+                raw_pub = f"{scheme}://{fqdn_text}/"
         if not raw_pub:
             raw_pub = _setting(settings, "public_url")
 

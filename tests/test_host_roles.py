@@ -247,6 +247,25 @@ def test_role_host_origin_in_cors_allow_list_refuses_startup(tmp_path):
         security.WebRuntimeConfig.from_settings(
             _settings(tmp_path, usercontent_fqdn=UC_HOST, cors_allowed_origins=f"http://{UC_HOST}")
         )
+
+
+def test_development_test_domain_applies_dns_role_rules(tmp_path):
+    roles = _roles(_settings(tmp_path, public_url="https://a.claire.test/", site_domain="a.claire.test", usercontent_fqdn="uc.a.claire.test", media_fqdn="media.a.claire.test"))
+    assert roles.scheme == "https"
+    assert roles.app == "a.claire.test"
+    assert roles.usercontent == "uc.a.claire.test"
+    assert roles.media == "media.a.claire.test"
+    assert roles.site_domain == "a.claire.test"
+
+    for bad in (
+        {"public_url": "https://a.claire.test/", "usercontent_fqdn": "uc.a.claire.test"},
+        {"public_url": "https://a.claire.test/", "site_domain": "claire.example.com", "usercontent_fqdn": "uc.a.claire.test"},
+        {"public_url": "https://a.claire.test/", "site_domain": "a.claire.test", "usercontent_fqdn": "uc.a.claire.com"},
+        {"public_url": "https://a.claire.test/", "site_domain": "a.claire.test", "usercontent_fqdn": "192.0.2.10:8767"},
+        {"public_url": "https://a.claire.test/", "site_domain": "a.claire.test", "media_fqdn": "media.other.test"},
+    ):
+        with pytest.raises(ValueError):
+            _roles(_settings(tmp_path, **bad))
     with pytest.raises(ValueError, match="role host origin"):
         security.wrap_web_app(
             _inner_app(),

@@ -26,6 +26,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .prototype_host import prototype_authority
 from .security import (
+    _is_test_domain_host,
     _parse_authority,
     _parse_dns_name,
     _parse_url,
@@ -73,22 +74,35 @@ class HostRoles:
         """
         if environment not in {"development", "production"}:
             raise ValueError("environment must be development or production")
-        scheme: Literal["http", "https"] = "https" if environment == "production" else "http"
         app = _parse_authority(str(app_authority))
         if app is None:
             raise ValueError(f"invalid app authority: {app_authority!r}")
 
+        app_host = app.split(":", 1)[0]
+        dns_mode = environment == "production" or _is_test_domain_host(app_host)
+        scheme: Literal["http", "https"] = "https" if dns_mode else "http"
+
         usercontent = _role_authority(
-            getattr(settings, "usercontent_fqdn", "") or "", "CLAIRE_USERCONTENT_FQDN", environment
+            getattr(settings, "usercontent_fqdn", "") or "",
+            "CLAIRE_USERCONTENT_FQDN",
+            environment,
+            dns_mode=dns_mode,
         )
-        media = _role_authority(getattr(settings, "media_fqdn", "") or "", "CLAIRE_MEDIA_FQDN", environment)
+        media = _role_authority(
+            getattr(settings, "media_fqdn", "") or "",
+            "CLAIRE_MEDIA_FQDN",
+            environment,
+            dns_mode=dns_mode,
+        )
         site_domain = _site_domain(getattr(settings, "site_domain", "") or "")
+        if environment == "development" and dns_mode and site_domain is not None and not _is_test_domain_host(site_domain):
+            raise ValueError("CLAIRE_SITE_DOMAIN must be below .test when the app host is below .test")
 
         named = [("app", app), ("usercontent", usercontent), ("media", media)]
         present = [(name, value) for name, value in named if value is not None]
 
-        if environment == "production":
-            # 쿠키는 포트로 나뉘지 않으므로 운영 환경은 호스트 이름으로 비교한다.
+        if dns_mode:
+            # Cookies do not split by port, so DNS mode compares host names.
             hosts = [(name, value.split(":", 1)[0]) for name, value in present]
             seen: dict[str, str] = {}
             for name, host in hosts:
@@ -100,7 +114,7 @@ class HostRoles:
                 if app_host.endswith("." + host):
                     raise ValueError(f"{name} host {host!r} must not be a parent domain of the app host")
             if len(hosts) > 1 and site_domain is None:
-                raise ValueError("CLAIRE_SITE_DOMAIN is required in production when role hosts other than app are set")
+                raise ValueError("CLAIRE_SITE_DOMAIN is required when role hosts other than app are set")
             if site_domain is not None:
                 for name, host in hosts:
                     if host != site_domain and not host.endswith("." + site_domain):
@@ -119,8 +133,8 @@ class HostRoles:
         # The prototype host (RD20) is not a setting: it is computed from the app host. It is not in the CLAIRE_SITE_DOMAIN checks above. When it is the same as another role host, the environment has no prototype host.
         prototype = prototype_authority(app, environment)
         if prototype is not None:
-            other_hosts = {value if environment == "development" else value.split(":", 1)[0] for _, value in present}
-            if (prototype if environment == "development" else prototype.split(":", 1)[0]) in other_hosts:
+            other_hosts = {value.split(":", 1)[0] if dns_mode else value for _, value in present}
+            if (prototype.split(":", 1)[0] if dns_mode else prototype) in other_hosts:
                 prototype = None
 
         roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain, prototype=prototype)
@@ -154,25 +168,28 @@ class HostRoles:
         return None if authority is None else f"{self.scheme}://{authority}"
 
 
-def _role_authority(raw: Any, name: str, environment: str) -> str | None:
+def _role_authority(raw: Any, name: str, environment: str, *, dns_mode: bool) -> str | None:
     value = str(raw)
     if not value.strip():
         return None
     if value != value.strip():
         raise ValueError(f"{name} must not contain outer whitespace")
-    if environment == "production":
+    if dns_mode:
         if ":" in value:
-            raise ValueError(f"{name} must be a DNS host name without a port in production")
+            raise ValueError(f"{name} must be a DNS host name without a port")
         try:
             ipaddress.ip_address(value)
         except ValueError:
             pass
         else:
-            raise ValueError(f"{name} must be a DNS host name in production")
+            raise ValueError(f"{name} must be a DNS host name")
         try:
-            return _parse_dns_name(value)
+            parsed = _parse_dns_name(value)
         except ValueError as exc:
             raise ValueError(f"{name}: {exc}") from exc
+        if environment == "development" and not _is_test_domain_host(parsed):
+            raise ValueError(f"{name} must be a DNS name below .test when the app host is below .test")
+        return parsed
     authority = _parse_authority(value)
     if authority is None:
         raise ValueError(f"{name} must be an IPv4:port authority in development")

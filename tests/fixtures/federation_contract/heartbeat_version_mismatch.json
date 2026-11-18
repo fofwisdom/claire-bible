@@ -9,6 +9,27 @@
       "self_check": {
         "ok": null,
         "checked_at": null
+      },
+      "knowledge_self_check": {
+        "checked_at": null,
+        "failed_paths": null,
+        "signed": {
+          "result": null
+        }
+      },
+      "loops": {
+        "knowledge_reads": {
+          "running": false,
+          "progress_at": null,
+          "error": null,
+          "error_at": null
+        },
+        "knowledge_exchange": {
+          "running": false,
+          "progress_at": null,
+          "error": null,
+          "error_at": null
+        }
       }
     }
   },

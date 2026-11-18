@@ -1,12 +1,12 @@
 # Knowledge Federation Implementation Reference
 
-Basis: units KF0 to KF5 (2026-11-18). Readers: agents who work on the federation of shared knowledge.
+Basis: units KF0 to KF6 (2026-11-19). Readers: agents who work on the federation of shared knowledge.
 
 Design: [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md). This document tells what the code has now. The general federation (actors of accounts, publishing, remote reading) is in [`FEDERATION.md`](FEDERATION.md). The local shared knowledge bases are in [`THEMES.md`](THEMES.md) Sections 4.7 to 4.12.
 
 ## 1. Scope and State
 
-Units KF0 to KF5 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). KF5: the automatic contribution across servers (Section 15). The sidecar does its part of KF1 to KF4 (Sections 10.6, 12.7, and 13.6). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
+Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). KF5: the automatic contribution across servers (Section 15). KF6: the readiness checks GF8 to GF17, the knowledge self-check and loop state in the sidecar heartbeat (contract 1.12), `/ap/self-check`, the system trust store for readiness HTTP requests, the gate in `POST /api/admin/federation`, and the console and CLI displays (Section 17). The sidecar does its part of KF1 to KF4 and KF6 (Sections 10.6, 12.7, 13.6, and 17.3). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
 
 | Function | State |
 | :--- | :--- |
@@ -20,6 +20,7 @@ Units KF0 to KF5 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | Knowledge base actors, curation, revisions, removal at the origin (KF3) | Implemented (Section 12) |
 | Contributions and grants across servers (KF4) | Implemented (Section 13) |
 | Automatic contribution across servers (KF5) | Implemented (Section 15) |
+| Knowledge readiness checks GF8 to GF17 and contract 1.12 (KF6) | Implemented (Section 17). Acceptance path steps KA1 to KA5 are pending execution against two running servers. |
 | Registration on `w3id.org` | Owner task, after `claire.bible` serves the two paths |
 
 ## 2. Files
@@ -997,3 +998,54 @@ The pending limits of the receiver for a remote account and for its domain (Sect
 ### 16.6 Public Origin of the IRIs That Leave the Server
 
 `_public_origin` of `api/namespace.py` falls back to the address of the request; the page links keep it. The routes that build IRIs for other servers use `_federation_origin` (`contributions.canonical_origin`: the configured public URL only): `POST`, `DELETE /kb/{number}/remote-collaborators` and `POST /submissions` with `remote_knowledge_base` give 409 `public_origin_missing` without it; a submission to a theme then has the targets of this server only (`submit_to_themes` with `origin` None). The internal routes of the sidecar, the automatic rule, and the MCP tools use the same value. `create_app` stops when the settings give no valid public URL (`WebRuntimeConfig.from_settings`), so a running server always has it; readiness check GF5 fails for the same settings, and GF7 needs the public origin.
+
+## 17. Unit KF6: Readiness Checks GF8 to GF17
+
+Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), and [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](../design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) decision CD4 (`DQ1: A`). No new database table or schema version.
+
+### 17.1 Files
+
+| File | Content |
+| :--- | :--- |
+| `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF17, `FederationReadinessItem` (`group`, `level`, `applies`, `code`, `values`), `FederationReadinessReport`, `_system_ssl_context()`, `request_public_origin`, 20-second deadline across request checks |
+| `src/claire/store/actor_keys.py` | `load_kb_public_jwks` |
+| `src/claire/api/federation_routes.py` | Contract `1.12`, sealed heartbeat models `KnowledgeSelfCheck`, `SignedSelfCheck`, `LoopState`, `HeartbeatLoops` |
+| `src/claire/api/accounts_routes/federation.py` | Gate `POST /api/admin/federation` (`failures` filters on `level == "required" and applies and not passed`), heartbeat `knowledge_self_check` and `loops` |
+| `src/claire/api/accounts_routes/console_federation_panels.py`, `src/claire/static/js/console_admin.js`, `src/claire/static/locales/en.json`, `src/claire/static/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
+| `src/claire/cli.py` | `--federation` help (`GF1 to GF17`) and output |
+| `src/claire/api/security.py`, `src/claire/api/host_router.py` | Decision CD4 (`DQ1: A`): `development` accepts `https://<name>.test/` and applies `.test` DNS role rules |
+| `sidecar/fedify/src/internal_api.ts`, `sidecar/fedify/src/sidecar.ts`, `sidecar/fedify/src/main.ts` | Contract `1.12`, `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange`, `loops()` |
+
+### 17.2 Checks GF8 to GF17
+
+| ID | Level | Applies | What Claire examines |
+| :--- | :--- | :--- | :--- |
+| GF8 | Required | Always | `heartbeat.knowledge_self_check.failed_paths` is empty for the 7 paths `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/server`, `/ap/kb`, `/ap/themes`, `/ap/kb/0`, and `/ap/inbox` |
+| GF9 | Required | Always | `heartbeat.knowledge_self_check.signed.result == "ok"` for signed `POST /ap/self-check` through the public origin |
+| GF10 | Required | Always | `POST {origin}/ap/inbox` with `GF10_INBOX_BODY_BYTES` (`1040384`) does not return HTTP `413` and has header `X-Claire-Fedify-Server` |
+| GF11 | Required | Always | `heartbeat.loops.knowledge_reads` and `knowledge_exchange` have `progress_at` within `300` seconds (`LOOP_MAX_AGE_SECONDS`) |
+| GF12 | Required | Always | Every ciphertext row in `actor_keys` (account actors and negative KB IDs) decrypts with `SecretService`; fails show up to 5 actor IDs |
+| GF13 | Required | Always | `federation` and `kb_auto_contribution` switches, `contributions.LIMITS`, `theme_match_threshold`, `auto_match_threshold`, `auto_run_documents` are valid; in `production`, the public host is not under `.test`, `.example`, `.invalid`, `.localhost`, or `.local` |
+| GF14 | Required | `federation == "on"` | `/.well-known/nodeinfo`, `/nodeinfo/2.1`, and `/ap/actors/server` (`Application`, matching RSA `publicKeyPem` in `auth.db`) |
+| GF15 | Required | `federation == "on"` and at least one shared KB | Lowest-number shared KB `/ap/kb/{number}` (`Group` + `claire:KnowledgeBase`, `claire:acceptsAutomatic` vs `kb_auto_contribution`, matching RSA `publicKeyPem` in `auth.db`) |
+| GF16 | Required | `federation == "on"` | Unsigned `GET` to `/ap/kb`, `/ap/themes`, and `/ap/kb/{number}/documents` returns HTTP `404` |
+| GF17 | Warning | Always | `GET /ns/v1` (200, `application/ld+json`, `Access-Control-Allow-Origin: *`, current context document) and `GET /ns` (200, `text/html`); never sets `report.passed` to false |
+
+HTTP checks (`fetch_metadata`, `request_public_origin`) use `_system_ssl_context()` (default system CA paths plus `SSL_CERT_FILE`), `trust_env=False`, no redirects, and a 5-second per-request timeout; all active request checks (`GF7`, `GF10`, `GF14` to `GF17`) run concurrently under a shared 20-second deadline.
+
+### 17.3 Sidecar Changes (Contract 1.12)
+
+- `POST /ap/self-check` uses an in-memory 2048-bit RSA key pair (`#getSelfCheckKey`), single-use 60-second nonces (`SELF_CHECK_TTL_SECONDS`), exact `Host` validation (`host_changed`), and Fedify HTTP signature verification against `preloadedContexts` (`signature_invalid`). Replays, expired nonces, GET requests, and invalid JSON return `404`.
+- `runKnowledgeReads()` and `runKnowledgeExchange()` track `running`, `progress_at`, `error`, and `error_at` in memory; `main.ts` runs an initial pass (waiting up to 5 seconds) before sending the first heartbeat.
+
+### 17.4 Tests
+
+| File | Scope |
+| :--- | :--- |
+| `tests/test_federation_readiness.py` | GF1 to GF17 pass and failure cases, `SSL_CERT_FILE` loopback TLS, 20-second deadline, `POST /api/admin/federation` gate (`PQ14: A`), CLI `--federation` help and warning exit code |
+| `tests/test_federation_routes.py` | Contract 1.12 heartbeat fixture and v1.11 payload rejection |
+| `tests/test_api_security.py`, `tests/test_host_roles.py` | Decision CD4 (`.test` HTTPS development origin and DNS role rules) |
+| `sidecar/fedify/tests/sidecar_test.ts` | `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange` |
+| `e2e/federation_admin.spec.js` | `/admin/federation` readiness groups, level badges, "Does not apply", warning GF17, and sidecar loop state |
+
+Not verified locally: Deno sidecar test suite execution (no `deno` binary in this environment) and live two-server Docker devnet acceptance steps KA1 to KA3 (no Docker daemon running here).
