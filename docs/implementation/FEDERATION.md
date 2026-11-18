@@ -858,7 +858,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 | Part | Where |
 | :--- | :--- |
 | Server values (Section 10 table) | `claire.db`, `server_settings` key `federation_reading` (JSON with the values that differ from the default). `store/federation_client.py` (`READING_DEFAULTS`, `validate_reading_update`, `get_reading_settings`, `set_reading_settings`) |
-| Retention of an account | `client.db`, `federation_account_settings`. `set_account_retention` refuses a value above the server value; `effective_retention_days` gives the lower value |
+| Retention of received posts | Only the server value `retention_days`: a right of the server admin (owner decision 2026-11-18). An account has no retention value; `client.db` version 8 removed `federation_account_settings` |
 | Follows and client tasks (FP4-3 uses them) | `client.db`, `federation_following` and `federation_client_outbox` (`add_following`, `add_client_task`) |
 
 Routes:
@@ -867,10 +867,8 @@ Routes:
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/admin/federation/reading` | admin | `{"settings": {...}, "defaults": {...}}` |
 | `PUT` | `/api/admin/federation/reading` | admin, same origin, recent authentication | A partial object of known keys in range; 400 for an unknown key or a value outside its range. An audit record `federation.reading.update`. |
-| `GET` | `/api/federation/settings` | owner, network mode | `{"retention_days", "server_retention_days", "effective_retention_days"}` |
-| `PUT` | `/api/federation/settings` | owner, network mode | `{"retention_days": null or 1 to the server value}`; another body is 400 |
 
-Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the server" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has the retention of the account, with the choice "use the server value". Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
+Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the server" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has no retention field; the old route `/api/federation/settings` is gone (404). Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
 
 
 ## 17. Follows of an Account (Unit FP4-3)
@@ -1542,7 +1540,7 @@ Fedify refuses each document address that is not public (`UrlError: Invalid or p
 
 ### 27.4 Retention Run
 
-- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of its account by `received_at` (the lower of the account value and the server value), is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
+- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of the server by `received_at`, is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
 - The daily cleanup of the `api` process (`media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
 - `claire federation prune` shows `retention_days` and `expired_items` with the media numbers; `--apply` deletes.
 - An ingested document is never deleted (RD17). Feed items have no retention run.

@@ -10,16 +10,19 @@ Rules:
 
 Versions:
 
-- 1 (FP4-2, 2026-11-13): feed tables (moved from ``claire.db`` version 21), ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``.
+- 1 (FP4-2, 2026-11-13): feed tables (moved from ``claire.db`` version 21), ``federation_following``, ``federation_account_settings`` (removed in version 8), ``federation_client_outbox``.
 - 2 (FP4-4, 2026-11-15): ``federation_timeline_items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 - 3 (FP4-7, 2026-11-15): ``federation_media_cache`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.2).
 - 4 (FP4-8, 2026-11-15): ``federation_object_reactions`` and ``federation_auto_replies`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 - 5 (FP4-9, 2026-11-15): ``federation_notes`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 and 7.1). The quote columns of the design come with unit FP4-9Q (``ALTER TABLE ... ADD COLUMN``, no rebuild).
 - 6 (FP4-9Q, 2026-11-15): the quote columns of ``federation_notes`` and ``federation_quote_authorizations`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rules 5 and 6, 6.6 rule 5, and 7.1).
+- 7: the column ``linked_theme_id`` becomes ``linked_kb_id`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1).
+- 8 (2026-11-18): ``federation_account_settings`` goes. The retention of received posts is a right of the server admin only (owner decision); the retention run uses the server value for each account.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from pathlib import Path
@@ -40,8 +43,10 @@ __all__ = [
     "stored_client_version",
 ]
 
+logger = logging.getLogger(__name__)
+
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 7
+CLIENT_SCHEMA_VERSION = 8
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -99,7 +104,7 @@ def stored_client_version(conn: sqlite3.Connection) -> int | None:
 
 
 def init_client_db(conn: sqlite3.Connection) -> None:
-    """Idempotent (A3). Each version step adds tables only."""
+    """Idempotent (A3). Each version step adds tables or columns, except version 8, which removes one table."""
     version = stored_client_version(conn)
     if version is not None and version > CLIENT_SCHEMA_VERSION:
         raise RuntimeError(f"client.db schema is newer than this code: actual={version}, expected<={CLIENT_SCHEMA_VERSION}")
@@ -111,6 +116,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v4(conn)
     _migrate_v5(conn)
     _migrate_v6(conn)
+    _migrate_v8_drop_account_settings(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -126,6 +132,19 @@ def _migrate_v7_linked_kb_id(conn: sqlite3.Connection) -> None:
         cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
         if "linked_theme_id" in cols and "linked_kb_id" not in cols:
             conn.execute(f'ALTER TABLE "{table}" RENAME COLUMN linked_theme_id TO linked_kb_id')
+
+
+def _migrate_v8_drop_account_settings(conn: sqlite3.Connection) -> None:
+    """v8: remove ``federation_account_settings`` (the retention of an account). Idempotent (A3).
+
+    The retention of received posts is a right of the server admin only (owner decision 2026-11-18). A row of the table was only a shorter retention that an account chose; the server value replaces it, thus the step removes the table and logs the count of the values that it removes.
+    """
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='federation_account_settings'").fetchone() is None:
+        return
+    count = int(conn.execute("SELECT COUNT(*) FROM federation_account_settings WHERE retention_days IS NOT NULL").fetchone()[0])
+    conn.execute("DROP TABLE federation_account_settings")
+    if count:
+        logger.warning("client.db v8: removed %d account retention values; the server retention applies to each account", count)
 
 
 def _migrate_v1(conn: sqlite3.Connection) -> None:
@@ -203,15 +222,6 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_following_actor ON federation_following(actor_iri)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_following_account ON federation_following(account_id, id)")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS federation_account_settings (
-            account_id INTEGER PRIMARY KEY,
-            retention_days INTEGER CHECK (retention_days IS NULL OR retention_days >= 1),
-            updated_at REAL NOT NULL
-        )
-        """
-    )
     kinds = ", ".join(f"'{k}'" for k in CLIENT_OUTBOX_KINDS)
     conn.execute(
         f"""
@@ -396,7 +406,6 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM feed_subscriptions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_following WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_timeline_items WHERE account_id=?", (account_id,))
-    conn.execute("DELETE FROM federation_account_settings WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_client_outbox WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_object_reactions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))

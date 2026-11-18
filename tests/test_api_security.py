@@ -452,13 +452,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/settings/federation",
                 "/api/federation/status",
                 "/api/federation/followers",
-                "/api/federation/settings",
                 "/api/federation/following",
             )
             for method in ("GET", "HEAD")
         ),
         ("DELETE", "/api/federation/followers"),
-        ("PUT", "/api/federation/settings"),
         ("POST", "/api/federation/following"),
         ("DELETE", "/api/federation/following/{following_id}"),
         *((m, "/api/federation/timeline") for m in ("GET", "HEAD")),
@@ -612,7 +610,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/me/keys/verify"),
         *((m, "/api/federation/status") for m in ("GET", "HEAD")),
         *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
-        *((m, "/api/federation/settings") for m in ("GET", "HEAD", "PUT")),
         *((m, "/api/federation/following") for m in ("GET", "HEAD", "POST")),
         ("DELETE", "/api/federation/following/{following_id}"),
         *((m, "/api/federation/timeline") for m in ("GET", "HEAD")),

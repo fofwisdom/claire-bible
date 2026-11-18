@@ -148,7 +148,7 @@ def test_version_5_file_gets_the_quote_schema_and_keeps_its_rows(tmp_path: Path,
     for _ in range(2):
         conn = client_db.connect_client_db(path)
         try:
-            assert client_db.stored_client_version(conn) == 7 == client_db.CLIENT_SCHEMA_VERSION
+            assert client_db.stored_client_version(conn) == client_db.CLIENT_SCHEMA_VERSION
             assert {"quote_of_iri", "quote_author_iri", "quote_state", "quote_authorization_iri", "quote_policy"} <= {r[1] for r in conn.execute("PRAGMA table_info(federation_notes)")}
             assert {"id", "account_id", "object_public_id", "quoting_object_iri", "quoting_actor_iri", "request_iri", "state"} <= {r[1] for r in conn.execute("PRAGMA table_info(federation_quote_authorizations)")}
             # A note of version 5 has no quote and the default policy of a note.

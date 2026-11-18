@@ -35,7 +35,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
-       "/api/federation/status", "/api/federation/followers", "/api/federation/settings", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
+       "/api/federation/status", "/api/federation/followers", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
        # Federation client (FP4-5)
        "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/api/federation/timeline/{item_id}/context", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
        # Outbound interactions (FP4-9)
@@ -137,7 +137,6 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/federation/status") for m in ("GET", "HEAD")),
     *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
-    *((m, "/api/federation/settings") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/federation/following") for m in ("GET", "HEAD", "POST")),
     ("DELETE", "/api/federation/following/{following_id}"),
     *((m, "/api/federation/timeline") for m in ("GET", "HEAD")),

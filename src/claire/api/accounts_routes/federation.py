@@ -75,9 +75,8 @@ FEDERATION_STATUS_API_PATH = "/api/federation/status"
 FEDERATION_FOLLOWERS_API_PATH = "/api/federation/followers"
 FEDERATION_PUBLISH_API_PATH = "/api/federation/publish"
 FEDERATION_RETRACT_API_PATH = "/api/federation/retract"
-# FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the server and the retention of an account.
+# FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the server. The retention of received posts is a right of the server admin only (owner decision 2026-11-18): an account has no retention value.
 ADMIN_FEDERATION_READING_API_PATH = "/api/admin/federation/reading"
-FEDERATION_SETTINGS_API_PATH = "/api/federation/settings"
 # FP4-3 (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.1 and 5.3): follows of the own account.
 FEDERATION_FOLLOWING_API_PATH = "/api/federation/following"
 FOLLOWING_PAGE_MAX = 80
@@ -238,74 +237,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 conn.close()
 
         return JSONResponse(await asyncio.to_thread(_execute), headers=_NO_STORE)
-
-    def _account_settings_view(client: Any, account_id: int, server_value: int) -> dict[str, Any]:
-        return {
-            "retention_days": federation_client_store.get_account_retention(client, account_id),
-            "server_retention_days": server_value,
-            "effective_retention_days": federation_client_store.effective_retention_days(client, account_id, server_value=server_value),
-        }
-
-    def _server_retention(conn: Any) -> int:
-        return int(federation_client_store.get_reading_settings(conn)["retention_days"])
-
-    async def federation_settings_get(request: Request) -> Response:
-        account_id = _owner_account_id(request)
-        if account_id is None:
-            return not_found()
-
-        def _fetch() -> dict[str, Any] | None:
-            conn = open_db(ctx)
-            try:
-                if not _network_mode(conn):
-                    return None
-                server_value = _server_retention(conn)
-            finally:
-                conn.close()
-            client = open_client_db(ctx)
-            try:
-                return _account_settings_view(client, account_id, server_value)
-            finally:
-                client.close()
-
-        data = await asyncio.to_thread(_fetch)
-        return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
-
-    async def federation_settings_put(request: Request) -> Response:
-        # Same-origin rule for a cookie request: ``AuthenticationMiddleware`` (as for ``PATCH /api/me``).
-        account_id = _owner_account_id(request)
-        if account_id is None:
-            return not_found()
-        body = await read_json_body(request)
-        # Sealed body: one field. ``null`` returns to the server value.
-        if not isinstance(body, dict) or set(body) != {"retention_days"}:
-            return json_error(400, "invalid_request", detail="The body must be an object with one field, retention_days (null or an integer)")
-        value = body["retention_days"]
-
-        def _execute() -> tuple[int, dict[str, Any]] | None:
-            conn = open_db(ctx)
-            try:
-                if not _network_mode(conn):
-                    return None
-                server_value = _server_retention(conn)
-            finally:
-                conn.close()
-            client = open_client_db(ctx)
-            try:
-                try:
-                    federation_client_store.set_account_retention(client, account_id, value, server_max=server_value, now=time.time())
-                except federation_client_store.ReadingSettingsError as exc:
-                    return 400, {"error": "invalid_request", "detail": str(exc)}
-                client.commit()
-                return 200, _account_settings_view(client, account_id, server_value)
-            finally:
-                client.close()
-
-        result = await asyncio.to_thread(_execute)
-        if result is None:
-            return not_found()
-        status_code, data = result
-        return JSONResponse(data, status_code=status_code, headers=_NO_STORE)
 
     # --- Domain blocks (design Section 11 item 1) ---
 
@@ -1049,8 +980,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEDERATION_FOLLOWING_API_PATH, federation_following_get, methods=["GET"]),
         Route(FEDERATION_FOLLOWING_API_PATH, federation_following_post, methods=["POST"]),
         Route(FEDERATION_FOLLOWING_API_PATH + "/{following_id}", federation_following_delete, methods=["DELETE"]),
-        Route(FEDERATION_SETTINGS_API_PATH, federation_settings_get, methods=["GET"]),
-        Route(FEDERATION_SETTINGS_API_PATH, federation_settings_put, methods=["PUT"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_get, methods=["GET"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_post, methods=["POST"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_delete, methods=["DELETE"]),

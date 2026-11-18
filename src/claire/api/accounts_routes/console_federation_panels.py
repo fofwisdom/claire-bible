@@ -119,17 +119,6 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Serve
         f'<div><button type="button" class="pref-btn" data-followers-more hidden>{escape(t("console.common.more"))}</button></div>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
-        # FP4-5 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the retention of the received posts of this account. console_account.js reads and saves the value with /api/federation/settings.
-        f'<section class="console-subcard" id="settings-federation-reading" data-federation-reading aria-label="{escape(t("console.federation.retention.title"))}">'
-        f'<h2><span data-icon="folder"></span> {escape(t("console.federation.retention.title"))}</h2>'
-        f'<p class="hint">{escape(t("console.federation.retention.hint"))}</p>'
-        f'<form data-retention-form data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}" data-msg-server="{escape(t("console.federation.retention.use_server"))}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">'
-        '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" name="use_server"/> <span data-retention-server-label></span></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.federation.reading.retention_days"))}<input type="number" name="retention_days" class="pref-input" min="1" step="1" inputmode="numeric" autocomplete="off"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-        "</form>"
-        '<p class="result" data-retention-result role="status" aria-live="polite"></p>'
-        "</section>"
     )
     return body, {"federation_mode": "network", "federation_status": status}
 

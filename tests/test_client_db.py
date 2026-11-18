@@ -122,3 +122,28 @@ def test_purge_of_an_account_deletes_its_client_rows_only(tmp_path: Path) -> Non
             assert [r[0] for r in client.execute(f"SELECT account_id FROM {table}")] == [1]
     finally:
         client.close()
+
+
+def test_v8_removes_the_account_retention_table_and_keeps_the_other_rows(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Version 8: the retention of received posts is a right of the server admin only. A ``client.db`` of version 7 loses ``federation_account_settings``; the other tables keep their rows."""
+    path = tmp_path / "client.db"
+    client_db.connect_client_db(path).close()
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE federation_account_settings (account_id INTEGER PRIMARY KEY, retention_days INTEGER CHECK (retention_days IS NULL OR retention_days >= 1), updated_at REAL NOT NULL)")
+    conn.execute("INSERT INTO federation_account_settings (account_id, retention_days, updated_at) VALUES (2, 7, 1), (3, NULL, 1)")
+    conn.execute("INSERT INTO federation_following (account_id, request, state, created_at, updated_at) VALUES (2, '@a@remote.example', 'pending', 1, 1)")
+    conn.execute("UPDATE client_meta SET value='7' WHERE key='schema_version'")
+    conn.commit()
+    conn.close()
+
+    with caplog.at_level("WARNING", logger="claire.store.client_db"):
+        client = client_db.connect_client_db(path)
+    try:
+        assert client_db.stored_client_version(client) == client_db.CLIENT_SCHEMA_VERSION == 8
+        assert "federation_account_settings" not in _tables(client)
+        assert client.execute("SELECT COUNT(*) FROM federation_following").fetchone()[0] == 1
+    finally:
+        client.close()
+    assert "removed 1 account retention values" in caplog.text
+    # A second open changes nothing (A3).
+    client_db.connect_client_db(path).close()

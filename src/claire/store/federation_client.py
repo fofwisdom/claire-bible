@@ -2,12 +2,12 @@
 
 Two files (DATA_STORE_LAYOUT_DESIGN.md, RD27):
 
-- ``client.db`` (``store.client_db``): ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``. The functions with ``conn`` for these tables take a ``client.db`` connection.
+- ``client.db`` (``store.client_db``): ``federation_following``, ``federation_client_outbox``. The functions with ``conn`` for these tables take a ``client.db`` connection.
 - ``claire.db``: the reading settings of the server, one JSON value in ``server_settings`` (key ``federation_reading``). ``get_reading_settings`` and ``set_reading_settings`` take a ``claire.db`` connection.
 
 - ``federation_timeline_items`` (``client.db`` version 2, unit FP4-4) has the received posts of an account. The key is ``(account_id, object_iri)``. ``content_html`` is the raw HTML of the remote server: only the render route sanitizes it (Section 8).
 - A follow starts as ``pending`` with the handle or IRI that the owner gave (``request``). ``actor_iri`` is ``None`` until the sidecar resolves it (FP4-3).
-- The retention of an account is the lower of the account value and the server value (Section 10 rule 1). An account value above the server value is refused when the owner sets it; a later decrease of the server value does not change the account value.
+- The retention of received posts is the server value for each account (Section 10 rule 1). It is a right of the server admin only (owner decision 2026-11-18): an account has no retention value.
 
 No function in this module commits, except ``set_reading_settings``. The caller owns the transaction.
 """
@@ -29,9 +29,7 @@ __all__ = [
     "ReadingSettingsError",
     "add_following",
     "count_following",
-    "effective_retention_days",
     "expired_item_ids",
-    "get_account_retention",
     "get_following",
     "get_reading_settings",
     "list_following",
@@ -47,7 +45,6 @@ __all__ = [
     "resolve_following",
     "remove_following",
     "retention_run",
-    "set_account_retention",
     "set_following_state",
     "set_reading_settings",
     "validate_reading_update",
@@ -250,47 +247,19 @@ def set_reading_settings(conn: sqlite3.Connection, update: dict[str, Any], *, up
     return values
 
 
-# --- Retention of an account (Section 10 rule 1) ---------------------------
-
-
-def get_account_retention(conn: sqlite3.Connection, account_id: int) -> int | None:
-    """The retention that the owner set, or ``None`` (the server value)."""
-    row = conn.execute("SELECT retention_days FROM federation_account_settings WHERE account_id=?", (account_id,)).fetchone()
-    return None if row is None or row[0] is None else int(row[0])
-
-
-def set_account_retention(conn: sqlite3.Connection, account_id: int, retention_days: int | None, *, server_max: int, now: float) -> None:
-    """Set the retention of the account (``client.db``). ``None`` returns to the server value. A value above ``server_max`` (the server value of ``claire.db``) raises ``ReadingSettingsError``."""
-    if retention_days is not None:
-        if isinstance(retention_days, bool) or not isinstance(retention_days, int) or not 1 <= retention_days <= server_max:
-            raise ReadingSettingsError("retention_days", f"retention_days must be null or an integer from 1 to {server_max}")
-    conn.execute(
-        "INSERT INTO federation_account_settings (account_id, retention_days, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(account_id) DO UPDATE SET retention_days=excluded.retention_days, updated_at=excluded.updated_at",
-        (account_id, retention_days, now),
-    )
-
-
-def effective_retention_days(conn: sqlite3.Connection, account_id: int, *, server_value: int) -> int:
-    own = get_account_retention(conn, account_id)
-    return server_value if own is None else min(own, server_value)
-
-
 # --- Retention run (Section 10 rules 1, 2, and 4) ---------------------------
 
 
 def expired_item_ids(conn: sqlite3.Connection, *, server_days: int, now: float) -> list[int]:
     """The timeline items that the retention run deletes (``client.db``).
 
-    An item goes when it is older than the retention of its account by ``received_at``, is not starred, and has no ingested document. An own note that is not deleted keeps its item (the item has the controls of the note). An item with ``in_timeline`` = 0 that is the parent of an item that stays also stays (rule 2), through all levels.
+    An item goes when it is older than the retention of the server by ``received_at``, is not starred, and has no ingested document. An own note that is not deleted keeps its item (the item has the controls of the note). An item with ``in_timeline`` = 0 that is the parent of an item that stays also stays (rule 2), through all levels.
     """
-    own = {int(account): int(days) for account, days in conn.execute("SELECT account_id, retention_days FROM federation_account_settings WHERE retention_days IS NOT NULL")}
     has_notes = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='federation_notes'").fetchone() is not None
     own_note = "AND NOT EXISTS (SELECT 1 FROM federation_notes n WHERE n.account_id=i.account_id AND n.deleted_at IS NULL AND i.object_iri LIKE '%/ap/objects/' || n.public_id)" if has_notes else ""
     expired: list[int] = []
     for (account_id,) in conn.execute("SELECT DISTINCT account_id FROM federation_timeline_items").fetchall():
-        days = min(own.get(int(account_id), server_days), server_days)
-        rows = conn.execute(f"SELECT i.id, i.object_iri, i.in_timeline FROM federation_timeline_items i WHERE i.account_id=? AND i.received_at < ? AND i.starred=0 AND i.linked_doc_id IS NULL {own_note}", (account_id, now - days * 86400.0)).fetchall()
+        rows = conn.execute(f"SELECT i.id, i.object_iri, i.in_timeline FROM federation_timeline_items i WHERE i.account_id=? AND i.received_at < ? AND i.starred=0 AND i.linked_doc_id IS NULL {own_note}", (account_id, now - server_days * 86400.0)).fetchall()
         candidates = {int(item_id): (str(object_iri), int(in_timeline)) for item_id, object_iri, in_timeline in rows}
         while True:
             # The parents (``in_timeline`` = 0) of the items that stay.

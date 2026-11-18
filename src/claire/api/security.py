@@ -674,9 +674,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # Both modes (unit FP4-F3): the body of a feed item has media too, and feeds work in single mode (RD15).
     ("GET", "/media/remote/{url_hash}"): _any("owner", "none"),
     ("HEAD", "/media/remote/{url_hash}"): _any("owner", "none"),
-    ("GET", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("PUT", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
     ("GET", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),
     ("HEAD", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),
     ("DELETE", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),

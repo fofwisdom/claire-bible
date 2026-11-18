@@ -38,20 +38,19 @@ def test_retention_rules(tmp_path):
         # An own note that is not deleted keeps its item.
         conn.execute("INSERT INTO federation_notes (public_id, account_id, content_text, content_html, published_at, updated_at) VALUES (77, 1, 'mine', '<p>mine</p>', 1, 1)")
         own = _item(conn, 1, "https://claire.example/ap/objects/77", age_days=300)
-        # The second account has a shorter retention of its own; a value above the server value has no effect.
-        conn.execute("INSERT INTO federation_account_settings (account_id, retention_days, updated_at) VALUES (2, 7, 1), (3, 3650, 1)")
+        # The retention is the server value for each account (a right of the server admin only): no account has a value of its own.
         short = _item(conn, 2, "https://r.example/a2", age_days=10)
         long = _item(conn, 3, "https://r.example/a3", age_days=100)
         conn.commit()
 
         expired = client_store.expired_item_ids(conn, server_days=90, now=NOW)
-        assert expired == sorted([old, lone_parent, old_reply, short, long])
-        assert not {fresh, starred, ingested, top, middle, own} & set(expired)
+        assert expired == sorted([old, lone_parent, old_reply, long])
+        assert not {fresh, starred, ingested, top, middle, own, short} & set(expired)
         # Without ``apply`` nothing changes; with it the items go, and a second run finds nothing.
-        assert client_store.retention_run(conn, server_days=90, now=NOW, apply=False) == {"retention_days": 90, "expired_items": 5}
+        assert client_store.retention_run(conn, server_days=90, now=NOW, apply=False) == {"retention_days": 90, "expired_items": 4}
         assert conn.execute("SELECT COUNT(*) FROM federation_timeline_items").fetchone()[0] == 12
-        assert client_store.retention_run(conn, server_days=90, now=NOW, apply=True)["expired_items"] == 5
-        assert conn.execute("SELECT COUNT(*) FROM federation_timeline_items").fetchone()[0] == 7
+        assert client_store.retention_run(conn, server_days=90, now=NOW, apply=True)["expired_items"] == 4
+        assert conn.execute("SELECT COUNT(*) FROM federation_timeline_items").fetchone()[0] == 8
         assert client_store.retention_run(conn, server_days=90, now=NOW, apply=True)["expired_items"] == 0
     finally:
         conn.close()

@@ -202,14 +202,15 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 7`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
-  - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`, `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 받은 게시물, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 8`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+  - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`(v8에서 제거), `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
   - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
   - **v3 (FP4-7)**: `federation_media_cache`(원격 미디어 캐시 기록, 키 `url_hash`, 설계 §7.2). 계정 열이 없고 모든 계정이 함께 쓴다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v4 (FP4-8)**: `federation_object_reactions`(자기 객체에 대한 원격 `Like`·`Announce` 기록, 키 `(object_public_id, kind, actor_iri)`, 객체 소유 계정 `account_id`), `federation_auto_replies`(비공개 메시지 자동 안내 기록, 키 `(account_id, sender_iri)`, 내용은 저장하지 않음). 설계 §7.1. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v5 (FP4-9)**: `federation_notes`(계정이 쓴 노트, 키 `public_id`, 게시 문서와 같은 번호 공간, 설계 §5.4·§7.1)와 인덱스 `idx_federation_notes_account`. 삭제한 노트는 행을 두고 `deleted_at`만 채운다(객체 경로 410). 인용 열(`quote_of_iri`, `quote_state`, `quote_policy`)은 FP4-9Q에서 `ALTER TABLE ... ADD COLUMN`으로 더한다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v6 (FP4-9Q)**: `federation_notes`에 인용 열 `quote_of_iri`, `quote_author_iri`, `quote_state`(`pending`, `approved`, `refused`, `revoked` 또는 NULL), `quote_authorization_iri`, `quote_policy`(기본값 `public`)를 `ALTER TABLE ... ADD COLUMN`으로 더한다(열이 없을 때만, 재구성 없음). v5의 행은 인용이 없고 정책은 `public`이다. 새 테이블 `federation_quote_authorizations`(자기 객체에 대한 원격 인용 요청과 그 결과, 키 `id`, 유일 `(object_public_id, quoting_object_iri)`, 객체 소유 계정 `account_id`, 요청 활동 ID `request_iri`)와 인덱스 `idx_federation_quote_authorizations_account`. 설계 §5.4 규칙 5·6, §6.6 규칙 5, §7.1. 이관은 기동 때 스스로 끝나며, 모르는 테이블과 행은 그대로 둔다. 테스트: `tests/test_federation_quotes.py`.
   - **v7 (CT-0)**: 열 `linked_theme_id`를 값과 함께 `linked_kb_id`로 바꾼다(`_migrate_v7_linked_kb_id`, `ALTER TABLE ... RENAME COLUMN`). 다른 단계가 새 이름을 쓰므로 이 단계를 맨 먼저 실행한다. 멱등이다. 테스트: `tests/test_schema_v27.py`.
+  - **v8 (2026-11-18)**: `federation_account_settings`를 지운다(`_migrate_v8_drop_account_settings`). 받은 게시물 보존 기간은 서버 관리자의 고유 권한이므로(소유자 결정) 계정 값이 없고, 보존 실행은 모든 계정에 서버 값을 쓴다. 지운 계정 값의 개수를 경고 로그로 남긴다. 멱등이다. 테스트: `tests/test_client_db.py`.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 

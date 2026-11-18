@@ -115,7 +115,7 @@ def test_client_db_v7_renames_linked_theme_id(tmp_path: Path) -> None:
 
     conn = client_db.connect_client_db(path)
     try:
-        assert client_db.stored_client_version(conn) == 7
+        assert client_db.stored_client_version(conn) == client_db.CLIENT_SCHEMA_VERSION
         cols = {r[1] for r in conn.execute("PRAGMA table_info(feed_items)")}
         assert "linked_kb_id" in cols and "linked_theme_id" not in cols
     finally:

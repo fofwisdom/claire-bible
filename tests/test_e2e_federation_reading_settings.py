@@ -1,6 +1,6 @@
 """End-to-end test of the reading settings (FEDERATION_REMOTE_READING_DESIGN.md Section 10, unit FP4-2).
 
-A real app in network mode: the admin sets the server values, the owner of an account sets the own retention, and Section 10 rule 1 holds (the effective value is the lower one; an account value above the server value is refused; a later decrease of the server value does not change the account value).
+A real app in network mode: the admin sets the server values. The retention of received posts is a right of the server admin only (owner decision 2026-11-18): the owner of an account has no retention route and no retention form.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ def test_e2e_admin_and_owner_reading_settings(env):
     # Defaults of Section 10.
     data = c.request("GET", READING, session=env.admin).json()
     assert data["settings"]["retention_days"] == 90 and data["settings"]["following_limit"] == 1000 and data["settings"]["context_fetch"] == "on"
-    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": None, "server_retention_days": 90, "effective_retention_days": 90}
 
     # The admin changes two values; the change has an audit record.
     res = c.request("PUT", READING, session=env.admin, json={"retention_days": 30, "context_fetch": "off"})
@@ -45,20 +44,14 @@ def test_e2e_admin_and_owner_reading_settings(env):
     assert c.request("GET", READING, session=env.alpha_session).status_code == 404
     assert c.request("PUT", READING, session=env.alpha_session, json={"retention_days": 10}).status_code == 404
 
-    # The owner: a value above the server value is refused, a lower value is the effective value.
-    assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 60}).status_code == 400
-    res = c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 20})
-    assert res.json() == {"retention_days": 20, "server_retention_days": 30, "effective_retention_days": 20}
-    # The admin decreases the server value: the account value stays, and the effective value is the lower one.
-    c.request("PUT", READING, session=env.admin, json={"retention_days": 10})
-    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": 20, "server_retention_days": 10, "effective_retention_days": 10}
-    # null returns to the server value; a body outside the model is refused.
-    assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": None}).json()["effective_retention_days"] == 10
-    assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 5, "x": 1}).status_code == 400
+    # The owner of an account cannot set a retention: the old account route is gone (404 for each method).
+    for method in ("GET", "PUT"):
+        kwargs = {"json": {"retention_days": 20}} if method == "PUT" else {}
+        assert c.request(method, SETTINGS, session=env.alpha_session, **kwargs).status_code == 404
 
 
 def test_console_sections_have_the_fields_of_the_reading_settings(env):
-    """The console fields of unit FP4-5: the admin form shows the stored values (sizes in MiB), and the owner section has the retention form."""
+    """The console fields of unit FP4-5: the admin form shows the stored values (sizes in MiB). The owner section has no retention form (a right of the server admin only)."""
     c = env.client
     assert c.request("PUT", READING, session=env.admin, json={"retention_days": 30, "media_image_max_bytes": 40 * 1024 * 1024, "context_fetch": "off"}).status_code == 200
     page = c.request("GET", "/admin/federation", session=env.admin)
@@ -73,6 +66,7 @@ def test_console_sections_have_the_fields_of_the_reading_settings(env):
     for key in federation_client.READING_DEFAULTS:
         assert f'name="{key}"' in page.text, key
     owner_page = c.request("GET", "/settings/federation", session=env.alpha_session)
-    assert owner_page.status_code == 200 and "data-retention-form" in owner_page.text and 'name="retention_days"' in owner_page.text
+    assert owner_page.status_code == 200 and "settings-federation-followers" in owner_page.text
+    assert "data-retention-form" not in owner_page.text and 'name="retention_days"' not in owner_page.text
     # A member has no admin section.
     assert "admin-federation-reading-form" not in owner_page.text

@@ -397,12 +397,6 @@ CREATE INDEX idx_federation_timeline_account ON federation_timeline_items(accoun
 CREATE INDEX idx_federation_timeline_object ON federation_timeline_items(object_iri);
 CREATE INDEX idx_federation_timeline_thread ON federation_timeline_items(account_id, context_iri);
 
-CREATE TABLE federation_account_settings (
-    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-    retention_days INTEGER CHECK (retention_days IS NULL OR retention_days >= 1),  -- NULL: the server value
-    updated_at REAL NOT NULL
-);
-
 CREATE TABLE federation_notes (
     public_id INTEGER PRIMARY KEY,    -- same number space as federation_objects (RT7)
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -532,12 +526,11 @@ The owner decision (2026-11-13): local storage is the default and needs no setti
 
 ## 10. Reading Settings (RD5, RD7, RD8)
 
-The admin sets the server values in `/admin/federation` with `GET`, `PUT /api/admin/federation/reading`. The account owner sets only the own retention in `/settings/federation`.
+The admin sets the server values in `/admin/federation` with `GET`, `PUT /api/admin/federation/reading`. The retention of received posts is a right of the server admin only (owner decision 2026-11-18): an account owner sets no reading value.
 
 | Key | Default | Range | Who |
 | :--- | :--- | :--- | :--- |
 | `retention_days` | 90 | 1 to 3650 | Admin. The maximum for all accounts. |
-| account `retention_days` | NULL (server value) | 1 to the server value | Account owner |
 | `following_limit` | 1000 | 1 to 100000 | Admin |
 | `media_image_max_bytes` | 20 MiB | 1 MiB to 100 MiB | Admin |
 | `media_av_max_bytes` | 100 MiB | 1 MiB to 1 GiB | Admin |
@@ -552,7 +545,7 @@ The admin sets the server values in `/admin/federation` with `GET`, `PUT /api/ad
 
 Rules:
 
-1. The retention of an account is the lower of the account value and the server value. When the admin decreases the server value, the account values that are higher have no effect. Claire does not change them.
+1. The retention of each account is the server value. Only the admin sets it (owner decision 2026-11-18); the account value of the first version is withdrawn.
 2. A retention run deletes the items that are older than the retention by `received_at`, not starred, and not ingested (`linked_doc_id` is NULL). An item with `in_timeline` = 0 that is the parent of a kept item stays.
 3. When the admin decreases `following_limit`, the follows that exist stay. The account cannot add a follow until it is below the limit.
 4. The retention run and the media eviction run once a day in the `api` process and with the command `claire federation prune`.
@@ -666,7 +659,7 @@ Work unit rules (from the parent design): the agent does one unit for each instr
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-0 | **RT1 to RT9 done 2026-11-13; RT10 is part of FP4-1.** Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
 | FP4-1 | **Done 2026-11-15.** Storage backends (Section 9.1.1): local default, object storage settings (`/admin/storage`, routes, encrypted secret, test), read fallback to local storage, migration command (Section 9.2, 9.3), RT10 | The test route reports success with a local Garage server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
-| FP4-2 | **Done 2026-11-13.** With DS-1 (RD27): `client.db` version 1 with the feed tables (moved from `claire.db`, which becomes version 22), `federation_following`, `federation_account_settings`, `federation_client_outbox` with the kinds of Section 5.2 and `target_iri`, store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the server value is refused. | FP4-0 | M |
+| FP4-2 | **Done 2026-11-13.** With DS-1 (RD27): `client.db` version 1 with the feed tables (moved from `claire.db`, which becomes version 22), `federation_following`, `federation_account_settings` (removed in `client.db` version 8, 2026-11-18), `federation_client_outbox` with the kinds of Section 5.2 and `target_iri`, store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the server value is refused. | FP4-0 | M |
 | FP4-3 | **Done 2026-11-14 (contract 1.3).** Follow lifecycle: routes (Section 5.3 first three), tasks `follow`, `undo_follow`, `reject_follow`, sidecar resolution and delivery, `Accept` and `Reject` events, `following` collection, domain block effect | A follow of a test actor becomes `accepted` after its `Accept`. A follower removal sends `Reject(Follow)`. | FP4-2 | L |
 | FP4-4 | **Done 2026-11-15 (`client.db` version 2; contract stays 1.3).** `federation_timeline_items`, inbound `Create`, `Update`, `Delete`, `Announce`, `Undo(Announce)`, addressing and block rules, fan-out, replies with the timeline rule and the parent chain (Section 6.5 rules 1 to 3), contract 1.3 fixtures | A public `Create` from a followed actor makes one item for each following account. A followers-only object makes none. A group `Announce` makes one item with the announcer. A reply to an actor that is not followed has `in_timeline` = 0. | FP4-3 | L |
 | FP4-5 | **Done 2026-11-15.** Timeline routes, federation client view in `/syndication` (list and thread), the context menu (right click) of an item with "Markdown export" for a knowledge base document (`GET /document/export`, MD-3), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |
