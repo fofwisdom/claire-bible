@@ -13,7 +13,7 @@ def test_public_sample_preserves_routing_fixture_shape():
 
     assert len(items) == 25
     assert Counter(map(classify, items)) == {
-        "redirect": 14,
+        "share_link": 14,
         "xcom": 5,
         "web": 4,
         "youtube": 1,

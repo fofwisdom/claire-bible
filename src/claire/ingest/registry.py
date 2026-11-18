@@ -83,7 +83,7 @@ class FetcherRegistry:
         return None
 
     def classify(self, payload: str) -> str:
-        """Payload → routing kind: the name of a fetcher entry, ``redirect``, ``web``, ``file``, or ``text``."""
+        """Payload → routing kind: the name of a fetcher entry, ``web``, ``file``, or ``text``."""
         t = (payload or "").strip()
         if not t:
             return "text"
@@ -105,9 +105,6 @@ class FetcherRegistry:
                         return entry.name
 
         if t_lower.startswith(("http://", "https://")):
-            host = url_host(t) or ""
-            if host == "share.google" or host.startswith("share."):
-                return "redirect"
             return "web"
 
         if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):

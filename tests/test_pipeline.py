@@ -86,7 +86,7 @@ def test_content_hash_stable():
 def test_router_classify():
     assert classify("https://youtu.be/abc") == "youtube"
     assert classify("https://x.com/u/status/1") == "xcom"
-    assert classify("https://share.google/zzz") == "redirect"
+    assert classify("https://share.google/zzz") == "share_link"
     assert classify("https://geeknews.io/post") == "web"
     assert classify("그냥 키워드") == "text"
 

@@ -1,6 +1,6 @@
 """입력 라우팅 — payload 를 적절한 fetcher 로 보내 Document 를 만든다.
 
-redirect(google share 등)는 최종 URL 로 해석 후 재라우팅한다. fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
+사이트 규칙은 켜진 플러그인의 레지스트리 항목에서만 온다(INGEST_ADAPTER_PLUGIN_DESIGN.md §4.2). 공유 링크(share.google 등)는 project plugin claire.share_link가 해석해 ``reroute``로 다시 라우팅한다. fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ import re
 from urllib.parse import urlsplit
 
 from ..ontology.base import Document
-from .fetchers.base import FetchError
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
@@ -34,7 +33,7 @@ def extract_shared_url(payload: str) -> str | None:
 def classify(payload: str) -> str:
     """payload → 라우팅 종류. telegram_bot.classify_input 과 정합.
 
-    종류: 레지스트리 fetcher 항목 이름(예: video, youtube) | redirect | web | file | text
+    종류: 레지스트리 fetcher 항목 이름(예: video, youtube, share_link) | web | file | text
     """
     from .registry import registry
     return registry.classify(payload)
@@ -55,7 +54,7 @@ def _clean_url(url_candidate: str) -> str:
 
 
 def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Document:
-    """라우팅 + fetch. redirect 는 1회 재귀로 최종 URL 재라우팅."""
+    """라우팅 + fetch. ``_depth``는 ``claire.plugin_sdk.reroute``의 재라우팅 깊이(최대 2단계)."""
     t = payload.strip()
     # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
     if not t.lower().startswith(("http://", "https://")):
@@ -82,19 +81,6 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
         from .fetchers.video import fetch_video
 
         return _call_fetcher(fetch_video, t)
-
-    if kind == "redirect":
-        if _depth > 2:
-            raise FetchError("too many redirects")
-        from .fetchers.redirect import resolve_redirect
-
-        final = resolve_redirect(t)
-        if final and final != t:
-            return fetch(final, full_content=full_content, _depth=_depth + 1)
-        # 해석 실패 시 web 으로 시도
-        from .fetchers.web import fetch_web
-
-        return _call_fetcher(fetch_web, t)
 
     if kind == "file":
         from .fetchers.textfile import fetch_file

@@ -22,6 +22,11 @@ revision = 1
 digest = "sha256:a50b1e1bafab00a2998e949329837fed8bbe128d4d5c899af172307a5df8d9ce"
 
 [[plugin]]
+id = "claire.share_link"
+revision = 1
+digest = "sha256:74ad9764311c0217a0af1b6362cb92d0f2b7fa0a2879b9e4e07291fc6a666205"
+
+[[plugin]]
 id = "claire.uttu"
 revision = 1
 digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191c"

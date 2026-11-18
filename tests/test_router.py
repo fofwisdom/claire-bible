@@ -27,7 +27,7 @@ def test_extract_shared_url_none_for_plain_memo():
 
 def test_classify_routes_shared_text_by_url():
     # 제목+share.google → redirect 종류
-    assert classify("제목 어쩌고 https://share.google/AbC") == "redirect"
+    assert classify("제목 어쩌고 https://share.google/AbC") == "share_link"
     # 제목+youtube → youtube
     assert classify("좋은 영상 https://youtube.com/watch?v=x") == "youtube"
     # 순수 텍스트는 그대로 text

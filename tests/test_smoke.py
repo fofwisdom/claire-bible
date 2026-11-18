@@ -164,7 +164,7 @@ def test_vector_search_brute():
 def test_classify_input():
     assert classify_input("https://youtube.com/watch?v=x") == "youtube"
     assert classify_input("https://x.com/a/status/1") == "xcom"
-    assert classify_input("https://share.google/abc") == "redirect"
+    assert classify_input("https://share.google/abc") == "share_link"
     assert classify_input("https://example.com/post") == "web"
     assert classify_input("just a keyword") == "text"
     assert classify_input("") == "empty"

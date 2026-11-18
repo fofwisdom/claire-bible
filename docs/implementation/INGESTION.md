@@ -31,7 +31,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 1. If the payload does not start with `http://` or `https://`, `extract_shared_url` takes the last token when it is a URL ("title + link" share text). A URL in the middle of a note does not change the note.
 2. `classify` gives the kind. `_clean_url` removes trailing text after the first URL token for URL kinds.
 3. `registry.get_fetcher(payload)` returns the first registered `BaseFetcher` whose `can_handle` is true. If one matches, the router calls its `fetch`.
-4. Else the router dispatches on the kind: `video`, `redirect` (at most two levels, then `fetch_web`), `file` (`fetch_file`), `web` (`fetch_web`), else `text` (`fetch_text`). Site kinds come only from plugin entries (step 3).
+4. Else the router dispatches on the kind: `video`, `file` (`fetch_file`), `web` (`fetch_web`), else `text` (`fetch_text`). Site kinds come only from plugin entries (step 3). `claire.plugin_sdk.reroute` routes a resolved URL again, at most two levels.
 5. `_call_fetcher` passes `full_content`. If the fetcher does not accept it (`TypeError`), the router calls it without the argument.
 
 ### 2.2 `FetcherRegistry` and plugins
@@ -40,7 +40,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 
 - An entry (`RegisteredEntry` in `src/claire/plugin_host/context.py`) has a kind (`fetcher` or `web_adapter`), a name, a priority, host patterns, a class, and a plugin id (`None` for a core entry). The entries come from `_core_entries()` and from the enabled plugins (`plugin_host.runtime`). Order: priority (higher first), then plugin id, then name.
 - Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, `*` matches every host, and there is no substring match (`dropbox.com` is not an x.com host). The registry calls `can_handle` only for a URL whose host matches the entry. An exception from `can_handle` is "no match" and is logged with the entry.
-- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), then the URL rules that are not entries yet (share redirect, else `web`), then local file rules, else `text`.
+- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), else `web` for a URL, then local file rules, else `text`. A share link gives `share_link` (project plugin `claire.share_link`).
 - `web_adapter_entries(url, domain_only)` returns web adapter entries whose hosts match. An entry with `*` is general and comes only when `domain_only` is false.
 - The old drop-in loader (`load_plugins_from_dir`, `load_entrypoints`, `plugins/fetchers/`) and the decorators `register_fetcher` and `register_web_adapter` are removed.
 
@@ -64,6 +64,7 @@ Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of t
 | `claire.hoyolab` | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` |
 | `claire.naver_clip` | fetcher | `naver_clip` | 120 | Naver Clip hosts and `m.naver.com` (`/shorts` path); source type `video` |
 | `claire.youtube` | fetcher | `youtube` | 90 | YouTube hosts; network modules `yt_dlp`, `youtube_transcript_api`; source type `youtube` (§2.2 source types) |
+| `claire.share_link` | fetcher | `share_link` | 100 | `*`; `can_handle` takes `share.google` and hosts that start with `share.`; routes the destination again with `reroute` |
 
 #### Plugins [code]
 
@@ -127,7 +128,7 @@ After a usable step, `fetch_web` decides `doc_type` (`odt`, `pdf`, or `web`), cu
 - `SafeHttpClient(timeout=30.0, max_size=10 MiB, ...)` uses the same policy. `get(url)` checks the URL, then sends the request through `guarded_client` with `follow_redirects=True`, raises `MediaResponseDetected` for media responses, and raises `FetchError` when `Content-Length` is larger than `max_size`.
 - Settings: `CLAIRE_ALLOW_PRIVATE_NETWORKS` (default off, boolean or 0/1) and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` (default empty) in `src/claire/config.py`.
 
-Users of the guard: `_fetch_static` in `web.py`; the project plugins through `ctx.http_client()` and `ctx.safe_get()`, which add the host list of the plugin (§2.2); the YouTube page requests, the share link resolver (`redirect.py`), the VMware Explore session page fetch, the page image download (`store/raw.py` `download_images`), and the Gemini VLM image download (through `guarded_client`); the feed fetcher in `src/claire/feeds/fetch.py` and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` on each hop, with the same two settings). The VMware Explore presentation download has its own check on each hop (§10.2). [code] A new fetcher that sends HTTP requests uses `guarded_client`, `SafeHttpClient`, or `check_ip_safety` on each hop.
+Users of the guard: `_fetch_static` in `web.py`; the project plugins through `ctx.http_client()` and `ctx.safe_get()`, which add the host list of the plugin (§2.2); the YouTube page requests, the share link resolver (project plugin `claire.share_link`), the VMware Explore session page fetch, the page image download (`store/raw.py` `download_images`), and the Gemini VLM image download (through `guarded_client`); the feed fetcher in `src/claire/feeds/fetch.py` and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` on each hop, with the same two settings). The VMware Explore presentation download has its own check on each hop (§10.2). [code] A new fetcher that sends HTTP requests uses `guarded_client`, `SafeHttpClient`, or `check_ip_safety` on each hop.
 
 Tests: `tests/test_http_security.py` (also the redirect hop checks). Tests that replace the network use the fixture `mock_guarded_client` in `tests/conftest.py`. [code]
 
