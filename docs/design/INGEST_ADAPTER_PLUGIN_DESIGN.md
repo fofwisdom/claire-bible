@@ -17,7 +17,7 @@ The owner asked for items O1 to O5 on 2026-11-18 and for items O6 to O8 on 2026-
 | O5 | Propose rules for plugins that follow current practice. |
 | O6 | When the manifests of different adapters overlap, the server finds it, and only one of these plugins can be selected. |
 | O7 | At the first deployment, the plugins that the project gives are enabled by default. |
-| O8 | Plugins that the project makes and plugins that users upload have different paths. |
+| O8 | Plugins that the project makes and plugins that users upload have different paths. To upload is to put the plugin folder into the user path (owner, 2026-11-19). |
 
 ## 1. Problem
 
@@ -426,7 +426,7 @@ ASD-STE100 English, `--json` with the `AgentOutput` contract (C3). On a deployed
 | The plugin that was enabled first wins an overlap | A hidden choice (C1). |
 | A detection of "first deployment" by the absence of `claire.db` | Other processes can make `claire.db` before `claire migrate`. A key of the plugin store is exact. |
 | A project plugin that differs from the lock loads as a user plugin (revision 2) | O8: the two kinds have separate paths. |
-| A file upload in the console | Not designed. O3 and O8 put user plugins into a folder. A later design can add an upload into the user path. |
+| A file upload in the console | Not requested. An upload is a folder that the user puts into the user path (O8). |
 | A sandbox now (subprocess with JSON-RPC, or WebAssembly) | Real isolation, but the media adapters need yt-dlp, ffmpeg, and Chromium. High cost for a server that has no third-party plugin yet. Possible later for user plugins only. |
 | On and off for each account | Not requested. A plugin is server code. |
 | Plugin-owned settings with a schema in the manifest | Not requested. The present settings stay in the core. A later design can add it when a user plugin needs a secret. |
