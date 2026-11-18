@@ -706,7 +706,7 @@ def test_antigravity_subprocess_env_has_no_secrets(tmp_path, host_cli_present, m
     assert env.get("HOME") == str(tmp_path) and "PATH" in env
 
 
-def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys):
+def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys, monkeypatch):
     assert pp.supported_efforts_for("gemini", "gemini-4-argon") == ("low", "medium", "high")
     assert pp.supported_efforts_for("gemini", "gemini-3-pro-preview") == ("low", "high")
     assert pp.supported_efforts_for("gemini", "gemini-2.5-flash") == ("none", "low", "medium", "high")
@@ -727,6 +727,8 @@ def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, ke
     with pytest.raises(ValueError, match="Unsupported effort"):
         pp.validate_ingest_effort(s_gem, "max")
 
+    # The host does not need the agy binary: without it a development server uses mock.
+    monkeypatch.setattr("claire.config.find_agy_executable", lambda _bin="agy": "/usr/local/bin/agy")
     s_agy_fixed = _settings(tmp_path, provider="antigravity", agy_model="claude-opus-5-5-medium")
     desc_fixed = pp.describe_ingest_effort_options(s_agy_fixed)
     assert desc_fixed["fixed"] is True
