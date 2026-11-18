@@ -1612,6 +1612,37 @@ def create_support_bundle(
                     json.dumps(active_ingest_snapshot, ensure_ascii=False, indent=2).encode("utf-8"),
                 )
 
+                # 5-3. Subsystems that came after format 3: services, runtime configuration, federation, client.db, auth.db, worker queues, shared knowledge bases (support_bundle_services.py).
+                from . import support_bundle_services as services
+
+                worker_databases: list[tuple[int, str, Path]] = []
+                admin_kb_ids: set[int] = set()
+                for t in themes_to_check:
+                    worker_databases.append((t.id, t.label, Path(tm.get_settings_for_kb(t.id).db_file)))
+                    if getattr(t, "account_id", dbm.ADMIN_ACCOUNT_ID) == dbm.ADMIN_ACCOUNT_ID:
+                        admin_kb_ids.add(int(t.id))
+                subsystem_members = (
+                    ("diagnostics/services.json", "SERVICES", lambda: services.collect_services(s, now=now)),
+                    ("diagnostics/runtime_config.json", "RUNTIME_CONFIG", lambda: services.collect_runtime_config(s)),
+                    ("federation/server_queues.json", "SERVER_FEDERATION", lambda: services.collect_server_federation(s, now=now, since=cutoff_epoch)),
+                    ("federation/client_db.json", "CLIENT_DB", lambda: services.collect_client_db(s, now=now, since=cutoff_epoch)),
+                    ("accounts/auth_db.json", "AUTH_DB", lambda: services.collect_auth_db(s, now=now, since=cutoff_epoch)),
+                    ("pipeline/worker_queues.json", "WORKER_QUEUES", lambda: services.collect_worker_queues(worker_databases, since=cutoff_epoch, admin_kb_ids=admin_kb_ids)),
+                    ("pipeline/shared_kb.json", "SHARED_KB", lambda: services.collect_shared_kb(s, since=cutoff_epoch)),
+                )
+                for member, warning_code, collect in subsystem_members:
+                    try:
+                        member_report, member_warnings = collect()
+                        collector_warnings.extend(member_warnings)
+                    except Exception as exc:  # noqa: BLE001
+                        member_report = {"state": "error", "error": f"{type(exc).__name__}: {exc}"}
+                        collector_warnings.append({"code": f"{warning_code}_COLLECTOR_FAILED", "message": member_report["error"]})
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/{member}",
+                        json.dumps(sanitize_sensitive_data(member_report), ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                    )
+
                 # 6. 로그 수집 (agy.log, telegram.log, api.log 및 data/logs/*.log)
                 logs_dir = Path(data_dir) / "logs"
                 collected_logs: set[str] = set()

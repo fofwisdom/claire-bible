@@ -1,6 +1,6 @@
 # Telemetry and Support Bundles
 
-Basis: commit d15ae8e0 (2026-11-16) · Design reasons and planned work: [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
+Basis: commit d15ae8e0 (2026-11-16); §3.6 and the member list of §3.3: the commit that adds `support_bundle_services.py` (2026-11-18) · Design reasons and planned work: [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
 
 This document tells how the code records telemetry now, and how it makes, keeps, and deletes Support Bundles. It uses file paths and function names as anchors.
 
@@ -12,6 +12,8 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 | :--- | :--- |
 | `src/claire/store/telemetry.py` | Telemetry database, provider and MCP records, the database registry of Support Bundles |
 | `src/claire/support_bundle.py` | Server-wide Support Bundle: collection, archive, sidecar registry, expiry |
+| `src/claire/support_bundle_services.py` | Collectors of the server-wide Support Bundle for the services, the runtime configuration, the federation, `client.db`, `auth.db`, the worker queues, and the shared knowledge bases (§3.6) |
+| `src/claire/loop_runtime.py` | Log file and state file of the worker loops `refresh-loop`, `recover-loop`, `expand-loop` (§3.6) |
 | `src/claire/account_support_bundle.py` | Account-scope Support Bundle (data of one account only) |
 | `src/claire/extract/antigravity_provider.py` | Writes provider telemetry for each `agy` call |
 | `src/claire/api/mcp_tools.py`, `src/claire/api/security.py`, `src/claire/api/server.py` | Write MCP telemetry |
@@ -56,10 +58,12 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 - **[code] Format.** A tar stream compressed by zstd level 3 (`zstd.ZstdCompressor(level=3)`), file `support_bundle_<UTC time>_<id8>.tar.zst` in `data/support_bundles/`. `BUNDLE_FORMAT_VERSION` is 3.
 - **[code] Members** (root `support_bundle_<id8>/`):
   - `manifest.json` (no download token in it)
-  - `diagnostics/`: `system.json`, `config_sanitized.json`, `mcp.json`, `storage.json`, `build.json`, `collector_warnings.json`
+  - `diagnostics/`: `system.json`, `config_sanitized.json`, `mcp.json`, `storage.json`, `build.json`, `collector_warnings.json`, `services.json`, `runtime_config.json`
   - `telemetry/`: `telemetry_records.jsonl`, `telemetry_stats.json`, `mcp_records.jsonl`, `mcp_stats.json`
-  - `pipeline/`: `health.json`, `inbox_summary.json`, `failed_items.json`, `shares_index.json`, `db_integrity.json`, `oauth_summary.json`, `active_ingest.json`
-  - `logs/`: the last 5000 lines of `agy.log`, `telegram.log`, `api.log`, and of each other `*.log` in `data/logs/`
+  - `pipeline/`: `health.json`, `inbox_summary.json`, `failed_items.json`, `shares_index.json`, `db_integrity.json`, `oauth_summary.json`, `active_ingest.json`, `worker_queues.json`, `shared_kb.json`
+  - `federation/`: `server_queues.json`, `client_db.json`
+  - `accounts/`: `auth_db.json`
+  - `logs/`: the last 5000 lines of `agy.log`, `telegram.log`, `api.log`, and of each other `*.log` in `data/logs/` (also `refresh-loop.log`, `recover-loop.log`, `expand-loop.log`, §3.6)
   - `tracked_document/` (only with a target): `target_resolution.json`, `document_detail.json`, `extractions.json`, `graph_fragment.json`, `inbox_record.json`, `inbox_records.jsonl`, `telemetry_history.jsonl`
 - **[code] Storage diagnostics.** `_collect_storage_diagnostics` records real paths, the enclosing mount from `/proc/self/mountinfo`, file identity (inode, size, mtime), and a limited scan for SQLite candidates (`_MAX_STORAGE_SCAN_ENTRIES` 2000, `_MAX_STORAGE_DATABASES` 100). It skips `auth`, `backups`, `cache`, `fedify`, `logs`, `offsite-backups`, `raw`, `run`, and `support_bundles`.
 - **[code] Build identity.** `build.json` uses the commit that `cb-manuscript` gives to the image as the build argument `CLAIRE_BUILD_COMMIT` (also the OCI label `org.opencontainers.image.revision`, see `Dockerfile`).
@@ -78,6 +82,26 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 - **[code] Lookup.** `lookup_support_bundle_by_token` reads the database first. If the database read fails or has no row, it reads the sidecar. `_validated_archive_path` accepts only a file directly in `data/support_bundles/` whose name is the recorded file name.
 - **[code] Lifetime.** `SUPPORT_BUNDLE_TTL_SECONDS` is 6 hours. `purge_expired_bundles` deletes expired database rows, expired sidecars with their archives, and archive files older than 6 hours. It runs before each new bundle, at API start (`app_lifespan`), and on `claire support-bundle --purge` or Telegram `/support bundle purge`.
 - **[code] Download.** An unknown token gives 404. An expired token gives 410, and the code deletes the file, the row, and the sidecar. The response has `Cache-Control: no-store, private`. `robots.txt` disallows `/support/bundle`.
+
+### 3.6 Members of the subsystems after the first format 3 members
+
+- **[code] Reason.** The federation, the knowledge federation, `client.db`, `auth.db`, the shared knowledge bases, the runtime settings files, and the worker services came after the first members of format 3. The bundle had no data of them. The members below add them. They are new members of format 3; `BUNDLE_FORMAT_VERSION` stays 3 (a reader that does not know a member ignores it).
+- **[code] Read-only.** `support_bundle_services.py` opens each database with `connect_existing(readonly=True)` (`mode=ro`, `query_only`). It does not make an absent file: an absent database or table is `{"state": "absent"}`. A failure of one part is the value `{"state": "error"}` of that part and a warning `*_COLLECTOR_FAILED` or `*_UNREADABLE` in `collector_warnings.json`. Each member also goes through `sanitize_sensitive_data`.
+- **[code] Members.**
+
+| Member | Content |
+| :--- | :--- |
+| `diagnostics/services.json` | `worker_loops`: the state file of each worker loop with its age (`recent`, `overdue` after two intervals and 10 minutes, `absent`, `unreadable`). `fedify_sidecar`: the last heartbeat (`run/federation_heartbeat.json`) with its age, the presence of the socket, and the size and time of `fedify/fedify.db` (not its content) |
+| `diagnostics/runtime_config.json` | `providers.json` and `ingest_limits.json` of the data directory, and each `server_settings` value of `claire.db`. `id_salt` is always `***REDACTED***`; API keys, `access_key`, and `secret` are masked |
+| `federation/server_queues.json` | From `claire.db`: accounts by status and role; `federation_outbox` by status and kind; `kf_outbox`, `kf_inbox_journal`, `kf_remote_reads`, `kf_outbound_offers`, `kf_inbound_offers` by status or state, with the oldest and newest time; error and reason codes of the period by domain; retries of `kf_outbox`; `kf_known_servers` and `kf_remote_kb_reads` (up to 100, most errors first) |
+| `federation/client_db.json` | From `client.db`: `client_meta`, `quick_check`, the row count of each table, `federation_client_outbox` by status and kind with error codes, follows by state, timeline totals, media cache by state with bytes, and feeds (failing, poll overdue for 1 hour, by `last_status`, error texts with each URL replaced by `[URL]`) |
+| `accounts/auth_db.json` | From `auth.db`: `meta`, `quick_check`, the row count of each table, the Telegram bot of each account (number, username, status, masked error; no ciphertext, nonce, or fingerprint), the backup policy of each account, invitation redemptions by status, counts of the login throttle, admin audit actions of the period (no detail) |
+| `pipeline/worker_queues.json` | For each knowledge base database: `expand_queue`, `refresh_queue`, `jobs`, `syndication_dispatches`, `document_presentations` by status and knowledge base. Error texts only for knowledge bases of the admin account, like `failed_items.json` |
+| `pipeline/shared_kb.json` | From `claire.db`: `kb_contributions`, `kb_contribution_revisions`, `kb_mutual_collaborations`, `kb_auto_rules`, `kb_memberships` by state, and the count of `kb_submissions` |
+
+- **[code] Error texts.** `_short_text` cuts a text at 300 characters, replaces a Telegram bot token with `***REDACTED***`, and replaces each URL with `[URL]` (except the error samples of admin knowledge bases).
+- **[code] Worker loops.** The Compose services `refresh`, `recover`, and `expand` write only to the standard output, which the bundle cannot read. `loop_runtime.start_loop` copies each output line with the UTC time to `data/logs/<name>-loop.log` (rotation at 10 MB, 3 old files) and writes `data/run/loop_<name>.json` after each cycle (start time, time and result of the last cycle, last error, counts of the cycle, interval). A failure to write a record does not stop the loop.
+- **[code] Not in the bundle.** The standard output of the Fedify sidecar and the content of `fedify.db` (the data of the sidecar), password hashes, keys, ciphertexts, invitation codes, the keys of the login throttle, feed and post addresses, and the payloads of the queues.
 
 ## 4. Account-scope Support Bundle
 

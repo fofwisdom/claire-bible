@@ -1810,8 +1810,11 @@ def cmd_recover_loop(args) -> int:
 
     from .ingest.service import IngestService
 
+    from .loop_runtime import start_loop
+
     s = get_settings()
     state = _ThemeLoopState()
+    recorder = start_loop(s.data_dir, "recover", interval=args.interval)
     print(f"claire recover-loop starts (interval={args.interval}s, batch={args.batch}, "
           f"max_attempts={args.max_attempts}). Ctrl+C stops it.", flush=True)
     while True:
@@ -1835,8 +1838,15 @@ def cmd_recover_loop(args) -> int:
                     f"{error['error']}",
                     flush=True,
                 )
+            recorder.cycle_ok({
+                "tried": len(results),
+                "recovered": sum(1 for r in results if r["status"] in ("done", "duplicate")),
+                "permanent_failures": sum(1 for r in results if r["status"] == "failed"),
+                "theme_errors": len(cycle["errors"]),
+            })
         except Exception as e:  # noqa: BLE001
             print(f"[recover] Error: {_loop_error_text(e)}", flush=True)
+            recorder.cycle_failed(_loop_error_text(e))
         time.sleep(max(60, args.interval))
 
 
@@ -1897,8 +1907,11 @@ def cmd_refresh_loop(args) -> int:
 
     from .ingest.service import IngestService
 
+    from .loop_runtime import start_loop
+
     s = get_settings()
     state = _ThemeLoopState()
+    recorder = start_loop(s.data_dir, "refresh", interval=args.interval)
     print(f"claire refresh-loop starts (interval={args.interval}s, batch={args.batch}). Ctrl+C stops it.", flush=True)
     while True:
         try:
@@ -1920,8 +1933,15 @@ def cmd_refresh_loop(args) -> int:
                     f"{error['stage']} error: {error['error']}",
                     flush=True,
                 )
+            recorder.cycle_ok({
+                "enqueued": due,
+                "processed": len(results),
+                "refreshed": sum(1 for r in results if r["status"] == "done"),
+                "theme_errors": len(cycle["errors"]),
+            })
         except Exception as e:  # noqa: BLE001
             print(f"[refresh] Error: {_loop_error_text(e)}", flush=True)
+            recorder.cycle_failed(_loop_error_text(e))
         time.sleep(max(60, args.interval))
 
 
@@ -2103,8 +2123,11 @@ def cmd_expand_loop(args) -> int:
 
     from .ingest.service import IngestService
 
+    from .loop_runtime import start_loop
+
     s = get_settings()
     state = _ThemeLoopState()
+    recorder = start_loop(s.data_dir, "expand", interval=args.interval)
     print(f"claire expand-loop starts (interval={args.interval}s, batch={args.batch}). "
           "Ctrl+C stops it.", flush=True)
     while True:
@@ -2124,8 +2147,14 @@ def cmd_expand_loop(args) -> int:
                     f"{error['error']}",
                     flush=True,
                 )
+            recorder.cycle_ok({
+                "processed": len(results),
+                "ingested": sum(r.get("stored", 0) for r in results),
+                "theme_errors": len(cycle["errors"]),
+            })
         except Exception as e:  # noqa: BLE001
             print(f"[expand] Error: {_loop_error_text(e)}", flush=True)
+            recorder.cycle_failed(_loop_error_text(e))
         time.sleep(max(60, args.interval))
 
 
