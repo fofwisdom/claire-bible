@@ -372,7 +372,7 @@
               <button onclick="setReadFS(2)" title="${t:ws.reader.font_larger}" aria-label="${t:ws.reader.font_larger}">A+</button>
             </div>
             <button class="rshare" onclick="shareDoc()" title="${t:ws.reader.share}" aria-label="${t:ws.reader.share}"><span data-icon="link"></span></button>
-            <button class="rclose" onclick="closeReader()" title="${t:ws.reader.close_title}" aria-label="${t:ws.reader.close}">✕</button>
+            <button type="button" class="rctx" id="rctxbtn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" title="${t:nav.context_toggle}" aria-label="${t:nav.context_toggle}"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
           </div>
         </div>
         <div class="sharebox" id="sharebox"></div>

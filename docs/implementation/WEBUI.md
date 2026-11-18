@@ -82,7 +82,7 @@ The grid columns have a 0.2s transition. It stops with `prefers-reduced-motion`.
 - a form or a result is pinned in the panel (`contextPinned`: ingest, regenerate, research, synthesis), or an entity is selected, in each view; or
 - the view is not `home` and a document is open, or the view is `graph`.
 
-`isContextOpen()` is `hasContext()` and the user state `contextUserOpen` (account-scoped key `claireContextOpen`). A `MutationObserver` on `#panel` calls `syncWorkspaceLayout()` when the panel content changes.
+`isContextOpen()` is `hasContext()` and the user state `contextUserOpen` (account-scoped key `claireContextOpen`). The head bar of the reader (`#reader .rtools`) has the context button `#rctxbtn` at each width, in the place of the old close button (removed 2026-11-18: the reader is a center view, not a modal). It calls `toggleContextPanel()`; its `aria-expanded` follows the context column on a wide screen and the drawer on a narrow screen. A `MutationObserver` on `#panel` calls `syncWorkspaceLayout()` when the panel content changes.
 
 | Context | Content of `#panel` |
 | :--- | :--- |

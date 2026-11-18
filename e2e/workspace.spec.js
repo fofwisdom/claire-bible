@@ -77,14 +77,18 @@ test('mobile primary view displays the bottom view bar and the graph, and the co
   await expect(reader).toBeVisible();
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 6. 리더 닫기 버튼 클릭 시 다시 센터 뷰로 복귀
-  await page.locator('#reader .rclose').click();
-  await expect(reader).toBeHidden();
-  await expect(page.locator('#botnav')).toBeVisible();
+  // 6. The document head bar has no close button. Its context button opens the context drawer.
+  await expect(page.locator('#reader .rclose')).toHaveCount(0);
+  await page.locator('#rctxbtn').click();
+  await expect(page.locator('#detailpane')).toBeVisible();
+  await expect(page.locator('#rctxbtn')).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('#detailclose').click();
+  await expect(page.locator('#detailpane')).toBeHidden();
 
   // 7. 센터탭에서 프레젠테이션 및 그래프 전환
   await page.locator('#botnav-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
+  await expect(reader).toBeHidden();
 
   expect(pageErrors).toEqual([]);
 });
@@ -180,6 +184,17 @@ test('context panel stays closed without selection and toggles on demand on desk
     const box = await detailPane.boundingBox();
     return box ? box.width : 0;
   }).toBeGreaterThanOrEqual(300);
+
+  // 5. The context button of the document head bar closes and opens the same panel.
+  const readerCtxBtn = page.locator('#rctxbtn');
+  await expect(readerCtxBtn).toBeVisible();
+  await expect(readerCtxBtn).toHaveAttribute('aria-expanded', 'true');
+  await readerCtxBtn.click();
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  await expect(readerCtxBtn).toHaveAttribute('aria-expanded', 'false');
+  await readerCtxBtn.click();
+  await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
 
   expect(pageErrors).toEqual([]);
 });
@@ -343,10 +358,10 @@ test('mobile history back navigation closes modal and returns to previous view w
   await expect(detailPane).toBeHidden();
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 6. 리더 열고 ✕ 닫기 단추로 닫기
+  // 6. Open the reader, then leave it with the graph button of the bottom bar.
   await page.locator('#botnav-reader').click();
   await expect(reader).toBeVisible();
-  await page.locator('#reader .rclose').click();
+  await page.locator('#botnav-graph').click();
   await expect(reader).toBeHidden();
   await expect(page.locator('#botnav')).toBeVisible();
 
@@ -366,8 +381,8 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await expect(reader).toBeVisible();
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 2. 리더 닫기 버튼(✕) 클릭하여 리더 닫기
-  await page.locator('#reader .rclose').click();
+  // 2. Leave the reader with the graph button of the bottom bar (the reader has no close button).
+  await page.locator('#botnav-graph').click();
   await expect(reader).toBeHidden();
   await expect(page.locator('#botnav')).toBeVisible();
 

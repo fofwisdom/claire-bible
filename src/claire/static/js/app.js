@@ -950,6 +950,9 @@ function syncWorkspaceLayout(){
     ctxBtn.disabled = !hasContext();
     ctxBtn.setAttribute('aria-expanded', ctxOpen ? 'true' : 'false');
   }
+  // The context button of the document head bar (in the place of the old close button). On a narrow screen the context is the drawer.
+  const readerCtxBtn = document.getElementById('rctxbtn');
+  if(readerCtxBtn) readerCtxBtn.setAttribute('aria-expanded', (wide ? ctxOpen : isDrawerActive) ? 'true' : 'false');
   const listBtn = document.getElementById('listtoggle');
   if(listBtn) listBtn.setAttribute('aria-expanded', listPaneOpen ? 'true' : 'false');
   const docsPane = document.getElementById('docs');
