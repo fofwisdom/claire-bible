@@ -1,15 +1,24 @@
-"""x.com fetcher — URL 파싱 + 트윗 JSON → Document 빌드 (네트워크 없이)."""
+"""x.com fetcher (project plugin claire.xcom) — URL 파싱 + 트윗 JSON → Document 빌드 (네트워크 없이)."""
 
 from __future__ import annotations
 
 import pytest
 
-from claire.ingest.fetchers.base import FetchError
-from claire.ingest.fetchers.xcom import (
-    _build_document,
-    _make_title,
-    parse_status,
-)
+from pathlib import Path
+
+from claire.plugin_sdk import FetchError
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+_NAMES = ("_build_document", "_make_title", "parse_status", "_build_thread_document", "_trace_upward_chain")
+
+
+@pytest.fixture(autouse=True)
+def xmod(monkeypatch):
+    module = load_plugin(FOLDER).module("adapter")
+    for name in _NAMES:
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return module
 
 # --- URL 파싱 ---
 
@@ -114,10 +123,6 @@ def test_build_document_empty_body_raises():
 
 # --- Thread 빌드 ---
 
-from claire.ingest.fetchers.xcom import (
-    _build_thread_document,
-    _trace_upward_chain,
-)
 
 
 def test_build_thread_document_basic():
@@ -162,7 +167,7 @@ def test_build_thread_document_single_fallback():
     assert d.raw_text == "단일 트윗 내용"
 
 
-def test_trace_upward_chain(monkeypatch):
+def test_trace_upward_chain(monkeypatch, xmod):
     root = _tweet(id="1", text="루트 트윗", replying_to=None, replying_to_status=None)
     mid = _tweet(id="2", text="중간 트윗", replying_to="gildong", replying_to_status="1")
     leaf = _tweet(id="3", text="마지막 트윗", replying_to="gildong", replying_to_status="2")
@@ -172,7 +177,6 @@ def test_trace_upward_chain(monkeypatch):
     def fake_fetch_api(screen, sid):
         return store.get(str(sid)), "mock"
 
-    import claire.ingest.fetchers.xcom as xmod
     monkeypatch.setattr(xmod, "_fetch_api", fake_fetch_api)
 
     chain = _trace_upward_chain(leaf, "gildong", max_depth=5)

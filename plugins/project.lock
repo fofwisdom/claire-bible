@@ -15,3 +15,8 @@ digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fc
 id = "claire.uttu"
 revision = 1
 digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191c"
+
+[[plugin]]
+id = "claire.xcom"
+revision = 1
+digest = "sha256:e463b95df4a281862d6e5a28ab60e6a5f5d6b9757a1a74dbf1183318cb92e3db"

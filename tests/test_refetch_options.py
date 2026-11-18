@@ -12,8 +12,6 @@ from claire.config import Settings, extract_own_share_token, get_settings
 from claire.extract.provider import ExtractionResult
 from claire.ingest.fetchers.textfile import fetch_file, fetch_text
 from claire.ingest.fetchers.web import fetch_web
-from claire.ingest.fetchers.xcom import fetch_xcom
-from claire.ingest.fetchers.youtube import fetch_youtube
 from claire.ingest.router import fetch as router_fetch
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document

@@ -111,12 +111,6 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
 
         return _call_fetcher(fetch_web, t)
 
-    if kind == "xcom":
-        # fxtwitter JSON API 로 트윗 본문을 실제 스크랩(실패 시 web 폴백은 fetcher 내부).
-        from .fetchers.xcom import fetch_xcom
-
-        return _call_fetcher(fetch_xcom, t)
-
     if kind == "file":
         from .fetchers.textfile import fetch_file
 

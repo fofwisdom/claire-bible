@@ -1,4 +1,4 @@
-"""x.com(트위터) fetcher — fxtwitter JSON API 로 트윗 본문을 실제로 가져온다.
+"""x.com(트위터) fetcher (project plugin claire.xcom) — fxtwitter JSON API 로 트윗 본문을 실제로 가져온다.
 
 기존 라우터는 x.com 을 'v1 부분 처리'로 두어 본문 스크랩 없이 URL 자체를 partial Note(title='x.com post', raw_text=URL)로 적재했다 → 제목·내용이 모두 빈약했다.
 
@@ -11,11 +11,19 @@ from __future__ import annotations
 
 import re
 
-from ...config import get_settings
-from ...extract.table_budget import slice_document_text
-from ...ontology.base import Document
-from ..normalize import canonicalize_url, content_hash
-from .base import FetchError, fetch_settings
+from claire.plugin_sdk import (
+    BaseFetcher,
+    Document,
+    FetchError,
+    PluginContext,
+    canonicalize_url,
+    content_hash,
+    fetch_settings,
+    fetch_web,
+    slice_document_text,
+    url_host,
+    host_matches_any,
+)
 
 _STATUS_RE = re.compile(r"(?:^|/)([A-Za-z0-9_]{1,15})/status(?:es)?/(\d+)")
 _STATUS_ONLY_RE = re.compile(r"/status(?:es)?/(\d+)")
@@ -56,15 +64,11 @@ def fetch_xcom(url: str, *, full_content: bool = False) -> Document:
     screen, sid = parse_status(url)
     if not sid:
         # status id 가 없으면(프로필·검색 등) 트윗 API 대상이 아니다 → web 으로.
-        from .web import fetch_web
-
         return fetch_web(url, full_content=full_content)
 
     tweets, via = _fetch_thread(screen, sid)
     if not tweets:
         # API 미러가 모두 실패 → 일반 web fetcher(scrapling 포함) 최후 시도.
-        from .web import fetch_web
-
         return fetch_web(url, full_content=full_content)
 
     if len(tweets) == 1:
@@ -93,15 +97,14 @@ def _fetch_thread(screen: str | None, sid: str) -> tuple[list[dict] | None, str 
 
 def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
     """FixTweet v2 API를 호출하여 동일 작성자의 전체 글타래 목록을 가져온다."""
-    from .http import guarded_client
-
+    assert _ctx is not None, "register(ctx) was not called"
     headers = {"User-Agent": "ClaireBible/1.0", "Accept": "application/json"}
     primary_host = _API_HOSTS[0]
 
     # 1. 대상 트윗의 조상 체인 확인 (/2/thread/{sid})
     thread_data: dict | None = None
     try:
-        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with _ctx.http_client(follow_redirects=True, timeout=12, headers=headers) as c:
             resp = c.get(f"https://{primary_host}/2/thread/{sid}")
         if resp.status_code == 200 and "json" in (resp.headers.get("content-type") or "").lower():
             thread_data = resp.json()
@@ -131,7 +134,7 @@ def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
 
     # 2. 루트 트윗 기준 conversation 호출로 하위 타래(답글)까지 포괄 수집
     try:
-        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with _ctx.http_client(follow_redirects=True, timeout=12, headers=headers) as c:
             conv_resp = c.get(f"https://{primary_host}/2/conversation/{root_id}")
         if conv_resp.status_code == 200 and "json" in (conv_resp.headers.get("content-type") or "").lower():
             conv_data = conv_resp.json()
@@ -224,12 +227,11 @@ def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
 
 def _try_host(host: str, screen: str | None, sid: str) -> dict | None:
     """한 미러 호스트에서 트윗 JSON 1회 시도. 실패(404/5xx/HTML/timeout) 시 None."""
-    from .http import guarded_client
-
+    assert _ctx is not None, "register(ctx) was not called"
     path = f"{screen}/status/{sid}" if screen else f"status/{sid}"
     headers = {"User-Agent": _UA, "Accept": "application/json"}
     try:
-        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with _ctx.http_client(follow_redirects=True, timeout=12, headers=headers) as c:
             resp = c.get(f"https://{host}/{path}")
         if resp.status_code != 200:
             return None  # 404(일시 rate limit 포함)/5xx
@@ -342,7 +344,7 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None, full_conte
     lang = tweet.get("lang")
 
     canonical_src = tweet.get("url") or url
-    settings = fetch_settings(None, get_settings)
+    settings = fetch_settings(None)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy
@@ -426,7 +428,7 @@ def _build_thread_document(
     root_id = root.get("id")
     canonical_src = root.get("url") or (f"https://x.com/{screen}/status/{root_id}" if screen and root_id else url)
 
-    settings = fetch_settings(None, get_settings)
+    settings = fetch_settings(None)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy
@@ -533,14 +535,19 @@ def _published_at(tweet: dict) -> str | None:
             pass
     return tweet.get("created_at") or None
 
-from .base import BaseFetcher
+_ctx: PluginContext | None = None
+
+
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    ctx.fetcher(XComFetcher, name="xcom", priority=90, hosts=XCOM_HOSTS)
+
 
 class XComFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        from ..hosts import url_matches_any
-
-        return url_matches_any(url, XCOM_HOSTS)
+        return host_matches_any(url_host(url), XCOM_HOSTS)
 
     @classmethod
     def name(cls) -> str:

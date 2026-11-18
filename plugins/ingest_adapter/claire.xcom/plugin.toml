@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.xcom"
+type = "ingest_adapter"
+revision = 1
+core_commit = "688049c3475c939f7cabe16c67bc18333022072f"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "X (Twitter)"
+description = "Gets the text of posts and threads on x.com from the public mirror APIs fxtwitter and vxtwitter. When both fail, it uses the general web chain."
+
+[text.ko]
+name = "X (트위터)"
+description = "x.com 게시물과 글타래의 본문을 공개 미러 API(fxtwitter, vxtwitter)로 가져온다. 둘 다 실패하면 일반 웹 수집을 쓴다."
+
+[[provides]]
+kind = "fetcher"
+name = "xcom"
+priority = 90
+hosts = ["x.com", "*.x.com", "twitter.com", "*.twitter.com", "fxtwitter.com", "*.fxtwitter.com", "vxtwitter.com", "*.vxtwitter.com", "fixupx.com", "*.fixupx.com"]
+source_types = ["xcom"]
+
+[permissions]
+network = ["api.fxtwitter.com", "api.vxtwitter.com"]
+private_network = false
+network_modules = []
+executables = []
+providers = []
+
+[requires]
+distributions = []
+executables = []
