@@ -58,7 +58,12 @@ Core entries at this commit (the site entries move to project plugins in unit PL
 | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
 | web adapter | `uttu` | 35 | `uttu.merui.net`, `*.merui.net` | `src/claire/ingest/fetchers/uttu.py` |
 | web adapter | `discourse` | 30 | `*` | `src/claire/ingest/fetchers/discourse.py` |
-| web adapter | `law` | 20 | `law.go.kr`, `*.law.go.kr` | `src/claire/ingest/fetchers/law.py` |
+
+Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of the plugin store): [code]
+
+| Plugin | Kind | Name | Priority | Hosts |
+|---|---|---|---|---|
+| `claire.law_go_kr` | web adapter | `law` | 20 | `law.go.kr`, `*.law.go.kr` |
 
 #### Plugins [code]
 

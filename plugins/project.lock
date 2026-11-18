@@ -1,2 +1,7 @@
 # Project plugins: id, plugin revision, and digest. Written by `claire plugin lock`.
 # docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.2
+
+[[plugin]]
+id = "claire.law_go_kr"
+revision = 1
+digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fcd"

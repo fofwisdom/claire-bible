@@ -1,15 +1,24 @@
-"""law.go.kr 어댑터 단위 테스트."""
+"""law.go.kr 어댑터 단위 테스트 (project plugin claire.law_go_kr)."""
 
 from __future__ import annotations
 
 import httpx
 import pytest
 
-from claire.ingest.fetchers.law import (
-    _extract_from_reader,
-    _is_law_kr_url,
-    try_law_kr,
-)
+from pathlib import Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def adapter(monkeypatch):
+    """Load the plugin for each test: register(ctx) gives the module its network client."""
+    module = load_plugin(FOLDER).module("adapter")
+    for name in ("_extract_from_reader", "_is_law_kr_url", "try_law_kr"):
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return module
 
 
 def test_is_law_kr_url():

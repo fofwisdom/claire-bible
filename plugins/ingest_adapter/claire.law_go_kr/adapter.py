@@ -1,4 +1,4 @@
-"""국가법령정보센터(law.go.kr) 어댑터.
+"""국가법령정보센터(law.go.kr) 어댑터 (project plugin claire.law_go_kr).
 
 law.go.kr 은 본문 조문을 정적 HTML 본문에 바로 담지 않고 1) 외곽 페이지(`/법령/<명칭>`, `/행정규칙/<명칭>` 등)가 iframe 으로 `*InfoP.do` 를 로드하고, 2) `*InfoP.do` 가 브라우저 JS(AJAX)로 `*InfoR.do` 를 호출해 본문을 주입하는 2중 구조를 갖는다.
 
@@ -14,7 +14,17 @@ import re
 import urllib.parse
 from lxml import html as lh
 
-from .base import BaseWebAdapter, WebAdapterResult
+from claire.plugin_sdk import BaseWebAdapter, PluginContext, WebAdapterResult, extract_html
+
+HOSTS = ("law.go.kr", "*.law.go.kr")
+
+_ctx: PluginContext | None = None
+
+
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    ctx.web_adapter(LawKrAdapter, name="law", priority=20, hosts=HOSTS)
 
 _LAW_HOSTS = ("law.go.kr", "www.law.go.kr")
 _UA = (
@@ -40,13 +50,12 @@ def try_law_kr(
     if not _is_law_kr_url(url):
         return None
 
-    from .http import guarded_client
-
     parts = urllib.parse.urlsplit(url.strip())
     target_url = urllib.parse.urlunsplit(("https", parts.netloc, parts.path, parts.query, ""))
 
     try:
-        with guarded_client(follow_redirects=True, timeout=25, headers={"User-Agent": _UA}) as client:
+        assert _ctx is not None, "register(ctx) was not called"
+        with _ctx.http_client(follow_redirects=True, timeout=25, headers={"User-Agent": _UA}) as client:
             if "InfoR.do" in target_url:
                 resp = client.get(target_url)
                 if resp.status_code < 400:
@@ -102,10 +111,7 @@ class LawKrAdapter(BaseWebAdapter):
 
     @classmethod
     def try_fetch(cls, url: str, **kwargs) -> WebAdapterResult | None:
-        import sys
-        mod = sys.modules[__name__]
-        fn = getattr(mod, "try_law_kr", try_law_kr)
-        res = fn(url)
+        res = try_law_kr(url)
         if res is None:
             return None
         title, text, links, anchors, images = res
@@ -122,8 +128,6 @@ def _extract_from_reader(
     html_text: str, base_url: str, fallback_title: str | None = None
 ) -> tuple[str | None, str, list[str], dict[str, str], list[dict]] | None:
     """law.go.kr 본문 리더 HTML 에서 불필요한 UI 툴바 제거 및 본문/제목 추출."""
-    from .web import _extract_html
-
     try:
         tree = lh.fromstring(html_text)
     except Exception:
@@ -146,7 +150,7 @@ def _extract_from_reader(
         title = hidden_names[0].strip()
 
     cleaned_html = lh.tostring(tree, encoding="unicode")
-    t_extracted, text, links, anchors, _, images = _extract_html(cleaned_html, base_url=base_url)
+    t_extracted, text, links, anchors, _, images = extract_html(cleaned_html, base_url=base_url)
 
     final_title = title or t_extracted or fallback_title
     if not text or len(text) < 50:

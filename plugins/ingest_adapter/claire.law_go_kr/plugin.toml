@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.law_go_kr"
+type = "ingest_adapter"
+revision = 1
+core_commit = "f4f546d1d6315d7b459e5d6396a62ab1f83b4784"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "Korean Law Information Center"
+description = "Gets the articles of laws and administrative rules from law.go.kr. The page loads the text in a frame; the adapter reads the text page directly and removes the tool bars."
+
+[text.ko]
+name = "국가법령정보센터"
+description = "law.go.kr의 법령·행정규칙 조문을 가져온다. 프레임으로 불러오는 본문 페이지를 직접 읽고 도구 모음을 지운다."
+
+[[provides]]
+kind = "web_adapter"
+name = "law"
+priority = 20
+hosts = ["law.go.kr", "*.law.go.kr"]
+source_types = ["web"]
+
+[permissions]
+network = ["law.go.kr", "*.law.go.kr"]
+private_network = false
+network_modules = []
+executables = []
+providers = []
+
+[requires]
+distributions = []
+executables = []

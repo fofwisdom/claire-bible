@@ -53,16 +53,40 @@ def test_strip_html_multiroot_safe():
 
 # --- fetch_web fallback 체인 + thin-guard ---
 
+def _fake_adapter(name, result):
+    """A web adapter that gives ``result`` = (title, text, links[, anchors, images]) or None."""
+    from claire.ingest.fetchers.base import BaseWebAdapter, WebAdapterResult
+
+    class _Adapter(BaseWebAdapter):
+        @classmethod
+        def name(cls):
+            return name
+
+        @classmethod
+        def try_fetch(cls, url, **kwargs):
+            if result is None:
+                return None
+            title, text, links, *rest = result
+            return WebAdapterResult(title=title, text=text, links=links, anchors=rest[0] if rest else {}, images=rest[1] if len(rest) > 1 else [])
+
+    return _Adapter
+
+
 def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None, []),
                  law=None, discourse=None, scrapling=(None, "", [], {}, []),
                  cdp=(None, "", [], {}, [])):
+    """The web chain with fake adapter entries: a site adapter for law.go.kr (priority 20) and a general adapter "discourse" (priority 30)."""
+    from claire.ingest.registry import Entry, registry
+
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
     monkeypatch.setattr(web, "_fetch_cdp", lambda url: cdp)
-    import claire.ingest.fetchers.discourse as disc
-    monkeypatch.setattr(disc, "try_discourse", lambda url: discourse)
-    import claire.ingest.fetchers.law as law_mod
-    monkeypatch.setattr(law_mod, "try_law_kr", lambda url: law)
+    entries = [
+        Entry("web_adapter", "law", 20, ("law.go.kr", "*.law.go.kr"), _fake_adapter("law", law), "claire.law_go_kr"),
+        Entry("web_adapter", "discourse", 30, ("*",), _fake_adapter("discourse", discourse), "claire.discourse"),
+    ]
+    monkeypatch.setattr(registry, "_core", [])
+    monkeypatch.setattr(registry, "_plugin_entries_fn", lambda: entries)
 
 
 def test_static_rich_used_directly(monkeypatch):
