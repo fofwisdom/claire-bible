@@ -931,7 +931,7 @@
       h += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${opt.label}</option>`;
     }
     h += '</select>';
-    h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b> · ${esc(trKey("console.js.panels.providers.cli_note"))} <a href="/settings/keys">${esc(trKey("console.js.panels.providers.cli_note_link"))}</a></div>`;
+    h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b></div>`;
     h += '<div id="prov-feat-mock" style="margin-top:6px;"></div>';
     h += '<div id="prov-cap-mock" style="display:none;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '</div>';

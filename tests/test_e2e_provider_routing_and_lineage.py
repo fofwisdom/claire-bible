@@ -93,7 +93,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         member_sess = _create_session(db_file, 2)
         member_headers = {"Cookie": f"claire_session={member_sess}", "Origin": ORIGIN}
 
-        # 0. Server-wide /providers rejects personal CLI providers, while /api/me/personal-cli manages them for admin.
+        # 0. Server-wide /providers rejects CLI providers. The personal CLI routes of the administrator are sealed (404 for each account).
         cli_reject = client.patch(
             "/providers",
             headers=owner_headers,
@@ -101,12 +101,12 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         )
         assert cli_reject.status_code == 400
         assert client.get("/api/me/personal-cli", headers=member_headers).status_code == 404
-        admin_pcli = client.get("/api/me/personal-cli", headers=admin_cookie_headers)
-        assert admin_pcli.status_code == 200
-        assert "personal_cli" in admin_pcli.json()
+        assert client.get("/api/me/personal-cli", headers=admin_cookie_headers).status_code == 404
+        assert client.patch("/api/me/personal-cli", headers=admin_cookie_headers, json={"enabled": True, "active_cli": "codex"}).status_code == 404
+        assert client.post("/api/me/personal-cli/test", headers=admin_cookie_headers, json={"provider": "codex"}).status_code == 404
         admin_keys_html = client.get("/settings/keys", headers={"Cookie": f"claire_session={admin_sess}"})
         assert admin_keys_html.status_code == 200
-        assert "admin-personal-cli-host" in admin_keys_html.text
+        assert "admin-personal-cli-host" not in admin_keys_html.text
         client.cookies.clear()
 
         # 1. Admin configures Google AI Studio key, 3.8 baseline, separated summarize slot, ServerTier, and JEV filter mode.

@@ -199,68 +199,15 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   expect(patchedPayload.server_tier.max_effort).toBe('medium');
   expect(patchedPayload.server_tier.features).toEqual(['expand', 'stt']);
 
-  let savedPersonalCli = null;
-  const mockCliState = () => ({
-    personal_cli: {
-      enabled: true,
-      active_cli: 'antigravity',
-      feature_routing: {}
-    },
-    providers: {
-      antigravity: {
-        bin: 'agy',
-        model: 'gemini-3-flash-preview',
-        effort: 'high',
-        installed: true,
-        cli_version: '2.0.0',
-        available_models: [
-          { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }
-        ]
-      },
-      codex: {
-        bin: 'codex',
-        model: '',
-        installed: true,
-        available_models: [{ id: '', label: '계정 기본' }]
-      }
-    },
-    capabilities: {
-      providers: {
-        antigravity: { selectable: true, locked_reason: '' },
-        codex: { selectable: true, locked_reason: '' }
-      }
-    }
-  });
-
-  await page.route(u => u.pathname === '/api/me/personal-cli', async (route) => {
-    const req = route.request();
-    if (req.method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockCliState()) });
-    }
-    if (req.method() === 'PATCH') {
-      savedPersonalCli = JSON.parse(req.postData() || '{}');
-      const next = mockCliState();
-      next.personal_cli.enabled = savedPersonalCli.enabled;
-      next.personal_cli.active_cli = savedPersonalCli.active_cli;
-      next.providers.antigravity.model = savedPersonalCli.providers.antigravity.model;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(next) });
-    }
-    return route.continue();
-  });
-
+  // The personal CLI clients of the administrator are sealed: the keys page shows only the link to the provider page and asks for no personal CLI state.
+  const personalCliRequests = [];
+  page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/me/personal-cli')) personalCliRequests.push(req.url()); });
   await page.goto('/settings/keys', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#admin-personal-cli-host')).toBeVisible();
-  await expect(page.locator('#pcli-enabled')).toBeChecked();
-  await expect(page.locator('#pcli-active')).toHaveValue('antigravity');
-  await expect(page.locator('#pcli-agy-model')).toBeVisible();
-  await page.locator('#pcli-agy-model').selectOption('claude-sonnet-4-6');
-  await page.locator('[data-personal-cli-form] button[type="submit"]').click();
-
-  await expect(page.getByText('개인 CLI 설정을 저장했습니다.')).toBeVisible();
-  expect(savedPersonalCli).not.toBeNull();
-  expect(savedPersonalCli.enabled).toBe(true);
-  expect(savedPersonalCli.active_cli).toBe('antigravity');
-  expect(savedPersonalCli.providers.antigravity.model).toBe('claude-sonnet-4-6');
+  await expect(page.locator('#settings-keys-admin-providers')).toBeVisible();
+  await expect(page.locator('#settings-keys-admin-providers a[href="/admin/providers"]')).toBeVisible();
+  await expect(page.locator('#admin-personal-cli-host')).toHaveCount(0);
+  await expect(page.locator('[data-personal-cli-form]')).toHaveCount(0);
+  await expect(page.locator('#settings-keys-admin-providers')).not.toContainText('CLI');
+  expect(personalCliRequests).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

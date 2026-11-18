@@ -278,9 +278,8 @@ def test_jev_gate_ordering_and_hybrid_single_winner_guard(monkeypatch: pytest.Mo
     assert res_ambig.entity.id == e_alpha.id
 
 
-def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path: Path) -> None:
     """Verify query search fixes RETRIEVAL_QUERY, Gemini models discovery works, and server_scope blocks CLI."""
-    import claire.provider_manager as pm_mod
     from claire.retrieval.query import search
 
     embed_calls: list[tuple[str, str | None]] = []
@@ -306,11 +305,3 @@ def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path:
         pm.update_config({"active_provider": "antigravity"}, server_scope=True)
     with pytest.raises(ValueError):
         pm.update_config({"feature_routing": {"extract_graph": {"provider": "codex"}}}, server_scope=True)
-
-    # Personal CLI configuration succeeds cleanly on the personal scope method.
-    monkeypatch.setattr(pm_mod, "is_running_in_container", lambda: False)
-    monkeypatch.setattr(pm_mod, "find_codex_executable", lambda _bin="codex": "/usr/bin/codex")
-    pcli = pm.update_personal_cli_config({"enabled": True, "active_cli": "codex", "providers": {"codex": {"bin": "codex", "model": "gpt-5.4"}}})
-    assert pcli["personal_cli"]["enabled"] is True
-    assert pcli["personal_cli"]["active_cli"] == "codex"
-    assert pcli["providers"]["codex"]["model"] == "gpt-5.4"

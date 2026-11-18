@@ -39,7 +39,6 @@ from ...store import provider_keys
 from ...store.secrets import BYOK_SEAL_COOKIE, generate_user_seal, register_volatile_user_seal
 from ..principal import Principal, request_principal
 from ..security import read_json_body
-from .admin import is_admin
 from .common import (
     AccountsContext,
     escape,
@@ -49,13 +48,10 @@ from .common import (
     open_auth_db,
     open_db,
     require_recent_auth,
-    same_origin,
 )
 
 ME_KEYS_PATH = "/api/me/keys"
 ME_KEYS_VERIFY_PATH = "/api/me/keys/verify"
-ME_PERSONAL_CLI_PATH = "/api/me/personal-cli"
-ME_PERSONAL_CLI_TEST_PATH = "/api/me/personal-cli/test"
 API_KEY_MAX_LENGTH = 512
 
 # The text of a key status is the catalog key ``console.settings.keys.status.<status>``.
@@ -456,63 +452,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
         deleted = await asyncio.to_thread(remove_keys, ctx, principal.account_id, provider)
         return JSONResponse({"ok": True, "deleted": deleted})
 
-    async def personal_cli_get(request: Request) -> Response:
-        principal = request_principal(request)
-        if not is_admin(principal):
-            return not_found()
-        from ...provider_manager import get_provider_manager
-
-        pm = get_provider_manager(ctx.data_dir or ctx.db_file.parent)
-        data = await asyncio.to_thread(pm.get_personal_cli_config)
-        return JSONResponse(data, headers={"Cache-Control": "no-store"})
-
-    async def personal_cli_patch(request: Request) -> Response:
-        principal = request_principal(request)
-        if not is_admin(principal):
-            return not_found()
-        if not same_origin(request):
-            return json_error(403, "forbidden")
-        body = await read_json_body(request)
-        if not isinstance(body, dict):
-            return json_error(400, "invalid_request")
-        from ...config import get_settings
-        from ...provider_manager import get_provider_manager
-
-        pm = get_provider_manager(ctx.data_dir or ctx.db_file.parent)
-        try:
-            updated = await asyncio.to_thread(pm.update_personal_cli_config, body)
-        except ValueError as exc:
-            return json_error(400, "invalid_request", detail=str(exc))
-        get_settings.cache_clear()
-        return JSONResponse({"ok": True, **updated}, headers={"Cache-Control": "no-store"})
-
-    async def personal_cli_test(request: Request) -> Response:
-        principal = request_principal(request)
-        if not is_admin(principal):
-            return not_found()
-        if principal.channel != "cookie":
-            return json_error(403, "session_required")
-        if not same_origin(request):
-            return json_error(403, "forbidden")
-        body = await read_json_body(request)
-        if not isinstance(body, dict):
-            return json_error(400, "invalid_request")
-        provider_name = str(body.get("provider") or "").strip().lower()
-        if provider_name not in ("antigravity", "codex"):
-            return json_error(400, "unsupported_provider", providers=["antigravity", "codex"])
-        from ...provider_manager import get_provider_manager
-
-        pm = get_provider_manager(ctx.data_dir or ctx.db_file.parent)
-        override = body.get("config") if isinstance(body.get("config"), dict) else None
-        res = await asyncio.to_thread(pm.test_connection, provider_name, override)
-        return JSONResponse(res, headers={"Cache-Control": "no-store"})
-
     return [
         Route(ME_KEYS_PATH, keys_get, methods=["GET"]),
         Route(ME_KEYS_PATH, keys_put, methods=["PUT"]),
         Route(ME_KEYS_PATH, keys_delete, methods=["DELETE"]),
         Route(ME_KEYS_VERIFY_PATH, keys_verify, methods=["POST"]),
-        Route(ME_PERSONAL_CLI_PATH, personal_cli_get, methods=["GET"]),
-        Route(ME_PERSONAL_CLI_PATH, personal_cli_patch, methods=["PATCH"]),
-        Route(ME_PERSONAL_CLI_TEST_PATH, personal_cli_test, methods=["POST"]),
     ]

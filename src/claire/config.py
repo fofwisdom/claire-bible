@@ -484,7 +484,6 @@ class Settings(BaseSettings):
         default="SEMANTIC_SIMILARITY", alias="CLAIRE_EMBED_TASK_TYPE"
     )
     feature_routing: dict[str, dict[str, str]] = Field(default_factory=dict)
-    personal_cli: dict[str, Any] = Field(default_factory=dict)
     sim_tier_auto_merge: float = Field(
         default=0.93, alias="CLAIRE_SIM_TIER_AUTO_MERGE"
     )

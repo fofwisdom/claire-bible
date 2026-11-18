@@ -508,8 +508,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ),
         ("POST", "/providers/test"),
         ("POST", "/providers/check"),
-        *((method, "/api/me/personal-cli") for method in ("GET", "HEAD", "PATCH")),
-        ("POST", "/api/me/personal-cli/test"),
         ("POST", "/support/bundle"),
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),

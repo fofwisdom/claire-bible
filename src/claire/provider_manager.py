@@ -311,11 +311,6 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "timeout": 600.0,
         },
     },
-    "personal_cli": {
-        "enabled": False,
-        "active_cli": "none",
-        "feature_routing": copy.deepcopy(DEFAULT_FEATURE_ROUTING),
-    },
     "updated_at": 0.0,
 }
 
@@ -358,7 +353,6 @@ MIGRATED_ENV_VARS: set[str] = {
 SUPPORTED_ACTIVE_PROVIDERS = ("mock", "gemini", "antigravity", "codex", "openai")
 SUPPORTED_SERVER_ACTIVE_PROVIDERS = ("mock", "gemini")
 ALLOWED_SERVER_ROUTE_PROVIDERS = ("inherit", "gemini", "mock")
-ALLOWED_PERSONAL_CLI_PROVIDERS = ("none", "antigravity", "codex")
 
 _GEMINI_MODELS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _GEMINI_CACHE_TTL = 300.0
@@ -563,18 +557,9 @@ class ProviderManager:
             if "feature_routing" in raw:
                 cfg["feature_routing"] = self._normalize_feature_routing(raw.get("feature_routing"))
 
-            if "personal_cli" in raw and isinstance(raw.get("personal_cli"), dict):
-                raw_pcli = raw["personal_cli"]
-                pcli_out = copy.deepcopy(cfg["personal_cli"])
-                if "enabled" in raw_pcli:
-                    pcli_out["enabled"] = bool(raw_pcli["enabled"])
-                if "active_cli" in raw_pcli:
-                    ac = str(raw_pcli.get("active_cli") or "none").strip().lower()
-                    if ac in ALLOWED_PERSONAL_CLI_PROVIDERS:
-                        pcli_out["active_cli"] = ac
-                if "feature_routing" in raw_pcli:
-                    pcli_out["feature_routing"] = self._normalize_feature_routing(raw_pcli.get("feature_routing"))
-                cfg["personal_cli"] = pcli_out
+            # Sealed: the personal CLI block of the administrator stays in the file as data. No code reads it.
+            if "personal_cli" in raw:
+                cfg["personal_cli"] = copy.deepcopy(raw["personal_cli"])
 
             return cfg
         except Exception as exc:
@@ -652,12 +637,7 @@ class ProviderManager:
 
         out["capabilities"] = self._evaluate_capabilities(cfg, agy_discovery=disc_agy)
         out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
-        raw_pcli = cfg.get("personal_cli") if isinstance(cfg.get("personal_cli"), dict) else {}
-        out["personal_cli"] = {
-            "enabled": bool(raw_pcli.get("enabled", False)),
-            "active_cli": str(raw_pcli.get("active_cli") or "none").strip().lower(),
-            "feature_routing": self._normalize_feature_routing(raw_pcli.get("feature_routing")),
-        }
+        out.pop("personal_cli", None)
         out["feature_slots"] = list(FEATURE_SLOTS)
         out["server_active_providers"] = list(SUPPORTED_SERVER_ACTIVE_PROVIDERS)
         out["server_route_providers"] = list(ALLOWED_SERVER_ROUTE_PROVIDERS)
@@ -1097,7 +1077,7 @@ class ProviderManager:
         if server_scope:
             cand_active = str(payload.get("active_provider") or "").strip().lower()
             if cand_active in ("antigravity", "codex"):
-                raise ValueError("CLI 클라이언트(Antigravity/Codex)는 서버 공용 프로바이더 메뉴에서 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)에서 구성하세요.")
+                raise ValueError("CLI 클라이언트(Antigravity/Codex)는 서버 공용 프로바이더 메뉴에서 선택할 수 없습니다.")
             gem_in = (payload.get("providers") or {}).get("gemini") if isinstance(payload.get("providers"), dict) else None
             if isinstance(gem_in, dict) and "embed_model" in gem_in:
                 req_embed_model = str(gem_in.get("embed_model") or "").strip()
@@ -1107,7 +1087,7 @@ class ProviderManager:
             if isinstance(fr_in, dict):
                 for slot_key, item in fr_in.items():
                     if isinstance(item, dict) and str(item.get("provider") or "").strip().lower() in ("antigravity", "codex"):
-                        raise ValueError(f"서버 공용 Feature Routing('{slot_key}')에서는 CLI 클라이언트를 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)을 이용하세요.")
+                        raise ValueError(f"서버 공용 Feature Routing('{slot_key}')에서는 CLI 클라이언트를 선택할 수 없습니다.")
                     if slot_key == "embed" and isinstance(item, dict):
                         emb_prov = str(item.get("provider") or "inherit").strip().lower()
                         emb_model = str(item.get("model") or "").strip()
@@ -1123,70 +1103,6 @@ class ProviderManager:
 
         self.save_config(merged)
         return self.get_sanitized_config()
-
-    def get_personal_cli_config(self) -> dict[str, Any]:
-        """Return sanitized personal CLI settings for the administrator's own account scope."""
-        san = self.get_sanitized_config()
-        pcli = copy.deepcopy(san.get("personal_cli") or DEFAULT_PROVIDERS_CONFIG["personal_cli"])
-        return {
-            "personal_cli": pcli,
-            "providers": {
-                "antigravity": san["providers"]["antigravity"],
-                "codex": san["providers"]["codex"],
-            },
-            "capabilities": {
-                "in_container": san["capabilities"]["in_container"],
-                "providers": {
-                    "antigravity": san["capabilities"]["providers"]["antigravity"],
-                    "codex": san["capabilities"]["providers"]["codex"],
-                },
-            },
-        }
-
-    def update_personal_cli_config(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Validate and persist administrator personal CLI settings and return sanitized personal CLI state."""
-        current = self.get_config()
-        prov_patch: dict[str, Any] = {}
-        if isinstance(payload.get("providers"), dict):
-            for k in ("antigravity", "codex"):
-                if isinstance(payload["providers"].get(k), dict):
-                    prov_patch[k] = payload["providers"][k]
-        merged = self._merge_payload(current, {"providers": prov_patch}, validate_models=True) if prov_patch else copy.deepcopy(current)
-
-        pcli_cur = copy.deepcopy(merged.get("personal_cli") or DEFAULT_PROVIDERS_CONFIG["personal_cli"])
-        pcli_in = payload.get("personal_cli") if isinstance(payload.get("personal_cli"), dict) else payload
-        if "enabled" in pcli_in:
-            pcli_cur["enabled"] = bool(pcli_in["enabled"])
-        if "active_cli" in pcli_in:
-            act_cli = str(pcli_in.get("active_cli") or "none").strip().lower()
-            if act_cli not in ALLOWED_PERSONAL_CLI_PROVIDERS:
-                raise ValueError(f"지원하지 않는 개인 CLI 클라이언트입니다: {act_cli}")
-            pcli_cur["active_cli"] = act_cli
-        if isinstance(pcli_in.get("feature_routing"), dict):
-            fr_cur = copy.deepcopy(pcli_cur.get("feature_routing") or DEFAULT_FEATURE_ROUTING)
-            for slot_key in FEATURE_SLOTS:
-                raw_slot = pcli_in["feature_routing"].get(slot_key)
-                if isinstance(raw_slot, dict):
-                    sp = str(raw_slot.get("provider") or "inherit").strip().lower()
-                    if sp not in ALLOWED_ROUTE_PROVIDERS:
-                        raise ValueError(f"지원하지 않는 개인 CLI 라우팅 프로바이더입니다: {sp}")
-                    fr_cur[slot_key] = {
-                        "provider": sp,
-                        "model": str(raw_slot.get("model") or "").strip(),
-                        "effort": str(raw_slot.get("effort") or "").strip().lower(),
-                    }
-            pcli_cur["feature_routing"] = fr_cur
-
-        merged["personal_cli"] = pcli_cur
-        caps = self._evaluate_capabilities(merged)
-        if pcli_cur.get("enabled") and pcli_cur.get("active_cli") in ("antigravity", "codex"):
-            cli_name = pcli_cur["active_cli"]
-            cli_cap = caps["providers"].get(cli_name, {})
-            if not cli_cap.get("selectable", False):
-                raise ValueError(cli_cap.get("locked_reason") or f"개인 CLI '{cli_name}'를 현재 환경에서 활성화할 수 없습니다.")
-
-        self.save_config(merged)
-        return self.get_personal_cli_config()
 
     def get_settings_dict(self) -> dict[str, Any]:
         """Pydantic Settings 소스에서 주입할 수 있는 필드 딕셔너리를 생성한다."""
@@ -1263,12 +1179,6 @@ class ProviderManager:
             out["jev_auto_merge_threshold"] = float(jev["auto_merge_threshold"])
 
         out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
-        raw_pcli = cfg.get("personal_cli") if isinstance(cfg.get("personal_cli"), dict) else {}
-        out["personal_cli"] = {
-            "enabled": bool(raw_pcli.get("enabled", False)),
-            "active_cli": str(raw_pcli.get("active_cli") or "none").strip().lower(),
-            "feature_routing": self._normalize_feature_routing(raw_pcli.get("feature_routing")),
-        }
 
         # STT
         if stt.get("enabled") is not None:

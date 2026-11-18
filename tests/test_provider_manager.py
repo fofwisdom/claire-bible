@@ -214,13 +214,6 @@ def test_provider_api_routes(tmp_path: Path):
     )
     assert bearer_test.status_code == 403
 
-    bearer_pcli_test = client.post(
-        "/api/me/personal-cli/test",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
-        json={"provider": "antigravity"},
-    )
-    assert bearer_pcli_test.status_code == 403
-
     # 6. POST capability check: anonymous -> 404, Bearer API -> 403
     anon_check = client.post("/providers/check", json={"active_provider": "mock"})
     assert anon_check.status_code == 404

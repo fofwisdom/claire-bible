@@ -723,10 +723,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("PUT", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
     ("DELETE", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
     ("POST", "/api/me/keys/verify"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("GET", "/api/me/personal-cli"): _any("admin", "none"),
-    ("HEAD", "/api/me/personal-cli"): _any("admin", "none"),
-    ("PATCH", "/api/me/personal-cli"): _any("admin", "none"),
-    ("POST", "/api/me/personal-cli/test"): _any("admin", "none"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).
     ("GET", "/api/me/telegram"): _any("owner", "none"),
     ("HEAD", "/api/me/telegram"): _any("owner", "none"),

@@ -1110,18 +1110,13 @@ def _settings_keys_body(
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
     if admin_viewer:
-        # 관리자는 BYOK 키 대신 서버 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
+        # 관리자는 BYOK 키 대신 서버 프로바이더 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
         notice = t("console.settings.keys.admin_notice")
         body = (
             f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="{escape(t("console.settings.keys.admin_label"))}">'
             f"<h2><span data-icon='bolt'></span> {escape(t('console.settings.keys.admin_title'))}</h2>"
             f'<p class="hint">{escape(notice)}</p>'
             f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'
-            "</section>"
-            f'<section class="console-subcard" id="admin-personal-cli-host" data-admin-personal-cli aria-label="{escape(t("console.settings.keys.cli_label"))}">'
-            f"<h2><span data-icon='terminal'></span> {escape(t('console.settings.keys.cli_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.settings.keys.cli_hint"))}</p>'
-            f'<p class="hint" data-personal-cli-loading>{escape(t("console.settings.keys.cli_loading"))}</p>'
             "</section>"
         )
         return body, {"keys_mode": "admin"}
