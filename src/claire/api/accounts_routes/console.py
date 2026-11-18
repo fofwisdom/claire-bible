@@ -939,6 +939,17 @@ def _settings_account_body(
         if mode == "network"
         else ""
     )
+    # Schema v37: the sources of the documents of the personal knowledge base for other readers. Both modes: in single mode other readers can read the knowledge base of the admin too.
+    source_toggle_html = (
+        '<div data-source-public>'
+        '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
+        f'<label for="pref-personal-source-public" style="font-size:12.5px;font-weight:600">{escape(t("console.settings.account.source_public"))}</label>'
+        f'<input id="pref-personal-source-public" type="checkbox" switch data-settings-toggle="personal-source-public"{" checked" if account.personal_source_public else ""} aria-label="{escape(t("console.settings.account.source_public"))}"/>'
+        '</div>'
+        f'<p class="hint" data-source-public-hint>{escape(t("console.settings.account.source_public_hint"))}</p>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        '</div>'
+    )
 
     current_pw_html = (
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.current_password"))}<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
@@ -1002,6 +1013,7 @@ def _settings_account_body(
         f"<h2><span data-icon='id'></span> {escape(t('console.settings.account.info_title'))}</h2>"
         f"<dl>{info_html}</dl>"
         f"{profile_toggle_html}"
+        f"{source_toggle_html}"
         "</section>"
         f'<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="{escape(t("console.settings.account.display_name"))}">'
         f"<h2><span data-icon='tag'></span> {escape(t('console.settings.account.display_name'))}</h2>"

@@ -3347,6 +3347,9 @@ paths:
                   description: Language of the entity names that the account sees (decided from the script of a name). Null or an empty string shows the stored main labels. The stored data does not change.
                   type: ['string', 'null']
                   enum: [en, ko, ja, zh, '', null]
+                personal_source_public:
+                  description: When true, a reader other than the account sees the sources (url, extra_sources, and each key with "url" in its name) of the documents of the personal knowledge base. When false, only the account sees them, except for a document with a visible contribution in a shared knowledge base.
+                  type: boolean
       responses:
         '200':
           description: Updated account.
@@ -3355,7 +3358,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, locale, and entity_language), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, or `invalid_entity_language`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, locale, entity_language, and personal_source_public), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, `invalid_entity_language`, or `invalid_personal_source_public`.'
           content:
             application/json:
               schema:
@@ -4766,6 +4769,9 @@ components:
           type: ['string', 'null']
           enum: [en, ko, ja, zh, null]
           description: Language of the entity names that the account sees in graph, node, document, and search responses. Null shows the stored main labels.
+        personal_source_public:
+          type: boolean
+          description: True when a reader other than the account sees the sources of the documents of its personal knowledge base. The default is true.
 
     AccountSummary:
       type: object

@@ -165,3 +165,35 @@ test('mobile viewport uses single-node drawer without duplicate links or horizon
   expect(pageErrors).toEqual([]);
   await context.close();
 });
+
+test('account settings switch for public sources saves the value through PATCH /api/me and keeps it after a reload', async ({ browser }) => {
+  const storageState = await ensureOwnerState(browser);
+  const context = await browser.newContext({ storageState });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(err.message));
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/settings/account', { waitUntil: 'networkidle' });
+  const toggle = page.locator('#pref-personal-source-public');
+  await expect(toggle).toBeVisible();
+  await expect(page.locator('[data-source-public-hint]')).toBeVisible();
+  await expect(toggle).toBeChecked();
+
+  const patched = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH');
+  await toggle.click();
+  const response = await patched;
+  expect(response.status()).toBe(200);
+  expect((await response.json()).personal_source_public).toBe(false);
+  await expect(page.locator('[data-source-public] [data-settings-result]')).toHaveAttribute('data-state', 'ok');
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('#pref-personal-source-public')).not.toBeChecked();
+  // Back to the default, so that a second run starts from the same state.
+  const reverted = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH');
+  await page.locator('#pref-personal-source-public').click();
+  expect((await (await reverted).json()).personal_source_public).toBe(true);
+
+  expect(pageErrors).toEqual([]);
+  await context.close();
+});

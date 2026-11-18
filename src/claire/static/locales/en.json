@@ -1036,6 +1036,8 @@
   "console.settings.account.profile_public_off": "Private",
   "console.settings.account.federation_hint": "Federation is on. With a public profile, other servers can find and follow this account, and the change to public needs a confirmation of identity. A change to private pauses federation, but copies that other servers already have are not deleted.",
   "console.settings.account.profile_public_label": "Public profile switch",
+  "console.settings.account.source_public": "Public sources (Open the source)",
+  "console.settings.account.source_public_hint": "When on, the readers of your personal knowledge base other than you (for example the visitors of your public profile) also see the source of each document with 'Open the source'. When off, only you see the sources. The source of a document that is visible in a shared knowledge base after a contribution is public with each value of this setting.",
   "console.settings.account.no_password_hint": "This account has no password. Set a new password in the confirmation time (15 minutes).",
   "console.settings.account.identity_link": "Link {name}",
   "console.settings.account.identity_link_empty": "This server has no external login providers that you can link.",

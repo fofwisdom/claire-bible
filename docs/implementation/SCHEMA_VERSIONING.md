@@ -37,8 +37,9 @@
 | 33 | 직전 version (아래 "v33" 절) | 지식 연합 한도(`kf_inbox_journal` 할당 열, `kf_outbox_activities`, `kb_contributions.remote_updated_at`) |
 | 34 | 직전 version (아래 "v34" 절) | `kf_outbound_offers.automatic` |
 | 35 | 직전 version (아래 "v35" 절) | 링크 확장 원천 이름(`raw_inbox.source`), 동일 주제 출처 병합의 shadow 기록(`same_subject_shadow`) |
-| 36 | 현재 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
-| 37 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 36 | 직전 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
+| 37 | 현재 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
+| 38 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -341,6 +342,12 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v36 (human verdict of the shadow records)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 36`.
+- **[코드] 버전 상수**: v36 도입 당시 `SCHEMA_VERSION`은 36이었다(현재 값은 아래 "v37" 절).
 - **[코드]** The step `_migrate_v36_shadow_verdict_columns` runs at each start, after the step v35, and is idempotent (`_ensure_column`). It adds the columns `verdict` (`same`, `different`, or NULL), `verdict_note`, `verdict_at`, and `verdict_by` (the account of the verdict) to `same_subject_shadow` when they are not there. The rows of v35 stay and get NULL (not judged). No other row changes; the start continues for each state of the data. The schema script makes a new table with the columns. The WebUI (`PUT /api/admin/expansion/shadow/{record_id}/verdict`) writes the verdict ([`EXPANSION.md`](EXPANSION.md) §3.1).
 - **[테스트]** `tests/test_schema_v36.py` (`test_a_v35_database_gets_the_verdict_columns_and_keeps_its_records`).
+
+## v37 (sources of a personal knowledge base for other readers)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 37`.
+- **[코드]** The step `_migrate_v37_personal_source_public` runs at each start, after the step v36, and is idempotent (`_ensure_column`). It adds `accounts.personal_source_public` (`INTEGER NOT NULL DEFAULT 1`, 0 or 1). Each account of v36 and each new account gets 1: each reader sees the sources, as before v37 (owner decision 2026-11-18). With 0 only the account sees them. No other row changes. The rule of the responses is in [`ACCOUNTS.md`](ACCOUNTS.md) ("출처 공개").
+- **[테스트]** `tests/test_schema_v37.py`.

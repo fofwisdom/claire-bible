@@ -66,7 +66,7 @@ SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale, entity_language"
+    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -98,6 +98,8 @@ class Account:
     locale: LocaleCode | None = None
     # Entity language of the viewer (ontology.label_language). None means the stored main labels.
     entity_language: str | None = None
+    # v37: a reader other than the account sees the sources of the documents of its personal knowledge base.
+    personal_source_public: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +117,7 @@ class CredentialBinding:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale, entity_language,
+        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public,
     ) = tuple(row)
     return Account(
         id=int(account_id),
@@ -131,6 +133,7 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         updated_at=float(updated_at),
         locale=None if locale is None else str(locale),  # type: ignore[arg-type]  # the column CHECK admits 'en' and 'ko' only
         entity_language=None if entity_language is None else str(entity_language),
+        personal_source_public=bool(personal_source_public),
     )
 
 
@@ -424,6 +427,18 @@ class AccountStore:
             "UPDATE accounts SET profile_public=?, updated_at=? WHERE id=?",
             (value, when, account_id),
         )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountNotFound(account_id)
+        self.conn.commit()
+        return self.get(account_id)
+
+    def update_personal_source_public(self, account_id: int, value: bool, *, now: float | None = None) -> Account:
+        """Set whether a reader other than the account sees the sources of the documents of its personal knowledge base (v37). Only ``True`` or ``False`` (C1)."""
+        if not isinstance(value, bool):
+            raise ValueError("invalid_personal_source_public")
+        when = time.time() if now is None else now
+        cur = self.conn.execute("UPDATE accounts SET personal_source_public=?, updated_at=? WHERE id=?", (1 if value else 0, when, account_id))
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)

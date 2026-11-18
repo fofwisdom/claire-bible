@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -784,6 +784,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v32_offers_and_grants(conn)
     _migrate_v35_expansion_source_names(conn)
     _migrate_v36_shadow_verdict_columns(conn)
+    _migrate_v37_personal_source_public(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1074,6 +1075,12 @@ def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _migrate_v37_personal_source_public(conn: sqlite3.Connection) -> None:
+    """v37 schema (SCHEMA_VERSIONING.md "v37"): ``accounts.personal_source_public``. 1: a reader other than the account sees the source (the link "open source") of each document of the personal knowledge base. 1 is the default and the value of each account after the step (owner decision 2026-11-18). 0: only the account sees it; a document with a visible contribution in a shared knowledge base still shows it (the contribution made the source public). Idempotent, adds one column (A3); it runs at each start."""
+    if _table_exists(conn, "accounts"):
+        _ensure_column(conn, "accounts", "personal_source_public", "INTEGER NOT NULL DEFAULT 1 CHECK (personal_source_public IN (0, 1))")
 
 
 def _migrate_v26_account_entity_language(conn: sqlite3.Connection) -> None:

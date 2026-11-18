@@ -1036,6 +1036,8 @@
   "console.settings.account.profile_public_off": "비공개",
   "console.settings.account.federation_hint": "연합이 켜져 있습니다. 프로필을 공개하면 다른 서버에서 이 계정을 찾고 팔로우할 수 있으며, 공개로 바꿀 때 본인 확인이 필요합니다. 비공개로 바꾸면 연합이 일시 중지되지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.",
   "console.settings.account.profile_public_label": "프로필 공개 여부",
+  "console.settings.account.source_public": "출처 공개 (원문 열기)",
+  "console.settings.account.source_public_hint": "켜면 나 말고 내 개인 지식베이스를 읽는 사람(공개 프로필의 방문자 등)도 문서의 '원문 열기'로 출처를 봅니다. 끄면 출처는 나에게만 보입니다. 공유 지식베이스에 기여되어 공개된 문서의 출처는 이 설정과 상관없이 공개됩니다.",
   "console.settings.account.no_password_hint": "이 계정에는 아직 비밀번호가 없습니다. 본인 확인 시간(15분) 안에 새 비밀번호를 설정하세요.",
   "console.settings.account.identity_link": "{name} 연결",
   "console.settings.account.identity_link_empty": "이 서버에서 연결할 수 있는 외부 로그인 공급자가 없습니다.",

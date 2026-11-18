@@ -361,6 +361,20 @@ def create_app(
         principal = request_principal(request)
         return principal.account_id is not None and principal.account_id == kb.account_id and request_auth_scope(request) != "anonymous"
 
+    def _hides_sources(request: Request, kb: KnowledgeBaseInfo) -> bool:
+        """True when the requester is not the account of a personal knowledge base: then the account setting ``personal_source_public`` decides about the sources (schema v37, ``queries.documents_with_hidden_source``). The sources of a shared knowledge base are public."""
+        if not kb.is_personal or kb.account_id is None:
+            return False
+        principal = request_principal(request)
+        return not (principal.account_id is not None and principal.account_id == kb.account_id and request_auth_scope(request) != "anonymous")
+
+    def _apply_source_rule(conn: sqlite3.Connection, kb: KnowledgeBaseInfo, documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Remove the source of each document whose source the requester must not see (``_hides_sources`` is true for the caller)."""
+        from ..store.queries import documents_with_hidden_source, hide_document_source
+
+        hidden = documents_with_hidden_source(conn, account_id=int(kb.account_id or 0), kb_id=kb.id, document_ids=[str(d.get("id") or "") for d in documents])
+        return [hide_document_source(d) if str(d.get("id") or "") in hidden else d for d in documents]
+
     def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
         return _kb_decide(request, theme, _request_capability(request)) == "allow"
 
@@ -4672,6 +4686,7 @@ def create_app(
         _documents_list = _resolve_query_func("documents_list", documents_list)
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
+        hides_sources = _hides_sources(request, theme)
         render_format = getattr(theme_settings, "render_format", "adoc")
         requester = request_principal(request)
         own_personal = theme.is_personal and requester.account_id is not None and requester.account_id == theme.account_id and request_auth_scope(request) != "anonymous"
@@ -4726,6 +4741,8 @@ def create_app(
             try:
                 format_status = dbm.check_format_mismatch(conn, render_format, kb_id=theme.id)
                 page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
+                if hides_sources:
+                    page["documents"] = _apply_source_rule(conn, theme, page["documents"])
                 if own_personal:
                     # The account sees, in its personal knowledge base, the theme match of each document and the flag "never contribute" (design Section 10.3). One query for the page for each of the two.
                     matches = themes_store.document_matches_with_themes(conn, [str(d["id"]) for d in page["documents"]])
@@ -4757,6 +4774,7 @@ def create_app(
 
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
+        hides_sources = _hides_sources(request, theme)
         # docs=brief: the source documents have no detail text (the WebUI sends it). The keyword is sent only in this mode, thus the default call does not change.
         detail_kwargs: dict[str, Any] = {"docs_brief": True} if request.query_params.get("docs", "") == "brief" else {}
         detail_kwargs.update(_entity_language_kwargs(request))
@@ -4766,6 +4784,8 @@ def create_app(
             try:
                 rep = _detail(conn, node_id, include_hidden=include_hidden, kb_id=theme.id, **detail_kwargs)
                 if rep is not None:
+                    if hides_sources and isinstance(rep.get("documents"), list):
+                        rep["documents"] = _apply_source_rule(conn, theme, rep["documents"])
                     rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
                 return rep
@@ -4792,11 +4812,15 @@ def create_app(
             return JSONResponse({"error": "unsupported_format", "formats": ["markdown"]}, status_code=400)
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
+        hides_sources = _hides_sources(request, theme)
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                return document_detail(conn, document_id, include_hidden=include_hidden, kb_id=theme.id)
+                report = document_detail(conn, document_id, include_hidden=include_hidden, kb_id=theme.id)
+                if report is not None and hides_sources:
+                    report = _apply_source_rule(conn, theme, [report])[0]
+                return report
             finally:
                 conn.close()
 
@@ -4828,12 +4852,15 @@ def create_app(
         theme, theme_settings, _ = _get_theme_ctx(request)
         # A hidden document (also the copy of a pending or hidden contribution) is for the account of a personal knowledge base and for the reviewers of a shared one (design Sections 6.2, 9.4, 9.6).
         include_hidden = _sees_hidden(request, theme)
+        hides_sources = _hides_sources(request, theme)
 
         def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
                 rep = _document_detail(conn, document_id, include_hidden=include_hidden, kb_id=t_info.id, **language_kwargs)
+                if rep is not None and hides_sources:
+                    rep = _apply_source_rule(conn, t_info, [rep])[0]
                 if rep is not None:
                     rep["kb_id"] = t_info.id
                     rep["theme_label"] = t_info.label

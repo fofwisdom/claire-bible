@@ -684,6 +684,29 @@
       });
     });
 
+    // Schema v37: the sources of the documents of the personal knowledge base for other readers. No step-up: the change shows or hides links only.
+    var sourceToggle = document.querySelector("input[data-settings-toggle='personal-source-public']");
+    if (sourceToggle) {
+      sourceToggle.addEventListener("change", function () {
+        var section = sourceToggle.closest("[data-source-public]") || sourceToggle.parentElement;
+        var checked = sourceToggle.checked;
+        sourceToggle.disabled = true;
+        request("PATCH", "/api/me", { personal_source_public: checked }).then(function (r) {
+          if (r.ok) {
+            show(section, tr("console.js.common.saved"), false);
+          } else {
+            sourceToggle.checked = !checked;
+            show(section, errorText(r.status, r.body), true);
+          }
+        }).catch(function () {
+          sourceToggle.checked = !checked;
+          show(section, tr("console.js.common.network_error"), true);
+        }).then(function () {
+          sourceToggle.disabled = false;
+        });
+      });
+    }
+
     // The option "Delete my activity records" (shared knowledge base design Section 13.2) is a field of the purge action of the admin (PATCH /api/admin/accounts, "delete_activity_records"; console_admin.js). An account has no request that deletes itself, thus this page has no control for the option.
   }
 

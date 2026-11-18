@@ -27,7 +27,7 @@ def test_a_v35_database_gets_the_verdict_columns_and_keeps_its_records(tmp_path:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(same_subject_shadow)")}
     assert {"verdict", "verdict_note", "verdict_at", "verdict_by"} <= cols
     assert [tuple(r) for r in conn.execute("SELECT id, verdict FROM same_subject_shadow")] == [(record, None)]
-    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 36
+    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION
     conn.close()
 
 

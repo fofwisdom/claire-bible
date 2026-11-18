@@ -22,6 +22,50 @@ def _is_web_url(url: str | None) -> bool:
     return u.startswith(("http://", "https://"))
 
 
+# --- Sources of a personal knowledge base for other readers (schema v37) ---
+
+
+def documents_with_hidden_source(conn: sqlite3.Connection, *, account_id: int, kb_id: int, document_ids: list[str]) -> set[str]:
+    """The documents of a personal knowledge base whose source a reader other than the account must not see.
+
+    Empty when the account set ``accounts.personal_source_public`` to 1. Else each document, except a document with a visible contribution in a shared knowledge base (``kb_contributions.state`` = ``visible``, with this document as its source or its root): the contribution made its source public.
+    """
+    ids = list(dict.fromkeys(str(i) for i in document_ids if i))
+    if not ids:
+        return set()
+    row = conn.execute("SELECT personal_source_public FROM accounts WHERE id=?", (int(account_id),)).fetchone()
+    if row is not None and row[0]:
+        return set()
+    public: set[str] = set()
+    for start in range(0, len(ids), 400):
+        part = ids[start : start + 400]
+        marks = ",".join("?" * len(part))
+        rows = conn.execute(
+            f"SELECT source_document_id FROM kb_contributions WHERE state='visible' AND source_kb_id=? AND source_document_id IN ({marks}) "
+            f"UNION SELECT root_document_id FROM kb_contributions WHERE state='visible' AND root_kb_id=? AND root_document_id IN ({marks})",
+            (int(kb_id), *part, int(kb_id), *part),
+        ).fetchall()
+        public.update(str(r[0]) for r in rows if r[0] is not None)
+    return set(ids) - public
+
+
+def _drop_url_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _drop_url_keys(v) for k, v in value.items() if "url" not in str(k).lower()}
+    if isinstance(value, list):
+        return [_drop_url_keys(v) for v in value]
+    return value
+
+
+def hide_document_source(document: dict[str, Any]) -> dict[str, Any]:
+    """Remove the source of one document of a response (the link "open source"): ``url`` becomes None, ``extra_sources`` becomes empty, and each other key with "url" in its name goes, at each level (for example ``meta.effective_url`` and ``presentation_pdf.public_url``). The document text stays."""
+    out = _drop_url_keys(document)
+    out["url"] = None
+    if "extra_sources" in document:
+        out["extra_sources"] = []
+    return out
+
+
 def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int | None = 0, entity_language: str | None = None) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 

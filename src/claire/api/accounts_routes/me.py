@@ -72,6 +72,8 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "effective_locale": get_locale(),
         # entity_language: the language of the entity labels that this account sees (None = the stored main labels).
         "entity_language": account.entity_language,
+        # personal_source_public: a reader other than this account sees the sources ("open source") of the documents of its personal knowledge base.
+        "personal_source_public": account.personal_source_public,
     }
 
 
@@ -97,6 +99,14 @@ def update_profile_public(ctx: AccountsContext, account_id: int, profile_public:
     conn = open_db(ctx)
     try:
         accounts_store.AccountStore(conn).update_profile_public(account_id, profile_public)
+    finally:
+        conn.close()
+
+
+def update_personal_source_public(ctx: AccountsContext, account_id: int, value: bool) -> None:
+    conn = open_db(ctx)
+    try:
+        accounts_store.AccountStore(conn).update_personal_source_public(account_id, value)
     finally:
         conn.close()
 
@@ -219,8 +229,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "profile_public", "locale", "entity_language"}):
-            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale", "entity_language"])
+        if not body or not (set(body) <= {"display_name", "profile_public", "locale", "entity_language", "personal_source_public"}):
+            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale", "entity_language", "personal_source_public"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
@@ -237,6 +247,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 profile_public = raw_pp
             else:
                 return json_error(400, "invalid_profile_public")
+        source_public = body.get("personal_source_public")
+        if "personal_source_public" in body and not isinstance(source_public, bool):
+            return json_error(400, "invalid_personal_source_public")
         locale: LocaleCode | None = None
         if "locale" in body:
             try:
@@ -262,6 +275,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
             await asyncio.to_thread(update_profile_public, ctx, principal.account_id, profile_public)
         if "entity_language" in body:
             await asyncio.to_thread(update_entity_language, ctx, principal.account_id, entity_language)
+        if isinstance(source_public, bool):
+            await asyncio.to_thread(update_personal_source_public, ctx, principal.account_id, source_public)
         if "locale" not in body:
             return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
         # The locale needs no recent authentication (I18N design Section 5.4). The response reports the locale after the change.
