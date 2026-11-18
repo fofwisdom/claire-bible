@@ -990,8 +990,14 @@ def extract_resolve_store(
 
     # 가독 렌더(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
+    detail_effort = eff
+    if effort is None and hasattr(provider, "slot_spec"):
+        detail_spec = provider.slot_spec("render_detail")
+        if detail_spec[2]:
+            detail_effort = detail_spec[2]
+
     if on_progress:
-        on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
+        on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={detail_effort}")
     emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
 
     detail_err_box: list[str] = []
@@ -1002,7 +1008,7 @@ def extract_resolve_store(
         force=True,
         format=format,
         focus=focus,
-        effort=eff,
+        effort=detail_effort,
         full_content=full_content,
         out_error=detail_err_box,
         kb_id=tid,
@@ -1557,7 +1563,7 @@ def ensure_document_detail(
             else:
                 eff = settings.pdf_default_effort or provider_effort(provider)
         else:
-            eff = provider_effort(provider)
+            eff = (provider.slot_spec("render_detail")[2] if hasattr(provider, "slot_spec") else "") or provider_effort(provider)
 
     try:
         try:

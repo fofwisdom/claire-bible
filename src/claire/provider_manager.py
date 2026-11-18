@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, get_model_rank, infer_model_effort_suffix, is_model_equal_or_higher
+from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, enumerate_gemini_model_variants, get_model_rank, infer_model_effort_suffix, is_model_equal_or_higher, split_gemini_model_and_effort
 from .config import (
     ROOT,
     diagnose_agy_environment,
@@ -30,7 +30,7 @@ log = logging.getLogger("claire.provider")
 
 PROVIDERS_CONFIG_FILENAME = "providers.json"
 
-DEFAULT_GEMINI_MODELS: tuple[str, ...] = (
+DEFAULT_GEMINI_BASE_MODELS: tuple[str, ...] = (
     "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
     "gemini-4-argon",
@@ -42,6 +42,8 @@ DEFAULT_GEMINI_MODELS: tuple[str, ...] = (
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
 )
+
+DEFAULT_GEMINI_MODELS: tuple[str, ...] = tuple(enumerate_gemini_model_variants(DEFAULT_GEMINI_BASE_MODELS))
 
 DEFAULT_GEMINI_EMBED_MODELS: tuple[str, ...] = (
     "gemini-embedding-001",
@@ -181,13 +183,25 @@ def list_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_refre
     return discover_agy_models(bin_name, timeout=timeout, force_refresh=force_refresh)["models"]
 
 
-def list_gemini_models() -> list[str]:
-    """지원되는 Gemini 생성 모델 목록을 반환한다."""
-    seen: list[str] = list(DEFAULT_GEMINI_MODELS)
+def list_gemini_base_models() -> list[str]:
+    """Return supported Google AI Studio base model names."""
+    seen: list[str] = list(DEFAULT_GEMINI_BASE_MODELS)
     for m in _GEMINI_DISCOVERED_MODELS:
-        if m not in seen:
-            seen.append(m)
+        base_m, _ = split_gemini_model_and_effort(m)
+        if base_m and base_m not in seen:
+            seen.append(base_m)
     return seen
+
+
+def list_gemini_models() -> list[str]:
+    """Return supported Google AI Studio generation models enumerated with embedded effort levels."""
+    return enumerate_gemini_model_variants(list_gemini_base_models())
+
+
+def _allowed_gemini_models(disc: dict[str, Any] | None = None) -> set[str]:
+    """Return allowed enumerated and legacy bare Google AI Studio generation model names."""
+    info = disc or {}
+    return {m["id"] for m in info.get("models", ())} | {str(m) for m in info.get("base_models", ())} | set(list_gemini_models()) | set(list_gemini_base_models())
 
 
 def _validate_provider_model(
@@ -207,8 +221,9 @@ def _probe_gemini_model(api_key: str, model_name: str) -> tuple[bool, int | None
     try:
         from google import genai
 
+        api_model, _ = split_gemini_model_and_effort(model_name)
         client = genai.Client(api_key=api_key)
-        res = client.models.count_tokens(model=model_name, contents="ping")
+        res = client.models.count_tokens(model=api_model, contents="ping")
         return True, getattr(res, "total_tokens", None), None
     except Exception as exc:
         return False, None, str(exc)
@@ -249,7 +264,7 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "providers": {
         "gemini": {
             "api_key": "",
-            "model": "gemini-3.1-flash-lite",
+            "model": "gemini-3.1-flash-lite-medium",
             "effort": "medium",
             "embed_model": "gemini-embedding-001",
             "embed_task_type": "SEMANTIC_SIMILARITY",
@@ -352,11 +367,13 @@ _GEMINI_CACHE_TTL = 300.0
 def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) -> dict[str, Any]:
     """Query Google AI Studio (models.list) for supported generation and embedding models."""
     clean_key = str(api_key or "").strip()
-    default_gen = list_gemini_models()
+    default_base = list_gemini_base_models()
+    default_variants = enumerate_gemini_model_variants(default_base)
     default_emb = list(DEFAULT_GEMINI_EMBED_MODELS)
     if not clean_key or "••" in clean_key:
         return {
-            "models": [{"id": m} for m in default_gen],
+            "models": [{"id": m} for m in default_variants],
+            "base_models": list(default_base),
             "embed_models": [{"id": m} for m in default_emb],
             "source": "default",
             "error": None,
@@ -373,7 +390,7 @@ def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) ->
         from google import genai
 
         client = genai.Client(api_key=clean_key)
-        gen_ids: list[str] = []
+        gen_base_ids: list[str] = []
         emb_ids: list[str] = []
         for item in client.models.list():
             raw_name = str(getattr(item, "name", "") or "").strip()
@@ -386,18 +403,20 @@ def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) ->
                 if mid.startswith(("gemini-embedding", "text-embedding")) and mid not in emb_ids:
                     emb_ids.append(mid)
             elif "generateContent" in actions and mid.startswith("gemini-"):
-                if not any(skip in low for skip in ("embedding", "imagen", "veo", "aqa", "tts", "audio")) and mid not in gen_ids:
-                    gen_ids.append(mid)
+                if not any(skip in low for skip in ("embedding", "imagen", "veo", "aqa", "tts", "audio")) and mid not in gen_base_ids:
+                    gen_base_ids.append(mid)
 
-        for m in default_gen:
-            if m not in gen_ids:
-                gen_ids.append(m)
+        for m in default_base:
+            if m not in gen_base_ids:
+                gen_base_ids.append(m)
         for em in default_emb:
             if em not in emb_ids:
                 emb_ids.append(em)
 
+        gen_variants = enumerate_gemini_model_variants(gen_base_ids)
         res = {
-            "models": [{"id": m} for m in gen_ids],
+            "models": [{"id": m} for m in gen_variants],
+            "base_models": list(gen_base_ids),
             "embed_models": [{"id": m} for m in emb_ids],
             "source": "api",
             "error": None,
@@ -406,7 +425,8 @@ def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) ->
         return copy.deepcopy(res)
     except Exception as exc:
         return {
-            "models": [{"id": m} for m in default_gen],
+            "models": [{"id": m} for m in default_variants],
+            "base_models": list(default_base),
             "embed_models": [{"id": m} for m in default_emb],
             "source": "default",
             "error": f"{type(exc).__name__}: {exc}",
@@ -677,7 +697,9 @@ class ProviderManager:
             if prov_name == "gemini":
                 if slot == "embed":
                     return str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-001"), ""
-                return str(providers.get("gemini", {}).get("model") or ""), str(providers.get("gemini", {}).get("effort") or "")
+                gem_m = str(providers.get("gemini", {}).get("model") or "")
+                _, gem_embedded_eff = split_gemini_model_and_effort(gem_m)
+                return gem_m, gem_embedded_eff or str(providers.get("gemini", {}).get("effort") or "")
             if prov_name == "antigravity":
                 return str(providers.get("antigravity", {}).get("model") or ""), str(providers.get("antigravity", {}).get("effort") or "")
             if prov_name == "codex":
@@ -693,10 +715,16 @@ class ProviderManager:
             if slot == "embed" and eff_prov in ("antigravity", "codex"):
                 eff_prov = "gemini" if providers.get("gemini", {}).get("api_key") else "fts-only"
             base_m, base_e = _base_model(eff_prov, slot)
+            eff_model = r["model"] or base_m
+            eff_effort = r["effort"] or base_e
+            if eff_prov == "gemini" and slot != "embed":
+                _, slot_embedded_eff = split_gemini_model_and_effort(eff_model)
+                if slot_embedded_eff:
+                    eff_effort = slot_embedded_eff
             effective_slots[slot] = {
                 "provider": eff_prov,
-                "model": r["model"] or base_m,
-                "effort": r["effort"] or base_e,
+                "model": eff_model,
+                "effort": eff_effort,
                 "inherited": str(r["provider"] == "inherit").lower(),
             }
 
@@ -840,7 +868,7 @@ class ProviderManager:
                             gem_key_for_check = str(target.get("api_key") or "").strip()
                         gem_disc_check = discover_gemini_models(gem_key_for_check)
                         if "model" in inc_data:
-                            allowed_gem = {m["id"] for m in gem_disc_check["models"]} | set(list_gemini_models())
+                            allowed_gem = _allowed_gemini_models(gem_disc_check)
                             _validate_provider_model("gemini", "모델", str(inc_data["model"]).strip(), allowed_gem)
                         if "embed_model" in inc_data:
                             allowed_emb = {m["id"] for m in gem_disc_check["embed_models"]} | set(DEFAULT_GEMINI_EMBED_MODELS)
@@ -872,6 +900,11 @@ class ProviderManager:
                         continue
                     target[k] = v
 
+                if name == "gemini" and "model" in inc_data:
+                    _, inferred_gem_effort = split_gemini_model_and_effort(str(inc_data["model"]))
+                    if inferred_gem_effort:
+                        target["effort"] = inferred_gem_effort
+
                 if name == "antigravity" and "model" in inc_data and "effort" not in inc_data:
                     inferred_effort = infer_agy_effort_from_model(str(inc_data["model"]))
                     if inferred_effort:
@@ -894,8 +927,12 @@ class ProviderManager:
                     if eff_prov == "gemini":
                         gem_key_slot = str(curr_providers.get("gemini", {}).get("api_key") or "").strip()
                         gem_disc_slot = discover_gemini_models(gem_key_slot)
-                        allowed = ({m["id"] for m in gem_disc_slot["embed_models"]} | set(DEFAULT_GEMINI_EMBED_MODELS)) if slot == "embed" else ({m["id"] for m in gem_disc_slot["models"]} | set(list_gemini_models()))
+                        allowed = ({m["id"] for m in gem_disc_slot["embed_models"]} | set(DEFAULT_GEMINI_EMBED_MODELS)) if slot == "embed" else _allowed_gemini_models(gem_disc_slot)
                         _validate_provider_model("gemini", f"{slot} 모델", model, allowed)
+                        if slot != "embed":
+                            _, slot_gem_effort = split_gemini_model_and_effort(model)
+                            if slot_gem_effort:
+                                effort = slot_gem_effort
                     elif eff_prov == "codex":
                         _validate_provider_model("codex", f"{slot} 모델", model, set(DEFAULT_CODEX_MODELS))
                     elif eff_prov == "antigravity":
@@ -922,7 +959,7 @@ class ProviderManager:
         gem_model = str(gemini.get("model") or "").strip()
         gem_embed = str(gemini.get("embed_model") or "").strip()
         gem_disc = discover_gemini_models(gem_key, force_refresh=live)
-        gem_model_ids = [m["id"] for m in gem_disc["models"]]
+        gem_model_ids = _allowed_gemini_models(gem_disc)
         gem_embed_ids = [m["id"] for m in gem_disc["embed_models"]]
 
         # Google AI Studio (Gemini) capability evaluation
@@ -930,7 +967,7 @@ class ProviderManager:
         gem_live_ok: bool | None = None
         if not gem_has_key:
             gem_lock = "Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다."
-        elif gem_model not in set(gem_model_ids):
+        elif gem_model not in gem_model_ids:
             gem_lock = f"선택한 Google AI Studio 모델('{gem_model}')이 지원 목록에 없습니다."
         elif gem_embed not in set(gem_embed_ids):
             gem_lock = f"선택한 Google AI Studio 임베딩 모델('{gem_embed}')이 지원 목록에 없습니다."
@@ -1404,7 +1441,7 @@ class ProviderManager:
                     "provider": "gemini",
                     "error": "Google AI Studio API 키가 입력되지 않았습니다.",
                 }
-            model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.8-flash"
+            model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.8-flash-medium"
             disc = discover_gemini_models(api_key, force_refresh=True)
             ok, total_tokens, err = _probe_gemini_model(api_key, model_name)
             if ok:

@@ -7,7 +7,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   page.on('pageerror', err => pageErrors.push(err.message));
 
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await page.goto('/?t=e2e-routing-token-0123456789abcde', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
   await page.evaluate(async () => {
@@ -32,6 +32,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
           feature_routing: {
             extract_graph: { provider: 'inherit', model: '', effort: '' },
             summarize: { provider: 'gemini', model: 'gemini-4-argon', effort: 'high' },
+            render_detail: { provider: 'inherit', model: '', effort: '' },
             entity_judge: { provider: 'inherit', model: '', effort: '' },
             relation_judge: { provider: 'inherit', model: '', effort: '' },
             classify: { provider: 'inherit', model: '', effort: '' },
@@ -47,7 +48,14 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
               model: 'gemini-3.8-flash',
               effort: 'medium',
               embed_model: 'gemini-embedding-001',
-              available_models: [{ id: 'gemini-3.8-flash' }, { id: 'gemini-4-argon' }],
+              available_models: [
+                { id: 'gemini-3.5-flash-lite-medium' },
+                { id: 'gemini-3.8-flash-low' },
+                { id: 'gemini-3.8-flash-medium' },
+                { id: 'gemini-3.8-flash-high' },
+                { id: 'gemini-4-argon-medium' },
+                { id: 'gemini-4-argon-high' }
+              ],
               available_embed_models: [{ id: 'gemini-embedding-001' }]
             },
             jev: { enabled: true, has_api_key: true, api_key: '••••••••', base_url: 'https://api.typesafe.ai/v1', mode: 'filter', filter_threshold: 0.2, auto_merge_threshold: 0.9 },
@@ -102,7 +110,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
             server_tier: patchedPayload.server_tier || { provider: 'gemini', model: 'gemini-3.8-flash', max_effort: 'medium', features: ['expand', 'stt'] },
             feature_routing: patchedPayload.feature_routing,
             providers: {
-              gemini: { has_api_key: true, ...patchedPayload.providers.gemini, available_models: [{ id: 'gemini-3.8-flash' }, { id: 'gemini-4-argon' }], available_embed_models: [{ id: 'gemini-embedding-001' }] },
+              gemini: { has_api_key: true, ...patchedPayload.providers.gemini, available_models: [{ id: 'gemini-3.5-flash-lite-medium' }, { id: 'gemini-3.8-flash-low' }, { id: 'gemini-3.8-flash-medium' }, { id: 'gemini-3.8-flash-high' }, { id: 'gemini-4-argon-medium' }, { id: 'gemini-4-argon-high' }], available_embed_models: [{ id: 'gemini-embedding-001' }] },
               jev: { enabled: true, has_api_key: true, ...patchedPayload.providers.jev },
               stt: patchedPayload.providers.stt
             },
@@ -146,8 +154,18 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   await expect(page.locator('#prov-feature-routing-card')).toBeVisible();
   await expect(page.locator('#prov-member-tier-card')).toBeVisible();
   await expect(page.locator('#prov-gemini-embed')).toHaveCount(0);
+  await expect(page.locator('#prov-gemini-effort')).toHaveCount(0);
+  await expect(page.locator('#prov-tier-max-effort')).toHaveCount(0);
+  await expect(page.locator('#prov-route-extract_graph-effort')).toHaveCount(0);
   await expect(page.locator('#prov-route-embed-provider')).toHaveCount(0);
   await expect(page.locator('#prov-route-embed-model')).toHaveCount(0);
+  await expect(page.locator('#prov-gemini-model')).toHaveValue('gemini-3.8-flash-medium');
+  await expect(page.locator('#prov-route-summarize-model')).toHaveValue('gemini-4-argon-high');
+  await expect(page.locator('#prov-route-render_detail-provider')).toBeVisible();
+  await expect(page.locator('#prov-route-render_detail-model')).toBeVisible();
+  await page.locator('#prov-route-render_detail-provider').selectOption('gemini');
+  await page.locator('#prov-route-render_detail-model').selectOption('gemini-3.8-flash-high');
+  await expect(page.locator('#prov-tier-model')).toHaveValue('gemini-3.8-flash-medium');
   await expect(page.locator('#prov-gemini-embed-info')).toContainText('gemini-embedding-001');
   await expect(page.locator('#prov-routing-embed-note')).toContainText('gemini-embedding-001');
   await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
@@ -161,15 +179,24 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   await expect(page.locator('#prov-architecture-spec-table')).toContainText('RETRIEVAL_DOCUMENT');
   await expect(page.locator('#prov-recent-lineage-table')).toContainText('Sample Doc');
 
+  await page.locator('#prov-gemini-model').selectOption('gemini-3.8-flash-high');
   await page.locator('#prov-jev-mode').selectOption('hybrid');
   await expect(page.locator('#prov-lineage-svg')).toContainText('jev:hybrid');
   await page.locator('#prov-save-btn').click();
 
   await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
   expect(patchedPayload).not.toBeNull();
+  expect(patchedPayload.providers.gemini.model).toBe('gemini-3.8-flash-high');
+  expect(patchedPayload.providers.gemini.effort).toBe('high');
   expect(patchedPayload.providers.jev.mode).toBe('hybrid');
-  expect(patchedPayload.feature_routing.summarize.model).toBe('gemini-4-argon');
+  expect(patchedPayload.feature_routing.summarize.model).toBe('gemini-4-argon-high');
+  expect(patchedPayload.feature_routing.summarize.effort).toBe('high');
+  expect(patchedPayload.feature_routing.render_detail.provider).toBe('gemini');
+  expect(patchedPayload.feature_routing.render_detail.model).toBe('gemini-3.8-flash-high');
+  expect(patchedPayload.feature_routing.render_detail.effort).toBe('high');
   expect(patchedPayload.server_tier.provider).toBe('gemini');
+  expect(patchedPayload.server_tier.model).toBe('gemini-3.8-flash-medium');
+  expect(patchedPayload.server_tier.max_effort).toBe('medium');
   expect(patchedPayload.server_tier.features).toEqual(['expand', 'stt']);
 
   let savedPersonalCli = null;

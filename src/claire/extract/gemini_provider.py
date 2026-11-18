@@ -291,28 +291,44 @@ class GeminiProvider:
         self.min_interval = settings.gemini_min_interval
         self.max_retries = settings.gemini_max_retries
 
+    def _api_model(self) -> str:
+        from ..accounts.provider_policy import split_gemini_model_and_effort
+
+        api_model, _ = split_gemini_model_and_effort(self.model)
+        return api_model or self.model
+
+    def _embedded_effort(self) -> str | None:
+        from ..accounts.provider_policy import split_gemini_model_and_effort
+
+        _, fixed_effort = split_gemini_model_and_effort(self.model)
+        return fixed_effort
+
+    def _task_generation_config(self, base_cfg: dict | None = None) -> dict | None:
+        if self._embedded_effort() is not None:
+            return self._build_generation_config(extra=base_cfg)
+        return base_cfg
+
     def _build_generation_config(
         self, extra: dict | None = None, effort: str | None = None
     ) -> dict:
         """기본 generation_config 생성 (사고 레벨/thinking_config 포함)."""
+        from ..accounts.provider_policy import clamp_effort, split_gemini_model_and_effort, supported_efforts_for
+
         cfg: dict = {"temperature": 0.2}
         if extra:
             cfg.update(extra)
-        eff = str(effort or getattr(self, "effort", "") or "").strip().lower()
+        api_model, fixed_effort = split_gemini_model_and_effort(self.model)
+        eff = fixed_effort if fixed_effort is not None else str(effort or getattr(self, "effort", "") or "").strip().lower()
         ctx = getattr(self, "provider_context", None)
         if ctx is not None:
-            from ..accounts.provider_policy import clamp_effort
-
             eff = str(clamp_effort(ctx, eff) or "").strip().lower()
         if not eff:
             return cfg
         if eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
             cfg["thinking_config"] = {"thinking_budget": int(eff)}
             return cfg
-        from ..accounts.provider_policy import supported_efforts_for
-
-        supported = supported_efforts_for("gemini", self.model)
-        allow_budget_zero = str(self.model or "").strip().lower() in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite")
+        supported = supported_efforts_for("gemini", api_model)
+        allow_budget_zero = str(api_model or "").strip().lower() in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite")
         if eff in ("none", "off", "0") and (allow_budget_zero or "none" in supported):
             cfg["thinking_config"] = {"thinking_budget": 0}
             return cfg
@@ -405,7 +421,7 @@ class GeminiProvider:
             "schema": ExtractionResult.extraction_json_schema(),
         }
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=body,
             system_instruction=sys,
             response_format=response_format,
@@ -449,18 +465,18 @@ class GeminiProvider:
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
         prompt = summarize_search_prompt(query, context)
-        interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
-            input=prompt,
-            store=False,
-        ))
+        kwargs: dict[str, Any] = {"model": self._api_model(), "input": prompt, "store": False}
+        gen_cfg = self._task_generation_config()
+        if gen_cfg is not None:
+            kwargs["generation_config"] = gen_cfg
+        interaction = self._call(lambda: self.client.interactions.create(**kwargs))
         return _extract_output_text(interaction).strip()
 
     def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
         """Generate a concise plain-text Korean executive summary for a document."""
         prompt = summarize_document_prompt(doc)
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             generation_config=self._build_generation_config(effort=effort),
             store=False,
@@ -511,7 +527,7 @@ class GeminiProvider:
             body, images, merged=merged, scale=scale, format=format, focus=focus
         )
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             generation_config=self._build_generation_config(effort=effort),
             store=False,
@@ -555,7 +571,7 @@ class GeminiProvider:
         )
 
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             generation_config=self._build_generation_config(effort=effort),
             store=False,
@@ -574,7 +590,7 @@ class GeminiProvider:
         prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "", author_hint=author_hint)
         eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             response_format={
                 "type": "text",
@@ -604,10 +620,10 @@ class GeminiProvider:
             "schema": WatchClassification.model_json_schema(),
         }
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             response_format=response_format,
-            generation_config={"temperature": 0.0},
+            generation_config=self._task_generation_config({"temperature": 0.0}),
             store=False,
         ))
         raw_text = _extract_output_text(interaction)
@@ -627,10 +643,10 @@ class GeminiProvider:
         다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의 의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신 INSUFFICIENT 를 선언하게 한다. 판정(judge_gate)은 별도 호출로 이중 방어."""
         prompt = research_prompt(query, context)
         interaction = self._call(lambda: self.client.interactions.create(
-            model=self.model,
+            model=self._api_model(),
             input=prompt,
             tools=[{"type": "google_search"}],
-            generation_config={"temperature": 0.3},
+            generation_config=self._task_generation_config({"temperature": 0.3}),
             store=False,
         ))
         report = _extract_output_text(interaction).strip()
@@ -650,10 +666,10 @@ class GeminiProvider:
         interaction = None
         try:
             interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
+                model=self._api_model(),
                 input=prompt,
                 response_format=response_format,
-                generation_config={"temperature": 0.0},
+                generation_config=self._task_generation_config({"temperature": 0.0}),
                 store=False,
             ))
             raw_text = _extract_output_text(interaction)
@@ -685,10 +701,10 @@ class GeminiProvider:
         interaction = None
         try:
             interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
+                model=self._api_model(),
                 input=prompt,
                 response_format=response_format,
-                generation_config={"temperature": 0.0},
+                generation_config=self._task_generation_config({"temperature": 0.0}),
                 store=False,
             ))
             raw_text = _extract_output_text(interaction)
@@ -713,11 +729,11 @@ class GeminiProvider:
         """두 엔티티가 동일한 실세계 대상인지 LLM 으로 판정(borderline 후보에만)."""
         prompt = judge_same_entity_prompt(mc)
         try:
-            interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
-                input=prompt,
-                store=False,
-            ))
+            kwargs: dict[str, Any] = {"model": self._api_model(), "input": prompt, "store": False}
+            gen_cfg = self._task_generation_config()
+            if gen_cfg is not None:
+                kwargs["generation_config"] = gen_cfg
+            interaction = self._call(lambda: self.client.interactions.create(**kwargs))
             text = _extract_output_text(interaction)
             return text.strip().upper().startswith("SAME")
         except Exception as e:  # noqa: BLE001
@@ -736,10 +752,10 @@ class GeminiProvider:
         interaction = None
         try:
             interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
+                model=self._api_model(),
                 input=prompt,
                 response_format=response_format,
-                generation_config={"temperature": 0.0},
+                generation_config=self._task_generation_config({"temperature": 0.0}),
                 store=False,
             ))
             raw_text = _extract_output_text(interaction)

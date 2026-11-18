@@ -781,6 +781,10 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(page.locator('#prov-active-select option[value="codex"]')).toHaveCount(0);
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
+  await expect(page.locator('#prov-gemini-model option[value="gemini-3.8-flash-medium"]')).toHaveCount(1);
+  await expect(page.locator('#prov-gemini-effort')).toHaveCount(0);
+  await expect(page.locator('#prov-tier-max-effort')).toHaveCount(0);
+  await expect(page.locator('#prov-route-extract_graph-effort')).toHaveCount(0);
   await expect(page.locator('#prov-gemini-embed')).toHaveCount(0);
   await expect(page.locator('#prov-route-embed-provider')).toHaveCount(0);
   await expect(page.locator('#prov-route-embed-model')).toHaveCount(0);

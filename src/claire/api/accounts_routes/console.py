@@ -1158,7 +1158,6 @@ def _settings_keys_body(
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
         '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.model"))}<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.effort"))}<select name="effort" class="pref-select" data-byok-effort-select><option value="">{escape(t("console.settings.keys.effort_auto"))}</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.api_key"))}<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
         f'<p class="hint">{escape(t("console.settings.keys.put_hint"))}</p>'
         f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.put_submit"))}</button>'

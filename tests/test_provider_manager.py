@@ -351,7 +351,7 @@ def test_agy_models_parsing_and_effort_inference(tmp_path: Path, monkeypatch):
     assert updated["providers"]["antigravity"]["effort"] == "xhigh"
     assert isinstance(updated["providers"]["antigravity"]["available_models"], list)
     assert any(m["id"] == "gemini-4-hydrogen-xhigh" for m in updated["providers"]["antigravity"]["available_models"])
-    assert any(m["id"] == "gemini-3.8-flash" for m in updated["providers"]["gemini"]["available_models"])
+    assert any(m["id"] == "gemini-3.8-flash-medium" for m in updated["providers"]["gemini"]["available_models"])
     assert any(m["id"] == "gemini-embedding-001" for m in updated["providers"]["gemini"]["available_embed_models"])
     assert any(m["id"] == "gpt-5.4" for m in updated["providers"]["codex"]["available_models"])
     assert any(m["id"] == "gpt-4o-mini" for m in updated["providers"]["openai"]["available_models"])
@@ -481,3 +481,76 @@ def test_server_scope_locks_embedding_selection_and_documents_purpose(tmp_path: 
     assert specs[0]["fixed_value"].startswith("gemini-embedding-001")
     assert "색인" in specs[0]["rationale"]
     assert "검색" in specs[0]["rationale"]
+
+
+def test_gemini_enumerated_effort_models_probe_and_sync(tmp_path: Path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import claire.provider_manager as pm_mod
+
+    pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
+    models = pm_mod.list_gemini_models()
+    assert "gemini-3.8-flash-medium" in models
+    assert "gemini-4-argon-high" in models
+    assert "gemini-3.8-flash" not in models
+
+    sanitized = pm.get_sanitized_config()
+    avail = [m["id"] for m in sanitized["providers"]["gemini"]["available_models"]]
+    assert "gemini-3.8-flash-medium" in avail
+    assert "gemini-3.8-flash" not in avail
+
+    updated = pm.update_config(
+        {
+            "active_provider": "gemini",
+            "providers": {"gemini": {"api_key": "AIzaEnumeratedTestKey", "model": "gemini-4-argon-high"}},
+            "feature_routing": {
+                "summarize": {"provider": "gemini", "model": "gemini-3.8-flash-low"},
+                "render_detail": {"provider": "gemini", "model": "gemini-4-argon-high"},
+            },
+        }
+    )
+    assert updated["providers"]["gemini"]["model"] == "gemini-4-argon-high"
+    assert updated["providers"]["gemini"]["effort"] == "high"
+    assert updated["feature_routing"]["summarize"]["effort"] == "low"
+    assert updated["feature_routing"]["render_detail"]["model"] == "gemini-4-argon-high"
+    assert updated["feature_routing"]["render_detail"]["effort"] == "high"
+    assert updated["lineage_summary"]["effective_slots"]["extract_graph"]["effort"] == "high"
+    assert updated["lineage_summary"]["effective_slots"]["summarize"]["effort"] == "low"
+    assert updated["lineage_summary"]["effective_slots"]["render_detail"]["model"] == "gemini-4-argon-high"
+    assert updated["lineage_summary"]["effective_slots"]["render_detail"]["effort"] == "high"
+
+    # Verify FeatureRoutedProvider dispatches summarize_document and render_detail to separate slots.
+    from claire.config import Settings
+    from claire.extract.provider import FeatureRoutedProvider
+    from claire.ontology.base import Document
+
+    routed_settings = Settings(
+        _env_file=None,
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_ENVIRONMENT="development",
+        feature_routing={
+            "summarize": {"provider": "mock", "model": "mock-sum", "effort": "low"},
+            "render_detail": {"provider": "mock", "model": "mock-detail", "effort": "high"},
+        },
+    )
+    routed = FeatureRoutedProvider(routed_settings)
+    assert routed.slot_spec("summarize")[2] == "low"
+    assert routed.slot_spec("render_detail")[2] == "high"
+    doc = Document(id="doc-slot", title="Slot Test", raw_text="Sample body for slot dispatch.", source_type="text")
+    assert routed.summarize_document(doc)
+    assert routed.render_detail(doc)
+    stages = [ev["stage"] for ev in routed.lineage.events]
+    assert "summarize" in stages and "render_detail" in stages
+
+    seen_models: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, api_key: str) -> None:
+            self.models = SimpleNamespace(
+                count_tokens=lambda *, model, contents: (seen_models.append(model), SimpleNamespace(total_tokens=7))[1]
+            )
+
+    monkeypatch.setitem(sys.modules, "google", SimpleNamespace(genai=SimpleNamespace(Client=_FakeClient)))
+    ok, total_tokens, err = pm_mod._probe_gemini_model("AIzaEnumeratedTestKey", "gemini-3.8-flash-medium")
+    assert ok is True and total_tokens == 7 and err is None
+    assert seen_models == ["gemini-3.8-flash"]

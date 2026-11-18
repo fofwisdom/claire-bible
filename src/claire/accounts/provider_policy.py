@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
@@ -63,7 +64,7 @@ _GEMINI_MODEL_EFFORTS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-2.5-pro": ("low", "medium", "high"),
 }
 _CODEX_XHIGH_MODELS: Final[frozenset[str]] = frozenset({"gpt-5.1-codex", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.4"})
-FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
+FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "render_detail", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
 MODEL_CAPABILITY_RANKS: Final[dict[str, int]] = {
     "mock": 0,
     "gemini-embedding-001": 10,
@@ -246,7 +247,12 @@ class ServerTier:
         provider = str(data.get("provider", default.provider)).strip().lower()
         if provider not in TIER_PROVIDERS:
             raise ValueError(f"server tier provider must be one of {TIER_PROVIDERS}")
+        model = "" if provider == "none" else str(data.get("model", "")).strip()
         max_effort = str(data.get("max_effort", default.max_effort)).strip().lower()
+        if provider == "gemini" and model:
+            _, embedded_eff = split_gemini_model_and_effort(model)
+            if embedded_eff:
+                max_effort = embedded_eff
         if max_effort not in EFFORT_ORDER:
             raise ValueError(f"max_effort must be one of {EFFORT_ORDER}")
         features_raw = data.get("features", [])
@@ -266,7 +272,7 @@ class ServerTier:
 
         return cls(
             provider=provider,
-            model="" if provider == "none" else str(data.get("model", "")).strip(),
+            model=model,
             monthly_tokens=_int("monthly_tokens", data.get("monthly_tokens", default.monthly_tokens), 0),
             daily_ingests=_int("daily_ingests", data.get("daily_ingests", default.daily_ingests), 0),
             max_effort=max_effort,
@@ -641,6 +647,55 @@ def clamp_effort(ctx: ProviderContext | None, effort: str) -> str:
     return raw if EFFORT_ORDER.index(raw) <= EFFORT_ORDER.index(ceiling) else ceiling
 
 
+def split_gemini_model_and_effort(model: str | None) -> tuple[str, str | None]:
+    """Split a Google AI Studio model identifier into (base_api_model, embedded_effort)."""
+    clean = str(model or "").strip()
+    if not clean:
+        return "", None
+    low = clean.lower()
+    if low in _GEMINI_MODEL_EFFORTS:
+        return clean, None
+    for suf in ("none", "minimal", "low", "medium", "high"):
+        token = f"-{suf}"
+        if low.endswith(token):
+            base = clean[: -len(token)]
+            base_low = base.lower()
+            if base_low in _GEMINI_MODEL_EFFORTS:
+                if suf in _GEMINI_MODEL_EFFORTS[base_low]:
+                    return base, suf
+                return clean, None
+            if base_low.startswith("gemini-") and suf in ("low", "medium", "high"):
+                return base, suf
+    return clean, None
+
+
+def is_gemini_fixed_effort_model(model: str | None) -> bool:
+    """Return True when a Google AI Studio model identifier encodes its reasoning effort."""
+    return split_gemini_model_and_effort(model)[1] is not None
+
+
+def enumerate_gemini_model_variants(base_models: Iterable[str]) -> list[str]:
+    """Expand Google AI Studio base models into explicit <model>-<effort> identifiers."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in base_models:
+        clean = str(raw or "").strip()
+        if not clean:
+            continue
+        if is_gemini_fixed_effort_model(clean):
+            if clean not in seen:
+                seen.add(clean)
+                out.append(clean)
+            continue
+        efforts = _GEMINI_MODEL_EFFORTS.get(clean.lower(), ("low", "medium", "high"))
+        for eff in efforts:
+            variant = f"{clean}-{eff}"
+            if variant not in seen:
+                seen.add(variant)
+                out.append(variant)
+    return out
+
+
 def infer_model_effort_suffix(model: str | None) -> str | None:
     """Return embedded effort suffix (-xhigh/-high/-medium/-low) from a model identifier if present."""
     clean = str(model or "").strip().lower()
@@ -663,6 +718,8 @@ def supported_efforts_for(provider: str | None, model: str | None = None, *, tie
     if prov in ("", "none", "unavailable", "mock"):
         return ()
     if prov == "gemini":
+        if is_gemini_fixed_effort_model(mod):
+            return ()
         base = _GEMINI_MODEL_EFFORTS.get(mod, ("low", "medium", "high"))
     elif prov in ("antigravity", "agy"):
         base = () if is_agy_fixed_effort_model(mod) else ("low", "medium", "high", "xhigh", "max")
@@ -699,6 +756,9 @@ def describe_ingest_effort_options(settings: Any, *, ctx: ProviderContext | None
         return {"provider": prov or "none", "model": model, "options": [], "default_effort": "", "fixed": True, "fixed_effort": "", "tier_max_effort": tier_cap or ""}
 
     options = list(supported_efforts_for(prov, model, tier_max_effort=tier_cap))
+    if prov == "gemini" and is_gemini_fixed_effort_model(model):
+        _, fixed_eff = split_gemini_model_and_effort(model)
+        return {"provider": "gemini", "model": model, "options": [], "default_effort": fixed_eff or "", "fixed": True, "fixed_effort": fixed_eff or "", "tier_max_effort": tier_cap or ""}
     if prov in ("antigravity", "agy") and is_agy_fixed_effort_model(model):
         fixed_eff = infer_model_effort_suffix(model) or ""
         return {"provider": "antigravity", "model": model, "options": [], "default_effort": fixed_eff, "fixed": True, "fixed_effort": fixed_eff, "tier_max_effort": tier_cap or ""}

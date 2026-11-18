@@ -59,7 +59,7 @@
 
 `providers.json`이 없으면 `migrate_from_env_if_needed`가 환경변수와 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`를 모아 파일을 만든다. 그 뒤로는 파일 값이 이긴다. 기본값은 `DEFAULT_PROVIDERS_CONFIG` 값이 실제 기본값이다.
 
-- 모델(`gemini.model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
+- 모델(`gemini.model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. Google AI Studio(`gemini`) 생성 모델은 사고 수준(effort)을 접미사로 인코딩한 `<model>-<effort>` 형태(예: `gemini-3.8-flash-medium`, `gemini-4-argon-high`)로 열거해 선택하며 별도의 UI 추론 수준 선택지를 두지 않는다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
 - VLM 설정(`CLAIRE_ENABLE_VLM_TRANSCRIPTION`, `CLAIRE_VLM_PROVIDER`, `CLAIRE_VLM_MODEL`)은 `providers.json`에 없고 환경변수로만 정한다.
 
 ### 2.2 작업별 `ProviderContext`
@@ -126,6 +126,8 @@
   - `_is_key_rejection`(401, 403, 유효하지 않은 키)이면 재시도하지 않고 바로 `ProviderKeyRejected`로 실패한다.
   - `_is_retryable`(429, 500, 503, `RESOURCE_EXHAUSTED`, `UNAVAILABLE`)이면 최대 `CLAIRE_GEMINI_MAX_RETRIES`회 지수 백오프로 재시도한다.
   - `_is_daily_quota`(일일 quota·결제 소진)이면 재시도하지 않고 바로 실패한다.
+- **[코드] 모델명 기반 사고 수준 인코딩 (`split_gemini_model_and_effort`)**: `<base>-<effort>` 모델명을 선택하면 `GeminiProvider`가 `interactions.create` 호출 시 기본 모델명만 전달하고 내장된 사고 수준을 `thinking_config`에 자동 적용한다. API 모델 목록(`list_gemini_models`, `discover_gemini_models`)은 각 모델이 지원하는 추론 수준 조합을 열거해 반환하며, 레거시 설정·API 호환을 위해 접미사가 없는 기본 모델명 입력도 허용한다.
+- **[코드] 기능별 라우팅 슬롯 분리 (`FEATURE_SLOTS`)**: `summarize`(요약 및 프레젠테이션)와 `render_detail`(가독 상세 렌더링)은 별도 슬롯으로 분리되어 서로 다른 모델·추론 수준을 지정할 수 있다(`FeatureRoutedProvider.summarize_document` → `summarize`, `FeatureRoutedProvider.render_detail` → `render_detail`).
 - **[코드] 사용량 훅 (`UsageHooks`)**: 호출 직전 `before_call`로 예산 초과 여부를 점검하고, 호출 완료 후 `after_call`로 소비된 토큰(입력/출력)을 `account_usage` 원장에 가산한다.
 
 ### 4.2 Antigravity CLI (`AntigravityProvider`)

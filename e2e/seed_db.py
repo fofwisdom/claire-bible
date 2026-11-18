@@ -184,6 +184,8 @@ def seed(db_path: Path) -> None:
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-consolei18n-nonce", "e2e-consolei18n-token-0123456789a", 1700000000, 2500000000.0, "owner"))
         # Text of the workspace in English (e2e/workspace_i18n.spec.js).
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-wsi18n-nonce", "e2e-wsi18n-token-0123456789abcdef", 1700000000, 2500000000.0, "owner"))
+        # Provider routing & lineage specs (e2e/provider_routing_lineage.spec.js).
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-routing-nonce", "e2e-routing-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
         # Shared KB UI specs (e2e/shared_kb_ui.spec.js): one token for each test.
         for n in (1, 2, 3):
             conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", (f"e2e-sharedkb{n}-nonce", f"e2e-sharedkb{n}-token-0123456789abc", 1700000000, 2500000000.0, "owner"))

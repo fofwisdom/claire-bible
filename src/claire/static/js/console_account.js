@@ -127,11 +127,35 @@
     });
   }
 
+  var BYOK_EFFORT_RANKS = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+
+  function byokModelRank(modelName, explicitEffort, ranks) {
+    var raw = String(modelName || "").trim().toLowerCase();
+    var eff = String(explicitEffort || "").trim().toLowerCase();
+    var base = raw;
+    if (typeof ranks[raw] !== "number") {
+      var suffixes = ["xhigh", "high", "medium", "low", "minimal", "none"];
+      for (var i = 0; i < suffixes.length; i += 1) {
+        var token = "-" + suffixes[i];
+        if (raw.length > token.length && raw.slice(-token.length) === token) {
+          var cand = raw.slice(0, -token.length);
+          if (typeof ranks[cand] === "number") {
+            base = cand;
+            if (!eff) eff = suffixes[i];
+            break;
+          }
+        }
+      }
+    }
+    var tierRank = typeof ranks[base] === "number" ? ranks[base] : 0;
+    var effRank = Object.prototype.hasOwnProperty.call(BYOK_EFFORT_RANKS, eff) ? BYOK_EFFORT_RANKS[eff] : BYOK_EFFORT_RANKS.medium;
+    return [tierRank, effRank];
+  }
+
   function renderModelPolicy(policy) {
     if (!policy) return;
     var baseline = policy.admin_baseline || {};
     var ranks = policy.model_ranks || {};
-    var effortOrder = Array.isArray(policy.effort_order) ? policy.effort_order : ["none", "minimal", "low", "medium", "high"];
     var prefs = policy.model_prefs || {};
     var summaryEl = document.querySelector("[data-byok-policy-summary]");
     if (summaryEl) {
@@ -147,31 +171,22 @@
       defOpt.value = "";
       defOpt.textContent = tr("console.js.account.byok.model_auto", { model: baseline.model || "-" });
       modelSel.appendChild(defOpt);
-      var baseRank = typeof ranks[baseline.model] === "number" ? ranks[baseline.model] : 0;
+      var baseRankPair = byokModelRank(baseline.model, baseline.effort, ranks);
+      var preferredVal = prefs.model || "";
+      if (preferredVal && prefs.effort && !/-(?:none|minimal|low|medium|high|xhigh|max)$/i.test(preferredVal)) {
+        preferredVal = preferredVal + "-" + String(prefs.effort).toLowerCase();
+      }
       (Array.isArray(policy.allowed_models) ? policy.allowed_models : []).forEach(function (m) {
         if (!m || m === "mock") return;
         var opt = document.createElement("option");
         opt.value = String(m);
-        var mRank = typeof ranks[m] === "number" ? ranks[m] : 0;
-        var allowed = mRank >= baseRank || baseRank === 0;
+        var mRankPair = byokModelRank(m, "", ranks);
+        var allowed = baseRankPair[0] === 0 || mRankPair[0] > baseRankPair[0] || (mRankPair[0] === baseRankPair[0] && mRankPair[1] >= baseRankPair[1]);
         opt.textContent = allowed ? String(m) : tr("console.js.account.byok.model_locked", { model: String(m) });
         if (!allowed) opt.disabled = true;
-        if (prefs.model && prefs.model === m && allowed) opt.selected = true;
+        if (preferredVal && preferredVal === m && allowed) opt.selected = true;
         modelSel.appendChild(opt);
       });
-    }
-    var effortSel = document.querySelector("[data-byok-effort-select]");
-    if (effortSel) {
-      var baseEffIdx = effortOrder.indexOf(String(baseline.effort || "medium").toLowerCase());
-      Array.prototype.forEach.call(effortSel.options, function (opt) {
-        if (!opt.value) {
-          opt.disabled = false;
-          return;
-        }
-        var idx = effortOrder.indexOf(opt.value.toLowerCase());
-        opt.disabled = baseEffIdx >= 0 && idx >= 0 && idx < baseEffIdx;
-      });
-      if (prefs.effort) effortSel.value = prefs.effort;
     }
   }
 
@@ -520,12 +535,10 @@
       var provider = form.elements.namedItem("provider").value;
       var field = form.elements.namedItem("api_key");
       var modelEl = form.elements.namedItem("model");
-      var effortEl = form.elements.namedItem("effort");
       var value = field.value;
       field.value = "";
       var payload = { provider: provider, api_key: value };
       if (modelEl && modelEl.value) payload.model = modelEl.value;
-      if (effortEl && effortEl.value) payload.effort = effortEl.value;
       return request("PUT", "/api/me/keys", payload).then(function (r) {
         value = "";
         show(form, r.ok ? tr("console.js.account.keys.saved") : errorText(r.status, r.body), !r.ok);

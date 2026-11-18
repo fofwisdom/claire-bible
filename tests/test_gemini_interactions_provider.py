@@ -214,3 +214,32 @@ def test_build_generation_config_rejects_unsupported_effort_without_fallback():
     with pytest.raises(ValueError, match="Unsupported effort"):
         p._build_generation_config()
 
+
+def test_fixed_effort_gemini_model_resolves_api_model_and_thinking_level():
+    p = _make_provider()
+    p.model = "gemini-3.8-flash-medium"
+    p.effort = "high"  # Should be overridden by the effort encoded in the model name.
+
+    assert p._api_model() == "gemini-3.8-flash"
+    assert p._embedded_effort() == "medium"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_level": "MEDIUM"}
+
+    json_payload = '{"summary":"요약","key_claims":[],"entities":[],"relations":[]}'
+    p.client.interactions.create.return_value = SimpleNamespace(output_text=json_payload)
+    doc = Document(id="doc1", title="Test", raw_text="Content", source_type="text")
+    res = p.extract(doc)
+    assert res.model == "gemini-3.8-flash-medium"
+    kwargs = p.client.interactions.create.call_args.kwargs
+    assert kwargs["model"] == "gemini-3.8-flash"
+    assert kwargs["generation_config"]["thinking_config"] == {"thinking_level": "MEDIUM"}
+
+    # Task calls without explicit override also use embedded effort and stripped API model.
+    p.client.interactions.create.reset_mock()
+    p.client.interactions.create.return_value = SimpleNamespace(output_text="SAME")
+    mc = gp.MergeCandidate(new_name="A", new_type="Tool", cand_name="B", cand_type="Tool")
+    assert p.judge_same_entity(mc) is True
+    judge_kwargs = p.client.interactions.create.call_args.kwargs
+    assert judge_kwargs["model"] == "gemini-3.8-flash"
+    assert judge_kwargs["generation_config"]["thinking_config"] == {"thinking_level": "MEDIUM"}
+

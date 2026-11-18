@@ -100,6 +100,48 @@
     }
   }
 
+  const GEMINI_FALLBACK_MODEL_EFFORTS = [
+    ['gemini-3.5-flash-lite', ['minimal', 'low', 'medium', 'high']],
+    ['gemini-3.8-flash', ['low', 'medium', 'high']],
+    ['gemini-4-argon', ['low', 'medium', 'high']],
+    ['gemini-3.6-flash', ['minimal', 'low', 'medium', 'high']],
+    ['gemini-3.1-flash-lite', ['minimal', 'low', 'medium', 'high']],
+    ['gemini-3.1-pro-preview', ['low', 'medium', 'high']],
+    ['gemini-3-flash-preview', ['minimal', 'low', 'medium', 'high']],
+    ['gemini-2.5-flash', ['none', 'low', 'medium', 'high']],
+    ['gemini-2.5-flash-lite', ['none', 'low', 'medium', 'high']],
+    ['gemini-2.5-pro', ['low', 'medium', 'high']]
+  ];
+
+  function fallbackGeminiVariants() {
+    const out = [];
+    for (const [base, efforts] of GEMINI_FALLBACK_MODEL_EFFORTS) {
+      for (const eff of efforts) out.push(`${base}-${eff}`);
+    }
+    return out;
+  }
+
+  function splitGeminiModelEffort(modelName) {
+    const raw = String(modelName || '').trim();
+    const m = raw.match(/^(.*)-(none|minimal|low|medium|high)$/i);
+    if (m && m[1]) return { base: m[1], effort: m[2].toLowerCase() };
+    return { base: raw, effort: '' };
+  }
+
+  function resolveGeminiVariantSelection(rawList, fallbackList, currentVal, fallbackEffort, defaultId) {
+    const items = normalizeModelOptions(rawList, fallbackList);
+    const ids = new Set(items.map(m => m.id));
+    const cur = String(currentVal || '').trim();
+    if (!cur) return defaultId && ids.has(defaultId) ? defaultId : '';
+    if (ids.has(cur)) return cur;
+    const parsed = splitGeminiModelEffort(cur);
+    if (!parsed.effort) {
+      const candidate = `${cur}-${String(fallbackEffort || 'medium').toLowerCase()}`;
+      if (ids.has(candidate)) return candidate;
+    }
+    return cur;
+  }
+
   function normalizeModelOptions(rawList, fallbackList) {
     const src = Array.isArray(rawList) ? (rawList.length ? rawList : []) : (Array.isArray(fallbackList) ? fallbackList : []);
     return src.map(item => (typeof item === 'string' ? { id: item, label: '' } : { id: String(item.id || ''), label: String(item.label || '') }));
@@ -158,7 +200,8 @@
     const activeProv = document.getElementById('prov-active-select').value;
     const gemKey = document.getElementById('prov-gemini-key');
     const gemModel = document.getElementById('prov-gemini-model').value.trim();
-    const gemEffort = document.getElementById('prov-gemini-effort').value;
+    const cfgGemEffort = ((((_provState.config || {}).providers || {}).gemini || {}).effort || 'medium');
+    const gemEffort = splitGeminiModelEffort(gemModel).effort || cfgGemEffort;
     const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
     const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
 
@@ -179,16 +222,18 @@
     const sttLang = document.getElementById('prov-stt-lang').value.trim();
 
     const featureRouting = {};
-    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
+    const slotNames = ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
     for (const slot of slotNames) {
       const pEl = document.getElementById(`prov-route-${slot}-provider`);
       const mEl = document.getElementById(`prov-route-${slot}-model`);
-      const eEl = document.getElementById(`prov-route-${slot}-effort`);
-      if (pEl || mEl || eEl) {
+      if (pEl || mEl) {
+        const slotProv = pEl ? String(pEl.value || 'inherit') : 'inherit';
+        const effProv = resolveEffectiveRouteProvider({ active_provider: activeProv }, slotProv);
+        const slotModel = mEl ? String(mEl.value || '').trim() : '';
         featureRouting[slot] = {
-          provider: pEl ? String(pEl.value || 'inherit') : 'inherit',
-          model: mEl ? String(mEl.value || '').trim() : '',
-          effort: eEl ? String(eEl.value || '').trim().toLowerCase() : ''
+          provider: slotProv,
+          model: slotModel,
+          effort: effProv === 'gemini' ? splitGeminiModelEffort(slotModel).effort : ''
         };
       }
     }
@@ -206,12 +251,14 @@
     const tierProvEl = document.getElementById('prov-tier-provider');
     if (tierProvEl) {
       const tierModelEl = document.getElementById('prov-tier-model');
-      const tierEffortEl = document.getElementById('prov-tier-max-effort');
+      const tierModelVal = tierProvEl.value === 'none' ? '' : ((tierModelEl && tierModelEl.value.trim()) || '');
+      const prevTierEffort = ((_provState.config && _provState.config.server_tier && _provState.config.server_tier.max_effort) || 'medium');
+      const inferredTierEffort = splitGeminiModelEffort(tierModelVal).effort || prevTierEffort;
       const tierFeats = Array.from(document.querySelectorAll('input[name="prov-tier-feature"]:checked')).map((el) => el.value);
       payload.server_tier = {
         provider: tierProvEl.value || 'none',
-        model: tierProvEl.value === 'none' ? '' : ((tierModelEl && tierModelEl.value.trim()) || ''),
-        max_effort: (tierEffortEl && tierEffortEl.value) || 'medium',
+        model: tierModelVal,
+        max_effort: tierProvEl.value === 'none' ? 'low' : inferredTierEffort,
         features: tierFeats
       };
     }
@@ -301,13 +348,13 @@
       }
       const gemSel = document.getElementById('prov-gemini-model');
       if (gemSel) {
-        const resG = buildModelSelectResult(gemCap.available_models, null, gemSel.value, 'gemini-3.8-flash');
+        const resG = buildModelSelectResult(gemCap.available_models, null, gemSel.value, 'gemini-3.8-flash-medium');
         gemSel.innerHTML = resG.optionsHtml;
         gemSel.value = resG.selected;
       }
       const tierModelSel = document.getElementById('prov-tier-model');
       if (tierModelSel && tierModelSel.tagName === 'SELECT') {
-        const resT = buildModelSelectResult(gemCap.available_models, null, tierModelSel.value, 'gemini-3.5-flash-lite');
+        const resT = buildModelSelectResult(gemCap.available_models, null, tierModelSel.value, 'gemini-3.5-flash-lite-medium');
         tierModelSel.innerHTML = '<option value="">' + esc(trKey("console.js.panels.providers.tier_none_option")) + '</option>' + resT.optionsHtml;
         if (tierModelSel.querySelector(`option[value="${CSS.escape(resT.selected)}"]`)) {
           tierModelSel.value = resT.selected;
@@ -407,7 +454,6 @@
       'prov-active-select',
       'prov-gemini-key',
       'prov-gemini-model',
-      'prov-gemini-effort',
       'prov-jev-enabled',
       'prov-jev-mode',
       'prov-jev-filter-threshold',
@@ -427,21 +473,18 @@
     }
     const tierProvEl = document.getElementById('prov-tier-provider');
     const tierModelEl = document.getElementById('prov-tier-model');
-    const tierEffEl = document.getElementById('prov-tier-max-effort');
-    if (tierProvEl && tierModelEl && tierEffEl) {
+    if (tierProvEl && tierModelEl) {
       const syncTierState = () => {
         const isNone = tierProvEl.value === 'none';
         tierModelEl.disabled = isNone;
-        tierEffEl.disabled = isNone;
       };
       tierProvEl.addEventListener('change', syncTierState);
       syncTierState();
     }
-    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
+    const slotNames = ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
     for (const slot of slotNames) {
       const pEl = document.getElementById(`prov-route-${slot}-provider`);
       const mEl = document.getElementById(`prov-route-${slot}-model`);
-      const eEl = document.getElementById(`prov-route-${slot}-effort`);
       if (pEl) {
         pEl.addEventListener('change', () => {
           updateRouteSlotModelOptions(slot);
@@ -451,12 +494,6 @@
       }
       if (mEl) {
         mEl.addEventListener('change', () => {
-          refreshLineageVisualizerPreview();
-          runProviderCapabilityCheck();
-        });
-      }
-      if (eEl) {
-        eEl.addEventListener('change', () => {
           refreshLineageVisualizerPreview();
           runProviderCapabilityCheck();
         });
@@ -502,11 +539,11 @@
             }
             const gSel = document.getElementById('prov-gemini-model');
             if (gSel) {
-              const r1 = buildModelSelectResult(d.details.models, null, gSel.value, 'gemini-3.8-flash');
+              const r1 = buildModelSelectResult(d.details.models, null, gSel.value, 'gemini-3.8-flash-medium');
               gSel.innerHTML = r1.optionsHtml;
               gSel.value = r1.selected;
             }
-            for (const sl of ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm']) {
+            for (const sl of ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm']) {
               updateRouteSlotModelOptions(sl);
             }
           } else if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
@@ -559,6 +596,7 @@
   const FEATURE_SLOT_DEFS = [
     { slot: 'extract_graph', label: trKey("console.js.panels.slot.extract_graph"), note: trKey("console.js.panels.slot.extract_graph_note") },
     { slot: 'summarize', label: trKey("console.js.panels.slot.summarize"), note: trKey("console.js.panels.slot.summarize_note") },
+    { slot: 'render_detail', label: trKey("console.js.panels.slot.render_detail"), note: trKey("console.js.panels.slot.render_detail_note") },
     { slot: 'entity_judge', label: trKey("console.js.panels.slot.entity_judge"), note: trKey("console.js.panels.slot.entity_judge_note") },
     { slot: 'relation_judge', label: trKey("console.js.panels.slot.relation_judge"), note: trKey("console.js.panels.slot.relation_judge_note") },
     { slot: 'classify', label: trKey("console.js.panels.slot.classify"), note: trKey("console.js.panels.slot.classify_note") },
@@ -578,7 +616,7 @@
   function modelsForRouteProvider(cfg, effProv, slot) {
     const provs = (cfg && cfg.providers) || {};
     if (effProv === 'gemini') {
-      const list = normalizeModelOptions((provs.gemini || {}).available_models, ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash']);
+      const list = normalizeModelOptions((provs.gemini || {}).available_models, fallbackGeminiVariants());
       return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
     if (effProv === 'antigravity') {
@@ -600,11 +638,10 @@
     const cfg = _provState.config || {};
     const pEl = document.getElementById(`prov-route-${slot}-provider`);
     const mEl = document.getElementById(`prov-route-${slot}-model`);
-    const eEl = document.getElementById(`prov-route-${slot}-effort`);
     if (!pEl || !mEl) return;
     const effProv = resolveEffectiveRouteProvider(cfg, pEl.value);
     const items = modelsForRouteProvider(cfg, effProv, slot);
-    const prev = mEl.value;
+    const prev = effProv === 'gemini' ? resolveGeminiVariantSelection(items, null, mEl.value, 'medium', '') : mEl.value;
     let html = '';
     let hasPrev = false;
     for (const item of items) {
@@ -616,7 +653,6 @@
       html += `<option value="${esc(prev)}" selected>${esc(prev)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
     }
     mEl.innerHTML = html;
-    if (eEl) eEl.disabled = (effProv === 'mock');
   }
 
   function computeEffectiveSlotsFromDom(cfg) {
@@ -635,7 +671,7 @@
       let baseEffort = '';
       if (effProv === 'gemini') {
         baseModel = provs.gemini.model || '';
-        baseEffort = provs.gemini.effort || '';
+        baseEffort = splitGeminiModelEffort(baseModel).effort || provs.gemini.effort || '';
       } else if (effProv === 'antigravity') {
         baseModel = (provs.antigravity && provs.antigravity.model) || '';
         baseEffort = (provs.antigravity && provs.antigravity.effort) || '';
@@ -647,7 +683,9 @@
       } else if (effProv === 'mock') {
         baseModel = 'mock';
       }
-      out[slot] = { provider: effProv, model: r.model || baseModel, effort: r.effort || baseEffort };
+      const effModel = r.model || baseModel;
+      const effEffort = effProv === 'gemini' ? (splitGeminiModelEffort(effModel).effort || r.effort || baseEffort) : (r.effort || baseEffort);
+      out[slot] = { provider: effProv, model: effModel, effort: effEffort };
     }
     const embedProv = active === 'mock' ? 'mock' : 'gemini';
     const embedModel = active === 'mock' ? 'mock-embed-64d' : (cfgGem.embed_model || 'gemini-embedding-001');
@@ -665,9 +703,12 @@
     };
     const eg = slotText('extract_graph');
     const sm = slotText('summarize');
+    const dt = slotText('render_detail');
     const em = slotText('embed');
     const ej = slotText('entity_judge');
     const rj = slotText('relation_judge');
+    const smSub1 = dt.line1 && dt.line1 !== sm.line1 ? `${sm.line1} / ${dt.line1}` : sm.line1;
+    const smSub2 = dt.line2 && dt.line2 !== sm.line2 ? `${sm.line2} · ${dt.line2}` : sm.line2;
     const jevLabel = jevCfg && jevCfg.enabled ? `jev:${jevCfg.mode || 'filter'} (${trKey("console.js.panels.lineage.after_gates")})` : "jev:off (" + trKey("console.js.panels.lineage.llm_direct") + ")";
     const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_thresholds", { filter: jevCfg.filter_threshold ?? 0.2, merge: jevCfg.auto_merge_threshold ?? 0.9 }) : trKey("console.js.panels.lineage.llm_judge");
     const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
@@ -678,7 +719,7 @@
     svg += arrow(128, 82, 152, 46);
     svg += arrow(128, 104, 152, 138);
     svg += box(154, 14, 156, 64, trKey("console.js.panels.lineage.box_extract"), eg.line1, eg.line2, '#0969da');
-    svg += box(154, 108, 156, 64, trKey("console.js.panels.lineage.box_summary"), sm.line1, sm.line2, '#8250df');
+    svg += box(154, 108, 156, 64, trKey("console.js.panels.lineage.box_summary"), smSub1, smSub2, '#8250df');
     svg += arrow(310, 46, 338, 72);
     svg += arrow(310, 140, 338, 106);
     svg += box(340, 54, 166, 68, trKey("console.js.panels.lineage.box_embed"), `${em.line1}:${em.line2}`, trKey("console.js.panels.lineage.box_embed_sub"), '#1a7f37');
@@ -778,12 +819,13 @@
     h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="layers"></span> ' + esc(trKey("console.js.panels.routing.title")) + '</strong>';
     h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.routing.desc")) + '</p>';
     h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11.5px;">';
-    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.routing.col_slot")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_provider")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_model")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_effort")) + '</th></tr></thead><tbody>';
+    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.routing.col_slot")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_provider")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_model")) + '</th></tr></thead><tbody>';
     for (const def of FEATURE_SLOT_DEFS) {
       const r = routing[def.slot] || { provider: 'inherit', model: '', effort: '' };
       const rProv = r.provider || 'inherit';
       const effProv = resolveEffectiveRouteProvider(cfg, rProv);
       const modelOpts = modelsForRouteProvider(cfg, effProv, def.slot);
+      const selectedRouteModel = effProv === 'gemini' ? resolveGeminiVariantSelection(modelOpts, null, r.model || '', r.effort || 'medium', '') : (r.model || '');
       h += `<tr style="border-bottom:1px solid var(--border);" data-route-slot="${esc(def.slot)}">`;
       h += `<td style="padding:5px 6px;"><div style="font-weight:600;">${esc(def.label)}</div><div style="font-size:10px;opacity:0.7;"><code>${esc(def.slot)}</code> · ${esc(def.note)}</div></td>`;
       h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-provider" style="width:100%;box-sizing:border-box;">`;
@@ -794,18 +836,12 @@
       h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-model" style="width:100%;box-sizing:border-box;">`;
       let matchedModel = false;
       for (const m of modelOpts) {
-        if (m.id === (r.model || '')) matchedModel = true;
+        if (m.id === selectedRouteModel) matchedModel = true;
         const mLabel = m.id === '' ? (m.label || trKey("console.js.panels.routing.inherit_model")) : m.id;
-        h += `<option value="${esc(m.id)}" ${(r.model || '') === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
+        h += `<option value="${esc(m.id)}" ${selectedRouteModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
       }
-      if (r.model && !matchedModel) {
-        h += `<option value="${esc(r.model)}" selected>${esc(r.model)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
-      }
-      h += '</select></td>';
-      const effortDis = (effProv === 'mock') ? ' disabled' : '';
-      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-effort"${effortDis} style="width:100%;box-sizing:border-box;">`;
-      for (const eOpt of [['', trKey("console.js.panels.routing.inherit_effort")], ['low', 'low'], ['medium', 'medium'], ['high', 'high']]) {
-        h += `<option value="${esc(eOpt[0])}" ${(r.effort || '') === eOpt[0] ? 'selected' : ''}>${esc(eOpt[1])}</option>`;
+      if (selectedRouteModel && !matchedModel) {
+        h += `<option value="${esc(selectedRouteModel)}" selected>${esc(selectedRouteModel)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
       }
       h += '</select></td>';
       h += '</tr>';
@@ -819,11 +855,8 @@
   function renderMemberTierCardHtml(cfg) {
     const tier = cfg.server_tier || { provider: 'none', model: '', max_effort: 'medium', features: [] };
     const gemini = (cfg.providers || {}).gemini || {};
-    const geminiModels = normalizeModelOptions(gemini.available_models, [
-      'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-argon', 'gemini-3.6-flash',
-      'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview',
-      'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'
-    ]);
+    const geminiModels = normalizeModelOptions(gemini.available_models, fallbackGeminiVariants());
+    const selectedTierModel = resolveGeminiVariantSelection(geminiModels, null, tier.model || '', tier.max_effort || 'medium', '');
     const tierFeats = Array.isArray(tier.features) ? tier.features : [];
     const featLabels = [
       ['expand', trKey("console.js.panels.tier.feature_expand")],
@@ -841,22 +874,16 @@
     h += `<option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.provider_none"))}</option>`;
     h += `<option value="gemini" ${tier.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (gemini)</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1.2;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.model")) + '</label>';
+    h += '<div style="flex:1.4;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.model")) + '</label>';
     h += '<select id="prov-tier-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="" ${!tier.model ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
+    h += `<option value="" ${!selectedTierModel ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
     let matched = false;
     for (const m of geminiModels) {
-      if (m.id === tier.model) matched = true;
-      h += `<option value="${esc(m.id)}" ${tier.model === m.id ? 'selected' : ''}>${esc(m.id)}</option>`;
+      if (m.id === selectedTierModel) matched = true;
+      h += `<option value="${esc(m.id)}" ${selectedTierModel === m.id ? 'selected' : ''}>${esc(m.id)}</option>`;
     }
-    if (tier.model && !matched) {
-      h += `<option value="${esc(tier.model)}" selected>${esc(tier.model)}</option>`;
-    }
-    h += '</select></div>';
-    h += '<div style="flex:0.8;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.max_effort")) + '</label>';
-    h += '<select id="prov-tier-max-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    for (const eff of ['none', 'minimal', 'low', 'medium', 'high']) {
-      h += `<option value="${eff}" ${(tier.max_effort || 'medium') === eff ? 'selected' : ''}>${eff}</option>`;
+    if (selectedTierModel && !matched) {
+      h += `<option value="${esc(selectedTierModel)}" selected>${esc(selectedTierModel)}</option>`;
     }
     h += '</select></div>';
     h += '</div>';
@@ -924,31 +951,13 @@
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">' + esc(trKey("common.action.delete")) + '</button>';
     }
     h += '</div></div>';
-    const geminiModelFallback = [
-      'gemini-3.5-flash-lite',
-      'gemini-3.8-flash',
-      'gemini-4-argon',
-      'gemini-3.6-flash',
-      'gemini-3.1-flash-lite',
-      'gemini-3.1-pro-preview',
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
-      'gemini-2.5-pro'
-    ];
+    const geminiModelFallback = fallbackGeminiVariants();
+    const selectedGeminiModel = resolveGeminiVariantSelection(gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash-medium', gemini.effort || 'medium', 'gemini-3.8-flash-medium');
     h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.model_label")) + '</label>';
-    h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash', 'gemini-3.8-flash');
+    h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, selectedGeminiModel, 'gemini-3.8-flash-medium');
     h += '</div>';
-    h += '<div style="display:flex;gap:8px;align-items:flex-start;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.effort_label")) + '</label>';
-    h += '<select id="prov-gemini-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="low" ${gemini.effort==='low'?'selected':''}>low</option>`;
-    h += `<option value="medium" ${gemini.effort==='medium'||!gemini.effort?'selected':''}>medium</option>`;
-    h += `<option value="high" ${gemini.effort==='high'?'selected':''}>high</option>`;
-    h += '</select></div>';
-    h += '<div style="flex:1.4;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
+    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
     h += `<div id="prov-gemini-embed-info" style="margin-top:2px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11.5px;line-height:1.4;"><div><code>${esc(gemini.embed_model || 'gemini-embedding-001')}</code> <span style="opacity:0.75;">(Google AI Studio · 3072d)</span></div><div style="font-size:10.5px;opacity:0.8;margin-top:2px;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</div></div>`;
-    h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.min_interval"))}</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;

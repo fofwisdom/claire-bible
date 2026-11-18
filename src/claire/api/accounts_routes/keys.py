@@ -29,6 +29,7 @@ from ...accounts.provider_policy import (
     MODEL_CAPABILITY_RANKS,
     is_model_equal_or_higher,
     normalize_model_and_effort,
+    split_gemini_model_and_effort,
 )
 from ...i18n import t
 from ...secret_scrub import register_secret, scrub_text
@@ -113,7 +114,9 @@ def _admin_baseline(ctx: AccountsContext) -> dict[str, dict[str, str]]:
         if pname == "gemini":
             if slot == "embed":
                 return str(pdata.get("embed_model") or getattr(ctx.settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001"), ""
-            return str(pdata.get("model") or getattr(ctx.settings, "gemini_model", "") or ""), str(pdata.get("effort") or getattr(ctx.settings, "gemini_effort", "medium") or "medium")
+            gem_m = str(pdata.get("model") or getattr(ctx.settings, "gemini_model", "") or "")
+            _, gem_embedded_eff = split_gemini_model_and_effort(gem_m)
+            return gem_m, gem_embedded_eff or str(pdata.get("effort") or getattr(ctx.settings, "gemini_effort", "medium") or "medium")
         if pname == "antigravity":
             return str(pdata.get("model") or getattr(ctx.settings, "agy_model", "") or ""), str(pdata.get("effort") or getattr(ctx.settings, "agy_effort", "medium") or "medium")
         if pname == "codex":
@@ -128,15 +131,19 @@ def _admin_baseline(ctx: AccountsContext) -> dict[str, dict[str, str]]:
         def_m, def_e = _prov_defaults(eff_prov, slot)
         model = str(slot_cfg.get("model") or def_m or "").strip()
         effort = str(slot_cfg.get("effort") or def_e or "").strip().lower()
+        if eff_prov == "gemini" and slot != "embed":
+            _, slot_embedded_eff = split_gemini_model_and_effort(model)
+            if slot_embedded_eff:
+                effort = slot_embedded_eff
         baseline[slot] = {"provider": eff_prov, "model": model, "effort": effort}
     return baseline
 
 
 def _validate_byok_prefs(payload: dict[str, Any], baseline: dict[str, dict[str, str]]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Validate optional BYOK model preferences against admin baseline (>= rank)."""
-    from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_models
+    from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_base_models, list_gemini_models
 
-    allowed_gen = set(list_gemini_models())
+    allowed_gen = set(list_gemini_models()) | set(list_gemini_base_models())
     allowed_embed = set(DEFAULT_GEMINI_EMBED_MODELS)
     prefs: dict[str, Any] = {}
 
@@ -149,15 +156,19 @@ def _validate_byok_prefs(payload: dict[str, Any], baseline: dict[str, dict[str, 
             return {}, {"code": "unsupported_model", "slot": "extract_graph", "model": req_model}
         if req_effort and req_effort not in EFFORT_ORDER:
             return {}, {"code": "unsupported_effort", "slot": "extract_graph", "effort": req_effort}
+        _, embedded_effort = split_gemini_model_and_effort(req_model) if req_model else ("", "")
+        if embedded_effort and req_effort and req_effort != embedded_effort:
+            return {}, {"code": "unsupported_effort", "slot": "extract_graph", "effort": req_effort}
+        eff_override = embedded_effort or req_effort
         base = baseline.get("extract_graph", {"model": "", "effort": "medium"})
         check_model = req_model or base.get("model") or ""
-        check_effort = req_effort or base.get("effort") or "medium"
+        check_effort = eff_override or base.get("effort") or "medium"
         if base.get("model") and base.get("model") != "mock" and not is_model_equal_or_higher(check_model, check_effort, base.get("model"), base.get("effort")):
             return {}, {"code": "model_below_admin_baseline", "slot": "extract_graph", "requested_model": check_model, "requested_effort": check_effort, "admin_model": base.get("model"), "admin_effort": base.get("effort")}
         if req_model:
             prefs["model"] = req_model
-        if req_effort:
-            prefs["effort"] = req_effort
+        if eff_override:
+            prefs["effort"] = eff_override
 
     if "feature_models" in payload:
         raw_fm = payload.get("feature_models")
@@ -178,13 +189,19 @@ def _validate_byok_prefs(payload: dict[str, Any], baseline: dict[str, dict[str, 
                 return {}, {"code": "unsupported_model", "slot": slot, "model": m}
             if e and e not in EFFORT_ORDER:
                 return {}, {"code": "unsupported_effort", "slot": slot, "effort": e}
+            embedded_slot_eff = ""
+            if m and slot != "embed":
+                _, embedded_slot_eff = split_gemini_model_and_effort(m)
+                if embedded_slot_eff and e and e != embedded_slot_eff:
+                    return {}, {"code": "unsupported_effort", "slot": slot, "effort": e}
+            eff_slot_override = embedded_slot_eff or e
             base = baseline.get(slot, {"model": "", "effort": "medium"})
             check_m = m or base.get("model") or ""
-            check_e = e or base.get("effort") or "medium"
+            check_e = eff_slot_override or base.get("effort") or "medium"
             if m and base.get("model") and base.get("model") != "mock" and not is_model_equal_or_higher(check_m, check_e, base.get("model"), base.get("effort")):
                 return {}, {"code": "model_below_admin_baseline", "slot": slot, "requested_model": check_m, "requested_effort": check_e, "admin_model": base.get("model"), "admin_effort": base.get("effort")}
             _, norm_e = normalize_model_and_effort(check_m, check_e)
-            fm_out[slot] = {"provider": "gemini", "model": m or check_m, "effort": "" if slot == "embed" else (e or norm_e)}
+            fm_out[slot] = {"provider": "gemini", "model": m or check_m, "effort": "" if slot == "embed" else (eff_slot_override or norm_e)}
         if fm_out:
             prefs["feature_models"] = fm_out
 

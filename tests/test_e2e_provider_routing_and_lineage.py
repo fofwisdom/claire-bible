@@ -132,6 +132,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
                 "feature_routing": {
                     "extract_graph": {"provider": "inherit", "model": "", "effort": ""},
                     "summarize": {"provider": "gemini", "model": "gemini-4-argon", "effort": "high"},
+                    "render_detail": {"provider": "gemini", "model": "gemini-3.8-flash-high"},
                 },
                 "server_tier": {
                     "provider": "gemini",
@@ -150,6 +151,8 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert set(cfg["server_tier"]["features"]) == {"expand", "stt"}
         assert cfg["lineage_summary"]["effective_slots"]["extract_graph"]["model"] == "gemini-3.8-flash"
         assert cfg["lineage_summary"]["effective_slots"]["summarize"]["model"] == "gemini-4-argon"
+        assert cfg["lineage_summary"]["effective_slots"]["render_detail"]["model"] == "gemini-3.8-flash-high"
+        assert cfg["lineage_summary"]["effective_slots"]["render_detail"]["effort"] == "high"
         assert len(cfg["lineage_summary"]["architecture_specs"]) >= 4
         assert any(f["id"] == "F1" and f["status"] == "REMOVED" for f in cfg["lineage_summary"]["fallbacks"])
         assert any(f["id"] == "F10" and f["status"] == "OUT_OF_SCOPE" for f in cfg["lineage_summary"]["fallbacks"])
@@ -159,6 +162,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert page_resp.status_code == 200
         assert "data-split-key-notice" in page_resp.text
         assert "data-byok-model-select" in page_resp.text
+        assert "data-byok-effort-select" not in page_resp.text
         assert "/admin/" not in page_resp.text
 
         policy_resp = client.get("/api/me/keys?include_policy=1", headers={"Cookie": f"claire_session={member_sess}"})
@@ -166,6 +170,9 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         policy = policy_resp.json()["model_policy"]
         assert policy["admin_baseline"]["extract_graph"]["model"] == "gemini-3.8-flash"
         assert policy["admin_baseline"]["summarize"]["model"] == "gemini-4-argon"
+        assert policy["admin_baseline"]["render_detail"]["model"] == "gemini-3.8-flash-high"
+        assert "gemini-4-argon-high" in policy["allowed_models"]
+        assert "gemini-4-argon" not in policy["allowed_models"]
         assert policy["split_key_enabled"] is True
 
         # 3. Member is rejected when trying mock or a weaker model than admin baseline.
@@ -175,16 +182,23 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         below_base = client.put(
             "/api/me/keys",
             headers=member_headers,
-            json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-3.5-flash-lite", "effort": "medium"},
+            json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-3.5-flash-lite-medium"},
         )
         assert below_base.status_code == 400
         assert below_base.json()["error"] == "model_below_admin_baseline"
 
-        # 4. Member registers an equal-or-higher model and receives a split-key seal cookie.
+        mismatch_eff = client.put(
+            "/api/me/keys",
+            headers=member_headers,
+            json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon-high", "effort": "low"},
+        )
+        assert mismatch_eff.status_code == 400
+
+        # 4. Member registers an equal-or-higher enumerated model without separate effort and receives a split-key seal cookie.
         ok_put = client.put(
             "/api/me/keys",
             headers=member_headers,
-            json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon", "effort": "high"},
+            json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon-high"},
         )
         assert ok_put.status_code == 200, ok_put.text
         seal_cookie = ok_put.cookies.get(BYOK_SEAL_COOKIE)

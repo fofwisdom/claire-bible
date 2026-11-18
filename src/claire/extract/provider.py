@@ -678,7 +678,7 @@ def _provider_default_effort(settings: Any, provider_name: str) -> str:
 
 
 def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
-    from ..accounts.provider_policy import HOST_CLI, classify_provider, context_of
+    from ..accounts.provider_policy import HOST_CLI, classify_provider, context_of, split_gemini_model_and_effort
 
     routes = getattr(settings, "feature_routing", None) or {}
     entry = dict(routes.get(slot) or {}) if isinstance(routes, dict) else {}
@@ -717,6 +717,10 @@ def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
             target_prov = ctx_prov
     target_model = str(entry.get("model") or "").strip() or _provider_default_model(settings, target_prov, slot)
     target_effort = str(entry.get("effort") or "").strip() or _provider_default_effort(settings, target_prov)
+    if target_prov == "gemini" and slot != "embed":
+        _, embedded_effort = split_gemini_model_and_effort(target_model)
+        if embedded_effort:
+            target_effort = embedded_effort
     return target_prov, target_model, target_effort
 
 
@@ -975,7 +979,7 @@ class FeatureRoutedProvider:
                 return p.render_detail(doc, format=format, focus=focus, effort=effort)
             return p.render_detail(doc, format=format, focus=focus)
 
-        return self._call_stage("summarize", _invoke, effort_override=effort)
+        return self._call_stage("render_detail", _invoke, effort_override=effort)
 
     def compose_presentation(self, doc: Document, **kwargs: Any) -> str:
         return self._call_stage("summarize", lambda p: p.compose_presentation(doc, **kwargs), effort_override=kwargs.get("effort"))

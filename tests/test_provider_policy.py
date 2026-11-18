@@ -740,3 +740,24 @@ def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, ke
     assert "high" not in desc_tier["options"]
     with pytest.raises(ValueError, match="Unsupported effort"):
         pp.validate_ingest_effort(s_tier, "high")
+
+    # Enumerated fixed-effort Gemini models encode reasoning effort into the model name itself.
+    assert pp.split_gemini_model_and_effort("gemini-4-argon-high") == ("gemini-4-argon", "high")
+    assert pp.split_gemini_model_and_effort("gemini-2.5-flash-none") == ("gemini-2.5-flash", "none")
+    assert pp.split_gemini_model_and_effort("gemini-3.8-flash") == ("gemini-3.8-flash", None)
+    assert pp.enumerate_gemini_model_variants(["gemini-4-argon"]) == [
+        "gemini-4-argon-low",
+        "gemini-4-argon-medium",
+        "gemini-4-argon-high",
+    ]
+    assert pp.supported_efforts_for("gemini", "gemini-4-argon-medium") == ()
+    s_gem_fixed = _settings(tmp_path, provider="gemini", gemini_model="gemini-4-argon-medium", gemini_effort="high")
+    desc_gem_fixed = pp.describe_ingest_effort_options(s_gem_fixed)
+    assert desc_gem_fixed["fixed"] is True
+    assert desc_gem_fixed["fixed_effort"] == "medium"
+    assert desc_gem_fixed["options"] == []
+    assert pp.validate_ingest_effort(s_gem_fixed, "medium") == "medium"
+    with pytest.raises(ValueError, match="fixed reasoning level"):
+        pp.validate_ingest_effort(s_gem_fixed, "high")
+    tier_from_variant = pp.ServerTier.from_dict({"provider": "gemini", "model": "gemini-3.8-flash-high", "features": []})
+    assert tier_from_variant.max_effort == "high"
