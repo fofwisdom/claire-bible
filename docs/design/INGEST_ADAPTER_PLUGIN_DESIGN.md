@@ -1,7 +1,7 @@
 # Ingest Adapters as Plugins
 
 - **Status**: Planned. Not implemented. Current behavior of fetchers, web adapters, and the registry: [`INGESTION.md`](../implementation/INGESTION.md) §2. Units PL0 to PL4 (§13).
-- **Date**: 2026-11-18 · revisions 2 to 4 on 2026-11-19 · basis commit `b869440` (each fact in §1 and §4 was read in the code at this commit)
+- **Date**: 2026-11-18 · revisions 2 to 5 on 2026-11-19 · basis commit `b869440` (each fact in §1 and §4 was read in the code at this commit)
 - **Related**: [`FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md`](FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) (its decisions 1 to 7 stay in force), [`ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md`](ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md), [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md), [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md), [`I18N_DESIGN.md`](I18N_DESIGN.md)
 
 ## 0. Source of each item
@@ -17,7 +17,9 @@ The owner asked for items O1 to O5 on 2026-11-18 and for items O6 to O8 on 2026-
 | O5 | Propose rules for plugins that follow current practice. |
 | O6 | When the manifests of different adapters overlap, the server finds it, and only one of these plugins can be selected. |
 | O7 | At the first deployment, the plugins that the project gives are enabled by default. |
-| O8 | Plugins that the project makes and plugins that users upload have different paths. To upload is to put the plugin folder into the user path. The user path is separate from the data folder, because the data folder holds files that are not customizations (owner, 2026-11-19). |
+| O8 | Plugins that the project makes and plugins that the server administrator installs have different paths. To install (the owner first said "upload") is to put a plugin into the plugin folder. The plugin folder is separate from the data folder, because the data folder holds files that are not customizations. The plugin folder is named `plugins`; a plugin there is installed by the server administrator, not by a user (owner, 2026-11-19). |
+
+O2 and O8 together: the present adapters become project plugins. They move into the plugin layout (§5), in the project plugin folder `project-plugins/`, not into the plugin folder `plugins/` of the server administrator (O8).
 
 ## 1. Problem
 
@@ -45,7 +47,7 @@ Facts at the basis commit:
 
 | Term | Korean | Meaning |
 | :--- | :--- | :--- |
-| plugin | 플러그인 | A folder with a manifest (`plugin.toml`). It adds a function to Claire without an edit of core files. It has exactly one plugin type. |
+| plugin | 플러그인 | A folder with a manifest (`plugin.toml`). It adds a function to Claire without an edit of core files. It has exactly one plugin type. The server administrator installs a plugin by putting it into the plugin folder (O3, O8). |
 | plugin type | 플러그인 유형 | The contract that a plugin implements. This design defines one type: `ingest-adapter`. Each other type needs its own design. |
 | ingest adapter | 적재 어댑터 | The plugin type for one source (§3 PL-D1). It gives one or more registry entries. It takes URLs only. |
 | registry entry | 레지스트리 항목 | One fetcher or one web adapter, as in [`INGESTION.md`](../implementation/INGESTION.md) §2.3. These two kinds do not change. |
@@ -56,8 +58,9 @@ Facts at the basis commit:
 | core commit | 추종 커밋 | The full 40-character hash of the Claire Bible commit that the author used as the base of the plugin revision. |
 | plugin version | 플러그인 버전 | The pair (plugin revision, core commit), as O4 says. Written `r3 @ 6010d69b`. |
 | plugin digest | 플러그인 다이제스트 | A SHA-256 value of all files of the plugin (§6.3). |
-| project plugin | 프로젝트 플러그인 | A plugin that the project makes. It is in the project path `<app root>/plugins/` and in `plugins/project.lock` (O8). |
-| user plugin | 이용자 플러그인 | A plugin that a user puts on the server. It is in the user path `<app root>/user-plugins/`, a folder of its own outside the data folder (O8, §5). |
+| plugin folder | 플러그인 폴더 | The folder where the server administrator installs plugins: `CLAIRE_PLUGINS_DIR`, in the image `/app/plugins` (§5). |
+| project plugin | 프로젝트 플러그인 | A plugin that the project makes and ships with the release. It is in the project plugin folder `<app root>/project-plugins/` and in `project-plugins/project.lock` (O8). |
+| project plugin folder | 프로젝트 플러그인 폴더 | `<app root>/project-plugins/`, in Git (§5). |
 | overlap | 겹침 | Two plugins of the same type whose `provides` claim the same entry name or the same host (§6.4, O6). |
 | maturity | 성숙도 | Manifest field: `experimental`, `stable`, or `deprecated`. |
 | state | 상태 | Loading state that the server computes (§8.1). |
@@ -69,7 +72,7 @@ Term collisions found:
 3. "Adapter" already names the registry kind "web adapter". The plugin type is always "ingest adapter". An ingest adapter can contain a web adapter.
 4. "코어" in [`GLOSSARY.md`](../implementation/GLOSSARY.md) §1 is the knowledge core (지식 코어). Here "core" (코어) is the code package. Korean text writes "코어 패키지" when the context does not make it clear.
 5. Revision 1 used the manifest key `status` and the word "state" for two different things. Revision 2 renames the key to `maturity`.
-6. Revision 2 said "bundled plugin" and "local plugin". Revision 3 uses the owner's words: "project plugin" and "user plugin" (O8).
+6. Names of the two kinds. Revision 2 said "bundled plugin" and "local plugin". Revision 3 said "user plugin" (이용자 플러그인) and "user path": wrong, because the server administrator installs a plugin, not a user. Revision 5 uses the owner's names: "plugin" in the "plugin folder" `plugins`, and "project plugin" in the "project plugin folder" `project-plugins`. Where a sentence must tell the two kinds apart, it says "a plugin of the plugin folder". The origin field of the API has the values `project` and `plugin-folder`.
 
 Proposal for the owner: add "plugin", "ingest adapter", "plugin revision", "core commit", and "plugin version" to [`GLOSSARY.md`](../implementation/GLOSSARY.md). This design does not change the glossary.
 
@@ -79,13 +82,13 @@ Proposal for the owner: add "plugin", "ingest adapter", "plugin revision", "core
 | :--- | :--- | :--- |
 | PL-D1 | **Source is a plugin; format is core.** A source is one site, service, or software platform that needs its own code. A format is a kind of content that many sources give: HTML, PDF, ODT, plain text and AsciiDoc, audio and video media. | A format parser and the general web chain are necessary for every ingest. If an operator switches them off, ingest stops for all sources. A source adapter is optional by nature. |
 | PL-D2 | **Media host hints stay in the core.** A host for which yt-dlp is the complete fetcher (Vimeo, TikTok, Instagram reels, Chzzk, the Brightcove player) is data of the core media route, not an adapter. A host that needs Claire code of its own is a plugin. | yt-dlp is the media format service. A list of hosts that it takes has no code to contribute. |
-| PL-D3 | **One folder for each plugin**, `plugins/<type folder>/<plugin id>/`. The type folder for ingest adapters is `ingest`. | A reviewer sees one plugin in one folder. Code, manifest, tests, and fixtures move together. |
+| PL-D3 | **One folder for each plugin**, `<plugin folder or project plugin folder>/<type folder>/<plugin id>/`. The type folder for ingest adapters is `ingest`. | A reviewer sees one plugin in one folder. Code, manifest, tests, and fixtures move together. |
 | PL-D4 | **A declarative manifest** `plugin.toml`. The server reads it without an import. | The console must show a plugin, its hosts, and its permissions before anyone executes its code. |
 | PL-D5 | **Version = plugin revision + core commit (O4).** A separate integer, the plugin API level, is the only compatibility check. | A container has no Git history, so it cannot find the distance between two commits. An integer level is a check that the server can do. The core commit stays as the record of origin. |
 | PL-D6 | **The server administrator switches plugins on and off** in the console `/admin/plugins`. A member cannot. | A plugin is code that runs in the server process for all accounts. |
 | PL-D7 | **Records, not implicit state.** At the first start of the plugin store on a server, the store writes an `enabled` record for each project plugin (O7, §11). After that, a plugin without a record is `new` and does not load. | O7. The first start is the first deployment of a new server, or the upgrade that brings plugins to an existing server; both keep the present behavior. A later project plugin needs a choice of the administrator (C1). |
 | PL-D8 | **Discovery does not execute code.** The server imports a plugin only when its state is `enabled`. | A plugin that the administrator did not switch on must not run. |
-| PL-D9 | **The path decides the origin (O8).** The project path `<app root>/plugins/` holds only project plugins; the lock `project.lock` checks their integrity. The user path `<app root>/user-plugins/` holds only user plugins; it is a separate host folder, not a part of the data folder; they load only with an approved digest, and a change of one file stops a user plugin until the administrator approves the new digest. | O8. A project plugin is trusted with the release; an upgrade must not need a new approval for each one. An approval of a user plugin must apply to the code that the administrator saw. |
+| PL-D9 | **The folder decides the origin (O8).** The project plugin folder `<app root>/project-plugins/` holds only project plugins; the lock `project.lock` checks their integrity. The plugin folder (`CLAIRE_PLUGINS_DIR`) holds only the plugins that the server administrator installs; they load only with an approved digest, and a change of one file stops such a plugin until the administrator approves the new digest. | O8. A project plugin is trusted with the release; an upgrade must not need a new approval for each one. An approval of an installed plugin must apply to the code that the administrator saw. |
 | PL-D10 | **The plugin imports only the plugin SDK from the core. The core never imports a plugin module.** | Then a change inside the core does not break plugins, and a plugin can move without a core edit. |
 | PL-D11 | **Explicit registration.** The manifest names an entry function `register(ctx)`. The import of a plugin module has no registration side effect. The class decorators `register_fetcher` and `register_web_adapter` are removed. | The loader can attach each entry to its plugin, compare it with the manifest, and leave it out when the plugin is switched off. |
 | PL-D12 | **Declared hosts decide the match.** The registry calls `can_handle` only for a URL whose host matches the `hosts` of the entry (§7.3). Host patterns are exact, never substring. | The console shows the true reach of a plugin. It removes the substring errors of §1 item 4. |
@@ -134,7 +137,7 @@ Proposal for the owner: add "plugin", "ingest adapter", "plugin revision", "core
 ## 5. Folder layout and origin
 
 ```text
-plugins/                         # project path; in Git; in the image at /app/plugins
+project-plugins/                 # project plugin folder; in Git; in the image /app/project-plugins
   project.lock                   # id, plugin revision, digest of each project plugin
   ingest/                        # type folder of the ingest-adapter type
     _template/                   # copied by `claire plugin new`; a name with "_" never loads
@@ -146,22 +149,22 @@ plugins/                         # project path; in Git; in the image at /app/pl
       tests/
         test_claire_youtube.py   # unique file name (§14 rule 2)
         fixtures/                # recorded responses; tests never use the network
-user-plugins/                    # user path; in the image /app/user-plugins (read-only mount of ${CB_USER_PLUGINS_DIR}); ignored by Git
+plugins/                         # plugin folder; in the image /app/plugins (read-only mount of ${CB_PLUGINS_DIR}); ignored by Git
   ingest/<id>/
 ```
 
-- **Two paths, one layout (O8, PL-D9).** The project path is `<app root>/plugins`. The app root comes from `config.resolve_app_root` (`CLAIRE_APP_ROOT` in the image, the checkout in a source tree). The user path is `CLAIRE_USER_PLUGINS_DIR` (default `<app root>/user-plugins`). Its name says that it is for users only; the two paths never have the same folder name.
-- **The user path is not in the data folder.** The data folder holds what the server writes (databases, artifacts, logs). A user plugin is code that a person puts on the server, so it has its own host folder, as the vault has:
-  - Host setting `CB_USER_PLUGINS_DIR`, default `./user-plugins` (`./.dev/user-plugins` in dev mode), as `CB_DATA_DIR` and `CB_VAULT_DIR` ([`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md)). `cb-manuscript` resolves it once (`resolve_storage`), refuses a path that is equal to or nested with the data folder, the vault, the backups, or the repository, makes the folder when it is absent, and passes the absolute path to Compose.
-  - Compose mounts it at `/app/user-plugins` with `:ro`. The server process cannot write user plugin code.
-  - `cb-manuscript backup` and `restore` get the component `user-plugins` next to `data` and `vault`. Then a restore does not turn enabled user plugins into `removed`.
-  - In a checkout that runs without a container, the path is `<checkout>/user-plugins`; `.gitignore` adds `user-plugins/`.
-  - App setting `CLAIRE_USER_PLUGINS_DIR`, documented default `<app root>/user-plugins`. The image keeps the default. The E2E server sets a folder of its run, so that a test plugin never goes into the folder of a person.
-- **The project path holds only project plugins.** Each folder there must have the publisher `claire` and an item in `project.lock`; other folders get the state `invalid`. A folder whose digest differs from the lock gets the state `unlocked` (§8.1): a contributor runs `claire plugin lock` (§6.2).
-- **The user path holds only user plugins.** A plugin there with the publisher `claire`, or with an id of a project plugin, gets the state `invalid` (no shadowing).
-- `.gitignore` stops to ignore `plugins/`.
-- The Dockerfile copies `plugins/` into the image.
-- `pyproject.toml` adds `plugins` to the pytest `testpaths`.
+- **Two folders, one layout (O8, PL-D9).** The project plugin folder is `<app root>/project-plugins`. The app root comes from `config.resolve_app_root` (`CLAIRE_APP_ROOT` in the image, the checkout in a source tree). The plugin folder is `CLAIRE_PLUGINS_DIR` (default `<app root>/plugins`). The two folders never have the same name.
+- **The plugin folder is not in the data folder.** The data folder holds what the server writes (databases, artifacts, logs). A plugin of the plugin folder is code that the server administrator installs, so it has its own host folder, as the vault has:
+  - Host setting `CB_PLUGINS_DIR`, default `./plugins` (`./.dev/plugins` in dev mode), as `CB_DATA_DIR` and `CB_VAULT_DIR` ([`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md)). `cb-manuscript` resolves it once (`resolve_storage`), refuses a path that is equal to or nested with the data folder, the vault, the backups, or the project plugin folder, makes the folder when it is absent, and passes the absolute path to Compose.
+  - Compose mounts it at `/app/plugins` with `:ro`. The server process cannot write plugin code.
+  - `cb-manuscript backup` and `restore` get the component `plugins` next to `data` and `vault`. Then a restore does not turn enabled plugins into `removed`.
+  - App setting `CLAIRE_PLUGINS_DIR`, documented default `<app root>/plugins`. The image keeps the default. The E2E server sets a folder of its run, so that a test plugin never goes into the plugin folder of a person.
+  - `.gitignore` already ignores `plugins/` (now with the comment "Local drop-in plugins"); the comment becomes "Plugin folder (CB_PLUGINS_DIR)".
+- **The project plugin folder holds only project plugins.** Each folder there must have the publisher `claire` and an item in `project.lock`; other folders get the state `invalid`. A folder whose digest differs from the lock gets the state `unlocked` (§8.1): a contributor runs `claire plugin lock` (§6.2).
+- **The plugin folder holds only installed plugins.** A plugin there with the publisher `claire`, or with an id of a project plugin, gets the state `invalid` (no shadowing).
+- **Known type folders only.** The loader reads only the type folders that it knows (`ingest`). The console lists any other folder of the plugin folder as "unknown folder" and loads nothing from it.
+- The Dockerfile copies `project-plugins/` into the image.
+- `pyproject.toml` adds `project-plugins` to the pytest `testpaths`.
 
 ## 6. Manifest and version
 
@@ -230,14 +233,14 @@ revision = 1
 digest = "sha256:…"
 ```
 
-- `claire plugin lock` writes it. It compares each plugin with the lock of `HEAD` (`git show HEAD:plugins/project.lock`): a new digest needs a revision above the revision of `HEAD`. Thus a contributor can lock many times before one commit, with one new revision.
+- `claire plugin lock` writes it. It compares each plugin with the lock of `HEAD` (`git show HEAD:project-plugins/project.lock`): a new digest needs a revision above the revision of `HEAD`. Thus a contributor can lock many times before one commit, with one new revision.
 - A conformance test fails when a digest in the tree differs from the lock. Result: a code contribution that changes a project plugin must raise its revision.
 - A conformance test fails when two project plugins overlap (§6.4). Thus all project plugins can be enabled together (O7).
 
 ### 6.3 Digest
 
-1. List each regular file in the plugin folder. Skip `__pycache__/` and `*.pyc`.
-2. For each file, make the line `<sha256 of the content>  <path relative to the plugin folder>`, with `/` as separator.
+1. List each regular file in the folder of the plugin. Skip `__pycache__/` and `*.pyc`.
+2. For each file, make the line `<sha256 of the content>  <path relative to the folder of the plugin>`, with `/` as separator.
 3. Sort the lines by path. Join them with `\n`.
 4. The digest is `sha256:` and the SHA-256 of that text.
 
@@ -272,7 +275,7 @@ The SDK gives names that exist now under one stable surface. A plugin imports no
 | Routing | `reroute(url)`: routes a resolved URL again, with the depth limit of the router |
 | CLI | `ctx.cli_command(name, build_parser, run)`, `ingest_document(...)` for a command that ingests |
 
-- A test keeps a snapshot of the SDK surface (names and signatures). A change of the snapshot needs a decision: a compatible addition (same level) or a break (new level). At a break, the old level is removed in the same change, because no external plugin exists yet. User plugins of the old level then show `incompatible`.
+- A test keeps a snapshot of the SDK surface (names and signatures). A change of the snapshot needs a decision: a compatible addition (same level) or a break (new level). At a break, the old level is removed in the same change, because no external plugin exists yet. Plugins of the plugin folder with the old level then show `incompatible`.
 - `ctx` also gives the plugin id, its folder, and a logger with the plugin id in each record.
 
 ### 7.2 `register(ctx)`
@@ -320,18 +323,18 @@ The loader checks in this order and stops at the first state that applies.
 | `missing-requirement` | A declared distribution or executable is absent | No |
 | `new` | No record | No |
 | `disabled` | Record is off | No |
-| `changed` | User plugin: the digest is not the approved digest | No |
+| `changed` | Plugin of the plugin folder: the digest is not the approved digest | No |
 | `overlap` | Record is on, but another plugin of its overlap group also has a record that is on (§6.4). Each of them gets this state. | No |
 | `enabled` | Record is on, all checks pass | Yes |
 | `failed` | The import or `register(ctx)` raised an error. The console shows the error text. | No |
 | `removed` | A record exists, but the folder is absent | No |
 
-`invalid`, `unlocked`, `incompatible`, `missing-requirement`, `overlap`, and `failed` keep the record as it is. When the cause goes away, the plugin loads again with no action. `changed` needs a new approval (PL-D9). `overlap` needs a selection of the administrator: the server does not select one (PL-D14). The switch on (§10.2) refuses to make an overlap, so `overlap` occurs only when a new manifest adds a host, for example a project plugin of a new release against an enabled user plugin. The release notes name new hosts of project plugins.
+`invalid`, `unlocked`, `incompatible`, `missing-requirement`, `overlap`, and `failed` keep the record as it is. When the cause goes away, the plugin loads again with no action. `changed` needs a new approval (PL-D9). `overlap` needs a selection of the administrator: the server does not select one (PL-D14). The switch on (§10.2) refuses to make an overlap, so `overlap` occurs only when a new manifest adds a host, for example a project plugin of a new release against an enabled plugin of the plugin folder. The release notes name new hosts of project plugins.
 
 ### 8.2 Records
 
 - One `claire.db` `server_settings` row for each plugin, key `plugin:<id>`. JSON value: `enabled`, `approved_digest`, `approved_revision`. The columns `updated_at` and `updated_by` of the table hold the time and the administrator. No schema version change.
-- Switching on stores the digest that the administrator saw, for each origin. The `changed` check uses it only for user plugins.
+- Switching on stores the digest that the administrator saw, for each origin. The `changed` check uses it only for plugins of the plugin folder.
 - One more key, `plugins:initialized`, holds the time of the first start of the plugin store (§11 item 1).
 - Only the new store module `src/claire/store/plugins.py` reads and writes these keys (store boundary R2 of [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md)).
 
@@ -339,7 +342,7 @@ The loader checks in this order and stops at the first state that applies.
 
 The `api` process, the bot, the worker loops, and the CLI each do this at the first use of the registry:
 
-1. **Discover.** Read each `plugin.toml` in the two paths. Compute each digest. Compare the project path with `project.lock`. Find the overlap groups. Do not import.
+1. **Discover.** Read each `plugin.toml` in the two folders. Compute each digest. Compare the project plugin folder with `project.lock`. Find the overlap groups. Do not import.
 2. **Decide.** Read the records. Compute the state of each plugin.
 3. **Load.** For each `enabled` plugin: import its folder as the package `claire_plugins.ingest.<id with "." and "-" changed to "_">` with `importlib.util.spec_from_file_location`, then call the entry function. No change to `sys.path`.
 4. **Report.** Each long-running process writes `data/run/plugins_<process>.json`: id, version, digest, state, and the error counts of §7.3 of each plugin. The CLI writes no report. The console and the support bundle read these files.
@@ -362,24 +365,24 @@ A failure of one plugin never stops the start of a process (operator rule). It c
 | S1 | Discovery reads TOML and file hashes only. No import, no `.pth` file, no change to `sys.path` (PL-D8). |
 | S2 | Only the administrator switches a plugin. Switching on needs a recent sign-in (`security.step_up_response`: 401 `reauth_required`, 403 `step_up_requires_session` for a bearer token). Switching off needs only the administrator session: it is the emergency stop and it must be fast. |
 | S3 | The request to switch on carries the digest that the administrator saw. When the files changed after the page was read, the server answers 409 `plugin_changed` and changes nothing. |
-| S4 | The loader refuses symbolic links, files outside the plugin folder, and files or folders that other users can write. In the user path, each file must belong to the process user or to `root`, or the mount must be read-only. |
+| S4 | The loader refuses symbolic links, files outside the folder of the plugin, and files or folders that other users can write. In the plugin folder, each file must belong to the process user or to `root`, or the mount must be read-only. |
 | S5 | Separate paths and no shadowing (§5, O8). |
 | S6 | Network access goes through `ctx.http_client()` or `ctx.safe_get()`: the private network guard (principle B2) plus the host list of `permissions.network`. An import check finds direct network modules (`httpx`, `requests`, `urllib.request`, `http.client`, `socket`, `aiohttp`, `yt_dlp`, `curl_cffi`, `scrapling`, `playwright`) and process modules (`subprocess`, `os.system`, `os.exec*`); the SDK keeps the list. A plugin can import only the network modules that it names in `permissions.network_modules`. The console shows a badge "direct network" for them. The check is static: it does not stop code that hides its imports. |
 | S7 | The SDK gives the fetch settings only. It gives no access to `SecretService`, `auth.db`, or the tokens of accounts. |
 | S8 | `admin_audit` in `auth.db` (`auth_db.record_admin_audit`) records `plugin.enable` and `plugin.disable` with `plugin_id`, `revision`, `core_commit`, `digest`, and `origin`. A switch with `replace` records one `plugin.disable` for each replaced plugin, with `replaced_by`. |
 | S9 | The support bundle adds `diagnostics/plugins.json`: states, versions, digests, process reports, and load error texts after the present masking. It contains no plugin files. |
-| S10 | **Change to the image** (now `chown -R 1000:1000 /app` gives all of `/app` to the process user): `/app/src`, `/app/.venv`, and `/app/plugins` belong to `root` and the process user cannot write them. `/app/user-plugins` is a read-only mount (§5). The entrypoint already gives `/app/data` and `/app/vault` to the process user. PL3 runs the dev container and confirms that no process writes elsewhere under `/app`. A server that runs with `CB_UID=0` runs as `root`, and this control does not apply; the console shows a warning. |
-| S11 | Limit: the loader computes the digest, then Python reads the files again at import. A change between the two steps changes the code. In a container only a person on the host can write the user path (read-only mount). In a checkout without a container, the process user can write it (S4). |
+| S10 | **Change to the image** (now `chown -R 1000:1000 /app` gives all of `/app` to the process user): `/app/src`, `/app/.venv`, and `/app/project-plugins` belong to `root` and the process user cannot write them. `/app/plugins` is a read-only mount (§5). The entrypoint already gives `/app/data` and `/app/vault` to the process user. PL3 runs the dev container and confirms that no process writes elsewhere under `/app`. A server that runs with `CB_UID=0` runs as `root`, and this control does not apply; the console shows a warning. |
+| S11 | Limit: the loader computes the digest, then Python reads the files again at import. A change between the two steps changes the code. In a container only a person on the host can write the plugin folder (read-only mount). In a checkout without a container, the process user can write it (S4). |
 
-Out-of-process isolation is possible later for user plugins (§12). It is not in this design.
+Out-of-process isolation is possible later for plugins of the plugin folder (§12). It is not in this design.
 
 ## 10. Settings: console, API, and CLI
 
 ### 10.1 Console `/admin/plugins`
 
 - A new section of the sidebar group `admin_system`, after `providers` and `limits` (`ADMIN_CONSOLE_GROUP_5_SPECS` in `api/accounts_routes/console.py`). Rule: administrator only; 404 for all other callers (stealth 404).
-- Above the table, the page shows the user path of this server (`/app/user-plugins/ingest/` in the image) and the host folder that the operator writes (the folder of `CB_USER_PLUGINS_DIR`, default `./user-plugins`), with the text that user plugins go there and project plugins come only with a release.
-- A table with a caption. One row for each plugin: name and id, type, version (`r3 @ 6010d69b`; the full hash in the details), origin (project or user), maturity, state badge, switch. The rows of one overlap group are shown together, with the shared hosts. Above the table, the server shows the commit of the running core, as the support bundle finds it (`support_bundle._get_git_commit_and_source`), so that the administrator can compare. On a narrow container, the table becomes stacked rows (the present `.claire-table td[data-label]` pattern).
+- Above the table, the page shows the plugin folder of this server (`/app/plugins/ingest/` in the image) and the host folder that the operator writes (the folder of `CB_PLUGINS_DIR`, default `./plugins`), with the text that the server administrator installs plugins there and project plugins come only with a release.
+- A table with a caption. One row for each plugin: name and id, type, version (`r3 @ 6010d69b`; the full hash in the details), origin (project or plugin folder), maturity, state badge, switch. The rows of one overlap group are shown together, with the shared hosts. Above the table, the server shows the commit of the running core, as the support bundle finds it (`support_bundle._get_git_commit_and_source`), so that the administrator can compare. On a narrow container, the table becomes stacked rows (the present `.claire-table td[data-label]` pattern).
 - The switch is `<input type="checkbox" switch>` with a label. For a state that cannot load, the switch is `disabled`, and `aria-describedby` points to the reason text.
 - A `<details>` element in each row shows the description, the `provides` list with hosts, the permissions, the requirements, the current and the approved digest, maintainers, license, the load error, and the process reports.
 - Switching on opens a modal `<dialog>` with `aria-labelledby` on its heading. The dialog lists the permissions, the hosts, the network modules, and the digest. When another plugin of the overlap group is enabled, the dialog names it and the shared hosts, and the confirm button reads "Switch off <other> and switch on <this>" (O6). `autofocus` is on Cancel. A 401 `reauth_required` answer shows the present step-up form, then sends the request again.
@@ -407,16 +410,16 @@ ASD-STE100 English, `--json` with the `AgentOutput` contract (C3). On a deployed
 | `claire plugin disable <id>` | Same. |
 | `claire plugin check [<folder>]` | For contributors: manifest, digest, lock, overlap with the project plugins, import check, core commit ancestry (in a checkout), and conformance tests. It does not use the server state. |
 | `claire plugin lock` | Writes `project.lock` (§6.2). |
-| `claire plugin new <id> --type ingest-adapter` | Copies `_template` into the user path (a `claire.` id: into the project path). In a container the user path is read-only, so the command gives exit code 4 for a user plugin; the author runs it in a checkout. It sets `revision = 1`, `api`, and `core_commit`. The core commit is the commit of the running core, from the same function as the console. Exit code 4 when it gives no full 40-character hash. |
+| `claire plugin new <id> --type ingest-adapter` | Copies `_template` into the plugin folder (a `claire.` id: into the project plugin folder). In a container the plugin folder is read-only, so the command gives exit code 4 for an id that is not `claire.`; the author runs it in a checkout. It sets `revision = 1`, `api`, and `core_commit`. The core commit is the commit of the running core, from the same function as the console. Exit code 4 when it gives no full 40-character hash. |
 | `claire plugin run <id> <command> …` | §7.4. |
 
 ## 11. Migration
 
-1. **First start of the plugin store (O7, PL-D7).** When the key `plugins:initialized` is absent, the store writes an `enabled` record for each project plugin in the project path, then writes the key, in one transaction. `claire migrate` (principle E3) does it; the loader does it too, so that a process that starts before a migration gets the same result. It logs the count. The operator does nothing. On a new server this is the first deployment. On an existing server it is the upgrade that brings the plugins of §4.1, so the present behavior stays. A project plugin of a later release has no record and is `new`; the release notes name it.
+1. **First start of the plugin store (O7, PL-D7).** When the key `plugins:initialized` is absent, the store writes an `enabled` record for each project plugin, then writes the key, in one transaction. `claire migrate` (principle E3) does it; the loader does it too, so that a process that starts before a migration gets the same result. It logs the count. The operator does nothing. On a new server this is the first deployment. On an existing server it is the upgrade that brings the plugins of §4.1, so the present behavior stays. A project plugin of a later release has no record and is `new`; the release notes name it.
 2. Each moved plugin starts at `revision = 1`. Its core commit is the parent of the commit that moves it.
-3. The tests of §4.3 move into `plugins/ingest/<id>/tests/` with unique file names. Fixtures move with them.
+3. The tests of §4.3 move into `project-plugins/ingest/<id>/tests/` with unique file names. Fixtures move with them.
 4. `claire hoyowiki` becomes `claire plugin run claire.hoyolab wiki-crawl …`. [`COMMANDS.md`](../implementation/COMMANDS.md), the command list of `ops/cb_manuscript.py`, and the help text of `cli.py` change in the same commit.
-5. Old drop-in files in `plugins/fetchers/` were never loaded. After the `.gitignore` change, Git shows them as untracked; the person who owns the checkout deletes them.
+5. Old drop-in files in `plugins/fetchers/` of a checkout were never loaded. `plugins/` is now the plugin folder; the console lists `fetchers` as an unknown folder (§5), and the server administrator deletes it.
 
 ## 12. Rejected alternatives
 
@@ -433,13 +436,12 @@ ASD-STE100 English, `--json` with the `AgentOutput` contract (C3). On a deployed
 | Overlapping plugins enabled together, ordered by priority | O6. The administrator could not tell which plugin takes a URL. |
 | The plugin that was enabled first wins an overlap | A hidden choice (C1). |
 | A detection of "first deployment" by the absence of `claire.db` | Other processes can make `claire.db` before `claire migrate`. A key of the plugin store is exact. |
-| A project plugin that differs from the lock loads as a user plugin (revision 2) | O8: the two kinds have separate paths. |
-| The user path `<data dir>/plugins` (revision 3) | The same folder name as the project path `plugins/`. A person cannot see that the folder is for users only. |
-| The user path `<data dir>/user-plugins` (between revision 3 and revision 4) | The data folder holds what the server writes. User plugin code there is mixed with server data, the process can write it, and a data restore changes it. |
-| A file upload in the console | Not requested. An upload is a folder that the user puts into the user path (O8). |
-| A sandbox now (subprocess with JSON-RPC, or WebAssembly) | Real isolation, but the media adapters need yt-dlp, ffmpeg, and Chromium. High cost for a server that has no third-party plugin yet. Possible later for user plugins only. |
+| A project plugin that differs from the lock loads as a plugin of the plugin folder (revision 2) | O8: the two kinds have separate folders. |
+| The name "user plugin" (이용자 플러그인) and the folders `<data dir>/plugins` and `<data dir>/user-plugins` (revisions 3 and 4) | The server administrator installs a plugin, not a user. The data folder holds what the server writes, not customizations (O8). |
+| A file upload in the console | Not requested. To install is to put a folder into the plugin folder (O8). |
+| A sandbox now (subprocess with JSON-RPC, or WebAssembly) | Real isolation, but the media adapters need yt-dlp, ffmpeg, and Chromium. High cost for a server that has no third-party plugin yet. Possible later for plugins of the plugin folder only. |
 | On and off for each account | Not requested. A plugin is server code. |
-| Plugin-owned settings with a schema in the manifest | Not requested. The present settings stay in the core. A later design can add it when a user plugin needs a secret. |
+| Plugin-owned settings with a schema in the manifest | Not requested. The present settings stay in the core. A later design can add it when a plugin of the plugin folder needs a secret. |
 
 ## 13. Units
 
@@ -450,7 +452,7 @@ Each unit ends with a full test run that passes.
 | PL0 | Independent of plugins, can go first: exact host rules for x.com, YouTube, Naver Clip, and the `*.` web adapter match (§1 item 4), with unit tests for the URLs of that table. |
 | PL1 | `claire.plugin_sdk` (level 1, snapshot test), manifest parser, discovery, digest, `project.lock`, `store/plugins.py`, loader with states, overlap groups (§6.4), the first start of the store (§11), host matching (§7.3), process reports, registry entries with plugin ids, conformance suite, import check, `claire plugin list/show/check/lock/new/enable/disable/run`. Removal of the old loader and the decorators (PL-D11, PL-D13). |
 | PL2 | Move of the adapters of §4.1, one commit for each plugin, in this order: `law-go-kr`, `discourse`, `uttu`, `xcom`, `hoyolab` (with HoYoWiki), `naver-clip`, `youtube`, `share-link`, `vmware-explore`. Each moved plugin uses the SDK network client and passes the import check (the HoYoWiki client and `vmware-explore` change their HTTP code). Removal of the site rules from `classify`, `router.fetch`, and `video.py`, and of the couplings of §4.3. The constant of §7.5. Migration (§11). |
-| PL3 | `/admin/plugins`, the HTTP API, audit, support bundle file, catalog keys, Dockerfile, `.gitignore`, Compose mount, and `cb-manuscript` changes (S10, §5), the `CB_USER_PLUGINS_DIR` and `CLAIRE_USER_PLUGINS_DIR` rows in [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md) and `.env.example`, and one Playwright E2E test through `scripts/e2e.sh`: put a user test plugin (offline, fixture answer) in the user path, see `new`, switch it on with step-up, ingest a payload that it takes, switch it off, ingest the same payload, and see the core route. Then put a second user test plugin that claims the same host, see the overlap group, switch it on with the replace dialog, and see that the first plugin is off. |
+| PL3 | `/admin/plugins`, the HTTP API, audit, support bundle file, catalog keys, Dockerfile, `.gitignore`, Compose mount, and `cb-manuscript` changes (S10, §5), the `CB_PLUGINS_DIR` and `CLAIRE_PLUGINS_DIR` rows in [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md) and `.env.example`, and one Playwright E2E test through `scripts/e2e.sh`: put a test plugin (offline, fixture answer) in the plugin folder of the E2E run, see `new`, switch it on with step-up, ingest a payload that it takes, switch it off, ingest the same payload, and see the core route. Then put a second test plugin that claims the same host, see the overlap group, switch it on with the replace dialog, and see that the first plugin is off. |
 | PL4 | Implementation documents: [`INGESTION.md`](../implementation/INGESTION.md) §2, [`COMMANDS.md`](../implementation/COMMANDS.md), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.9, [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), `openapi.yaml`, [`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md) §4.1 item 2. Then condense this design to principles. |
 
 Tests follow the project rule: unit tests for module interfaces (SDK, registration), I/O (discovery, digest, store, process reports), and calls to external libraries; the conformance suite for every plugin; one E2E test for the feature.
@@ -458,7 +460,7 @@ Tests follow the project rule: unit tests for module interfaces (SDK, registrati
 ## 14. Rules for code contribution (O5)
 
 1. **One plugin for one source.** Shared code goes into the core SDK, never into an import from another plugin. A new project plugin must not overlap a project plugin (§6.4); extend that plugin instead.
-2. **Self-contained folder.** Manifest, code, `README.md`, tests, and fixtures are in the plugin folder. Tests never use the network. Test file names are `test_<id with "." and "-" changed to "_">*.py`, because pytest needs unique names in folders without `__init__.py`. Tests load the plugin with the SDK test helper, not with an import of the folder name.
+2. **Self-contained folder.** Manifest, code, `README.md`, tests, and fixtures are in the folder of the plugin. Tests never use the network. Test file names are `test_<id with "." and "-" changed to "_">*.py`, because pytest needs unique names in folders without `__init__.py`. Tests load the plugin with the SDK test helper, not with an import of the folder name.
 3. **Raise the plugin revision for each change**, and set the core commit to the base commit (§6.1 rules 2 and 3). The lock test enforces it for project plugins.
 4. **Commit message**: Conventional Commits with the plugin id as scope, and a Git trailer with the revision:
 
@@ -483,8 +485,8 @@ Reference date: general knowledge of these projects as of 2026. No code or text 
 | One folder and a declarative manifest that the host reads before activation | VS Code extension manifest (`contributes`), Grafana `plugin.json`, Home Assistant integration `manifest.json`, Obsidian `manifest.json` | PL-D3, PL-D4, `provides` |
 | An integer plugin version and a declared core requirement | Moodle `version.php` (`version`, `requires`, `maturity`), Obsidian `minAppVersion` | Plugin revision, API level, `maturity` |
 | A checksum list of all plugin files, and an explicit administrator choice for plugins without a trusted origin | Grafana plugin signature (`MANIFEST.txt` with SHA-256 for each file, unsigned plugins only by an explicit setting) | §6.3, PL-D9 |
-| Separate folders for shipped and user-installed extensions | WordPress plugin folder apart from core files, Home Assistant `custom_components` apart from built-in integrations | §5, O8 |
-| Declared permissions that the user sees before activation | Browser extension host permissions, Deno permission flags | `[permissions]`, the switch dialog |
+| Separate folders for shipped extensions and extensions that the administrator installs | WordPress plugin folder apart from core files, Home Assistant `custom_components` apart from built-in integrations | §5, O8 |
+| Declared permissions that the administrator sees before activation | Browser extension host permissions, Deno permission flags | `[permissions]`, the switch dialog |
 | Host match patterns with exact semantics | Browser extension match patterns | §6.1 rule 6 |
 | A quality ladder for contributed integrations | Home Assistant integration quality scale | `maturity`, conformance suite |
 | A record of the source revision of a build | SLSA provenance, Git trailers | Core commit, `Plugin-Revision` trailer |
