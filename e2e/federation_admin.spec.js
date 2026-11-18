@@ -10,7 +10,7 @@ function knownServer(domain, over) {
 }
 
 function journalEntry(id, status, over) {
-  return { id, activity_iri: 'https://b.example/activities/' + id, activity_type: 'Add', kind: 'kb_contribution', actor: 'https://b.example/ap/users/alice', actor_domain: 'b.example', recipient: 'http://127.0.0.1:8766/kb/101/', verified_by: 'http_signature', status, error_code: null, error_detail: null, attempts: 1, received_at: '2026-11-17T10:00:00Z', processed_at: status === 'processed' ? '2026-11-17T10:00:01Z' : null, replayable: status === 'failed' || status === 'received', ...over };
+  return { id, activity_iri: 'https://b.example/activities/' + id, activity_type: 'Offer', kind: 'offer_contribution', actor: 'https://b.example/ap/actors/7', actor_domain: 'b.example', recipient: 'http://127.0.0.1:8766/ap/kb/101', verified_by: 'http-signature', status, error_code: null, error_detail: null, attempts: 1, received_at: '2026-11-17T10:00:00Z', processed_at: status === 'processed' ? '2026-11-17T10:00:01Z' : null, replayable: status === 'failed' || status === 'received', ...over };
 }
 
 async function installApi(page, opts) {
@@ -18,7 +18,7 @@ async function installApi(page, opts) {
   const calls = [];
   const state = {
     servers: [
-      knownServer('b.example', { source: 'local_follow', last_contact_at: 1700000500, server_actor: 'https://b.example/actor', software_name: 'claire', software_version: '0.9.1', kb_count: 1, last_read_at: 1700000600, error_count: 1, last_error: 'http_503', last_error_at: 1700000700, kbs: [{ id: 5, iri: 'https://b.example/kb/901/', server: 'b.example', url: 'https://b.example/kb/901/', label: 'Railway Archive', description: 'Rail records', knowledge_type: 'real', documents: 12, entities: 40, relations: 22, first_seen_at: 1700000600 }], kb_read: { last_read_at: 1700000650, stored: 1, refused: 2, refused_code: 'kb_type_unknown', error_count: 2, last_error: 'timeout', last_error_at: 1700000660 } }),
+      knownServer('b.example', { source: 'local_follow', last_contact_at: 1700000500, server_actor: 'https://b.example/ap/actors/server', software_name: 'claire', software_version: '0.9.1', kb_count: 1, last_read_at: 1700000600, error_count: 1, last_error: 'nodeinfo_unavailable', last_error_at: 1700000700, kbs: [{ id: 5, iri: 'https://b.example/ap/kb/901', server: 'b.example', url: 'https://b.example/kb/901/', label: 'Railway Archive', description: 'Rail records', knowledge_type: 'real', documents: 12, entities: 40, relations: 22, first_seen_at: 1700000600 }], kb_read: { last_read_at: 1700000650, stored: 1, refused: 2, refused_code: 'record_too_large', error_count: 2, last_error: 'read_timeout', last_error_at: 1700000660 } }),
       knownServer('c.example', { status: 'blocked', blocked_by: 'c.example', source: 'remote_contribution' })
     ],
     // The server renders the first rows of the domain blocks from its database, which has none. The list of the fixed data starts with the same state when a test asks for it.
@@ -26,10 +26,19 @@ async function installApi(page, opts) {
     autoState: 'on',
     // The number of change requests that get 401 "reauth_required" before POST /api/auth/reauth gives 200.
     reauthNeeded: !!options.reauth,
-    reauthAnswers: (options.reauthAnswers || []).slice()
+    reauthAnswers: (options.reauthAnswers || []).slice(),
+    goneDomains: options.goneDomains || []
   };
-  const journalRows = [journalEntry(40, 'failed', { error_code: 'handler_error', error_detail: 'document not found' }), journalEntry(39, 'processed'), journalEntry(38, 'received', { attempts: 0, activity_type: 'Follow', kind: null }), journalEntry(37, 'refused', { error_code: 'domain_blocked', actor: 'https://c.example/ap/users/eve', actor_domain: 'c.example' })];
-  const olderRows = [journalEntry(12, 'processed', { activity_type: 'Update' })];
+  // The codes are those of the handlers: "handler_error" (journal.process), "blocked_domain" (access.exchange_refusal at a replay), "revision_too_soon" (contributions.remote_revision_refusal), "follower_limit" (handlers.follow). A refused row has no kind when the contract check refused it, else the kind of the activity.
+  const journalRows = [
+    journalEntry(40, 'failed', { error_code: 'handler_error', error_detail: 'KeyError: document' }),
+    journalEntry(39, 'processed'),
+    journalEntry(38, 'received', { attempts: 0, activity_type: 'Follow', kind: null, actor: 'https://b.example/ap/actors/server', recipient: null }),
+    journalEntry(37, 'refused', { error_code: 'blocked_domain', actor: 'https://c.example/ap/actors/3', actor_domain: 'c.example' }),
+    journalEntry(36, 'refused', { error_code: 'revision_too_soon', activity_type: 'Update', kind: 'update_document', actor: 'https://b.example/ap/kb/901', recipient: null }),
+    journalEntry(35, 'refused', { error_code: 'follower_limit', activity_type: 'Follow', kind: 'follow', actor: 'https://d.example/ap/actors/server', actor_domain: 'd.example' })
+  ];
+  const olderRows = [journalEntry(12, 'processed', { activity_type: 'Update', kind: 'update_document', actor: 'https://b.example/ap/kb/901', recipient: null })];
 
   await page.route((u) => u.pathname.startsWith('/api/admin/federation/') || u.pathname === '/api/admin/auto-contribution' || u.pathname === '/api/auth/reauth', async (route) => {
     const req = route.request();
@@ -74,12 +83,20 @@ async function installApi(page, opts) {
       state.servers = state.servers.map((s) => (s.domain === domain ? { ...s, status: 'active', blocked_by: null } : s));
       return json(route, { removed: true, domain });
     }
+    // DELETE /api/admin/federation/known-servers (accounts_routes/knowledge_federation.py, "known_servers_delete"): the counts of "remove_known_server". A domain of "goneDomains" was removed by another request: 404.
+    if (path === '/api/admin/federation/known-servers' && method === 'DELETE') {
+      const domain = JSON.parse(req.postData()).domain;
+      const known = state.servers.find((s) => s.domain === domain);
+      state.servers = state.servers.filter((s) => s.domain !== domain);
+      if (!known || state.goneDomains.includes(domain)) return json(route, { error: 'known_server_not_found' }, 404);
+      return json(route, { removed: true, domain, deleted: { knowledge_bases: known.kbs.length, listed_documents: 12, followers: 2, outbox_tasks: 3, journal_payloads: 4 } });
+    }
     if (path === '/api/admin/federation/journal' && method === 'GET') {
       const status = url.searchParams.get('status');
       if (url.searchParams.get('max_id')) return json(route, { entries: olderRows.filter((e) => !status || e.status === status), next_max_id: null });
       const entries = journalRows.filter((e) => !status || e.status === status);
       // A full page has the cursor of the next page. Only the list without a filter is "full" here.
-      return json(route, { entries, next_max_id: status ? null : 37 });
+      return json(route, { entries, next_max_id: status ? null : 35 });
     }
     const replay = /^\/api\/admin\/federation\/journal\/(\d+)\/replay$/.exec(path);
     if (replay && method === 'POST') {
@@ -148,9 +165,15 @@ test('/admin/federation: the four tabs, the known servers with the detail fields
   await expect(field('errors')).toHaveText('3');
   const notes = known.locator('[data-known-error]');
   await expect(notes).toHaveCount(3);
-  await expect(notes.nth(0)).toContainText('http_503');
-  await expect(notes.nth(1)).toContainText('timeout');
-  await expect(notes.nth(2)).toContainText('kb_type_unknown');
+  // Each error shows the catalog text of its code; the code is only in "data-known-code".
+  await expect(notes.nth(0)).toContainText('그 서버가 NodeInfo 문서를 주지 않았습니다.');
+  await expect(notes.nth(0)).toHaveAttribute('data-known-code', 'nodeinfo_unavailable');
+  await expect(notes.nth(1)).toContainText('다른 서버에서 읽는 데 시간이 너무 오래 걸렸습니다.');
+  await expect(notes.nth(1)).toHaveAttribute('data-known-code', 'read_timeout');
+  await expect(notes.nth(2)).toContainText('2개');
+  await expect(notes.nth(2)).toContainText('지식 베이스 기록이 128 KiB보다 큽니다.');
+  await expect(notes.nth(2)).toHaveAttribute('data-known-code', 'record_too_large');
+  for (const code of ['nodeinfo_unavailable', 'read_timeout', 'record_too_large']) await expect(known.locator('.claire-detail-col')).not.toContainText(code);
   // The shared knowledge bases of the server: the name is the link to the page on that server.
   const remoteKb = known.locator('a[href="https://b.example/kb/901/"]');
   await expect(remoteKb).toHaveText('Railway Archive');
@@ -306,35 +329,47 @@ test('/admin/federation: the journal filter sends each state, replay shows only 
   await tab(page, 'journal').click();
   const journal = page.locator('#admin-federation-journal-host');
   const rows = journal.locator('tbody tr');
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(6);
   await expect(journal.locator('thead th')).toHaveText(['액티비티', '액터', '상태', '시도 횟수', '수신 시각', '']);
   // The first request has no filter and no cursor.
   expect(calls.filter((c) => c.path.startsWith('/api/admin/federation/journal'))[0].path).toBe('/api/admin/federation/journal');
 
-  // One row: the activity with its kind, the actor, the state as text with the error code, the attempts, and the time in the format of the locale.
-  await expect(rows.nth(0)).toContainText('Add');
-  await expect(rows.nth(0)).toContainText('kb_contribution');
-  await expect(rows.nth(0)).toContainText('https://b.example/ap/users/alice');
+  // One row: the activity with its kind, the actor, the state as text with the catalog text of the error code, the detail, the attempts, and the time in the format of the locale.
+  await expect(rows.nth(0)).toContainText('Offer');
+  await expect(rows.nth(0)).toContainText('offer_contribution');
+  await expect(rows.nth(0)).toContainText('https://b.example/ap/actors/7');
   await expect(rows.nth(0).locator('.claire-tag')).toHaveText('실패');
-  await expect(rows.nth(0)).toContainText('handler_error');
-  await expect(rows.nth(0)).toContainText('document not found');
+  await expect(rows.nth(0).locator('[data-journal-code="handler_error"]')).toHaveText('처리 중에 오류가 났습니다. 이 서버는 변경을 취소했습니다.');
+  await expect(rows.nth(0)).toContainText('KeyError: document');
   await expect(rows.nth(0)).toContainText('2026');
   await expect(rows.nth(0)).not.toContainText('T10:00:00Z');
   await expect(rows.nth(1).locator('.claire-tag')).toHaveText('처리됨');
   await expect(rows.nth(2).locator('.claire-tag')).toHaveText('수신됨');
   await expect(rows.nth(3).locator('.claire-tag')).toHaveText('거부됨');
+  // The refusal codes of the handlers and of the controls show as catalog text: a blocked domain at a replay, a revision before the minimum time, a follow over the limit of followers.
+  await expect(rows.nth(3).locator('[data-journal-code="blocked_domain"]')).toHaveText('관리자가 액터의 도메인을 차단했습니다.');
+  await expect(rows.nth(4).locator('.claire-tag')).toHaveText('거부됨');
+  await expect(rows.nth(4).locator('[data-journal-code="revision_too_soon"]')).toHaveText('사본이 최소 간격보다 짧은 시간 안에 개정을 받았습니다 (remote_revision_min_seconds).');
+  await expect(rows.nth(5).locator('[data-journal-code="follower_limit"]')).toHaveText('지식 베이스의 팔로워 수가 한도에 이르렀습니다 (kb_followers_limit).');
+  // No row shows a code as its text; the code is in the attribute "title".
+  for (const el of await journal.locator('[data-journal-code]').all()) {
+    const code = await el.getAttribute('data-journal-code');
+    await expect(el).toHaveAttribute('title', code);
+    await expect(journal.locator('tbody')).not.toContainText(code);
+  }
   // Replay: only for the rows with "replayable" (failed, received).
   await expect(journal.locator('[data-replay-j]')).toHaveCount(2);
   await expect(rows.nth(0).locator('[data-replay-j="40"]')).toBeVisible();
   await expect(rows.nth(1).locator('[data-replay-j]')).toHaveCount(0);
   await expect(rows.nth(2).locator('[data-replay-j="38"]')).toBeVisible();
   await expect(rows.nth(3).locator('[data-replay-j]')).toHaveCount(0);
+  await expect(rows.nth(4).locator('[data-replay-j]')).toHaveCount(0);
 
   // More: the request has the cursor "next_max_id"; the rows of the next page go below, and the control goes away when there is no next page.
   await journal.locator('[data-journal-more]').click();
-  await expect(rows).toHaveCount(5);
-  expect(calls.some((c) => c.path === '/api/admin/federation/journal?max_id=37')).toBe(true);
-  await expect(rows.nth(4)).toContainText('Update');
+  await expect(rows).toHaveCount(7);
+  expect(calls.some((c) => c.path === '/api/admin/federation/journal?max_id=35')).toBe(true);
+  await expect(rows.nth(6)).toContainText('Update');
   await expect(journal.locator('[data-journal-more]')).toHaveCount(0);
 
   // Replay of a failed row: POST with an empty object; the row gets the new state and loses the control.
@@ -345,7 +380,7 @@ test('/admin/federation: the journal filter sends each state, replay shows only 
   expect(replayCall.body).toEqual({});
   await expect(page.locator('.claire-toast').last()).toContainText('새 상태: 처리됨');
   // The rows of the second page stay after the replay.
-  await expect(rows).toHaveCount(5);
+  await expect(rows).toHaveCount(7);
   // A replay that the server refuses: the catalog text of the code.
   await rows.nth(2).locator('[data-replay-j="38"]').click();
   await expect(page.locator('.claire-toast').last()).not.toContainText('federation_off');
@@ -355,7 +390,7 @@ test('/admin/federation: the journal filter sends each state, replay shows only 
   // The state filter: each state sends "status"; "all" sends no parameter.
   const chip = (value) => journal.locator('input[name="fed-journal-status"][value="' + value + '"]').locator('..');
   await expect(journal.locator('.claire-chip')).toHaveText(['전체', '수신됨', '처리됨', '실패', '거부됨']);
-  for (const [state, count] of [['received', 1], ['processed', 1], ['failed', 1], ['refused', 1]]) {
+  for (const [state, count] of [['received', 1], ['processed', 1], ['failed', 1], ['refused', 3]]) {
     await chip(state).click();
     await expect(rows).toHaveCount(count);
     await expect(journal.locator('input[name="fed-journal-status"][value="' + state + '"]')).toBeChecked();
@@ -363,7 +398,7 @@ test('/admin/federation: the journal filter sends each state, replay shows only 
     await expect(journal.locator('[data-journal-more]')).toHaveCount(0);
   }
   await chip('all').click();
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(6);
   expect(calls[calls.length - 1].path).toBe('/api/admin/federation/journal');
   await expectNoRawKeys(page);
   expect(errors).toEqual([]);
@@ -469,4 +504,69 @@ test('the step-up dialog of the shared request function: a cancel sends no secon
   expect(calls.some((c) => c.path === '/api/auth/reauth')).toBe(false);
   // The control is ready for a new attempt.
   await expect(journal.locator('[data-replay-j="40"]')).toBeEnabled();
+});
+
+test('/admin/federation: remove a known server with the confirmation of what is deleted and what stays, the step-up path, the counts, and 404', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  await authenticateOwner(page, 'fedadmin7');
+  // The first change gets 401 "reauth_required". The domain c.example was removed by another request: DELETE gives 404 "known_server_not_found".
+  const { calls } = await installApi(page, { reauth: true, goneDomains: ['c.example'] });
+  await page.goto('/admin/federation', { waitUntil: 'domcontentloaded' });
+  await tab(page, 'known').click();
+  const known = page.locator('#admin-federation-known-host');
+  await expect(known.locator('[data-pick-known]')).toHaveCount(2);
+  const removeBtn = known.locator('[data-remove-known="b.example"]');
+  await expect(removeBtn).toBeVisible();
+  const deletes = () => calls.filter((c) => c.method === 'DELETE' && c.path === '/api/admin/federation/known-servers');
+
+  // The confirmation names the server, and lists what is deleted and what stays. A cancel sends no request.
+  await removeBtn.click();
+  const dlg = page.locator('dialog.claire-dlg[open]');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('h2')).toContainText('b.example');
+  await expect(dlg.locator('[data-remove-deleted] li')).toHaveText([
+    '알려진 서버 항목.',
+    '그 서버의 공유 지식 베이스 기록과 그 테마 소속.',
+    '그 지식 베이스들의 문서 목록과 읽기 상태.',
+    '이 서버의 공유 지식 베이스를 팔로우하는 그 서버의 서버 액터.',
+    '그 서버로 전달을 기다리는 액티비티.',
+    '그 서버에서 온 처리됨·거부됨 저널 행의 액티비티 본문.'
+  ]);
+  await expect(dlg.locator('[data-remove-stays] li')).toHaveCount(4);
+  await expect(dlg.locator('[data-remove-stays] li').nth(0)).toContainText('사본');
+  await expect(dlg.locator('[data-remove-stays] li').nth(1)).toContainText('팔로우');
+  await expect(dlg.locator('[data-remove-stays] li').nth(2)).toContainText('실패한 행');
+  await expect(dlg.locator('[data-remove-stays] li').nth(3)).toContainText('도메인 차단');
+  await expect(dlg).toContainText('다시 알려진 서버가 됩니다');
+  await expectNoRawKeys(page);
+  await dlg.locator('.claire-dlg-foot .claire-btn.sec').click();
+  await expect(dlg).toHaveCount(0);
+  expect(deletes()).toHaveLength(0);
+
+  // The confirmation: DELETE gets 401 "reauth_required", the step-up dialog opens, and after the sign-in the same DELETE goes one more time.
+  await removeBtn.click();
+  await expect(dlg.locator('.claire-dlg-foot .claire-btn.danger')).toHaveText('서버 제거');
+  await dlg.locator('.claire-dlg-foot .claire-btn.danger').click();
+  await expect(dlg.locator('h2')).toContainText('최근 로그인이 필요합니다');
+  await dlg.locator('#claire-stepup-pw').fill('e2e-password');
+  await dlg.locator('#claire-stepup-pw').press('Enter');
+  await expect(dlg).toHaveCount(0);
+  await expect(page.locator('.claire-toast').last()).toContainText('b.example 서버를 제거했습니다. 삭제: 지식 베이스 기록 1개, 문서 목록 항목 12개, 팔로워 2개, 전달 대기 액티비티 3개, 저널 본문 4개.');
+  expect(deletes().map((c) => c.body)).toEqual([{ domain: 'b.example' }, { domain: 'b.example' }]);
+  expect(calls.filter((c) => c.path === '/api/auth/reauth').map((c) => c.body)).toEqual([{ password: 'e2e-password' }]);
+  // The list reads again: the server is gone, and the next server is the selected one.
+  await expect(known.locator('[data-pick-known]')).toHaveCount(1);
+  await expect(known.locator('[data-pick-known="b.example"]')).toHaveCount(0);
+  await expect(known.locator('.claire-detail-col h3')).toContainText('c.example');
+
+  // A blocked server can be removed too. 404 "known_server_not_found": the catalog text, not the code, and the list reads again.
+  await known.locator('[data-remove-known="c.example"]').click();
+  await dlg.locator('.claire-dlg-foot .claire-btn.danger').click();
+  await expect(page.locator('.claire-toast').last()).toContainText('이 도메인은 알려진 서버 목록에 없습니다.');
+  await expect(page.locator('.claire-toast').last()).not.toContainText('known_server_not_found');
+  expect(deletes().map((c) => c.body)).toEqual([{ domain: 'b.example' }, { domain: 'b.example' }, { domain: 'c.example' }]);
+  await expect(known.locator('[data-pick-known]')).toHaveCount(0);
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
 });

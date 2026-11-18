@@ -7,6 +7,9 @@ test.use({ serviceWorkers: 'block' });
 
 const REP_SETTINGS = { reputation_fiction_share_limited: 0.2, reputation_fiction_share_low: 0.5, reputation_approval_rate_limited: 0.5, reputation_approval_rate_low: 0.2, reputation_window_days: 180, reputation_min_decisions: 10, pending_limit_good: 100, pending_limit_limited: 20, pending_limit_low: 5, auto_contribution_limited_documents: 10 };
 
+// "settings" of GET /api/admin/themes: theme_judgement.SETTINGS and contributions.LIMITS (the defaults).
+const THEME_SETTINGS = { theme_match_threshold: 0.25, document_match_threshold: 0.5, seed_match_threshold: 0.5, submission_max_documents: 20, remote_account_pending_limit: 20, remote_domain_pending_limit: 200, remote_domain_daily_offers: 500, remote_domain_daily_activities: 10000, remote_domain_daily_bytes: 104857600, kb_followers_limit: 1000, remote_domain_followers_limit: 1000, remote_revision_min_seconds: 300, remote_domain_daily_revisions: 200 };
+
 function adminTheme(number, label, over) {
   return { number: String(number), url: 'http://127.0.0.1:8766/themes/' + number + '/', label, description: '', knowledge_type: 'real', state: 'active', top_entities: [], shared_knowledge_bases: 0, remote_knowledge_bases: 0, visible_contributions: 0, last_activity_at: 1700000000, knowledge_bases: [], label_locked: false, computed_at: 1700000000, ...over };
 }
@@ -20,6 +23,7 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
   const errors = watchErrors(page);
   await authenticateOwner(page, 'admthemes1');
   const repSettings = { ...REP_SETTINGS };
+  const themeSettings = { ...THEME_SETTINGS };
   const themes = [
     adminTheme(201, 'Railway · Steam', { shared_knowledge_bases: 2, remote_knowledge_bases: 1, knowledge_bases: [
       member({ number: '101', label: 'Modern History', url: 'http://127.0.0.1:8766/kb/101/', score: 0.6 }),
@@ -30,7 +34,13 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
     adminTheme(204, 'Empty Subject', { state: 'empty' })
   ];
   const { calls, unknown } = await installJsonApi(page, (u) => u.pathname.startsWith('/api/admin/themes') || u.pathname.startsWith('/api/admin/reputations') || u.pathname === '/api/admin/auto-contribution', ({ path, method, body }) => {
-    if (path === '/api/admin/themes' && method === 'GET') return [{ settings: { theme_match_threshold: 0.25, document_match_threshold: 0.5, seed_match_threshold: 0.5, submission_max_documents: 20, remote_account_pending_limit: 20, remote_domain_pending_limit: 200, remote_domain_daily_offers: 500 }, last_run_at: 1700000000, themes, decision_agreement: [{ knowledge_base: '101', label: 'Modern History', decisions: 12, agreement: 0.75 }] }];
+    if (path === '/api/admin/themes' && method === 'GET') return [{ settings: themeSettings, last_run_at: 1700000000, themes, decision_agreement: [{ knowledge_base: '101', label: 'Modern History', decisions: 12, agreement: 0.75 }] }];
+    // PUT /api/admin/themes/settings (api/server.py, "admin_themes_settings_route"): {"ok", "settings"} with all keys.
+    if (path === '/api/admin/themes/settings' && method === 'PUT') {
+      Object.assign(themeSettings, body);
+      return [{ ok: true, settings: themeSettings }];
+    }
+    if (path === '/api/admin/auto-contribution' && method === 'PUT') return [{ ok: true, state: 'on', settings: { auto_match_threshold: 0.5, auto_run_documents: 50, ...body } }];
     if (path === '/api/admin/reputations' && method === 'GET') return [{ settings: repSettings, accounts: [
       { account: '5550001', display_name: 'Bob', level: 'good', fiction_share: 0, fiction_like_documents: 0, visible_documents: 3, approval_rate: 0.9, decisions: 10 },
       { account: '5550002', display_name: 'Carol', level: 'limited', fiction_share: 0.25, fiction_like_documents: 1, visible_documents: 4, approval_rate: null, decisions: 0 },
@@ -52,9 +62,33 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
 
   // The judgement tab: the labels of the number fields ("theme_judgement.SETTINGS", "contributions.LIMITS", and the two settings of the automatic contribution), and "Judge now". The report shows each field with its label, not with its key.
   const judge = page.locator('#admin-themes-tabs [role="tabpanel"][data-tabpanel="judge"]');
-  await expect(judge.locator('#adm-th-thresh-form label')).toHaveCount(9);
+  await expect(judge.locator('#adm-th-thresh-form label')).toHaveCount(15);
   await expect(judge.locator('#th-rd')).toHaveValue('200');
   for (const label of await judge.locator('#adm-th-thresh-form label').allTextContents()) expect(label.trim().length).toBeGreaterThan(3);
+  // Each key of contributions.LIMITS has a field with its label (the key in brackets at the end), its value, and the lowest value that the server takes.
+  const limitFields = { submission_max_documents: 'th-sx', remote_account_pending_limit: 'th-ra', remote_domain_pending_limit: 'th-rd', remote_domain_daily_offers: 'th-ro', remote_domain_daily_activities: 'th-da', remote_domain_daily_bytes: 'th-db', kb_followers_limit: 'th-kf', remote_domain_followers_limit: 'th-df', remote_revision_min_seconds: 'th-rm', remote_domain_daily_revisions: 'th-dv' };
+  for (const [key, id] of Object.entries(limitFields)) {
+    const label = (await judge.locator('label[for="' + id + '"]').textContent()).trim();
+    expect(label.endsWith('(' + key + ')'), 'label of ' + key).toBe(true);
+    expect(label, 'label of ' + key).not.toBe('(' + key + ')');
+    await expect(judge.locator('#' + id)).toHaveValue(String(THEME_SETTINGS[key]));
+    await expect(judge.locator('#' + id)).toHaveAttribute('min', key === 'remote_revision_min_seconds' ? '0' : '1');
+  }
+  await expect(judge.locator('label[for="th-kf"]')).toHaveText('공유 지식 베이스 하나의 팔로워 수 (kb_followers_limit)');
+  // Save: a filled field goes in the body of PUT /api/admin/themes/settings; an empty field is not sent. 0 is a valid minimum time of a revision.
+  await judge.locator('#th-db').fill('');
+  await judge.locator('#th-rm').fill('0');
+  await judge.locator('#th-kf').fill('500');
+  await judge.locator('#adm-th-thresh-form button[type="submit"]').click();
+  await expect(page.locator('.claire-toast').last()).toBeVisible();
+  const expected = { ...THEME_SETTINGS, remote_revision_min_seconds: 0, kb_followers_limit: 500 };
+  delete expected.remote_domain_daily_bytes;
+  await expect.poll(() => calls.filter((c) => c.method === 'PUT' && c.path === '/api/admin/themes/settings').map((c) => c.body)).toEqual([expected]);
+  expect(calls.filter((c) => c.method === 'PUT' && c.path === '/api/admin/auto-contribution').map((c) => c.body)).toEqual([{ auto_match_threshold: 0.5, auto_run_documents: 50 }]);
+  // The page reads again: the fields show the stored values.
+  await expect(judge.locator('#th-rm')).toHaveValue('0');
+  await expect(judge.locator('#th-kf')).toHaveValue('500');
+  await expect(judge.locator('#th-db')).toHaveValue('104857600');
   await expect(judge.locator('.claire-kpi').nth(1)).toContainText('1 / 1 / 1');
   await judge.locator('#adm-th-run-now').click();
   const report = judge.locator('.claire-note.ok');

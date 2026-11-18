@@ -1031,6 +1031,18 @@
       var text = tr(key);
       return text === key ? String(code == null ? "" : code) : text;
     };
+    // The catalog text of an error or refusal code of the knowledge federation (a journal row, a read of a known server): the text for this page ("console.js.admin.federation.code.<code>"), else the shared error text ("kb.err.<code>", "kb.reason.<code>"), else the general text with the code. The page never shows a code alone.
+    var fedCodeText = function (code) {
+      var c = String(code == null ? "" : code);
+      if (/^[a-z0-9_]+$/.test(c)) {
+        var keys = ["console.js.admin.federation.code." + c, "kb.err." + c, "kb.reason." + c];
+        for (var i = 0; i < keys.length; i++) {
+          var text = tr(keys[i]);
+          if (text !== keys[i]) return text;
+        }
+      }
+      return tr("console.js.admin.federation.code_unknown", { code: c });
+    };
 
     var loadKnown = null;
     var knownHost = document.getElementById("admin-federation-known-host");
@@ -1070,16 +1082,19 @@
                 ["errors", String((cur.error_count || 0) + ((kbRead && kbRead.error_count) || 0))]
               ];
               var errors = [];
-              if (cur.last_error) errors.push(tr("console.js.admin.federation.known.error_server", { time: fedTime(cur.last_error_at), error: cur.last_error }));
-              if (kbRead && kbRead.last_error) errors.push(tr("console.js.admin.federation.known.error_kb_read", { time: fedTime(kbRead.last_error_at), error: kbRead.last_error }));
-              if (kbRead && kbRead.refused_code) errors.push(tr("console.js.admin.federation.known.error_refused", { count: kbRead.refused, code: kbRead.refused_code }));
-              right += '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + " " + statusTag(cur) + "</h3>" +
-                (cur.status === "blocked" ? "" : '<button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.block_btn")) + "</button>") + "</div>" +
+              // Each error is [text, code]: the note shows the catalog text of the code, and keeps the code in "data-known-code".
+              if (cur.last_error) errors.push([tr("console.js.admin.federation.known.error_server", { time: fedTime(cur.last_error_at), error: fedCodeText(cur.last_error) }), cur.last_error]);
+              if (kbRead && kbRead.last_error) errors.push([tr("console.js.admin.federation.known.error_kb_read", { time: fedTime(kbRead.last_error_at), error: fedCodeText(kbRead.last_error) }), kbRead.last_error]);
+              if (kbRead && kbRead.refused_code) errors.push([tr("console.js.admin.federation.known.error_refused", { count: kbRead.refused, code: fedCodeText(kbRead.refused_code) }), kbRead.refused_code]);
+              right += '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + " " + statusTag(cur) + '</h3><div class="claire-actions">' +
+                (cur.status === "blocked" ? "" : '<button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.block_btn")) + "</button>") +
+                // DELETE /api/admin/federation/known-servers removes the server and what this server keeps of it (KNOWLEDGE_FEDERATION.md Section 14.4). A blocked server can be removed too: the domain block stays.
+                '<button type="button" class="claire-btn sec claire-btn-sm" data-remove-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.remove_btn")) + "</button></div></div>" +
                 (cur.status === "blocked" ? '<div class="claire-note warn"><span>' + ui.esc(tr("console.js.admin.federation.known.blocked_by", { domain: cur.blocked_by || cur.domain })) + "</span></div>" : "") +
                 '<dl data-known-read style="display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:13px">' + fields.map(function (f) {
                   return '<dt class="claire-hint" style="margin:0">' + ui.esc(tr("console.js.admin.federation.known.field." + f[0])) + '</dt><dd style="margin:0;overflow-wrap:anywhere" data-known-field="' + ui.esc(f[0]) + '">' + ui.esc(f[1]) + "</dd>";
                 }).join("") + "</dl>" +
-                errors.map(function (text) { return '<div class="claire-note warn" data-known-error><span>' + ui.esc(text) + "</span></div>"; }).join("") +
+                errors.map(function (pair) { return '<div class="claire-note warn" data-known-error data-known-code="' + ui.esc(pair[1]) + '"><span>' + ui.esc(pair[0]) + "</span></div>"; }).join("") +
                 // The shared knowledge bases of the server from the store of remote knowledge bases ("kbs"). The name is the link to the page on that server.
                 ui.renderTable({
                   caption: tr("console.js.admin.federation.known.kbs_caption", { domain: cur.domain }),
@@ -1135,6 +1150,52 @@
               });
             });
           });
+          knownHost.querySelectorAll("[data-remove-known]").forEach(function (b) {
+            b.addEventListener("click", function () {
+              var domain = b.getAttribute("data-remove-known");
+              var listHtml = function (attr, keys) {
+                return "<ul " + attr + ' style="margin:4px 0 10px;padding-left:20px">' + keys.map(function (k) { return "<li>" + ui.esc(tr("console.js.admin.federation.known.remove_" + k)) + "</li>"; }).join("") + "</ul>";
+              };
+              // The confirmation tells what is deleted and what stays (the table of KNOWLEDGE_FEDERATION.md Section 14.4).
+              var bodyHtml = '<p style="margin:0 0 8px">' + ui.esc(tr("console.js.admin.federation.known.remove_intro", { domain: domain })) + "</p>" +
+                "<strong>" + ui.esc(tr("console.js.admin.federation.known.remove_deleted_head")) + "</strong>" +
+                listHtml("data-remove-deleted", ["deleted.server", "deleted.kbs", "deleted.documents", "deleted.followers", "deleted.tasks", "deleted.payloads"]) +
+                "<strong>" + ui.esc(tr("console.js.admin.federation.known.remove_stays_head")) + "</strong>" +
+                listHtml("data-remove-stays", ["stays.copies", "stays.follows", "stays.journal", "stays.block"]) +
+                '<p class="claire-hint" style="margin:0">' + ui.esc(tr("console.js.admin.federation.known.remove_again")) + "</p>";
+              ui.openDialog({
+                title: tr("console.js.admin.federation.known.remove_title", { domain: domain }),
+                bodyHtml: bodyHtml,
+                danger: true,
+                submitLabel: tr("console.js.admin.federation.known.remove_submit")
+              }).then(function (choice) {
+                if (choice !== "confirm") return;
+                b.disabled = true;
+                // DELETE with the body {"domain"} (one key). The route needs the same origin and a recent sign-in: for 401 "reauth_required" the request helper opens the re-authentication dialog and sends the request again. 200 gives {"removed": true, "domain", "deleted": {"knowledge_bases", "listed_documents", "followers", "outbox_tasks", "journal_payloads"}}.
+                ui.request("/api/admin/federation/known-servers", { method: "DELETE", body: { domain: domain } }).then(function (dr) {
+                  if (!dr.ok) {
+                    b.disabled = false;
+                    ui.toast(ui.errorText(dr), "danger");
+                    // 404 "known_server_not_found": the list is not current.
+                    if (dr.status === 404) loadKnown();
+                    return;
+                  }
+                  var deleted = (dr.data && dr.data.deleted) || {};
+                  var count = function (key) { return deleted[key] == null ? 0 : deleted[key]; };
+                  if (selectedDomain === domain) selectedDomain = "";
+                  ui.toast(tr("console.js.admin.federation.known.remove_done", {
+                    domain: (dr.data && dr.data.domain) || domain,
+                    knowledge_bases: count("knowledge_bases"),
+                    listed_documents: count("listed_documents"),
+                    followers: count("followers"),
+                    outbox_tasks: count("outbox_tasks"),
+                    journal_payloads: count("journal_payloads")
+                  }), "ok");
+                  loadKnown();
+                });
+              });
+            });
+          });
         });
       };
       loadKnown();
@@ -1167,7 +1228,8 @@
               { label: tr("console.js.admin.federation.journal.col_actor"), render: function (e) { return '<span style="overflow-wrap:anywhere">' + ui.esc(e.actor) + "</span>"; } },
               { label: tr("console.js.admin.federation.journal.col_state"), render: function (e) {
                 return '<span class="claire-tag ' + (stateTone[e.status] || "warn") + '">' + ui.esc(fedCodeLabel("console.js.admin.federation.journal.state.", e.status)) + "</span>" +
-                  (e.error_code ? ' <code class="pref-mono">' + ui.esc(e.error_code) + "</code>" : "") +
+                  // The error code shows as its catalog text; the code is in "title" and "data-journal-code".
+                  (e.error_code ? ' <span data-journal-code="' + ui.esc(e.error_code) + '" title="' + ui.esc(e.error_code) + '">' + ui.esc(fedCodeText(e.error_code)) + "</span>" : "") +
                   (e.error_detail ? ' <span class="claire-hint" style="overflow-wrap:anywhere">' + ui.esc(e.error_detail) + "</span>" : "");
               } },
               { label: tr("console.js.admin.federation.journal.col_attempts"), render: function (e) { return ui.esc(e.attempts == null ? "—" : e.attempts); } },
@@ -1387,8 +1449,9 @@
       return text === key ? String(name) : text;
     }
 
-    function numberField(id, label, value, step) {
-      return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + ui.esc(label) + '</label><input id="' + id + '" type="number" class="claire-input" min="0" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></div>';
+    // "min" is the lowest value that the server takes; the default is 0.
+    function numberField(id, label, value, step, min) {
+      return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + ui.esc(label) + '</label><input id="' + id + '" type="number" class="claire-input" min="' + (min || "0") + '" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></div>';
     }
     function percent(value) { return value == null ? "—" : Math.round(Number(value) * 100) + "%"; }
     function fail(res) { ui.toast(ui.errorText(res), "danger"); }
@@ -1428,11 +1491,19 @@
           numberField("th-sm", tr("console.js.admin.themes.th_seed_match"), cfg.seed_match_threshold, "0.01") +
           numberField("th-am", tr("console.js.admin.themes.th_auto_min"), autoSettings.auto_match_threshold, "0.01") +
           numberField("th-ar", tr("console.js.admin.themes.th_auto_run_documents"), autoSettings.auto_run_documents, "1") +
-          numberField("th-sx", tr("console.js.admin.themes.th_submission_max_documents"), cfg.submission_max_documents, "1") +
+          // The keys of contributions.LIMITS are integers of 1 or more; "remote_revision_min_seconds" is 0 or more (contributions._LIMIT_MINIMUM).
+          numberField("th-sx", tr("console.js.admin.themes.th_submission_max_documents"), cfg.submission_max_documents, "1", "1") +
           // The limits for contributions that accounts of other servers offer (KNOWLEDGE_FEDERATION_DESIGN.md KS2, KS3): keys of PUT /api/admin/themes/settings.
-          numberField("th-ra", tr("console.js.admin.themes.th_remote_account_pending_limit"), cfg.remote_account_pending_limit, "1") +
-          numberField("th-rd", tr("console.js.admin.themes.th_remote_domain_pending_limit"), cfg.remote_domain_pending_limit, "1") +
-          numberField("th-ro", tr("console.js.admin.themes.th_remote_domain_daily_offers"), cfg.remote_domain_daily_offers, "1") +
+          numberField("th-ra", tr("console.js.admin.themes.th_remote_account_pending_limit"), cfg.remote_account_pending_limit, "1", "1") +
+          numberField("th-rd", tr("console.js.admin.themes.th_remote_domain_pending_limit"), cfg.remote_domain_pending_limit, "1", "1") +
+          numberField("th-ro", tr("console.js.admin.themes.th_remote_domain_daily_offers"), cfg.remote_domain_daily_offers, "1", "1") +
+          // The limits of the knowledge federation for each other server (KNOWLEDGE_FEDERATION.md Section 14.1): keys of PUT /api/admin/themes/settings.
+          numberField("th-da", tr("console.js.admin.themes.th_remote_domain_daily_activities"), cfg.remote_domain_daily_activities, "1", "1") +
+          numberField("th-db", tr("console.js.admin.themes.th_remote_domain_daily_bytes"), cfg.remote_domain_daily_bytes, "1", "1") +
+          numberField("th-kf", tr("console.js.admin.themes.th_kb_followers_limit"), cfg.kb_followers_limit, "1", "1") +
+          numberField("th-df", tr("console.js.admin.themes.th_remote_domain_followers_limit"), cfg.remote_domain_followers_limit, "1", "1") +
+          numberField("th-rm", tr("console.js.admin.themes.th_remote_revision_min_seconds"), cfg.remote_revision_min_seconds, "1", "0") +
+          numberField("th-dv", tr("console.js.admin.themes.th_remote_domain_daily_revisions"), cfg.remote_domain_daily_revisions, "1", "1") +
           '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></div>";
 
         var adjLeft = '<div class="claire-list-col">' +
@@ -1525,7 +1596,7 @@
         var tForm = host.querySelector("#adm-th-thresh-form");
         if (tForm) tForm.addEventListener("submit", function (ev) {
           ev.preventDefault();
-          // The three thresholds of the judgement and "submission_max_documents" are keys of PUT /api/admin/themes/settings; "auto_match_threshold" and "auto_run_documents" are keys of PUT /api/admin/auto-contribution. An empty field is not sent: the server keeps its value.
+          // The three thresholds of the judgement and each key of contributions.LIMITS are keys of PUT /api/admin/themes/settings; "auto_match_threshold" and "auto_run_documents" are keys of PUT /api/admin/auto-contribution. An empty field is not sent: the server keeps its value.
           var put = function (body, id, key) {
             var raw = host.querySelector(id).value;
             if (raw !== "") body[key] = Number(raw);
@@ -1538,6 +1609,12 @@
           put(themeBody, "#th-ra", "remote_account_pending_limit");
           put(themeBody, "#th-rd", "remote_domain_pending_limit");
           put(themeBody, "#th-ro", "remote_domain_daily_offers");
+          put(themeBody, "#th-da", "remote_domain_daily_activities");
+          put(themeBody, "#th-db", "remote_domain_daily_bytes");
+          put(themeBody, "#th-kf", "kb_followers_limit");
+          put(themeBody, "#th-df", "remote_domain_followers_limit");
+          put(themeBody, "#th-rm", "remote_revision_min_seconds");
+          put(themeBody, "#th-dv", "remote_domain_daily_revisions");
           put(autoBody, "#th-am", "auto_match_threshold");
           put(autoBody, "#th-ar", "auto_run_documents");
           Promise.all([
