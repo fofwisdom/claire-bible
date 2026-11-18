@@ -317,7 +317,10 @@ CREATE TABLE IF NOT EXISTS same_subject_shadow (
     quality REAL,
     interpretation TEXT,
     reason TEXT,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    verdict TEXT,                  -- the human verdict: 'same' | 'different' | NULL (not judged)
+    verdict_note TEXT,
+    verdict_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_same_subject_shadow_kb ON same_subject_shadow(kb_id, created_at);
 
@@ -1557,7 +1560,11 @@ def _migrate_v34_automatic_offers(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
-    """v35 schema (GLOSSARY.md, link expansion terms): the source names of link expansion in ``raw_inbox.source``. ``onehop:<parent id>`` becomes ``expand:<parent id>``, and ``telegram-expand`` becomes ``expand-proposal``. Idempotent (A3); it runs at each start. The table ``same_subject_shadow`` comes from the schema script."""
+    """v35 schema (GLOSSARY.md, link expansion terms): the source names of link expansion in ``raw_inbox.source``. ``onehop:<parent id>`` becomes ``expand:<parent id>``, and ``telegram-expand`` becomes ``expand-proposal``. Idempotent (A3); it runs at each start. The table ``same_subject_shadow`` comes from the schema script; a table from an earlier build of v35 gets the verdict columns here."""
+    if _table_exists(conn, "same_subject_shadow"):
+        for column in ("verdict TEXT", "verdict_note TEXT", "verdict_at REAL"):
+            name, decl = column.split(" ", 1)
+            _ensure_column(conn, "same_subject_shadow", name, decl)
     if not _table_exists(conn, "raw_inbox") or "source" not in _column_names(conn, "raw_inbox"):
         return
     renamed = conn.execute(
@@ -5045,19 +5052,86 @@ def record_same_subject_shadow(
     return int(cur.lastrowid)
 
 
+SAME_SUBJECT_VERDICTS = ("same", "different")
+
+
 def list_same_subject_shadow(
-    conn: sqlite3.Connection, *, kb_id: int | None = None, limit: int = 0,
+    conn: sqlite3.Connection, *, kb_id: int | None = None, limit: int = 0, pending: bool = False,
 ) -> list[sqlite3.Row]:
-    """The shadow records, the newest first. ``kb_id`` None: all knowledge bases."""
-    q = "SELECT * FROM same_subject_shadow"
+    """The shadow records with the titles of the parent and the child, the newest first. ``kb_id`` None: all knowledge bases. ``pending``: only records without a verdict."""
+    q = (
+        "SELECT s.*, p.title AS parent_title, c.title AS child_title FROM same_subject_shadow s"
+        " LEFT JOIN documents p ON p.id = s.parent_document_id"
+        " LEFT JOIN documents c ON c.id = s.child_document_id"
+    )
+    where: list[str] = []
     params: list[Any] = []
     if kb_id is not None:
-        q += " WHERE kb_id=?"
+        where.append("s.kb_id=?")
         params.append(kb_id)
-    q += " ORDER BY created_at DESC, id DESC"
+    if pending:
+        where.append("s.verdict IS NULL")
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY s.created_at DESC, s.id DESC"
     if limit:
         q += f" LIMIT {int(limit)}"
     return conn.execute(q, tuple(params)).fetchall()
+
+
+def set_same_subject_verdict(
+    conn: sqlite3.Connection, record_id: int, verdict: str | None, *, note: str = "", kb_id: int | None = None,
+) -> bool:
+    """Set the human verdict of a shadow record: ``"same"``, ``"different"``, or None (remove the verdict). Returns False when the record is not there. A value that is not valid raises ``ValueError``."""
+    if verdict is not None and verdict not in SAME_SUBJECT_VERDICTS:
+        raise ValueError(f"verdict must be one of {SAME_SUBJECT_VERDICTS} or None, got {verdict!r}")
+    where = "WHERE id=?"
+    params: list[Any] = [verdict, (note or None) if verdict else None, time.time() if verdict else None, record_id]
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(kb_id)
+    cur = conn.execute(f"UPDATE same_subject_shadow SET verdict=?, verdict_note=?, verdict_at=? {where}", tuple(params))
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def same_subject_shadow_report(conn: sqlite3.Connection, *, kb_id: int | None = None) -> dict[str, Any]:
+    """Compare the model judgement (``same_subject``) with the human verdict.
+
+    The positive class is "same subject" (the merge would take the child). Precision = TP / (TP + FP): of the children that the model would merge, the part that a human calls the same subject. Recall = TP / (TP + FN): of the children that a human calls the same subject, the part that the model would merge. A value is None when its denominator is 0 (no data, no estimate).
+    """
+    q = "SELECT same_subject, verdict, COUNT(*) AS n FROM same_subject_shadow"
+    params: tuple[Any, ...] = ()
+    if kb_id is not None:
+        q += " WHERE kb_id=?"
+        params = (kb_id,)
+    q += " GROUP BY same_subject, verdict"
+    counts = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+    records = pending = 0
+    for row in conn.execute(q, params).fetchall():
+        n = int(row["n"])
+        records += n
+        if row["verdict"] is None:
+            pending += n
+            continue
+        model_same = bool(row["same_subject"])
+        human_same = row["verdict"] == "same"
+        key = ("tp" if human_same else "fp") if model_same else ("fn" if human_same else "tn")
+        counts[key] += n
+    judged = records - pending
+
+    def ratio(num: int, den: int) -> float | None:
+        return num / den if den else None
+
+    return {
+        "records": records,
+        "judged": judged,
+        "pending": pending,
+        **counts,
+        "precision": ratio(counts["tp"], counts["tp"] + counts["fp"]),
+        "recall": ratio(counts["tp"], counts["tp"] + counts["fn"]),
+        "accuracy": ratio(counts["tp"] + counts["tn"], judged),
+    }
 
 
 def expand_status_counts(conn: sqlite3.Connection, kb_id: int | None = None) -> dict[str, int]:

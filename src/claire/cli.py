@@ -1982,15 +1982,39 @@ def cmd_expand_run(args) -> int:
 
 
 def cmd_expand_shadow(args) -> int:
-    """Show the shadow records of the same-subject source merge (mode "shadow")."""
+    """The shadow records of the same-subject source merge: list them, set a human verdict, or compare the model with the verdicts."""
     import json as _json
 
     s, theme = get_effective_settings(args)
+    kb_id = theme.id if theme else None
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
-        kb_id = theme.id if theme else None
-        rows = [dict(r) for r in dbm.list_same_subject_shadow(conn, kb_id=kb_id, limit=args.limit)]
+        action = args.shadow_action
+        if action == "verdict":
+            verdict = None if args.verdict == "clear" else args.verdict
+            if not dbm.set_same_subject_verdict(conn, args.record_id, verdict, note=args.note or "", kb_id=kb_id):
+                print(f"[error] Shadow record {args.record_id} does not exist.", file=sys.stderr)
+                return 1
+            print(f"Shadow record {args.record_id}: verdict {verdict or 'removed'}.")
+            return 0
+        if action == "report":
+            report = dbm.same_subject_shadow_report(conn, kb_id=kb_id)
+            report["mode"] = s.same_subject_merge
+            if args.json:
+                print(_json.dumps(report, ensure_ascii=False, indent=2))
+                return 0
+
+            def pct(value: float | None) -> str:
+                return "no data" if value is None else f"{value:.1%}"
+
+            print(f"Same-subject source merge: mode {report['mode']}. {report['records']} records, "
+                  f"{report['judged']} with a verdict, {report['pending']} without a verdict.")
+            print(f"  model same / human same (TP): {report['tp']}   model same / human different (FP): {report['fp']}")
+            print(f"  model different / human same (FN): {report['fn']}   model different / human different (TN): {report['tn']}")
+            print(f"  precision {pct(report['precision'])} · recall {pct(report['recall'])} · accuracy {pct(report['accuracy'])}")
+            return 0
+        rows = [dict(r) for r in dbm.list_same_subject_shadow(conn, kb_id=kb_id, limit=args.limit, pending=args.pending)]
     finally:
         conn.close()
     for r in rows:
@@ -1999,18 +2023,22 @@ def cmd_expand_shadow(args) -> int:
         "mode": s.same_subject_merge,
         "records": len(rows),
         "same_subject_true": sum(1 for r in rows if r["same_subject"]),
+        "without_verdict": sum(1 for r in rows if r["verdict"] is None),
     }
     if args.json:
         print(_json.dumps({"summary": summary, "records": rows}, ensure_ascii=False, indent=2))
         return 0
     print(f"Same-subject source merge: mode {summary['mode']}. {summary['records']} records, "
-          f"{summary['same_subject_true']} with same_subject=true.")
+          f"{summary['same_subject_true']} with same_subject=true, {summary['without_verdict']} without a verdict.")
     for r in rows:
         mark = "same" if r["same_subject"] else "different"
-        print(f"  [{mark}] parent {r['parent_document_id']} -> child {r['child_document_id'] or '-'} "
-              f"(relevance {r['relevance']:.2f}, quality {r['quality']:.2f}) {r['child_url']}")
+        verdict = r["verdict"] or "-"
+        print(f"  #{r['id']} model [{mark}] verdict [{verdict}] (relevance {r['relevance']:.2f}, quality {r['quality']:.2f})")
+        print(f"      parent {r['parent_document_id']}: {r['parent_title'] or '(no title)'}")
+        print(f"      child  {r['child_document_id'] or '-'}: {r['child_title'] or '(no document)'} {r['child_url']}")
+        if r["reason"]:
+            print(f"      reason: {r['reason']}")
     return 0
-
 
 def _run_refresh_cycle(
     base_settings: Any,
@@ -5825,12 +5853,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     pxs = sub.add_parser(
         "expand-shadow",
-        help="show the shadow records of the same-subject source merge",
-        description="Show the records that automatic expansion writes when the same-subject source merge is in the mode 'shadow': the parent, the child document, the gate scores, and the same-subject judgement. The newest record is first.",
+        help="list, judge, and evaluate the shadow records of the same-subject source merge",
+        description="Work with the records that automatic expansion writes when the same-subject source merge is in the mode 'shadow'. 'list' shows the records, 'verdict' sets the human verdict of one record, and 'report' compares the model judgement with the verdicts (precision, recall, accuracy).",
     )
-    pxs.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
-    pxs.add_argument("--limit", type=int, default=50, help="maximum records to show (0 = all, default: 50)")
-    pxs.add_argument("--json", action="store_true", help="output the summary and the records in JSON format")
+    pxs_sub = pxs.add_subparsers(dest="shadow_action", required=True)
+    pxs_list = pxs_sub.add_parser("list", help="show the records, the newest first")
+    pxs_list.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
+    pxs_list.add_argument("--limit", type=int, default=50, help="maximum records to show (0 = all, default: 50)")
+    pxs_list.add_argument("--pending", action="store_true", help="show only the records without a verdict")
+    pxs_list.add_argument("--json", action="store_true", help="output the summary and the records in JSON format")
+    pxs_verdict = pxs_sub.add_parser("verdict", help="set the human verdict of one record")
+    pxs_verdict.add_argument("record_id", type=int, help="the record number (#N in 'list')")
+    pxs_verdict.add_argument("verdict", choices=["same", "different", "clear"], help="same: the child is the same subject as the parent (the merge would be correct); different: it is not; clear: remove the verdict")
+    pxs_verdict.add_argument("--note", default="", help="a short reason for the verdict")
+    pxs_verdict.add_argument("-t", "--theme", default=None, help="the theme of the record (default: any theme)")
+    pxs_report = pxs_sub.add_parser("report", help="compare the model judgement with the human verdicts")
+    pxs_report.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
+    pxs_report.add_argument("--json", action="store_true", help="output the report in JSON format")
     pxs.set_defaults(func=cmd_expand_shadow)
 
     pi = sub.add_parser(

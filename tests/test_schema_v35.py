@@ -59,21 +59,42 @@ def test_telemetry_rows_get_the_gate_call_type(tmp_path: Path):
     conn.close()
 
 
-def test_expand_shadow_command_shows_the_records(tmp_path: Path, monkeypatch, capsys):
-    from claire import cli
-    from claire.config import get_settings
+def test_verdict_columns_are_added_to_a_table_of_an_earlier_v35_build(tmp_path: Path):
+    conn = dbm.connect(tmp_path / "claire.db")
+    conn.execute("CREATE TABLE same_subject_shadow (id INTEGER PRIMARY KEY AUTOINCREMENT, kb_id INTEGER NOT NULL DEFAULT 0, parent_document_id TEXT NOT NULL, child_url TEXT NOT NULL, child_document_id TEXT, same_subject INTEGER NOT NULL, relevance REAL, quality REAL, interpretation TEXT, reason TEXT, created_at REAL NOT NULL)")
+    conn.execute("INSERT INTO same_subject_shadow(parent_document_id, child_url, same_subject, created_at) VALUES ('p', 'https://c.example/', 1, 1)")
+    conn.commit()
+    dbm.init_db(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(same_subject_shadow)")}
+    assert {"verdict", "verdict_note", "verdict_at"} <= cols
+    assert conn.execute("SELECT COUNT(*) FROM same_subject_shadow WHERE verdict IS NULL").fetchone()[0] == 1
+    conn.close()
 
-    monkeypatch.setenv("CLAIRE_DB_PATH", str(tmp_path / "claire.db"))
-    get_settings.cache_clear()
-    try:
-        conn = _db(tmp_path)
-        dbm.record_same_subject_shadow(conn, kb_id=0, parent_document_id="doc_p", child_url="https://c.example/", child_document_id="doc_c", same_subject=True, relevance=0.9, quality=0.8, reason="the official repository")
-        conn.close()
-        assert cli.cmd_expand_shadow(argparse.Namespace(theme=None, limit=0, json=True)) == 0
-        out = json.loads(capsys.readouterr().out)
-        assert out["summary"] == {"mode": "off", "records": 1, "same_subject_true": 1}
-        assert out["records"][0]["same_subject"] is True and out["records"][0]["reason"] == "the official repository"
-        assert cli.cmd_expand_shadow(argparse.Namespace(theme=None, limit=0, json=False)) == 0
-        assert "[same] parent doc_p -> child doc_c" in capsys.readouterr().out
-    finally:
-        get_settings.cache_clear()
+
+def test_verdict_and_report(tmp_path: Path):
+    import pytest
+
+    conn = _db(tmp_path)
+    ids = {}
+    for name, model_same in (("tp", True), ("fp", True), ("fn", False), ("tn", False), ("open", True)):
+        ids[name] = dbm.record_same_subject_shadow(conn, kb_id=0, parent_document_id="p", child_url=f"https://{name}.example/", child_document_id=None, same_subject=model_same, relevance=0.9, quality=0.9)
+    empty = dbm.same_subject_shadow_report(conn)
+    assert empty["records"] == 5 and empty["judged"] == 0
+    assert empty["precision"] is None and empty["recall"] is None and empty["accuracy"] is None  # no data, no estimate
+
+    for name, verdict in (("tp", "same"), ("fp", "different"), ("fn", "same"), ("tn", "different")):
+        assert dbm.set_same_subject_verdict(conn, ids[name], verdict, note=f"note {name}")
+    assert not dbm.set_same_subject_verdict(conn, 9999, "same")
+    with pytest.raises(ValueError):
+        dbm.set_same_subject_verdict(conn, ids["tp"], "maybe")
+    report = dbm.same_subject_shadow_report(conn)
+    assert (report["tp"], report["fp"], report["fn"], report["tn"]) == (1, 1, 1, 1)
+    assert (report["judged"], report["pending"]) == (4, 1)
+    assert report["precision"] == 0.5 and report["recall"] == 0.5 and report["accuracy"] == 0.5
+    assert [r["id"] for r in dbm.list_same_subject_shadow(conn, pending=True)] == [ids["open"]]
+
+    # Removing a verdict removes its note and time.
+    assert dbm.set_same_subject_verdict(conn, ids["tp"], None)
+    row = conn.execute("SELECT verdict, verdict_note, verdict_at FROM same_subject_shadow WHERE id=?", (ids["tp"],)).fetchone()
+    assert tuple(row) == (None, None, None)
+    conn.close()

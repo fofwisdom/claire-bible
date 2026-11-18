@@ -60,4 +60,4 @@ Automatic expansion follows external links in an ingested document and adds rela
 
 ### 5) Measure the same-subject flag
 
-Not done: compare the flag of the real model with a small set of true same-subject pairs and true different-subject pairs (milestone M5 of the 2026-07-13 plan). The shadow records (decision 12, `claire expand-shadow`) collect the flags of real expansions. Still not done: a human verdict for each record and the calculation of precision and recall.
+Not done: compare the flag of the real model with a small set of true same-subject pairs and true different-subject pairs (milestone M5 of the 2026-07-13 plan). The shadow records (decision 12) collect the flags of real expansions, `claire expand-shadow verdict` keeps a human verdict for each record, and `claire expand-shadow report` gives precision and recall. Still not done: enough verdicts on real records, and the owner decision about the merge from the result.
