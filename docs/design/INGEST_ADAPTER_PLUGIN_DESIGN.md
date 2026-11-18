@@ -251,7 +251,7 @@ A person can make the same lines with `sha256sum`. A symbolic link or a path out
 
 The server compares the `provides` of all plugins of one type, from the manifests only. Two plugins overlap when an entry of one and an entry of the other (of any kind):
 
-1. have the same `name` (the classify kind must be unique), or
+1. have the same kind and `name` (the classify kind must be unique), or
 2. claim a common host: two equal exact hosts; an exact host and a `*.d` pattern that matches it; or `*.d1` and `*.d2` where one domain is equal to the other or a subdomain of it.
 
 `*` does not make an overlap by host. An entry with `*` is general: it runs for every host and gives nothing for a page that is not its own (the `discourse` web adapter). Two `*` entries overlap only by name.

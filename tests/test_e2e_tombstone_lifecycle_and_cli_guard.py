@@ -53,7 +53,11 @@ def test_e2e_tombstone_lifecycle_untombstone_and_cli_guard(tmp_path: Path, monke
     mock_client = MagicMock()
     mock_client.get_post.return_value = mock_post_payload
 
-    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client):
+    from claire.plugin_sdk.testing import load_plugin
+
+    plugin = load_plugin(Path(__file__).resolve().parents[1] / "plugins" / "ingest_adapter" / "claire.hoyolab")
+    plugin.install(monkeypatch)
+    with patch.object(plugin.module("hoyolab"), "HoYoLabClient", return_value=mock_client):
         service = IngestService(settings=settings)
 
         # Step 1: Initial ingest

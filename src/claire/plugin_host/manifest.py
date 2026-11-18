@@ -259,9 +259,9 @@ def parse_manifest(data: dict[str, Any]) -> Manifest:
                 source_types=_strings(f"{where}.source_types", item.get("source_types", []), SOURCE_TYPE_RE),
             )
         )
-    names = [p.name for p in provides]
+    names = [(p.kind, p.name) for p in provides]
     if len(set(names)) != len(names):
-        raise ManifestError("provides: two entries have the same name")
+        raise ManifestError("provides: two entries of one kind have the same name")
 
     perm_raw = data.get("permissions", {})
     if not isinstance(perm_raw, dict):

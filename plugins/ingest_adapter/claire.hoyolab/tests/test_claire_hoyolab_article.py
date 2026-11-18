@@ -10,16 +10,31 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from claire.config import Settings
-from claire.ingest.fetchers.base import FetchError, WebAdapterResult
-from claire.ingest.fetchers.hoyolab import (
-    HoYoLabClient,
-    format_post_to_text,
-    parse_hoyolab_url,
-    try_hoyolab_adapter,
-)
+from claire.plugin_sdk import FetchError, WebAdapterResult
 from claire.ingest.registry import registry
 from claire.ingest.router import classify, fetch
 from claire.ontology.base import Document
+
+_NAMES = {"hoyolab": ("HoYoLabClient", "format_post_to_text", "parse_hoyolab_url", "try_hoyolab_adapter")}
+
+from pathlib import Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_hoyolab"
+
+
+@pytest.fixture(autouse=True)
+def plugin(monkeypatch):
+    """Load claire.hoyolab for each test and use its entries in the registry (patches by module name then reach the router)."""
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    for module_name, names in _NAMES.items():
+        module = loaded.module(module_name)
+        for name in names:
+            monkeypatch.setitem(globals(), name, getattr(module, name))
+    return loaded
 
 
 def test_parse_hoyolab_url():
@@ -34,7 +49,7 @@ def test_parse_hoyolab_url():
     assert parse_hoyolab_url("https://example.com/article/123") is None
 
 
-def test_hoyolab_client_io_success(mock_guarded_client):
+def test_hoyolab_client_io_success(plugin, monkeypatch):
     """Verify HoYoLabClient HTTP I/O operation and JSON payload parsing."""
     mock_payload = {
         "retcode": 0,
@@ -51,17 +66,17 @@ def test_hoyolab_client_io_success(mock_guarded_client):
             }
         },
     }
-    mock_guarded_client("claire.ingest.fetchers.hoyolab", lambda request: httpx.Response(200, json=mock_payload))
+    plugin.mock_network(monkeypatch, lambda request: httpx.Response(200, json=mock_payload))
     client = HoYoLabClient()
     post_data = client.get_post("46898605")
     assert post_data["post"]["subject"] == "Guardian Info"
     assert post_data["user"]["nickname"] == "StarRail"
 
 
-def test_hoyolab_client_io_error_handling(mock_guarded_client):
+def test_hoyolab_client_io_error_handling(plugin, monkeypatch):
     """Verify HoYoLabClient handles non-zero retcode and network failures."""
     error_payload = {"retcode": 1001, "message": "Post not found"}
-    mock_guarded_client("claire.ingest.fetchers.hoyolab", lambda request: httpx.Response(200, json=error_payload))
+    plugin.mock_network(monkeypatch, lambda request: httpx.Response(200, json=error_payload))
     client = HoYoLabClient()
     with pytest.raises(FetchError, match="HoYoLAB API error for post 999: Post not found"):
         client.get_post("999")
@@ -116,7 +131,7 @@ def test_format_post_skips_vlm_when_text_sufficient():
     }
 
     settings = Settings(enable_vlm_transcription=True)
-    with patch("claire.ingest.fetchers.hoyolab.get_vision_provider") as mock_prov_fn:
+    with patch("claire_plugins.ingest_adapter.claire_hoyolab.hoyolab.get_vision_provider") as mock_prov_fn:
         _, text_doc, _, _, _, meta_extras = format_post_to_text(
             mock_post_data, settings=settings
         )
@@ -155,7 +170,7 @@ def test_registry_classification_and_routing():
     assert classify(wiki_url) == "hoyowiki"
 
     # Router fetch delegation
-    with patch("claire.ingest.fetchers.hoyolab.fetch_hoyolab") as mock_fetch:
+    with patch("claire_plugins.ingest_adapter.claire_hoyolab.hoyolab.fetch_hoyolab") as mock_fetch:
         mock_fetch.return_value = Document(
             url=article_url,
             canonical_url=article_url,
@@ -166,3 +181,44 @@ def test_registry_classification_and_routing():
         doc = fetch(article_url)
         assert doc.source_type == "hoyolab"
         mock_fetch.assert_called_once()
+
+
+def test_hoyolab_language_resolution_and_client_request(plugin, monkeypatch):
+    """Verify HoYoLAB language mapping and localized request headers/query."""
+    import json
+    resolve_hoyolab_language = plugin.module("hoyolab").resolve_hoyolab_language
+
+    s_ko = Settings(preferred_languages="ko")
+    assert resolve_hoyolab_language(s_ko) == "ko-kr"
+
+    s_ja = Settings(preferred_languages="ja")
+    assert resolve_hoyolab_language(s_ja) == "ja-jp"
+
+    s_en = Settings(preferred_languages="en")
+    assert resolve_hoyolab_language(s_en) == "en-us"
+
+    client = HoYoLabClient()
+    captured_req = None
+
+    def handler(request):
+        nonlocal captured_req
+        captured_req = request
+        return httpx.Response(200, json={
+            "retcode": 0,
+            "message": "OK",
+            "data": {
+                "post": {
+                    "post": {"subject": "아하의 대답", "post_id": "46898605"},
+                    "user": {"nickname": "붕괴: 스타레일"},
+                    "image_list": [],
+                }
+            }
+        })
+
+    plugin.mock_network(monkeypatch, handler)
+    post = client.get_post("46898605", lang="ko-kr")
+    assert post["post"]["subject"] == "아하의 대답"
+    assert captured_req is not None
+    assert "lang=ko-kr" in str(captured_req.url)
+    assert captured_req.headers.get("x-rpc-language") == "ko-kr"
+    assert captured_req.headers.get("accept-language") == "ko-kr"

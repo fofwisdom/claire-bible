@@ -89,7 +89,7 @@ def test_cli_help_stdout_formatting(capsys):
     assert "Quick Reference:" in help_text
     assert "presentation" in help_text
     assert "providers" in help_text
-    assert "hoyowiki" in help_text
+    assert "plugin" in help_text
     assert "stt-scan" in help_text
     assert "stt-backfill" in help_text
     assert "artifact-migrate" in help_text

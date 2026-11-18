@@ -54,8 +54,8 @@ class PluginContext:
         hosts_t = tuple(hosts)
         if not hosts_t:
             raise ValueError(f"{self.plugin_id}: entry {name!r} needs hosts")
-        if any(e.name == name for e in self.entries):
-            raise ValueError(f"{self.plugin_id}: entry {name!r} is registered two times")
+        if any(e.kind == kind and e.name == name for e in self.entries):
+            raise ValueError(f"{self.plugin_id}: {kind} {name!r} is registered two times")
         self.entries.append(RegisteredEntry(kind=kind, name=name, priority=int(priority), hosts=hosts_t, cls=cls, plugin_id=self.plugin_id))
 
     def fetcher(self, cls: type, *, name: str, priority: int, hosts: tuple[str, ...] | list[str]) -> None:

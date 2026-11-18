@@ -189,7 +189,7 @@ def overlap_pairs(manifests: list[Manifest]) -> dict[str, set[str]]:
 def _overlap(a: Manifest, b: Manifest) -> bool:
     for pa in a.provides:
         for pb in b.provides:
-            if pa.name == pb.name:
+            if pa.kind == pb.kind and pa.name == pb.name:
                 return True
             if any(patterns_overlap(ha, hb) for ha in pa.hosts for hb in pb.hosts):
                 return True
@@ -200,7 +200,7 @@ def overlap_hosts(a: Manifest, b: Manifest) -> list[str]:
     shared: set[str] = set()
     for pa in a.provides:
         for pb in b.provides:
-            if pa.name == pb.name:
+            if pa.kind == pb.kind and pa.name == pb.name:
                 shared.add(f"name:{pa.name}")
             for ha in pa.hosts:
                 for hb in pb.hosts:

@@ -43,7 +43,7 @@ The AsciiDoc detail prompt (`render_detail_prompt_adoc`) has rule 13: it does no
 Consumers: [code]
 
 - Caption and track selection in `src/claire/ingest/fetchers/youtube.py`, `src/claire/ingest/fetchers/naver_clip.py`, and `src/claire/ingest/fetchers/video.py`.
-- The VLM target language in `src/claire/extract/vision/gemini_vision.py`, `src/claire/extract/vision/mock_vision.py`, `src/claire/ingest/fetchers/web.py`, and `src/claire/ingest/fetchers/hoyolab.py` (also the HoYoLAB API language tag).
+- The VLM target language in `src/claire/extract/vision/gemini_vision.py`, `src/claire/extract/vision/mock_vision.py`, `src/claire/ingest/fetchers/web.py`, and `plugins/ingest_adapter/claire.hoyolab/hoyolab.py` (also the HoYoLAB API language tag).
 - The language tag in `plugins/ingest_adapter/claire.uttu/adapter.py` (project plugin `claire.uttu`).
 - The `preflight` output line `preferred langs` in `src/claire/cli.py`.
 
@@ -94,7 +94,7 @@ When the normalized names are equal, the type is not checked. `is_type_compatibl
 
 ### 4.3 Merge, type refinement, and rollback
 
-`_execute_reversible_merge` adds the new aliases, observations, and the document ID to the candidate. When the candidate type is generic and the new type is specific, the candidate gets the specific type. The rollback payload keeps the added items and `prev_type`. `rollback_resolution` in `src/claire/extract/decision.py` removes the added items and sets `prev_type` again. The HTTP route is `POST /resolution/rollback`. [code] Tests: `tests/test_safe_gating_resolver.py`, `tests/test_e2e_hoyolab_vlm_ingest.py`.
+`_execute_reversible_merge` adds the new aliases, observations, and the document ID to the candidate. When the candidate type is generic and the new type is specific, the candidate gets the specific type. The rollback payload keeps the added items and `prev_type`. `rollback_resolution` in `src/claire/extract/decision.py` removes the added items and sets `prev_type` again. The HTTP route is `POST /resolution/rollback`. [code] Tests: `tests/test_safe_gating_resolver.py`, `plugins/ingest_adapter/claire.hoyolab/tests/test_claire_hoyolab_e2e_vlm_ingest.py`.
 
 ### 4.4 The LLM judge
 

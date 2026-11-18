@@ -9,21 +9,22 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
 
-from ...config import get_settings
-from ...extract.table_budget import slice_document_text
-from ...extract.vision.factory import get_vision_provider
-from ...ontology.base import Document
-from ..normalize import canonicalize_url, content_hash
-from .base import (
+from claire.plugin_sdk import (
+    BROWSER_USER_AGENT,
     BaseFetcher,
     BaseWebAdapter,
+    Document,
     FetchError,
     WebAdapterResult,
     attach_usage_hooks,
+    canonicalize_url,
+    content_hash,
     fetch_settings,
+    get_vision_provider,
+    slice_document_text,
 )
-from .http import guarded_client
-from .http_policy import BROWSER_USER_AGENT
+
+from . import _net
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def parse_hoyolab_url(url: str) -> str | None:
 
 def resolve_hoyolab_language(settings: Any = None) -> str:
     """Map system localization settings to HoYoLAB API language tag."""
-    s = fetch_settings(settings, get_settings)
+    s = fetch_settings(settings)
     if getattr(s, "effective_vlm_language", None):
         pref = s.effective_vlm_language
     elif getattr(s, "effective_preferred_languages", None):
@@ -87,7 +88,7 @@ class HoYoLabClient:
         query = urllib.parse.urlencode(query_params)
         api_url = f"{_API_ENDPOINT}?{query}"
         try:
-            with guarded_client(follow_redirects=True, timeout=self.timeout, headers=headers) as client:
+            with _net.client(follow_redirects=True, timeout=self.timeout, headers=headers) as client:
                 resp = client.get(api_url)
                 resp.raise_for_status()
                 data = json.loads(resp.content.decode("utf-8"))
@@ -162,7 +163,7 @@ def format_post_to_text(
     settings: Any = None,
 ) -> tuple[str, str, list[str], dict[str, str], list[dict[str, Any]], dict[str, Any]]:
     """Format post into structured AsciiDoc text, invoking VLM transcription when text is insufficient."""
-    s = fetch_settings(settings, get_settings)
+    s = fetch_settings(settings)
     post_info = post_data.get("post") or {}
     user_info = post_data.get("user") or {}
 
@@ -257,7 +258,7 @@ def fetch_hoyolab(
     if not post_id:
         raise FetchError(f"Invalid HoYoLAB article URL: {url}")
 
-    s = fetch_settings(settings, get_settings)
+    s = fetch_settings(settings)
     api_client = client or HoYoLabClient()
     target_lang = resolve_hoyolab_language(s)
     post_data = api_client.get_post(post_id, lang=target_lang)
@@ -313,7 +314,7 @@ def try_hoyolab_adapter(url: str, **kwargs: Any) -> WebAdapterResult | None:
         return None
 
     try:
-        s = fetch_settings(kwargs.get("settings"), get_settings)
+        s = fetch_settings(kwargs.get("settings"))
         client = kwargs.get("client") or HoYoLabClient()
         post_data = client.get_post(post_id)
         title, text, links, anchors, images, meta_extras = format_post_to_text(post_data, settings=s)

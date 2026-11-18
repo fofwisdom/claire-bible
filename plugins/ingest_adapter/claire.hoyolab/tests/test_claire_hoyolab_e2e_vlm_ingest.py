@@ -13,6 +13,17 @@ from claire.ingest.service import IngestService
 from claire.store import db as dbm
 
 from tests.js_i18n import js_i18n_prelude
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_hoyolab.hoyolab"
+
+
+@pytest.fixture(autouse=True)
+def plugin(monkeypatch):
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    return loaded
 
 
 def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
@@ -53,8 +64,8 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
     mock_client = MagicMock()
     mock_client.get_post.return_value = mock_post_payload
 
-    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client), patch(
-        "claire.ingest.fetchers.hoyolab.get_settings", return_value=settings
+    with patch(f"{MOD}.HoYoLabClient", return_value=mock_client), patch(
+        "claire.config.get_settings", return_value=settings
     ):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-test")
@@ -212,9 +223,9 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
         relations=[],
     )
 
-    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client), \
+    with patch(f"{MOD}.HoYoLabClient", return_value=mock_client), \
          patch("claire.extract.provider.MockProvider.extract", return_value=mock_extraction), \
-         patch("claire.ingest.fetchers.hoyolab.get_settings", return_value=settings):
+         patch("claire.config.get_settings", return_value=settings):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-lore-test")
 

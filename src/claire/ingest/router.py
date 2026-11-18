@@ -78,16 +78,6 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
     if fetcher_cls is not None:
         return _call_fetcher(fetcher_cls.fetch, t)
 
-    if kind == "hoyolab":
-        from .fetchers.hoyolab import fetch_hoyolab
-
-        return _call_fetcher(fetch_hoyolab, t)
-
-    if kind == "hoyowiki":
-        from .fetchers.hoyowiki import fetch_hoyowiki
-
-        return _call_fetcher(fetch_hoyowiki, t)
-
     if kind == "video":
         from .fetchers.video import fetch_video
 

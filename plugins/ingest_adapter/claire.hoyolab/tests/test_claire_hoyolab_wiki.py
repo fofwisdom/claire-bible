@@ -7,21 +7,31 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.ingest.fetchers.base import BaseFetcher, BaseWebAdapter, WebAdapterResult
-from claire.ingest.fetchers.hoyowiki import (
-    HoYoWikiClient,
-    HoyowikiAdapter,
-    HoyowikiFetcher,
-    clean_html_to_adoc,
-    fetch_hoyowiki,
-    format_entry_to_adoc,
-    parse_hoyowiki_url,
-    resolve_embedded_entries,
-    try_hoyowiki_adapter,
-)
+from claire.plugin_sdk import BaseFetcher, BaseWebAdapter, WebAdapterResult
 from claire.ingest.registry import registry
 from claire.ingest.router import classify
 from claire.ontology.base import Document
+
+_NAMES = {"hoyowiki": ("HoYoWikiClient", "HoyowikiAdapter", "HoyowikiFetcher", "clean_html_to_adoc", "fetch_hoyowiki", "format_entry_to_adoc", "parse_hoyowiki_url", "resolve_embedded_entries", "try_hoyowiki_adapter")}
+
+from pathlib import Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_hoyolab"
+
+
+@pytest.fixture(autouse=True)
+def plugin(monkeypatch):
+    """Load claire.hoyolab for each test and use its entries in the registry (patches by module name then reach the router)."""
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    for module_name, names in _NAMES.items():
+        module = loaded.module(module_name)
+        for name in names:
+            monkeypatch.setitem(globals(), name, getattr(module, name))
+    return loaded
 
 
 def test_parse_hoyowiki_url():
@@ -195,10 +205,7 @@ def test_format_entry_to_adoc():
 def test_client_methods_mocked():
     client = HoYoWikiClient()
 
-    # Mock SafeHttpClient resolve check
-    with patch.object(client.safe_http, "_resolve_and_check") as mock_check:
-        mock_check.return_value = None
-
+    with patch("httpx.Client") as mock_client_cls:
         with patch("httpx.Client") as mock_client_cls:
             mock_ctx = MagicMock()
             mock_client_cls.return_value.__enter__.return_value = mock_ctx

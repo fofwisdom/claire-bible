@@ -53,7 +53,7 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
 
 ## 4. Raw Text from Fetchers
 
-- **[code]** Fetchers write tables of the source as AsciiDoc tables with `adoc_table` and `adoc_cell` of `src/claire/ingest/fetchers/adoc_text.py`. Users: `web.py`, `odt.py`, `uttu.py`, `hoyowiki.py`. The HoYoLAB fetcher (`format_post_to_text` in `hoyolab.py`) writes AsciiDoc sections.
+- **[code]** Fetchers write tables of the source as AsciiDoc tables with `adoc_table` and `adoc_cell` of `src/claire/ingest/fetchers/adoc_text.py`. Users: `web.py`, `odt.py`, and the project plugins `claire.uttu` and `claire.hoyolab` (through `claire.plugin_sdk`). The HoYoLAB fetcher (`format_post_to_text` in `plugins/ingest_adapter/claire.hoyolab/hoyolab.py`) writes AsciiDoc sections.
 - **[code]** The vision prompts (`src/claire/extract/vision/gemini_vision.py`) ask for a transcript in AsciiDoc.
 - **[code]** `src/claire/extract/table_budget.py` finds AsciiDoc, Markdown, and HTML tables. The Markdown pattern stays for old raw text and for Markdown source files.
 - **[code] [decision]** MX4: the text file fetcher (`textfile.py`) reads `.md` and `.markdown` files as plain text. Claire does not interpret the Markdown of a source.

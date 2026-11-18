@@ -39,6 +39,15 @@ class LoadedTestPlugin:
                 return entry
         raise KeyError(name)
 
+    def install(self, monkeypatch: Any) -> None:
+        """Use the entries of this loaded plugin in the registry of the core for the test (the router and the web chain). The entries of the same plugin id from the server runtime go out."""
+        from ..ingest.registry import registry
+
+        original = registry._plugin_entries_fn
+        own = list(self.context.entries)
+        plugin_id = self.manifest.id
+        monkeypatch.setattr(registry, "_plugin_entries_fn", lambda: [e for e in original() if e.plugin_id != plugin_id] + own)
+
     def mock_network(self, monkeypatch: Any, handler: Callable[[Any], Any]) -> None:
         """Send each request of ``ctx.http_client()`` and ``ctx.safe_get()`` to ``handler`` (``httpx.MockTransport``). The host check of ``permissions.network`` stays; the private network check does not run."""
         import httpx

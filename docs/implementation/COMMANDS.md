@@ -27,7 +27,7 @@
    * [3.10 지식 테마 관리 및 다중 DB 격리 (Theme Management)](#310-지식-테마-관리-및-다중-db-격리-theme-management)
    * [3.11 프레젠테이션 관리 및 렌더링 (`presentation`)](#311-프레젠테이션-관리-및-렌더링-presentation)
    * [3.12 LLM 프로바이더 관리 (`providers`)](#312-llm-프로바이더-관리-providers)
-   * [3.13 HoYoWiki 스크래퍼 및 지식 수집 (`hoyowiki`)](#313-hoyowiki-스크래퍼-및-지식-수집-hoyowiki)
+   * [3.13 HoYoWiki 스크래퍼 및 지식 수집 (`plugin run claire.hoyolab wiki-crawl`)](#313-hoyowiki-스크래퍼-및-지식-수집-plugin-run-clairehoyolab-wiki-crawl)
    * [3.14 음성 전사(STT) 진단 및 메타데이터 백필 (`stt-scan`, `stt-backfill`)](#314-음성-전사stt-진단-및-메타데이터-백필-stt-scan-stt-backfill)
    * [3.15 원문 아티팩트 압축 포맷 마이그레이션 (`artifact-migrate`)](#315-원문-아티팩트-압축-포맷-마이그레이션-artifact-migrate)
    * [3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)](#316-지식그래프-엔티티-대표-레이블-관리-entity)
@@ -768,33 +768,32 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 
 ---
 
-### 3.13 HoYoWiki 스크래퍼 및 지식 수집 (`hoyowiki`)
+### 3.13 HoYoWiki 스크래퍼 및 지식 수집 (`plugin run claire.hoyolab wiki-crawl`)
 
-`claire hoyowiki`는 HoYoLAB 공식 게임 백과사전(wiki.hoyolab.com)의 정형 데이터와 상세 설명문을 크롤링하고 수집하는 전용 도구이다.
-* **지원 대상 게임 (`--game`, `-g`)**: `genshin` (원신, 기본값), `hsr` (붕괴: 스타레일), `zzz` (젠레스 존 제로), `honkai3rd` (붕괴3rd), `tot` (미결사건부), `all` (전체).
-* **지원 언어 (`--lang`)**: `ko-kr` (기본값), `en-us`, `ja-jp`, `zh-cn`.
+프로젝트 플러그인 `claire.hoyolab`의 명령이다(옛 `claire hoyowiki`). HoYoLAB 공식 게임 백과사전(wiki.hoyolab.com)의 정형 데이터와 상세 설명문을 크롤링하고 수집한다. 플러그인이 켜져 있지 않으면 종료 코드 4.
 
-* **주요 사용법**:
+* **사용법**:
   ```bash
-  claire hoyowiki --list-menus -g genshin              # 원신 카테고리/메뉴 트리 및 ID 조회
-  claire hoyowiki --search "라이덴" -g genshin          # 키워드로 항목 검색
-  claire hoyowiki -e 1234 -g genshin                   # 특정 entry_id 단건 수집
-  claire hoyowiki -u "https://wiki.hoyolab.com/..."    # URL 기반 단건 수집
-  claire hoyowiki -u "https://..." --ingest            # 수집 즉시 지식베이스에 직접 적재
-  claire hoyowiki -g genshin -m "캐릭터" --limit 20 -o ./wiki_data # 카테고리 일괄 수집 및 마크다운 저장
+  claire plugin run claire.hoyolab wiki-crawl --list-menus -g genshin              # 원신 카테고리/메뉴 트리 및 ID 조회
+  claire plugin run claire.hoyolab wiki-crawl --search "라이덴" -g genshin          # 키워드로 항목 검색
+  claire plugin run claire.hoyolab wiki-crawl -e 1234 -g genshin                   # 특정 entry_id 단건 수집
+  claire plugin run claire.hoyolab wiki-crawl -u "https://wiki.hoyolab.com/..."    # URL 기반 단건 수집
+  claire plugin run claire.hoyolab wiki-crawl -u "https://..." --ingest            # 수집 즉시 지식베이스에 직접 적재
+  claire plugin run claire.hoyolab wiki-crawl -g genshin -m "캐릭터" -l 20 -o ./wiki_data # 카테고리 일괄 수집 및 AsciiDoc 저장
   ```
-* **주요 옵션**:
-  * `-g, --game`: 대상 게임 지정 (`genshin`, `hsr`, `zzz`, `honkai3rd`, `tot`, `all`).
-  * `-m, --menu`: 메뉴 카테고리 명칭 또는 숫자 ID (예: `캐릭터`, `장비 도감`).
-  * `-s, --search`: 항목명 검색 키워드.
-  * `-e, --entry-id`: 특정 엔트리 페이지 ID.
-  * `-u, --url`: 특정 HoYoWiki 페이지 URL.
-  * `-l, --limit`: 수집할 최대 엔트리 수.
+  배포 호스트: `./cb-manuscript app plugin run claire.hoyolab wiki-crawl …`
+* **옵션**:
+  * `-g, --game`: 게임 식별자 (`genshin`, `hsr`, `zzz`, `honkai3rd`, `tot`, `all`, 기본값: `genshin`).
+  * `-m, --menu`: 메뉴 카테고리 이름 또는 숫자 ID.
+  * `-s, --search`: 키워드 검색.
+  * `-e, --entry-id`: 단건 entry_id.
+  * `-u, --url`: 단건 URL.
+  * `-l, --limit`: 최대 수집 개수.
   * `-d, --delay`: 요청 간 지연 시간(초, 기본값: 0.5초).
   * `--lang`: 문서 언어 코드 (`ko-kr`, `en-us`, `ja-jp`, `zh-cn`).
   * `--list-menus`: 선택한 게임의 사용 가능한 메뉴 트리 출력.
-  * `--ingest`: 수집된 엔트리를 Claire Bible 정본 지식베이스로 즉시 적재.
-  * `-o, --output-dir`: 수집된 결과를 마크다운 파일로 저장할 출력 디렉터리 경로.
+  * `--ingest`: 수집된 엔트리를 지식베이스로 즉시 적재. `-t, --theme`로 테마를 고른다.
+  * `-o, --output-dir`: 각 항목의 AsciiDoc 본문을 `.adoc` 파일로 저장할 디렉터리.
   * `--json`: 결과를 JSON 포맷으로 출력.
 
 ---

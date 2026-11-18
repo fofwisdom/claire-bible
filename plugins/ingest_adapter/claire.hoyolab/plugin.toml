@@ -1,0 +1,58 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.hoyolab"
+type = "ingest_adapter"
+revision = 1
+core_commit = "6c3843f11d49f0109f73dfcb65c7130f59b620a4"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "HoYoLAB and HoYoWiki"
+description = "Gets HoYoLAB community articles and HoYoWiki entries from their public APIs. It describes the images of an article with the vision provider, and has the command wiki-crawl."
+
+[text.ko]
+name = "HoYoLAB · HoYoWiki"
+description = "HoYoLAB 커뮤니티 글과 HoYoWiki 항목을 공개 API로 가져온다. 글의 이미지는 비전 프로바이더로 설명하고, wiki-crawl 명령이 있다."
+
+[[provides]]
+kind = "fetcher"
+name = "hoyowiki"
+priority = 120
+hosts = ["hoyolab.com", "*.hoyolab.com"]
+source_types = ["hoyowiki"]
+
+[[provides]]
+kind = "fetcher"
+name = "hoyolab"
+priority = 115
+hosts = ["hoyolab.com", "*.hoyolab.com"]
+source_types = ["hoyolab"]
+
+[[provides]]
+kind = "web_adapter"
+name = "hoyowiki"
+priority = 40
+hosts = ["wiki.hoyolab.com", "*.hoyolab.com"]
+source_types = ["web"]
+
+[[provides]]
+kind = "web_adapter"
+name = "hoyolab"
+priority = 38
+hosts = ["hoyolab.com", "*.hoyolab.com"]
+source_types = ["web"]
+
+[permissions]
+network = ["hoyolab.com", "*.hoyolab.com"]
+private_network = false
+network_modules = []
+executables = []
+providers = ["vlm"]
+
+[requires]
+distributions = []
+executables = []

@@ -49,12 +49,8 @@ Core entries at this commit (the site entries move to project plugins in unit PL
 | Kind | Name | Priority | Hosts | Module |
 |---|---|---|---|---|
 | fetcher | `naver_clip` | 120 | Naver Clip hosts | `src/claire/ingest/fetchers/naver_clip.py` |
-| fetcher | `hoyowiki` | 120 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyowiki.py` |
-| fetcher | `hoyolab` | 115 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
 | fetcher | `youtube` | 90 | YouTube hosts | `src/claire/ingest/fetchers/youtube.py` |
 | fetcher | `video` | 80 | `*` (`is_video_or_audio_url`) | `src/claire/ingest/fetchers/video.py` |
-| web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyowiki.py` |
-| web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` | `src/claire/ingest/fetchers/hoyolab.py` |
 
 Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of the plugin store): [code]
 
@@ -64,6 +60,10 @@ Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of t
 | `claire.discourse` | web adapter | `discourse` | 30 | `*` (general, after the static fetch) |
 | `claire.uttu` | web adapter | `uttu` | 35 | `uttu.merui.net`, `*.merui.net` |
 | `claire.xcom` | fetcher | `xcom` | 90 | x.com, Twitter, and mirror hosts (calls only `api.fxtwitter.com`, `api.vxtwitter.com`) |
+| `claire.hoyolab` | fetcher | `hoyowiki` | 120 | `hoyolab.com`, `*.hoyolab.com` (entry pages) |
+| `claire.hoyolab` | fetcher | `hoyolab` | 115 | `hoyolab.com`, `*.hoyolab.com` (articles) |
+| `claire.hoyolab` | web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` |
+| `claire.hoyolab` | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` |
 
 #### Plugins [code]
 

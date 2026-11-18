@@ -12,17 +12,25 @@ import time
 import urllib.parse
 from typing import Any, Iterator
 
-import httpx
 from lxml import html as lh
 
-from .adoc_text import adoc_cell, adoc_link_text, adoc_table
-from ...config import get_settings
-from ...extract.table_budget import slice_document_text
-from ...ontology.base import Document
-from ..normalize import canonicalize_url, content_hash
-from .base import BaseFetcher, BaseWebAdapter, FetchError, WebAdapterResult, fetch_settings
-from .http import SafeHttpClient
-from .http_policy import BROWSER_USER_AGENT
+from claire.plugin_sdk import (
+    BROWSER_USER_AGENT,
+    BaseFetcher,
+    BaseWebAdapter,
+    Document,
+    FetchError,
+    WebAdapterResult,
+    adoc_cell,
+    adoc_link_text,
+    adoc_table,
+    canonicalize_url,
+    content_hash,
+    fetch_settings,
+    slice_document_text,
+)
+
+from . import _net
 
 log = logging.getLogger(__name__)
 
@@ -82,7 +90,6 @@ class HoYoWikiClient:
     def __init__(self, default_lang: str = "ko-kr", timeout: float = 25.0):
         self.default_lang = default_lang
         self.timeout = timeout
-        self.safe_http = SafeHttpClient(timeout=timeout)
 
     def _headers(self, game: str, lang: str | None = None, referer: str | None = None) -> dict[str, str]:
         headers = {
@@ -99,8 +106,7 @@ class HoYoWikiClient:
         """게임의 전체 메뉴 트리 조회."""
         url = f"{_API_BASE}/get_menus"
         headers = self._headers(game, lang=lang)
-        self.safe_http._resolve_and_check(url)
-        with httpx.Client(timeout=self.timeout, headers=headers) as client:
+        with _net.client(timeout=self.timeout, headers=headers) as client:
             resp = client.get(url)
             if resp.status_code >= 400:
                 raise FetchError(f"HoYoWiki get_menus failed: HTTP {resp.status_code}")
@@ -113,8 +119,7 @@ class HoYoWikiClient:
         """메뉴 필터 목록 조회."""
         url = f"{_API_BASE}/get_menu_filters?menu_id={menu_id}"
         headers = self._headers(game, lang=lang)
-        self.safe_http._resolve_and_check(url)
-        with httpx.Client(timeout=self.timeout, headers=headers) as client:
+        with _net.client(timeout=self.timeout, headers=headers) as client:
             resp = client.get(url)
             if resp.status_code >= 400:
                 raise FetchError(f"HoYoWiki get_menu_filters failed: HTTP {resp.status_code}")
@@ -143,8 +148,7 @@ class HoYoWikiClient:
             "page_size": min(int(page_size), 30),
             "use_es": True,
         }
-        self.safe_http._resolve_and_check(url)
-        with httpx.Client(timeout=self.timeout, headers=headers) as client:
+        with _net.client(timeout=self.timeout, headers=headers) as client:
             resp = client.post(url, json=payload)
             if resp.status_code >= 400:
                 raise FetchError(f"HoYoWiki get_entry_page_list failed: HTTP {resp.status_code}")
@@ -158,8 +162,7 @@ class HoYoWikiClient:
         url = f"{_API_BASE}/entry_page?entry_page_id={entry_id}"
         referer = f"https://wiki.hoyolab.com/pc/{game}/entry/{entry_id}"
         headers = self._headers(game, lang=lang, referer=referer)
-        self.safe_http._resolve_and_check(url)
-        with httpx.Client(timeout=self.timeout, headers=headers) as client:
+        with _net.client(timeout=self.timeout, headers=headers) as client:
             resp = client.get(url)
             if resp.status_code >= 400:
                 raise FetchError(f"HoYoWiki entry_page failed: HTTP {resp.status_code}")
@@ -176,8 +179,7 @@ class HoYoWikiClient:
         encoded_kw = urllib.parse.quote(keyword)
         url = f"{_API_BASE}/search?keyword={encoded_kw}"
         headers = self._headers(game, lang=lang)
-        self.safe_http._resolve_and_check(url)
-        with httpx.Client(timeout=self.timeout, headers=headers) as client:
+        with _net.client(timeout=self.timeout, headers=headers) as client:
             resp = client.get(url)
             if resp.status_code >= 400:
                 raise FetchError(f"HoYoWiki search failed: HTTP {resp.status_code}")
@@ -581,7 +583,7 @@ def fetch_hoyowiki(url: str, *, full_content: bool = False, lang: str | None = N
 
     title, text, links, anchors, images = format_entry_to_adoc(page, game)
 
-    settings = fetch_settings(None, get_settings)
+    settings = fetch_settings(None)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy

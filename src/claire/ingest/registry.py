@@ -9,7 +9,6 @@ import logging
 import os
 import re
 from collections.abc import Callable, Iterable
-from urllib.parse import urlsplit
 
 from ..plugin_host.context import RegisteredEntry
 from .hosts import host_matches_any, url_host
@@ -23,17 +22,12 @@ _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
 def _core_entries() -> list[Entry]:
     """Format routes of the core and the site adapters that are not moved to plugins yet (unit PL2 moves them)."""
-    from .fetchers import hoyolab, hoyowiki, naver_clip, video, youtube
+    from .fetchers import naver_clip, video, youtube
 
-    hoyolab_hosts = ("hoyolab.com", "*.hoyolab.com")
     return [
         Entry("fetcher", "naver_clip", 120, naver_clip.NAVER_CLIP_HOSTS, naver_clip.NaverClipFetcher, None),
-        Entry("fetcher", "hoyowiki", 120, hoyolab_hosts, hoyowiki.HoyowikiFetcher, None),
-        Entry("fetcher", "hoyolab", 115, hoyolab_hosts, hoyolab.HoYoLabFetcher, None),
         Entry("fetcher", "youtube", 90, youtube.YOUTUBE_HOSTS, youtube.YouTubeFetcher, None),
         Entry("fetcher", "video", 80, ("*",), video.VideoFetcher, None),
-        Entry("web_adapter", "hoyowiki", 40, ("wiki.hoyolab.com", "*.hoyolab.com"), hoyowiki.HoyowikiAdapter, None),
-        Entry("web_adapter", "hoyolab", 38, hoyolab_hosts, hoyolab.HoYoLabAdapter, None),
     ]
 
 
@@ -114,13 +108,8 @@ class FetcherRegistry:
 
         if t_lower.startswith(("http://", "https://")):
             host = url_host(t) or ""
-            path = urlsplit(t_lower).path
             if host == "share.google" or host.startswith("share."):
                 return "redirect"
-            if host == "wiki.hoyolab.com" or (host_matches_any(host, ("hoyolab.com", "*.hoyolab.com")) and ("/entry/" in path or "/character/" in path or "/entry_preview/" in path)):
-                return "hoyowiki"
-            if host_matches_any(host, ("hoyolab.com", "*.hoyolab.com")) and "/article/" in path:
-                return "hoyolab"
             return "web"
 
         if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):

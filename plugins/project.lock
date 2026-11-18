@@ -7,6 +7,11 @@ revision = 1
 digest = "sha256:29b372d7e4520dee6873b5b9cf73c59516e128c4ac4d4c40def408fe48bac1b7"
 
 [[plugin]]
+id = "claire.hoyolab"
+revision = 1
+digest = "sha256:e0c08f802f3222e956d4c5e42a3984408111c9395254972ac4269303a4e73ad2"
+
+[[plugin]]
 id = "claire.law_go_kr"
 revision = 1
 digest = "sha256:c2827a93badfd31cb0f715ddc44a95a5bcf9942beb297a8853ff70aa475f2fcd"
