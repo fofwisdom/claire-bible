@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .. import ids
 from ..accounts.username_policy import USERNAME_RE
 from ..store import accounts as accounts_store
+from ..store import db as dbm
 from ..store import kb_collab
 from ..store.accounts import Account, ServerMode
 from .principal import PRINCIPAL_STATE_KEY, Principal
@@ -596,18 +597,10 @@ class SqliteNamespaceDirectory:
         self._signature: tuple[Any, ...] | None = None
         self._snapshot = _Snapshot()
 
-    def _file_signature(self) -> tuple[Any, ...]:
+    def _file_signature(self) -> tuple[tuple[Any, ...], bool]:
         if self.db_file is None:
-            return (None,)
-        parts: list[Any] = []
-        for path in (self.db_file, self.db_file.with_name(self.db_file.name + "-wal")):
-            try:
-                st = path.stat()
-            except FileNotFoundError:
-                parts.append(None)
-            else:
-                parts.append((st.st_mtime_ns, st.st_size, st.st_ino))
-        return tuple(parts)
+            return (None,), True
+        return dbm.db_file_signature(self.db_file)
 
     def _load(self) -> _Snapshot:
         if self.db_file is None or not self.db_file.is_file():
@@ -656,10 +649,10 @@ class SqliteNamespaceDirectory:
 
     def _current(self) -> _Snapshot:
         with self._lock:
-            signature = self._file_signature()
+            signature, trusted = self._file_signature()
             if signature != self._signature:
                 self._snapshot = self._load()
-                self._signature = signature
+                self._signature = signature if trusted else None
             return self._snapshot
 
     def invalidate(self) -> None:

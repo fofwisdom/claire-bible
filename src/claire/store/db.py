@@ -459,6 +459,29 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+# A file that changed in this time before a read can change again with the same modification time: some kernels give file times from a coarse clock of some milliseconds.
+DB_FILE_RACY_WINDOW_NS = 1_000_000_000
+
+
+def db_file_signature(db_file: Path) -> tuple[tuple[Any, ...], bool]:
+    """Return the signature (modification time, size, inode) of a DB file and its ``-wal`` file, and True when a cache can trust the signature.
+
+    A write in the same clock tick as an earlier read can keep the same signature. Thus a signature of a file that changed less than ``DB_FILE_RACY_WINDOW_NS`` before this call is not trusted: the caller reads the DB again on the next call (the same rule as the racy entries of the git index). Take the signature before the read of the DB.
+    """
+    read_started_ns = time.time_ns()
+    parts: list[Any] = []
+    newest_mtime_ns = 0
+    for path in (db_file, db_file.with_name(db_file.name + "-wal")):
+        try:
+            st = path.stat()
+        except FileNotFoundError:
+            parts.append(None)
+        else:
+            parts.append((st.st_mtime_ns, st.st_size, st.st_ino))
+            newest_mtime_ns = max(newest_mtime_ns, st.st_mtime_ns)
+    return tuple(parts), newest_mtime_ns < read_started_ns - DB_FILE_RACY_WINDOW_NS
+
+
 def connect_existing(
     db_path: str | Path, *, readonly: bool = False
 ) -> sqlite3.Connection:

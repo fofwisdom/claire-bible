@@ -246,19 +246,9 @@ class SqliteLegacyHostDirectory:
         self._policy: LegacyHostPolicy | None = None
         self._policy_error: ValueError | None = None
 
-    def _file_signature(self) -> tuple[Any, ...]:
-        parts: list[Any] = [_generation]
-        for path in (self.db_file, self.db_file.with_name(self.db_file.name + "-wal")):
-            try:
-                st = path.stat()
-            except FileNotFoundError:
-                parts.append(None)
-            else:
-                parts.append((st.st_mtime_ns, st.st_size, st.st_ino))
-        return tuple(parts)
-
     def _refresh(self) -> None:
-        signature = self._file_signature()
+        files, trusted = dbm.db_file_signature(self.db_file)
+        signature = (_generation, *files)
         if signature == self._signature:
             return
         hosts: dict[str, LegacyHost] = {}
@@ -275,7 +265,7 @@ class SqliteLegacyHostDirectory:
             finally:
                 conn.close()
         self._hosts, self._policy, self._policy_error = hosts, policy, policy_error
-        self._signature = signature
+        self._signature = signature if trusted else None
 
     def invalidate(self) -> None:
         with self._lock:
