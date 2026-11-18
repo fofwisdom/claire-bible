@@ -730,7 +730,7 @@ class KnowledgeBaseManager:
         )
 
     def list_shared_kbs(self, *, knowledge_type: str | None = None) -> list[KnowledgeBaseInfo]:
-        """The shared knowledge bases that routes serve, newest first. ``knowledge_type`` selects one type (design Section 7, ``/kb?type=``)."""
+        """The shared knowledge bases that routes serve, newest first. ``knowledge_type`` selects one type (design Section 7, ``/kb?knowledge_type=``)."""
         if knowledge_type is not None and knowledge_type not in _themes_store.KNOWLEDGE_TYPES:
             raise ValueError(f"invalid knowledge type: {knowledge_type!r}")
         self.reload()

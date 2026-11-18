@@ -37,13 +37,13 @@ async function installApi(page) {
     calls.push({ method, path: path + url.search, body: req.postData() ? JSON.parse(req.postData()) : null });
     if (path === '/kb' && method === 'GET') {
       const joined = url.searchParams.get('joined') === 'true';
-      const type = url.searchParams.get('type');
+      const type = url.searchParams.get('knowledge_type');
       const items = shared.filter((k) => (!joined || k.role) && (!type || k.knowledge_type === type));
       return json(route, { type: 'OrderedCollection', totalItems: items.length, knowledge_bases: items, personal_kb: personal, multi_theme: true });
     }
     // GET /api/kb/similar: the shared knowledge bases of this server and of other servers near the subject (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4). The fixed answer has the ones of the type and one of the server b.example.
     if (path === '/api/kb/similar') {
-      const type = url.searchParams.get('type');
+      const type = url.searchParams.get('knowledge_type');
       const matched = !!url.searchParams.get('label') || url.searchParams.getAll('seed').length > 0;
       const items = shared.filter((k) => k.knowledge_type === type).map((k) => ({ remote: false, server: null, number: k.number, label: k.label, description: k.description, knowledge_type: k.knowledge_type, url: k.url, score: matched ? 0.5 : null }));
       items.push({ remote: true, server: 'b.example', number: null, label: 'Dragon Archive', description: '', knowledge_type: type, url: 'https://b.example/kb/900/', score: matched ? 0.4 : null });
@@ -106,7 +106,7 @@ test('ingest dialog: no focus input, no knowledge base selector, the standing fi
   await expect(ingestModal).toBeVisible();
   // Design Section 8.7: the form shows the standing message each time, with the link to the fictional themes.
   await expect(ingestModal.locator('#ingest-fiction-notice')).toBeVisible();
-  await expect(ingestModal.locator('#ingest-fiction-notice a[href="/themes?type=fictional"]')).toBeVisible();
+  await expect(ingestModal.locator('#ingest-fiction-notice a[href="/themes?knowledge_type=fictional"]')).toBeVisible();
   // Design Section 13.7 and Section 5.2 rule 3: no focus input and no knowledge base selector.
   await expect(page.locator('#ingfocus, #reingfocus, #regenfocus, #ingtheme, #reingtheme, #regentheme')).toHaveCount(0);
 
@@ -125,7 +125,7 @@ test('ingest dialog: no focus input, no knowledge base selector, the standing fi
   // More than 20 seed entities: the field is not valid and no request goes out.
   await dlg.locator('#newkb-label').fill('Validation Test');
   // The text of the form goes to the server, which gives the knowledge bases near the subject.
-  await expect.poll(() => calls.some((c) => c.path.startsWith('/api/kb/similar?type=fictional&label=Validation%20Test'))).toBe(true);
+  await expect.poll(() => calls.some((c) => c.path.startsWith('/api/kb/similar?knowledge_type=fictional&label=Validation%20Test'))).toBe(true);
   await dlg.locator('#newkb-seeds').fill(Array.from({ length: 21 }, (_, i) => 'seed' + i).join(', '));
   await dlg.locator('.claire-dlg-foot .claire-btn.pri').click();
   await expect(dlg.locator('#newkb-seeds')).toHaveAttribute('aria-invalid', 'true');

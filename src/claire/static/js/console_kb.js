@@ -112,7 +112,7 @@
       h += ui().renderTable({
         caption: t("console.js.kb.moderated_card"),
         columns: [
-          { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '"><strong>' + esc(r.label) + "</strong></a> " + dlgs().typeTag(r.knowledge_type) + (r.state === "archived" ? " " + stateTag("archived") : ""); } },
+          { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '"><strong>' + esc(r.label) + "</strong></a> " + dlgs().knowledgeTypeTag(r.knowledge_type) + (r.state === "archived" ? " " + stateTag("archived") : ""); } },
           { label: t("kb.pub.col_role"), render: function (r) { return '<span class="claire-tag ok">' + esc(roleLabel(r.role)) + "</span>"; } },
           { label: t("kb.dlg.col_docs"), render: function (r) { return esc((r.stats && r.stats.documents) || 0); } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<a class="claire-btn claire-btn-sm" href="/settings/kb/' + esc(r.number) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>"; } }
@@ -249,7 +249,7 @@
       }
       h += "</div>";
       h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.rep_fiction_docs")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("campaign.standing")) + ' <a href="/themes?type=fictional">' + esc(t("campaign.fictional_themes_link")) + "</a></p>";
+      h += '<p class="claire-hint">' + esc(t("campaign.standing")) + ' <a href="/themes?knowledge_type=fictional">' + esc(t("campaign.fictional_themes_link")) + "</a></p>";
       h += ui().renderTable({
         caption: t("console.js.kb.rep_fiction_docs"),
         columns: [
@@ -270,7 +270,7 @@
       h += ui().renderTable({
         caption: t("console.js.kb.mem_card"),
         columns: [
-          { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '">' + esc(r.label) + "</a> " + dlgs().typeTag(r.knowledge_type); } },
+          { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '">' + esc(r.label) + "</a> " + dlgs().knowledgeTypeTag(r.knowledge_type); } },
           { label: t("kb.pub.col_role"), render: function (r) {
             if (r.membership_state === "active") return esc(roleLabel(r.role));
             return '<span class="claire-tag ' + (r.membership_state === "banned" ? "danger" : "warn") + '">' + esc(t("kb.member_state." + r.membership_state)) + "</span>";
@@ -790,8 +790,8 @@
         var settings = '<form class="claire-card" id="kb-manage-settings-form">' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-label">' + esc(t("kb.dlg.field_name")) + '</label><input id="mset-label" class="claire-input" maxlength="80" value="' + esc(kb.label || "") + '" required/></div>' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-desc">' + esc(t("kb.dlg.field_desc")) + '</label><textarea id="mset-desc" class="claire-textarea">' + esc(kb.description || "") + "</textarea></div>" +
-          '<div class="claire-field"><span class="claire-field-label">' + esc(t("kb.dlg.field_type")) + '</span><div class="claire-actions">' + dlgs().typeTag(kb.knowledge_type) +
-          ' <button type="button" class="claire-btn sec" id="kb-type-btn">' + esc(t("kb.dlg.type_change_apply")) + "</button></div></div>" +
+          '<div class="claire-field"><span class="claire-field-label">' + esc(t("kb.knowledge_type.label")) + '</span><div class="claire-actions">' + dlgs().knowledgeTypeTag(kb.knowledge_type) +
+          ' <button type="button" class="claire-btn sec" id="kb-type-btn">' + esc(t("kb.knowledge_type.change_apply")) + "</button></div></div>" +
           '<div class="claire-field"><label class="claire-field-label" for="mset-seeds">' + esc(t("kb.dlg.field_seeds")) + '</label><input id="mset-seeds" class="claire-input" value="' + esc(seeds) + '"/></div>' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-policy">' + esc(t("kb.pub.col_policy")) + '</label><select id="mset-policy" class="claire-select">' +
           '<option value="open"' + (kb.join_policy === "open" ? " selected" : "") + ">" + esc(t("console.js.kb.settings_join_open")) + "</option>" +

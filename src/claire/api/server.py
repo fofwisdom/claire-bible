@@ -818,11 +818,11 @@ def create_app(
 
         - ``/kb``: the shared knowledge bases of the server. ``?joined=true``: only those where the requester is an active member. ``personal_kb``: the personal knowledge base of the requester.
         - ``/@{u}/kb``: the shared knowledge bases where ``u`` is an active member. ``personal_kb``: the personal knowledge base of ``u`` when the requester can read it.
-        - ``?type=real`` or ``?type=fictional`` selects one knowledge type.
+        - ``?knowledge_type=real`` or ``?knowledge_type=fictional`` selects one knowledge type.
         """
         ns = request_namespace(request)
         principal = request_principal(request)
-        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        knowledge_type = _collection_filter(request, "knowledge_type", ("real", "fictional"))
         joined = _collection_filter(request, "joined", ("true", "false")) == "true"
         origin = _public_origin(request)
         # The roles shown are those of the requester at the root, and those of ``u`` under ``/@{u}/``.
@@ -889,7 +889,7 @@ def create_app(
             if request.url.query:
                 location += f"?{request.url.query}"
             return Response(status_code=308, headers={"Location": location})
-        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        knowledge_type = _collection_filter(request, "knowledge_type", ("real", "fictional"))
         origin = _public_origin(request)
         if collections.wants_html(request):
             return await asyncio.to_thread(_public_page, request, view="themes_list", title=_t("kb.pub.themes_title"))
@@ -969,13 +969,13 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "public, max-age=60"})
 
     async def kb_similar_route(request: Request) -> Response:
-        """``GET /api/kb/similar?type=&label=&seed=``: the shared knowledge bases of this server and of other servers that are near a subject, for the dialog that makes a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4).
+        """``GET /api/kb/similar?knowledge_type=&label=&seed=``: the shared knowledge bases of this server and of other servers that are near a subject, for the dialog that makes a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4).
 
         ``type`` is necessary. ``label`` and each ``seed`` (a seed entity, at most 20) are the text that the account typed. With no text, the answer has the knowledge bases of the type, the ones of this server first, and ``matched`` is false. With text, it has the knowledge bases with a score above 0, the highest score first (``theme_judgement.subject_score``).
         """
-        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        knowledge_type = _collection_filter(request, "knowledge_type", ("real", "fictional"))
         if knowledge_type is None:
-            raise HTTPException(status_code=400, detail="type_required")
+            raise HTTPException(status_code=400, detail="knowledge_type_required")
         label = request.query_params.get("label", "")
         seeds = request.query_params.getlist("seed")
         if len(label) > 200 or len(seeds) > SIMILAR_SEEDS_MAX or any(len(seed) > 200 for seed in seeds):
@@ -2434,7 +2434,7 @@ def create_app(
                 '<article class="account-card">'
                 '<div class="account-header">'
                 f'<a class="account-name" href="/themes/{html.escape(view["number"])}/">{html.escape(view["label"])}</a>'
-                f'<span class="badge">{html.escape(_t("themes.type_" + view["knowledge_type"]))} · {html.escape(_t("themes.counts_federated", knowledge_bases=view["shared_knowledge_bases"], remote=view["remote_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
+                f'<span class="badge">{html.escape(_t("kb.knowledge_type." + view["knowledge_type"]))} · {html.escape(_t("themes.counts_federated", knowledge_bases=view["shared_knowledge_bases"], remote=view["remote_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
                 "</div>"
                 + (f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{entities}</p>' if entities else "")
                 + (f'<ul class="themes-list">{items}</ul>' if items else "")
@@ -3099,7 +3099,7 @@ def create_app(
                 theme = _admin_theme_of_path(conn, request)
                 if theme["state"] == "merged":
                     return JSONResponse({"error": "theme_merged"}, status_code=409)
-                if membership == "pinned" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+                if membership == "pinned" and themes_store.knowledge_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
                     # A theme has one knowledge type (CT18).
                     return JSONResponse({"error": "knowledge_type_mismatch"}, status_code=409)
                 themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=membership == "pinned", excluded=membership == "excluded")

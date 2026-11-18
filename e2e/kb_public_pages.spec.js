@@ -115,7 +115,7 @@ test('/kb: the shared knowledge bases with type, state, join policy, and role; t
   await expect(rows.nth(0).locator('.claire-tag.ok')).toHaveText('모더레이터');
   await expect(rows.nth(0)).toContainText('30 / 120');
   // The second row: fictional, archived, re-embedding necessary, and a join request that waits.
-  await expect(rows.nth(1).locator('.claire-tag.fic')).toHaveText('창작');
+  await expect(rows.nth(1).locator('.claire-tag.fic')).toHaveText('허구');
   await expect(rows.nth(1)).toContainText('보관됨');
   await expect(rows.nth(1).locator('.claire-tag.danger')).toHaveText('재임베딩 필요');
   await expect(rows.nth(1)).toContainText('누구나 가입');
@@ -124,10 +124,10 @@ test('/kb: the shared knowledge bases with type, state, join policy, and role; t
   await expectNoRawKeys(page);
 
   // The type filter: only the fictional one; the address keeps the filter.
-  await root.locator('.claire-chip', { hasText: '창작' }).click();
+  await root.locator('.claire-chip', { hasText: '허구' }).click();
   await expect(rows).toHaveCount(1);
   await expect(rows.nth(0)).toContainText('Fantasy Lore');
-  expect(new URL(page.url()).search).toBe('?type=fictional');
+  expect(new URL(page.url()).search).toBe('?knowledge_type=fictional');
   // All types, and only the knowledge bases with a role: a join request is not a role.
   await root.locator('.claire-chip', { hasText: '전체' }).click();
   await root.locator('#pub-kb-joined').check();
@@ -184,7 +184,7 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   const cards = root.locator('article.claire-card');
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0).locator('h2 a[href="/themes/202/"]')).toHaveText('Dragons · Elves');
-  await expect(cards.nth(0).locator('.claire-tag.fic')).toHaveText('창작');
+  await expect(cards.nth(0).locator('.claire-tag.fic')).toHaveText('허구');
   await expect(cards.nth(0).locator('.claire-tags')).toHaveText('지식 베이스 2개다른 서버 1개');
   await expect(cards.nth(1).locator('.claire-tags .claire-tag')).toHaveCount(1);
   await root.locator('.claire-chip', { hasText: '현실' }).click();

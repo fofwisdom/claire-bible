@@ -118,8 +118,8 @@ def add_theme_member(
     row = conn.execute("SELECT is_personal, knowledge_type FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
     if row is None:
         raise KeyError(f"knowledge base {kb_id} not found")
-    kb_type = "real" if int(row[0] or 0) == 1 else row[1]
-    if kb_type != theme["knowledge_type"]:
+    knowledge_type = "real" if int(row[0] or 0) == 1 else row[1]
+    if knowledge_type != theme["knowledge_type"]:
         raise ValueError("knowledge_type_mismatch")
     ts = time.time() if now is None else now
     conn.execute(
@@ -313,7 +313,7 @@ def fiction_like_documents(conn: sqlite3.Connection, kb_id: int) -> set[str]:
     return {str(r[0]) for r in conn.execute("SELECT document_id FROM kb_document_matches WHERE kb_id=? AND knowledge_type='fictional' AND theme_id IS NOT NULL", (int(kb_id),))}
 
 
-def kb_type_for_themes(conn: sqlite3.Connection, kb_id: int) -> str | None:
+def knowledge_type_for_themes(conn: sqlite3.Connection, kb_id: int) -> str | None:
     """The knowledge type of a knowledge base for the themes: a personal knowledge base counts as ``real`` (CT18). None: no such knowledge base."""
     row = conn.execute("SELECT is_personal, knowledge_type FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
     if row is None:

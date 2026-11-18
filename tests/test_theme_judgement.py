@@ -308,7 +308,7 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
             # The collection and the page of a theme, for each reader.
             listed = client.get("/themes").json()["themes"]
             assert {t["number"] for t in listed} == {korea["number"], cosmos["number"], legends["number"]}
-            assert [t["number"] for t in client.get("/themes?type=fictional").json()["themes"]] == [legends["number"]]
+            assert [t["number"] for t in client.get("/themes?knowledge_type=fictional").json()["themes"]] == [legends["number"]]
             assert client.get(f"/themes/{korea['number']}").status_code == 308  # the path without the last slash
             page = client.get(f"/themes/{korea['number']}/").json()
             assert (page["label"], page["knowledge_type"], page["shared_knowledge_bases"], page["top_entities"][:2]) == ("Seoul · Busan", "real", 2, ["Seoul", "Busan"])

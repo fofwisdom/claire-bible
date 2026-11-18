@@ -164,7 +164,7 @@ paths:
             type: string
             enum: ['true', 'false']
           description: With `true`, only the shared knowledge bases where the requester is an active member.
-        - name: type
+        - name: knowledge_type
           in: query
           required: false
           schema:
@@ -213,7 +213,7 @@ paths:
         '304':
           description: Not Modified when If-None-Match matches the current ETag.
         '400':
-          description: Unknown value of `joined` or `type` (`invalid_joined`, `invalid_type`), or invalid cursor parameters.
+          description: Unknown value of `joined` or `knowledge_type` (`invalid_joined`, `invalid_knowledge_type`), or invalid cursor parameters.
           content:
             application/json:
               schema:
@@ -283,7 +283,7 @@ paths:
         OrderedCollection with `themes` (the items: `number`, `url`, `label`, `description`,
         `knowledge_type`, `state`, `knowledge_bases`, and `remote_knowledge_bases`, the count of shared
         knowledge bases of other servers in the theme), or an OrderedCollectionPage with `page=true`.
-        The parameter `type` (`real` or `fictional`) selects one knowledge type. The old link
+        The parameter `knowledge_type` (`real` or `fictional`) selects one knowledge type. The old link
         `/@{username}/themes` gets 308 to `/@{username}/kb`. The collection of knowledge bases is `/kb`.
         A browser navigation to `/themes` gets the HTML page of the list; an API client gets the JSON.
         `/themes/{number}/` has the same rule for the page of one theme. The old pages `/explore/themes`
@@ -1099,7 +1099,7 @@ paths:
         - SessionCookie: []
         - {}
       parameters:
-        - name: type
+        - name: knowledge_type
           in: query
           required: true
           schema:
@@ -1126,7 +1126,7 @@ paths:
         '200':
           description: '`{"matched": <bool>, "knowledge_bases": [{"remote", "server", "number", "label", "description", "knowledge_type", "url", "score"}]}`'
         '400':
-          description: '`type_required`, `invalid_type`, or `invalid_request` (a value above a limit).'
+          description: '`knowledge_type_required`, `invalid_knowledge_type`, or `invalid_request` (a value above a limit).'
 
   /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}:
     put:

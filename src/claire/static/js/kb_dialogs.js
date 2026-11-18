@@ -10,8 +10,8 @@
   // Reason codes of a rejection and of a removal (contributions.py REASON_CODES).
   var REASON_CODES = ["off_subject", "wrong_knowledge_type", "duplicate", "low_quality", "spam", "other"];
 
-  function typeTag(knowledgeType) {
-    return '<span class="claire-tag ' + (knowledgeType === "fictional" ? "fic" : "acc") + '">' + esc(t(knowledgeType === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")) + "</span>";
+  function knowledgeTypeTag(knowledgeType) {
+    return '<span class="claire-tag ' + (knowledgeType === "fictional" ? "fic" : "acc") + '">' + esc(t(knowledgeType === "fictional" ? "kb.knowledge_type.fictional" : "kb.knowledge_type.real")) + "</span>";
   }
 
   function stateLabel(state) {
@@ -325,7 +325,7 @@
           listBox.innerHTML = ui().renderTable({
             caption: t("kb.dlg.no_theme_title"),
             columns: [
-              { label: t("kb.dlg.col_kb"), render: function (r) { return "<strong>" + esc(r.label) + "</strong> " + typeTag(r.knowledge_type); } },
+              { label: t("kb.dlg.col_kb"), render: function (r) { return "<strong>" + esc(r.label) + "</strong> " + knowledgeTypeTag(r.knowledge_type); } },
               { label: t("kb.pub.col_role"), render: function (r) { return esc(t("kb.role." + r.role)); } },
               { label: "", actions: true, render: function (r) { return r.state === "archived" ? esc(stateLabel("archived")) : '<button type="button" class="claire-btn pri claire-btn-sm" data-pick-kb="' + esc(r.number) + '">' + esc(t("kb.dlg.submit_here")) + "</button>"; } }
             ],
@@ -409,7 +409,7 @@
     var box = document.createElement("form");
     box.className = "claire-panel-inner";
     box.noValidate = true;
-    var defaultType = (opts && opts.defaultType) === "fictional" ? "fictional" : "real";
+    var defaultKnowledgeType = (opts && opts.defaultKnowledgeType) === "fictional" ? "fictional" : "real";
     box.innerHTML =
       '<div id="claire-similar-kbs" class="claire-panel-inner"><p class="claire-hint">' + esc(t("kb.dlg.loading_similar")) + "</p></div>" +
       '<div class="claire-field">' +
@@ -417,10 +417,10 @@
       '  <input id="newkb-label" name="label" class="claire-input" required maxlength="80" data-validate data-error-id="newkb-label-err" aria-invalid="false"/>' +
       '  <span id="newkb-label-err" class="claire-error" hidden></span>' +
       "</div>" +
-      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.dlg.field_type")) + "</legend>" +
+      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.knowledge_type.label")) + "</legend>" +
       '  <div class="claire-chips">' +
-      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="real"' + (defaultType === "real" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_real")) + "</span></label>" +
-      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="fictional"' + (defaultType === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_fictional")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="real"' + (defaultKnowledgeType === "real" ? " checked" : "") + "/><span>" + esc(t("kb.knowledge_type.real")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="fictional"' + (defaultKnowledgeType === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.knowledge_type.fictional")) + "</span></label>" +
       "  </div>" +
       "</fieldset>" +
       '<div class="claire-field">' +
@@ -444,8 +444,8 @@
         var similarSeq = 0;
         var similarTimer = null;
         function loadExisting() {
-          var knowledgeType = (box.querySelector('input[name="knowledge_type"]:checked') || {}).value || defaultType;
-          var query = "type=" + encodeURIComponent(knowledgeType) + "&label=" + encodeURIComponent(box.querySelector("#newkb-label").value.trim().slice(0, 200));
+          var knowledgeType = (box.querySelector('input[name="knowledge_type"]:checked') || {}).value || defaultKnowledgeType;
+          var query = "knowledge_type=" + encodeURIComponent(knowledgeType) + "&label=" + encodeURIComponent(box.querySelector("#newkb-label").value.trim().slice(0, 200));
           seedList(box.querySelector("#newkb-seeds").value).slice(0, 20).forEach(function (seed) { query += "&seed=" + encodeURIComponent(seed.slice(0, 200)); });
           var seq = ++similarSeq;
           ui().request("/api/kb/similar?" + query).then(function (res) {
@@ -715,13 +715,13 @@
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
     box.innerHTML =
-      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.dlg.field_type")) + "</legend>" +
+      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.knowledge_type.label")) + "</legend>" +
       '  <div class="claire-chips">' +
-      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="real"' + (current === "real" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_real")) + "</span></label>" +
-      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="fictional"' + (current === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_fictional")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="real"' + (current === "real" ? " checked" : "") + "/><span>" + esc(t("kb.knowledge_type.real")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="fictional"' + (current === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.knowledge_type.fictional")) + "</span></label>" +
       "  </div>" +
       "</fieldset>" +
-      '<div class="claire-note warn"><span>' + esc(t("kb.dlg.type_change_effect")) + "</span></div>";
+      '<div class="claire-note warn"><span>' + esc(t("kb.knowledge_type.change_effect")) + "</span></div>";
 
     function chosen() {
       var inp = box.querySelector('input[name="kb_type_change"]:checked');
@@ -729,10 +729,10 @@
     }
 
     return ui().openDialog({
-      title: t("kb.dlg.type_change_title", { label: (opts && opts.kbLabel) || kbNumber }),
+      title: t("kb.knowledge_type.change_title", { label: (opts && opts.kbLabel) || kbNumber }),
       icon: "edit",
       bodyEl: box,
-      submitLabel: t("kb.dlg.type_change_apply"),
+      submitLabel: t("kb.knowledge_type.change_apply"),
       onOpen: function (_dlg, _b, submitBtn) {
         if (submitBtn) submitBtn.disabled = true;
         box.addEventListener("change", function () { if (submitBtn) submitBtn.disabled = chosen() === current; });
@@ -747,7 +747,7 @@
             ui().toast(errText(res), "danger");
             return false;
           }
-          ui().toast(t("kb.dlg.type_change_done"), "ok");
+          ui().toast(t("kb.knowledge_type.change_done"), "ok");
           if (opts && opts.onChanged) opts.onChanged((res.data && res.data.knowledge_base) || null);
           return true;
         });
@@ -815,7 +815,7 @@
 
   root.ClaireKbDialogs = {
     REASON_CODES: REASON_CODES,
-    typeTag: typeTag,
+    knowledgeTypeTag: knowledgeTypeTag,
     stateLabel: stateLabel,
     seedList: seedList,
     membershipOf: membershipOf,

@@ -307,10 +307,10 @@ The integration removes: the column `is_collaborator_accessible`; the collaborat
 | :--- | :--- |
 | `/` | Single mode: temporary redirect (302) to `/@{username}/` of the admin (CT33). Network mode: public directory with themes and federated servers (Section 8.4). |
 | `/@{u}/` | Personal knowledge base of `u`. In single mode only the admin has this path (CT33). |
-| `/kb` | Collection of shared knowledge bases. `?joined=true`: only those where the requester is an active member. `?type=real` or `?type=fictional`. |
+| `/kb` | Collection of shared knowledge bases. `?joined=true`: only those where the requester is an active member. `?knowledge_type=real` or `?knowledge_type=fictional`. |
 | `/kb/{number}/…` | Shared knowledge base (pinned). A number of a personal knowledge base gets a 308 to `/@{u}/…` (single mode: `/…`) when the requester can read it, else 404. |
 | `/@{u}/kb` | Collection of the shared knowledge bases where `u` is an active member (CT9) |
-| `/themes` | Collection of themes. `?type=real` or `?type=fictional`. |
+| `/themes` | Collection of themes. `?knowledge_type=real` or `?knowledge_type=fictional`. |
 | `/themes/{number}` | One theme: HTML page and JSON collection of its knowledge bases (content negotiation of namespace design §6.5) |
 | `/submissions` | `POST`: contribute documents (Section 9.2). `GET`: collection of the submissions of the requester. |
 | `/submissions/{number}` | One submission with the state of each item and each target |
@@ -407,7 +407,7 @@ The account sees its level, its signals, and each fiction-like document that cou
 
 ### 8.7 Campaign Message at Ingest (CT18)
 
-1. **Standing message.** Each ingest form of the WebUI shows a message each time: fiction (novels, comics, games, films, invented worlds) goes to a shared knowledge base of the type `fictional`; fiction in the personal knowledge base lowers the reputation. The message has links to `/themes?type=fictional` and to "Make a shared knowledge base". The account cannot close it for good.
+1. **Standing message.** Each ingest form of the WebUI shows a message each time: fiction (novels, comics, games, films, invented worlds) goes to a shared knowledge base of the type `fictional`; fiction in the personal knowledge base lowers the reputation. The message has links to `/themes?knowledge_type=fictional` and to "Make a shared knowledge base". The account cannot close it for good.
 2. **Notice for a fiction-like document.** When the document match of a new document is a `fictional` theme, the result of the ingest job has a notice `{"code": "fiction_like_document", "document": ..., "theme": ...}`. The WebUI, the Telegram reply, the MCP tool result, and the CLI show it with the action "Contribute to this theme".
 3. **Other surfaces.** Telegram, MCP, and the CLI show the standing message with the first ingest of each day for each account.
 4. UI text uses keys of the English and Korean catalogs. CLI text is English (ASD-STE100).

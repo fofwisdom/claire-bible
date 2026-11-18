@@ -802,7 +802,7 @@ def cmd_themes(args) -> int:
         if theme["state"] == "merged":
             print("[error] A merged theme has no members.", file=sys.stderr)
             return 1
-        if action == "pin" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+        if action == "pin" and themes_store.knowledge_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
             print("[error] The knowledge type of the knowledge base is not the knowledge type of the theme.", file=sys.stderr)
             return 1
         themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=action == "pin", excluded=action == "exclude")

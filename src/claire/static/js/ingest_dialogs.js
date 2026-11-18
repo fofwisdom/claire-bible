@@ -222,7 +222,7 @@
       createKbBtn.addEventListener("click", function () {
         closeDialog("modal-ingest");
         if (window.ClaireKbDialogs && typeof window.ClaireKbDialogs.openCreateKbDialog === "function") {
-          window.ClaireKbDialogs.openCreateKbDialog({ defaultType: "fictional" });
+          window.ClaireKbDialogs.openCreateKbDialog({ defaultKnowledgeType: "fictional" });
         } else {
           window.location.assign("/settings/kb");
         }

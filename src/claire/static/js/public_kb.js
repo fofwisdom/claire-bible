@@ -15,8 +15,8 @@
 
   function themeHref(number) { return "/themes/" + encodeURIComponent(number) + "/"; }
   function kbHref(number) { return "/kb/" + encodeURIComponent(number) + "/"; }
-  function typeLabel(knowledgeType) { return t(knowledgeType === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real"); }
-  function typeTag(knowledgeType) { return '<span class="claire-tag ' + (knowledgeType === "fictional" ? "fic" : "acc") + '">' + esc(typeLabel(knowledgeType)) + "</span>"; }
+  function typeLabel(knowledgeType) { return t(knowledgeType === "fictional" ? "kb.knowledge_type.fictional" : "kb.knowledge_type.real"); }
+  function knowledgeTypeTag(knowledgeType) { return '<span class="claire-tag ' + (knowledgeType === "fictional" ? "fic" : "acc") + '">' + esc(typeLabel(knowledgeType)) + "</span>"; }
   function loginHref() { return "/login?next=" + encodeURIComponent(window.location.pathname + window.location.search); }
 
   function publicNavHtml(current) {
@@ -31,27 +31,27 @@
     }).join("") + "</nav>";
   }
 
-  function typeChips(name, value) {
+  function knowledgeTypeChips(name, value) {
     return ui().renderChips({
       name: name,
-      label: t("kb.pub.filter_type_aria"),
+      label: t("kb.knowledge_type.label"),
       value: value,
       options: [
         { value: "all", label: t("kb.pub.filter_all") },
-        { value: "real", label: t("kb.pub.filter_real") },
-        { value: "fictional", label: t("kb.pub.filter_fictional") }
+        { value: "real", label: t("kb.knowledge_type.real") },
+        { value: "fictional", label: t("kb.knowledge_type.fictional") }
       ]
     });
   }
 
-  function typeFromQuery() {
-    var value = new URLSearchParams(window.location.search).get("type");
+  function knowledgeTypeFromQuery() {
+    var value = new URLSearchParams(window.location.search).get("knowledge_type");
     return value === "real" || value === "fictional" ? value : "all";
   }
 
-  function setTypeQuery(value) {
+  function setKnowledgeTypeQuery(value) {
     if (!window.history || !window.history.replaceState) return;
-    window.history.replaceState(null, "", window.location.pathname + (value === "all" ? "" : "?type=" + encodeURIComponent(value)));
+    window.history.replaceState(null, "", window.location.pathname + (value === "all" ? "" : "?knowledge_type=" + encodeURIComponent(value)));
   }
 
   // The root page of network mode has the themes from the server (design Section 8.4). This part adds the links to the collections.
@@ -103,7 +103,7 @@
 
   // GET /themes: the root of the collection has each theme in "themes" (number, url, label, description, knowledge_type, state, knowledge_bases = the count of knowledge bases of this server, remote_knowledge_bases = the count of shared knowledge bases of other servers).
   function renderThemesList(host, bs) {
-    var typeFilter = typeFromQuery();
+    var knowledgeTypeFilter = knowledgeTypeFromQuery();
     var themes = [];
     var loadError = null;
     ui().request("/themes").then(function (r) {
@@ -113,10 +113,10 @@
     });
 
     function paint() {
-      var list = themes.filter(function (th) { return typeFilter === "all" || th.knowledge_type === typeFilter; });
+      var list = themes.filter(function (th) { return knowledgeTypeFilter === "all" || th.knowledge_type === knowledgeTypeFilter; });
       var h = publicNavHtml("themes");
       h += '<div class="claire-page-head"><div><h1>' + ui().icon("folder") + " " + esc(t("kb.pub.themes_title")) + '</h1><p class="claire-page-sub">' + esc(t("kb.pub.themes_subtitle")) + "</p></div>";
-      h += '<div class="claire-actions">' + typeChips("pub-themes-type", typeFilter);
+      h += '<div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
       if (bs.is_authenticated) h += '<button type="button" class="claire-btn pri" id="pub-th-create-kb">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
       h += "</div></div>";
       if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";
@@ -125,7 +125,7 @@
         h += '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>";
       } else {
         list.forEach(function (th) {
-          h += '<article class="claire-card"><div class="claire-card-head"><h2><a href="' + esc(themeHref(th.number)) + '">' + esc(th.label) + "</a></h2>" + typeTag(th.knowledge_type) + "</div>";
+          h += '<article class="claire-card"><div class="claire-card-head"><h2><a href="' + esc(themeHref(th.number)) + '">' + esc(th.label) + "</a></h2>" + knowledgeTypeTag(th.knowledge_type) + "</div>";
           if (th.description) h += '<p class="claire-hint">' + esc(th.description) + "</p>";
           h += '<div class="claire-tags"><span class="claire-tag">' + esc(t("kb.pub.kb_count", { count: th.knowledge_bases || 0 })) + "</span>" +
             (th.remote_knowledge_bases ? '<span class="claire-tag">' + esc(t("kb.pub.remote_kb_count", { count: th.remote_knowledge_bases })) + "</span>" : "") + "</div></article>";
@@ -134,12 +134,12 @@
       h += "</div>";
       host.innerHTML = h;
       ui().enhance(host);
-      host.querySelectorAll('input[name="pub-themes-type"]').forEach(function (inp) {
-        inp.addEventListener("change", function () { typeFilter = inp.value; setTypeQuery(typeFilter); paint(); });
+      host.querySelectorAll('input[name="pub-themes-knowledge-type"]').forEach(function (inp) {
+        inp.addEventListener("change", function () { knowledgeTypeFilter = inp.value; setKnowledgeTypeQuery(knowledgeTypeFilter); paint(); });
       });
       var createBtn = host.querySelector("#pub-th-create-kb");
       if (createBtn) createBtn.addEventListener("click", function () {
-        dlgs().openCreateKbDialog({ defaultType: typeFilter === "fictional" ? "fictional" : "real", onCreated: function (kb) { if (kb && kb.number) window.location.assign(kbHref(kb.number)); } });
+        dlgs().openCreateKbDialog({ defaultKnowledgeType: knowledgeTypeFilter === "fictional" ? "fictional" : "real", onCreated: function (kb) { if (kb && kb.number) window.location.assign(kbHref(kb.number)); } });
       });
     }
   }
@@ -159,7 +159,7 @@
       var remoteKbs = kbs.filter(function (k) { return !!k.remote; });
       var personalKbs = kbs.filter(function (k) { return !!k.is_personal; });
 
-      h += '<div class="claire-page-head"><div><h1>' + esc(th.label) + " " + typeTag(th.knowledge_type) + "</h1>" +
+      h += '<div class="claire-page-head"><div><h1>' + esc(th.label) + " " + knowledgeTypeTag(th.knowledge_type) + "</h1>" +
         (th.description ? '<p class="claire-page-sub">' + esc(th.description) + "</p>" : "") +
         '<p class="claire-page-sub">' + esc(t("themes.counts_federated", { knowledge_bases: th.shared_knowledge_bases || 0, remote: th.remote_knowledge_bases || 0, contributions: th.visible_contributions || 0 })) + "</p></div>";
       h += '<div class="claire-actions">';
@@ -221,7 +221,7 @@
 
       var makeBtn = host.querySelector("#th-make-kb-btn");
       if (makeBtn) makeBtn.addEventListener("click", function () {
-        dlgs().openCreateKbDialog({ defaultType: th.knowledge_type, onCreated: function (kb) { if (kb && kb.number) window.location.assign(kbHref(kb.number)); } });
+        dlgs().openCreateKbDialog({ defaultKnowledgeType: th.knowledge_type, onCreated: function (kb) { if (kb && kb.number) window.location.assign(kbHref(kb.number)); } });
       });
       var contribBtn = host.querySelector("#th-contrib-btn");
       if (contribBtn) contribBtn.addEventListener("click", function () {
@@ -237,7 +237,7 @@
 
   // GET /kb: the root of the collection has each shared knowledge base in "knowledge_bases", with "stats" and with the "role" of the requester.
   function renderKbList(host, bs) {
-    var typeFilter = typeFromQuery();
+    var knowledgeTypeFilter = knowledgeTypeFromQuery();
     var joinedOnly = false;
     var items = [];
     var loadError = null;
@@ -252,12 +252,12 @@
 
     function paint() {
       var visible = items.filter(function (k) {
-        if (typeFilter !== "all" && k.knowledge_type !== typeFilter) return false;
+        if (knowledgeTypeFilter !== "all" && k.knowledge_type !== knowledgeTypeFilter) return false;
         return !joinedOnly || !!k.role;
       });
       var h = publicNavHtml("kb");
       h += '<div class="claire-page-head"><div><h1>' + ui().icon("folder") + " " + esc(t("kb.pub.kbs_title")) + '</h1><p class="claire-page-sub">' + esc(t("kb.pub.kbs_subtitle")) + "</p></div>";
-      h += '<div class="claire-actions">' + typeChips("pub-kb-type", typeFilter);
+      h += '<div class="claire-actions">' + knowledgeTypeChips("pub-kb-knowledge-type", knowledgeTypeFilter);
       if (bs.is_authenticated) {
         h += '<label class="claire-chip"><input type="checkbox" id="pub-kb-joined"' + (joinedOnly ? " checked" : "") + "/><span>" + esc(t("kb.pub.filter_joined")) + "</span></label>";
         h += '<button type="button" class="claire-btn pri" id="pub-kb-make">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
@@ -270,7 +270,7 @@
         caption: t("kb.pub.kbs_title"),
         columns: [
           { label: t("kb.pub.col_name"), render: function (k) {
-            return '<a href="' + esc(kbHref(k.number)) + '"><strong>' + esc(k.label) + "</strong></a> " + typeTag(k.knowledge_type) +
+            return '<a href="' + esc(kbHref(k.number)) + '"><strong>' + esc(k.label) + "</strong></a> " + knowledgeTypeTag(k.knowledge_type) +
               (k.state === "archived" ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel("archived")) + "</span>" : "") +
               (k.reembed_required ? ' <span class="claire-tag danger">' + esc(t("kb.pub.reembed_badge")) + "</span>" : "") +
               (k.description ? '<br><span class="claire-hint">' + esc(k.description) + "</span>" : "");
@@ -288,14 +288,14 @@
 
       host.innerHTML = h;
       ui().enhance(host);
-      host.querySelectorAll('input[name="pub-kb-type"]').forEach(function (inp) {
-        inp.addEventListener("change", function () { typeFilter = inp.value; setTypeQuery(typeFilter); paint(); });
+      host.querySelectorAll('input[name="pub-kb-knowledge-type"]').forEach(function (inp) {
+        inp.addEventListener("change", function () { knowledgeTypeFilter = inp.value; setKnowledgeTypeQuery(knowledgeTypeFilter); paint(); });
       });
       var joinedBox = host.querySelector("#pub-kb-joined");
       if (joinedBox) joinedBox.addEventListener("change", function () { joinedOnly = joinedBox.checked; paint(); });
       var makeBtn = host.querySelector("#pub-kb-make");
       if (makeBtn) makeBtn.addEventListener("click", function () {
-        dlgs().openCreateKbDialog({ defaultType: typeFilter === "fictional" ? "fictional" : "real", onCreated: function () { load(); } });
+        dlgs().openCreateKbDialog({ defaultKnowledgeType: knowledgeTypeFilter === "fictional" ? "fictional" : "real", onCreated: function () { load(); } });
       });
     }
 
@@ -323,7 +323,7 @@
         var role = dlgs().membershipOf(kb).role;
         var archived = kb.state === "archived";
 
-        h += '<section class="claire-card"><div class="claire-page-head"><div><h1>' + esc(kb.label) + " " + typeTag(kb.knowledge_type) +
+        h += '<section class="claire-card"><div class="claire-page-head"><div><h1>' + esc(kb.label) + " " + knowledgeTypeTag(kb.knowledge_type) +
           ' <span class="claire-tag">' + esc(t("kb.join_policy." + kb.join_policy)) + "</span>" +
           (role ? ' <span class="claire-tag ok">' + esc(t("kb.role." + role)) + "</span>" : "") +
           (archived ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel("archived")) + "</span>" : "") +

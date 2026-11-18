@@ -1101,7 +1101,7 @@
                   emptyText: tr("console.js.admin.federation.known.kbs_empty"),
                   columns: [
                     { label: ui.t("kb.dlg.col_kb"), render: function (k) { return /^https?:\/\//i.test(String(k.url || "")) ? '<a href="' + ui.esc(k.url) + '" target="_blank" rel="noopener noreferrer">' + ui.esc(k.label) + "</a>" : ui.esc(k.label); } },
-                    { label: ui.t("kb.pub.col_type"), render: function (k) { return ui.esc(ui.t(k.knowledge_type === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")); } },
+                    { label: ui.t("kb.knowledge_type.label"), render: function (k) { return ui.esc(ui.t(k.knowledge_type === "fictional" ? "kb.knowledge_type.fictional" : "kb.knowledge_type.real")); } },
                     { label: ui.t("kb.dlg.col_docs"), render: function (k) { return ui.esc(k.documents == null ? "—" : k.documents); } },
                     { label: ui.t("kb.dlg.col_entities"), render: function (k) { return ui.esc(k.entities == null ? "—" : k.entities); } },
                     { label: ui.t("kb.dlg.col_relations"), render: function (k) { return ui.esc(k.relations == null ? "—" : k.relations); } }
@@ -1366,7 +1366,7 @@
           caption: tr("console.js.admin.kb.title"),
           columns: [
             { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/"><strong>' + ui.esc(k.label) + '</strong></a> <code class="pref-mono">' + ui.esc(k.number) + "</code>"; } },
-            { label: ui.t("kb.pub.col_type"), render: function (k) { return dlgs.typeTag(k.knowledge_type); } },
+            { label: ui.t("kb.knowledge_type.label"), render: function (k) { return dlgs.knowledgeTypeTag(k.knowledge_type); } },
             { label: ui.t("kb.pub.col_mods"), render: function (k) {
               return k.active_moderators > 0 ? ui.esc(k.active_moderators) : '<span class="claire-tag warn">' + ui.esc(ui.t("kb.pub.no_mod_warn")) + "</span>";
             } },
@@ -1380,7 +1380,7 @@
               var menu = [
                 { href: "/settings/kb/" + encodeURIComponent(k.number), label: ui.t("kb.pub.kb_review_manage"), icon: "inbox" },
                 { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod"), icon: "user" },
-                { action: "change_type", value: k.number, label: tr("console.js.admin.kb.change_type"), icon: "edit" }
+                { action: "change_type", value: k.number, label: tr("kb.knowledge_type.change"), icon: "edit" }
               ];
               if (failures(k).length) menu.push({ action: "retry_merge", value: k.number, label: tr("console.js.admin.kb.retry_merge"), icon: "restore" });
               menu.push({ sep: true });
@@ -1596,7 +1596,7 @@
           '<button type="button" class="claire-btn claire-btn-sm" id="adm-th-create">' + ui.esc(tr("console.js.admin.themes.create_theme")) + "</button>" +
           (themes.length ? themes.map(function (th) {
             return '<button type="button" class="claire-list-item' + (curTh && String(curTh.number) === String(th.number) ? " active" : "") + '" data-pick-th="' + ui.esc(th.number) + '">' +
-              '<div class="claire-list-item-row"><strong>' + ui.esc(th.label) + "</strong>" + dlgs.typeTag(th.knowledge_type) + "</div>" +
+              '<div class="claire-list-item-row"><strong>' + ui.esc(th.label) + "</strong>" + dlgs.knowledgeTypeTag(th.knowledge_type) + "</div>" +
               '<div class="claire-list-item-sub"><span>' + ui.esc(th.number) + " · " + ui.esc(tr("console.js.admin.themes.state_" + th.state)) + (th.label_locked ? " · " + ui.esc(tr("console.js.admin.themes.label_locked")) : "") + "</span></div></button>";
           }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p></div>") + "</div>";
 
@@ -1738,11 +1738,11 @@
             icon: "plus",
             bodyHtml: '<p class="claire-hint">' + ui.esc(tr("console.js.admin.themes.create_hint")) + "</p>" +
               '<div class="claire-field"><label class="claire-field-label" for="new-ct-lbl">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '</label><input id="new-ct-lbl" class="claire-input" required/></div>' +
-              '<div class="claire-field"><label class="claire-field-label" for="new-ct-type">' + ui.esc(ui.t("kb.pub.col_type")) + '</label><select id="new-ct-type" class="claire-select"><option value="real">' + ui.esc(ui.t("kb.dlg.type_real")) + '</option><option value="fictional">' + ui.esc(ui.t("kb.dlg.type_fictional")) + "</option></select></div>",
+              '<div class="claire-field"><label class="claire-field-label" for="new-ct-knowledge-type">' + ui.esc(ui.t("kb.knowledge_type.label")) + '</label><select id="new-ct-knowledge-type" class="claire-select"><option value="real">' + ui.esc(ui.t("kb.knowledge_type.real")) + '</option><option value="fictional">' + ui.esc(ui.t("kb.knowledge_type.fictional")) + "</option></select></div>",
             onSubmit: function (_d, body) {
               var lbl = body.querySelector("#new-ct-lbl").value.trim();
               if (!lbl) return false;
-              return ui.request("/api/admin/themes", { method: "POST", body: { label: lbl, knowledge_type: body.querySelector("#new-ct-type").value } }).then(function (rr) {
+              return ui.request("/api/admin/themes", { method: "POST", body: { label: lbl, knowledge_type: body.querySelector("#new-ct-knowledge-type").value } }).then(function (rr) {
                 if (!rr.ok) { fail(rr); return false; }
                 if (rr.data && rr.data.theme) selectedThemeNum = String(rr.data.theme.number);
                 load();

@@ -1500,7 +1500,7 @@
     const sorcerer = ((sorcererEl || {}).value || '').trim();
 
     // A shared knowledge base is always public and needs a knowledge type (CT5, CT12).
-    const knowledge_type = ((document.getElementById('newthemep-type') || {}).value || '').trim();
+    const knowledge_type = ((document.getElementById('newthemep-knowledge-type') || {}).value || '').trim();
     const payload = { label, description, icon, knowledge_type, presentation_enabled };
     if (sorcerer) payload.sorcerer = sorcerer;
     if (ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
@@ -1660,7 +1660,7 @@
       h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.themes.add_title")) + '</summary>';
       h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_label")) + '</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.label_placeholder")) + '"/></div>';
-      h += '<div><label for="newthemep-type" style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.type_label")) + '</label><select id="newthemep-type" style="width:100%;box-sizing:border-box"><option value="real">' + esc(trKey("console.js.panels.themes.type_real")) + '</option><option value="fictional">' + esc(trKey("console.js.panels.themes.type_fictional")) + '</option></select></div>';
+      h += '<div><label for="newthemep-knowledge-type" style="font-size:11px;opacity:0.8">' + esc(trKey("kb.knowledge_type.label")) + '</label><select id="newthemep-knowledge-type" style="width:100%;box-sizing:border-box"><option value="real">' + esc(trKey("kb.knowledge_type.real")) + '</option><option value="fictional">' + esc(trKey("kb.knowledge_type.fictional")) + '</option></select></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_manager")) + '</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.opt_manager")) + '"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.col_description")) + '</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.desc_placeholder")) + '"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.ga_label")) + '</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.ga_placeholder")) + '"/></div>';

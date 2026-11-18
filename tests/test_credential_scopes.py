@@ -427,11 +427,11 @@ def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
         assert (owner["personal_kb"]["id"], owner["personal_kb"]["is_personal"]) == (0, True)
 
         # ?type selects one knowledge type; ?joined=true selects the memberships of the requester.
-        assert [kb["number"] for kb in client.get("/kb?type=real").json()["knowledge_bases"]] == [real["number"]]
-        assert [kb["number"] for kb in client.get("/kb?type=fictional").json()["knowledge_bases"]] == [fiction["number"]]
+        assert [kb["number"] for kb in client.get("/kb?knowledge_type=real").json()["knowledge_bases"]] == [real["number"]]
+        assert [kb["number"] for kb in client.get("/kb?knowledge_type=fictional").json()["knowledge_bases"]] == [fiction["number"]]
         assert client.get("/kb?joined=true").json()["knowledge_bases"] == []
         assert len(client.get("/kb?joined=true", headers=OWNER).json()["knowledge_bases"]) == 2
-        for bad in ("/kb?type=other", "/kb?joined=yes", "/themes?type=other"):
+        for bad in ("/kb?knowledge_type=other", "/kb?joined=yes", "/themes?knowledge_type=other"):
             assert client.get(bad).status_code == 400, bad
         # Pages of the collection.
         page = client.get("/kb?page=true&limit=1").json()
@@ -450,7 +450,7 @@ def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
         assert listed["totalItems"] == 1
         item = listed["themes"][0]
         assert (item["label"], item["knowledge_type"], item["knowledge_bases"], item["url"]) == ("Geography", "real", 1, f"{PUBLIC_URL}/themes/{item['number']}")
-        assert client.get("/themes?type=fictional").json()["themes"] == []
+        assert client.get("/themes?knowledge_type=fictional").json()["themes"] == []
 
         # Old links: /themes/{number}/… with the number of a shared knowledge base gets 308 to /kb/{number}/….
         old = client.get(f"/themes/{real['number']}/documents?x=1")

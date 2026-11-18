@@ -117,10 +117,10 @@ def test_kf2_a_shared_knowledge_base_of_b_is_in_a_theme_and_on_the_root_page_of_
     assert f'href="https://b.example/kb/{B_KB_NUMBER}/"' in root.text and "(b.example)" in root.text and 'id="public-home-federation"' in root.text
 
     # Section 8.3 rule 4: before an account makes a shared knowledge base, it sees the similar ones of this server and of other servers.
-    similar = a.request("GET", "/api/kb/similar?type=real&label=Analytical%20Engine&seed=Ada%20Lovelace", session=a_admin).json()
+    similar = a.request("GET", "/api/kb/similar?knowledge_type=real&label=Analytical%20Engine&seed=Ada%20Lovelace", session=a_admin).json()
     assert similar["matched"] is True
     assert [(kb["remote"], kb["server"], kb["label"], kb["score"]) for kb in similar["knowledge_bases"]] == [(False, None, "Early computing", 1.0), (True, "b.example", "Analytical Engine", 1.0)]  # with the same score, the knowledge base of this server is first
-    assert a.request("GET", "/api/kb/similar?type=fictional&label=Analytical%20Engine", session=a_admin).json() == {"matched": True, "knowledge_bases": []}
+    assert a.request("GET", "/api/kb/similar?knowledge_type=fictional&label=Analytical%20Engine", session=a_admin).json() == {"matched": True, "knowledge_bases": []}
     assert a.request("GET", "/api/kb/similar?label=x", session=a_admin).status_code == 400
 
     # A one-sided control (Section 6.3): A blocks B. The records of B go from the theme and from the root page of A.

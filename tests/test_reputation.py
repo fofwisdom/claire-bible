@@ -238,8 +238,8 @@ def test_e2e_ingest_result_has_the_campaign_notices(world, monkeypatch: pytest.M
     assert [n["code"] for n in first.notices] == [campaign.FICTION_LIKE, campaign.STANDING]
     assert (first.notices[0]["document"], first.notices[0]["theme"], first.notices[0]["theme_label"]) == (first.document_id, number, "Novels")
     lines = first.notice_lines()
-    assert "Novels" in lines[0] and "fictional" in lines[1]
-    assert "창작" in first.notice_lines(locale="ko")[1]
+    assert "Novels" in lines[0] and "knowledge type Fiction" in lines[1]
+    assert "허구" in first.notice_lines(locale="ko")[1]
     # The second ingest of the day: no standing message.
     second = seed(world.settings, 0, "A second story about a wizard and a tower in an invented world. " * 3)
     assert [n["code"] for n in second.notices] == [campaign.FICTION_LIKE]

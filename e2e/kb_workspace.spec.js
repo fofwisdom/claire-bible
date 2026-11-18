@@ -180,8 +180,8 @@ test('the campaign notices of the ingest dialog: the standing message with its t
   await page.route((u) => u.pathname.endsWith('/ingest-stream') || u.pathname === '/ingest-stream', (route) => route.fulfill({ status: 200, contentType: 'application/x-ndjson', body: [
     JSON.stringify({ stage: 'fetch', msg: 'reading' }),
     JSON.stringify({ done: true, result: { document_id: 'doc-2', title: 'Space Opera Draft', entities_created: 2, entities_linked: 1, relations_added: 1, notices: [
-      { code: 'fiction_like_document', document: 'doc-2', theme: '202', theme_label: 'Dragons · Elves', message: '이 문서는 창작물로 보입니다(테마: Dragons · Elves). 이 테마에 기여하면 평판이 유지됩니다.' },
-      { code: 'fiction_standing_message', message: '창작물은 유형이 창작인 공유 지식 베이스에 넣습니다.' }
+      { code: 'fiction_like_document', document: 'doc-2', theme: '202', theme_label: 'Dragons · Elves', message: '이 문서는 허구로 보입니다(테마: Dragons · Elves). 이 테마에 기여하면 평판이 유지됩니다.' },
+      { code: 'fiction_standing_message', message: "허구는 지식 유형이 '허구'인 공유 지식 베이스에 넣습니다." }
     ] } })
   ].join('\n') + '\n' }));
   await page.route((u) => u.pathname === '/submissions', (route) => {
@@ -199,9 +199,9 @@ test('the campaign notices of the ingest dialog: the standing message with its t
   await expect(modal).toBeVisible();
   // The standing message: its text, the link to the fictional themes, and the control that makes a shared knowledge base. The two are inside the dialog and can get a click.
   const notice = modal.locator('#ingest-fiction-notice');
-  await expect(notice).toContainText('창작물(소설, 만화, 게임, 영화, 가상 세계)은');
-  const themesLink = notice.locator('a[href="/themes?type=fictional"]');
-  await expect(themesLink).toHaveText('창작 유형 테마 보기');
+  await expect(notice).toContainText('소설, 만화, 게임, 영화, 가상 세계 같은 허구는');
+  const themesLink = notice.locator('a[href="/themes?knowledge_type=fictional"]');
+  await expect(themesLink).toHaveText("지식 유형이 '허구'인 테마 보기");
   const makeKb = notice.locator('#btn-ingest-create-kb');
   await expect(makeKb).toHaveText('공유 지식 베이스 만들기');
   const modalBox = await modal.boundingBox();
@@ -218,7 +218,7 @@ test('the campaign notices of the ingest dialog: the standing message with its t
   await modal.locator('#btn-submit-ingest').click();
   const result = page.locator('.campaign-notice');
   await expect(result).toHaveCount(1);
-  await expect(result).toContainText('이 문서는 창작물로 보입니다(테마: Dragons · Elves)');
+  await expect(result).toContainText('이 문서는 허구로 보입니다(테마: Dragons · Elves)');
   const action = result.locator('[data-campaign-contribute="doc-2"]');
   await expect(action).toHaveText('이 테마에 기여');
   await expect(action).toHaveAttribute('data-campaign-theme', '202');

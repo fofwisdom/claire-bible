@@ -397,7 +397,7 @@ test('/settings/kb/101 settings: a moderator makes the data bundle of the knowle
   await typeDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
   await expect(typeDlg).toHaveCount(0);
   await expect.poll(() => calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/').map((c) => c.body)).toEqual([{ knowledge_type: 'fictional' }]);
-  await expect(page.locator('#kb-manage-settings-form .claire-tag')).toHaveText('창작');
+  await expect(page.locator('#kb-manage-settings-form .claire-tag')).toHaveText('허구');
   await page.locator('#kb-manage-settings-form button[type="submit"]').click();
   await expect.poll(() => calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/').length).toBe(2);
   expect(Object.keys(calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/')[1].body).sort()).toEqual(['description', 'join_policy', 'label', 'seed_entities']);

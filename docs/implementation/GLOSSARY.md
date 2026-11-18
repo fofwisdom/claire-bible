@@ -127,12 +127,23 @@
 - **링크 / 엣지 (Link / Edge)**:
   - **정의**: 지식 그래프 상에서 두 노드를 시각적으로 연결하는 선이자 그래프 네트워크의 간선.
 
-### 3.7. 테마 (Theme / `kb_id`)
-- **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위.
-- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`kb_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `kb_id` 컬럼 분리).
+### 3.7. 지식 베이스 (Knowledge Base / `kb_id`)
+- **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위. 계정마다 하나인 **개인 지식 베이스**와 소유자가 없는 **공유 지식 베이스**가 있다.
+- **구성**: 고유 시퀀스 번호(`seq`), 지식 베이스 식별자(`id`/`kb_id`), 표시 라벨, 설명, 아이콘, 공개 여부, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 지식 유형(`knowledge_type`, 공유 지식 베이스만), 파티셔닝(단일 `data/claire.db` 내 `kb_id` 컬럼 분리).
+- **옛 이름**: `claire.db` v27 전에는 지식 베이스를 "테마"라고 불렀다. 지식 베이스를 "테마"라고 쓰지 않는다.
 
 ### 3.8. 볼트 (Vault / `vault/`, 영구 제거됨)
 - **정의**: 과거 SQLite DB 정본을 Obsidian 등 외부 마크다운 에디터에서 열람할 수 있도록 단방향(export-only)으로 투영했던 파일시스템 저장소. 현재는 볼트 서브시스템 및 마크다운 파일 동기화가 영구 제거되어 비활성화/폐기되었다.
+
+### 3.9. 테마 (Theme / `themes`)
+- **정의**: 같은 주제이고 지식 유형이 같은 지식 베이스의 묶음. 테마 판정이 지식 베이스를 테마에 넣고, 서버 관리자가 조정한다. 지식 유형이 다른 지식 베이스는 한 테마에 들어가지 않는다.
+- **구성**: 외부 번호(`number`), 라벨, 설명, 지식 유형(`knowledge_type`), 상태(`state`), 이 서버의 멤버(`theme_knowledge_bases`), 다른 서버의 멤버(`theme_remote_knowledge_bases`).
+
+### 3.10. 지식 유형 (Knowledge Type / `knowledge_type`)
+- **정의**: 공유 지식 베이스와 테마가 다루는 지식이 현실 세계의 지식인지 지어낸 세계의 지식인지를 나타내는 값. 값은 `real`(**현실**, Real world)과 `fictional`(**허구**, Fiction) 두 가지다. 개인 지식 베이스는 지식 유형이 없고, 테마 판정은 개인 지식 베이스를 `real`로 다룬다.
+- **변경**: 공유 지식 베이스의 중재자와 서버 관리자가 바꾼다. 바꾸면 그 지식 베이스는 지금의 테마에서 빠지고 다음 테마 판정이 새 지식 유형의 테마에 넣는다.
+- **식별자**: 저장소 `knowledge_bases.knowledge_type`, `themes.knowledge_type`; JSON 필드와 질의 매개변수 `knowledge_type`; 카탈로그 키 `kb.knowledge_type.*` (`label`, `real`, `fictional`).
+- **쓰지 않는 이름**: "성격", 단독 "유형"·"type"(엔티티 유형, 출처 유형과 겹친다), 값 `real`의 "현실 세계"·"실제", 값 `fictional`의 "창작"·"가상".
 
 ---
 
@@ -178,7 +189,15 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 그래프 정점 | **노드** | Node | `node`, `nodes` (dict) | GraphView cytoscape element |
 | 의미 연결 | **관계** | Relation | `Relation`, `ExtractedRelation` | `relations` 테이블 |
 | 그래프 간선 | **링크 / 엣지** | Link / Edge | `edge`, `edges` (dict) | GraphView edge element |
-| 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `knowledge_bases` 테이블, `*.kb_id` |
+| 도메인 격리 | **지식 베이스** | Knowledge Base | `KnowledgeBaseInfo`, `KnowledgeBaseManager`, `kb_id` | `knowledge_bases` 테이블, `*.kb_id`. v27 전 이름은 "테마"이며 이 뜻으로 "테마"를 쓰지 않는다 |
+| 계정의 지식 베이스 | **개인 지식 베이스** | Personal Knowledge Base | `is_personal` | `knowledge_bases.is_personal = 1`. 지식 유형이 없다 |
+| 공동의 지식 베이스 | **공유 지식 베이스** | Shared Knowledge Base | `is_personal` | `knowledge_bases.is_personal = 0`. 소유자가 없고 항상 공개이며 지식 유형이 있다 |
+| 지식 베이스의 묶음 | **테마** | Theme | `store/themes.py`, `theme_judgement.py` | `themes`, `theme_knowledge_bases`, `theme_remote_knowledge_bases`. 주제와 지식 유형이 같은 지식 베이스의 묶음 (§3.9) |
+| 현실·허구 구분 | **지식 유형** | Knowledge Type | `knowledge_type` (JSON 필드, 질의 매개변수), 카탈로그 `kb.knowledge_type.*` | `knowledge_bases.knowledge_type`, `themes.knowledge_type`. "성격", 단독 "유형"·"type"은 쓰지 않는다 (§3.10) |
+| 지식 유형 값 `real` | **현실** | Real world | `real` | "현실 세계", "실제"는 쓰지 않는다 |
+| 지식 유형 값 `fictional` | **허구** | Fiction | `fictional` | "창작", "가상"은 쓰지 않는다 |
+| 허구 테마에 맞는 개인 문서 | **허구로 보이는 문서** | Fiction-like Document | `fiction_like_documents` | 개인 지식 베이스의 문서 중 문서 매치가 지식 유형 `fictional`인 테마인 것. "창작물"은 쓰지 않는다 |
+| 평판의 허구 비율 | **허구 문서 비율** | Fiction Share | `fiction_share`, `reputation_fiction_share_*` | 허구로 보이는 문서 수 / 개인 지식 베이스의 공개 문서 수 |
 | 운영 단위 | **서버** | Server | `ServerMode`, `server_mode()`, `claire server check`, 서버 액터 `/ap/actors/server` | `server_settings` 테이블 (v25 전 이름 `instance_settings`). Claire 설치 하나를 Mastodon 문서([Mastodon 101](https://github.com/mastodon/blog/blob/master/content/posts/2018-08-21_Mastodon-101/index.md))처럼 "서버"라고 부른다. "인스턴스"는 쓰지 않는다 |
 | 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
 | 추출 지향성 | **초점** | Extraction Focus | `focus` | `documents.meta["focus"]` (데이터만 남음. 수집 초점은 봉인됨, CT28) |

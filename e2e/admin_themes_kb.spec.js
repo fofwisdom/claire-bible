@@ -258,7 +258,7 @@ test('/admin/kb: a knowledge base without an active moderator is first; the warn
 
   // Correct the knowledge type: the column has the name "지식 유형"; the dialog sends PATCH with "knowledge_type" only when the type changes.
   await expect(host.locator('thead th').nth(1)).toHaveText('지식 유형');
-  await expect(rows.nth(2).locator('td').nth(1)).toHaveText('창작');
+  await expect(rows.nth(2).locator('td').nth(1)).toHaveText('허구');
   await rows.nth(2).locator('.claire-menu-trigger').click();
   await rows.nth(2).locator('[data-menu-action="change_type"]').click();
   const typeDlg = page.locator('dialog.claire-dlg[open]');
