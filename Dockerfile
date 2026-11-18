@@ -20,6 +20,7 @@ RUN uv sync --locked --no-dev --no-install-project --extra stealth --extra audio
     && uv cache clean && rm -rf /root/.cache
 
 # 애플리케이션 소스 변경은 위의 대형 의존성 레이어를 무효화하지 않는다.
+# /app (src, .venv, plugins) belongs to root; the process user can write only /app/data and /app/vault (INGEST_ADAPTER_PLUGIN_DESIGN.md S10). The entrypoint gives those two to CB_UID.
 COPY src/ ./src/
 # Project plugins (INGEST_ADAPTER_PLUGIN_DESIGN.md §5). The plugin folder of the server administrator is a read-only mount at /app/var/plugins.
 COPY plugins/ ./plugins/
@@ -27,7 +28,8 @@ RUN uv pip install --no-cache --no-deps . \
     && uv cache clean && rm -rf /root/.cache \
     && groupadd -g 1000 claire 2>/dev/null || true \
     && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/claire claire 2>/dev/null || true \
-    && chown -R 1000:1000 /app /home/claire
+    && mkdir -p /app/data /app/vault \
+    && chown -R 1000:1000 /app/data /app/vault /home/claire
 
 # 빌드마다 바뀌는 식별값은 모든 대형 설치가 끝난 뒤에만 이미지 메타데이터로 주입한다.
 ARG CLAIRE_BUILD_COMMIT="unknown"

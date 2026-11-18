@@ -286,7 +286,7 @@ claire media migrate --to object-storage --apply --delete-source   # 모두 통�
 
 새 산출물 이름은 현지 시각 기준 `backups/cb-YYYYMMDD-HHMMSS/` 또는 `backups/cb-YYYYMMDD-HHMMSS.tar.gz`다. 초 단위 ID마다 파일과 폴더를 하나의 slot으로 간주한다. 예전 `cb-YYYYMMDD` 날짜-only ID는 기존 backup의 restore compatibility에만 허용하며 새 backup 생성에는 사용하지 않는다. 기존 backup이 있으면 중단하며, 명시적인 `--replace`만 검증된 새 산출물로 교체한다. 자동 prune이나 보존 개수 정책은 두지 않는다.
 
-기본 component는 `data`다. (과거 호환 옵션인 `vault`는 서브시스템 영구 제거로 인해 비활성화됨). `data`의 기존 `backups`, `offsite-backups`, 내부 `checkpoints`는 재귀 backup에서 제외한다. `.env`는 secret과 호스트 경로가 섞여 있으므로 v1 산출물에 포함하지 않는다. 재해 복구 전에 대상 호스트의 `.env`를 별도로 준비해야 한다.
+기본 component는 `data`다. (과거 호환 옵션인 `vault`는 서브시스템 영구 제거로 인해 비활성화됨). component `plugins`는 서버 관리자의 플러그인 폴더(`CB_PLUGINS_DIR`, 기본 `./var/plugins`)다. 데이터만 복원하면 켜 둔 플러그인이 `removed`가 되므로 함께 백업한다([INGESTION.md](INGESTION.md) §2.2). `data`의 기존 `backups`, `offsite-backups`, 내부 `checkpoints`는 재귀 backup에서 제외한다. `.env`는 secret과 호스트 경로가 섞여 있으므로 v1 산출물에 포함하지 않는다. 재해 복구 전에 대상 호스트의 `.env`를 별도로 준비해야 한다.
 
 backup은 현재 project와 exact-name legacy writer를 모두 중지하고 SQLite를 일관된 단일 파일로 snapshot한 뒤 전체 파일을 복사한다. manifest는 component, source revision, DB schema, 파일 크기와 SHA-256을 기록한다. hash는 우발적 손상·단순 변조 탐지이며 서명이나 악의적 재작성 방지는 아니다.
 

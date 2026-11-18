@@ -305,7 +305,7 @@ def test_directory_and_archive_round_trip(
     assert manifest["id"] == _artifact_id(artifact)
     assert manifest["profile"] == "production"
     assert manifest["project"] == "claire-bible"
-    assert _manifest_components(manifest) == {"data", "vault"}
+    assert _manifest_components(manifest) == {"data", "vault", "plugins"}
     assert manifest["database"]["schema_version"] == dbm.SCHEMA_VERSION
     assert manifest["database"]["schema_lineage"] == dbm.SCHEMA_LINEAGE
     assert "test-only-secret" not in json.dumps(manifest, ensure_ascii=False)

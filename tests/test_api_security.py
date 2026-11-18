@@ -581,12 +581,16 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/api/admin/account-backups",
                 "/admin/storage",
                 "/api/admin/storage",
+                "/admin/plugins",
+                "/api/admin/plugins",
             )
             for method in ("GET", "HEAD")
         ),
         ("POST", "/api/admin/account-backups/restore"),
         ("PUT", "/api/admin/storage"),
         ("POST", "/api/admin/storage/test"),
+        ("PUT", "/api/admin/plugins/{id}"),
+        ("DELETE", "/api/admin/plugins/{id}"),
     }
     expected = {
         **{

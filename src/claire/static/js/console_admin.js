@@ -707,6 +707,96 @@
     }
   }
 
+  // --- /admin/plugins: switch plugins on and off (INGEST_ADAPTER_PLUGIN_DESIGN.md Section 10.1). The server renders the table, the texts, and the dialog content of each plugin; switching on sends the digest that the administrator saw and the enabled plugins of the overlap group (replace). ---
+
+  function initPluginsSection() {
+    var card = document.getElementById("admin-plugins-card");
+    var dialog = document.getElementById("admin-plugin-dialog");
+    var result = document.getElementById("admin-plugins-result");
+    if (!card) return;
+
+    function msg(name) { return card.getAttribute("data-msg-" + name.replace(/_/g, "-")) || ""; }
+
+    function setResult(text) {
+      if (result) result.textContent = text;
+    }
+
+    function put(id, payload, onOk, onFail) {
+      var attempt = function () {
+        fetch("/api/admin/plugins/" + encodeURIComponent(id), {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).then(function (resp) {
+          return resp.json().catch(function () { return null; }).then(function (body) {
+            if (resp.status === 401 && body && body.error === "reauth_required") {
+              setResult(msg("reauth"));
+              openReauthModal(attempt);
+              return;
+            }
+            if (!resp.ok) {
+              var code = body && body.error ? String(body.error) : "";
+              setResult(msg(code) || msg("failed"));
+              onFail();
+              return;
+            }
+            onOk();
+          });
+        }).catch(function () {
+          setResult(msg("network"));
+          onFail();
+        });
+      };
+      attempt();
+    }
+
+    function askToSwitchOn(input) {
+      var id = input.getAttribute("data-plugin-switch");
+      var template = card.querySelector('template[data-plugin-dialog-body="' + CSS.escape(id) + '"]');
+      var title = document.getElementById("admin-plugin-dialog-title");
+      var body = document.getElementById("admin-plugin-dialog-body");
+      var confirmBtn = document.getElementById("admin-plugin-dialog-confirm");
+      if (!dialog || !template || !title || !body || !confirmBtn) return;
+      var titleTemplate = dialog.getAttribute("data-title-template") || "{name}";
+      title.textContent = titleTemplate.replace("{name}", input.getAttribute("data-plugin-name") || id);
+      body.textContent = "";
+      body.appendChild(template.content.cloneNode(true));
+      confirmBtn.textContent = input.getAttribute("data-plugin-confirm") || "";
+      var replaceNode = body.querySelector("[data-plugin-replace]");
+      var replace = replaceNode ? JSON.parse(replaceNode.getAttribute("data-plugin-replace") || "[]") : [];
+      dialog.returnValue = "";
+      dialog.onclose = function () {
+        if (dialog.returnValue !== "confirm") return;
+        input.disabled = true;
+        put(id, { enabled: true, digest: input.getAttribute("data-plugin-digest"), replace: replace }, function () {
+          window.location.reload();
+        }, function () {
+          input.disabled = false;
+        });
+      };
+      dialog.showModal();
+    }
+
+    Array.prototype.forEach.call(card.querySelectorAll("input[data-plugin-switch]"), function (input) {
+      input.addEventListener("change", function () {
+        var id = input.getAttribute("data-plugin-switch");
+        if (input.checked) {
+          input.checked = false;
+          askToSwitchOn(input);
+          return;
+        }
+        input.disabled = true;
+        put(id, { enabled: false }, function () {
+          window.location.reload();
+        }, function () {
+          input.checked = true;
+          input.disabled = false;
+        });
+      });
+    });
+  }
+
   // --- /admin/federation: switch, readiness checks, sidecar heartbeat, domain blocks (Fedify sidecar design Sections 9.2, 11, and 12) ---
 
   function initFederationSection() {
@@ -1940,6 +2030,8 @@
       initFederationSection();
     } else if (section === "storage") {
       initStorageSection();
+    } else if (section === "plugins") {
+      initPluginsSection();
     }
   }
 

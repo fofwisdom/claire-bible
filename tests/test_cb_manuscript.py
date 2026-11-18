@@ -21,6 +21,7 @@ def _clear_environment_selector(monkeypatch):
     monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
     monkeypatch.delenv("CB_DATA_DIR", raising=False)
     monkeypatch.delenv("CB_VAULT_DIR", raising=False)
+    monkeypatch.delenv("CB_PLUGINS_DIR", raising=False)
 
 
 def _write_layout(
@@ -436,6 +437,7 @@ def test_dev_prefix_uses_overlay_stable_project_and_compose_environment(
     assert env["CB_DEV_ENV_FILE"] == str((tmp_path / ".env.dev").resolve())
     assert env["CB_DATA_DIR"] == str((tmp_path / ".dev/data").resolve())
     assert env["CB_VAULT_DIR"] == str((tmp_path / ".dev/vault").resolve())
+    assert env["CB_PLUGINS_DIR"] == str((tmp_path / ".dev/var/plugins").resolve())
 
 
 def test_process_environment_selects_development_without_legacy_prefix(
@@ -1854,3 +1856,21 @@ def test_source_revision_prefers_git_head_over_stale_embedded_file(tmp_path, mon
     commit_file.write_text("3f67e14fcc35b67e780434ea31a39bd6f487266f\n", encoding="utf-8")
 
     assert cb._source_revision(layout) == head
+
+
+def test_plugin_folder_is_separate_and_made_when_absent(tmp_path, monkeypatch):
+    """CB_PLUGINS_DIR (INGEST_ADAPTER_PLUGIN_DESIGN.md section 5): default ./var/plugins, made when absent, never equal to or nested with the data folder, the vault, the backups, or the project plugin folder."""
+    _write_layout(tmp_path, dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    storage = cb.resolve_storage(runtime)
+    assert storage.plugins == (tmp_path / "var" / "plugins").resolve()
+    assert storage.plugins.is_dir()
+    assert storage.component("plugins") == storage.plugins
+    assert runtime.compose_environment()["CB_PLUGINS_DIR"] == str(storage.plugins)
+    assert "plugins" in cb.BACKUP_COMPONENTS
+
+    for bad in (tmp_path / "data" / "plugins", tmp_path / "plugins" / "x", tmp_path / "vault" / "p"):
+        monkeypatch.setenv("CB_PLUGINS_DIR", str(bad))
+        with pytest.raises(cb.ManuscriptError, match="CB_PLUGINS_DIR"):
+            cb.resolve_storage(cb.load_runtime(cb.Layout(tmp_path)))
+

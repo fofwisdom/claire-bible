@@ -63,7 +63,10 @@
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?kb=` |
-| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
+| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
+| `GET` | `/api/admin/plugins` | `admin` | 200 `{"core_commit", "project_plugin_folder", "plugin_folder", "initialized", "unknown_folders", "plugins": [{"id", "origin": "project" \| "plugin_folder" \| null, "type", "state", "reason", "digest", "revision", "core_commit", "api", "maturity", "license", "maintainers", "name", "description", "provides", "permissions", "requires", "overlap_group", "overlap": [{"id", "hosts", "enabled"}], "record"}], "process_reports"}` | 404 비관리자 |
+| `PUT` | `/api/admin/plugins/{id}` | `admin` | Body `{"enabled": true, "digest": "sha256:…", "replace": ["<id>", …]}` 또는 `{"enabled": false}`(다른 키는 400). 200 `{"id", "enabled", "replaced"}`, `admin_audit` `plugin.enable`·`plugin.disable`(교체된 플러그인마다 `replaced_by`). 켜기만 단계 인증(§2.1) | 400 `invalid_request`, `digest_required`, `replace_not_allowed`; 401 `reauth_required`; 403 `step_up_requires_session`, `forbidden`(다른 origin); 404 비관리자·`not_found`; 409 `plugin_changed`(`digest`), `plugin_overlap`(`enabled`, `hosts`: `replace`는 겹침 그룹의 켜진 플러그인과 정확히 같아야 한다), `plugin_not_loadable`(`state`, `reason`), `plugin_store_not_started` |
+| `DELETE` | `/api/admin/plugins/{id}` | `admin` | 200 `{"id", "deleted": true}`: `removed` 플러그인의 레코드만 지운다. `admin_audit` `plugin.delete_record` | 403 `forbidden`; 404; 409 `plugin_folder_exists` |
 | `GET` | `/api/admin/mcp/telemetry` | `admin` | 200 `{"records": [...], "count": n}` | 400 `invalid_limit`(`limit`이 1–200 정수가 아님), 404 비관리자 |
 | `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/{account,telegram,bundles,backups,federation,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/tokens`는 302 `/admin/tokens`. 폐지된 `/settings/themes`는 308(관리자는 `/admin/themes`, 그 외 계정은 `/settings/kb`) | 404 owner 아님, 404 잘못된 `?kb=` |

@@ -1629,6 +1629,7 @@ def create_support_bundle(
                     ("accounts/auth_db.json", "AUTH_DB", lambda: services.collect_auth_db(s, now=now, since=cutoff_epoch)),
                     ("pipeline/worker_queues.json", "WORKER_QUEUES", lambda: services.collect_worker_queues(worker_databases, since=cutoff_epoch, admin_kb_ids=admin_kb_ids)),
                     ("pipeline/shared_kb.json", "SHARED_KB", lambda: services.collect_shared_kb(s, since=cutoff_epoch)),
+                    ("diagnostics/plugins.json", "PLUGINS", lambda: services.collect_plugins(s)),
                 )
                 for member, warning_code, collect in subsystem_members:
                     try:

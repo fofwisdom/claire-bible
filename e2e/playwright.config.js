@@ -41,6 +41,8 @@ const webServerEnv = {
   CLAIRE_ENVIRONMENT: 'development',
   CLAIRE_INJECT_TOKEN: 'e2e-owner-token-0123456789abcdef',
   CLAIRE_PRESENTATION_ENABLED: 'true',
+  // The plugin folder of the E2E server: a folder of the run in the git-ignored data folder, never the plugin folder of a person (INGEST_ADAPTER_PLUGIN_DESIGN.md section 5). e2e/seed_db.py empties it.
+  CLAIRE_PLUGINS_DIR: path.join(repoRoot, 'data', 'e2e-plugins'),
 };
 
 module.exports = defineConfig({

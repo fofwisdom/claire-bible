@@ -531,3 +531,27 @@ def _admin_audit(conn: sqlite3.Connection, since: float) -> Any:
         return {"state": "absent"}
     rows = conn.execute("SELECT action, COUNT(*), MAX(at) FROM admin_audit WHERE at >= ? GROUP BY action ORDER BY COUNT(*) DESC", (since,)).fetchall()
     return [{"action": r[0], "count": int(r[1]), "last_at": r[2]} for r in rows]
+
+
+def collect_plugins(settings: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """``diagnostics/plugins.json`` (INGEST_ADAPTER_PLUGIN_DESIGN.md S9): states, versions, digests, process reports, and load error texts. No plugin files."""
+    from .plugin_host.service import list_plugins
+
+    data = list_plugins(settings)
+    keep = ("id", "origin", "type", "state", "reason", "revision", "core_commit", "api", "maturity", "digest", "overlap_group", "record")
+    report = {
+        "core_commit": data.get("core_commit"),
+        "initialized": data.get("initialized"),
+        "plugin_folder": data.get("plugin_folder"),
+        "project_plugin_folder": data.get("project_plugin_folder"),
+        "unknown_folders": data.get("unknown_folders"),
+        "plugins": [{key: item.get(key) for key in keep} for item in data.get("plugins") or []],
+        "process_reports": data.get("process_reports"),
+    }
+    warnings = [
+        {"code": "PLUGIN_NOT_LOADED", "message": f"{item['id']}: {item['state']}: {item.get('reason') or ''}"}
+        for item in data.get("plugins") or []
+        if item.get("state") in ("invalid", "unlocked", "failed", "overlap", "changed", "missing_requirement", "incompatible")
+    ]
+    return report, warnings
+

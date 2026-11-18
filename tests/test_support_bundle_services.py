@@ -43,6 +43,10 @@ class StubSettings:
     def effective_provider(self) -> str:
         return "mock"
 
+    @property
+    def plugins_dir(self) -> Path:
+        return self.data_dir / "var-plugins"
+
     def model_dump(self) -> dict[str, Any]:
         return {"environment": self.environment}
 
@@ -129,6 +133,8 @@ def test_support_bundle_has_the_subsystem_members_without_secrets(tmp_path: Path
         assert secret not in blob, secret
 
     services = json.loads(members["diagnostics/services.json"])
+    plugins = json.loads(members["diagnostics/plugins.json"])
+    assert {"core_commit", "plugins", "process_reports"} <= set(plugins)
     assert services["worker_loops"]["expand"]["state"] == "recent"
     assert services["worker_loops"]["expand"]["last_error"] == "provider timeout"
     assert services["worker_loops"]["refresh"]["state"] == "overdue"

@@ -53,7 +53,7 @@ PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
 CODEX_PROVIDER_ALIASES = frozenset(("codex", "codex-cli"))
 BACKUP_FORMAT_VERSION = 1
-BACKUP_COMPONENTS = ("data", "vault")
+BACKUP_COMPONENTS = ("data", "vault", "plugins")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
 BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}(?:-[0-9]{6})?$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -447,6 +447,7 @@ class Runtime:
         storage = resolve_storage(self)
         env["CB_DATA_DIR"] = str(storage.data)
         env["CB_VAULT_DIR"] = str(storage.vault)
+        env["CB_PLUGINS_DIR"] = str(storage.plugins)
 
         tz_value = self.values.get("TZ", "").strip() or env.get("TZ", "").strip()
         if not tz_value:
@@ -1710,6 +1711,8 @@ class StorageLayout:
     data: Path
     vault: Path
     database_relative: Path
+    # The plugin folder of the server administrator (CB_PLUGINS_DIR, mounted read-only at /app/var/plugins). INGEST_ADAPTER_PLUGIN_DESIGN.md section 5.
+    plugins: Path
 
     @property
     def database(self) -> Path:
@@ -1720,6 +1723,8 @@ class StorageLayout:
             return self.data
         if name == "vault":
             return self.vault
+        if name == "plugins":
+            return self.plugins
         raise ManuscriptError(f"Unsupported backup component: {name}")
 
 
@@ -1794,10 +1799,20 @@ def resolve_storage(runtime: Runtime) -> StorageLayout:
         or _is_within(vault, data)
     ):
         raise ManuscriptError("CB_DATA_DIR and CB_VAULT_DIR cannot be identical or nested.")
+    plugins_default = "./.dev/var/plugins" if runtime.dev else "./var/plugins"
+    plugins = _configured_host_path(runtime, "CB_PLUGINS_DIR", plugins_default)
+    project_plugins = (repository / "plugins").resolve()
+    if plugins in {Path("/"), repository, home} or len(plugins.parts) < 3:
+        raise ManuscriptError(f"CB_PLUGINS_DIR points to an overly broad path: {plugins}")
+    for name, other in (("CB_DATA_DIR", data), ("CB_VAULT_DIR", vault), ("the backups directory", backup_root), ("the project plugin folder", project_plugins)):
+        if plugins == other or _is_within(plugins, other) or _is_within(other, plugins):
+            raise ManuscriptError(f"CB_PLUGINS_DIR and {name} cannot be identical or nested: {plugins}")
+    plugins.mkdir(parents=True, exist_ok=True)
     return StorageLayout(
         data=data,
         vault=vault,
         database_relative=_database_relative_path(runtime),
+        plugins=plugins,
     )
 
 
@@ -4091,9 +4106,9 @@ def build_parser() -> argparse.ArgumentParser:
     # 5. backup
     backup = subparsers.add_parser(
         "backup",
-        help="Backup data/vault to a verifiable directory or archive",
+        help="Backup data/vault/plugins to a verifiable directory or archive",
         description=(
-            "Backup data directory (DB, etc.) and vault directory (encrypted credentials, etc.).\n"
+            "Backup data directory (DB, etc.), vault directory (encrypted credentials, etc.), and plugin folder (CB_PLUGINS_DIR).\n"
             "Automatically computes checksums and metadata (manifest.json) to verify integrity."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4115,7 +4130,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="Components to backup (data, vault; repeatable; default: all)",
+        help="Components to backup (data, vault, plugins; repeatable; default: all)",
     )
     backup.add_argument(
         "--replace",
@@ -4153,7 +4168,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="Components to restore (data, vault; repeatable; default: all from backup)",
+        help="Components to restore (data, vault, plugins; repeatable; default: all from backup)",
     )
     restore.add_argument(
         "--yes",

@@ -1,6 +1,6 @@
 # Ingest Adapters as Plugins
 
-- **Status**: In progress. PL0 and PL1 are implemented; PL2 to PL4 are not. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §2.2 (registry, plugin host, states, records). Units PL0 to PL4 (§13).
+- **Status**: In progress. PL0 to PL3 are implemented; PL4 (condensing this design) is not. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §2.2 (registry, plugin host, states, records, project plugins), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.9 and [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md) §2.2 (console and HTTP API), [`COMMANDS.md`](../implementation/COMMANDS.md) §3.19. Units PL0 to PL4 (§13).
 - **Date**: 2026-11-18 · revisions 2 to 7 on 2026-11-19 · basis commit `b869440` (each fact in §1 and §4 was read in the code at this commit)
 - **Related**: [`FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md`](FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) (its decisions 1 to 7 stay in force), [`ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md`](ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md), [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md), [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md), [`I18N_DESIGN.md`](I18N_DESIGN.md)
 

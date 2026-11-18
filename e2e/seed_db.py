@@ -189,8 +189,8 @@ def seed(db_path: Path) -> None:
         # Shared KB UI specs (e2e/shared_kb_ui.spec.js): one token for each test.
         for n in (1, 2, 3):
             conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", (f"e2e-sharedkb{n}-nonce", f"e2e-sharedkb{n}-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
-        # Specs of the federation admin and of the shared knowledge base pages (e2e/federation_admin.spec.js, e2e/kb_manage.spec.js, e2e/kb_contribute_dialogs.spec.js, e2e/admin_themes_kb.spec.js, e2e/kb_workspace.spec.js, e2e/kb_public_pages.spec.js, e2e/admin_limits.spec.js, e2e/settings_bundles.spec.js): one token for each test.
-        for name in ("fedadmin1", "fedadmin2", "fedadmin3", "fedadmin4", "fedadmin5", "fedadmin6", "fedadmin7", "fedadmin8", "kbmanage1", "kbmanage2", "kbmanage3", "kbmanage4", "kbmanage5", "kbdialog1", "kbdialog2", "admthemes1", "admthemes2", "kbwspace1", "kbwspace2", "kbwspace3", "kbpublic1", "kbpublic2", "admlimits1", "admlimits2", "bundlelinks"):
+        # Specs of the federation admin and of the shared knowledge base pages (e2e/federation_admin.spec.js, e2e/kb_manage.spec.js, e2e/kb_contribute_dialogs.spec.js, e2e/admin_themes_kb.spec.js, e2e/kb_workspace.spec.js, e2e/kb_public_pages.spec.js, e2e/admin_limits.spec.js, e2e/settings_bundles.spec.js, e2e/admin_plugins.spec.js): one token for each test.
+        for name in ("fedadmin1", "fedadmin2", "fedadmin3", "fedadmin4", "fedadmin5", "fedadmin6", "fedadmin7", "fedadmin8", "kbmanage1", "kbmanage2", "kbmanage3", "kbmanage4", "kbmanage5", "kbdialog1", "kbdialog2", "admthemes1", "admthemes2", "kbwspace1", "kbwspace2", "kbwspace3", "kbpublic1", "kbpublic2", "admlimits1", "admlimits2", "bundlelinks", "adminplug1"):
             conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", (f"e2e-{name}-nonce", f"e2e-{name}-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
 
         e1 = Entity(
@@ -255,7 +255,19 @@ def seed(db_path: Path) -> None:
         conn.close()
 
 
+def reset_plugin_folder() -> None:
+    """The plugin folder of the E2E server starts empty (e2e/admin_plugins.spec.js puts its test plugins there)."""
+    import shutil
+
+    folder = os.environ.get("CLAIRE_PLUGINS_DIR")
+    if not folder or Path(folder).name != "e2e-plugins":
+        return
+    shutil.rmtree(folder, ignore_errors=True)
+    Path(folder).mkdir(parents=True, mode=0o755)
+
+
 if __name__ == "__main__":
     target = Path(os.environ.get("CLAIRE_DB_PATH") or "data/e2e.db")
     seed(target)
+    reset_plugin_folder()
     print(f"E2E test database seeded at {target}")

@@ -301,6 +301,13 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="ruler",
     ),
     ConsoleSectionSpec(
+        slug="plugins",
+        path="/admin/plugins",
+        area="admin",
+        group_id="admin_system",
+        icon="puzzle",
+    ),
+    ConsoleSectionSpec(
         slug="themes",
         path="/admin/themes",
         area="admin",
@@ -503,6 +510,13 @@ def _build_theme_selector_html(
 def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, principal: Principal | None = None) -> tuple[str, dict[str, Any]]:
     if slug == "backups" and principal is not None:
         return feature_routes.admin_backups_body(ctx, principal=principal), {}
+
+    if slug == "plugins":
+        # INGEST_ADAPTER_PLUGIN_DESIGN.md §10.1. console_admin.js handles the switches and the dialog.
+        from .plugins import admin_plugins_body
+
+        body, extra = admin_plugins_body(ctx)
+        return body, {"admin_plugins": extra}
 
     if slug == "storage":
         from .storage import admin_storage_body

@@ -26,6 +26,7 @@ from starlette.routing import Route
 
 from .. import security
 from . import admin, console, features, federation, feeds, idp, server, invites, keys, login, me, setup, storage
+from . import plugins
 from . import federation_notes
 from . import federation_quotes
 from . import knowledge_federation
@@ -69,6 +70,7 @@ def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> Ac
         *features.routes(ctx),
         *feeds.routes(ctx),
         *storage.routes(ctx),
+        *plugins.routes(ctx),
         *console.routes(ctx),
     )
     return AccountRoutes(context=ctx, routes=routes)

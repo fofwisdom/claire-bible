@@ -75,6 +75,7 @@ SYSTEM = {
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
+    "/admin/plugins", "/api/admin/plugins", "/api/admin/plugins/{id}",
     "/settings/telegram", "/settings/bundles", "/settings/backups", "/settings/federation",
     "/settings", "/settings/account", "/settings/keys", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
@@ -122,6 +123,9 @@ ADMIN_KEYS = {
     *((m, p) for p in ("/admin/storage", "/api/admin/storage") for m in ("GET", "HEAD")),
     ("PUT", "/api/admin/storage"),
     ("POST", "/api/admin/storage/test"),
+    *((m, p) for p in ("/admin/plugins", "/api/admin/plugins") for m in ("GET", "HEAD")),
+    ("PUT", "/api/admin/plugins/{id}"),
+    ("DELETE", "/api/admin/plugins/{id}"),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {

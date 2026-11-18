@@ -1421,6 +1421,76 @@ paths:
         '404':
           description: '`shadow_record_not_found` (also for a record of a knowledge base of another account)'
 
+  /api/admin/plugins:
+    get:
+      summary: Plugins of the server with their states (INGEST_ADAPTER_PLUGIN_DESIGN.md section 10.2)
+      operationId: listPlugins
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"core_commit", "project_plugin_folder", "plugin_folder", "initialized", "unknown_folders", "plugins": [{"id", "origin", "type", "state", "reason", "digest", "revision", "core_commit", "api", "maturity", "license", "maintainers", "name", "description", "provides", "permissions", "requires", "overlap_group", "overlap", "record"}], "process_reports"}`'
+        '404':
+          description: Not the administrator
+
+  /api/admin/plugins/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$'}
+    put:
+      summary: Switch a plugin on (with the digest that the administrator saw) or off
+      operationId: switchPlugin
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+                digest: {type: string, description: 'Required to switch on. 400 `digest_required` without it.'}
+                replace: {type: array, items: {type: string}, description: 'Exactly the enabled plugins of the overlap group; they go off in the same transaction.'}
+      responses:
+        '200':
+          description: '`{"id", "enabled", "replaced"}`'
+        '400':
+          description: '`invalid_request`, `digest_required`, `replace_not_allowed`'
+        '401':
+          description: '`reauth_required` (switching on needs a recent sign-in)'
+        '403':
+          description: '`step_up_requires_session`, `forbidden`'
+        '404':
+          description: Not the administrator, or `not_found`
+        '409':
+          description: '`plugin_changed`, `plugin_overlap`, `plugin_not_loadable`, `plugin_store_not_started`'
+    delete:
+      summary: Remove the record of a removed plugin
+      operationId: deletePluginRecord
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"id", "deleted": true}`'
+        '404':
+          description: Not the administrator, or no record
+        '409':
+          description: '`plugin_folder_exists`'
+
   /api/admin/reputations:
     get:
       summary: Reputation of each active account, and the settings

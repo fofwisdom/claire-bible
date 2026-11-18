@@ -79,6 +79,7 @@ graph TD
 | `CB_DEV_ENV_FILE` | `.env.dev` | 파일 경로 | 개발 환경 오버레이 파일 경로. |
 | `CB_DATA_DIR` | `./data` / `./.dev/data` | 호스트 디렉터리 경로 | SQLite DB, raw 아티팩트, 이미지 등이 저장되는 호스트 데이터 마운트 경로 (`/app/data`). |
 | `CB_VAULT_DIR` | `./vault` / `./.dev/vault` | 호스트 디렉터리 경로 | Obsidian/AsciiDoc 볼트 파일이 동기화되는 호스트 마운트 경로 (`/app/vault`). |
+| `CB_PLUGINS_DIR` | `./var/plugins` / `./.dev/var/plugins` | 호스트 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 컨테이너에 읽기 전용으로 마운트된다(`/app/var/plugins`). `cb-manuscript`가 한 번 해석하고, 데이터·볼트·백업·프로젝트 플러그인 폴더와 같거나 겹치면 거부하며, 없으면 만든다. 백업 구성 요소 `plugins`. |
 | `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 CLI 바이너리(예: `agy`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
 | `CB_GEMINI_DIR` | `~/.gemini` | 호스트 디렉터리 경로 | 호스트의 Gemini CLI 인증 토큰 디렉터리를 컨테이너 내부 `/root/.gemini`로 마운트하기 위한 경로. |
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
@@ -411,6 +412,7 @@ CB_IMAGE=claire-bible
 CB_IMAGE_TAG=local
 CB_DATA_DIR=./data
 CB_VAULT_DIR=./vault
+CB_PLUGINS_DIR=./var/plugins
 CB_API_BIND=127.0.0.1
 CB_API_PORT=8765
 CB_WAIT_TIMEOUT=120
@@ -447,6 +449,7 @@ CB_PROJECT_NAME=claire-bible-dev
 CB_IMAGE_TAG=dev
 CB_DATA_DIR=./.dev/data
 CB_VAULT_DIR=./.dev/vault
+CB_PLUGINS_DIR=./.dev/var/plugins
 CB_API_BIND=127.0.0.1
 CB_API_PORT=8766
 
