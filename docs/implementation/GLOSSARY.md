@@ -171,7 +171,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 |---|---|---|---|---|
 | 상위 계보 | **테제 계보** | Thesis Lineage | Upstream / blackan | `SCHEMA_LINEAGE = "claire-bible/common"` |
 | 증강 계보 | **증강 계보** | Augmentation Lineage | Origin / fofwisdom | `SCHEMA_LINEAGE = "claire-bible/common"` |
-| 상호 합의 | **계약** | Contract | `docs/implementation/*.md` | `SCHEMA_VERSION` (현재 26, [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md)) |
+| 상호 합의 | **계약** | Contract | `docs/implementation/*.md` | `SCHEMA_VERSION` (현재 값은 [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md)의 version 표) |
 | 세부 규칙 | **규약** | Protocol / Rule | `GateMiddleware`, wire rules | 와이어 프로토콜 / 스텔스 규약 |
 | 미가공 원문 | **원문** | Raw Content | `Document.raw_text`, `raw_text` | `documents.raw_text`, `*.txt.zst` |
 | 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |

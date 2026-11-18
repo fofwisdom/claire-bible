@@ -27,8 +27,18 @@
 | 23 | 직전 version (아래 "v23" 절) | `federation_objects.content_digest` |
 | 24 | 직전 version (아래 "v24" 절) | `federation_objects.quote_policy` |
 | 25 | 직전 version (아래 "v25" 절) | `instance_settings`를 `server_settings`로 이름 변경 |
-| 26 | 현재 version (아래 "v26" 절) | 계정 엔티티 언어(`accounts.entity_language`) |
-| 27 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 26 | 직전 version (아래 "v26" 절) | 계정 엔티티 언어(`accounts.entity_language`) |
+| 27 | 직전 version (아래 "v27" 절) | 테마를 지식 베이스로 이름 변경(`knowledge_bases`, `kb_id`, `is_personal`) |
+| 28 | 직전 version (아래 "v28" 절) | 공유 지식 베이스, 협업 테이블, 테마 컬렉션(`themes`), 기존 추가 테마의 공유 지식 베이스 변환 |
+| 29 | 직전 version (아래 "v29 to v31" 절) | 지식 연합 테이블(`kf_*`) |
+| 30 | 직전 version (아래 "v29 to v31" 절) | 원격 지식 베이스(`kf_remote_knowledge_bases`, `theme_remote_knowledge_bases`) |
+| 31 | 직전 version (아래 "v29 to v31" 절) | 원격 출처의 기여 열(`kb_contributions`), 지식 베이스 액터 |
+| 32 | 직전 version (아래 "v32" 절) | 기여 제안과 권한 부여(`kf_outbound_offers`, `kf_inbound_offers`, `kf_grants`, `kf_received_grants`) |
+| 33 | 직전 version (아래 "v33" 절) | 지식 연합 한도(`kf_inbox_journal` 할당 열, `kf_outbox_activities`, `kb_contributions.remote_updated_at`) |
+| 34 | 직전 version (아래 "v34" 절) | `kf_outbound_offers.automatic` |
+| 35 | 직전 version (아래 "v35" 절) | 링크 확장 원천 이름(`raw_inbox.source`), 동일 주제 출처 병합의 shadow 기록(`same_subject_shadow`) |
+| 36 | 현재 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
+| 37 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -237,6 +247,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 3. 같은 version의 의미를 바꾸지 않는다. 이미 배포된 잘못된 version은 폐기하고 새 공통 번호를 사용한다.
 4. 새 기능 schema는 해당 기능의 정책 검토와 분리한다. 공통 계약 PR에 구현별 UI, 운영 도구 또는 무관한 기능 snapshot을 포함하지 않는다.
 5. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
+6. 새 version은 같은 커밋에서 위 version 표, 앞 version 절의 버전 상수 줄, 새 version 절을 함께 고친다. 다른 문서는 현재 번호를 적지 않고 이 표를 가리킨다. 공개 저장소(`origin`)에 올라간 version에 객체를 더하는 것도 3번의 의미 변경이다.
 
 The retired v12 recovery is described above. Other stores have their own version contracts and do not share this version number: the telemetry database (no version marker now, see [`TELEMETRY.md`](TELEMETRY.md) §2), the Support Bundle archive (format 3) and sidecar registry (format 1), and the `cb-manuscript` backup archive (`BACKUP_FORMAT_VERSION` 1 in `ops/cb_manuscript.py`).
 
@@ -277,7 +288,7 @@ The retired v12 recovery is described above. Other stores have their own version
 
 확인 기준: 공유 지식 베이스 설계 단위 CT-1의 스키마 부분 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.4, §11.2, §11.4.
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 28`.
+- **[코드] 버전 상수**: v28 도입 당시 `SCHEMA_VERSION`은 28이었다(현재 값은 아래 "v29 to v31" 절).
 - **[코드] 스키마 단계**(`_migrate_v28_shared_kb_schema`, 멱등, 기동마다 실행): `knowledge_bases`에 `created_by_account_id`, `join_policy`(기본 `approval`), `state`(기본 `active`), `archived_at`, `knowledge_type`(CHECK `real`·`fictional`, 개인 지식 베이스는 NULL), `seed_entities`(기본 `[]`), `forked_from_kb_id`, `forked_at`을 더한다. 협업 테이블(`kb_memberships`, `kb_contributions`, `kb_contribution_revisions`, `kb_submissions`, `kb_submission_items`, `kb_auto_rules`, `kb_auto_rule_themes`, `kb_contribution_blocks`, `kb_mutual_collaborations`, `kb_moderation_log`, `account_reputation`)과 테마 테이블(`themes`(컬렉션), `theme_knowledge_bases`, `kb_signatures`, `kb_document_matches`)을 만든다.
 - **[코드] 퇴역 테이블**: 읽는 코드가 없는 v14 테이블 `theme_members`와 `users`는 행이 없으면 지우고, 행이 있으면 `<name>_retired_v28`로 이름만 바꾸고 경고 로그를 쓴다. 기동은 멈추지 않는다.
 - **[코드] 저장소 경계**: `store/kb_collab.py`만 협업 테이블을, `store/themes.py`만 테마 테이블을 읽고 쓴다. `kb_collab.kind_violations`는 개인·공유 두 종류에 맞지 않는 `knowledge_bases` 행을 찾는다.
@@ -320,8 +331,15 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v35 (link expansion terms and shadow records of the same-subject source merge)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 35`.
+- **[코드] 버전 상수**: v35 도입 당시 `SCHEMA_VERSION`은 35였다(현재 값은 아래 "v36" 절).
 - **[코드]** The step `_migrate_v35_expansion_source_names` runs at each start and is idempotent. In `raw_inbox.source`, `onehop:<parent id>` becomes `expand:<parent id>`, and `telegram-expand` becomes `expand-proposal` (terms: [`GLOSSARY.md`](GLOSSARY.md)). No other row changes.
-- **[코드]** The schema script makes the table `same_subject_shadow` and its index `idx_same_subject_shadow_kb`. Automatic expansion writes a row in the mode `same_subject_merge = "shadow"`, and the WebUI (`PUT /api/admin/expansion/shadow/{record_id}/verdict`) writes the human verdict (`verdict`, `verdict_note`, `verdict_at`, `verdict_by`) ([`EXPANSION.md`](EXPANSION.md) §3.1). The step v35 adds the verdict columns to a table of an earlier build of v35 (`_ensure_column`).
+- **[코드]** The schema script makes the table `same_subject_shadow` and its index `idx_same_subject_shadow_kb`. Automatic expansion writes a row in the mode `same_subject_merge = "shadow"` ([`EXPANSION.md`](EXPANSION.md) §3.1).
+- **[이력]** Commit `91e39495` (2026-11-18) made v35 without the verdict columns. Commit `c2b92bbb` (the same day) added them to this table and kept the number 35. The two commits are in the public repository (`origin`), so two forms of v35 are possible, against rule 3. Version 36 corrects this: the verdict columns belong to v36, and the step v36 gives each form of v35 the same form.
 - **[코드]** `telemetry.db` (not versioned): `connect_telemetry` changes the call type `judge_research` to `judge_gate` at each connection (`_migrate_gate_call_type`).
 - **[테스트]** `tests/test_schema_v35.py`.
+
+## v36 (human verdict of the shadow records)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 36`.
+- **[코드]** The step `_migrate_v36_shadow_verdict_columns` runs at each start, after the step v35, and is idempotent (`_ensure_column`). It adds the columns `verdict` (`same`, `different`, or NULL), `verdict_note`, `verdict_at`, and `verdict_by` (the account of the verdict) to `same_subject_shadow` when they are not there. The rows of v35 stay and get NULL (not judged). No other row changes; the start continues for each state of the data. The schema script makes a new table with the columns. The WebUI (`PUT /api/admin/expansion/shadow/{record_id}/verdict`) writes the verdict ([`EXPANSION.md`](EXPANSION.md) §3.1).
+- **[테스트]** `tests/test_schema_v36.py` (`test_a_v35_database_gets_the_verdict_columns_and_keeps_its_records`).

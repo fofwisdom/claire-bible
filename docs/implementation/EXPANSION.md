@@ -1,6 +1,6 @@
 # Link Expansion
 
-Basis: schema v35 (2026-11-18) · Readers: agents that change link expansion, its filters and gate, or the same-subject source merge. · Design reasons and planned work: [EXPANSION_DESIGN.md](../design/EXPANSION_DESIGN.md) · Terms: [GLOSSARY.md](GLOSSARY.md)
+Basis: schema v36 (2026-11-18) · Readers: agents that change link expansion, its filters and gate, or the same-subject source merge. · Design reasons and planned work: [EXPANSION_DESIGN.md](../design/EXPANSION_DESIGN.md) · Terms: [GLOSSARY.md](GLOSSARY.md)
 
 This document tells what the code does now. The extraction is in [EXTRACTION.md](EXTRACTION.md). The content guard of the web fetcher is in [INGESTION.md](INGESTION.md). Evidence tags follow [PRINCIPLES.md](../PRINCIPLES.md) F1. Anchors are file paths and function names.
 
@@ -69,7 +69,7 @@ A verdict is the decision of a person, so only the WebUI gives it. The server ad
 - `list [-t THEME] [--limit N] [--pending] [--json]` shows the records, the newest first, with the titles of the parent and the child (`list_same_subject_shadow`). `--pending` shows only records without a verdict.
 - `report [-t THEME] [--json]` compares the model judgement with the verdicts (`same_subject_shadow_report`). The positive class is "same subject". Precision = TP / (TP + FP), recall = TP / (TP + FN), accuracy = (TP + TN) / records with a verdict. A value is null ("no data") when its denominator is 0. Records without a verdict do not count.
 
-The columns `verdict` (`same`: the child is the same subject as the parent, so the merge would be correct; `different`: it is not), `verdict_note`, `verdict_at`, and `verdict_by` keep the verdict (`set_same_subject_verdict`). [code]
+The columns `verdict` (`same`: the child is the same subject as the parent, so the merge would be correct; `different`: it is not), `verdict_note`, `verdict_at`, and `verdict_by` keep the verdict (`set_same_subject_verdict`; schema v36). [code]
 
 The records follow the documents: a purge (`purge_document_cascade`) deletes the records of a purged parent or child, `dedup-merge` moves them to the keeper, and the deletion of a knowledge base, the reset of a knowledge base, the purge of an account, and the conversion to a shared knowledge base delete the rows of that knowledge base. [code]
 
@@ -92,7 +92,7 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
 
 ## 5. Tests
 
-`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, the merge function), `tests/test_schema_v35.py` (source names, shadow records, verdicts and report, telemetry), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts through the admin API, and the report command), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section and the review card). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
+`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, the merge function), `tests/test_schema_v35.py` (source names, shadow records, telemetry), `tests/test_schema_v36.py` (the verdict columns of a v35 database, verdicts and report, account scope), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts through the admin API, and the report command), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section and the review card). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
 
 ## 6. Known limits
 

@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS same_subject_shadow (
     interpretation TEXT,
     reason TEXT,
     created_at REAL NOT NULL,
+    -- v36: the human verdict of a record. A table of v35 gets these columns in the step v36.
     verdict TEXT,                  -- the human verdict: 'same' | 'different' | NULL (not judged)
     verdict_note TEXT,
     verdict_at REAL,
@@ -782,6 +783,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v34_automatic_offers(conn)
     _migrate_v32_offers_and_grants(conn)
     _migrate_v35_expansion_source_names(conn)
+    _migrate_v36_shadow_verdict_columns(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1561,11 +1563,7 @@ def _migrate_v34_automatic_offers(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
-    """v35 schema (GLOSSARY.md, link expansion terms): the source names of link expansion in ``raw_inbox.source``. ``onehop:<parent id>`` becomes ``expand:<parent id>``, and ``telegram-expand`` becomes ``expand-proposal``. Idempotent (A3); it runs at each start. The table ``same_subject_shadow`` comes from the schema script; a table from an earlier build of v35 gets the verdict columns here."""
-    if _table_exists(conn, "same_subject_shadow"):
-        for column in ("verdict TEXT", "verdict_note TEXT", "verdict_at REAL", "verdict_by INTEGER"):
-            name, decl = column.split(" ", 1)
-            _ensure_column(conn, "same_subject_shadow", name, decl)
+    """v35 schema (GLOSSARY.md, link expansion terms): the source names of link expansion in ``raw_inbox.source``. ``onehop:<parent id>`` becomes ``expand:<parent id>``, and ``telegram-expand`` becomes ``expand-proposal``. Idempotent (A3); it runs at each start. The table ``same_subject_shadow`` comes from the schema script."""
     if not _table_exists(conn, "raw_inbox") or "source" not in _column_names(conn, "raw_inbox"):
         return
     renamed = conn.execute(
@@ -1577,6 +1575,15 @@ def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
     if renamed:
         conn.commit()
         logger.info("schema v35: %d raw_inbox rows got the new source names of link expansion", renamed)
+
+
+def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
+    """v36 schema (SCHEMA_VERSIONING.md "v36"): the columns of the human verdict in ``same_subject_shadow`` (``verdict``, ``verdict_note``, ``verdict_at``, ``verdict_by``). A table of v35 gets them with NULL values; no row changes. Idempotent (A3); it runs at each start."""
+    if not _table_exists(conn, "same_subject_shadow"):
+        return
+    for column in ("verdict TEXT", "verdict_note TEXT", "verdict_at REAL", "verdict_by INTEGER"):
+        name, decl = column.split(" ", 1)
+        _ensure_column(conn, "same_subject_shadow", name, decl)
 
 
 def _migrate_v33_knowledge_federation_limits(conn: sqlite3.Connection) -> None:
