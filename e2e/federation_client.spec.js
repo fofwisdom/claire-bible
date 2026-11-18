@@ -148,7 +148,7 @@ test.describe('federation client view (FP4-5)', () => {
     // The command palette has the three stages.
     await page.keyboard.press('/');
     await expect(page.locator('#cmdpalette')).toHaveAttribute('open', '');
-    await page.locator('#cmdpalette-input').fill('수집');
+    await page.locator('#cmdpalette-input').fill('교류');
     await page.keyboard.press('Enter');
     await expect(page.locator('#panel-client')).toBeVisible();
     expect(pageErrors).toEqual([]);
