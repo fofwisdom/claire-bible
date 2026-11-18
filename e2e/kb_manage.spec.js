@@ -367,7 +367,7 @@ test('/settings/kb/101 archived: no approve, reject, hide, or remove control, no
   expect(errors).toEqual([]);
 });
 
-test('/settings/kb/101 settings: a moderator makes the data bundle of the knowledge base and gets the download link', async ({ page }) => {
+test('/settings/kb/101 settings: a moderator makes the data bundle of the knowledge base and gets the download link, and corrects the knowledge type', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage5');
@@ -386,6 +386,21 @@ test('/settings/kb/101 settings: a moderator makes the data bundle of the knowle
   await expect(card.locator('[data-kb-bundle-counts]')).toContainText('문서 30개');
   await expect(card.locator('[data-kb-bundle-counts]')).toContainText('기여 28개');
   await expect(page.locator('#kb-bundle-download')).toHaveAttribute('href', '/graph/bundle?token=gb3_e2eBundleToken');
+  await expectNoRawKeys(page);
+
+  // The knowledge type has its own dialog; the save of the form does not send it.
+  const settingsForm = page.locator('#kb-manage-settings-form');
+  await expect(settingsForm.locator('.claire-tag')).toHaveText('현실');
+  await page.locator('#kb-type-btn').click();
+  const typeDlg = page.locator('dialog.claire-dlg[open]');
+  await typeDlg.locator('input[name="kb_type_change"][value="fictional"]').locator('..').click();
+  await typeDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
+  await expect(typeDlg).toHaveCount(0);
+  await expect.poll(() => calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/').map((c) => c.body)).toEqual([{ knowledge_type: 'fictional' }]);
+  await expect(page.locator('#kb-manage-settings-form .claire-tag')).toHaveText('창작');
+  await page.locator('#kb-manage-settings-form button[type="submit"]').click();
+  await expect.poll(() => calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/').length).toBe(2);
+  expect(Object.keys(calls.filter((c) => c.method === 'PATCH' && c.path === '/kb/101/')[1].body).sort()).toEqual(['description', 'join_policy', 'label', 'seed_entities']);
   await expectNoRawKeys(page);
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);

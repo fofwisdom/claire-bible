@@ -708,6 +708,53 @@
     });
   }
 
+  // PATCH /kb/{number}/ with "knowledge_type" (the capability "settings": a moderator or the admin). A moderator or the admin corrects a wrong knowledge type with it. The server removes the theme rows of the knowledge base; the next judgement run places it in themes of the new type.
+  function openKnowledgeTypeDialog(opts) {
+    var kbNumber = opts && opts.kbNumber;
+    var current = (opts && opts.current) === "fictional" ? "fictional" : "real";
+    var box = document.createElement("div");
+    box.className = "claire-panel-inner";
+    box.innerHTML =
+      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.dlg.field_type")) + "</legend>" +
+      '  <div class="claire-chips">' +
+      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="real"' + (current === "real" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_real")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="kb_type_change" value="fictional"' + (current === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_fictional")) + "</span></label>" +
+      "  </div>" +
+      "</fieldset>" +
+      '<div class="claire-note warn"><span>' + esc(t("kb.dlg.type_change_effect")) + "</span></div>";
+
+    function chosen() {
+      var inp = box.querySelector('input[name="kb_type_change"]:checked');
+      return inp ? inp.value : current;
+    }
+
+    return ui().openDialog({
+      title: t("kb.dlg.type_change_title", { label: (opts && opts.kbLabel) || kbNumber }),
+      icon: "edit",
+      bodyEl: box,
+      submitLabel: t("kb.dlg.type_change_apply"),
+      onOpen: function (_dlg, _b, submitBtn) {
+        if (submitBtn) submitBtn.disabled = true;
+        box.addEventListener("change", function () { if (submitBtn) submitBtn.disabled = chosen() === current; });
+      },
+      onSubmit: function (_dlg, _b, submitBtn) {
+        var value = chosen();
+        if (value === current) return false;
+        if (submitBtn) submitBtn.disabled = true;
+        return ui().request("/kb/" + encodeURIComponent(kbNumber) + "/", { method: "PATCH", body: { knowledge_type: value } }).then(function (res) {
+          if (!res.ok) {
+            if (submitBtn) submitBtn.disabled = false;
+            ui().toast(errText(res), "danger");
+            return false;
+          }
+          ui().toast(t("kb.dlg.type_change_done"), "ok");
+          if (opts && opts.onChanged) opts.onChanged((res.data && res.data.knowledge_base) || null);
+          return true;
+        });
+      }
+    });
+  }
+
   // The membership of the requester in a shared knowledge base. ``kb`` is the item of GET /kb or of GET /kb/{number}/ (JSON): "membership_state" is "active", "pending", "banned", or null; "role" is the role of an active membership.
   function membershipOf(kb) {
     var state = (kb && kb.membership_state) || (kb && kb.role ? "active" : "");
@@ -783,6 +830,7 @@
     openRemoveContributionDialog: openRemoveContributionDialog,
     openRejectContributionDialog: openRejectContributionDialog,
     openMergeThemeDialog: openMergeThemeDialog,
-    openDeleteKbDialog: openDeleteKbDialog
+    openDeleteKbDialog: openDeleteKbDialog,
+    openKnowledgeTypeDialog: openKnowledgeTypeDialog
   };
 })(window);

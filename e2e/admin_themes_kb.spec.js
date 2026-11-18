@@ -174,7 +174,7 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
   expect(errors).toEqual([]);
 });
 
-test('/admin/kb: a knowledge base without an active moderator is first; the warnings, the filter, the retry of failed merges, and the moderator assignment', async ({ page }) => {
+test('/admin/kb: a knowledge base without an active moderator is first; the warnings, the filter, the retry of failed merges, the moderator assignment, and the correction of the knowledge type', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'admthemes2');
@@ -186,7 +186,7 @@ test('/admin/kb: a knowledge base without an active moderator is first; the warn
     kbItem(104, { label: 'Steam Engines', active_moderators: 0 })
   ];
   let failedLeft = true;
-  const { calls, unknown } = await installJsonApi(page, (u) => u.pathname === '/kb' || /^\/kb\/\d+\//.test(u.pathname) || u.pathname.startsWith('/api/admin/kb/'), ({ path, method, query }) => {
+  const { calls, unknown } = await installJsonApi(page, (u) => u.pathname === '/kb' || /^\/kb\/\d+\//.test(u.pathname) || u.pathname.startsWith('/api/admin/kb/'), ({ path, method, query, body }) => {
     if (path === '/kb' && method === 'GET') return [{ type: 'OrderedCollection', totalItems: kbs.length, knowledge_bases: kbs, personal_kb: null, multi_theme: true }];
     const list = /^\/kb\/(\d+)\/contributions$/.exec(path);
     if (list && method === 'GET' && query.get('state') === 'failed') return [{ type: 'OrderedCollection', totalItems: 0, contributions: list[1] === '101' && failedLeft ? [contribution(9001, { state: 'failed', reason: 'embedding_model_unavailable', approved: false }), contribution(9002, { state: 'failed', reason: 'merge_failed', approved: false })] : [] }];
@@ -194,6 +194,13 @@ test('/admin/kb: a knowledge base without an active moderator is first; the warn
     if (retry && method === 'POST') {
       failedLeft = false;
       return [{ ok: true, contribution: contribution(Number(retry[1]), { state: 'visible' }) }];
+    }
+    // PATCH /kb/{number}/ with "knowledge_type" ("kb_patch_route"): the admin corrects the knowledge type.
+    const patch = /^\/kb\/(\d+)\/$/.exec(path);
+    if (patch && method === 'PATCH') {
+      const kb = kbs.find((k) => k.number === patch[1]);
+      Object.assign(kb, body);
+      return [{ ok: true, knowledge_base: kb }];
     }
     if (path === '/api/admin/kb/102/moderators/5550001' && method === 'PUT') {
       kbs[1].active_moderators = 1;
@@ -248,6 +255,21 @@ test('/admin/kb: a knowledge base without an active moderator is first; the warn
   await expect(rows.nth(1)).toContainText('Modern History');
   await expect(rows.nth(2)).toContainText('Fantasy Lore');
   await expectNoRawKeys(page);
+
+  // Correct the knowledge type: the column has the name "지식 유형"; the dialog sends PATCH with "knowledge_type" only when the type changes.
+  await expect(host.locator('thead th').nth(1)).toHaveText('지식 유형');
+  await expect(rows.nth(2).locator('td').nth(1)).toHaveText('창작');
+  await rows.nth(2).locator('.claire-menu-trigger').click();
+  await rows.nth(2).locator('[data-menu-action="change_type"]').click();
+  const typeDlg = page.locator('dialog.claire-dlg[open]');
+  await expect(typeDlg.locator('.claire-note.warn')).toContainText('다음 테마 판정');
+  await expect(typeDlg.locator('.claire-dlg-foot .claire-btn.pri')).toBeDisabled();
+  await typeDlg.locator('input[name="kb_type_change"][value="real"]').locator('..').click();
+  await expectNoRawKeys(page);
+  await typeDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
+  await expect(typeDlg).toHaveCount(0);
+  expect(calls.filter((c) => c.method === 'PATCH').map((c) => [c.path, c.body])).toEqual([['/kb/102/', { knowledge_type: 'real' }]]);
+  await expect(rows.nth(2).locator('td').nth(1)).toHaveText('현실');
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);
 });

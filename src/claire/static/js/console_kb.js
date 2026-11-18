@@ -790,10 +790,8 @@
         var settings = '<form class="claire-card" id="kb-manage-settings-form">' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-label">' + esc(t("kb.dlg.field_name")) + '</label><input id="mset-label" class="claire-input" maxlength="80" value="' + esc(kb.label || "") + '" required/></div>' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-desc">' + esc(t("kb.dlg.field_desc")) + '</label><textarea id="mset-desc" class="claire-textarea">' + esc(kb.description || "") + "</textarea></div>" +
-          '<div class="claire-field"><label class="claire-field-label" for="mset-type">' + esc(t("kb.dlg.field_type")) + '</label><select id="mset-type" class="claire-select">' +
-          '<option value="real"' + (kb.knowledge_type === "real" ? " selected" : "") + ">" + esc(t("kb.dlg.type_real")) + "</option>" +
-          '<option value="fictional"' + (kb.knowledge_type === "fictional" ? " selected" : "") + ">" + esc(t("kb.dlg.type_fictional")) + "</option></select>" +
-          '<span class="claire-hint">' + esc(t("console.js.kb.settings_type_hint")) + "</span></div>" +
+          '<div class="claire-field"><span class="claire-field-label">' + esc(t("kb.dlg.field_type")) + '</span><div class="claire-actions">' + dlgs().typeTag(kb.knowledge_type) +
+          ' <button type="button" class="claire-btn sec" id="kb-type-btn">' + esc(t("kb.dlg.type_change_apply")) + "</button></div></div>" +
           '<div class="claire-field"><label class="claire-field-label" for="mset-seeds">' + esc(t("kb.dlg.field_seeds")) + '</label><input id="mset-seeds" class="claire-input" value="' + esc(seeds) + '"/></div>' +
           '<div class="claire-field"><label class="claire-field-label" for="mset-policy">' + esc(t("kb.pub.col_policy")) + '</label><select id="mset-policy" class="claire-select">' +
           '<option value="open"' + (kb.join_policy === "open" ? " selected" : "") + ">" + esc(t("console.js.kb.settings_join_open")) + "</option>" +
@@ -1003,12 +1001,16 @@
         seedsEl.setCustomValidity(seeds.length > 20 ? t("kb.dlg.err_seeds_max") : "");
         if (!form.reportValidity()) return;
         var body = { label: host.querySelector("#mset-label").value.trim(), description: host.querySelector("#mset-desc").value.trim(), seed_entities: seeds, join_policy: host.querySelector("#mset-policy").value };
-        if (host.querySelector("#mset-type").value !== view.kb.knowledge_type) body.knowledge_type = host.querySelector("#mset-type").value;
         ui().request(kbUrl(currentNum), { method: "PATCH", body: body }).then(function (r) {
           if (!r.ok) { fail(r); return; }
           ui().toast(t("console.js.kb.saved"), "ok");
           load();
         });
+      });
+      // The knowledge type has its own dialog: a change takes the knowledge base out of its themes (design Section 8.1).
+      var typeBtn = host.querySelector("#kb-type-btn");
+      if (typeBtn) typeBtn.addEventListener("click", function () {
+        dlgs().openKnowledgeTypeDialog({ kbNumber: currentNum, kbLabel: view.kb.label, current: view.kb.knowledge_type, onChanged: function () { load(); } });
       });
       var archiveBtn = host.querySelector("#kb-archive-btn");
       if (archiveBtn) archiveBtn.addEventListener("click", function () {

@@ -1379,7 +1379,8 @@
             { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
               var menu = [
                 { href: "/settings/kb/" + encodeURIComponent(k.number), label: ui.t("kb.pub.kb_review_manage"), icon: "inbox" },
-                { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod"), icon: "user" }
+                { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod"), icon: "user" },
+                { action: "change_type", value: k.number, label: tr("console.js.admin.kb.change_type"), icon: "edit" }
               ];
               if (failures(k).length) menu.push({ action: "retry_merge", value: k.number, label: tr("console.js.admin.kb.retry_merge"), icon: "restore" });
               menu.push({ sep: true });
@@ -1417,6 +1418,8 @@
             });
           }
         });
+      } else if (act === "change_type") {
+        dlgs.openKnowledgeTypeDialog({ kbNumber: kbNum, kbLabel: kb.label, current: kb.knowledge_type, onChanged: function () { load(); } });
       } else if (act === "retry_merge") {
         // POST /kb/{number}/contributions/{contribution}/retry for each failed contribution.
         Promise.all(failures(kb).map(function (c) {

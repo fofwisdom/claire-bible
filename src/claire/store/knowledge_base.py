@@ -1058,7 +1058,8 @@ class KnowledgeBaseManager:
                 ),
             )
             if type_changed:
-                conn.execute("DELETE FROM theme_knowledge_bases WHERE kb_id=?", (tid,))
+                # A theme has one knowledge type: the theme rows of the old type go, and the next judgement run places the knowledge base in themes of the new type.
+                _themes_store.delete_kb_rows(conn, tid)
             if became_private:
                 # Fedify 사이드카 설계 §9.4: 비공개 전환은 발행된 객체마다 Delete 작업을 만든다. visibility_epoch 증가와 같은 트랜잭션이다.
                 from . import federation as federation_store

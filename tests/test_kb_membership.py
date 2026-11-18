@@ -335,3 +335,61 @@ def test_suspended_moderator_gives_no_right_and_does_not_count(world) -> None:
     finally:
         conn.close()
     assert world.client.patch(f"{world.base}/", json={"label": "x"}, headers=world.bearer["ann"]).status_code in (401, 403, 404)
+
+
+def _theme_rows(world) -> tuple[int, int, int]:
+    """The theme rows of the knowledge base: memberships, signatures, judged counts."""
+    conn = dbm.connect_existing(world.settings.db_file, readonly=True)
+    try:
+        kb_id = world.kb["id"]
+        return tuple(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE kb_id=?", (kb_id,)).fetchone()[0] for table in ("theme_knowledge_bases", "kb_signatures", "kb_judged_counts"))
+    finally:
+        conn.close()
+
+
+def _put_in_a_theme(world, knowledge_type: str) -> None:
+    """Give the knowledge base a theme of ``knowledge_type``, a signature, and a judged count, as a judgement run does."""
+    from claire.store import themes as themes_store
+
+    conn = dbm.connect(world.settings.db_file)
+    try:
+        kb_id = world.kb["id"]
+        theme = themes_store.create_theme(conn, label=f"Theme {knowledge_type}", knowledge_type=knowledge_type)
+        themes_store.add_theme_member(conn, theme_id=theme["id"], kb_id=kb_id, source="computed", score=0.9)
+        themes_store.save_signature(conn, kb_id=kb_id, knowledge_type=knowledge_type, embed_model="mock", entities="[]", centroid=None, visible_documents=3)
+        themes_store.replace_judged_counts(conn, {kb_id: 3})
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_moderator_and_admin_correct_the_knowledge_type(world) -> None:
+    """A moderator or the admin corrects a wrong knowledge type (for example a type that a migration set for all knowledge bases). The theme rows of the old type go, so the next judgement run judges the knowledge base again."""
+    client = world.client
+    _put_in_a_theme(world, "real")
+    assert _theme_rows(world) == (1, 1, 1)
+
+    # A non-member cannot change the type.
+    refused = client.patch(f"{world.base}/", json={"knowledge_type": "fictional"}, headers=world.bearer["ben"])
+    assert (refused.status_code, refused.json()) == (403, {"error": "kb_capability_required"})
+    assert _theme_rows(world) == (1, 1, 1)
+
+    # The same type is no change: the theme rows stay.
+    assert client.patch(f"{world.base}/", json={"knowledge_type": "real"}, headers=world.bearer["ann"]).status_code == 200
+    assert _theme_rows(world) == (1, 1, 1)
+
+    # The moderator changes the type.
+    changed = client.patch(f"{world.base}/", json={"knowledge_type": "fictional"}, headers=world.bearer["ann"])
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["knowledge_base"]["knowledge_type"] == "fictional"
+    assert _theme_rows(world) == (0, 0, 0)
+
+    # The admin, who is not a member, changes it back.
+    _put_in_a_theme(world, "fictional")
+    restored = client.patch(f"{world.base}/", json={"knowledge_type": "real"}, headers=world.bearer["admin"])
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["knowledge_base"]["knowledge_type"] == "real"
+    assert _theme_rows(world) == (0, 0, 0)
+    log = _log(world)
+    assert (2, "settings", "knowledge_type") in log
+    assert (1, "settings", "knowledge_type") in log
