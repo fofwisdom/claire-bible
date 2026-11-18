@@ -83,11 +83,6 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
 
         return _call_fetcher(fetch_video, t)
 
-    if kind == "youtube":
-        from .fetchers.youtube import fetch_youtube
-
-        return _call_fetcher(fetch_youtube, t)
-
     if kind == "redirect":
         if _depth > 2:
             raise FetchError("too many redirects")

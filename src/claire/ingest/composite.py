@@ -69,7 +69,9 @@ def compose_composite_document(
     2. 일반 웹 URL + 첨부 문서인 경우, 영구 URL을 가진 url_doc을 Primary로 채택하고,
        첨부 문서를 supporting source로 결합한다.
     """
-    is_video_primary = url_doc.source_type in ("video", "youtube")
+    from .source_types import is_media_source_type
+
+    is_video_primary = is_media_source_type(url_doc.source_type)
     primary = url_doc
     supporting = file_doc
 

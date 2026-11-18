@@ -30,3 +30,8 @@ digest = "sha256:dd0ab64403ed08b94b1ff49880c622adb3210c3522543ac5e9bf1551bd44191
 id = "claire.xcom"
 revision = 1
 digest = "sha256:e463b95df4a281862d6e5a28ab60e6a5f5d6b9757a1a74dbf1183318cb92e3db"
+
+[[plugin]]
+id = "claire.youtube"
+revision = 1
+digest = "sha256:79541f925521d63ebe4aa923451254f233c4954fca3f4834811725208369227e"

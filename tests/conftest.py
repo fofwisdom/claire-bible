@@ -107,3 +107,12 @@ def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatc
     rt.runtime().invalidate()
     yield
     rt.runtime().invalidate()
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache_after_test() -> Iterator[None]:
+    """A test that changes environment variables and fills the ``get_settings`` cache must not leak those settings into the next test of the same worker (monkeypatch restores the variables, but not the cache)."""
+    yield
+    from claire.config import get_settings
+
+    get_settings.cache_clear()

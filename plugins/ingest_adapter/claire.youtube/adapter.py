@@ -1,4 +1,4 @@
-"""YouTube fetcher — 자막(transcript) + 메타데이터 + 챕터 + 무자막 시 STT 폴백."""
+"""YouTube fetcher (project plugin claire.youtube) — 자막(transcript) + 메타데이터 + 챕터 + 무자막 시 STT 폴백."""
 
 from __future__ import annotations
 
@@ -10,15 +10,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...config import ProviderUnavailableError, Settings, find_ffmpeg_executable, get_settings
-from ...extract.provider import emit_progress
-from ...extract.table_budget import slice_document_text
-from ...extract.transcript.factory import get_transcript_provider
-from ...ontology.base import Document
-from ..normalize import content_hash
-from .base import FetchError, attach_usage_hooks, fetch_settings
-from .captions import CaptionAcquisition, acquire_caption, format_chapters
-from .video import parse_ytdlp_extractor_args
+from claire.plugin_sdk import (
+    BaseFetcher,
+    CaptionAcquisition,
+    Document,
+    FetchError,
+    PluginContext,
+    ProviderUnavailableError,
+    Settings,
+    acquire_caption,
+    attach_usage_hooks,
+    content_hash,
+    delete_cached_video_file,
+    emit_progress,
+    fetch_settings,
+    find_ffmpeg_executable,
+    format_chapters,
+    get_cached_video_file,
+    get_transcript_provider,
+    host_matches_any,
+    parse_ytdlp_extractor_args,
+    save_video_file_to_cache,
+    slice_document_text,
+    url_host,
+)
+
+_ctx: PluginContext | None = None
+
+
+def guarded_client(**kwargs: Any) -> Any:
+    """The network client of the plugin (``ctx.http_client()``, S6)."""
+    if _ctx is None:
+        raise RuntimeError("register(ctx) of claire.youtube was not called")
+    return _ctx.http_client(**kwargs)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +72,6 @@ def fetch_video_title(vid: str) -> str | None:
 def fetch_video_details(vid: str) -> dict[str, str | list[str]]:
     """YouTube 웹 페이지(ytInitialPlayerResponse) 또는 oEmbed에서 제목, 채널명, 설명문, 태그 추출."""
     import json
-    from .http import guarded_client
 
     info: dict[str, str | list[str]] = {
         "title": "",
@@ -118,7 +141,7 @@ def fetch_transcript_info(
 ) -> TranscriptResult:
     """youtube-transcript-api 기반 자막 추출 (제작자 제공 수동 자막 우선)."""
     if preferred_languages is None:
-        settings = fetch_settings(None, get_settings)
+        settings = fetch_settings(None)
         target_langs = settings.effective_preferred_languages
     else:
         target_langs = [
@@ -272,11 +295,6 @@ def transcribe_youtube_audio(
     Returns:
         (transcript_text, segments_data, duration_sec, stt_error_msg, cached_used, cached_saved)
     """
-    from ...store.video_cache import (
-        delete_cached_video_file,
-        get_cached_video_file,
-        save_video_file_to_cache,
-    )
 
     effective_data_dir = getattr(settings, "data_dir", None)
     cached_file: Path | None = None
@@ -416,7 +434,7 @@ def fetch_youtube(
     if not vid:
         raise FetchError(f"no youtube video id in {url}")
 
-    settings = fetch_settings(settings, get_settings)
+    settings = fetch_settings(settings)
     target_langs = (
         preferred_languages
         if preferred_languages is not None
@@ -591,14 +609,16 @@ def fetch_youtube(
 # Hosts of YouTube links. Exact patterns (ingest/hosts.py).
 YOUTUBE_HOSTS = ("youtube.com", "*.youtube.com", "youtu.be", "*.youtu.be")
 
-from .base import BaseFetcher
+def register(ctx: PluginContext) -> None:
+    global _ctx
+    _ctx = ctx
+    ctx.fetcher(YouTubeFetcher, name="youtube", priority=90, hosts=YOUTUBE_HOSTS)
+
 
 class YouTubeFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        from ..hosts import url_matches_any
-
-        return url_matches_any(url, YOUTUBE_HOSTS)
+        return host_matches_any(url_host(url), YOUTUBE_HOSTS)
 
     @classmethod
     def name(cls) -> str:

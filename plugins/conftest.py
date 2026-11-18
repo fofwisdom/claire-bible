@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from tests.conftest import _isolate_limit_manager_files, _isolate_plugin_records, korean_interface, mock_guarded_client  # noqa: F401
+from tests.conftest import _clear_settings_cache_after_test, _isolate_limit_manager_files, _isolate_plugin_records, korean_interface, mock_guarded_client  # noqa: F401
 
 collect_ignore_glob = ["ingest_adapter/_template/*"]
 

@@ -53,14 +53,6 @@ def test_fetch_routes_shared_text_to_url(monkeypatch):
     assert doc.url == "https://example.com/real-article"
 
 
-def test_youtube_live_url_recognition():
-    from claire.ingest.fetchers.youtube import video_id
-
-    live_url = "https://www.youtube.com/live/ti9FHqP1i-w"
-    assert video_id(live_url) == "ti9FHqP1i-w"
-    assert classify(live_url) == "youtube"
-
-
 def test_youtube_shared_text_with_hyphen_title(monkeypatch):
     from claire.telegram_bot import parse_message_focus
 

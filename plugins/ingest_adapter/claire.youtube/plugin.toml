@@ -1,0 +1,37 @@
+# Manifest: docs/design/INGEST_ADAPTER_PLUGIN_DESIGN.md section 6.1
+manifest = 1
+id = "claire.youtube"
+type = "ingest_adapter"
+revision = 1
+core_commit = "6c29d31d1f7424e168335dc1321d3acb100c7854"
+api = 1
+entry = "adapter:register"
+license = "MIT"
+maturity = "stable"
+maintainers = []
+
+[text.en]
+name = "YouTube"
+description = "Gets the metadata, chapters, and captions of YouTube videos. When a video has no captions, it makes a transcript of the audio with speech to text."
+
+[text.ko]
+name = "YouTube"
+description = "YouTube 영상의 메타데이터, 챕터, 자막을 가져온다. 자막이 없으면 오디오를 음성 인식으로 전사한다."
+
+[[provides]]
+kind = "fetcher"
+name = "youtube"
+priority = 90
+hosts = ["youtube.com", "*.youtube.com", "youtu.be", "*.youtu.be"]
+source_types = ["youtube"]
+
+[permissions]
+network = ["youtube.com", "*.youtube.com", "youtu.be", "*.youtu.be"]
+private_network = false
+network_modules = ["yt_dlp", "youtube_transcript_api"]
+executables = ["ffmpeg"]
+providers = ["stt"]
+
+[requires]
+distributions = ["youtube-transcript-api"]
+executables = []

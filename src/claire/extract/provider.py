@@ -242,7 +242,9 @@ class MockProvider:
         primary_name = title or (doc.url or "untitled")
         # source_type → entity type 휴리스틱
         m = _GH_RE.search(doc.url or "") or _GH_RE.search(text)
-        if doc.source_type == "youtube":
+        from ..ingest.source_types import LEGACY_MEDIA_SOURCE_TYPES
+
+        if doc.source_type in LEGACY_MEDIA_SOURCE_TYPES:
             etype = "Article"
         elif m:
             etype = "Repo"

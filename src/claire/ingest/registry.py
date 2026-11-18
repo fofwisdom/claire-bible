@@ -22,10 +22,9 @@ _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
 def _core_entries() -> list[Entry]:
     """Format routes of the core and the site adapters that are not moved to plugins yet (unit PL2 moves them)."""
-    from .fetchers import video, youtube
+    from .fetchers import video
 
     return [
-        Entry("fetcher", "youtube", 90, youtube.YOUTUBE_HOSTS, youtube.YouTubeFetcher, None),
         Entry("fetcher", "video", 80, ("*",), video.VideoFetcher, None),
     ]
 

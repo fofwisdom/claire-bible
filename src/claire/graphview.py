@@ -508,7 +508,9 @@ def render_open_graph_tags(
 
     author = str((doc or {}).get("author") or "").strip()
     src_type = str((doc or {}).get("source_type") or "").strip().lower()
-    if src_type in ("video", "youtube") or author.lower() in ("orbrium", "youtube", "채널", "channel"):
+    from .ingest.source_types import is_media_source_type
+
+    if is_media_source_type(src_type) or author.lower() in ("orbrium", "youtube", "채널", "channel"):
         author = ""
     published_at = str((doc or {}).get("published_at") or "").strip()
 

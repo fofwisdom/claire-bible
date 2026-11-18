@@ -6701,7 +6701,9 @@ def scan_truncation_status(
         src_type = r["source_type"] or "web"
 
         # 1. content_hash 재계산
-        if src_type in ("youtube", "text"):
+        from ..ingest.source_types import BODY_ONLY_HASH_SOURCE_TYPES
+
+        if src_type in BODY_ONLY_HASH_SOURCE_TYPES:
             calc_hash = content_hash(raw_text)
         else:
             calc_hash = content_hash(r["title"] or "", raw_text)
@@ -6797,7 +6799,9 @@ def backfill_truncation_metadata(
             raw_text = r["raw_text"] or ""
             src_type = r["source_type"] or "web"
 
-            if src_type in ("youtube", "text"):
+            from ..ingest.source_types import BODY_ONLY_HASH_SOURCE_TYPES
+
+            if src_type in BODY_ONLY_HASH_SOURCE_TYPES:
                 calc_hash = content_hash(raw_text)
             else:
                 calc_hash = content_hash(r["title"] or "", raw_text)

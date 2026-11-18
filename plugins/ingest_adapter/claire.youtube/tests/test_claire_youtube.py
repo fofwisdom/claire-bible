@@ -7,22 +7,34 @@ import pytest
 from claire.config import get_settings
 from claire.ingest.fetchers.base import FetchError
 from claire.ingest.fetchers.captions import CaptionAcquisition, format_chapters
-from claire.ingest.fetchers.youtube import (
-    fetch_transcript,
-    fetch_video_details,
-    fetch_youtube,
-    video_id,
-)
+from pathlib import Path as _Path
+
+from claire.plugin_sdk.testing import load_plugin
+
+FOLDER = _Path(__file__).resolve().parents[1]
+MOD = "claire_plugins.ingest_adapter.claire_youtube.adapter"
+_NAMES = ('fetch_transcript', 'fetch_video_details', 'fetch_youtube', 'video_id')
 
 
 @pytest.fixture(autouse=True)
-def _mock_ytdlp_and_stt_defaults(monkeypatch):
+def plugin(monkeypatch):
+    """Load claire.youtube for each test and use its entry in the registry."""
+    loaded = load_plugin(FOLDER)
+    loaded.install(monkeypatch)
+    module = loaded.module("adapter")
+    for name in _NAMES:
+        monkeypatch.setitem(globals(), name, getattr(module, name))
+    return loaded
+
+
+@pytest.fixture(autouse=True)
+def _mock_ytdlp_and_stt_defaults(plugin, monkeypatch):
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        MOD + ".extract_youtube_ytdlp",
         lambda _url, _langs, _settings: ({}, CaptionAcquisition(status="absent")),
     )
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.transcribe_youtube_audio",
+        MOD + ".transcribe_youtube_audio",
         lambda _url, _canonical_url, **_kw: ("", [], 0.0, None, False, False),
     )
 
@@ -42,11 +54,11 @@ def test_fetch_youtube_fallback_when_transcript_fails(monkeypatch: pytest.Monkey
     get_settings.cache_clear()
 
     # Mock fetch_transcript to return empty (e.g. video without captions or blocked)
-    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kwargs: "")
+    monkeypatch.setattr(MOD + ".fetch_transcript", lambda vid, **kwargs: "")
 
     # Mock fetch_video_details
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {
             "title": "Fallback Video Title",
             "author": "Tech Channel",
@@ -73,11 +85,11 @@ def test_fetch_youtube_combined_transcript_and_description(monkeypatch: pytest.M
     get_settings.cache_clear()
 
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_transcript",
+        MOD + ".fetch_transcript",
         lambda vid, **kwargs: "Spoken transcript content goes here.",
     )
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {
             "title": "Full Video Title",
             "author": "Presenter",
@@ -100,9 +112,9 @@ def test_fetch_youtube_invalid_url():
 
 
 def test_fetch_youtube_empty_everything_raises(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(MOD + ".fetch_transcript", lambda vid, **kw: "")
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {"title": "", "author": "", "description": "", "keywords": []},
     )
 
@@ -166,9 +178,9 @@ def test_format_chapters():
 
 
 def test_fetch_youtube_ytdlp_recovers_captions_and_chapters(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(MOD + ".fetch_transcript", lambda vid, **kw: "")
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {"title": "", "author": "", "description": "", "keywords": []},
     )
 
@@ -191,7 +203,7 @@ def test_fetch_youtube_ytdlp_recovers_captions_and_chapters(monkeypatch: pytest.
     )
 
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        MOD + ".extract_youtube_ytdlp",
         lambda _url, _langs, _settings: (fake_ytdlp_info, fake_caption),
     )
 
@@ -217,15 +229,15 @@ def test_fetch_youtube_stt_fallback(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
     get_settings.cache_clear()
 
-    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(MOD + ".fetch_transcript", lambda vid, **kw: "")
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {"title": "No Captions Video", "author": "Live Speaker", "description": "Desc", "keywords": []},
     )
 
     # yt-dlp has no captions either
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        MOD + ".extract_youtube_ytdlp",
         lambda _url, _langs, _settings: (
             {
                 "title": "No Captions Video",
@@ -239,7 +251,7 @@ def test_fetch_youtube_stt_fallback(monkeypatch: pytest.MonkeyPatch):
 
     # STT succeeds
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.transcribe_youtube_audio",
+        MOD + ".transcribe_youtube_audio",
         lambda _url, _canonical_url, **_kw: (
             "Spoken audio transcribed by Gemini STT.",
             [{"start_sec": 0.0, "end_sec": 10.0, "text": "Spoken audio"}],
@@ -265,9 +277,9 @@ def test_fetch_youtube_stt_disabled_fallback(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
     get_settings.cache_clear()
 
-    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(MOD + ".fetch_transcript", lambda vid, **kw: "")
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {"title": "Mute Video", "author": "Silent Author", "description": "Only description", "keywords": []},
     )
 
@@ -330,7 +342,7 @@ def test_youtube_prioritizes_creator_manual_caption_over_auto_caption(monkeypatc
     import youtube_transcript_api
     monkeypatch.setattr(youtube_transcript_api, "YouTubeTranscriptApi", DummyApi)
     monkeypatch.setattr(
-        "claire.ingest.fetchers.youtube.fetch_video_details",
+        MOD + ".fetch_video_details",
         lambda vid: {"title": "Keynote Presentation", "author": "Speaker", "description": "Desc", "keywords": []},
     )
 
@@ -341,3 +353,11 @@ def test_youtube_prioritizes_creator_manual_caption_over_auto_caption(monkeypatc
     assert doc.meta["caption_status"] == "available"
     assert doc.meta["caption_language"] == "en"
     assert doc.meta["transcript_source"] == "manual_caption"
+
+
+def test_youtube_live_url_recognition():
+    from claire.ingest.router import classify
+
+    live_url = "https://www.youtube.com/live/ti9FHqP1i-w"
+    assert video_id(live_url) == "ti9FHqP1i-w"
+    assert classify(live_url) == "youtube"

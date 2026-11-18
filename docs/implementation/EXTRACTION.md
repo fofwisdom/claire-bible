@@ -42,7 +42,7 @@ The AsciiDoc detail prompt (`render_detail_prompt_adoc`) has rule 13: it does no
 
 Consumers: [code]
 
-- Caption and track selection in `src/claire/ingest/fetchers/youtube.py`, `plugins/ingest_adapter/claire.naver_clip/adapter.py`, and `src/claire/ingest/fetchers/video.py`.
+- Caption and track selection in `plugins/ingest_adapter/claire.youtube/adapter.py`, `plugins/ingest_adapter/claire.naver_clip/adapter.py`, and `src/claire/ingest/fetchers/video.py`.
 - The VLM target language in `src/claire/extract/vision/gemini_vision.py`, `src/claire/extract/vision/mock_vision.py`, `src/claire/ingest/fetchers/web.py`, and `plugins/ingest_adapter/claire.hoyolab/hoyolab.py` (also the HoYoLAB API language tag).
 - The language tag in `plugins/ingest_adapter/claire.uttu/adapter.py` (project plugin `claire.uttu`).
 - The `preflight` output line `preferred langs` in `src/claire/cli.py`.

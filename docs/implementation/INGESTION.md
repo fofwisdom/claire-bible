@@ -31,7 +31,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 1. If the payload does not start with `http://` or `https://`, `extract_shared_url` takes the last token when it is a URL ("title + link" share text). A URL in the middle of a note does not change the note.
 2. `classify` gives the kind. `_clean_url` removes trailing text after the first URL token for URL kinds.
 3. `registry.get_fetcher(payload)` returns the first registered `BaseFetcher` whose `can_handle` is true. If one matches, the router calls its `fetch`.
-4. Else the router dispatches on the kind: `hoyolab`, `hoyowiki`, `video`, `youtube`, `redirect` (at most two levels, then `fetch_web`), `xcom`, `file` (`fetch_file`), `web` (`fetch_web`), else `text` (`fetch_text`).
+4. Else the router dispatches on the kind: `video`, `redirect` (at most two levels, then `fetch_web`), `file` (`fetch_file`), `web` (`fetch_web`), else `text` (`fetch_text`). Site kinds come only from plugin entries (step 3).
 5. `_call_fetcher` passes `full_content`. If the fetcher does not accept it (`TypeError`), the router calls it without the argument.
 
 ### 2.2 `FetcherRegistry` and plugins
@@ -48,7 +48,6 @@ Core entries at this commit (the site entries move to project plugins in unit PL
 
 | Kind | Name | Priority | Hosts | Module |
 |---|---|---|---|---|
-| fetcher | `youtube` | 90 | YouTube hosts | `src/claire/ingest/fetchers/youtube.py` |
 | fetcher | `video` | 80 | `*` (`is_video_or_audio_url`) | `src/claire/ingest/fetchers/video.py` |
 
 Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of the plugin store): [code]
@@ -64,8 +63,11 @@ Project plugins (`plugins/ingest_adapter/<id>/`, enabled at the first start of t
 | `claire.hoyolab` | web adapter | `hoyowiki` | 40 | `wiki.hoyolab.com`, `*.hoyolab.com` |
 | `claire.hoyolab` | web adapter | `hoyolab` | 38 | `hoyolab.com`, `*.hoyolab.com` |
 | `claire.naver_clip` | fetcher | `naver_clip` | 120 | Naver Clip hosts and `m.naver.com` (`/shorts` path); source type `video` |
+| `claire.youtube` | fetcher | `youtube` | 90 | YouTube hosts; network modules `yt_dlp`, `youtube_transcript_api`; source type `youtube` (§2.2 source types) |
 
 #### Plugins [code]
+
+- Source types (`src/claire/ingest/source_types.py`): core code branches only on `web`, `video`, `pdf`, `odt`, `text`, `file`, `custom`, and on the frozen value `youtube` of stored documents (`LEGACY_MEDIA_SOURCE_TYPES`): the core treats it as media (`is_media_source_type`), and the audit hashes its body only (`BODY_ONLY_HASH_SOURCE_TYPES`). A new plugin that gives audio or video uses `video`.
 
 - Folders: the project plugin folder `<app root>/plugins` (in Git; `plugins/project.lock` holds id, revision, and digest of each project plugin) and the plugin folder of the server administrator `CLAIRE_PLUGINS_DIR` (default `<app root>/var/plugins`). Each plugin is `<folder>/ingest_adapter/<id>/` with `plugin.toml`. A folder name that starts with `_` or `.` never loads (`plugins/ingest_adapter/_template`).
 - `src/claire/plugin_host/`: `manifest.py` (parser; unknown keys are errors), `files.py` (digest: SHA-256 of the sorted `sha256sum` lines; symbolic links, world-writable files, and group-writable files of another group are refused; in the plugin folder each file belongs to the process user or `root`, or the mount is read-only), `lock.py`, `importcheck.py` (AST: only `claire.plugin_sdk` from the core; network modules only when `permissions.network_modules` names them; process modules only with `permissions.executables`; `tests/` not checked), `discovery.py` (states and overlap groups, no import), `runtime.py` (loading), `service.py` (list, switch, delete record, audit), `cli.py`.
@@ -253,7 +255,7 @@ The selected value goes to `meta.applied_effort` and `IngestReport.effort`. [cod
 
 `is_video_or_audio_url` sends VMware Explore, Brightcove, Vimeo, TikTok, Chzzk, Instagram reels, media file suffixes, and query values with media suffixes to the `video` fetcher. A local file path with a media suffix also matches; there is no separate local media fetcher. [code] Whether `yt-dlp` reads such a local path is [unverified].
 
-YouTube has its own fetcher (`fetch_youtube`): `youtube-transcript-api` first, then `yt-dlp` captions, then STT. [code]
+YouTube has its own fetcher in the project plugin `claire.youtube` (`fetch_youtube`): `youtube-transcript-api` first, then `yt-dlp` captions, then STT. [code]
 
 ### 9.2 Captions
 

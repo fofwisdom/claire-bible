@@ -213,7 +213,9 @@ class IngestReport:
             )
 
         meta_badges = []
-        if not self.presentation_pdfs and self.source_type in ("video", "youtube"):
+        from .source_types import is_media_source_type
+
+        if not self.presentation_pdfs and is_media_source_type(self.source_type):
             if self.has_transcript and not self.is_stt:
                 cc_lang = f" [{self.caption_language}]" if self.caption_language else ""
                 meta_badges.append(f"🔤 영상 자막(CC){cc_lang}")
