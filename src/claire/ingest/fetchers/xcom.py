@@ -88,7 +88,7 @@ def _fetch_thread(screen: str | None, sid: str) -> tuple[list[dict] | None, str 
 
 def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
     """FixTweet v2 API를 호출하여 동일 작성자의 전체 글타래 목록을 가져온다."""
-    import httpx
+    from .http import guarded_client
 
     headers = {"User-Agent": "ClaireBible/1.0", "Accept": "application/json"}
     primary_host = _API_HOSTS[0]
@@ -96,7 +96,7 @@ def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
     # 1. 대상 트윗의 조상 체인 확인 (/2/thread/{sid})
     thread_data: dict | None = None
     try:
-        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
             resp = c.get(f"https://{primary_host}/2/thread/{sid}")
         if resp.status_code == 200 and "json" in (resp.headers.get("content-type") or "").lower():
             thread_data = resp.json()
@@ -126,7 +126,7 @@ def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
 
     # 2. 루트 트윗 기준 conversation 호출로 하위 타래(답글)까지 포괄 수집
     try:
-        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
             conv_resp = c.get(f"https://{primary_host}/2/conversation/{root_id}")
         if conv_resp.status_code == 200 and "json" in (conv_resp.headers.get("content-type") or "").lower():
             conv_data = conv_resp.json()
@@ -219,12 +219,12 @@ def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
 
 def _try_host(host: str, screen: str | None, sid: str) -> dict | None:
     """한 미러 호스트에서 트윗 JSON 1회 시도. 실패(404/5xx/HTML/timeout) 시 None."""
-    import httpx
+    from .http import guarded_client
 
     path = f"{screen}/status/{sid}" if screen else f"status/{sid}"
     headers = {"User-Agent": _UA, "Accept": "application/json"}
     try:
-        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+        with guarded_client(follow_redirects=True, timeout=12, headers=headers) as c:
             resp = c.get(f"https://{host}/{path}")
         if resp.status_code != 200:
             return None  # 404(일시 rate limit 포함)/5xx

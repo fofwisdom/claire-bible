@@ -140,6 +140,66 @@ def has_media_disposition(cdisp: str) -> bool:
     return any(ext in c for ext in MEDIA_FILE_EXTENSIONS)
 
 
+def _policy_from_settings(
+    allow_private_networks: bool | None = None,
+    private_network_allowlist: Sequence[str] | str | None = None,
+) -> tuple[bool, list[str]]:
+    """The private network policy of the job: ``(allow_private, allowlist)``."""
+    settings = fetch_settings(None, get_settings)
+    if allow_private_networks is None:
+        allow_private = bool(getattr(settings, "allow_private_networks", False))
+    else:
+        allow_private = allow_private_networks
+    raw_allowlist = getattr(settings, "private_network_allowlist", "") if private_network_allowlist is None else private_network_allowlist
+    if isinstance(raw_allowlist, str):
+        allowlist = [item.strip() for item in raw_allowlist.split(",") if item.strip()]
+    else:
+        allowlist = [str(item).strip() for item in (raw_allowlist or []) if str(item).strip()]
+    return allow_private, allowlist
+
+
+def check_url_safety(url: str, *, allow_private: bool, allowlist: Sequence[str]) -> None:
+    """Resolve the host of ``url`` and check each address. Raise ``FetchError`` when one address is not allowed."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https"):
+        raise FetchError(f"SSRF policy violation: scheme {parsed.scheme!r} is not allowed")
+    hostname = parsed.hostname
+    if not hostname:
+        raise FetchError(f"Invalid URL: missing hostname in {url}")
+    try:
+        # DNS Rebinding 방어: 해석된 모든 IP 주소에 대해 안전성을 전수 검사
+        addr_info = socket.getaddrinfo(hostname, None)
+        resolved_ips = {item[4][0] for item in addr_info if item and len(item) > 4 and item[4]}
+    except Exception as e:
+        raise FetchError(f"Failed to resolve host {hostname}: {e}")
+    if not resolved_ips:
+        raise FetchError(f"No IP address resolved for {hostname}")
+    for ip_str in resolved_ips:
+        safe, reason = check_ip_safety(ip_str, allow_private=allow_private, allowlist=allowlist, hostname=hostname)
+        if not safe:
+            raise FetchError(f"SSRF policy violation: {reason}")
+
+
+def guarded_client(
+    *,
+    allow_private_networks: bool | None = None,
+    private_network_allowlist: Sequence[str] | str | None = None,
+    **kwargs: Any,
+) -> httpx.Client:
+    """An ``httpx.Client`` that checks the private network policy before each request, also before each redirect hop.
+
+    httpx calls the ``request`` event hooks for each request that it sends, the requests of redirects included. Fetchers use this client for every HTTP request (FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md decisions 4 to 6).
+    """
+    allow_private, allowlist = _policy_from_settings(allow_private_networks, private_network_allowlist)
+
+    def _check_request(request: httpx.Request) -> None:
+        check_url_safety(str(request.url), allow_private=allow_private, allowlist=allowlist)
+
+    hooks = dict(kwargs.pop("event_hooks", None) or {})
+    hooks["request"] = [_check_request, *hooks.get("request", [])]
+    return httpx.Client(event_hooks=hooks, **kwargs)
+
+
 class SafeHttpClient:
     """온프레미스 사설망 정책 제어, SSRF 방지, 크기 제한, 타임아웃이 내장된 보안 HTTP 클라이언트."""
 
@@ -150,21 +210,7 @@ class SafeHttpClient:
         allow_private_networks: bool | None = None,
         private_network_allowlist: Sequence[str] | str | None = None,
     ):
-        settings = fetch_settings(None, get_settings)
-        if allow_private_networks is None:
-            self.allow_private = getattr(settings, "allow_private_networks", False)
-        else:
-            self.allow_private = allow_private_networks
-
-        if private_network_allowlist is None:
-            raw_allowlist = getattr(settings, "private_network_allowlist", "")
-        else:
-            raw_allowlist = private_network_allowlist
-
-        if isinstance(raw_allowlist, str):
-            self.allowlist = [item.strip() for item in raw_allowlist.split(",") if item.strip()]
-        else:
-            self.allowlist = list(raw_allowlist or [])
+        self.allow_private, self.allowlist = _policy_from_settings(allow_private_networks, private_network_allowlist)
 
         self.timeout = timeout
         self.max_size = max_size
@@ -174,30 +220,7 @@ class SafeHttpClient:
         }
 
     def _resolve_and_check(self, url: str) -> None:
-        parsed = urllib.parse.urlsplit(url)
-        hostname = parsed.hostname
-        if not hostname:
-            raise FetchError(f"Invalid URL: missing hostname in {url}")
-
-        try:
-            # DNS Rebinding 방어: 해석된 모든 IP 주소에 대해 안전성을 전수 검사
-            addr_info = socket.getaddrinfo(hostname, None)
-            resolved_ips = {item[4][0] for item in addr_info if item and len(item) > 4 and item[4]}
-        except Exception as e:
-            raise FetchError(f"Failed to resolve host {hostname}: {e}")
-
-        if not resolved_ips:
-            raise FetchError(f"No IP address resolved for {hostname}")
-
-        for ip_str in resolved_ips:
-            safe, reason = check_ip_safety(
-                ip_str,
-                allow_private=self.allow_private,
-                allowlist=self.allowlist,
-                hostname=hostname,
-            )
-            if not safe:
-                raise FetchError(f"SSRF policy violation: {reason}")
+        check_url_safety(url, allow_private=self.allow_private, allowlist=self.allowlist)
 
     def get(self, url: str, **kwargs: Any) -> httpx.Response:
         self._resolve_and_check(url)
@@ -208,7 +231,11 @@ class SafeHttpClient:
         }
         client_kwargs.update(kwargs)
         try:
-            with httpx.Client(**client_kwargs) as client:
+            with guarded_client(
+                allow_private_networks=self.allow_private,
+                private_network_allowlist=self.allowlist,
+                **client_kwargs,
+            ) as client:
                 resp = client.get(url)
                 ctype = resp.headers.get("content-type", "").lower()
                 cdisp = resp.headers.get("content-disposition", "").lower()

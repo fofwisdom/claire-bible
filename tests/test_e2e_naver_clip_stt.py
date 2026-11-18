@@ -12,8 +12,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import httpx
 
 from claire.extract.provider import (
     ExtractedEntity,
@@ -33,7 +34,7 @@ def _init_memory_db() -> sqlite3.Connection:
     return conn
 
 
-def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path):
+def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path, mock_guarded_client):
     """E2E flow: naver.me short URL -> CreatorHub stream -> STT -> Graph ingestion."""
     conn = _init_memory_db()
     vstore = VectorStore(conn, "brute")
@@ -58,31 +59,16 @@ def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path):
         },
     }
 
-    class FakeUrlopen:
-        def __init__(self, req, timeout=20.0):
-            url_str = req.full_url if hasattr(req, "full_url") else str(req)
-            self.url_str = url_str
-            self.url = url_str
-            self.read_called = False
+    def handler(request):
+        url_str = str(request.url)
+        if "creatorhub-api" in url_str:
+            return httpx.Response(200, json=card_api_data)
+        if "stream.m4a" in url_str:
+            return httpx.Response(200, content=b"M4A_SYNTHETIC_AUDIO_CONTENT")
+        # Page of the naver.me short link
+        return httpx.Response(200, text='<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=A08CD689352F2A92D6BF04CC676647DAE467" /></html>')
 
-        def read(self, _size=65536):
-            if "creatorhub-api" in self.url_str:
-                return json.dumps(card_api_data).encode("utf-8")
-            if "stream.m4a" in self.url_str:
-                if not self.read_called:
-                    self.read_called = True
-                    return b"M4A_SYNTHETIC_AUDIO_CONTENT"
-                return b""
-            # Redirect response for naver.me
-            return b'<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=A08CD689352F2A92D6BF04CC676647DAE467" /></html>'
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-    monkeypatch.setattr(urllib.request, "urlopen", FakeUrlopen)
+    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler)
 
     # Mock STT provider to return grounded technical transcription
     class FakeSegment:
@@ -169,7 +155,7 @@ def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path):
     assert meta.get("media_id") == "A08CD689352F2A92D6BF04CC676647DAE467"
 
 
-def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path: Path):
+def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path: Path, mock_guarded_client):
     """Negative E2E: Clip without transcript or substantive description is blocked from ingestion."""
     conn = _init_memory_db()
     vstore = VectorStore(conn, "brute")
@@ -189,24 +175,12 @@ def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path
         },
     }
 
-    class FakeUrlopenThin:
-        def __init__(self, req, timeout=20.0):
-            url_str = req.full_url if hasattr(req, "full_url") else str(req)
-            self.url_str = url_str
-            self.url = url_str
+    def handler_thin(request):
+        if "creatorhub-api" in str(request.url):
+            return httpx.Response(200, json=thin_api_data)
+        return httpx.Response(200, text='<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=B12345678901234567890123456789012345" /></html>')
 
-        def read(self, _size=65536):
-            if "creatorhub-api" in self.url_str:
-                return json.dumps(thin_api_data).encode("utf-8")
-            return b'<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=B12345678901234567890123456789012345" /></html>'
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-    monkeypatch.setattr(urllib.request, "urlopen", FakeUrlopenThin)
+    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler_thin)
 
     report = ingest(
         "https://naver.me/5eDc8abm",

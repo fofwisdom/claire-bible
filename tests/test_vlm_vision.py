@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -139,7 +140,7 @@ def test_vlm_language_handling_and_korean_prompt():
         assert res_en_detected.language == "en"
 
 
-def test_hoyolab_language_resolution_and_client_request():
+def test_hoyolab_language_resolution_and_client_request(mock_guarded_client):
     """Verify HoYoLAB language mapping and localized request headers/query."""
     import json
     from claire.ingest.fetchers.hoyolab import HoYoLabClient, resolve_hoyolab_language
@@ -156,11 +157,10 @@ def test_hoyolab_language_resolution_and_client_request():
     client = HoYoLabClient()
     captured_req = None
 
-    def mock_urlopen(req, timeout=None):
+    def handler(request):
         nonlocal captured_req
-        captured_req = req
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({
+        captured_req = request
+        return httpx.Response(200, json={
             "retcode": 0,
             "message": "OK",
             "data": {
@@ -170,14 +170,12 @@ def test_hoyolab_language_resolution_and_client_request():
                     "image_list": [],
                 }
             }
-        }).encode("utf-8")
-        mock_resp.__enter__.return_value = mock_resp
-        return mock_resp
+        })
 
-    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-        post = client.get_post("46898605", lang="ko-kr")
-        assert post["post"]["subject"] == "아하의 대답"
-        assert captured_req is not None
-        assert "lang=ko-kr" in captured_req.full_url
-        assert captured_req.headers.get("X-rpc-language") == "ko-kr"
-        assert captured_req.headers.get("Accept-language") == "ko-kr"
+    mock_guarded_client("claire.ingest.fetchers.hoyolab", handler)
+    post = client.get_post("46898605", lang="ko-kr")
+    assert post["post"]["subject"] == "아하의 대답"
+    assert captured_req is not None
+    assert "lang=ko-kr" in str(captured_req.url)
+    assert captured_req.headers.get("x-rpc-language") == "ko-kr"
+    assert captured_req.headers.get("accept-language") == "ko-kr"

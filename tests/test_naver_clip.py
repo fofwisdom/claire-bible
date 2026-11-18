@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from io import BytesIO
 from unittest.mock import MagicMock, patch
-import urllib.request
+
+import httpx
 
 import pytest
 
@@ -39,7 +40,7 @@ def test_resolve_media_id_from_query_and_path():
     assert client.resolve_media_id(url_path) == "A08CD689352F2A92D6BF04CC676647DAE467"
 
 
-def test_resolve_media_id_from_redirect_response(monkeypatch):
+def test_resolve_media_id_from_redirect_response(monkeypatch, mock_guarded_client):
     client = NaverClipClient()
     fake_html = """
     <html>
@@ -50,25 +51,19 @@ def test_resolve_media_id_from_redirect_response(monkeypatch):
     </html>
     """
 
-    class FakeResponse:
-        def __init__(self):
-            self.url = "https://link.naver.com/bridge?url=https%3A%2F%2Fm.naver.com%2Fshorts%2F%3FseedMediaId%3DA08CD689352F2A92D6BF04CC676647DAE467"
+    bridge = "https://link.naver.com/bridge?url=https%3A%2F%2Fm.naver.com%2Fshorts%2F%3FseedMediaId%3DA08CD689352F2A92D6BF04CC676647DAE467"
 
-        def read(self, _size=65536):
-            return fake_html.encode("utf-8")
+    def handler(request):
+        if request.url.host == "naver.me":
+            return httpx.Response(302, headers={"Location": bridge})
+        return httpx.Response(200, text=fake_html)
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=20.0: FakeResponse())
+    mock_guarded_client("claire.ingest.fetchers.naver_clip", handler)
     media_id = client.resolve_media_id("https://naver.me/5eDc8abm")
     assert media_id == "A08CD689352F2A92D6BF04CC676647DAE467"
 
 
-def test_get_card_parses_creatorhub_api(monkeypatch):
+def test_get_card_parses_creatorhub_api(monkeypatch, mock_guarded_client):
     client = NaverClipClient()
     mock_payload = {
         "header": {"code": 0, "message": "success"},
@@ -90,17 +85,7 @@ def test_get_card_parses_creatorhub_api(monkeypatch):
         },
     }
 
-    class FakeApiResponse:
-        def read(self):
-            return json.dumps(mock_payload).encode("utf-8")
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=20.0: FakeApiResponse())
+    mock_guarded_client("claire.ingest.fetchers.naver_clip", lambda request: httpx.Response(200, json=mock_payload))
     card = client.get_card("A08CD689352F2A92D6BF04CC676647DAE467")
     assert card["header"]["code"] == 0
 
@@ -136,7 +121,7 @@ def test_fetch_naver_clip_missing_transcript_raises_fetch_error(monkeypatch):
         fetch_naver_clip("https://naver.me/5eDc8abm")
 
 
-def test_fetch_naver_clip_with_successful_stt(monkeypatch):
+def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
     client = NaverClipClient()
     monkeypatch.setattr(client, "resolve_media_id", lambda url: "A08CD689352F2A92D6BF04CC676647DAE467")
 
@@ -161,24 +146,10 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch):
     monkeypatch.setattr(client, "get_card", lambda mid: card)
     monkeypatch.setattr("claire.ingest.fetchers.naver_clip.NaverClipClient", lambda: client)
 
-    class FakeStreamResponse:
-        def __init__(self):
-            self.data = b"M4A_SYNTHETIC_AUDIO_STREAM_DATA"
-            self.read_called = False
-
-        def read(self, _size=1024 * 1024):
-            if not self.read_called:
-                self.read_called = True
-                return self.data
-            return b""
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=60.0: FakeStreamResponse())
+    mock_guarded_client(
+        "claire.ingest.fetchers.naver_clip",
+        lambda request: httpx.Response(200, content=b"M4A_SYNTHETIC_AUDIO_STREAM_DATA"),
+    )
 
     class FakeSegment:
         def model_dump(self):

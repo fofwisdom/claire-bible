@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from ...config import ProviderUnavailableError, Settings, find_ffmpeg_executable, get_settings
 from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
@@ -50,7 +48,7 @@ def fetch_video_title(vid: str) -> str | None:
 def fetch_video_details(vid: str) -> dict[str, str | list[str]]:
     """YouTube 웹 페이지(ytInitialPlayerResponse) 또는 oEmbed에서 제목, 채널명, 설명문, 태그 추출."""
     import json
-    import httpx
+    from .http import guarded_client
 
     info: dict[str, str | list[str]] = {
         "title": "",
@@ -61,17 +59,17 @@ def fetch_video_details(vid: str) -> dict[str, str | list[str]]:
 
     # 1. YouTube 웹 페이지 파싱 (상세 설명, 채널명, 키워드 확보)
     try:
-        resp = httpx.get(
-            f"https://www.youtube.com/watch?v={vid}",
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Accept-Language": "ko,en-US;q=0.9,en;q=0.8",
-            },
-            timeout=8,
-        )
+        with guarded_client(timeout=8) as client:
+            resp = client.get(
+                f"https://www.youtube.com/watch?v={vid}",
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "ko,en-US;q=0.9,en;q=0.8",
+                },
+            )
         if resp.status_code == 200:
             m = re.search(r"ytInitialPlayerResponse\s*=\s*({.+?});", resp.text)
             if m:
@@ -91,11 +89,11 @@ def fetch_video_details(vid: str) -> dict[str, str | list[str]]:
     # 2. oEmbed 폴백 (제목/작성자가 아직 없는 경우)
     if not info["title"] or not info["author"]:
         try:
-            resp = httpx.get(
-                "https://www.youtube.com/oembed",
-                params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"},
-                timeout=8,
-            )
+            with guarded_client(timeout=8) as client:
+                resp = client.get(
+                    "https://www.youtube.com/oembed",
+                    params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"},
+                )
             if resp.status_code == 200:
                 data = resp.json() or {}
                 if not info["title"] and data.get("title"):

@@ -103,12 +103,14 @@ After a usable step, `fetch_web` decides `doc_type` (`odt`, `pdf`, or `web`), cu
   2. An address or host name that matches the allowlist is accepted. An allowlist entry is a CIDR or IP, a host name, or a `*.domain` pattern.
   3. Private addresses (`PRIVATE_NETWORKS`: RFC 1918, `127.0.0.0/8`, `100.64.0.0/10`, `fc00::/7`, `::1/128`, and any address that Python marks private or loopback) are accepted only when `allow_private` is true.
   4. Other addresses are accepted.
-- `SafeHttpClient(timeout=30.0, max_size=10 MiB, ...)` reads `allow_private_networks` and `private_network_allowlist` (comma-separated) from the fetch settings. `_resolve_and_check(url)` resolves the host with `socket.getaddrinfo` and checks every returned address. `get(url)` calls this check, then sends the request with `follow_redirects=True`, raises `MediaResponseDetected` for media responses, and raises `FetchError` when `Content-Length` is larger than `max_size`.
+- `check_url_safety(url, *, allow_private, allowlist)` accepts only `http` and `https`, resolves the host with `socket.getaddrinfo`, and checks every returned address with `check_ip_safety`. A refused address raises `FetchError` (`SSRF policy violation: …`).
+- `guarded_client(**kwargs)` returns an `httpx.Client` with a `request` event hook that calls `check_url_safety` before each request. httpx calls this hook for each redirect hop too, so a redirect to a refused address stops before the request is sent. The policy (`allow_private_networks`, `private_network_allowlist`, comma-separated) comes from the fetch settings unless the caller gives it.
+- `SafeHttpClient(timeout=30.0, max_size=10 MiB, ...)` uses the same policy. `get(url)` checks the URL, then sends the request through `guarded_client` with `follow_redirects=True`, raises `MediaResponseDetected` for media responses, and raises `FetchError` when `Content-Length` is larger than `max_size`.
 - Settings: `CLAIRE_ALLOW_PRIVATE_NETWORKS` (default off, boolean or 0/1) and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` (default empty) in `src/claire/config.py`.
 
-Users of the guard: `_fetch_static` in `web.py`, the HoYoWiki client and the `uttu` adapter (through `SafeHttpClient`), the feed fetcher in `src/claire/feeds/fetch.py`, and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` with the same two settings). The VMware Explore presentation download has its own check (§10.2). [code] A new fetcher that sends HTTP requests uses `SafeHttpClient` or `check_ip_safety`.
+Users of the guard: `_fetch_static` in `web.py`, the HoYoWiki client and the `uttu` adapter (through `SafeHttpClient`); the `discourse`, `law`, `xcom`, HoYoLAB, Naver Clip, and YouTube page requests, the share link resolver (`redirect.py`), the VMware Explore session page fetch, the page image download (`store/raw.py` `download_images`), and the Gemini VLM image download (through `guarded_client`); the feed fetcher in `src/claire/feeds/fetch.py` and the media proxy in `src/claire/media_proxy.py` (through `check_ip_safety` on each hop, with the same two settings). The VMware Explore presentation download has its own check on each hop (§10.2). [code] A new fetcher that sends HTTP requests uses `guarded_client`, `SafeHttpClient`, or `check_ip_safety` on each hop.
 
-Tests: `tests/test_http_security.py`. [code]
+Tests: `tests/test_http_security.py` (also the redirect hop checks). Tests that replace the network use the fixture `mock_guarded_client` in `tests/conftest.py`. [code]
 
 ## 5. PDF parsing
 

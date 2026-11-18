@@ -33,10 +33,10 @@ def try_discourse(url: str) -> tuple[str | None, str, list[str]] | None:
     if not json_url:
         return None
 
-    import httpx
+    from .http import guarded_client
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=20,
+        with guarded_client(follow_redirects=True, timeout=20,
                           headers={"User-Agent": "Mozilla/5.0 (claire)"}) as client:
             resp = client.get(json_url)
         if resp.status_code >= 400:

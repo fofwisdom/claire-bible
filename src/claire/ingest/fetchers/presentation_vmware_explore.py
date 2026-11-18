@@ -145,8 +145,10 @@ def rendered_session_is_ready(rendered_html: str, video_id: str) -> bool:
 
 
 def _fetch_static_html(url: str) -> str:
+    from .http import guarded_client
+
     try:
-        with httpx.Client(
+        with guarded_client(
             follow_redirects=True,
             timeout=30,
             headers={"User-Agent": BROWSER_USER_AGENT},

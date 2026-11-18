@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import httpx
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,7 +34,7 @@ def test_parse_hoyolab_url():
     assert parse_hoyolab_url("https://example.com/article/123") is None
 
 
-def test_hoyolab_client_io_success():
+def test_hoyolab_client_io_success(mock_guarded_client):
     """Verify HoYoLabClient HTTP I/O operation and JSON payload parsing."""
     mock_payload = {
         "retcode": 0,
@@ -49,28 +51,20 @@ def test_hoyolab_client_io_success():
             }
         },
     }
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-
-    with patch("urllib.request.urlopen", return_value=mock_resp):
-        client = HoYoLabClient()
-        post_data = client.get_post("46898605")
-        assert post_data["post"]["subject"] == "Guardian Info"
-        assert post_data["user"]["nickname"] == "StarRail"
+    mock_guarded_client("claire.ingest.fetchers.hoyolab", lambda request: httpx.Response(200, json=mock_payload))
+    client = HoYoLabClient()
+    post_data = client.get_post("46898605")
+    assert post_data["post"]["subject"] == "Guardian Info"
+    assert post_data["user"]["nickname"] == "StarRail"
 
 
-def test_hoyolab_client_io_error_handling():
+def test_hoyolab_client_io_error_handling(mock_guarded_client):
     """Verify HoYoLabClient handles non-zero retcode and network failures."""
     error_payload = {"retcode": 1001, "message": "Post not found"}
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps(error_payload).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-
-    with patch("urllib.request.urlopen", return_value=mock_resp):
-        client = HoYoLabClient()
-        with pytest.raises(FetchError, match="HoYoLAB API error for post 999: Post not found"):
-            client.get_post("999")
+    mock_guarded_client("claire.ingest.fetchers.hoyolab", lambda request: httpx.Response(200, json=error_payload))
+    client = HoYoLabClient()
+    with pytest.raises(FetchError, match="HoYoLAB API error for post 999: Post not found"):
+        client.get_post("999")
 
 
 def test_format_post_triggers_vlm_when_text_minimal():

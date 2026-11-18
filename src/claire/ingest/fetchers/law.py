@@ -41,13 +41,13 @@ def try_law_kr(
     if not _is_law_kr_url(url):
         return None
 
-    import httpx
+    from .http import guarded_client
 
     parts = urllib.parse.urlsplit(url.strip())
     target_url = urllib.parse.urlunsplit(("https", parts.netloc, parts.path, parts.query, ""))
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=25, headers={"User-Agent": _UA}) as client:
+        with guarded_client(follow_redirects=True, timeout=25, headers={"User-Agent": _UA}) as client:
             if "InfoR.do" in target_url:
                 resp = client.get(target_url)
                 if resp.status_code < 400:

@@ -49,10 +49,10 @@ def _extract_target(html: str) -> str | None:
 
 
 def resolve_redirect(url: str, timeout: float = 15.0) -> str:
-    import httpx
+    from .http import guarded_client
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=timeout,
+        with guarded_client(follow_redirects=True, timeout=timeout,
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
     except Exception as e:

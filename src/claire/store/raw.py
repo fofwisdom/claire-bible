@@ -438,7 +438,7 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
     """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 원본 사이트/링크가 나중에 사라지면 외부링크뿐인 이미지는 다 깨진다).
 
     images 는 fetcher 가 수집한 [{url, alt, caption}, ...]. 성공한 항목엔 "local" (data_dir 기준 상대경로, `images/<doc_id>_<i>.<ext>`)을 추가해 반환한다. 개별 이미지 다운로드 실패(네트워크·403·404·비이미지 응답·용량초과)는 그 이미지만 원본 url 유지 — 한 장이 실패해도 나머지·적재 자체를 막지 않는다."""
-    import httpx
+    from ..ingest.fetchers.http import guarded_client
 
     out = []
     for i, im in enumerate(images):
@@ -446,8 +446,8 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
         url = im.get("url") or ""
         if url:
             try:
-                with httpx.Client(follow_redirects=True, timeout=10,
-                                  headers={"User-Agent": BROWSER_USER_AGENT}) as client:
+                with guarded_client(follow_redirects=True, timeout=10,
+                                    headers={"User-Agent": BROWSER_USER_AGENT}) as client:
                     resp = client.get(url)
                 ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
                 if (resp.status_code < 400 and ctype in _EXT_BY_CTYPE

@@ -53,3 +53,22 @@ def _isolate_limit_manager_files(tmp_path_factory: pytest.TempPathFactory, monke
     ilm._INGEST_LIMIT_MANAGERS.clear()
     yield
     ilm._INGEST_LIMIT_MANAGERS.clear()
+
+
+@pytest.fixture
+def mock_guarded_client(monkeypatch: pytest.MonkeyPatch):
+    """Replace ``guarded_client`` in one module with a client that sends each request to ``handler`` (``httpx.MockTransport``).
+
+    Use: ``mock_guarded_client("claire.ingest.fetchers.hoyolab", handler)``. The handler gets an ``httpx.Request`` and returns an ``httpx.Response``. The private network check does not run, because the requests do not leave the process.
+    """
+    import httpx
+
+    def _install(module_path: str, handler) -> None:
+        def _factory(**kwargs):
+            for key in ("allow_private_networks", "private_network_allowlist", "transport"):
+                kwargs.pop(key, None)
+            return httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
+
+        monkeypatch.setattr(f"{module_path}.guarded_client", _factory)
+
+    return _install

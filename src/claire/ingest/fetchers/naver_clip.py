@@ -12,7 +12,6 @@ import logging
 import re
 import tempfile
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +22,7 @@ from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from ..registry import register_fetcher
 from .base import BaseFetcher, FetchError, attach_usage_hooks, fetch_settings
+from .http import guarded_client
 from .http_policy import BROWSER_USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -67,17 +67,21 @@ class NaverClipClient:
             return m_path.group(1).upper()
 
         # Follow short links (e.g. naver.me) to inspect final target
-        req = urllib.request.Request(
-            cleaned,
-            headers={
-                "User-Agent": BROWSER_USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-        )
+        headers = {
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                final_url = resp.url
-                html = resp.read(65536).decode("utf-8", errors="ignore")
+            with guarded_client(follow_redirects=True, timeout=self.timeout, headers=headers) as client:
+                with client.stream("GET", cleaned) as resp:
+                    resp.raise_for_status()
+                    final_url = str(resp.url)
+                    head = bytearray()
+                    for chunk in resp.iter_bytes():
+                        head.extend(chunk)
+                        if len(head) >= 65536:
+                            break
+                html = bytes(head[:65536]).decode("utf-8", errors="ignore")
         except Exception as e:
             logger.warning("Failed to follow redirect for %s: %s", cleaned, e)
             return None
@@ -121,18 +125,17 @@ class NaverClipClient:
             "deviceType": "html5_mo",
         }
         api_url = f"{_CLIP_API_ENDPOINT}?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(
-            api_url,
-            headers={
-                "User-Agent": BROWSER_USER_AGENT,
-                "Referer": f"https://m.naver.com/shorts/?seedMediaId={media_id}&serviceType=CLIP",
-                "Origin": "https://m.naver.com",
-                "Accept": "application/json, text/plain, */*",
-            },
-        )
+        headers = {
+            "User-Agent": BROWSER_USER_AGENT,
+            "Referer": f"https://m.naver.com/shorts/?seedMediaId={media_id}&serviceType=CLIP",
+            "Origin": "https://m.naver.com",
+            "Accept": "application/json, text/plain, */*",
+        }
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            with guarded_client(follow_redirects=True, timeout=self.timeout, headers=headers) as client:
+                resp = client.get(api_url)
+                resp.raise_for_status()
+                data = json.loads(resp.content.decode("utf-8"))
         except Exception as e:
             raise FetchError(f"Naver CreatorHub API request failed for {media_id}: {e}") from e
 
@@ -242,12 +245,13 @@ def fetch_naver_clip(
             with tempfile.TemporaryDirectory(prefix="claire_naver_clip_") as tmp_dir:
                 tmp_out = Path(tmp_dir) / f"audio{ext}"
                 try:
-                    req = urllib.request.Request(
-                        stream_url,
+                    with guarded_client(
+                        follow_redirects=True,
+                        timeout=60.0,
                         headers={"User-Agent": BROWSER_USER_AGENT},
-                    )
-                    with urllib.request.urlopen(req, timeout=60.0) as resp, open(tmp_out, "wb") as f:
-                        while chunk := resp.read(1024 * 1024):
+                    ) as client, client.stream("GET", stream_url) as resp, open(tmp_out, "wb") as f:
+                        resp.raise_for_status()
+                        for chunk in resp.iter_bytes(1024 * 1024):
                             f.write(chunk)
 
                     if tmp_out.is_file() and tmp_out.stat().st_size > 0:

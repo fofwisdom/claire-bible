@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,6 +23,7 @@ from .base import (
     attach_usage_hooks,
     fetch_settings,
 )
+from .http import guarded_client
 from .http_policy import BROWSER_USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -87,13 +87,11 @@ class HoYoLabClient:
             headers["Accept-Language"] = lang
         query = urllib.parse.urlencode(query_params)
         api_url = f"{_API_ENDPOINT}?{query}"
-        req = urllib.request.Request(
-            api_url,
-            headers=headers,
-        )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            with guarded_client(follow_redirects=True, timeout=self.timeout, headers=headers) as client:
+                resp = client.get(api_url)
+                resp.raise_for_status()
+                data = json.loads(resp.content.decode("utf-8"))
         except Exception as e:
             raise FetchError(f"Failed to fetch HoYoLAB post {post_id}: {e}") from e
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -84,13 +83,17 @@ class GeminiVisionProvider(VisionTranscriptProvider):
     def _download_image(self, url: str) -> tuple[bytes, str] | None:
         """Download image bytes and determine mime type."""
         try:
-            req = urllib.request.Request(
-                url,
+            from ...ingest.fetchers.http import guarded_client
+
+            with guarded_client(
+                follow_redirects=True,
+                timeout=15,
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
-                content_type = resp.headers.get_content_type()
+            ) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                data = resp.content
+                content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
                 if not content_type or content_type == "application/octet-stream":
                     if url.lower().endswith(".png"):
                         content_type = "image/png"

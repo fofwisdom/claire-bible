@@ -108,3 +108,66 @@ def test_safe_http_client_allows_private_ip_when_enabled(monkeypatch):
     
     # _resolve_and_check 가 FetchError 를 던지지 않고 정상 통과하는지 검증
     client._resolve_and_check("http://internal-wiki.corp/page")
+
+
+# Redirect hops: each hop gets the private network check (guarded_client).
+
+_ADDRESSES = {"public.example": "93.184.216.34", "internal.example": "10.0.0.7", "metadata.example": "169.254.169.254"}
+
+
+def _fake_getaddrinfo(host, port, *args, **kwargs):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (_ADDRESSES[host], 80))]
+
+
+def _redirecting_transport(seen: list[str], target: str):
+    import httpx
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.host == "public.example":
+            return httpx.Response(302, headers={"Location": target})
+        return httpx.Response(200, text="internal data")
+
+    return httpx.MockTransport(handler)
+
+
+def test_guarded_client_refuses_redirect_to_private_address(monkeypatch):
+    from claire.ingest.fetchers.http import guarded_client
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    seen: list[str] = []
+    with guarded_client(follow_redirects=True, allow_private_networks=False, private_network_allowlist="", transport=_redirecting_transport(seen, "http://internal.example/secret")) as client:
+        with pytest.raises(FetchError, match="SSRF policy violation"):
+            client.get("http://public.example/start")
+    assert seen == ["http://public.example/start"]
+
+
+def test_guarded_client_follows_redirect_to_private_address_when_allowed(monkeypatch):
+    from claire.ingest.fetchers.http import guarded_client
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    seen: list[str] = []
+    with guarded_client(follow_redirects=True, allow_private_networks=True, private_network_allowlist="", transport=_redirecting_transport(seen, "http://internal.example/page")) as client:
+        resp = client.get("http://public.example/start")
+    assert resp.text == "internal data"
+    assert seen == ["http://public.example/start", "http://internal.example/page"]
+
+
+def test_guarded_client_refuses_metadata_redirect_even_when_private_allowed(monkeypatch):
+    from claire.ingest.fetchers.http import guarded_client
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    seen: list[str] = []
+    with guarded_client(follow_redirects=True, allow_private_networks=True, private_network_allowlist="", transport=_redirecting_transport(seen, "http://metadata.example/latest/meta-data/")) as client:
+        with pytest.raises(FetchError, match="strictly denied"):
+            client.get("http://public.example/start")
+    assert seen == ["http://public.example/start"]
+
+
+def test_safe_http_client_checks_each_redirect_hop(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    seen: list[str] = []
+    client = SafeHttpClient(allow_private_networks=False, private_network_allowlist="")
+    with pytest.raises(FetchError, match="SSRF policy violation"):
+        client.get("http://public.example/start", transport=_redirecting_transport(seen, "http://internal.example/secret"))
+    assert seen == ["http://public.example/start"]
