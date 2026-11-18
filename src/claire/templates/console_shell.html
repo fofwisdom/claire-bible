@@ -96,6 +96,10 @@
   @container cmain (max-width:35rem){
     .pref-table-wrap table,.pref-table-wrap .pref-table,.pref-table-wrap thead,.pref-table-wrap tbody,.pref-table-wrap tr,.pref-table-wrap td{display:block;width:100%}
     .pref-table-wrap thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+    .pref-table-wrap caption{display:block;width:100%;text-align:left;margin-bottom:0.5rem}
+    .pref-table-wrap td[colspan]{display:block;text-align:left}
+    .pref-table-wrap td[colspan]::before{content:none}
+    .pref-table-wrap tr.plugin-details-row{margin-top:-0.5rem;border-top-left-radius:0;border-top-right-radius:0}
     .pref-table-wrap tr{border:1px solid var(--border);border-radius:0.5rem;padding:0.5rem 0.75rem;margin-bottom:0.625rem;background:var(--bg)}
     .pref-table-wrap td{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.35rem 0;border-bottom:1px dashed var(--border);text-align:right;overflow-wrap:anywhere}
     .pref-table-wrap td:last-child{border-bottom:0}
