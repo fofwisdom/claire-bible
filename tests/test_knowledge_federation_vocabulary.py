@@ -34,6 +34,7 @@ KB_ROW = {
     "entities": 87,
     "relations": 140,
     "signature": {"entities": [["person", "ada lovelace", 9], ["artifact", "analytical engine", 7], ["person", "charles babbage", 6]], "visible_documents": 12, "computed_at": T0 - 3600},
+    "accepts_automatic": True,
 }
 EXTRACTION_ROW = {
     "summary": "Ada Lovelace wrote notes about the Analytical Engine of Charles Babbage.",
@@ -69,13 +70,13 @@ def built_objects() -> dict[str, Any]:
         "knowledge_base": v.with_context(v.build_knowledge_base(KB_ROW, KB_IRIS)),
         "document": v.with_context(_copy_document()),
         "extraction": v.with_context(_extraction()),
-        "contribution": v.with_context(v.build_contribution(document=_root_document(), attributed_to=ALICE, knowledge_base=KB, contribution_id=f"{B}/ap/contributions/1846000000000000500")),
+        "contribution": v.with_context(v.build_contribution(document=_root_document(), attributed_to=ALICE, knowledge_base=KB, contribution_id=f"{B}/ap/contributions/1846000000000000500", automatic=False)),
     }
 
 
 def built_activities() -> dict[str, Any]:
     follow = v.build_follow(activity_id=f"{SERVER_A}#follows/1", server_actor=SERVER_A, knowledge_base=KB)
-    offer = v.build_offer(activity_id=f"{ALICE}#offers/1", contribution=v.build_contribution(document=_root_document(), attributed_to=ALICE, knowledge_base=KB, contribution_id=None), capability=None)
+    offer = v.build_offer(activity_id=f"{ALICE}#offers/1", contribution=v.build_contribution(document=_root_document(), attributed_to=ALICE, knowledge_base=KB, contribution_id=None, automatic=False), capability=None)
     grant = v.build_grant(activity_id=f"{KB}#grants/1", knowledge_base=KB, account_actor=ALICE, published=T0, end_time=T0 + 182 * 86400)
     return {
         "follow": follow,
@@ -91,6 +92,11 @@ def built_activities() -> dict[str, Any]:
         "grant": grant,
         "revoke": v.build_revoke(activity_id=f"{KB}#grants/1/revoke", knowledge_base=KB, account_actor=ALICE, grant=grant["id"]),
     }
+
+
+def _automatic_offer() -> dict[str, Any]:
+    """An ``Offer`` that the automatic rule of alice sent (unit KF5): the contribution has ``claire:automatic``."""
+    return v.build_offer(activity_id=f"{ALICE}#offers/3", contribution=v.build_contribution(document=_root_document(), attributed_to=ALICE, knowledge_base=KB, contribution_id=None, automatic=True), capability=None)
 
 
 def _edit(value: Any, path: str, new: Any = ...) -> Any:
@@ -112,6 +118,7 @@ def invalid_values() -> dict[str, dict[str, Any]]:
     objects, activities = built_objects(), built_activities()
     offer = activities["offer_contribution"]
     with_grant = {**offer, v.CAPABILITY: f"{KB}#grants/1"}
+    automatic = _automatic_offer()
     cases = {
         "object_not_a_json_object": ("object", "not_an_object", "", ["Article"]),
         "object_without_context": ("object", "missing_context", "@context", _edit(objects["knowledge_base"], "@context")),
@@ -149,6 +156,9 @@ def invalid_values() -> dict[str, dict[str, Any]]:
         "grant_end_before_start": ("activity", "invalid_time", "endTime", _edit(activities["grant"], "endTime", "2026-11-16T12:00:00Z")),
         "grant_without_end_time": ("activity", "missing_field", "endTime", _edit(activities["grant"], "endTime")),
         "revoke_grant_of_other_server": ("activity", "origin_mismatch", "object", _edit(activities["revoke"], "object", "https://c.example/grants/1")),
+        "knowledge_base_accepts_automatic_not_a_boolean": ("object", "invalid_field", v.ACCEPTS_AUTOMATIC, _edit(objects["knowledge_base"], v.ACCEPTS_AUTOMATIC, "yes")),
+        "offer_automatic_not_a_boolean": ("activity", "invalid_field", f"object.{v.AUTOMATIC}", _edit(automatic, f"object/{v.AUTOMATIC}", 1)),
+        "delete_document_with_the_reason_of_a_reject": ("activity", "invalid_reason_code", v.REASON_CODE, _edit(activities["delete_document"], v.REASON_CODE, v.AUTOMATIC_NOT_ACCEPTED)),
     }
     return {name: {"validator": validator, "error": error, "path": path, "value": value} for name, (validator, error, path, value) in cases.items()}
 
@@ -221,6 +231,19 @@ def test_exchange_between_two_servers_refers_to_the_same_objects() -> None:
     assert copy_on_b["attributedTo"] == offered["attributedTo"] and copy_on_b["id"] != offered["id"]
 
 
+def test_automatic_offer_and_its_refusal_between_two_servers() -> None:
+    """Unit KF5: the record of B tells A if B accepts automatic contributions; an automatic offer of A has the mark; B rejects it with the reason ``automatic_not_accepted`` while its switch is off. A manual offer has no mark, and a server that does not send the state of its switch is valid."""
+    record = built_objects()["knowledge_base"]
+    assert record[v.ACCEPTS_AUTOMATIC] is True and v.build_knowledge_base({**KB_ROW, "accepts_automatic": False}, KB_IRIS)[v.ACCEPTS_AUTOMATIC] is False
+    assert v.validate_object(_edit(record, v.ACCEPTS_AUTOMATIC), top_level=True) == "knowledge_base"
+    offer = json.loads(json.dumps(_automatic_offer()))
+    assert v.validate_activity(offer) == "offer_contribution" and offer["object"][v.AUTOMATIC] is True
+    assert v.AUTOMATIC not in built_activities()["offer_contribution"]["object"]
+    reject = v.build_reject_offer(activity_id=f"{KB}#rejects/offers/3", knowledge_base=KB, offer=offer["id"], offer_actor=ALICE, reason_code=v.AUTOMATIC_NOT_ACCEPTED)
+    assert v.validate_activity(json.loads(json.dumps(reject))) == "reject_offer" and reject[v.REASON_CODE] == "automatic_not_accepted"
+    assert v.AUTOMATIC_NOT_ACCEPTED not in v.REASON_CODES and v.REJECT_REASON_CODES == (*v.REASON_CODES, v.AUTOMATIC_NOT_ACCEPTED)
+
+
 def test_builder_refuses_input_without_a_necessary_key() -> None:
     with pytest.raises(v.ContractError) as caught:
         v.build_knowledge_base({k: val for k, val in KB_ROW.items() if k != "signature"}, KB_IRIS)
@@ -268,7 +291,7 @@ def test_context_file_is_json_ld_and_defines_each_term_of_the_builders() -> None
 
     terms: set[str] = set()
     names: set[str] = set()
-    _used_terms([*built_objects().values(), *built_activities().values(), v.build_offer(activity_id=f"{ALICE}#offers/2", contribution=built_activities()["offer_contribution"]["object"], capability=f"{KB}#grants/1")], terms, names)
+    _used_terms([*built_objects().values(), *built_activities().values(), v.build_offer(activity_id=f"{ALICE}#offers/2", contribution=built_activities()["offer_contribution"]["object"], capability=f"{KB}#grants/1"), _automatic_offer()], terms, names)
     known = {row["term"] for row in v.TERMS}
     for name in terms | names:
         assert name in v.AS2_TERMS or name in known, name

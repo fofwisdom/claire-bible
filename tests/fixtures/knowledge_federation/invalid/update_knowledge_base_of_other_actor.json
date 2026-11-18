@@ -27,6 +27,7 @@
       "claire:documentCount": 12,
       "claire:entityCount": 87,
       "claire:relationCount": 140,
+      "claire:acceptsAutomatic": true,
       "claire:signature": {
         "entities": [
           [

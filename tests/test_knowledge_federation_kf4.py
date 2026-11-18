@@ -57,7 +57,7 @@ def _offer(kb_actor: str, *, actor: str = ALICE, name: str = "one", capability: 
     extraction = vocabulary.build_extraction({"summary": "A city.", "key_claims": [], "entities": [{"name": "Korea", "type": "Concept", "aliases": [], "observations": [], "proposed_type": None}], "relations": []}, {})
     iri = f"{actor}/documents/doc_{name}"
     document = vocabulary.build_document({"title": f"Title {name}", "content_html": f"<p>{name}</p>", "canonical_url": f"https://example.org/{name}", "content_hash": next(HASHES), "published": 1_700_000_000.0, "updated": None}, {"id": iri, "attributed_to": actor, "origin": None, "root": iri, **changes}, extraction)
-    contribution = vocabulary.build_contribution(document=document, attributed_to=actor, knowledge_base=kb_actor, contribution_id=None)
+    contribution = vocabulary.build_contribution(document=document, attributed_to=actor, knowledge_base=kb_actor, contribution_id=None, automatic=False)
     return vocabulary.build_offer(activity_id=f"{actor}#offers/{name}", contribution=contribution, capability=capability)
 
 
@@ -202,7 +202,7 @@ def test_an_account_that_is_not_a_federation_actor_sends_no_offer(b: KfWorld) ->
     record = b.db(_record)
 
     def _send(conn):
-        return offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=document, remote_kb=record, submission_item_id=None, pending_limit=1, origin=b.origin, now=b.now)
+        return offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=document, remote_kb=record, submission_item_id=None, pending_limit=1, automatic=False, origin=b.origin, now=b.now)
 
     # No public profile: the account has no actor that can sign (design Section 12.1 rule 2).
     b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=3"))
@@ -213,10 +213,10 @@ def test_an_account_that_is_not_a_federation_actor_sends_no_offer(b: KfWorld) ->
     # The same document again, and the pending limit of the sender (shared knowledge base design Section 9.2 rule 5).
     assert b.db(_send)["reason_code"] == "contribution_duplicate"
     second = _personal_document(b.settings, b.manager, 3, "Daegu is a city of Korea. " * 3, url="https://example.org/daegu", extraction=EXTRACTION)
-    assert b.db(lambda conn: offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=second, remote_kb=record, submission_item_id=None, pending_limit=1, origin=b.origin, now=b.now))["reason_code"] == "pending_limit"
+    assert b.db(lambda conn: offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=second, remote_kb=record, submission_item_id=None, pending_limit=1, automatic=False, origin=b.origin, now=b.now))["reason_code"] == "pending_limit"
     # A blocked domain gets no offer.
     b.db(lambda conn: conn.execute("INSERT INTO federation_domain_blocks (domain, created_at, created_by) VALUES ('a.example', 1, 1)"))
-    assert b.db(lambda conn: offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=second, remote_kb=record, submission_item_id=None, pending_limit=5, origin=b.origin, now=b.now))["reason_code"] == "blocked_domain"
+    assert b.db(lambda conn: offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=second, remote_kb=record, submission_item_id=None, pending_limit=5, automatic=False, origin=b.origin, now=b.now))["reason_code"] == "blocked_domain"
     assert b.db(lambda conn: [r[0] for r in conn.execute("SELECT kind FROM kf_outbox")]) == ["offer_contribution"]
 
 

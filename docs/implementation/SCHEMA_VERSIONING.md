@@ -304,10 +304,16 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v33 (federation of shared knowledge, limits of the security review)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 33`.
+- **[코드] 버전 상수**: v33 도입 당시 `SCHEMA_VERSION`은 33이었다(현재 값은 아래 "v34" 절).
 - **[코드]** The step `_migrate_v33_knowledge_federation_limits` runs at each start, after the steps v29 to v32, and is idempotent. The start continues for each state of the data.
   - `kf_inbox_journal` gets the columns `quota_domain` (the registrable domain of the signer) and `payload_bytes`, and the index `idx_kf_inbox_journal_quota` (`journal.ensure_quota_columns`). An old row has NULL and does not count in the quota of 24 hours.
   - `kf_outbox`: the new table `kf_outbox_activities` (`activity_iri`, `payload`) keeps the activity JSON one time for each activity. A `kf_outbox` of version 31 to 32 has the column `payload` (one copy for each recipient): the step copies each activity one time to `kf_outbox_activities`, then drops the column (`outbox.move_payloads`). No activity is lost.
   - `kb_contributions.remote_updated_at` (the time of the version of the origin that a copy has) is in `kb_collab.REMOTE_COLUMNS`; the step v31 and this step add it when it is not there. An old copy has NULL: its next revision is applied.
   - The tables and the columns are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 14.
 - **[테스트]** `tests/test_knowledge_federation_security.py` (`test_the_outbox_keeps_one_copy_of_an_activity_for_its_recipients_and_the_migration_moves_old_copies`), `tests/test_knowledge_federation_stores.py`.
+
+## v34 (federation of shared knowledge, unit KF5)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 34`.
+- **[코드]** The step `_migrate_v34_automatic_offers` runs at each start, before the step v32, and is idempotent. It adds the column `automatic` (`INTEGER NOT NULL DEFAULT 0`) to a `kf_outbound_offers` of version 32 or 33 (`offers.ensure_automatic_column`), so that the step v32 finds each column that the code reads and keeps the table. An old row gets 0 (an offer of a submission). When the table is not there, the step v32 makes it with the column. No other row changes; the start continues for each state of the data. The table is in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 13.3 and 15.3.
+- **[테스트]** `tests/test_knowledge_federation_kf5.py` (`test_migration_v34_adds_the_column_and_keeps_the_rows_of_version_33`).

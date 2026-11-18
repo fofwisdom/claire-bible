@@ -847,7 +847,15 @@ paths:
     post:
       summary: Documents that a rule would send now
       description: >-
-        The body is a rule. The answer has each target with its mode and documents. It writes nothing.
+        The body is a rule. The answer has `server_switch`, `remote_state`, and `targets`: each target
+        with its mode and documents. It writes nothing. A target of this server has `remote` false,
+        `knowledge_base`, and `label`; `mode` is `approved`, `direct`, or `pending`. A shared knowledge
+        base of another server (federation design Section 12.3) has `remote` true, `knowledge_base`
+        null, `label`, `remote_id` (the record on this server), `server`, `url` (its page on that
+        server), and `actor`; `mode` is `approved` (a grant in its term), `pending`, or `closed` (its
+        server accepts no automatic contributions now; `documents` is empty). `remote_state` is `on`,
+        or the reason that the rule has no target on another server now: `no_origin`,
+        `federation_off`, `not_a_federation_actor`.
       operationId: dryRunAutoRule
       x-claire-access: owner
       security:
@@ -873,7 +881,14 @@ paths:
         contribution for its contributor (`number`, `document`, `title`, `origin`, `state`,
         `contributor`, `approved`, `approved_at`, `updates_stopped`, `contributed_at`, `revised_at`,
         `reason`, `revisions`). `title` is the title of the document of the contribution; when the
-        copy is gone, it is the title of the source document, or null.
+        copy is gone, it is the title of the source document, or null. Without `origin` and with
+        `origin=auto`, the list also has the automatic contributions of the account to shared
+        knowledge bases of other servers (federation design Section 12.3): `knowledge_base` and
+        `number` are null, `document` and `title` are the source document, `origin` is `auto`,
+        `state` is `pending`, `accepted`, `rejected`, `removed`, or `skipped` (the decision of the
+        other server, or the reason that no offer went), `reason`, `contributed_at`, and
+        `remote_target` (`remote_id`, `server`, `url`, `actor`, `result`, `with_grant`, `delivery`,
+        `decided_at`).
       operationId: listAccountContributions
       x-claire-access: read
       security:

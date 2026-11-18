@@ -1091,12 +1091,19 @@ def cmd_contribute(args) -> int:
                 theme_ids.append(int(theme["id"]))
             rule = {"state": args.state, "to_memberships": args.memberships == "on", "to_mutual": args.mutual == "on", "include_uploads": args.uploads == "on", "theme_ids": sorted(set(theme_ids))}
             # The dry run (design Section 9.9 rule 6): the documents that the rule sends now to each target. A paused rule sends nothing.
-            targets = [{**_kb_ref(t["kb_id"]), "mode": t["mode"], "documents": t["documents"]} for t in auto_contribution.plan(conn, account_id, rule)] if rule["state"] == "active" else []
+            # A target on another server (federation design Section 12.3) has the address of its actor and its server in place of the number of a knowledge base of this server.
+            from .contributions import canonical_origin
+
+            origin = canonical_origin(s)
+            targets = [
+                ({"knowledge_base": None, "label": t["label"], "remote": True, "server": t["server"], "actor": t["kb_iri"], "mode": t["mode"], "documents": t["documents"]} if "remote_id" in t else {**_kb_ref(t["kb_id"]), "remote": False, "mode": t["mode"], "documents": t["documents"]})
+                for t in auto_contribution.plan(conn, account_id, rule, origin=origin)
+            ] if rule["state"] == "active" else []
             made = None
             if args.apply:
                 kb_collab.save_auto_rule(conn, account_id=account_id, **rule)
                 conn.commit()
-                made = auto_contribution.run_account(conn, account_id)
+                made = auto_contribution.run_account(conn, account_id, origin=origin)
                 if made:
                     run_waiting_merge_jobs(s)
             view = _rule_view(kb_collab.get_auto_rule(conn, account_id)) if args.apply else _rule_view(rule)
@@ -1110,7 +1117,8 @@ def cmd_contribute(args) -> int:
                 count = sum(len(t["documents"]) for t in targets)
                 print(f"Dry run: the rule sends {count} documents to {len(targets)} shared knowledge bases now.")
                 for target in targets:
-                    print(f"  {target['knowledge_base']}  {target['label']} ({target['mode']}): {len(target['documents'])} documents")
+                    where = f"{target['actor']}  {target['label']} [{target['server']}]" if target["remote"] else f"{target['knowledge_base']}  {target['label']}"
+                    print(f"  {where} ({target['mode']}): {len(target['documents'])} documents")
                     for doc in target["documents"]:
                         print(f"    {doc['document']}  score {doc['score']:.2f}  {doc['title'] or ''}")
             if not args.apply:

@@ -1343,20 +1343,22 @@ def extract_resolve_store(
 
         report.notices = notices_for_ingest(conn, kb_id=tid, document_id=doc.id)
         conn.commit()
-        _auto_contribute_document(conn, kb_id=tid, document_id=doc.id)
+        _auto_contribute_document(conn, settings, kb_id=tid, document_id=doc.id)
 
     return True, None
 
 
-def _auto_contribute_document(conn: sqlite3.Connection, *, kb_id: int, document_id: str) -> None:
-    """After the extraction of a new document of a personal knowledge base, the automatic rule of its account runs for this document (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.9 rule 4). The merge jobs run after the service job. A failure here never fails the ingest."""
+def _auto_contribute_document(conn: sqlite3.Connection, settings: Any, *, kb_id: int, document_id: str) -> None:
+    """After the extraction of a new document of a personal knowledge base, the automatic rule of its account runs for this document (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.9 rule 4). The merge jobs run after the service job. A failure here never fails the ingest. The canonical origin of the settings lets the run send offers to shared knowledge bases of other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.3)."""
     try:
         row = conn.execute("SELECT is_personal, account_id FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
         if row is None or not row[0] or row[1] is None:
             return
         from .. import auto_contribution
 
-        auto_contribution.run_account(conn, int(row[1]), documents=[document_id])
+        from ..contributions import canonical_origin
+
+        auto_contribution.run_account(conn, int(row[1]), origin=None if settings is None else canonical_origin(settings), documents=[document_id])
     except Exception as exc:  # noqa: BLE001
         import logging
 

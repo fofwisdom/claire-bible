@@ -176,12 +176,22 @@
           var count = targets.reduce(function (sum, target) { return sum + (target.documents || []).length; }, 0);
           var h = "";
           if (!res.data.server_switch) h += '<div class="claire-note warn"><span>' + esc(t("kb.dlg.dry_run_server_off")) + "</span></div>";
-          h += '<div class="claire-note ok"><span>' + esc(t("kb.dlg.dry_run_summary", { count: count, targets: targets.length })) + "</span></div>";
+          // Targets on other servers (federation design Section 12.3): "remote_state" is "on", or the reason that the rule has none now.
+          if (res.data.remote_state && res.data.remote_state !== "on") h += '<div class="claire-note"><span>' + esc(t("kb.dlg.dry_run_remote_" + res.data.remote_state)) + "</span></div>";
+          var sending = targets.filter(function (target) { return target.mode !== "closed"; });
+          h += '<div class="claire-note ok"><span>' + esc(t("kb.dlg.dry_run_summary", { count: count, targets: sending.length })) + "</span></div>";
           h += ui().renderTable({
             caption: t("kb.dlg.dry_run_title"),
             columns: [
-              { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="/kb/' + esc(r.knowledge_base) + '/">' + esc(r.label || r.knowledge_base) + "</a>"; } },
-              { label: t("kb.dlg.col_mode"), render: function (r) { return '<span class="claire-tag acc">' + esc(t("kb.dlg.mode_" + r.mode)) + "</span>"; } },
+              { label: t("kb.dlg.col_kb"), render: function (r) {
+                // A shared knowledge base of another server: its label with a link to its page on that server, and its server.
+                if (r.remote) return (/^https?:\/\//.test(String(r.url || "")) ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer">' + esc(t("kb.dlg.remote_kb_label", { label: r.label || r.actor, server: r.server })) + "</a>" : esc(t("kb.dlg.remote_kb_label", { label: r.label || r.actor, server: r.server })));
+                return '<a href="/kb/' + esc(r.knowledge_base) + '/">' + esc(r.label || r.knowledge_base) + "</a>";
+              } },
+              { label: t("kb.dlg.col_mode"), render: function (r) {
+                // "closed": the server of the target accepts no automatic contributions now; nothing goes there.
+                return '<span class="claire-tag ' + (r.mode === "closed" ? "warn" : "acc") + '">' + esc(t("kb.dlg.mode_" + r.mode)) + "</span>" + (r.mode === "closed" ? ' <span class="claire-hint">' + esc(t("kb.dlg.mode_closed_hint")) + "</span>" : "");
+              } },
               { label: t("kb.dlg.col_docs"), render: function (r) { return (r.documents || []).map(function (d) { return esc(d.title || d.document) + (d.score != null ? ' <span class="claire-hint">(' + esc(Number(d.score).toFixed(2)) + ")</span>" : ""); }).join("<br>"); } }
             ],
             rows: targets

@@ -9,6 +9,8 @@ This module owns two tables. No function here commits.
 | ``kf_outbound_offers`` | One row for each remote target of a contribution of an account of this server: an offer that went to the outbox, with the decision of the other server, or a target that was skipped (no ``offer_iri``; ``reason_code`` tells why). The submission views read it. |
 | ``kf_inbound_offers`` | One row for each ``Offer`` that a knowledge base actor of this server got: the actor, the contribution that it made, the capability, and the answer of this server. |
 
+An outbound row of an automatic contribution (unit KF5, design Section 12.3) has ``automatic`` = 1 and no submission item: the automatic rule of the account sent it (``auto_contribution.run_account``).
+
 States of an outbound row: ``pending`` (the offer waits for the decision of the other server), ``accepted``, ``rejected``, ``removed`` (the other server removed the contribution after it accepted it; this server learns it only when it follows that knowledge base actor), ``skipped`` (no offer went out).
 
 States of an inbound row: ``pending`` (the contribution waits for the reviewers, and no answer went out), ``accepted`` (the ``Accept`` is in the outbox), ``rejected`` (the ``Reject`` is in the outbox), ``closed`` (no answer goes out: the contribution or its knowledge base is gone without a decision).
@@ -40,7 +42,10 @@ __all__ = [
     "account_signer",
     "actor_deleted",
     "answer_refusal",
+    "automatic_of_account",
+    "automatic_offered",
     "daily_offers_of_domain",
+    "ensure_automatic_column",
     "ensure_schema",
     "inbound_of_contribution",
     "inbound_of_iri",
@@ -65,7 +70,9 @@ INBOUND_STATES: tuple[str, ...] = ("pending", "accepted", "rejected", "closed")
 # The time that an inbound row without a contribution stays after its answer.
 INBOUND_RETENTION_SECONDS = 30 * 86400.0
 # The reasons that a remote target gets no offer.
-SKIP_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "document_not_extracted", "document_too_large", "title_too_long", "extraction_too_large", "contribution_duplicate", "pending_limit", "knowledge_base_not_found")
+SKIP_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "document_not_extracted", "document_too_large", "title_too_long", "extraction_too_large", "contribution_duplicate", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
+# The reasons of a skipped target that can change before the next run of the automatic rule: such a row does not keep the document from that knowledge base. A ``Reject`` with ``vocabulary.AUTOMATIC_NOT_ACCEPTED`` is the same: the other server can accept automatic contributions later.
+RETRY_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kf_outbound_offers (
@@ -79,6 +86,7 @@ CREATE TABLE IF NOT EXISTS kf_outbound_offers (
     source_document_id TEXT NOT NULL,
     submission_item_id INTEGER,
     capability_iri TEXT,
+    automatic INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL,
     result_iri TEXT,
     reason_code TEXT,
@@ -106,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_kf_inbound_offers_contribution ON kf_inbound_offe
 CREATE INDEX IF NOT EXISTS idx_kf_inbound_offers_domain ON kf_inbound_offers(domain, received_at)
 """
 
-_OUTBOUND = "id, offer_iri, account_id, actor_iri, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, capability_iri, state, result_iri, reason_code, created_at, decided_at"
+_OUTBOUND = "id, offer_iri, account_id, actor_iri, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, capability_iri, automatic, state, result_iri, reason_code, created_at, decided_at"
 _INBOUND = "id, offer_iri, actor_iri, domain, kb_number, contribution_public_id, capability_iri, grant_valid, state, reason_code, detail, received_at, answered_at"
 # The columns that the code of this module reads, for each table. The migration (``store.db``) gives a table of a different form a new name and makes this one again.
 TABLES: dict[str, tuple[str, ...]] = {"kf_outbound_offers": tuple(_OUTBOUND.split(", ")), "kf_inbound_offers": tuple(_INBOUND.split(", "))}
@@ -117,6 +125,13 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     for statement in SCHEMA.split(";"):
         if statement.strip():
             conn.execute(statement)
+
+
+def ensure_automatic_column(conn: sqlite3.Connection) -> None:
+    """Add the column ``automatic`` (unit KF5) to a ``kf_outbound_offers`` of schema version 32 or 33. Idempotent; the migration of ``store.db`` calls it at each start, before the step v32 compares the columns. A row of an earlier version gets 0: before unit KF5 each offer came from a submission."""
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(kf_outbound_offers)").fetchall()}
+    if columns and "automatic" not in columns:
+        conn.execute("ALTER TABLE kf_outbound_offers ADD COLUMN automatic INTEGER NOT NULL DEFAULT 0")
 
 
 def _outbound(row: sqlite3.Row | tuple) -> dict[str, Any]:
@@ -139,13 +154,13 @@ def _digest(text: str) -> str:
 # --- offers that go out (design Section 12.1 rules 1 and 2) -----------------------------------------------
 
 
-def skip(conn: sqlite3.Connection, *, account_id: int, kb_iri: str, domain: str, source_kb_id: int, source_document_id: str, submission_item_id: int | None, reason: str, now: float) -> None:
-    """Record a remote target that gets no offer, with the reason (the submission view shows it)."""
+def skip(conn: sqlite3.Connection, *, account_id: int, kb_iri: str, domain: str, source_kb_id: int, source_document_id: str, submission_item_id: int | None, automatic: bool, reason: str, now: float) -> None:
+    """Record a remote target that gets no offer, with the reason (the submission view, or the list of automatic contributions, shows it)."""
     if reason not in SKIP_REASONS:
         raise ValueError(f"unknown skip reason: {reason!r}")
     conn.execute(
-        "INSERT INTO kf_outbound_offers (account_id, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, state, reason_code, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?)",
-        (int(account_id), kb_iri, domain, int(source_kb_id), source_document_id, submission_item_id, reason, now, now),
+        "INSERT INTO kf_outbound_offers (account_id, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, automatic, state, reason_code, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?)",
+        (int(account_id), kb_iri, domain, int(source_kb_id), source_document_id, submission_item_id, 1 if automatic else 0, reason, now, now),
     )
 
 
@@ -154,19 +169,22 @@ def pending_outbound(conn: sqlite3.Connection, *, account_id: int, kb_iri: str) 
     return int(conn.execute("SELECT COUNT(*) FROM kf_outbound_offers WHERE account_id=? AND kb_iri=? AND state='pending'", (int(account_id), kb_iri)).fetchone()[0])
 
 
-def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source_document_id: str, remote_kb: remote_kbs.RemoteKnowledgeBase, submission_item_id: int | None, pending_limit: int, origin: str, now: float) -> dict[str, Any]:
+def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source_document_id: str, remote_kb: remote_kbs.RemoteKnowledgeBase, submission_item_id: int | None, pending_limit: int, automatic: bool, origin: str, now: float) -> dict[str, Any]:
     """Offer one document of the personal knowledge base of the account to a shared knowledge base of another server: the ``Offer`` goes to the outbox with the account actor as the signer, and the row is ``pending``. A target that cannot get the offer is recorded as ``skipped`` with the reason. Return the row. No commit.
 
     The checks of the sender, in this sequence: a domain block (``blocked_domain``); the account is a federation actor (``not_a_federation_actor``: an account without a public profile and a USERNAME has no actor that can sign, design Section 12.1 rule 2); an offer of this document to this knowledge base that waits or was accepted (``contribution_duplicate``); the pending limit of the account (``pending_limit``); the document has an extraction (``document_not_extracted``); the limits of one document (KS2: the other server has the same limits). The offer carries the grant of the account for the knowledge base when it has one in its term (design Section 12.2 rule 2); the other server decides if the grant is in effect.
+    ``automatic`` (unit KF5, design Section 12.3): the automatic rule of the account sends the offer. The ``claire:Contribution`` has ``claire:automatic``, and a target whose record says that its server accepts no automatic contributions is skipped first (``automatic_not_accepted``).
     """
     from .. import contributions  # the import is here: ``contributions`` loads this module for a submission
 
     def _skipped(reason: str) -> dict[str, Any]:
-        skip(conn, account_id=account_id, kb_iri=remote_kb.iri, domain=remote_kb.domain, source_kb_id=source_kb_id, source_document_id=source_document_id, submission_item_id=submission_item_id, reason=reason, now=now)
+        skip(conn, account_id=account_id, kb_iri=remote_kb.iri, domain=remote_kb.domain, source_kb_id=source_kb_id, source_document_id=source_document_id, submission_item_id=submission_item_id, automatic=automatic, reason=reason, now=now)
         return _outbound(conn.execute(f"SELECT {_OUTBOUND} FROM kf_outbound_offers WHERE id=last_insert_rowid()").fetchone())
 
     if access.remote_server_domain(remote_kb.iri, origin) is None or federation_store.blocking_domain(conn, remote_kb.domain) is not None:
         return _skipped("blocked_domain")
+    if automatic and remote_kbs.accepts_automatic(remote_kb) is False:
+        return _skipped(vocabulary.AUTOMATIC_NOT_ACCEPTED)
     actor_iri = actors.account_actor_iri(conn, account_id, origin)
     if actor_iri is None:
         return _skipped("not_a_federation_actor")
@@ -182,27 +200,27 @@ def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source
     if refusal is not None:
         return _skipped(refusal)
     offer_iri = f"{actor_iri}#offers/{secrets.token_hex(12)}"
-    contribution = vocabulary.build_contribution(document=article, attributed_to=actor_iri, knowledge_base=remote_kb.iri, contribution_id=None)
+    contribution = vocabulary.build_contribution(document=article, attributed_to=actor_iri, knowledge_base=remote_kb.iri, contribution_id=None, automatic=automatic)
     offer = vocabulary.build_offer(activity_id=offer_iri, contribution=contribution, capability=capability)
     public_id = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (int(account_id),)).fetchone()[0])
     outbox.enqueue(conn, offer, signer=account_signer(public_id), recipients=[remote_kb.iri], origin=origin, now=now)
     # The server of the target is a known server (design Section 6.2 rule 1).
     known_servers.note_server(conn, remote_kb.domain, source="local_contribution", now=now)
     cursor = conn.execute(
-        "INSERT INTO kf_outbound_offers (offer_iri, account_id, actor_iri, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, capability_iri, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
-        (offer_iri, int(account_id), actor_iri, remote_kb.iri, remote_kb.domain, int(source_kb_id), source_document_id, submission_item_id, capability, now),
+        "INSERT INTO kf_outbound_offers (offer_iri, account_id, actor_iri, kb_iri, domain, source_kb_id, source_document_id, submission_item_id, capability_iri, automatic, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+        (offer_iri, int(account_id), actor_iri, remote_kb.iri, remote_kb.domain, int(source_kb_id), source_document_id, submission_item_id, capability, 1 if automatic else 0, now),
     )
     return _outbound(conn.execute(f"SELECT {_OUTBOUND} FROM kf_outbound_offers WHERE id=?", (int(cursor.lastrowid),)).fetchone())
 
 
-def record_decision(conn: sqlite3.Connection, *, offer_iri: str, kb_iri: str, accepted: bool, result_iri: str | None, reason_code: str | None, now: float) -> bool:
-    """The knowledge base actor ``kb_iri`` answered an offer of this server (``Accept`` with ``result``, or ``Reject`` with the reason code). False when this server has no such offer to that actor. An offer that has a decision does not change: the same answer again, or a second answer, changes nothing."""
+def record_decision(conn: sqlite3.Connection, *, offer_iri: str, kb_iri: str, accepted: bool, result_iri: str | None, reason_code: str | None, now: float) -> dict[str, Any] | None:
+    """The knowledge base actor ``kb_iri`` answered an offer of this server (``Accept`` with ``result``, or ``Reject`` with the reason code). Return the row after the answer, or None when this server has no such offer to that actor. An offer that has a decision does not change: the same answer again, or a second answer, changes nothing."""
     row = conn.execute("SELECT id, state FROM kf_outbound_offers WHERE offer_iri=? AND kb_iri=?", (offer_iri, kb_iri)).fetchone()
     if row is None:
-        return False
+        return None
     if str(row[1]) == "pending":
         conn.execute("UPDATE kf_outbound_offers SET state=?, result_iri=?, reason_code=?, decided_at=? WHERE id=?", ("accepted" if accepted else "rejected", result_iri, reason_code, now, int(row[0])))
-    return True
+    return _outbound(conn.execute(f"SELECT {_OUTBOUND} FROM kf_outbound_offers WHERE id=?", (int(row[0]),)).fetchone())
 
 
 def result_removed(conn: sqlite3.Connection, *, kb_iri: str, result_iri: str, reason_code: str, now: float) -> int:
@@ -216,6 +234,20 @@ def outbound_of_item(conn: sqlite3.Connection, submission_item_id: int) -> list[
 
 def outbound_of_account(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
     return [_outbound(row) for row in conn.execute(f"SELECT {_OUTBOUND} FROM kf_outbound_offers WHERE account_id=? ORDER BY id DESC", (int(account_id),)).fetchall()]
+
+
+def automatic_of_account(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
+    """The rows of the automatic contributions of one account to other servers, the newest first, in each state (the list of automatic contributions in ``/settings/kb``)."""
+    return [_outbound(row) for row in conn.execute(f"SELECT {_OUTBOUND} FROM kf_outbound_offers WHERE account_id=? AND automatic=1 ORDER BY id DESC", (int(account_id),)).fetchall()]
+
+
+def automatic_offered(conn: sqlite3.Connection, *, account_id: int, kb_iri: str) -> set[str]:
+    """The documents of the account that the automatic rule does not send again to the knowledge base ``kb_iri``: each document with a row for it in any state (offered, accepted, rejected, removed, or skipped for a reason of the document), also from a submission. A row with a reason of ``RETRY_REASONS`` does not count (design Section 9.9 rule 2: "a rejected or removed document never goes again to the same K")."""
+    marks = ", ".join("?" for _ in RETRY_REASONS)
+    return {str(row[0]) for row in conn.execute(
+        f"SELECT DISTINCT source_document_id FROM kf_outbound_offers WHERE account_id=? AND kb_iri=? AND NOT (state IN ('skipped', 'rejected') AND COALESCE(reason_code, '') IN ({marks}))",
+        (int(account_id), kb_iri, *RETRY_REASONS),
+    ).fetchall()}
 
 
 def outbound_view(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +271,7 @@ def outbound_view(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, An
         "reason": row["reason_code"],
         "result": row["result_iri"],
         "with_grant": bool(row["capability_iri"]),
+        "automatic": bool(row["automatic"]),
         "delivery": delivery,
         "decided_at": row["decided_at"],
     }

@@ -213,8 +213,8 @@ def knowledge_base_object(conn: sqlite3.Connection, number: int, *, origin: str)
 
 
 def record_digest(obj: dict[str, Any]) -> str:
-    """The digest of the part of the record whose change the followers get as an ``Update``: the label, the description, and the knowledge type. The counts and the signature change with each document; a follower gets them with its daily read of the ``/kb`` collection (design Section 8.1 rule 2)."""
-    return hashlib.sha256(json.dumps([obj["name"], obj["summary"], obj[vocabulary.KNOWLEDGE_TYPE]], ensure_ascii=False).encode("utf-8")).hexdigest()
+    """The digest of the part of the record whose change the followers get as an ``Update``: the label, the description, the knowledge type, and ``claire:acceptsAutomatic`` (the admin turned the automatic contribution of this server on or off, unit KF5). The counts and the signature change with each document; a follower gets them with its daily read of the ``/kb`` collection (design Section 8.1 rule 2)."""
+    return hashlib.sha256(json.dumps([obj["name"], obj["summary"], obj[vocabulary.KNOWLEDGE_TYPE], obj.get(vocabulary.ACCEPTS_AUTOMATIC)], ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def actor_document(conn: sqlite3.Connection, number: int, *, origin: str, public_key_pem: str) -> dict[str, Any] | None:

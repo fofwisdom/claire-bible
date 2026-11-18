@@ -61,7 +61,9 @@ async function installApi(page) {
     }
     if (path === '/kb/101/moderation-log') return json(route, { log: [{ number: '2', action: 'contribution_reject', actor: { account: '5550001', display_name: 'Bob' }, target: '9004', reason: 'off_subject', created_at: 1700000100 }, { number: '1', action: 'settings', actor: null, target: 'label', reason: '', created_at: 1700000000 }] });
     // GET /api/contributions: the contributions with the credit of the requester; "?origin=auto" gives the automatic ones.
-    if (path === '/api/contributions') return json(route, { contributions: url.searchParams.get('origin') === 'auto' ? [] : [{ knowledge_base: '101', label: 'Modern History', number: '9003', document: 'copy-3', title: 'Canal Survey 1840', origin: 'direct', state: 'visible', approved: false, reason: '', contributed_at: 1700000000 }, { knowledge_base: '101', label: 'Modern History', number: '9005', document: 'copy-5', title: 'Bridge Ledger', origin: 'bulk', state: 'visible', approved: true, reason: '', contributed_at: 1690000000 }] });
+    // An automatic contribution to a shared knowledge base of another server (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.3) has "remote_target"; this one got a Reject because that server accepts no automatic contributions now.
+    const remoteAuto = { knowledge_base: null, label: 'Railway Archive', number: null, document: 'doc-3', title: 'Steam Engine Notes', origin: 'auto', state: 'rejected', approved: false, reason: 'automatic_not_accepted', contributed_at: 1700000200, remote_target: { remote_id: 5, server: 'b.example', url: 'https://b.example/kb/901/', actor: 'https://b.example/ap/kb/901', result: null, with_grant: false, delivery: 'delivered', decided_at: 1700000300 } };
+    if (path === '/api/contributions') return json(route, { contributions: url.searchParams.get('origin') === 'auto' ? [remoteAuto] : [{ knowledge_base: '101', label: 'Modern History', number: '9003', document: 'copy-3', title: 'Canal Survey 1840', origin: 'direct', state: 'visible', approved: false, reason: '', contributed_at: 1700000000 }, { knowledge_base: '101', label: 'Modern History', number: '9005', document: 'copy-5', title: 'Bridge Ledger', origin: 'bulk', state: 'visible', approved: true, reason: '', contributed_at: 1690000000 }] });
     if (/\/contributions$/.test(path)) return json(route, { contributions: url.searchParams.get('state') === 'failed' && path.startsWith('/kb/101/') ? [{ number: '9001', document: 'doc-f', origin: 'direct', state: 'failed', reason: 'embedding_model_unavailable', contributor: null }] : [] });
     if (path === '/themes') return json(route, { type: 'OrderedCollection', totalItems: themes.length, themes });
     if (path === '/submissions') return json(route, { submissions: [{ number: '7001', created_at: 1, items: [{ document: 'doc-1', title: 'Railway Timetable 1851', theme: '201', theme_label: 'Railway · Steam', routed_by: 'server', score: 0.71, targets: [{ knowledge_base: '101', label: 'Modern History', state: 'pending', contribution: '9002', approved: false }] }] }] });
@@ -72,7 +74,12 @@ async function installApi(page) {
       rule = { state: body.state, memberships: body.memberships, mutual: body.mutual, include_uploads: body.include_uploads, themes: themes.filter((t) => body.themes.includes(t.number)).map((t) => ({ number: t.number, label: t.label })), activated_at: 1 };
       return json(route, { ok: true, server_switch: true, rule, contributions: 1 });
     }
-    if (path === '/api/auto-rule/dry-run') return json(route, { server_switch: true, targets: [{ knowledge_base: '101', label: 'Modern History', mode: 'approved', documents: [{ document: 'doc-1', title: 'Railway Timetable 1851', score: 0.71 }] }] });
+    // The dry run: a target of this server, a target of another server, and a target of a server that accepts no automatic contributions now ("closed").
+    if (path === '/api/auto-rule/dry-run') return json(route, { server_switch: true, remote_state: 'on', targets: [
+      { knowledge_base: '101', label: 'Modern History', remote: false, mode: 'approved', documents: [{ document: 'doc-1', title: 'Railway Timetable 1851', score: 0.71 }] },
+      { knowledge_base: null, label: 'Railway Archive', remote: true, remote_id: 5, server: 'b.example', url: 'https://b.example/kb/901/', actor: 'https://b.example/ap/kb/901', mode: 'pending', documents: [{ document: 'doc-4', title: 'Steam Locomotive Log', score: 0.66 }] },
+      { knowledge_base: null, label: 'Canal Archive', remote: true, remote_id: 6, server: 'c.example', url: 'https://c.example/kb/902/', actor: 'https://c.example/ap/kb/902', mode: 'closed', documents: [] }
+    ] });
     if (path === '/api/contribution-blocks') return json(route, { documents: [] });
     if (path === '/api/reputation') return json(route, { level: 'limited', fiction_share: 0.25, fiction_like_documents: 1, visible_documents: 4, approval_rate: null, decisions: 0, limits: { pending: 5, auto_documents: 0 }, documents: [{ document: 'doc-2', title: 'Space Opera Draft', theme: '202', theme_label: 'Dragons · Elves' }] });
     if (path === '/api/mutual-collaborations') return json(route, { mutual_collaborations: [{ account: '5550001', display_name: 'Bob', state: 'pending', requested_by_me: false, created_at: 1, decided_at: null }] });
@@ -147,12 +154,25 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
 
   // Automatic rule (design Section 9.9 rule 6): the dry run shows first; the rule turns on after the confirmation, with each field of the body.
   await tabs.nth(2).click();
+  // The list of automatic contributions has the target on another server with its server, its state, and the reason of the other server; it has no withdrawal (federation design Section 12.3).
+  const autoRow = page.locator('#settings-kb-host tr', { hasText: 'Steam Engine Notes' });
+  await expect(autoRow).toContainText('Railway Archive');
+  await expect(autoRow).toContainText('b.example');
+  await expect(autoRow).toContainText('다른 서버가 지금 자동 기여를 받지 않음');
+  await expect(autoRow.locator('a[href="https://b.example/kb/901/"]')).toBeVisible();
+  await expect(autoRow.locator('[data-withdraw-c]')).toHaveCount(0);
   await page.locator('#rule-memberships').check();
   await page.locator('input[name="rule-theme"][value="201"]').check();
   await page.locator('#kb-rule-activate').click();
   const dryDlg = page.locator('dialog.claire-dlg[open]');
   await expect(dryDlg).toContainText('Modern History');
   await expect(dryDlg).toContainText('Railway Timetable 1851');
+  // The targets on other servers: the label with the server and a link to the page on that server; a "closed" target has its note and no document.
+  await expect(dryDlg.locator('a[href="https://b.example/kb/901/"]')).toContainText('Railway Archive (b.example)');
+  await expect(dryDlg).toContainText('Steam Locomotive Log');
+  const closedRow = dryDlg.locator('tr', { hasText: 'Canal Archive (c.example)' });
+  await expect(closedRow).toContainText('닫힘');
+  await expect(closedRow).toContainText('자동 기여를 받지 않습니다');
   expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/auto-rule')).toBe(false);
   await dryDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
   await expect.poll(() => calls.find((c) => c.method === 'PUT' && c.path === '/api/auto-rule')?.body).toEqual({ state: 'active', memberships: true, mutual: false, include_uploads: false, themes: ['201'] });

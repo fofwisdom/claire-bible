@@ -2523,11 +2523,15 @@ def create_app(
         finally:
             conn.close()
 
+    def _auto_origin() -> str | None:
+        """The canonical origin of this server for a run of an automatic rule: a run can have targets on other servers only with it (federation design Section 12.3). The same value for a request and for a run in the background."""
+        return contributions.canonical_origin(s)
+
     def _auto_run_all() -> int:
         """A run of each active rule, and the merge jobs of the new contributions. For the events of design Section 9.9 rule 4."""
         conn = dbm.connect_existing(s.db_file)
         try:
-            made = auto_contribution.run_all(conn)
+            made = auto_contribution.run_all(conn, origin=_auto_origin())
         finally:
             conn.close()
         if made:
@@ -2603,7 +2607,7 @@ def create_app(
                         return refused
                 kb_collab.save_auto_rule(conn, account_id=account_id, **rule)
                 conn.commit()
-                made = auto_contribution.run_account(conn, account_id)  # rule 4: when the rule is turned on
+                made = auto_contribution.run_account(conn, account_id, origin=_auto_origin())  # rule 4: when the rule is turned on
                 view = _rule_view(conn, kb_collab.get_auto_rule(conn, account_id))
                 switch = auto_contribution.switch_on(conn)
             finally:
@@ -2614,8 +2618,17 @@ def create_app(
 
         return await asyncio.to_thread(_save)
 
+    def _plan_target_view(target: dict[str, Any]) -> dict[str, Any]:
+        """One target of ``auto_contribution.plan`` for a response. A target on another server (federation design Section 12.3) has ``remote`` true, its server, the page on that server, the actor, and the ID of the record; ``knowledge_base`` is null."""
+        if "remote_id" in target:
+            return {"knowledge_base": None, "label": target["label"], "remote": True, "remote_id": target["remote_id"], "server": target["server"], "url": target["url"], "actor": target["kb_iri"], "mode": target["mode"], "documents": target["documents"]}
+        return {**_kb_ref(target["kb_id"]), "remote": False, "mode": target["mode"], "documents": target["documents"]}
+
     async def auto_rule_dry_run_route(request: Request) -> JSONResponse:
-        """``POST /api/auto-rule/dry-run`` with the body of a rule: the documents that the rule would send now to each target (design Section 9.9 rule 6). It writes nothing."""
+        """``POST /api/auto-rule/dry-run`` with the body of a rule: the documents that the rule would send now to each target (design Section 9.9 rule 6). It writes nothing.
+
+        The targets on other servers (federation design Section 12.3) are in ``targets`` with ``remote`` true; ``remote_state`` is ``on``, or the reason that the rule has no target on another server now (``auto_contribution.REMOTE_STATES``).
+        """
         account_id = _account_id_of(request)
         body = await _json_object(request)
 
@@ -2623,15 +2636,36 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 rule = _rule_from_body(conn, body)
-                targets = [{**_kb_ref(t["kb_id"]), "mode": t["mode"], "documents": t["documents"]} for t in auto_contribution.plan(conn, account_id, rule)]
-                return {"server_switch": auto_contribution.switch_on(conn), "targets": targets}
+                origin = _auto_origin()
+                targets = [_plan_target_view(t) for t in auto_contribution.plan(conn, account_id, rule, origin=origin)]
+                return {"server_switch": auto_contribution.switch_on(conn), "remote_state": auto_contribution.remote_state(conn, account_id, origin), "targets": targets}
             finally:
                 conn.close()
 
         return JSONResponse(await asyncio.to_thread(_plan))
 
+    def _automatic_offer_view(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:
+        """One automatic contribution to a shared knowledge base of another server (federation design Section 12.3) in the list of ``GET /api/contributions``: the keys of a contribution that the other server decides, and ``remote_target`` with the server, the page, the actor, the ``result`` of an ``Accept``, and the delivery state. It has no number of this server and no withdrawal: the vocabulary has no ``Undo`` of an ``Offer``."""
+        target = kf_offers.outbound_view(conn, row)
+        return {
+            "knowledge_base": None,
+            "label": target["label"],
+            "number": None,
+            "document": row["source_document_id"],
+            "title": _document_title(conn, row["source_document_id"]),
+            "origin": "auto",
+            "state": target["state"],
+            "approved": target["approved"],
+            "reason": target["reason"],
+            "contributed_at": row["created_at"],
+            "remote_target": {key: target[key] for key in ("remote_id", "server", "url", "actor", "result", "with_grant", "delivery", "decided_at")},
+        }
+
     async def account_contributions_route(request: Request) -> Response:
-        """``GET /api/contributions``: each contribution with the credit of the requester, the newest first. ``?origin=`` selects one origin (one of ``kb_collab.CONTRIBUTION_ORIGINS``); another value gets 400 ``origin_invalid``."""
+        """``GET /api/contributions``: each contribution with the credit of the requester, the newest first. ``?origin=`` selects one origin (one of ``kb_collab.CONTRIBUTION_ORIGINS``); another value gets 400 ``origin_invalid``.
+
+        Without ``origin`` and with ``origin=auto``, the list also has the automatic contributions to shared knowledge bases of other servers (federation design Section 12.3), with ``remote_target``; their state is the decision of the other server.
+        """
         account_id = _account_id_of(request)
         origin = request.query_params.get("origin")
         if origin is not None and origin not in kb_collab.CONTRIBUTION_ORIGINS:
@@ -2640,7 +2674,11 @@ def create_app(
         def _list() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin=origin)]
+                items = [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin=origin)]
+                if origin in (None, "auto"):
+                    items += [_automatic_offer_view(conn, row) for row in kf_offers.automatic_of_account(conn, account_id)]
+                    items.sort(key=lambda item: -float(item["contributed_at"] or 0.0))
+                return items
             finally:
                 conn.close()
 
@@ -2755,7 +2793,7 @@ def create_app(
                 made = 0
                 if accept:
                     # Section 9.9 rule 4: when a mutual collaboration starts, the rules of the two accounts run.
-                    made = auto_contribution.run_account(conn, account_id) + auto_contribution.run_account(conn, int(other))
+                    made = auto_contribution.run_account(conn, account_id, origin=_auto_origin()) + auto_contribution.run_account(conn, int(other), origin=_auto_origin())
                 return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}), bool(made)
             finally:
                 conn.close()

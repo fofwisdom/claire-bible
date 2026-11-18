@@ -11,8 +11,8 @@
 | ``delete_knowledge_base`` | The same | The record and its theme memberships are deleted; the copies stay; the follow ends |
 | ``update_document`` | The same | Each copy of the document gets a revision without approval (Section 10.2), inside the limits of revisions and only for a newer version |
 | ``delete_document`` | The same | Each copy is hidden at once and waits in the review queue (Section 10.3, KD1); an offer of this server that the actor accepted with that document gets the state ``removed`` |
-| ``offer_contribution`` | An account actor of another server → a knowledge base actor of this server | A contribution with the remote credit: pending, or without approval with a grant in effect (Sections 12.1 and 12.2) |
-| ``accept_offer``, ``reject_offer`` | A knowledge base actor of another server → an account actor of this server | The offer of this server gets the decision (Section 12.1 rule 3) |
+| ``offer_contribution`` | An account actor of another server → a knowledge base actor of this server | A contribution with the remote credit: pending, or without approval with a grant in effect (Sections 12.1 and 12.2); an automatic contribution (``claire:automatic``) only while this server accepts automatic contributions (Section 12.3) |
+| ``accept_offer``, ``reject_offer`` | A knowledge base actor of another server → an account actor of this server | The offer of this server gets the decision (Section 12.1 rule 3); a ``Reject`` of an automatic offer with ``automatic_not_accepted`` marks the records of that server (Section 12.3) |
 | ``grant``, ``revoke`` | The same | The grant of the account is stored, or ends (Section 12.2) |
 
 A handler changes rows only. A revision makes the new copy, the revision row, and the merge job; the job builds the graph after the journal commits (the internal route and the replay route run the jobs that wait).
@@ -136,7 +136,8 @@ def offer_contribution(ctx: journal.HandlerContext, entry: journal.JournalEntry,
     """An account of another server offers a document to a shared knowledge base of this server (design Section 12.1 rules 2 to 5, Section 12.2 rule 2).
 
     Refusals (no contribution and no answer): ``knowledge_base_not_found``, ``recipient_mismatch``, ``not_own_document`` (the document is a copy, is not its own root, or is not on the server of the actor), the limits of one document (KS2), ``daily_limit`` (the offers of the domain in 24 hours, KS2).
-    A decision of this server about the offer that needs no reviewer gets a ``Reject`` at once, and the row is ``processed``: an archived knowledge base (``other``), a document that the knowledge base has or removed (``duplicate``), and the pending limits for the remote account and for its domain (``other``; KS3).
+    A decision of this server about the offer that needs no reviewer gets a ``Reject`` at once, and the row is ``processed``: an automatic contribution (``claire:automatic`` true) while this server accepts none (``automatic_not_accepted``: the switch ``kb_auto_contribution`` is off, Section 12.3 rule 1), an archived knowledge base (``other``), a document that the knowledge base has or removed (``duplicate``), and the pending limits for the remote account and for its domain (``other``; KS3).
+    An automatic contribution has the origin ``auto`` on this server; the other rules are the same (Section 12.3 rule 3: this server applies its own pending limits for each remote account and each domain).
     Else the contribution is made. It is ``pending`` with a hidden copy and no graph until a reviewer decides. With a capability that is a grant of this server in effect for the actor and the knowledge base, and a reputation on this server that is not ``low``, it needs no approval: the merge job builds the graph after the journal commits. A capability that is not in effect (ended, revoked, or of another actor or knowledge base) is no reason for a refusal: the offer waits for approval as each other one.
     """
     target = str(activity["target"])
@@ -162,6 +163,9 @@ def offer_contribution(ctx: journal.HandlerContext, entry: journal.JournalEntry,
     def _reject(reason_code: str, detail: str) -> None:
         offers.answer_refusal(ctx.conn, offer_iri=entry.activity_iri, actor_iri=actor, domain=entry.actor_domain, kb_number=number, capability_iri=capability, reason_code=reason_code, detail=detail, origin=ctx.origin, now=ctx.now)
 
+    automatic = activity["object"].get(vocabulary.AUTOMATIC) is True
+    if automatic and not access.auto_contribution_accepted(ctx.conn):
+        return _reject(vocabulary.AUTOMATIC_NOT_ACCEPTED, "kb_auto_contribution_off")
     if kb["state"] != "active":
         return _reject("other", "kb_archived")
     grant_valid = capability is not None and grants.valid(ctx.conn, str(capability), kb_number=number, actor_iri=actor, now=ctx.now)
@@ -176,7 +180,7 @@ def offer_contribution(ctx: journal.HandlerContext, entry: journal.JournalEntry,
         if kb_collab.count_pending_among(ctx.conn, offers.pending_contributions_of_domain(ctx.conn, quota)) >= limits["remote_domain_pending_limit"]:
             return _reject("other", "domain_pending_limit")
     try:
-        row = contributions.contribute_remote(ctx.conn, kb_id=kb_id, article=article, actor_iri=actor, approved=approved, now=ctx.now)
+        row = contributions.contribute_remote(ctx.conn, kb_id=kb_id, article=article, actor_iri=actor, approved=approved, automatic=automatic, now=ctx.now)
     except contributions.ContributionError as exc:
         if exc.code not in ("contribution_duplicate", "contribution_tombstoned"):
             raise
@@ -187,13 +191,18 @@ def offer_contribution(ctx: journal.HandlerContext, entry: journal.JournalEntry,
 
 
 def _offer_answer(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any], *, accepted: bool) -> None:
-    """The knowledge base actor of another server answered an offer of an account of this server. Only the actor that got the offer can answer it. Refusal ``offer_not_found``."""
+    """The knowledge base actor of another server answered an offer of an account of this server. Only the actor that got the offer can answer it. Refusal ``offer_not_found``.
+
+    A ``Reject`` of an automatic offer with ``automatic_not_accepted`` tells that the other server accepts no automatic contributions now (design Section 12.3 rule 1): each record of that server gets this state (``remote_kbs.note_automatic_not_accepted``), so that the next run of an automatic rule sends no offer there until a new read of the records."""
+    reason = None if accepted else str(activity[vocabulary.REASON_CODE])
     found = offers.record_decision(
         ctx.conn, offer_iri=str(activity["object"]), kb_iri=entry.actor, accepted=accepted,
-        result_iri=str(activity["result"]) if accepted else None, reason_code=None if accepted else str(activity[vocabulary.REASON_CODE]), now=ctx.now,
+        result_iri=str(activity["result"]) if accepted else None, reason_code=reason, now=ctx.now,
     )
-    if not found:
+    if found is None:
         raise journal.HandlerRefusal("offer_not_found")
+    if reason == vocabulary.AUTOMATIC_NOT_ACCEPTED and found["automatic"]:
+        remote_kbs.note_automatic_not_accepted(ctx.conn, entry.actor_domain)
 
 
 def accept_offer(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:

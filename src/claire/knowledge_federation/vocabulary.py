@@ -24,7 +24,10 @@ from urllib.parse import urlsplit
 from ..ontology.base import normalize_name
 
 __all__ = [
+    "ACCEPTS_AUTOMATIC",
     "ACTIVITY_KINDS",
+    "AUTOMATIC",
+    "AUTOMATIC_NOT_ACCEPTED",
     "AS2_CONTEXT",
     "AS2_TERMS",
     "CLAIRE_CONTEXT",
@@ -37,6 +40,7 @@ __all__ = [
     "MAX_SIGNATURE_ENTITIES",
     "OBJECT_KINDS",
     "REASON_CODES",
+    "REJECT_REASON_CODES",
     "ROLE_COLLABORATOR",
     "TERMS",
     "VOCABULARY_LOCAL_PATH",
@@ -106,12 +110,18 @@ RELATIONS = "claire:relations"
 DOCUMENT = "claire:document"
 REASON_CODE = "claire:reasonCode"
 CAPABILITY = "capability"
+# Unit KF5 (Section 12.3): the mark of an automatic contribution, and the record of a knowledge base tells if its server accepts automatic contributions now.
+AUTOMATIC = "claire:automatic"
+ACCEPTS_AUTOMATIC = "claire:acceptsAutomatic"
 
 # The one role that a grant can give (Section 12.2).
 ROLE_COLLABORATOR = "claire:collaborator"
 
 KNOWLEDGE_TYPES = ("real", "fictional")
 REASON_CODES = ("off_subject", "wrong_knowledge_type", "duplicate", "low_quality", "spam", "other")
+# The reason of a ``Reject`` of an automatic contribution: the server of the knowledge base accepts no automatic contributions now (Section 12.3 rule 1). It is not a reason of the reviewers, so a ``Delete`` cannot have it.
+AUTOMATIC_NOT_ACCEPTED = "automatic_not_accepted"
+REJECT_REASON_CODES = (*REASON_CODES, AUTOMATIC_NOT_ACCEPTED)
 MAX_SIGNATURE_ENTITIES = 256
 # The largest count of the wire form: the largest integer that each JSON reader keeps without a change (2^53), and that SQLite stores.
 MAX_COUNT = 2**53
@@ -143,7 +153,9 @@ TERMS: tuple[dict[str, Any], ...] = (
     {"term": ENTITIES, "kind": "property", "definition": {"@id": ENTITIES, "@type": "@json"}, "text": "The entities of an extraction, as one JSON array. Each entity has the keys \"name\", \"type\", \"norm_name\" (the name in its normal form; \"type\" and \"norm_name\" together are the key of the entity), \"aliases\", and \"observations\". The key \"sameAs\" is optional: identifiers of the same thing at an authority, for example \"wd:Q42\" (Wikidata), an ISBN, or an ORCID. The key \"proposed_type\" is optional."},
     {"term": RELATIONS, "kind": "property", "definition": {"@id": RELATIONS, "@type": "@json"}, "text": "The relations of an extraction, as one JSON array. Each relation has the keys \"source\" and \"target\" (each one the \"name\" of an entity of the same extraction) and \"type\". The key \"proposed_type\" is optional."},
     {"term": DOCUMENT, "kind": "property", "definition": {"@id": DOCUMENT, "@type": "@id"}, "text": "The document of a contribution."},
-    {"term": REASON_CODE, "kind": "property", "definition": {"@id": REASON_CODE}, "text": "The reason of the reviewers for a rejection or a removal: \"off_subject\", \"wrong_knowledge_type\", \"duplicate\", \"low_quality\", \"spam\", or \"other\"."},
+    {"term": REASON_CODE, "kind": "property", "definition": {"@id": REASON_CODE}, "text": "The reason of the reviewers for a rejection or a removal: \"off_subject\", \"wrong_knowledge_type\", \"duplicate\", \"low_quality\", \"spam\", or \"other\". A rejection of an automatic contribution can also have \"automatic_not_accepted\": the server of the knowledge base accepts no automatic contributions now."},
+    {"term": AUTOMATIC, "kind": "property", "definition": {"@id": AUTOMATIC}, "text": "true in a contribution that the automatic rule of the account selected. A server that accepts no automatic contributions rejects such a contribution. A contribution without this term is one that the account selected itself."},
+    {"term": ACCEPTS_AUTOMATIC, "kind": "property", "definition": {"@id": ACCEPTS_AUTOMATIC}, "text": "true when the server of a shared knowledge base accepts automatic contributions now, false when it rejects them. A server reads it before it sends an automatic contribution."},
     {"term": CAPABILITY, "kind": "property", "definition": {"@id": FORGEFED_NS + "capability", "@type": "@id"}, "text": "The grant that permits an activity. The term is the one of the ForgeFed vocabulary. In Claire, an offer of a remote collaborator refers to its grant."},
     {"term": ROLE_COLLABORATOR, "kind": "individual", "definition": None, "text": "The role of an account whose contributions to a shared knowledge base need no approval."},
 )
@@ -427,6 +439,8 @@ def _check_knowledge_base(obj: dict[str, Any], path: str) -> None:
         _count(obj, key, path)
     if SIGNATURE in obj:
         _check_signature(obj[SIGNATURE], _join(path, SIGNATURE))
+    if ACCEPTS_AUTOMATIC in obj and not isinstance(obj[ACCEPTS_AUTOMATIC], bool):
+        raise ContractError("invalid_field", _join(path, ACCEPTS_AUTOMATIC))
 
 
 def _check_extraction(obj: dict[str, Any], path: str) -> None:
@@ -510,6 +524,8 @@ def _check_contribution(obj: dict[str, Any], path: str) -> None:
     _check_document(document, at, extraction_necessary=True)
     if document.get("attributedTo") != actor:
         raise ContractError("actor_mismatch", _join(at, "attributedTo"))
+    if AUTOMATIC in obj and not isinstance(obj[AUTOMATIC], bool):
+        raise ContractError("invalid_field", _join(path, AUTOMATIC))
 
 
 def _object_kind(obj: dict[str, Any], path: str) -> str:
@@ -648,7 +664,7 @@ def validate_activity(value: Any) -> str:
         return "accept_offer"
     if kind == "Reject":
         _reference(activity)
-        if _need(activity, REASON_CODE, "") not in REASON_CODES:
+        if _need(activity, REASON_CODE, "") not in REJECT_REASON_CODES:
             raise ContractError("invalid_reason_code", REASON_CODE)
         return "reject_offer"
     if kind == "Update":
@@ -714,7 +730,7 @@ def with_context(obj: dict[str, Any]) -> dict[str, Any]:
 def build_knowledge_base(kb: dict[str, Any], iris: dict[str, str]) -> dict[str, Any]:
     """Make the ``claire:KnowledgeBase`` of a shared knowledge base.
 
-    ``kb``: ``label``, ``description``, ``knowledge_type``, ``documents``, ``entities``, ``relations`` (the three counts), and ``signature``. The signature is ``None`` for a knowledge base that has no signature, else a dictionary with ``entities`` (rows ``[type, norm_name, weight]``), ``visible_documents``, and ``computed_at`` (seconds). The centroid of the embeddings does not go to other servers.
+    ``kb``: ``label``, ``description``, ``knowledge_type``, ``documents``, ``entities``, ``relations`` (the three counts), ``signature``, and ``accepts_automatic`` (a bool: the server accepts automatic contributions now, Section 12.3). The signature is ``None`` for a knowledge base that has no signature, else a dictionary with ``entities`` (rows ``[type, norm_name, weight]``), ``visible_documents``, and ``computed_at`` (seconds). The centroid of the embeddings does not go to other servers.
     ``iris``: ``id``, ``url`` (the page), ``inbox``, ``outbox``, ``followers``, and ``documents`` (the collection).
     """
     obj: dict[str, Any] = {
@@ -731,6 +747,7 @@ def build_knowledge_base(kb: dict[str, Any], iris: dict[str, str]) -> dict[str, 
         DOCUMENT_COUNT: _need(kb, "documents", "kb"),
         ENTITY_COUNT: _need(kb, "entities", "kb"),
         RELATION_COUNT: _need(kb, "relations", "kb"),
+        ACCEPTS_AUTOMATIC: _need(kb, "accepts_automatic", "kb"),
     }
     signature = _need(kb, "signature", "kb")
     if signature is not None:
@@ -801,13 +818,16 @@ def build_document(doc: dict[str, Any], iris: dict[str, str | None], extraction:
     return obj
 
 
-def build_contribution(*, document: dict[str, Any], attributed_to: str, knowledge_base: str, contribution_id: str | None) -> dict[str, Any]:
+def build_contribution(*, document: dict[str, Any], attributed_to: str, knowledge_base: str, contribution_id: str | None, automatic: bool) -> dict[str, Any]:
     """Make a ``claire:Contribution``: ``document`` (the result of ``build_document``, with its extraction) for the shared knowledge base ``knowledge_base``.
 
     ``attributed_to`` is the account actor that contributes; the document must have the same actor in ``attributedTo``. ``contribution_id`` is ``None`` in an offer (the target gives the IRI in ``result``); the target gives its own IRI when it serves the contribution.
+    ``automatic``: the automatic rule of the account selected the document (Section 12.3). Only then the contribution has ``claire:automatic`` (``true``).
     """
     obj: dict[str, Any] = {} if contribution_id is None else {"id": contribution_id}
     obj.update({"type": ["Object", CONTRIBUTION], "attributedTo": attributed_to, "context": knowledge_base, DOCUMENT: document})
+    if automatic:
+        obj[AUTOMATIC] = True
     _validate_object(obj, "")
     return obj
 
@@ -877,7 +897,7 @@ def build_accept_offer(*, activity_id: str, knowledge_base: str, offer: str, off
 
 
 def build_reject_offer(*, activity_id: str, knowledge_base: str, offer: str, offer_actor: str, reason_code: str) -> dict[str, Any]:
-    """Make the ``Reject`` of an offer by the knowledge base actor, with the reason code of the reviewers."""
+    """Make the ``Reject`` of an offer by the knowledge base actor, with the reason code of the reviewers, or ``AUTOMATIC_NOT_ACCEPTED`` for an automatic contribution that the server does not accept now (Section 12.3)."""
     return _activity({"id": activity_id, "type": "Reject", "actor": knowledge_base, "object": offer, REASON_CODE: reason_code, "to": [offer_actor]})
 
 

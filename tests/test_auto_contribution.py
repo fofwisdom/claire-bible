@@ -100,7 +100,7 @@ def test_e2e_mutual_collaboration_and_automatic_contribution(world) -> None:  # 
 
     # The dry run: Cities (of ann) has no signature and no seed entities, so no document goes now. Then ben turns the rule on; that needs a recent sign-in.
     dry = client.post("/api/auto-rule/dry-run", json=RULE, headers=world.ben)
-    assert dry.status_code == 200 and dry.json() == {"server_switch": True, "targets": []}
+    assert dry.status_code == 200 and dry.json() == {"server_switch": True, "remote_state": "federation_off", "targets": []}
     assert client.put("/api/auto-rule", json=RULE, headers=world.ben).status_code == 403
     assert client.put("/api/auto-rule", json={**RULE, "state": "on"}, headers=world.ben).status_code == 400
     saved = step_up_request(client, s, "PUT", "/api/auto-rule", account_id=BEN, json=RULE)
@@ -189,7 +189,7 @@ def test_switch_off_stops_each_run_and_uploads_need_the_rule(world) -> None:  # 
     assert client.put("/api/admin/auto-contribution", json={"state": "off"}, headers=world.admin).json()["state"] == "off"
     conn = dbm.connect(s.db_file)
     try:
-        assert auto_contribution.run_all(conn) == 0 and auto_contribution.run_account(conn, BEN) == 0
+        assert auto_contribution.run_all(conn, origin=None) == 0 and auto_contribution.run_account(conn, BEN, origin=None) == 0
     finally:
         conn.close()
     assert _contributions(world, world.kb["id"]) == [(web, "auto", "visible", False)]
@@ -220,7 +220,7 @@ def test_level_low_pauses_the_rule_and_the_new_document_hook_runs_it(world) -> N
         # After the extraction of a new document, the rule runs for that document only (the hook of the ingest pipeline).
         from claire.ingest.pipeline import _auto_contribute_document
 
-        _auto_contribute_document(conn, kb_id=personal_id, document_id=second)
+        _auto_contribute_document(conn, s, kb_id=personal_id, document_id=second)
         assert [(r["source_document_id"], r["origin"], r["state"]) for r in kb_collab.list_contributions(conn, world.kb["id"])] == [(second, "auto", "merging")]
     finally:
         conn.close()

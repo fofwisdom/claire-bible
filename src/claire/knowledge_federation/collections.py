@@ -15,7 +15,7 @@ from typing import Any
 
 from .. import ids, theme_judgement
 from ..store import themes as themes_store
-from . import remote_kbs, vocabulary
+from . import access, remote_kbs, vocabulary
 
 __all__ = ["KB_PAGE_SIZE", "THEMES_PATH", "kb_collection_page", "kb_collection_root", "knowledge_base_iris", "knowledge_base_object", "themes_collection", "visible_graph_counts"]
 
@@ -34,7 +34,7 @@ def knowledge_base_iris(origin: str, number: int) -> dict[str, str]:
 
 
 def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, origin: str, signatures: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document, and the entities and relations that only hidden documents have, do not count."""
+    """The ``claire:KnowledgeBase`` of one row ``(id, number, label, description, knowledge_type)``. The counts are those that each reader of the public page sees: a hidden document, and the entities and relations that only hidden documents have, do not count. ``claire:acceptsAutomatic`` is the state of the switches of this server now (``access.auto_contribution_accepted``, design Section 12.3 rule 1)."""
     kb_id, number, label, description, knowledge_type = tuple(row)
     signature_row = signatures.get(int(kb_id))
     kb = {
@@ -44,6 +44,7 @@ def knowledge_base_object(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *,
         "documents": int(conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=? AND COALESCE(hidden, 0)=0", (int(kb_id),)).fetchone()[0]),
         **dict(zip(("entities", "relations"), visible_graph_counts(conn, int(kb_id)))),
         "signature": None if signature_row is None else theme_judgement.wire_signature(signature_row),
+        "accepts_automatic": access.auto_contribution_accepted(conn),
     }
     return vocabulary.build_knowledge_base(kb, knowledge_base_iris(origin, int(number)))
 

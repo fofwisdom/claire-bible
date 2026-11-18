@@ -1,12 +1,12 @@
 # Knowledge Federation Implementation Reference
 
-Basis: units KF0 to KF4 (2026-11-18). Readers: agents who do the unit KF5.
+Basis: units KF0 to KF5 (2026-11-18). Readers: agents who work on the federation of shared knowledge.
 
 Design: [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md). This document tells what the code has now. The general federation (actors of accounts, publishing, remote reading) is in [`FEDERATION.md`](FEDERATION.md). The local shared knowledge bases are in [`THEMES.md`](THEMES.md) Sections 4.7 to 4.12.
 
 ## 1. Scope and State
 
-Units KF0 to KF4 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). The sidecar does its part of KF1 to KF4 (Sections 10.6, 12.7, and 13.6). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
+Units KF0 to KF5 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). KF5: the automatic contribution across servers (Section 15). The sidecar does its part of KF1 to KF4 (Sections 10.6, 12.7, and 13.6). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
 
 | Function | State |
 | :--- | :--- |
@@ -19,7 +19,7 @@ Units KF0 to KF4 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | `/kb` collections of other servers, store of remote knowledge bases, themes across servers, root page (KF2) | Implemented (Section 11) |
 | Knowledge base actors, curation, revisions, removal at the origin (KF3) | Implemented (Section 12) |
 | Contributions and grants across servers (KF4) | Implemented (Section 13) |
-| Automatic contribution across servers (KF5) | Not implemented |
+| Automatic contribution across servers (KF5) | Implemented (Section 15) |
 | Registration on `w3id.org` | Owner task, after `claire.bible` serves the two paths |
 
 ## 2. Files
@@ -65,7 +65,9 @@ Each wire document has `"@context": ["https://www.w3.org/ns/activitystreams", "h
 | `claire:keyClaims` | Property | `…/ns#keyClaims` | List of texts |
 | `claire:entities`, `claire:relations` | Property | `…/ns#entities`, `…/ns#relations` | JSON value (Section 4.3) |
 | `claire:document` | Property | `…/ns#document` | An `Article` |
-| `claire:reasonCode` | Property | `…/ns#reasonCode` | `off_subject`, `wrong_knowledge_type`, `duplicate`, `low_quality`, `spam`, `other` |
+| `claire:reasonCode` | Property | `…/ns#reasonCode` | `off_subject`, `wrong_knowledge_type`, `duplicate`, `low_quality`, `spam`, `other`; in a `Reject` also `automatic_not_accepted` (unit KF5) |
+| `claire:automatic` | Property | `…/ns#automatic` | `true` in a `claire:Contribution` that the automatic rule of the account selected (unit KF5) |
+| `claire:acceptsAutomatic` | Property | `…/ns#acceptsAutomatic` | Boolean in a `claire:KnowledgeBase`: its server accepts automatic contributions now (unit KF5) |
 | `capability` | Property | `https://forgefed.org/ns#capability` | IRI of a grant |
 | `claire:collaborator` | Value (role) | `…/ns#collaborator` | — |
 
@@ -88,6 +90,7 @@ Builder: `build_knowledge_base(kb, iris)`.
 | `claire:knowledgeType` | Necessary. |
 | `claire:documentCount`, `claire:entityCount`, `claire:relationCount` | Necessary. |
 | `claire:signature` | Optional: absent for a knowledge base that has no signature. Keys: `entities` (at most 256 rows `[type, norm_name, weight]`), `visible_documents`, `computed_at`. |
+| `claire:acceptsAutomatic` | Optional boolean (unit KF5): `true` when the switches `federation` and `kb_auto_contribution` of its server are on now. The builder always writes it (`kb["accepts_automatic"]`); an object without it is valid, and a reader then does not know the state. |
 
 ### 4.2 Document: `Article` (kind `document`)
 
@@ -128,6 +131,7 @@ Builder: `build_contribution(document=, attributed_to=, knowledge_base=, contrib
 | `attributedTo` | Necessary: the account actor that contributes. |
 | `context` | Necessary: the IRI of the knowledge base actor. |
 | `claire:document` | Necessary: the `Article` with its extraction. Its `attributedTo` is the same actor. |
+| `claire:automatic` | Optional boolean (unit KF5). The builder writes `true` only for an automatic contribution (`automatic=True`); without it, the account selected the document itself. |
 
 ## 5. Activities
 
@@ -144,7 +148,7 @@ Each activity has `@context`, `id`, `type`, `actor`, and `to` (an array of IRIs,
 | `delete_document` | `Delete` | Knowledge base actor → followers | `object`: `Tombstone` with `id` and `formerType` `Article`; `claire:reasonCode` | `build_delete_document` |
 | `offer_contribution` | `Offer` | Account actor → knowledge base actor | `object`: the `claire:Contribution`; `target`: the knowledge base actor; `capability` (optional): IRI of a grant on the server of the target | `build_offer` |
 | `accept_offer` | `Accept` | Knowledge base actor → account actor | `object`: IRI of the `Offer`; `result`: IRI of the contribution on the server of the actor | `build_accept_offer` |
-| `reject_offer` | `Reject` | Knowledge base actor → account actor | `object`: IRI of the `Offer`; `claire:reasonCode` | `build_reject_offer` |
+| `reject_offer` | `Reject` | Knowledge base actor → account actor | `object`: IRI of the `Offer`; `claire:reasonCode` (one of `REJECT_REASON_CODES`: the reason codes and `automatic_not_accepted`) | `build_reject_offer` |
 | `grant` | `Grant` | Knowledge base actor → account actor | `context`: the actor; `target`: the account actor; `object`: `claire:collaborator`; `published`; `endTime` after `published` | `build_grant` |
 | `revoke` | `Revoke` | Knowledge base actor → account actor | `object`: IRI of the grant, on the server of the actor | `build_revoke` |
 
@@ -486,7 +490,7 @@ The step `_migrate_v31_contribution_remote_columns` adds columns to `kb_contribu
 | Table | Rows |
 | :--- | :--- |
 | `kf_kb_followers` | `kb_number`, `actor_iri` (the server actor that follows), `domain`, `follow_iri`, `created_at`; one row for each pair of actor and follower. |
-| `kf_kb_actor_state` | `kb_number`, `record_digest` (the label, the description, and the knowledge type that the followers have), `updated_at`. |
+| `kf_kb_actor_state` | `kb_number`, `record_digest` (the label, the description, the knowledge type, and, since unit KF5, `claire:acceptsAutomatic` that the followers have), `updated_at`. |
 | `kf_document_announcements` | `contribution_public_id`, `revised_at` (the revision that the followers have), `removed` (the `Delete` is in the outbox). |
 | `kf_outbox` | One row for each activity and recipient: `activity_iri`, `kind`, `signer` (`server`, or the number of a knowledge base actor), `recipient` (an actor IRI), `recipient_domain`, `status` (`pending`, `delivered`, `failed`, `refused`), `attempts`, `error_code`, `lease_until`, `next_attempt_at`, `created_at`, `finished_at`. The activity JSON is in `kf_outbox_activities` (`activity_iri`, `payload`), one time for each activity (schema version 33). |
 | `kf_follows` | The knowledge base actors that the server actor of this server follows: `kb_iri`, `domain`, `follow_iri`, `state` (`pending`, `accepted`), `created_at`, `accepted_at`. |
@@ -508,7 +512,7 @@ Outbound activities (design Section 9.2 rule 3; the builders of Section 5):
 | `Follow` | `{server actor}#follows/{random}` | Above |
 | `Undo` | `{Follow IRI}/undo` | Above |
 | `Accept` | `{actor}#accepts/{digest of the Follow IRI}` | The handler of `follow` |
-| `Update` of the record | `{actor}#updates/{milliseconds}` | The digest of label, description, and knowledge type is different from `kf_kb_actor_state` |
+| `Update` of the record | `{actor}#updates/{milliseconds}` | The digest of label, description, knowledge type, and `claire:acceptsAutomatic` (unit KF5) is different from `kf_kb_actor_state` |
 | `Delete` of the record | `{actor}#delete` | The shared knowledge base is gone; then the followers and the state of the actor are deleted |
 | `Update` of a document | `{document}#updates/{revised_at in milliseconds}` | A `visible` contribution has a `revised_at` after the one in `kf_document_announcements` and not before the first follower |
 | `Delete` of a document | `{document}#delete` | A contribution is `removed` (`contributions.remove`, or a purge of its document) with `decided_at` not before the first follower; `claire:reasonCode` is `decision_reason`, or `other` |
@@ -583,7 +587,7 @@ Code: `knowledge.ts` (`deliverKnowledgeTask`, `processKnowledgeOutbox`, `readRem
 3. `attributedTo` is absent for a contributor that is not a federation actor: an account without a public profile gets no address for other servers. The design says "the actor with the credit".
 4. The actor document is public (no signed GET): a server needs it to verify a signature before it can know the signer. The collections and the documents need the signed GET.
 5. The curation is asynchronous (202): Claire does not call the sidecar ([`FEDERATION.md`](FEDERATION.md) Section 2), so a read is a row that the sidecar takes.
-6. The followers get an `Update` of the record only for the label, the description, and the knowledge type. The counts and the signature change with each document.
+6. The followers get an `Update` of the record only for the label, the description, and the knowledge type (since unit KF5 also for `claire:acceptsAutomatic`). The counts and the signature change with each document.
 7. `Follow` is accepted for each server actor of a server that is not blocked (design Section 6.1: no agreement).
 8. A copy whose origin removed the document is no reason to follow the actor. When the remote knowledge base is also in no theme, the follow ends.
 9. The keys of the knowledge base actors are in the table `actor_keys` with a negative `account_id`, without a change of the schema of `auth.db`.
@@ -644,7 +648,7 @@ The step `_migrate_v32_offers_and_grants` follows the rule of v29: it makes a ta
 
 | Table | Rows |
 | :--- | :--- |
-| `kf_outbound_offers` | One row for each remote target of a contribution of an account of this server: `offer_iri` (null for a skipped target), `account_id` (null after a purge with records kept), `actor_iri`, `kb_iri`, `domain`, `source_kb_id`, `source_document_id`, `submission_item_id`, `capability_iri`, `state` (`pending`, `accepted`, `rejected`, `removed`, `skipped`), `result_iri`, `reason_code`, `created_at`, `decided_at`. |
+| `kf_outbound_offers` | One row for each remote target of a contribution of an account of this server: `offer_iri` (null for a skipped target), `account_id` (null after a purge with records kept), `actor_iri`, `kb_iri`, `domain`, `source_kb_id`, `source_document_id`, `submission_item_id`, `capability_iri`, `automatic` (schema version 34, Section 15.3), `state` (`pending`, `accepted`, `rejected`, `removed`, `skipped`), `result_iri`, `reason_code`, `created_at`, `decided_at`. |
 | `kf_inbound_offers` | One row for each `Offer` that a knowledge base actor of this server got and that the handler did not refuse: `offer_iri`, `actor_iri`, `domain`, `kb_number`, `contribution_public_id` (null for a `Reject` at once), `capability_iri`, `grant_valid` (the grant was in effect when the offer came), `state` (`pending`, `accepted`, `rejected`, `closed`), `reason_code` (the reason code on the wire), `detail` (the code of this server for a `Reject` at once), `received_at`, `answered_at`. |
 | `kf_grants` | The grants that this server gave: `grant_iri`, `kb_number`, `actor_iri`, `domain`, `granted_by_account_id`, `published_at`, `end_time` (`published_at` + 183 days), `revoked_at`, `revoked_by_account_id`. |
 | `kf_received_grants` | The grants that accounts of this server got: `grant_iri`, `kb_iri`, `domain`, `account_id`, `published_at`, `end_time` (as the other server sent them), `revoked_at`, `received_at`. |
@@ -728,7 +732,7 @@ WebUI:
 - `/settings/kb`, tab "Submissions": a remote target shows its label with a link to its page on the other server, the tag of the server, "As a collaborator" for an offer with a grant, the state (`kb.state.accepted` is new), the reason, and the delivery state when the `Offer` is not delivered. A remote target has no withdrawal. Tab "Memberships": the card "Collaborator on other servers" lists the received grants (only when there is one).
 - Dialog "Contribute directly" (`kb_dialogs.js`, `openNoThemePicker`): below the local list, the shared knowledge bases of other servers with a grant in effect and a record on this server; a pick sends `POST /submissions` with `remote_knowledge_base` and shows the result table in the dialog. The dialog "Contribute to a theme" needs no change: the result table shows the remote targets with their server.
 - `/settings/kb/{number}`, tab "Review queue": a remote contributor is the actor IRI, with the tag of its server; the detail has "Server" and "Grant of the role collaborator" (in effect when the offer came, not in effect, or none), and for a moderator the button "Give the role collaborator". Tab "Members and roles" (a moderator or the admin): the card "Collaborators of other servers" with the field for the actor address, the list of grants with state and end time, and the actions "Renew" (or "Give the role collaborator" for a grant that ended) and "Revoke". The moderation log has the actions `remote_collaborator_grant` and `remote_collaborator_revoke`.
-- `/admin/themes`: three number fields for the limits of Section 13.4.
+- `/admin/themes`: a number field for each key of `contributions.LIMITS`, the limits of Sections 13.4 and 14 included.
 
 ### 13.6 Internal Contract and Sidecar
 
@@ -771,7 +775,7 @@ Not verified: an exchange between two real sidecars over a network; the WebUI pa
 
 ### 13.10 Interfaces for Unit KF5
 
-- `offers.send(conn, account_id=, source_kb_id=, source_document_id=, remote_kb=, submission_item_id=, pending_limit=, origin=, now=)` sends one `Offer` with all checks of the sender; a run of the automatic rule can call it with `submission_item_id=None`. The vocabulary and `contribute_remote` have no automatic origin yet: KF5 adds a mark on the `Offer` (or a field of `claire:Contribution`) and the check of `access.auto_contribution_accepted` on the receiver, then `contribute_remote` with the origin `auto`.
+- `offers.send(conn, account_id=, source_kb_id=, source_document_id=, remote_kb=, submission_item_id=, pending_limit=, origin=, now=)` sends one `Offer` with all checks of the sender; a run of the automatic rule can call it with `submission_item_id=None`. Unit KF5 implemented the rest (Section 15): the parameter `automatic`, the field `claire:automatic`, the check of `access.auto_contribution_accepted` on the receiver, and `contribute_remote(automatic=True)` with the origin `auto`.
 - The limits of the receiver (Section 13.4) apply to each offer; design Section 12.3 rule 3 needs no other limit.
 - The candidates of a remote target use `remote_kbs` records with a signature (`theme_judgement.remote_signature`).
 
@@ -848,7 +852,7 @@ A read for a curation that gets `origin_removed` is `failed` with that code. A h
 | The tasks for that server that wait: `refused` with `server_removed` | The rows of the inbox journal until their retention ends; a `failed` row keeps its payload for a replay |
 | The payload of each `processed` and `refused` row of the inbox journal of that server | A domain block |
 
-The server becomes known again at its next contact. The WebUI has no button for it yet (`console_admin.js`).
+The server becomes known again at its next contact. The tab "Known servers" of `/admin/federation` has the action "Remove" with a confirmation that lists what is deleted and what stays (`console_admin.js`).
 
 ### 14.5 Sidecar
 
@@ -858,3 +862,99 @@ The server becomes known again at its next contact. The WebUI has no button for 
 - The read of a `/kb` collection needs the scheme of this server (`collection_invalid`), as a read for a curation does.
 - A 404 or 410 of the origin in a read for a curation gives `origin_removed` (Section 14.3).
 - `deno.json` and `deno.lock` did not change.
+
+## 15. Unit KF5: Automatic Contribution Across Servers
+
+Design: Section 12.3, with Sections 6.3, 12.1, 12.2, and 14; [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) Sections 9.3, 9.9, and 9.10. The local automatic contribution is in [`THEMES.md`](THEMES.md) Section 4.12.
+
+### 15.1 Files
+
+| File | Content |
+| :--- | :--- |
+| `src/claire/auto_contribution.py` | `remote_state`, `remote_targets`, `remote_candidates`; `plan`, `run_account`, and `run_all` with the parameter `origin` and the remote targets. |
+| `src/claire/knowledge_federation/vocabulary.py` | `AUTOMATIC`, `ACCEPTS_AUTOMATIC`, `AUTOMATIC_NOT_ACCEPTED`, `REJECT_REASON_CODES`; `build_contribution(automatic=)`; the field `accepts_automatic` of `build_knowledge_base`. |
+| `src/claire/knowledge_federation/offers.py` | The column `automatic`, `send(automatic=)`, `automatic_of_account`, `automatic_offered`, `RETRY_REASONS`, `ensure_automatic_column`; `record_decision` gives the row. |
+| `src/claire/knowledge_federation/remote_kbs.py` | `claire:acceptsAutomatic` in `RECORD_KEYS`, `accepts_automatic`, `note_automatic_not_accepted`. |
+| `src/claire/knowledge_federation/handlers.py` | `offer_contribution` and `reject_offer` (Sections 15.4 and 15.5). |
+| `src/claire/knowledge_federation/collections.py`, `actors.py` | `claire:acceptsAutomatic` in the record of each shared knowledge base, and in `record_digest`. |
+| `src/claire/knowledge_federation/grants.py` | `kb_iris_in_effect`. |
+| `src/claire/contributions.py` | `contribute_remote(automatic=)`. |
+| `src/claire/api/server.py`, `cli.py`, `ingest/service.py`, `ingest/pipeline.py` | The canonical origin for each run; the remote targets of the dry run; the automatic offers in `GET /api/contributions`. |
+| `src/claire/store/db.py` | `_migrate_v34_automatic_offers`, schema version 34. |
+| `src/claire/static/js/kb_dialogs.js`, `console_kb.js` | The WebUI (Section 15.6). |
+
+### 15.2 Vocabulary
+
+The context `v1` was not served yet, so the new terms are in `v1` (design Section 9.1 rule 2 applies after the first server serves it). `static/ns/v1.jsonld`, `static/ns/index.html`, and the copy of the sidecar were written again from the module.
+
+| Term or value | Where | Rule |
+| :--- | :--- | :--- |
+| `claire:automatic` | `claire:Contribution` | Optional boolean. `true`: the automatic rule of the account selected the document. |
+| `claire:acceptsAutomatic` | `claire:KnowledgeBase` (the `/kb` collection, the actor document, `Update` of the record) | Optional boolean. The state of `access.auto_contribution_accepted` of the server now. |
+| `automatic_not_accepted` | `claire:reasonCode` of a `Reject` only | The server accepts no automatic contributions now. It is not a reason code of the reviewers (`vocabulary.REASON_CODES` stays the list of `contributions.REASON_CODES`); a `Delete` with it is `invalid_reason_code`. |
+
+The fixtures of `objects/`, `activities/`, `invalid/`, and `internal/` were written again; `invalid/` has three new files (`knowledge_base_accepts_automatic_not_a_boolean`, `offer_automatic_not_a_boolean`, `delete_document_with_the_reason_of_a_reject`).
+
+### 15.3 Table (schema version 34)
+
+`kf_outbound_offers` has the new column `automatic` (`INTEGER NOT NULL DEFAULT 0`): 1 for an offer that the automatic rule sent (it has no `submission_item_id`). The step `_migrate_v34_automatic_offers` adds the column to a table of version 32 or 33 before the step v32 compares the columns, so the table is not retired; an old row gets 0. A new table has the column.
+
+### 15.4 Sender
+
+Conditions (`auto_contribution.remote_state` and `run_account`): the switch `kb_auto_contribution` of this server (design Section 12.3 rule 1), the switch `federation`, the canonical origin of this server (`contributions.canonical_origin`; the same value for a request and for a run in the background), and an account that is a federation actor. Else the rule has only local targets.
+
+| Item | Rule |
+| :--- | :--- |
+| Targets (`remote_targets`) | `memberships`: the remote knowledge bases that gave the account a grant in its term (`grants.kb_iris_in_effect`) and that have a record here. `themes`: the remote members (not excluded) of the themes of the rule (a merged theme is its target). `mutual`: none. A record of a blocked domain is no target. |
+| Score (`remote_candidates`) | The signature of the record (`remote_kbs.signature_rows`, design Section 12.3 rule 2); else the signature of a local theme that has the record as a member. No seed entities: they do not come to this server. The threshold is `auto_match_threshold`. |
+| Not candidates | The exclusions of a local target (hidden, "never contribute", pasted text, upload without `include_uploads`, no extraction), and each document with a row of `kf_outbound_offers` of the account for that knowledge base in any state, also from a submission (`offers.automatic_offered`). A row that was skipped or rejected with a reason of `offers.RETRY_REASONS` (`not_a_federation_actor`, `blocked_domain`, `pending_limit`, `knowledge_base_not_found`, `automatic_not_accepted`) does not count. The duplicate and tombstone checks are on the receiver. |
+| Mode | `approved` with a grant in its term (the receiver decides at the end: the reputation of the account there); `pending` without one; `closed` when the record says that the server accepts no automatic contributions (`remote_kbs.accepts_automatic` is False). A record without the key (a read before KF5) is not `closed`: the receiver decides. |
+| Limits | `auto_run_documents` for each run and target; the reputation level of the account on this server (`limited` fewer documents, `low` no run); for `pending`, the pending limit of the level minus the offers to that knowledge base that wait (`offers.pending_outbound`). |
+| Run | One `Offer` with `claire:automatic` for each candidate: `offers.send(automatic=True, submission_item_id=None)` with all checks of Section 13.4, and first `automatic_not_accepted` for a `closed` record. Each offer is its own transaction. A `closed` target gets no row. |
+| When | The events of the local rule (THEMES.md Section 4.12). A new remote knowledge base: the read of its `/kb` collection makes the judgement due (`run_is_due`, Section 11.5); the judgement run puts it in a theme, and the rules run after the judgement run. |
+
+`Reject` with `automatic_not_accepted` of an automatic offer (handler `reject_offer`): the row is `rejected` with that reason, and each record of the domain of the actor gets `claire:acceptsAutomatic` false (`remote_kbs.note_automatic_not_accepted`; `changed_at` does not change, so no judgement run is due). The next read of the `/kb` collection, or an `Update` of a record from a followed actor, gives the state of that server again. The same reason on an offer that was not automatic changes no record.
+
+### 15.5 Receiver
+
+The handler `offer_contribution` (Section 13.4), with one new check after the daily limit and before the archived state: an offer whose `claire:Contribution` has `claire:automatic` `true` while `access.auto_contribution_accepted` is false (the switch `federation` or `kb_auto_contribution` is off) gets a `Reject` at once with `automatic_not_accepted` (`detail` `kb_auto_contribution_off`); the journal row is `processed`, and no contribution is made. Else the rules of Section 13.4 apply without a change (the pending limits for each remote account and each domain, design Section 12.3 rule 3; the grant and the reputation), and the contribution has the origin `auto` (`contribute_remote(automatic=True)`): `pending` with a hidden copy, or `merging` without approval with a grant in effect and a reputation that is not `low`. The review queue shows the origin `auto` (shared knowledge base design Section 9.3 rule 2).
+
+The record of each shared knowledge base of this server has `claire:acceptsAutomatic`. When the admin changes a switch, the digest of the record changes: `outbox.sync` sends `Update` of each record to its followers. After the change to version 34 each record sends one `Update`, because the digest has a new part.
+
+### 15.6 Routes and WebUI
+
+No new route. Changes ([`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) and the OpenAPI document):
+
+| Route | Change |
+| :--- | :--- |
+| `POST /api/auto-rule/dry-run` | New key `remote_state` (`on`, `no_origin`, `federation_off`, `not_a_federation_actor`). Each target has `remote`. A remote target: `{"knowledge_base": null, "label", "remote": true, "remote_id", "server", "url", "actor", "mode", "documents"}`; `mode` can be `closed` (then `documents` is empty). |
+| `GET /api/contributions` | Without `origin` and with `origin=auto`: also the automatic offers of the account, newest first with the other items: `{"knowledge_base": null, "label", "number": null, "document", "title", "origin": "auto", "state", "approved", "reason", "contributed_at", "remote_target": {"remote_id", "server", "url", "actor", "result", "with_grant", "delivery", "decided_at"}}`. `state` is the state of the outbound row (`pending`, `accepted`, `rejected`, `removed`, `skipped`). |
+| `GET /submissions`, `GET /submissions/{number}` | A remote target has `automatic` (false: an offer of a submission). An automatic offer has no submission item, so it is not in these views. |
+| `PUT /api/auto-rule`, the admin routes | No change of the form; a run has remote targets. |
+
+WebUI: the dry run dialog (`kb_dialogs.js`) shows a remote target with its label, its server, and a link to its page; the mode `closed` with a note; and a note when `remote_state` is not `on`. `/settings/kb`, tab "Automatic rule": the list of automatic contributions shows a remote target with its server, its state, the reason (`automatic_not_accepted` has its catalog text), and the delivery state; a remote target has no withdrawal. The same rows are in the list "My contributions" of the tab "Submissions". New catalog keys: `kb.dlg.mode_closed`, `kb.dlg.mode_closed_hint`, `kb.dlg.dry_run_remote_no_origin`, `kb.dlg.dry_run_remote_federation_off`, `kb.dlg.dry_run_remote_not_a_federation_actor`, `kb.reason.automatic_not_accepted`, `console.js.kb.auto_remote_hint`.
+
+The sidecar needs no change: an automatic `Offer` is an `Offer` of the account actor (Section 13.6). `deno.json` and `deno.lock` did not change.
+
+### 15.7 Choices Made in the Code
+
+1. The receiver must know that an offer is automatic (design Section 12.3 rule 1: the receiver accepts only with its switch on): the field `claire:automatic` of `claire:Contribution`.
+2. The sender learns the switch of the receiver from the record (`claire:acceptsAutomatic`), so that the dry run shows a `closed` target and no offer goes there. The receiver still decides each offer: the record can be one day old.
+3. A refusal for the switch has its own reason on the wire (`automatic_not_accepted`), so that the sender shows it and can send the document again later. The reason codes of the reviewers do not change.
+4. Remote targets of `memberships`: a remote account is never a member (design Section 12.2 rule 4); a grant in its term is its role collaborator, and the shared knowledge base design Section 9.9 rule 1 counts a collaborator in `memberships`.
+5. `mutual` has no remote target. Design Section 12.2 rule 6 says that a mutual collaboration between accounts of different servers uses the same grants; the request and the acceptance of such a collaboration between two servers have no activity in design Section 9.3. Thus the effect that exists across servers is the grant (`memberships`).
+6. A remote target has no withdrawal (the vocabulary has no `Undo` of an `Offer`, Section 13.8 item 9). The account can pause the rule and set "never contribute" (shared knowledge base design Section 9.9 rule 6).
+7. The duplicate and tombstone checks of a remote target are on the receiver (`Reject` with `duplicate`); the sender does not have the documents of the other server. A rejected offer (any reason but `automatic_not_accepted`) keeps the document from that knowledge base (design Section 9.9 rule 2). A `Reject` at once for a pending limit of the receiver has the reason `other` (Section 13.8 item 5), so it also keeps the document out.
+8. The candidates of a remote target have no seed entities: the record has none. A remote knowledge base without a signature has a score only through a local theme.
+9. A grant that comes (`Grant`) starts no run; the next event of the local rule (a new document, a judgement run) sends the documents.
+10. The MCP tool `kb_candidates` gives local knowledge bases only.
+
+### 15.8 Tests
+
+| File | What it examines |
+| :--- | :--- |
+| `tests/test_knowledge_federation_kf5_e2e.py` | The completion criterion with two app objects and two databases (A and B, the mock provider): the switch on both servers; on A a theme and the rule of ben; a new shared knowledge base Cities on B; the read of A; the dry run shows Cities with its server and the mode `pending`; a run on A sends one automatic `Offer` for each matching document (not for the document with "never contribute" or of another subject); B makes pending contributions with the origin `auto`; a second run sends nothing; an approval on B reaches the list of A. The case with the switch off on B: the target is `closed` and no offer goes; after the switch is on and a new read, the offers go; an offer that comes while the switch is off again gets `Reject` with `automatic_not_accepted`, which A shows; after the switch is on again, the same documents go. The sidecars and the network are simulated by direct calls to the internal routes (the docstring says what is simulated). |
+| `tests/test_knowledge_federation_kf5.py` | The migration step v34; the receiver with the switch off and on and with a grant; the switch in the record and its `Update` to the followers; the `Reject` for the switch and the records of the sender; the sender skips a `closed` record; the remote targets of a rule. |
+| `tests/test_knowledge_federation_vocabulary.py` | The new terms in the context and the page, the fixtures, an automatic offer and its `Reject`. |
+
+Not verified: an exchange between two real sidecars over a network; the new WebUI parts with a remote target in a browser (the Playwright specs cover the pages without a remote target).

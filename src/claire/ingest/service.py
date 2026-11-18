@@ -160,7 +160,9 @@ def run_theme_judgement_if_due(settings: Any) -> bool:
             # Design Section 9.9 rule 4: after each judgement run the automatic rules run; then the merge jobs of the new contributions.
             from .. import auto_contribution
 
-            made = auto_contribution.run_all(conn)
+            from ..contributions import canonical_origin
+
+            made = auto_contribution.run_all(conn, origin=canonical_origin(settings))
         finally:
             conn.close()
         if made:

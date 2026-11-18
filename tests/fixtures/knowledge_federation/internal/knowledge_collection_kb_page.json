@@ -32,7 +32,8 @@
           "claire:knowledgeType": "real",
           "claire:documentCount": 0,
           "claire:entityCount": 0,
-          "claire:relationCount": 0
+          "claire:relationCount": 0,
+          "claire:acceptsAutomatic": false
         }
       ]
     }

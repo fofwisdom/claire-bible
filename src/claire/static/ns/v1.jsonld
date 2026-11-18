@@ -57,6 +57,12 @@
     "claire:reasonCode": {
       "@id": "claire:reasonCode"
     },
+    "claire:automatic": {
+      "@id": "claire:automatic"
+    },
+    "claire:acceptsAutomatic": {
+      "@id": "claire:acceptsAutomatic"
+    },
     "capability": {
       "@id": "https://forgefed.org/ns#capability",
       "@type": "@id"

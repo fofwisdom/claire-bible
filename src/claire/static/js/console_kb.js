@@ -76,7 +76,17 @@
       });
     }
 
-    function kbLink(c) { return c.knowledge_base ? '<a href="' + esc(kbUrl(c.knowledge_base)) + '">' + esc(c.label || c.knowledge_base) + "</a>" : "—"; }
+    // An automatic contribution to a shared knowledge base of another server (GET /api/contributions, federation design Section 12.3) has "remote_target": the server decides it, and this server has no number for it.
+    function kbLink(c) {
+      if (c.remote_target) return remoteKbHtml(c.label || c.remote_target.actor, c.remote_target.url, c.remote_target.server);
+      return c.knowledge_base ? '<a href="' + esc(kbUrl(c.knowledge_base)) + '">' + esc(c.label || c.knowledge_base) + "</a>" : "—";
+    }
+    // The reason of a decision: a reason code of the reviewers, or (for a target on another server) the reason that it was skipped or rejected; then the delivery state of an offer that is not delivered.
+    function contribReason(c) {
+      var h = c.reason ? " " + esc(c.remote_target ? ui().errorText({ error: c.reason }) : reasonText(c.reason)) : "";
+      var delivery = c.remote_target && c.remote_target.delivery && c.remote_target.delivery !== "delivered" ? c.remote_target.delivery : null;
+      return h + (delivery ? ' <span class="claire-hint">' + esc(t("console.js.kb.subs_delivery." + delivery)) + "</span>" : "");
+    }
     function withdrawBtn(kb, contribution) { return '<button type="button" class="claire-btn claire-btn-sm" data-withdraw-kb="' + esc(kb) + '" data-withdraw-c="' + esc(contribution) + '">' + esc(t("console.js.kb.withdraw_btn")) + "</button>"; }
 
     function buildPersonalTab(loadError) {
@@ -155,7 +165,7 @@
         columns: [
           { label: t("kb.dlg.col_document"), render: function (c) { return "<strong>" + esc(c.title || c.document || "—") + '</strong> <span class="claire-hint">' + esc(t("kb.origin." + c.origin)) + "</span>"; } },
           { label: t("kb.dlg.col_kb"), render: kbLink },
-          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state) + (c.approved ? ' <span class="claire-tag ok">' + esc(t("console.js.kb.mine_approved")) + "</span>" : "") + (c.reason ? " " + esc(reasonText(c.reason)) : ""); } },
+          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state) + (c.approved ? ' <span class="claire-tag ok">' + esc(t("console.js.kb.mine_approved")) + "</span>" : "") + contribReason(c); } },
           { label: t("console.js.kb.mine_col_date"), render: function (c) { return esc(dateText(c.contributed_at)); } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (c) { return c.knowledge_base && canWithdraw(c) ? withdrawBtn(c.knowledge_base, c.number) : "—"; } }
         ],
@@ -191,12 +201,14 @@
         '<button type="button" class="claire-btn pri" id="kb-rule-save">' + esc(t("console.js.kb.rule_save")) + "</button></div></div>";
 
       h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.auto_card")) + "</h3></div>";
+      h += '<p class="claire-hint">' + esc(t("console.js.kb.auto_remote_hint")) + "</p>";
       h += ui().renderTable({
         caption: t("console.js.kb.auto_card"),
         columns: [
           { label: t("kb.dlg.col_document"), render: function (c) { return esc(c.title || c.document || "—"); } },
           { label: t("kb.dlg.col_kb"), render: kbLink },
-          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state); } },
+          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state) + contribReason(c); } },
+          // A target on another server has no withdrawal: the vocabulary has no Undo of an Offer. The flag "never contribute" keeps the document from the next runs.
           { label: t("kb.pub.col_actions"), actions: true, render: function (c) { return c.knowledge_base && canWithdraw(c) ? withdrawBtn(c.knowledge_base, c.number) : "—"; } }
         ],
         rows: state.autos
@@ -592,7 +604,7 @@
         var sel = (r.data && r.data.selected) || { state: "none", documents: [] };
         var docs = sel.documents || [];
         var reload = '<div class="claire-actions"><button type="button" class="claire-btn claire-btn-sm" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div>";
-        var note = sel.state === "failed" ? '<div class="claire-note warn"><span>' + esc(t("console.js.kb.curate_remote_failed", { code: sel.error || "" })) + "</span></div>" :
+        var note = sel.state === "failed" ? '<div class="claire-note warn"><span>' + esc(t("console.js.kb.curate_remote_failed", { code: ui().errorText({ error: sel.error || "" }) })) + "</span></div>" :
           sel.state !== "ready" ? '<p class="claire-hint">' + esc(t("console.js.kb.curate_remote_reading")) + "</p>" : "";
         if (!docs.length) {
           docsBox.innerHTML = note + (sel.state === "ready" ? '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>" : "") + reload + requestsHtml;

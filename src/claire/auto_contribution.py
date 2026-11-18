@@ -5,6 +5,14 @@ An account sets one rule. The rule sends the documents of the personal knowledge
 - The function works only while the server switch ``kb_auto_contribution`` is ``on`` (the default is ``off``).
 - Targets of a rule: the shared knowledge bases where the account is an active member (``memberships``), the ones that a mutual collaborator founded (``mutual``), and the ones of the themes of the rule (``themes``).
 - A run makes the contributions and their merge jobs. The caller runs the merge jobs.
+
+Targets on other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.3, unit KF5). The rule can include shared knowledge bases of other servers; each one is a record of ``knowledge_federation.remote_kbs``:
+
+- ``themes``: the remote knowledge bases that are members (not excluded) of a theme of the rule.
+- ``memberships``: the remote knowledge bases that gave the account the role collaborator with a grant in its term (federation design Section 12.2). A remote account is never a member, so the grant is its membership.
+- ``mutual``: no remote target. A mutual collaboration between accounts of two servers needs an agreement of the two accounts, and the vocabulary has no activity for it (federation design Section 9.3).
+
+A candidate for a remote target has a score with the signature of the record (else with the signature of the local theme that has the record as a member); the duplicate and tombstone checks are on the other server. A run sends one ``Offer`` with ``claire:automatic`` for each candidate (``knowledge_federation.offers.send``), with the limits of a local target: ``auto_run_documents`` for each run and target, the reputation level of the account on this server, and the pending limit of the level (the offers that wait for an answer). A target whose record says that its server accepts no automatic contributions now gets no offer (mode ``closed``). The sender needs the switch ``kb_auto_contribution`` (``switch_on``), the switch ``federation``, the canonical origin of this server, and an account that is a federation actor.
 """
 
 from __future__ import annotations
@@ -26,6 +34,10 @@ SWITCH_KEY = "kb_auto_contribution"
 SETTINGS: dict[str, float] = {"auto_match_threshold": 0.5, "auto_run_documents": 50}
 # ``documents.source_type`` of a pasted text. Such a document never goes by the rule.
 PASTED_TEXT = "text"
+# Can a rule have targets on other servers now (``remote_state``)? ``on``, or the reason that it cannot.
+REMOTE_STATES = ("on", "no_origin", "federation_off", "not_a_federation_actor")
+# The modes of a target (rule 3): ``approved`` (a collaborator or a moderator; on another server, an account with a grant in its term, and the other server decides at the end), ``direct`` (a member), ``pending``; and ``closed`` for a target on a server that accepts no automatic contributions now.
+MODES = ("approved", "direct", "pending", "closed")
 
 
 def switch_on(conn: sqlite3.Connection) -> bool:
@@ -173,8 +185,22 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
         return []
     if document_keys is None:
         document_keys = personal_document_keys(conn, personal_kb_id)
-    blocked = kb_collab.contribution_blocks(conn, account_id)
     done = kb_collab.documents_contributed_to(conn, kb_id, account_id)
+    out: list[dict[str, Any]] = []
+    for row, value in _over_threshold(conn, account_id=account_id, personal_kb_id=personal_kb_id, done=done, include_uploads=include_uploads, documents=documents, score=score, settings=settings, document_keys=document_keys):
+        if contributions.find_duplicate(conn, kb_id, canonical_url=row["canonical_url"], content_hash=row["content_hash"]) is not None:
+            continue
+        by_url = bool(row["canonical_url"])
+        if dbm.is_tombstoned(conn, canonical_url=row["canonical_url"] if by_url else None, content_hash=None if by_url else row["content_hash"], kb_id=int(kb_id)):
+            continue
+        out.append({"document": str(row["id"]), "title": row["title"], "score": value})
+    out.sort(key=lambda c: (-c["score"], c["document"]))
+    return out
+
+
+def _over_threshold(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, done: set[str], include_uploads: bool, documents: list[str] | None, score: Any, settings: dict[str, float], document_keys: dict[str, set[tuple[str, str]]]) -> list[tuple[sqlite3.Row, float]]:
+    """The visible documents of the personal knowledge base with a score at or over ``auto_match_threshold`` and a stored extraction, without the documents of ``done``, the documents with the flag "never contribute", the pasted texts, and (unless ``include_uploads``) the uploaded files. The checks of the target come after this step."""
+    blocked = kb_collab.contribution_blocks(conn, account_id)
     sql = "SELECT id, title, url, canonical_url, content_hash, source_type FROM documents WHERE kb_id=? AND hidden=0"
     args: list[Any] = [int(personal_kb_id)]
     if documents is not None:
@@ -182,7 +208,7 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
             return []
         sql += f" AND id IN ({', '.join('?' for _ in documents)})"
         args.extend(documents)
-    out: list[dict[str, Any]] = []
+    out: list[tuple[sqlite3.Row, float]] = []
     for row in conn.execute(sql, args).fetchall():
         document_id = str(row["id"])
         if document_id in blocked or document_id in done or row["source_type"] == PASTED_TEXT:
@@ -194,12 +220,76 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
             continue
         if not conn.execute("SELECT 1 FROM extractions WHERE document_id=? AND kb_id=? LIMIT 1", (document_id, int(personal_kb_id))).fetchone():
             continue
-        if contributions.find_duplicate(conn, kb_id, canonical_url=row["canonical_url"], content_hash=row["content_hash"]) is not None:
-            continue
-        by_url = bool(row["canonical_url"])
-        if dbm.is_tombstoned(conn, canonical_url=row["canonical_url"] if by_url else None, content_hash=None if by_url else row["content_hash"], kb_id=int(kb_id)):
-            continue
-        out.append({"document": document_id, "title": row["title"], "score": value})
+        out.append((row, value))
+    return out
+
+
+# --- targets on other servers (federation design Section 12.3, unit KF5) ------------------------------------------
+
+
+def remote_state(conn: sqlite3.Connection, account_id: int, origin: str | None) -> str:
+    """``on`` when the rule of the account can have targets on other servers now, else the reason (one of ``REMOTE_STATES``): this server has no canonical origin (``no_origin``), the switch ``federation`` is off (``federation_off``), or the account has no actor that can sign an ``Offer`` (``not_a_federation_actor``: a public profile and a USERNAME, federation design Section 12.1 rule 2)."""
+    from .knowledge_federation import access, actors
+
+    if origin is None:
+        return "no_origin"
+    if not access.federation_on(conn):
+        return "federation_off"
+    if actors.account_actor_iri(conn, account_id, origin) is None:
+        return "not_a_federation_actor"
+    return "on"
+
+
+def remote_targets(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, now: float) -> list[Any]:
+    """The records of the remote knowledge bases that the rule selects (federation design Section 12.3 rule 2), by the number of the record: with ``memberships`` the ones that gave the account a grant in its term, and the members (not excluded) of the themes of the rule. A record of a blocked domain is no target. The caller checks ``remote_state`` first."""
+    from .knowledge_federation import grants, remote_kbs
+    from .store import federation as federation_store
+
+    found: dict[int, Any] = {}
+    if rule["to_memberships"]:
+        for iri in grants.kb_iris_in_effect(conn, account_id=account_id, now=now):
+            record = remote_kbs.get_by_iri(conn, iri)
+            if record is not None:
+                found[record.id] = record
+    for theme_id in {_live_theme(conn, int(t)) for t in rule["theme_ids"]} - {None}:
+        for member in themes_store.remote_members(conn, theme_id=theme_id):
+            if int(member["remote_kb_id"]) not in found:
+                record = remote_kbs.get(conn, int(member["remote_kb_id"]))
+                if record is not None:
+                    found[record.id] = record
+    return [found[key] for key in sorted(found) if federation_store.blocking_domain(conn, found[key].domain) is None]
+
+
+def _remote_scorer(conn: sqlite3.Connection, matcher: theme_judgement.DocumentMatcher, record: Any):
+    """The score function of a remote target: the signature of the record (federation design Section 12.3 rule 2), else the signature of a local theme that has the record as a member (Section 8.5). None when it has none of them: the seed entities of a remote knowledge base do not come to this server."""
+    from .knowledge_federation import remote_kbs
+
+    keys = {(etype, norm) for etype, norm, _weight in remote_kbs.signature_rows(record)}
+    if keys:
+        return lambda document_keys: matcher.score(document_keys, keys)
+    theme_ids = {int(m["theme_id"]) for m in themes_store.remote_members(conn) if int(m["remote_kb_id"]) == int(record.id)}
+    theme_keys = [theme["keys"] for theme in matcher.themes if theme["id"] in theme_ids]
+    if theme_keys:
+        return lambda document_keys: max(matcher.score(document_keys, k) for k in theme_keys)
+    return None
+
+
+def remote_candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, record: Any, include_uploads: bool, documents: list[str] | None = None, matcher: theme_judgement.DocumentMatcher | None = None, settings: dict[str, float] | None = None, document_keys: dict[str, set[tuple[str, str]]] | None = None) -> list[dict[str, Any]]:
+    """The documents of the personal knowledge base that fit a remote knowledge base, with the highest score first: ``{"document", "title", "score"}`` (federation design Section 12.3 rule 2, shared knowledge base design Section 9.9 rule 2).
+
+    Not candidates: the documents of ``candidates`` that are not candidates (hidden, "never contribute", pasted text, uploaded file unless ``include_uploads``, no extraction), and each document with a row of ``kf_outbound_offers`` for that knowledge base (``offers.automatic_offered``: offered, accepted, rejected, removed, or skipped for a reason of the document). The duplicate and tombstone checks are on the other server: it rejects such an offer with ``duplicate``.
+    """
+    from .knowledge_federation import offers
+
+    matcher = matcher or theme_judgement.DocumentMatcher.load(conn)
+    settings = settings or read_settings(conn)
+    score = _remote_scorer(conn, matcher, record)
+    if score is None:
+        return []
+    if document_keys is None:
+        document_keys = personal_document_keys(conn, personal_kb_id)
+    done = offers.automatic_offered(conn, account_id=account_id, kb_iri=record.iri)
+    out = [{"document": str(row["id"]), "title": row["title"], "score": value} for row, value in _over_threshold(conn, account_id=account_id, personal_kb_id=personal_kb_id, done=done, include_uploads=include_uploads, documents=documents, score=score, settings=settings, document_keys=document_keys)]
     out.sort(key=lambda c: (-c["score"], c["document"]))
     return out
 
@@ -207,10 +297,11 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
 # --- run -------------------------------------------------------------------------------------------------------------
 
 
-def plan(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, documents: list[str] | None = None, now: float | None = None) -> list[dict[str, Any]]:
-    """What a run of the rule sends now: for each target ``{"kb_id", "mode", "documents": [...]}`` (also the dry run of Section 9.9 rule 6). It writes nothing.
+def plan(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, origin: str | None, documents: list[str] | None = None, now: float | None = None) -> list[dict[str, Any]]:
+    """What a run of the rule sends now (also the dry run of Section 9.9 rule 6). It writes nothing.
 
-    ``mode`` (rule 3): ``approved`` for a collaborator or a moderator, ``direct`` for a member, ``pending`` for each other account. The reputation applies (Section 8.6): with ``low`` the rule is paused, and with ``limited`` a run sends fewer documents. The pending limit of the level also limits a ``pending`` target.
+    A target of this server: ``{"kb_id", "mode", "documents": [...]}``. A target on another server (federation design Section 12.3): ``{"remote_id", "kb_iri", "server", "label", "url", "mode", "documents": [...]}``; ``origin`` is the canonical origin of this server, or None when it has none (then no remote target).
+    ``mode`` (rule 3): ``approved`` for a collaborator or a moderator (on another server: a grant in its term), ``direct`` for a member, ``pending`` for each other account, and ``closed`` for a remote target whose server accepts no automatic contributions now (a ``closed`` target is in the result with no documents, so that the dry run shows it). The reputation applies (Section 8.6): with ``low`` the rule is paused, and with ``limited`` a run sends fewer documents. The pending limit of the level also limits a ``pending`` target.
     """
     personal = conn.execute("SELECT id FROM knowledge_bases WHERE is_personal=1 AND account_id=?", (int(account_id),)).fetchone()
     if personal is None:
@@ -237,13 +328,33 @@ def plan(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, doc
             found = found[: max(room, 0)]
         if found:
             out.append({"kb_id": kb_id, "mode": mode, "documents": found})
+    if remote_state(conn, account_id, origin) != "on":
+        return out
+    from .knowledge_federation import grants, offers, remote_kbs
+
+    ts = time.time() if now is None else now
+    for record in remote_targets(conn, account_id, rule, now=ts):
+        target = {"remote_id": record.id, "kb_iri": record.iri, "server": record.domain, "label": record.label, "url": record.url}
+        if remote_kbs.accepts_automatic(record) is False:
+            out.append({**target, "mode": "closed", "documents": []})
+            continue
+        if document_keys is None:
+            document_keys = personal_document_keys(conn, int(personal[0]))
+        mode = "approved" if grants.capability_for(conn, account_id=account_id, kb_iri=record.iri, now=ts) is not None else "pending"
+        found = remote_candidates(conn, account_id=account_id, personal_kb_id=int(personal[0]), record=record, include_uploads=bool(rule["include_uploads"]), documents=documents, matcher=matcher, settings=settings, document_keys=document_keys)[:run_limit]
+        if mode == "pending":
+            # The pending limit of the sender counts the offers to that knowledge base that wait for an answer (federation implementation Section 13.8 item 4).
+            room = reputation.pending_limit(reputation_settings, level) - offers.pending_outbound(conn, account_id=account_id, kb_iri=record.iri)
+            found = found[: max(room, 0)]
+        if found:
+            out.append({**target, "mode": mode, "documents": found})
     return out
 
 
-def run_account(conn: sqlite3.Connection, account_id: int, *, documents: list[str] | None = None, now: float | None = None) -> int:
-    """One run of the rule of an account. Return the count of new contributions. Each contribution is its own transaction (a commit after each one); the caller runs the merge jobs.
+def run_account(conn: sqlite3.Connection, account_id: int, *, origin: str | None, documents: list[str] | None = None, now: float | None = None) -> int:
+    """One run of the rule of an account. Return the count of new contributions and of the offers that went to other servers. Each contribution and each offer is its own transaction (a commit after each one); the caller runs the merge jobs.
 
-    Nothing runs while the server switch is off, without an active rule, or for an account that is not active.
+    Nothing runs while the server switch is off, without an active rule, or for an account that is not active. ``origin``: the canonical origin of this server (``contributions.canonical_origin``), or None when it has none; then the run has no target on another server. A remote target gets one ``Offer`` with ``claire:automatic`` for each candidate (``offers.send`` with no submission item); a ``closed`` target gets none.
     """
     if not switch_on(conn):
         return 0
@@ -256,7 +367,10 @@ def run_account(conn: sqlite3.Connection, account_id: int, *, documents: list[st
     ts = time.time() if now is None else now
     personal = conn.execute("SELECT id FROM knowledge_bases WHERE is_personal=1 AND account_id=?", (int(account_id),)).fetchone()
     made = 0
-    for target in plan(conn, account_id, rule, documents=documents, now=ts):
+    for target in plan(conn, account_id, rule, origin=origin, documents=documents, now=ts):
+        if "remote_id" in target:
+            made += _send_remote(conn, account_id=int(account_id), personal_kb_id=int(personal[0]), target=target, origin=origin, now=ts)
+            continue
         for candidate in target["documents"]:
             try:
                 contributions.contribute_direct(
@@ -271,14 +385,39 @@ def run_account(conn: sqlite3.Connection, account_id: int, *, documents: list[st
     return made
 
 
-def run_all(conn: sqlite3.Connection, *, now: float | None = None) -> int:
-    """A run for each account with an active rule (after a judgement run, and when a shared knowledge base gets a signature or seed entities). A failure of one account does not stop the others."""
+def _send_remote(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, target: dict[str, Any], origin: str | None, now: float) -> int:
+    """Send the ``Offer`` of each document of one remote target of ``plan``. Return the number of offers that went to the outbox. A target that was skipped (``offers.send`` checks the account, the domain, the pending limit, and the limits of one document again) is a row with its reason."""
+    from .knowledge_federation import offers, remote_kbs
+
+    if target["mode"] == "closed" or origin is None:
+        return 0
+    record = remote_kbs.get(conn, int(target["remote_id"]))
+    if record is None:
+        return 0
+    pending_limit = reputation.pending_limit(reputation.read_settings(conn), reputation.level(conn, account_id, now=now))
+    sent = 0
+    for candidate in target["documents"]:
+        try:
+            row = offers.send(conn, account_id=account_id, source_kb_id=personal_kb_id, source_document_id=candidate["document"], remote_kb=record, submission_item_id=None, pending_limit=pending_limit, automatic=True, origin=origin, now=now)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        if row["state"] == "pending":
+            sent += 1
+        else:
+            log.info("automatic offer of %s to %s did not go: %s", candidate["document"], record.iri, row["reason_code"])
+    return sent
+
+
+def run_all(conn: sqlite3.Connection, *, origin: str | None, now: float | None = None) -> int:
+    """A run for each account with an active rule (after a judgement run, and when a shared knowledge base gets a signature or seed entities). A failure of one account does not stop the others. ``origin`` as in ``run_account``."""
     if not switch_on(conn):
         return 0
     made = 0
     for account_id in kb_collab.accounts_with_active_rule(conn):
         try:
-            made += run_account(conn, account_id, now=now)
+            made += run_account(conn, account_id, origin=origin, now=now)
         except Exception as exc:  # noqa: BLE001
             conn.rollback()
             log.warning("automatic contribution of account %s failed: %s", account_id, type(exc).__name__)

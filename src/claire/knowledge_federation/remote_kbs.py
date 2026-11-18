@@ -34,6 +34,7 @@ __all__ = [
     "TABLES",
     "BatchResult",
     "RemoteKnowledgeBase",
+    "accepts_automatic",
     "apply_update",
     "collection_url",
     "delete_record",
@@ -45,6 +46,7 @@ __all__ = [
     "get_by_iri",
     "lease_reads",
     "list_all",
+    "note_automatic_not_accepted",
     "list_of_domain",
     "purge_blocked",
     "read_state",
@@ -73,7 +75,7 @@ RECORD_MAX_BYTES = 128 * 1024
 # The keys of a ``claire:KnowledgeBase`` that the record keeps (the wire contract, ``vocabulary``). Each other key of the object that came is not stored.
 RECORD_KEYS: tuple[str, ...] = (
     "id", "type", "name", "summary", "url", "inbox", "outbox", "followers", vocabulary.DOCUMENTS,
-    vocabulary.KNOWLEDGE_TYPE, vocabulary.DOCUMENT_COUNT, vocabulary.ENTITY_COUNT, vocabulary.RELATION_COUNT, vocabulary.SIGNATURE,
+    vocabulary.KNOWLEDGE_TYPE, vocabulary.DOCUMENT_COUNT, vocabulary.ENTITY_COUNT, vocabulary.RELATION_COUNT, vocabulary.SIGNATURE, vocabulary.ACCEPTS_AUTOMATIC,
 )
 _MAX_ERROR_LENGTH = 200
 
@@ -218,6 +220,27 @@ def signature_rows(kb: RemoteKnowledgeBase) -> list[tuple[str, str, float]]:
     return [(str(row[0]), str(row[1]), float(row[2])) for row in value["entities"]]
 
 
+def accepts_automatic(kb: RemoteKnowledgeBase) -> bool | None:
+    """What the record says about the server of the knowledge base (``claire:acceptsAutomatic``, unit KF5): True when it accepts automatic contributions, False when it rejects them, None when the record does not tell it (a record of ``list_all`` has no payload, and a record of a read before unit KF5 has no such key). With None the other server decides when the offer comes."""
+    if kb.payload is None:
+        return None
+    value = json.loads(kb.payload).get(vocabulary.ACCEPTS_AUTOMATIC)
+    return value if isinstance(value, bool) else None
+
+
+def note_automatic_not_accepted(conn: sqlite3.Connection, domain: str) -> int:
+    """A knowledge base actor of ``domain`` rejected an automatic contribution with ``vocabulary.AUTOMATIC_NOT_ACCEPTED``: the switch of that server is off. Each record of the domain gets ``claire:acceptsAutomatic`` false, so that the next run of an automatic rule sends no offer there; the next read of the ``/kb`` collection (or an ``Update`` of a record) gives the state of that server again. ``changed_at`` does not change: the content of the knowledge base is the same. Return the number of records."""
+    changed = 0
+    for row in conn.execute("SELECT id, payload FROM kf_remote_knowledge_bases WHERE domain=?", (domain,)).fetchall():
+        payload = json.loads(row[1])
+        if payload.get(vocabulary.ACCEPTS_AUTOMATIC) is False:
+            continue
+        payload[vocabulary.ACCEPTS_AUTOMATIC] = False
+        conn.execute("UPDATE kf_remote_knowledge_bases SET payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False, sort_keys=True), int(row[0])))
+        changed += 1
+    return changed
+
+
 def read_state(conn: sqlite3.Connection, domain: str) -> ReadState | None:
     row = conn.execute(f"SELECT {_READ_COLUMNS} FROM kf_remote_kb_reads WHERE domain=?", (domain,)).fetchone()
     return None if row is None else ReadState(*tuple(row))
@@ -325,6 +348,14 @@ def _record(obj: dict[str, Any]) -> dict[str, Any]:
     return {key: obj[key] for key in RECORD_KEYS if key in obj}
 
 
+def _content(payload: str | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    value = json.loads(payload)
+    value.pop(vocabulary.ACCEPTS_AUTOMATIC, None)
+    return value
+
+
 def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: RemoteKnowledgeBase | None, *, now: float) -> None:
     """Insert or change the record of one checked ``claire:KnowledgeBase`` (the result of ``_check_item``). ``changed_at`` changes only when the content changes."""
     obj = _record(obj)
@@ -337,7 +368,8 @@ def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: 
             (obj["id"], *values, now, now, now),
         )
         return
-    changed = now if current.payload != payload else current.changed_at
+    # ``claire:acceptsAutomatic`` is a state of the server, not of the content: its change is no reason for a new judgement run (``theme_judgement.run_is_due`` reads ``changed_at``).
+    changed = now if _content(current.payload) != _content(payload) else current.changed_at
     conn.execute(
         "UPDATE kf_remote_knowledge_bases SET domain=?, url=?, label=?, description=?, knowledge_type=?, document_count=?, entity_count=?, relation_count=?, signature=?, payload=?, seen_at=?, changed_at=? WHERE id=?",
         (*values, now, changed, current.id),

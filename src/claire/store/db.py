@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -759,6 +759,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v29_knowledge_federation(conn)
     _migrate_v30_remote_knowledge_bases(conn)
     _migrate_v31_knowledge_base_actors(conn)
+    _migrate_v34_automatic_offers(conn)
     _migrate_v32_offers_and_grants(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
@@ -1528,6 +1529,14 @@ def _migrate_v32_offers_and_grants(conn: sqlite3.Connection) -> None:
         for table, columns in module.TABLES.items():
             _retire_table_of_other_form(conn, table, columns, version=32)
         module.ensure_schema(conn)
+
+
+def _migrate_v34_automatic_offers(conn: sqlite3.Connection) -> None:
+    """v34 schema (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.3, unit KF5): ``kf_outbound_offers`` gets the column ``automatic`` (an offer that the automatic rule of the account sent). Idempotent (A3); it runs at each start, before the step v32, so that the step v32 finds the columns that the code reads and keeps the table. A row of version 32 or 33 gets 0. When the table is not there, the step v32 makes it with the column. It changes no other row; ``knowledge_federation.offers`` owns the table."""
+    from ..knowledge_federation import offers
+
+    if _table_exists(conn, "kf_outbound_offers"):
+        offers.ensure_automatic_column(conn)
 
 
 def _migrate_v33_knowledge_federation_limits(conn: sqlite3.Connection) -> None:

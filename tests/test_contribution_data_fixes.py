@@ -383,7 +383,7 @@ def test_automatic_rule_reads_the_personal_knowledge_base_one_time_and_follows_m
         monkeypatch.setattr(theme_judgement, "_document_keys", lambda c, kb: reads.append(kb) or real_keys(c, kb))
         monkeypatch.setattr(theme_judgement, "document_keys", _one_document)
         monkeypatch.setattr(contributions, "find_duplicate", lambda c, kb, **kwargs: checked.append(kwargs["canonical_url"]) or real_duplicate(c, kb, **kwargs))
-        planned = auto_contribution.plan(conn, BEN, rule)
+        planned = auto_contribution.plan(conn, BEN, rule, origin=None)
         assert [(t["kb_id"], [d["document"] for d in t["documents"]]) for t in planned] == [(kb_id, [web]), (int(towns["id"]), [web])]
         # One read of the entities for the two targets; the checks of one document run only for the document over the threshold.
         assert reads == [world.manager.personal_kb_for(BEN).id] and checked == ["https://example.org/web"] * 2
@@ -403,7 +403,7 @@ def test_automatic_rule_reads_the_personal_knowledge_base_one_time_and_follows_m
         sent = _contribution(world, conn, web, origin="auto", run=False)
         assert contributions.withdraw(conn, data_dir, kb_id=kb_id, contribution=sent["public_id"], account_id=BEN) == {"contribution_blocked": True}
         assert kb_collab.contribution_blocks(conn, BEN) == {web}
-        assert auto_contribution.plan(conn, BEN, rule) == []
+        assert auto_contribution.plan(conn, BEN, rule, origin=None) == []
         # A contribution that the account made itself gets no flag.
         own = _contribution(world, conn, _document(world, BEN, "own", KOREA), run=False)
         assert contributions.withdraw(conn, data_dir, kb_id=kb_id, contribution=own["public_id"], account_id=BEN) == {"contribution_blocked": False}

@@ -36,6 +36,7 @@ __all__ = [
     "get_issued",
     "give",
     "grant_iri",
+    "kb_iris_in_effect",
     "issued_state",
     "list_issued",
     "purge_account",
@@ -203,6 +204,14 @@ def capability_for(conn: sqlite3.Connection, *, account_id: int, kb_iri: str, no
         (int(account_id), kb_iri, now, now),
     ).fetchone()
     return None if row is None else str(row[0])
+
+
+def kb_iris_in_effect(conn: sqlite3.Connection, *, account_id: int, now: float) -> list[str]:
+    """The knowledge base actors of other servers that gave the account a grant that is in its term and that the giver did not revoke (the rule of ``capability_for``). The automatic rule of the account selects them with ``memberships`` (unit KF5): the account is a collaborator there."""
+    return [str(row[0]) for row in conn.execute(
+        "SELECT DISTINCT kb_iri FROM kf_received_grants WHERE account_id=? AND revoked_at IS NULL AND published_at<=? AND end_time>? ORDER BY kb_iri",
+        (int(account_id), now, now),
+    ).fetchall()]
 
 
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:

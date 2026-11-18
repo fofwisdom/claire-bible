@@ -897,7 +897,7 @@ def submit_to_themes(
         if direct_remote is not None:
             item_id = kb_collab.add_submission_item(conn, submission_public_id=submission, source_document_id=document_id, theme_id=None, routed_by="account", match_score=None)
             assert origin is not None
-            offers.send(conn, account_id=account_id, source_kb_id=personal_kb_id, source_document_id=document_id, remote_kb=direct_remote, submission_item_id=item_id, pending_limit=pending_limit, origin=origin, now=ts)
+            offers.send(conn, account_id=account_id, source_kb_id=personal_kb_id, source_document_id=document_id, remote_kb=direct_remote, submission_item_id=item_id, pending_limit=pending_limit, automatic=False, origin=origin, now=ts)
             continue
         if theme_id is not None:
             item_theme, routed_by, score = theme_id, "account", None
@@ -938,7 +938,7 @@ def submit_to_themes(
             for member in themes_store.remote_members(conn, theme_id=int(item_theme)):
                 remote = remote_kbs.get(conn, int(member["remote_kb_id"]))
                 if remote is not None:
-                    offers.send(conn, account_id=account_id, source_kb_id=personal_kb_id, source_document_id=document_id, remote_kb=remote, submission_item_id=item_id, pending_limit=pending_limit, origin=origin, now=ts)
+                    offers.send(conn, account_id=account_id, source_kb_id=personal_kb_id, source_document_id=document_id, remote_kb=remote, submission_item_id=item_id, pending_limit=pending_limit, automatic=False, origin=origin, now=ts)
     return submission
 
 
@@ -1260,11 +1260,12 @@ def curate_remote(conn: sqlite3.Connection, *, kb_id: int, source_kb_iri: str, a
     return row
 
 
-def contribute_remote(conn: sqlite3.Connection, *, kb_id: int, article: dict[str, Any], actor_iri: str, approved: bool, now: float | None = None) -> dict[str, Any]:
+def contribute_remote(conn: sqlite3.Connection, *, kb_id: int, article: dict[str, Any], actor_iri: str, approved: bool, automatic: bool, now: float | None = None) -> dict[str, Any]:
     """Make the contribution of an ``Offer`` of an account of another server in the shared knowledge base K (federation design Section 12.1 rule 3). No commit: a handler of the inbox journal calls this function.
 
     ``article`` is the ``Article`` of the ``claire:Contribution`` with its extraction; the caller validated it, its limits, and that it is the own document of ``actor_iri``. The credit is the remote actor; the root and the source are the document on the other server. The checks are those of a direct contribution, with the content hash that this server computes: a document that K has gives ``contribution_duplicate``, and one that K removed gives ``contribution_tombstoned``.
     ``approved`` (the offer has a grant in effect, and the reputation of the account on this server is not ``low``; federation design Section 12.2 rule 2): no approval, the state is ``merging`` with a merge job, and the origin is ``direct``. No account approved it, so the approval is no decision for the reputation. Else the copy stays hidden, the state is ``pending`` with the origin ``bulk``, and no graph is built until a reviewer approves.
+    ``automatic`` (the ``claire:Contribution`` has ``claire:automatic``; federation design Section 12.3, shared knowledge base design Section 9.9 rule 3): the origin is ``auto`` in the two cases, so that the review page shows it (Section 9.3 rule 2). The caller checked that this server accepts automatic contributions.
     """
     from .knowledge_federation import vocabulary
 
@@ -1275,7 +1276,7 @@ def contribute_remote(conn: sqlite3.Connection, *, kb_id: int, article: dict[str
     check_new_source(conn, kb_id, canonical_url=article.get("url"), content_hash=remote_content_hash(html, article))
     target_id = copy_remote_document(conn, article=article, sanitized_html=html, canonical_url=article.get("url"), credit=actor_iri, root=str(article[vocabulary.ROOT]), target_kb_id=kb_id, hidden=True, now=ts)
     public_id = kb_collab.add_contribution(
-        conn, kb_id=kb_id, document_id=target_id, origin="direct" if approved else "bulk", state="merging" if approved else "pending", contributor_account_id=None,
+        conn, kb_id=kb_id, document_id=target_id, origin="auto" if automatic else ("direct" if approved else "bulk"), state="merging" if approved else "pending", contributor_account_id=None,
         approved_at=ts if approved else None, approved_by_account_id=None,
         remote={"source_kb_iri": None, "source_iri": str(article["id"]), "root_iri": str(article[vocabulary.ROOT]), "credit_iri": actor_iri}, now=ts,
     )
