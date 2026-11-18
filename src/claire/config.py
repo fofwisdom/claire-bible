@@ -265,6 +265,14 @@ def _is_executable_file(path: Path) -> bool:
         return False
 
 
+def _is_readable_file(path: Path) -> bool:
+    """True when ``path`` is a file. A path in a directory that the process cannot read is not a file for the diagnosis: on Python 3.11 ``Path.is_file`` raises ``PermissionError`` for such a path."""
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
     """Find agy executable in PATH or standard container/host locations."""
     if not agy_bin:
@@ -304,7 +312,7 @@ def diagnose_agy_environment(agy_bin: str = "agy") -> dict:
     }
 
     p = Path(agy_bin)
-    if p.is_file():
+    if _is_readable_file(p):
         exec_ok = os.access(p, os.X_OK)
         diagnosis["checked_paths"].append({"path": str(p), "exists": True, "executable": exec_ok})
         if exec_ok:
@@ -330,7 +338,7 @@ def diagnose_agy_environment(agy_bin: str = "agy") -> dict:
     ]
     for d in extra_dirs:
         cand = Path(d) / agy_bin
-        exists = cand.is_file()
+        exists = _is_readable_file(cand)
         exec_ok = exists and os.access(cand, os.X_OK)
         diagnosis["checked_paths"].append({"path": str(cand), "exists": exists, "executable": exec_ok})
         if exec_ok:
@@ -469,7 +477,7 @@ class Settings(BaseSettings):
     # --- provider ---
     provider: str = Field(default="mock", alias="CLAIRE_PROVIDER")
     # The model fields have no environment variable: the Web UI (providers.json) sets the models. ``_WithoutModelFields`` removes them from the environment sources.
-    gemini_model: str = Field(default="gemini-3.1-flash-lite")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite-medium")
     gemini_effort: str = Field(default="medium", alias="CLAIRE_GEMINI_EFFORT")
     gemini_embed_model: str = Field(default="gemini-embedding-001")
     embed_task_type: str = Field(
