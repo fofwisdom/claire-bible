@@ -40,7 +40,7 @@ This document tells how the web workspace works now. The design principles are i
 
 1. Start (`.bar-brand-group`): brand link (`Claire Bible`), page-specific theme picker, workspace list toggle (`#listtoggle`).
 2. Center (`.appbar-center`): always includes the unified command palette trigger button (`#palettetrigger`, keyboard shortcut `/`) inside `.appbar-palette-slot`, followed by page-specific center content (workspace view tabs `#centertabs` and `#streamtabs`, or syndication stream title, or console title/badge). The bar has no text `<input>`.
-3. End (`.appbar-end`): optional page actions to the left (`#addbtn` ingest dropdown on workspace & `/syndication`, `#ctxbtn` / `#morebtn` on workspace, `#btn-note-new` on `/syndication`), light/dark switch (`#themebtn`), and then the three shared rightmost icons ordered strictly from the rightmost edge inward:
+3. End (`.appbar-end`): optional page actions to the left (`#addbtn` ingest dropdown on workspace & `/syndication`, `#btn-note-new` on `/syndication`; the bar has no context panel button, see §3.3), light/dark switch (`#themebtn`), and then the three shared rightmost icons ordered strictly from the rightmost edge inward:
    - Hamburger menu button (`#hamburger-btn`, rightmost edge) opening `#pop-hamburger-menu` (`popover="auto"`, `focusgroup="menu nomemory"`)
    - Syndication link (`#syndlink`, hidden on `/` until owner permission check passes)
    - User Home link (`#homelinkbtn`, left of `#syndlink`)
@@ -61,7 +61,7 @@ This document tells how the web workspace works now. The design principles are i
 | Width | Columns | Context panel |
 | :--- | :--- | :--- |
 | 1101px and more | `var(--list-col,280px) minmax(420px,1fr) var(--ctx-col,var(--detail-width,360px))`. `body.list-closed` sets the list column to 0; `body.ctx-closed` sets the context column to 0. | A grid column of 360px (`--detail-width` in `theme.css`), only when it is open. |
-| 721px to 1100px | `280px minmax(0,1fr)` (list column 0 when closed) | A drawer above the center pane. `#ctxbtn` is hidden. |
+| 721px to 1100px | `280px minmax(0,1fr)` (list column 0 when closed) | A drawer above the center pane. |
 | 720px and less | One column | A sheet from the bottom. The list pane is a drawer from the left side. |
 
 The grid columns have a 0.2s transition. It stops with `prefers-reduced-motion`.
@@ -82,7 +82,15 @@ The grid columns have a 0.2s transition. It stops with `prefers-reduced-motion`.
 - a form or a result is pinned in the panel (`contextPinned`: ingest, regenerate, research, synthesis), or an entity is selected, in each view; or
 - the view is not `home` and a document is open, or the view is `graph`.
 
-`isContextOpen()` is `hasContext()` and the user state `contextUserOpen` (account-scoped key `claireContextOpen`). The head bar of the reader (`#reader .rtools`) has the context button `#rctxbtn` at each width, in the place of the old close button (removed 2026-11-18: the reader is a center view, not a modal). It calls `toggleContextPanel()`; its `aria-expanded` follows the context column on a wide screen and the drawer on a narrow screen. A `MutationObserver` on `#panel` calls `syncWorkspaceLayout()` when the panel content changes.
+`isContextOpen()` is `hasContext()` and the user state `contextUserOpen` (account-scoped key `claireContextOpen`). A `MutationObserver` on `#panel` calls `syncWorkspaceLayout()` when the panel content changes.
+
+The panel has one close button at each width: `#detailclose` in its own head (`closeContextPanel()`). The header bar has no context button (owner request 2026-11-19: three close places became one). The open buttons call `openContextPanel()` and never close:
+
+- `#rctxbtn` in the head bar of the reader (`#reader .rtools`), in the place of the old close button of the reader (removed 2026-11-18: the reader is a center view, not a modal).
+- `#gctxbtn` on the graph canvas, below the top bars of the graph view (in the zero-height row `#gctxrow`).
+- `#botnav-context` in the bottom bar (720px and less). Its `aria-expanded` shows the open sheet; a click on it while the sheet is open does nothing.
+
+`syncWorkspaceLayout()` hides `#rctxbtn` and `#gctxbtn` while the panel (the drawer on a narrow screen) is open or no context exists. When the panel opens from an open button, the focus goes to `#detailclose`; when the panel closes with the focus in it, the focus goes to the open button of the view (`contextOpenButton()`). Limit: above 720px, the presentation, decision stream, and matrix views have no open button (HD7: they stay as they are). In those views the panel opens with an entity selection or a pinned form, and the user state is the same for all views.
 
 | Context | Content of `#panel` |
 | :--- | :--- |

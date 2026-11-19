@@ -216,6 +216,7 @@
           <div id="graphdoclist"></div>
         </div>
       </div>
+      <div id="gctxrow"><button type="button" id="gctxbtn" hidden aria-controls="detailpane" onclick="openContextPanel()" title="${t:nav.context_open}" aria-label="${t:nav.context_open}"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button></div>
       <div id="net" aria-label="${t:ws.view.graph_title}"></div>
       <div id="graphnotice" role="status" aria-live="polite"></div>
       <div id="degctl" aria-label="${t:ws.graph.degree_filter}">
@@ -372,7 +373,7 @@
               <button onclick="setReadFS(2)" title="${t:ws.reader.font_larger}" aria-label="${t:ws.reader.font_larger}">A+</button>
             </div>
             <button class="rshare" onclick="shareDoc()" title="${t:ws.reader.share}" aria-label="${t:ws.reader.share}"><span data-icon="link"></span></button>
-            <button type="button" class="rctx" id="rctxbtn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" title="${t:nav.context_toggle}" aria-label="${t:nav.context_toggle}"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
+            <button type="button" class="rctx" id="rctxbtn" hidden aria-controls="detailpane" onclick="openContextPanel()" title="${t:nav.context_open}" aria-label="${t:nav.context_open}"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
           </div>
         </div>
         <div class="sharebox" id="sharebox"></div>
@@ -433,7 +434,7 @@
   <button id="botnav-list" type="button" aria-expanded="false" aria-controls="docs" onclick="toggleListPane()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span data-i18n="nav.list">List</span></button>
   <button id="botnav-reader" type="button" onclick="setCenterView('reader')"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg><span data-i18n="nav.reader">Reader</span></button>
   <button id="botnav-graph" type="button" onclick="setCenterView('graph')"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg><span data-i18n="nav.graph">Graph</span></button>
-  <button id="botnav-context" type="button" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg><span data-i18n="context.title">Context</span></button>
+  <button id="botnav-context" type="button" aria-expanded="false" aria-controls="detailpane" onclick="openContextPanel()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg><span data-i18n="context.title">Context</span></button>
 </nav>
 <!-- A small summary popup at the mouse position when the pointer is on a node. -->
 <div id="nodepop"></div>

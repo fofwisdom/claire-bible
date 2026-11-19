@@ -598,18 +598,38 @@ function setContextUserOpen(open){
   }
   syncWorkspaceLayout();
 }
-function toggleContextPanel(){
-  if(compactMQ.matches || mobileMQ.matches){ toggleDrawer(); return; }
-  if(hasContext()) setContextUserOpen(!contextUserOpen);
+// The context panel has one close button, #detailclose in its own head. The open buttons (#rctxbtn in the reader head, #gctxbtn on the graph canvas, #botnav-context in the bottom bar of a narrow screen) only open it, and the header bar has none.
+function contextOpenButton(){
+  for(const id of ['rctxbtn','gctxbtn']){
+    const b = document.getElementById(id);
+    if(b && !b.hidden && b.getClientRects().length) return b;
+  }
+  return null;
+}
+function openContextPanel(){
+  const opener = document.activeElement;
+  if(compactMQ.matches || mobileMQ.matches){
+    if(drawerOpen || detailOpen) return;
+    openDrawer();
+  }else{
+    if(!hasContext()) return;
+    setContextUserOpen(true);
+  }
+  // The open button hides when the panel opens; the focus goes into the panel and not to the page body.
+  if(opener && opener.hidden){
+    const dc = document.getElementById('detailclose');
+    if(dc) dc.focus();
+  }
 }
 function closeContextPanel(){
   if(compactMQ.matches || mobileMQ.matches){ closeDrawer(true); return; }
   const dp = document.getElementById('detailpane');
-  if(dp && dp.contains(document.activeElement)){
-    const cb = document.getElementById('ctxbtn');
-    if(cb && !cb.disabled) cb.focus();
-  }
+  const hadFocus = Boolean(dp && dp.contains(document.activeElement));
   setContextUserOpen(false);
+  if(hadFocus){
+    const target = contextOpenButton() || paneEls[activePane];
+    if(target) target.focus();
+  }
 }
 // --- List pane: open state and the list that the user selects (design Section 4.3) ---
 let listPaneOpen = true, listOverride = null, lastListMode = null;
@@ -918,8 +938,6 @@ function syncWorkspaceLayout(){
   const isDrawerActive = isMobileOrCompact && (drawerOpen || detailOpen);
   document.body.classList.toggle('detail-open', isMobileOrCompact && detailOpen);
   document.body.classList.toggle('drawer-open', isDrawerActive);
-  const moreBtn = document.getElementById('morebtn');
-  if(moreBtn) moreBtn.setAttribute('aria-expanded', isDrawerActive?'true':'false');
   const menuBtn = document.getElementById('tab-menu');
   if(menuBtn) menuBtn.setAttribute('aria-expanded', (isMobileOrCompact && drawerOpen)?'true':'false');
 
@@ -945,14 +963,12 @@ function syncWorkspaceLayout(){
     dp.setAttribute('aria-hidden', ctxOpen ? 'false' : 'true');
     dp.inert = !ctxOpen;
   }
-  const ctxBtn = document.getElementById('ctxbtn');
-  if(ctxBtn){
-    ctxBtn.disabled = !hasContext();
-    ctxBtn.setAttribute('aria-expanded', ctxOpen ? 'true' : 'false');
-  }
-  // The context button of the document head bar (in the place of the old close button). On a narrow screen the context is the drawer.
-  const readerCtxBtn = document.getElementById('rctxbtn');
-  if(readerCtxBtn) readerCtxBtn.setAttribute('aria-expanded', (wide ? ctxOpen : isDrawerActive) ? 'true' : 'false');
+  // The open buttons of the context panel show only while the panel (the drawer on a narrow screen) is closed and a context exists. The panel closes only with #detailclose.
+  const ctxShown = wide ? ctxOpen : isDrawerActive;
+  ['rctxbtn','gctxbtn'].forEach(id => {
+    const b = document.getElementById(id);
+    if(b) b.hidden = ctxShown || !hasContext();
+  });
   const listBtn = document.getElementById('listtoggle');
   if(listBtn) listBtn.setAttribute('aria-expanded', listPaneOpen ? 'true' : 'false');
   const docsPane = document.getElementById('docs');
@@ -1045,7 +1061,7 @@ function closeDetailPane(){
   drawerOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('morebtn') || paneEls[activePane]) : paneEls[activePane];
+  if(!target) target=contextOpenButton() || paneEls[activePane];
   detailReturnFocus=null;
   replaceAppHistory({ modal: getActiveModalName() });
   requestAnimationFrame(()=>{ if(target) target.focus(); });
@@ -1094,14 +1110,10 @@ function closeDrawer(focus=false){
   detailOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=mobileMQ.matches ? (document.getElementById('botnav-context') || document.getElementById('morebtn') || paneEls[activePane]) : (compactMQ.matches ? (document.getElementById('morebtn') || paneEls[activePane]) : document.getElementById('morebtn'));
+  if(!target) target=mobileMQ.matches ? (document.getElementById('botnav-context') || contextOpenButton() || paneEls[activePane]) : (contextOpenButton() || paneEls[activePane]);
   detailReturnFocus=null;
   replaceAppHistory({ modal: getActiveModalName() });
   if(shouldFocus && target) requestAnimationFrame(()=>target.focus());
-}
-function toggleDrawer(){
-  if(drawerOpen || detailOpen) closeDrawer(true);
-  else openDrawer();
 }
 let docDrawerOpen = false;
 function openDocDrawer(pushHist=true){
@@ -1181,7 +1193,6 @@ function focusMobileSearch(){
   if(q){ q.value=''; onCenterSearchInput(''); q.focus(); }
 }
 function closeToolsMenu(focus=false){ closeDrawer(focus); }
-function toggleToolsMenu(){ toggleDrawer(); }
 function graphSelectableDocs(){
   const visible=allDocs.filter(dc=>dc.hidden!==1);
   return visible.filter(dc=>dc.pinned===1).concat(visible.filter(dc=>dc.pinned!==1));
@@ -6496,7 +6507,7 @@ window.claireDebug = {
   get listMode(){ return listMode(); },
   get centerView(){ return centerView; },
   get allDocs(){ return allDocs; },
-  toggleContextPanel: toggleContextPanel,
+  openContextPanel: openContextPanel,
   docWithMostNodes: docWithMostNodes,
   getRecentDocId: getRecentDocId,
   get lastSelectedDocId(){ return lastSelectedDocId; },

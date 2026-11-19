@@ -91,10 +91,6 @@ def _build_standalone_graph_html() -> str:
         '<button id="centertab-stream" type="button" class="center-tab-btn" onclick="setCenterView(\'stream\')" title="${t:ws.view.stream_title}" aria-label="${t:ws.view.stream}"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg></span> <span class="btn-label">${t:ws.view.stream}</span></button>'
         "</nav></div>"
     )
-    ws_end_extra = (
-        '<button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>'
-        '<button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane" data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>'
-    )
     ws_hamburger_extra = (
         '<button type="button" id="palettebtn" onclick="openCommandPaletteFromMenu()" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open"><span class="btn-icon" data-icon="search"></span> <span class="app-menu-label" data-i18n="nav.palette.open">${t:nav.palette.open}</span><kbd class="app-menu-kbd">/</kbd></button>'
         '<div id="graph-section" class="app-menu-sec" aria-label="${t:ws.menu.graph_tools}">'
@@ -119,7 +115,6 @@ def _build_standalone_graph_html() -> str:
         end_id="viewoptions",
         ingest_enabled=True,
         ingest_hidden=True,
-        end_extra_html=ws_end_extra,
         home_href="./",
         home_onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'nav'});}",
         home_current=True,

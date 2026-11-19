@@ -249,7 +249,7 @@
   "nav.home_aria": "User home",
   "nav.menu_account": "Console and account",
   "nav.manage": "Manage",
-  "nav.context_toggle": "Show or hide the context panel",
+  "nav.context_open": "Open the context panel",
   "nav.palette.open": "Command palette",
   "nav.palette.open_title": "Open command palette (/)",
   "nav.palette.title": "Command palette",

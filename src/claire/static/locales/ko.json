@@ -249,7 +249,7 @@
   "nav.home_aria": "유저 홈",
   "nav.menu_account": "콘솔 및 계정",
   "nav.manage": "관리",
-  "nav.context_toggle": "문맥 패널 열기/닫기",
+  "nav.context_open": "문맥 패널 열기",
   "nav.palette.open": "명령 팔레트",
   "nav.palette.open_title": "명령 팔레트 열기 (/)",
   "nav.palette.title": "명령 팔레트",

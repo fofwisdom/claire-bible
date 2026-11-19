@@ -33,9 +33,6 @@
   #netsearch{padding:8px 18px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0;min-height:48px;box-sizing:border-box;display:flex;align-items:center}
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
   #barsearch input{flex:1;min-width:0}
-  #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
-    border-radius:6px;cursor:pointer;font-size:18px;line-height:1}
-  #morebtn:hover{background:var(--hover)}
   #worktabs{display:none}
   #botnav{display:none}
   #drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
@@ -69,6 +66,12 @@
   #zoomctl button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
     background:var(--sec-bg);color:var(--sec-fg);font-size:19px;line-height:1;cursor:pointer;opacity:.9}
   #zoomctl button:active{opacity:1;background:var(--hover)}
+  /* The open button of the context panel on the graph canvas. The row has no height, thus the button floats below the top bars of the graph view at each width. It shows only while the panel is closed (syncWorkspaceLayout). */
+  #gctxrow{position:relative;flex:0 0 0;height:0;z-index:5}
+  #gctxbtn{position:absolute;right:14px;top:10px;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
+    background:var(--sec-bg);color:var(--sec-fg);display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;opacity:.9}
+  #gctxbtn:hover{opacity:1;background:var(--hover)}
+  #gctxbtn[hidden]{display:none}
   #graphnotice{position:absolute;left:50%;top:42px;z-index:6;display:none;max-width:min(520px,80%);
     transform:translateX(-50%);padding:7px 11px;border:1px solid var(--accent);
     border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
@@ -360,7 +363,6 @@
 /* --- Responsive Media Queries for Workspace --- */
 @media (max-width:1100px){
     #wrap{grid-template-columns:280px minmax(0,1fr)}
-    #morebtn{display:inline-flex!important}
 
     #detailpane{position:fixed;top:0;right:0;bottom:0;
       z-index:55;width:min(400px,82vw);height:auto;max-height:none;
@@ -383,7 +385,6 @@
      - 기본 보기: 목록
   */
   @media (max-width:720px){
-    #morebtn{display:inline-flex!important;min-width:38px;min-height:38px;height:38px;padding:4px 8px;align-items:center;justify-content:center}
     #viewoptions select{font-size:13px;padding:4px 6px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
@@ -596,7 +597,6 @@
   .matrix-placeholder-wave .wave-sub { font-size: 11.5px; color: var(--muted); }
 
 /* --- Header view navigation, home view, list switch, and context panel on demand (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, unit HW-1) --- */
-  #morebtn{align-items:center;justify-content:center}
   /* The center head (palette trigger + view navigation) is in the header bar. */
   #bar #centerhead{flex:1;min-width:0;height:auto;min-height:0;padding:0;border:0;background:transparent;z-index:auto}
   #bar #centerhead #netsearch{order:1}
@@ -742,9 +742,6 @@
     body.list-closed #wrap{grid-template-columns:0 minmax(0,1fr)}
     body.list-closed #docs{width:0;border-right:0;visibility:hidden}
   }
-  @media (max-width:1100px){
-    #ctxbtn{display:none}
-  }
   @media (max-width:1280px){
     #centertab-presentation .btn-label,#centertab-stream .btn-label,.bar-ingest-btn .btn-label{display:none}
   }
@@ -752,7 +749,7 @@
   @media (max-width:720px){
     /* The view buttons are in the bottom bar. The button of the command palette stays, as the second row of the header. */
     #bar #centerhead{order:10;flex:1 0 100%}
-    #bar #centerhead #centertab-group,#listtoggle,#ctxbtn{display:none}
+    #bar #centerhead #centertab-group,#listtoggle{display:none}
     #bar #centerhead #netsearch{max-width:none;width:100%}
     #botnav{position:fixed;left:0;right:0;bottom:0;z-index:53;display:grid;grid-template-columns:repeat(5,1fr);height:calc(52px + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);background:var(--bar-bg);border-top:1px solid var(--border);box-sizing:border-box}
     #botnav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:44px;padding:4px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:500;line-height:1.1;cursor:pointer}

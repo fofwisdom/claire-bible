@@ -190,7 +190,7 @@ def test_graph_html_self_contained_markers():
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
     assert 'id="worktabs"' not in GRAPH_HTML
-    assert 'id="morebtn"' in GRAPH_HTML
+    assert 'id="morebtn"' not in GRAPH_HTML
     assert '<div class="head">' in GRAPH_HTML
     assert 'class="rhead"' not in GRAPH_HTML
     assert "docsPane.setAttribute('role', 'dialog')" in GRAPH_HTML
@@ -235,7 +235,8 @@ def test_graph_html_self_contained_markers():
     assert "window.addEventListener('pointerdown'" in GRAPH_HTML
     # aside#detailpane(우측 문맥 패널) 온디맨드 전환 및 목록 전환 검증
     assert "--detail-width:360px;" in GRAPH_HTML and "ctx-closed" in GRAPH_HTML
-    assert 'id="ctxbtn"' in GRAPH_HTML and "toggleContextPanel" in GRAPH_HTML
+    # The header bar has no context button. The panel closes only with #detailclose; #rctxbtn and #gctxbtn only open it.
+    assert 'id="ctxbtn"' not in GRAPH_HTML and 'id="gctxbtn"' in GRAPH_HTML and "openContextPanel" in GRAPH_HTML
     assert 'id="detailclose"' in GRAPH_HTML and "btn-label" in GRAPH_HTML
 
 
@@ -244,7 +245,7 @@ def test_right_menu_compact_icon_mode_markers():
     assert "--detail-width:360px;" in GRAPH_HTML
     assert "body.ctx-closed #detailpane" in GRAPH_HTML
     assert "body.list-closed #docs" in GRAPH_HTML
-    assert "toggleContextPanel" in GRAPH_HTML
+    assert "openContextPanel" in GRAPH_HTML and "toggleContextPanel" not in GRAPH_HTML
     assert "closeContextPanel" in GRAPH_HTML
     assert "claireContextOpen" in GRAPH_HTML
     assert "claireListOpen" in GRAPH_HTML

@@ -24,7 +24,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(size.scroll).toBeLessThanOrEqual(size.client);
 }
 
-test('mobile primary view displays the bottom view bar and the graph, and the context button is to the right of the theme button', async ({ page }) => {
+test('mobile primary view displays the bottom view bar and the graph, and the header bar has no context button', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -42,31 +42,28 @@ test('mobile primary view displays the bottom view bar and the graph, and the co
   // 2. 바텀 바 및 단추 제거 확인
   await expect(page.locator('#worktabs')).toBeHidden();
 
-  // 3. 모바일 상단 바에 문맥 드로어 단추(#morebtn)와 우측 공통 햄버거 메뉴(#hamburger-btn)가 표시되는지 확인
+  // 3. The header bar has the theme switch and the hamburger menu, but no context button: the context panel has its one close button in its own head.
   const themebtn = page.locator('#themebtn');
-  const morebtn = page.locator('#morebtn');
   const hamburgerBtn = page.locator('#hamburger-btn');
   await expect(themebtn).toBeVisible();
-  await expect(morebtn).toBeVisible();
   await expect(hamburgerBtn).toBeVisible();
-
+  await expect(page.locator('#bar #ctxbtn, #bar #morebtn')).toHaveCount(0);
   const themeBox = await themebtn.boundingBox();
-  const moreBox = await morebtn.boundingBox();
   const hamburgerBox = await hamburgerBtn.boundingBox();
   expect(themeBox).not.toBeNull();
-  expect(moreBox).not.toBeNull();
   expect(hamburgerBox).not.toBeNull();
-  expect(moreBox.x).toBeLessThan(themeBox.x);
   expect(hamburgerBox.x).toBeGreaterThan(themeBox.x);
-  expect(moreBox.height).toBeGreaterThanOrEqual(38);
-  expect(moreBox.width).toBeGreaterThanOrEqual(38);
 
-  // 4. 상세 메뉴 꺼내기 클릭 시 detailpane 열림 및 닫힘
-  await morebtn.click();
+  // 4. The open button of the graph canvas opens the context sheet and hides; the close button of the sheet closes it.
+  const graphCtxBtn = page.locator('#gctxbtn');
+  await expect(graphCtxBtn).toBeVisible();
+  await graphCtxBtn.click();
   const detailPane = page.locator('#detailpane');
   await expect(detailPane).toBeVisible();
+  await expect(graphCtxBtn).toBeHidden();
   await page.locator('#detailclose').click();
   await expect(detailPane).toBeHidden();
+  await expect(graphCtxBtn).toBeVisible();
   await expect(page.locator('#botnav')).toBeVisible();
 
   // 5. 센터탭에서 본문 읽기(reader) 본문 영역 표시 (팝업 모달이 아닌 중앙 작업 영역)
@@ -77,13 +74,18 @@ test('mobile primary view displays the bottom view bar and the graph, and the co
   await expect(reader).toBeVisible();
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 6. The document head bar has no close button. Its context button opens the context drawer.
+  // 6. The document head bar has no close button. Its context button only opens the context sheet and hides while the sheet is open.
   await expect(page.locator('#reader .rclose')).toHaveCount(0);
   await page.locator('#rctxbtn').click();
   await expect(page.locator('#detailpane')).toBeVisible();
-  await expect(page.locator('#rctxbtn')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#rctxbtn')).toBeHidden();
+  // The Context item of the bottom bar shows the open sheet; it does not close it.
+  await expect(page.locator('#botnav-context')).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('#botnav-context').click();
+  await expect(page.locator('#detailpane')).toBeVisible();
   await page.locator('#detailclose').click();
   await expect(page.locator('#detailpane')).toBeHidden();
+  await expect(page.locator('#rctxbtn')).toBeVisible();
 
   // 7. 센터탭에서 프레젠테이션 및 그래프 전환
   await page.locator('#botnav-graph').click();
@@ -98,7 +100,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
   await expect(page.locator('#worktabs')).toBeHidden();
-  await expect(page.locator('#morebtn')).toBeVisible();
+  await expect(page.locator('#bar #ctxbtn, #bar #morebtn')).toHaveCount(0);
   await expect(page.locator('#graphdocnav')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
   await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
@@ -111,10 +113,12 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   }).toBeGreaterThan(600);
   await expect(page.locator('#detailpane')).toBeHidden();
 
-  await page.locator('#morebtn').click();
+  await page.locator('#gctxbtn').click();
   await expect(page.locator('#detailpane')).toBeVisible();
+  await expect(page.locator('#gctxbtn')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.locator('#detailpane')).toBeHidden();
+  await expect(page.locator('#gctxbtn')).toBeVisible();
 
   await expect(page.locator('#authstate')).toHaveCount(0);
   await expect(page.locator('#addbtn')).toBeHidden();
@@ -129,7 +133,6 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
 
   await page.setViewportSize({ width: 1600, height: 900 });
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator('#morebtn')).toBeHidden();
   await expect(page.locator('#worktabs')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
   await expect(page.locator('#netwrap')).toBeVisible();
@@ -137,64 +140,62 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
 });
 
 
-test('context panel stays closed without selection and toggles on demand on desktop', async ({ page }) => {
+test('context panel stays closed without selection, opens on demand, and has one close button on desktop', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Without a selection, #detailpane is collapsed (ctx-closed) and #ctxbtn is disabled
+  // 1. Without a selection, #detailpane is collapsed (ctx-closed). The header bar has no context button.
   const detailPane = page.locator('#detailpane');
-  const ctxBtn = page.locator('#ctxbtn');
+  const closeBtn = page.locator('#detailclose');
+  const readerCtxBtn = page.locator('#rctxbtn');
   await expect(page.locator('body')).toHaveClass(/ctx-closed/);
   await expect(detailPane).toHaveAttribute('aria-hidden', 'true');
-  await expect(ctxBtn).toBeDisabled();
+  await expect(page.locator('#bar #ctxbtn, #bar #morebtn')).toHaveCount(0);
 
-  // 2. Open a document in reader -> #detailpane opens on demand (>= 300px) and #ctxbtn becomes enabled
+  // 2. Open a document in reader -> #detailpane opens on demand (>= 300px). While it is open, its own close button is the only visible control for it.
   await page.locator('.docitem').first().click();
   await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
   await expect(detailPane).toBeVisible();
   await expect(detailPane).toHaveAttribute('aria-hidden', 'false');
-  await expect(ctxBtn).toBeEnabled();
-  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
   await expect.poll(async () => {
     const box = await detailPane.boundingBox();
     return box ? box.width : 0;
   }).toBeGreaterThanOrEqual(300);
+  await expect(closeBtn).toBeVisible();
+  await expect(readerCtxBtn).toBeHidden();
 
-  // 3. Click #ctxbtn to collapse #detailpane to zero width
-  await ctxBtn.click();
+  // 3. The close button collapses #detailpane to zero width. The focus goes to the open button of the document head bar.
+  await closeBtn.click();
   await expect(page.locator('body')).toHaveClass(/ctx-closed/);
-  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'false');
   await expect.poll(async () => {
     const box = await detailPane.boundingBox();
     return box ? box.width : 999;
   }).toBeLessThanOrEqual(1);
+  await expect(readerCtxBtn).toBeVisible();
+  await expect(readerCtxBtn).toBeFocused();
 
-  const actionBtn = page.locator('#themebtn');
-  await expect(actionBtn).toBeVisible();
-  await expect(actionBtn).toHaveAttribute('aria-label');
-
-  // 4. Click #ctxbtn again to restore full width
-  await ctxBtn.click();
+  // 4. The open button restores the full width, hides, and moves the focus to the close button.
+  await readerCtxBtn.press('Enter');
   await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
-  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
   await expect.poll(async () => {
     const box = await detailPane.boundingBox();
     return box ? box.width : 0;
   }).toBeGreaterThanOrEqual(300);
+  await expect(readerCtxBtn).toBeHidden();
+  await expect(closeBtn).toBeFocused();
 
-  // 5. The context button of the document head bar closes and opens the same panel.
-  const readerCtxBtn = page.locator('#rctxbtn');
-  await expect(readerCtxBtn).toBeVisible();
-  await expect(readerCtxBtn).toHaveAttribute('aria-expanded', 'true');
-  await readerCtxBtn.click();
-  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
-  await expect(readerCtxBtn).toHaveAttribute('aria-expanded', 'false');
-  await readerCtxBtn.click();
+  // 5. The graph view has its own open button on the canvas, with the same rule.
+  await closeBtn.click();
+  await page.locator('#centertab-graph').click();
+  const graphCtxBtn = page.locator('#gctxbtn');
+  await expect(graphCtxBtn).toBeVisible();
+  await graphCtxBtn.click();
   await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
-  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
+  await expect(graphCtxBtn).toBeHidden();
+  await expect(page.locator('#ctx-insights')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -213,7 +214,7 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   // The graph view shows the entity list. The document list is in the reader view.
   await page.locator('#centertab-reader').click();
   await page.locator('.docitem').first().evaluate(element => element.click());
-  await page.locator('#ctxbtn').click();
+  await page.locator('#detailclose').click();
   await expect(page.locator('body')).toHaveClass(/ctx-closed/);
   await page.evaluate(() => setCenterView('graph'));
   await expect.poll(
@@ -348,8 +349,8 @@ test('mobile history back navigation closes modal and returns to previous view w
   expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(false);
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 4. 상단 우측의 상세 메뉴(#morebtn) 열기
-  await page.locator('#morebtn').click();
+  // 4. Open the context sheet with the Context item of the bottom bar.
+  await page.locator('#botnav-context').click();
   const detailPane = page.locator('#detailpane');
   await expect(detailPane).toBeVisible();
 
@@ -386,10 +387,10 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await expect(reader).toBeHidden();
   await expect(page.locator('#botnav')).toBeVisible();
 
-  // 3. 상단의 햄버거 메뉴(#morebtn) 클릭
-  const moreBtn = page.locator('#morebtn');
-  await expect(moreBtn).toBeVisible();
-  await moreBtn.click();
+  // 3. Open the context sheet with the open button of the graph canvas.
+  const graphCtxBtn = page.locator('#gctxbtn');
+  await expect(graphCtxBtn).toBeVisible();
+  await graphCtxBtn.click();
 
   // 4. Detailpane과 backdrop이 표시되는지 확인
   const detailPane = page.locator('#detailpane');
@@ -2398,7 +2399,7 @@ test('home view opens by default with facts, recent ingestion, list switch, and 
   await expect(page.locator('#home-recent-list .home-row').first()).toBeVisible();
   await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
   await expect(page.locator('body')).toHaveClass(/ctx-closed/);
-  await expect(page.locator('#ctxbtn')).toBeDisabled();
+  await expect(page.locator('#bar #ctxbtn')).toHaveCount(0);
 
   // The list switch toggles between Entities and Documents in the same view, and resets on the next view change.
   await page.locator('#listswitch .list-switch-btn[data-list="entities"]').click();
@@ -2413,8 +2414,8 @@ test('home view opens by default with facts, recent ingestion, list switch, and 
   await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
   await expect(page.locator('#reader')).toBeVisible();
   await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
-  await expect(page.locator('#ctxbtn')).toBeEnabled();
-  await expect(page.locator('#ctxbtn')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#detailclose')).toBeVisible();
+  await expect(page.locator('#rctxbtn')).toBeHidden();
 
   // Returning via brand link restores the home view and closes the context panel.
   await page.locator('a.brand').click();
