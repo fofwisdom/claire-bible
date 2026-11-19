@@ -1219,3 +1219,15 @@ def test_init_db_renders_stored_bodies_again_after_renderer_revision_change(tmp_
     dbm.init_db(conn)
     assert conn.execute("SELECT detail_html FROM documents WHERE id='doc_tilde'").fetchone()[0] == "<p>kept</p>"
     conn.close()
+
+
+def test_detail_prompt_limits_quote_blocks_to_direct_quotes():
+    """The body prompt keeps [quote] for direct quotes of the source: no paraphrase, no concept label or merged citation marks as attribution, no comma in the attribution."""
+    prompt = render_detail_prompt("본문", [], merged=False, format="adoc")
+
+    assert "원문 언어 그대로 옮긴 직접 인용만" in prompt
+    assert "번역·요약·의역한 문장이나 여러 문장을 합친 문장은 `[quote]`에 넣지 마라" in prompt
+    assert "개념 이름은 출처가 아니다" in prompt
+    assert "인용 표기를 출처로 옮기지 말고" in prompt
+    assert "출처에는 쉼표를 쓰지 마라" in prompt
+    assert "[quote, 발언자 또는 핵심 개념]" not in prompt

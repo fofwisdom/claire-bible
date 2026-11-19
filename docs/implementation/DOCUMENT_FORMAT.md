@@ -18,6 +18,7 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
 
 - **[code]** `render_detail_prompt` in `src/claire/extract/prompts.py` always calls `render_detail_prompt_adoc`. The prompt asks for a Korean AsciiDoc document with these rules:
   - Pure AsciiDoc. No Markdown syntax. A thematic break is `'''` only. Strong is `*x*`, emphasis is `_x_`, highlight is `#x#`. A link is `https://example.com[text]`. Quotes and code use `[quote]` and `[source,lang]` blocks.
+  - A `[quote]` block holds only a direct quote: a sentence of the source in its source language. A Korean translation goes in the next paragraph. A translated, summarized, or paraphrased statement goes in a paragraph or a `[NOTE]`. The attribution is the person or work that said or wrote the sentence, never a concept label. A citation mark of the source author (for example `(Smith, 2007)`) does not become the attribution, and the citation marks of different sentences do not merge into one attribution. The attribution has no comma, because a comma separates the attribution and the citation (`[quote, attribution, citation]`).
   - Written style (`~한다`, `~이다`). Sections with `==` and `===`. Lists with `*`.
   - Code with callouts (`<1>`). `[NOTE]` or `[IMPORTANT]` in one or two places only. Tables (`|===`) keep all values of the source.
   - Highlight for one or two phrases only. Proper names stay in their source form.
