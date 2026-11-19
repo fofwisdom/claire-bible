@@ -1404,6 +1404,9 @@ test('WebUI regenerate button opens form and executes without client script erro
 
   // 5. Verify dry run results or result area appears
   await expect(page.locator('#regenresult')).toBeVisible();
+  // The dialog has one run button (the footer): the dry run result has no second run button.
+  await expect(page.locator('#regenresult h3')).toBeVisible();
+  await expect(page.locator('#regenresult button')).toHaveCount(0);
 
   // 6. Click '재생성 시작' and verify no uncaught reference errors occurred
   const startBtn = modal.locator('button.readbtn:has-text("재생성 시작")');
@@ -1411,6 +1414,34 @@ test('WebUI regenerate button opens form and executes without client script erro
   await startBtn.click();
 
   // 7. Verify no script errors (such as pauseGraphForIngest is not defined) were thrown
+  expect(pageErrors).toEqual([]);
+});
+
+test('WebUI regenerate shows a failure, not a completion, when the target result has an error', async ({ page }) => {
+  // Support bundle sb_20261119_132433: the LLM call failed, but the result screen said "complete".
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  const errText = "가독 상세(detail) 생성 실패 (Error code: 400 - Unknown parameter 'thinking_config')";
+  await page.route('**/regenerate-stream', async (route) => {
+    const result = { dry_run: false, count: 1, targets: [{ document_id: 'doc-regen-1', title: 'Regen Failure Doc', actions: ['regenerate_detail'], error: errText }] };
+    await route.fulfill({ status: 200, contentType: 'application/x-ndjson', body: JSON.stringify({ stage: 'work', msg: 'detail' }) + '\n' + JSON.stringify({ done: true, result }) + '\n' });
+  });
+
+  await page.goto('/?t=e2e-regenfail-token-0123456789abcd', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  await page.locator('#addbtn').click();
+  await page.locator('#ingest-opt-regen').click();
+  const modal = page.locator('dialog#modal-regen');
+  await expect(modal).toBeVisible();
+  await page.locator('#regentarget').fill('doc-regen-1');
+  await modal.locator('#regencomp-detail').check();
+  await modal.locator('button.readbtn:has-text("재생성 시작")').click();
+
+  const panel = page.locator('#panel');
+  await expect(panel.locator('h2')).toContainText('재생성 실패');
+  await expect(panel).toContainText('thinking_config');
+  await expect(panel).not.toContainText('컴포넌트 재생성 완료');
   expect(pageErrors).toEqual([]);
 });
 

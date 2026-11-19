@@ -214,6 +214,8 @@ Each row calls a function that exists. `/syndication` loads the same module with
 
 **[code]** Server: each ingest, re-ingest, and regenerate runs in `active_job()` (`src/claire/ingest/active.py`; kinds `ingest` in `ingest/pipeline.py`, `reingest` and `regenerate` in `ingest/service.py`). Each job has a file `data/active_jobs/<job_id>.json`; `active_ingest.json` is a copy of the primary job for older clients. Limits: 4 slots (`_MAX_EXPENSIVE_JOBS`), a job without an update for 600s is stale, a completed job stays for 30s. `GET /stats` gives `active_jobs` and `active_ingest`, filtered by theme access ([`THEMES.md`](THEMES.md) §4.3).
 
+**[code]** Regenerate: the dialog `#modal-regen` has one run button, `#btn-submit-regen` in the footer; the dry run result (`POST /regenerate` with `dry_run`) only shows the targets. A target with `error` in the result is a failure: when all targets failed, the job ends with stage `error` and the panel shows `ws.regen.failed_title` and the errors; when some failed, the job message counts them and the panel shows `ws.regen.partial_failed`. `/syndication` keeps the dialog open with the error.
+
 **[code]** Client: the `matrix` view (`#matrixwrap`) is the ingest cockpit. It has the status, theme, and kind badges, the target document, the percentage and the elapsed time, a stepper of the five stages `fetch`, `extract`, `resolve`, `detail`, `done` (`#cockpit-desktop-stepper`; `#cockpit-mobile-stepper` below 768px), a telemetry bar with the progress message of the server, and the heatmap table (`#matrix-table`) when `heatmap_matrix` exists. `startFastIngestPolling()` polls `GET /stats` every 1.5s during a job. The progress messages come from the server and are not catalog text ([`I18N.md`](I18N.md) §6).
 
 ---

@@ -1466,7 +1466,10 @@ class IngestService:
 
                                     vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
                                     report = IngestReport(document_id=did)
-                                    dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True, kb_id=self.kb_id)
+                                    # The old graph of the document is removed only after the LLM extraction is successful: a failed call keeps it.
+                                    def _rollback_old_graph(did: str = did) -> None:
+                                        dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True, kb_id=self.kb_id)
+
                                     ok, err = extract_resolve_store(
                                         conn,
                                         self.provider,
@@ -1477,6 +1480,7 @@ class IngestService:
                                         on_progress=step_cb,
                                         effort=effort,
                                         kb_id=self.kb_id,
+                                        before_store=_rollback_old_graph,
                                     )
                                     if not ok:
                                         info["error"] = err
@@ -1556,11 +1560,21 @@ class IngestService:
                             targets_info.append(info)
 
                         if job is not None and hasattr(job, "update"):
-                            job.update(
-                                stage="done",
-                                msg="재적재 완료" if do_refetch else "재생성 완료",
-                                result={"count": len(targets_info), "targets": targets_info},
-                            )
+                            # A target with an error is a failure: the job does not show "complete" for it.
+                            failed = [t for t in targets_info if t.get("error")]
+                            done_msg = "재적재 완료" if do_refetch else "재생성 완료"
+                            if failed and len(failed) == len(targets_info):
+                                job.update(
+                                    stage="error",
+                                    msg=("재적재 실패: " if do_refetch else "재생성 실패: ") + str(failed[0]["error"]),
+                                    result={"count": len(targets_info), "targets": targets_info},
+                                )
+                            else:
+                                job.update(
+                                    stage="done",
+                                    msg=f"{done_msg} (실패 {len(failed)}건)" if failed else done_msg,
+                                    result={"count": len(targets_info), "targets": targets_info},
+                                )
                         return {
                             "dry_run": not force,
                             "count": len(targets_info),

@@ -2744,7 +2744,6 @@ async function runRegen(isDryRun){
           h += '</li>';
         });
         h += '</ul>';
-        h += '<button type="button" class="readbtn" onclick="runRegen(false)" style="margin-top:8px;background:var(--accent,#2da44e);color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">' + tr("ws.regen.confirm_run") + '</button>';
       } else {
         h += '<p class="hint">' + tr("ws.common.no_matching_doc") + '</p>';
       }
@@ -2867,10 +2866,20 @@ async function runRegen(isDryRun){
     panel.innerHTML = '<p class="hint">' + tr("ws.regen.failed") + ' ' + esc(result.error) + '</p>';
     return;
   }
-  let h = '<h2><span data-icon="check-circle"></span> ' + tr("ws.regen.done") + '</h2>';
   const tgts = result.targets || [];
+  // A target with an error failed: the result does not show "complete" for it.
+  const failedTgts = tgts.filter(t => t.error);
+  if(tgts.length > 0 && failedTgts.length === tgts.length){
+    let fh = '<h2><span data-icon="alert"></span> ' + tr("ws.regen.failed_title") + '</h2><ul class="regen-errors" style="margin:6px 0;padding-left:18px;font-size:12px">';
+    failedTgts.forEach(t => { fh += '<li><b>' + esc(t.title || t.document_id) + '</b><br><span class="hint">' + esc(t.error) + '</span></li>'; });
+    panel.innerHTML = fh + '</ul>';
+    await Promise.all([reloadThemeData(true), loadThemeDocuments()]);
+    return;
+  }
+  let h = '<h2><span data-icon="check-circle"></span> ' + tr("ws.regen.done") + '</h2>';
   h += '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-  h += '<p class="al">' + tr('ws.regen.updated_docs', { count: result.count || tgts.length }) + '</p>';
+  h += '<p class="al">' + tr('ws.regen.updated_docs', { count: tgts.length - failedTgts.length }) + '</p>';
+  if(failedTgts.length) h += '<p class="al">' + tr('ws.regen.partial_failed', { count: failedTgts.length }) + '</p>';
   if(tgts.length > 0){
     h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
     tgts.forEach(t => {
@@ -2881,6 +2890,7 @@ async function runRegen(isDryRun){
       if(t.new_summary){
         h += '<br><span style="color:var(--muted)">' + tr('ws.regen.new_summary') + ' ' + esc(t.new_summary.slice(0, 120)) + (t.new_summary.length > 120 ? '…' : '') + '</span>';
       }
+      if(t.error) h += '<br><span class="hint">' + tr("ws.regen.failed") + ' ' + esc(t.error) + '</span>';
       h += '</li>';
     });
     h += '</ul>';

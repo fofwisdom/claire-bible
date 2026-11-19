@@ -162,6 +162,7 @@ def seed(db_path: Path) -> None:
             ("e2e-regen-nonce", "e2e-regen-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"),
         )
         # A login token is for one login: each test that needs an owner session has its own token.
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-regenfail-nonce", "e2e-regenfail-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-aliases-nonce", "e2e-aliases-token-0123456789abcdef0", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-providers-nonce", "e2e-providers-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-home-nonce", "e2e-home-token-0123456789abcdef012", 1700000000, 2500000000.0, "owner"))

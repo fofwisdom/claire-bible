@@ -174,27 +174,34 @@ def test_embed():
 
 
 def test_build_generation_config_thinking_levels():
+    """The interactions API takes ``thinking_level`` (lowercase) directly in ``generation_config``; it has no ``thinking_config`` and no budget."""
     p = _make_provider()
 
     p.effort = "high"
     cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_level": "HIGH"}
+    assert cfg["thinking_level"] == "high"
+    assert "thinking_config" not in cfg
 
     p.effort = "low"
     cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_level": "LOW"}
+    assert cfg["thinking_level"] == "low"
 
-    p.effort = "1024"
-    cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_budget": 1024}
+    for budget in ("1024", "0", "none", "-1"):
+        p.effort = budget
+        with pytest.raises(ValueError, match="no thinking budget"):
+            p._build_generation_config()
 
-    p.effort = "0"
-    cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_budget": 0}
 
-    p.effort = "none"
+def test_generation_config_matches_interactions_sdk_type():
+    """The keys of the config are fields of the SDK type ``GenerationConfigParam`` of the interactions API (the server rejects other keys with 400)."""
+    from typing import get_type_hints
+
+    from google.genai._gaos.types.interactions.generationconfig import GenerationConfigParam
+
+    p = _make_provider()
+    p.effort = "medium"
     cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_budget": 0}
+    assert set(cfg) <= set(get_type_hints(GenerationConfigParam))
 
 
 def test_build_generation_config_rejects_unsupported_effort_without_fallback():
@@ -223,7 +230,7 @@ def test_fixed_effort_gemini_model_resolves_api_model_and_thinking_level():
     assert p._api_model() == "gemini-3.8-flash"
     assert p._embedded_effort() == "medium"
     cfg = p._build_generation_config()
-    assert cfg["thinking_config"] == {"thinking_level": "MEDIUM"}
+    assert cfg["thinking_level"] == "medium"
 
     json_payload = '{"summary":"요약","key_claims":[],"entities":[],"relations":[]}'
     p.client.interactions.create.return_value = SimpleNamespace(output_text=json_payload)
@@ -232,7 +239,7 @@ def test_fixed_effort_gemini_model_resolves_api_model_and_thinking_level():
     assert res.model == "gemini-3.8-flash-medium"
     kwargs = p.client.interactions.create.call_args.kwargs
     assert kwargs["model"] == "gemini-3.8-flash"
-    assert kwargs["generation_config"]["thinking_config"] == {"thinking_level": "MEDIUM"}
+    assert kwargs["generation_config"]["thinking_level"] == "medium"
 
     # Task calls without explicit override also use embedded effort and stripped API model.
     p.client.interactions.create.reset_mock()
@@ -241,5 +248,5 @@ def test_fixed_effort_gemini_model_resolves_api_model_and_thinking_level():
     assert p.judge_same_entity(mc) is True
     judge_kwargs = p.client.interactions.create.call_args.kwargs
     assert judge_kwargs["model"] == "gemini-3.8-flash"
-    assert judge_kwargs["generation_config"]["thinking_config"] == {"thinking_level": "MEDIUM"}
+    assert judge_kwargs["generation_config"]["thinking_level"] == "medium"
 

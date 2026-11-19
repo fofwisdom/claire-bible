@@ -349,7 +349,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `-c, --component {all,summary,detail,graph,format}`: 재생성 대상 컴포넌트 명시적 지정 (`detail` 지정 시 `--detail`과 동일).
   * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
   * `--detail`: 상세(detail) 렌더링 텍스트 재생성.
-  * `--graph`: 엔티티와 관계 재추출 및 지식그래프 갱신.
+  * `--graph`: 엔티티와 관계 재추출 및 지식그래프 갱신. 문서의 기존 그래프 기여는 LLM 추출이 성공한 뒤에만 되돌린다(`extract_resolve_store`의 `before_store`). 추출이 실패하면 기존 그래프가 남고, 대상 결과에 `error`가 있다.
   * `--all`: 요약, 상세, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
   * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
@@ -358,7 +358,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--apply`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
   * `--force`, `-f`: 기존 컴포넌트가 이미 유효하더라도 강제 재생성/덮어쓰기.
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
-  * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
+  * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`minimal`, `low`, `medium`, `high` 중 모델이 지원하는 값). Gemini interactions API에는 토큰 budget이 없으므로 `none`과 정수 값은 호출 전에 오류이다.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
 
 #### `summary-regenerate`
@@ -945,7 +945,7 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 
 ### 4.2 `claire regenerate` 및 `CLAIRE_GEMINI_EFFORT`
 * **`--effort` 지원 범위 (조건부 적용)**:
-  * Gemini 2.0 Flash Thinking, Gemini 3.0/3.1 계열 등 **Thinking 기능이 지원되는 모델**에서는 `thinking_config`(`low`, `medium`, `high` 또는 토큰 수치)가 정상 작동한다.
+  * Gemini 호출은 interactions API를 쓴다. 사고 수준은 `generation_config.thinking_level`(소문자 `minimal`, `low`, `medium`, `high`)로 보낸다. 이 API에는 `thinking_config`와 토큰 budget이 없다(서버가 400 `Unknown parameter 'thinking_config'`로 거부한다). 모델이 지원하지 않는 수준, `none`, 정수 budget은 호출 전에 `ValueError`이다.
   * Thinking을 지원하지 않는 구형 모델이나 Mock Provider에서는 `--effort` 인자가 주어져도 API 에러를 내지 않고 조용히 무시(Graceful fallback)된다.
 * **`--detail` 재생성 후 그래프 동기화 (순차 수복 필요)**:
   * `regenerate --summary`는 `extractions.raw_response`의 요약만 교체하므로 그래프 무결성에 영향이 없다.

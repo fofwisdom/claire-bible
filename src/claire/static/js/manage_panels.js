@@ -108,8 +108,8 @@
     ['gemini-3.1-flash-lite', ['minimal', 'low', 'medium', 'high']],
     ['gemini-3.1-pro-preview', ['low', 'medium', 'high']],
     ['gemini-3-flash-preview', ['minimal', 'low', 'medium', 'high']],
-    ['gemini-2.5-flash', ['none', 'low', 'medium', 'high']],
-    ['gemini-2.5-flash-lite', ['none', 'low', 'medium', 'high']],
+    ['gemini-2.5-flash', ['low', 'medium', 'high']],
+    ['gemini-2.5-flash-lite', ['low', 'medium', 'high']],
     ['gemini-2.5-pro', ['low', 'medium', 'high']]
   ];
 

@@ -846,10 +846,13 @@ def extract_resolve_store(
     on_progress: Callable[[str, str], None] | None = None,
     kb_id: int | None = None,
     settings: Any = None,
+    before_store: Callable[[], None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재.
 
     ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로 refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존). 추출 실패 시 (False, error). 성공 시 (True, None).
+
+    ``before_store``: called after the LLM extraction (and the separate summary) is successful, before the first write of the new result. A regeneration removes the old graph of the document here, so a failed LLM call keeps the old graph.
     """
     valid, guard_err = validate_extractable_content(doc)
     if not valid:
@@ -973,6 +976,9 @@ def extract_resolve_store(
         p_name = str(getattr(provider, "name", "?") or "?")
         p_model = str(getattr(result, "model", "") or getattr(provider, "model", "") or p_name)
         lineage.record_stage(stage="summarize", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok" if (result.summary and result.summary.strip()) else "empty", duration_ms=extract_ms)
+
+    if before_store is not None:
+        before_store()
 
     report.summary = result.summary
     if not (result.summary and result.summary.strip()):

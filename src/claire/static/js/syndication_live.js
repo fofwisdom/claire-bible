@@ -1174,6 +1174,15 @@
           if (resDiv) resDiv.innerHTML = h;
           return;
         }
+        // A target with an error failed: the dialog stays open and shows the error.
+        const failedTgt = (data.targets || []).find((t) => t.error);
+        if (failedTgt) {
+          const errText = `${tr("ws.regen.failed")} ${failedTgt.error}`;
+          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("regen-modal-msg", errText, true);
+          ticker(errText);
+          await syncLiveThemeDb();
+          return;
+        }
         if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog("modal-regen");
         ticker(tr("ws.regen.done"));
         await syncLiveThemeDb();

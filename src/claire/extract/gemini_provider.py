@@ -311,7 +311,10 @@ class GeminiProvider:
     def _build_generation_config(
         self, extra: dict | None = None, effort: str | None = None
     ) -> dict:
-        """기본 generation_config 생성 (사고 레벨/thinking_config 포함)."""
+        """Make the ``generation_config`` of an interactions call.
+
+        The interactions API takes the reasoning level as ``thinking_level`` directly in ``generation_config`` (lowercase: minimal, low, medium, high). It has no ``thinking_config`` and no token budget: a numeric budget or ``none`` is an error before the call.
+        """
         from ..accounts.provider_policy import clamp_effort, split_gemini_model_and_effort, supported_efforts_for
 
         cfg: dict = {"temperature": 0.2}
@@ -324,17 +327,12 @@ class GeminiProvider:
             eff = str(clamp_effort(ctx, eff) or "").strip().lower()
         if not eff:
             return cfg
-        if eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
-            cfg["thinking_config"] = {"thinking_budget": int(eff)}
-            return cfg
         supported = supported_efforts_for("gemini", api_model)
-        allow_budget_zero = str(api_model or "").strip().lower() in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite")
-        if eff in ("none", "off", "0") and (allow_budget_zero or "none" in supported):
-            cfg["thinking_config"] = {"thinking_budget": 0}
-            return cfg
         if eff in supported and eff in ("minimal", "low", "medium", "high"):
-            cfg["thinking_config"] = {"thinking_level": eff.upper()}
+            cfg["thinking_level"] = eff
             return cfg
+        if eff.lstrip("-").isdigit() or eff in ("none", "off"):
+            raise ValueError(f"Unsupported effort '{eff}' for Gemini model '{self.model}': the Gemini interactions API has no thinking budget. Supported options: {', '.join(supported)}")
         raise ValueError(f"Unsupported effort '{eff}' for Gemini model '{self.model}'. Supported options: {', '.join(supported)}")
 
     def _throttle(self) -> None:

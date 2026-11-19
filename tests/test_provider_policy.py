@@ -687,7 +687,7 @@ def test_budget_exhaustion_blocks_call_before_api(tmp_path, fake_genai):
 def test_tier_effort_is_clamped_at_call_time(tmp_path, fake_genai):
     p = _gemini(tmp_path, _ctx("tier", max_effort="low", api_key=ADMIN_KEY), fake_genai)
     cfg = p._build_generation_config(effort="high")
-    assert cfg["thinking_config"] == {"thinking_level": "LOW"}
+    assert cfg["thinking_level"] == "low"
 
 
 def test_vision_hooks_and_member_rejection(tmp_path, fake_genai):
@@ -755,14 +755,14 @@ def test_antigravity_subprocess_env_has_no_secrets(tmp_path, host_cli_present, m
 def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys, monkeypatch):
     assert pp.supported_efforts_for("gemini", "gemini-4-argon") == ("low", "medium", "high")
     assert pp.supported_efforts_for("gemini", "gemini-3-pro-preview") == ("low", "high")
-    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash") == ("none", "low", "medium", "high")
+    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash") == ("low", "medium", "high")
     assert pp.supported_efforts_for("gemini", "gemini-3.6-flash") == ("minimal", "low", "medium", "high")
     assert pp.supported_efforts_for("antigravity", "gemini-3-flash") == ("low", "medium", "high", "xhigh", "max")
     assert pp.supported_efforts_for("antigravity", "claude-opus-5-5-medium") == ()
     assert pp.supported_efforts_for("antigravity", "gemini-4-hydrogen") == ()
     assert pp.supported_efforts_for("codex", "gpt-5.4") == ("low", "medium", "high", "xhigh")
     assert pp.supported_efforts_for("codex", "gpt-5") == ("minimal", "low", "medium", "high")
-    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash", tier_max_effort="medium") == ("none", "low", "medium")
+    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash", tier_max_effort="medium") == ("low", "medium")
 
     s_gem = _settings(tmp_path, provider="gemini", gemini_model="gemini-4-argon", gemini_effort="medium")
     desc = pp.describe_ingest_effort_options(s_gem)
@@ -791,7 +791,7 @@ def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, ke
 
     # Enumerated fixed-effort Gemini models encode reasoning effort into the model name itself.
     assert pp.split_gemini_model_and_effort("gemini-4-argon-high") == ("gemini-4-argon", "high")
-    assert pp.split_gemini_model_and_effort("gemini-2.5-flash-none") == ("gemini-2.5-flash", "none")
+    assert pp.split_gemini_model_and_effort("gemini-2.5-flash-none") == ("gemini-2.5-flash-none", None)
     assert pp.split_gemini_model_and_effort("gemini-3.8-flash") == ("gemini-3.8-flash", None)
     assert pp.enumerate_gemini_model_variants(["gemini-4-argon"]) == [
         "gemini-4-argon-low",
