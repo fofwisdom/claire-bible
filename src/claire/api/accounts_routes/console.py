@@ -1173,7 +1173,7 @@ def _settings_keys_body(
         f'<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="{escape(t("console.settings.keys.meta_label"))}">'
         f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.meta_title'))}</h2>"
         f'<p class="hint">{escape(meta_hint)}</p>'
-        f'<p class="hint" data-split-key-notice>{escape(t("console.settings.keys.split_key_notice"))}</p>'
+        f'<p class="hint" data-split-key-notice>{escape(t("console.settings.keys.admin_seal_notice" if admin_viewer else "console.settings.keys.split_key_notice"))}</p>'
         f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
         "</section>"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"

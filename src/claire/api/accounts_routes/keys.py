@@ -215,6 +215,7 @@ def store_key(
     *,
     user_seal: str | None = None,
     model_prefs: dict[str, Any] | None = None,
+    sealed: bool = True,
 ) -> dict[str, Any]:
     auth = open_auth_db(ctx)
     try:
@@ -226,6 +227,7 @@ def store_key(
             status="active",
             user_seal=user_seal,
             model_prefs=model_prefs,
+            sealed=sealed,
         )
         auth_db.record_admin_audit(
             auth,
@@ -235,6 +237,15 @@ def store_key(
             detail={"provider": provider, "has_model_prefs": bool(model_prefs)},
         )
         return _meta_dict(meta)
+    finally:
+        auth.close()
+
+
+def unseal_admin_keys(ctx: AccountsContext, account_id: int) -> int:
+    """Encrypt a sealed key of the server administrator again without the seal (a key stored before the administrator keys were unsealed)."""
+    auth = open_auth_db(ctx)
+    try:
+        return provider_keys.unseal_keys(auth, account_id=account_id)
     finally:
         auth.close()
 
@@ -318,6 +329,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         assert principal.account_id is not None
+        admin = _is_owner_admin(principal)
+        if admin:
+            # The request registered the seal cookie of the browser (security middleware). Thus a sealed key of the administrator can be unsealed now.
+            await asyncio.to_thread(unseal_admin_keys, ctx, principal.account_id)
         items = await asyncio.to_thread(list_meta, ctx, principal.account_id)
         payload: dict[str, Any] = {"keys": items}
         if str(request.query_params.get("include_policy") or "").lower() in ("1", "true", "yes"):
@@ -331,7 +346,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 "allowed_embed_models": list(DEFAULT_GEMINI_EMBED_MODELS),
                 "effort_order": list(EFFORT_ORDER),
                 "model_prefs": prefs,
-                "split_key_enabled": True,
+                "split_key_enabled": not admin,
                 "has_cookie_seal": bool(request.cookies.get(BYOK_SEAL_COOKIE)),
             }
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
@@ -371,7 +386,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(503, "key_verification_unavailable", message=scrub_text(exc, extra=(api_key,)))
         if not ok:
             return json_error(422, "key_verification_failed", message=scrub_text(message, extra=(api_key,)))
-        seal = request.cookies.get(BYOK_SEAL_COOKIE) or generate_user_seal()
+        # The personal key of the server administrator has no seal (provider_keys.put_key, sealed=False).
+        sealed = not _is_owner_admin(principal)
+        seal = (request.cookies.get(BYOK_SEAL_COOKIE) or generate_user_seal()) if sealed else None
         meta = await asyncio.to_thread(
             store_key,
             ctx,
@@ -380,11 +397,14 @@ def routes(ctx: AccountsContext) -> list[Route]:
             api_key,
             user_seal=seal,
             model_prefs=prefs,
+            sealed=sealed,
         )
         res_body: dict[str, Any] = {"key": meta}
         if prefs:
             res_body["model_prefs"] = prefs
         resp = JSONResponse(res_body, headers={"Cache-Control": "no-store"})
+        if seal is None:
+            return resp
         resp.set_cookie(
             BYOK_SEAL_COOKIE,
             seal,

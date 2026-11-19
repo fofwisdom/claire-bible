@@ -78,8 +78,13 @@ def put_key(
     now: float | None = None,
     user_seal: str | bytes | None = None,
     model_prefs: dict[str, Any] | None = None,
+    sealed: bool = True,
 ) -> ProviderKeyMeta:
-    """Store or replace an account BYOK key using split-key envelope encryption."""
+    """Store or replace an account BYOK key.
+
+    ``sealed=True``: split-key envelope encryption (server master key and the browser seal of the account).
+    ``sealed=False``: the server master key only. The personal key of the server administrator uses this, because the Telegram bot process, the worker loops, and a restarted server have no browser seal, and a seal against the server administrator has no effect on the key of the server administrator.
+    """
     if status not in KEY_STATUSES:
         raise ValueError("invalid key status")
     if not isinstance(api_key, str) or not api_key:
@@ -88,9 +93,12 @@ def put_key(
     sec = _service(secret_service)
     ts = time.time() if now is None else now
     key_id = secrets.token_hex(16)
-    seal = user_seal if user_seal is not None else generate_user_seal()
-    register_volatile_user_seal(account_id, seal)
-    encrypted = sec.encrypt_with_user_seal(api_key, key_aad(account_id, provider, key_id), account_id=account_id, provider=provider, user_seal=seal)
+    if sealed:
+        seal = user_seal if user_seal is not None else generate_user_seal()
+        register_volatile_user_seal(account_id, seal)
+        encrypted = sec.encrypt_with_user_seal(api_key, key_aad(account_id, provider, key_id), account_id=account_id, provider=provider, user_seal=seal)
+    else:
+        encrypted = sec.encrypt(api_key, key_aad(account_id, provider, key_id))
     fingerprint = sec.compute_fingerprint(api_key, purpose=FINGERPRINT_PURPOSE)[:8]
     verified_at = ts if status == "active" else None
     prefs_json = json.dumps(model_prefs if isinstance(model_prefs, dict) else {}, ensure_ascii=False)
@@ -265,6 +273,36 @@ def load_active_key(
     order = {name: i for i, name in enumerate(MEMBER_KEY_PROVIDERS)}
     row = min(rows, key=lambda r: order.get(str(tuple(r)[1]), len(order)))
     return _decrypt_row(row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+
+
+def unseal_keys(conn: sqlite3.Connection, *, account_id: int, secret_service: "SecretService | None" = None) -> int:
+    """Encrypt the sealed keys of an account again with the server master key only (``put_key(sealed=False)``). Returns the number of changed keys.
+
+    A sealed key needs the seal of the account (the volatile seal of this process). A key that this process cannot decrypt stays as it is.
+    """
+    from claire.store.secrets import SPLIT_KEY_VERSION_OFFSET
+
+    sec = _service(secret_service)
+    rows = conn.execute(
+        f"SELECT {_KEY_COLUMNS} FROM account_provider_keys WHERE account_id=? AND key_version>=?",
+        (account_id, SPLIT_KEY_VERSION_OFFSET),
+    ).fetchall()
+    changed = 0
+    for row in rows:
+        try:
+            key = _decrypt_row(row, account_id=account_id, sec=sec)
+        except ProviderKeyError:
+            continue
+        key_id = str(tuple(row)[0])
+        encrypted = sec.encrypt(key.api_key, key_aad(account_id, key.provider, key_id))
+        del key
+        with conn:
+            conn.execute(
+                "UPDATE account_provider_keys SET ciphertext=?, nonce=?, key_version=? WHERE id=? AND account_id=?",
+                (encrypted.ciphertext, encrypted.nonce, encrypted.key_version, key_id, account_id),
+            )
+        changed += 1
+    return changed
 
 
 def get_key_model_prefs(conn: sqlite3.Connection, *, account_id: int, provider: str = "gemini") -> dict[str, Any]:

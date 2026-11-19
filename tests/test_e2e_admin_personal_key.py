@@ -22,7 +22,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db, provider_keys, usage_ledger
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.secrets import reset_secret_service
+from claire.store.secrets import BYOK_SEAL_COOKIE, SPLIT_KEY_VERSION_OFFSET, clear_volatile_user_seals, reset_secret_service
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 SERVER_KEY = "canary-server-key-5d6e7f8091a2b3c4"
@@ -83,6 +83,63 @@ def _session(db_file: Path, account_id: int) -> str:
         conn.close()
 
 
+def _key_versions(data_dir: Path) -> list[int]:
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+    try:
+        return [int(r[0]) for r in auth.execute("SELECT key_version FROM account_provider_keys WHERE account_id=1").fetchall()]
+    finally:
+        auth.close()
+
+
+def _setup(tmp_path: Path) -> tuple[Path, Path, Settings]:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db_file = data_dir / "claire.db"
+    conn = dbm.connect(db_file)
+    try:
+        dbm.init_db(conn)
+        accounts_store.AccountStore(conn).complete_setup(1, username="admin_e2e", display_name="Admin")
+    finally:
+        conn.close()
+    settings = Settings(
+        _env_file=None,
+        CLAIRE_DB_PATH=str(db_file),
+        CLAIRE_DATA_DIR=str(data_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_PUBLIC_URL=PUBLIC_URL,
+        CLAIRE_MULTI_THEME=True,
+        GEMINI_API_KEY=SERVER_KEY,
+        CLAIRE_GEMINI_MODEL="gemini-3.8-flash",
+    )
+    KnowledgeBaseManager(settings)
+    return data_dir, db_file, settings
+
+
+def test_e2e_sealed_admin_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_calls) -> None:
+    """A key that the administrator stored with a browser seal (before this rule) becomes usable without the seal after the next visit of /settings/keys."""
+    data_dir, db_file, settings = _setup(tmp_path)
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+    try:
+        provider_keys.put_key(auth, account_id=1, provider="gemini", api_key=PERSONAL_KEY, status="active", user_seal="browser-seal-1")
+    finally:
+        auth.close()
+    assert _key_versions(data_dir)[0] >= SPLIT_KEY_VERSION_OFFSET
+    clear_volatile_user_seals()
+    app = server.create_app(settings=settings)
+    with TestClient(app, base_url=PUBLIC_URL) as client:
+        session = _session(db_file, 1)
+        client.cookies.clear()
+        listed = client.get("/api/me/keys", headers={"Cookie": f"claire_session={session}; {BYOK_SEAL_COOKIE}=browser-seal-1", "Origin": PUBLIC_URL})
+        assert listed.status_code == 200 and len(listed.json()["keys"]) == 1
+        assert _key_versions(data_dir) == [1]
+        clear_volatile_user_seals()
+        client.cookies.clear()
+        ingested = client.post("/ingest", json={"payload": "Document after the unseal."}, headers={"Cookie": f"claire_session={session}", "Origin": PUBLIC_URL})
+        assert ingested.status_code == 200, ingested.text
+        assert gemini_calls and {key for key, _ in gemini_calls} == {PERSONAL_KEY}
+
+
 def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -134,6 +191,11 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         put = call("PUT", "/api/me/keys", json={"provider": "gemini", "api_key": PERSONAL_KEY})
         assert put.status_code == 200, put.text
         assert PERSONAL_KEY not in put.text
+
+        assert BYOK_SEAL_COOKIE not in put.cookies
+        assert _key_versions(data_dir) == [1]
+        # The Telegram bot process and a restarted server have no browser seal.
+        clear_volatile_user_seals()
 
         # 4. A job of the administrator account now uses only the personal key, and the ledger records its tokens.
         second = call("POST", "/ingest", json={"payload": "Personal key document about Galilee."})

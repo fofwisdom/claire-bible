@@ -134,7 +134,7 @@
     if (summaryEl) {
       var dMod = defaults.model || tr("console.js.account.byok.model_default");
       var dEff = defaults.effort || "medium";
-      var sealText = policy.has_cookie_seal ? tr("console.js.account.byok.seal_active") : tr("console.js.account.byok.seal_pending");
+      var sealText = !policy.split_key_enabled ? tr("console.js.account.byok.seal_none") : (policy.has_cookie_seal ? tr("console.js.account.byok.seal_active") : tr("console.js.account.byok.seal_pending"));
       summaryEl.textContent = tr("console.js.account.byok.policy_summary", { model: dMod, effort: dEff, seal: sealText });
     }
     var modelSel = document.querySelector("[data-byok-model-select]");

@@ -544,6 +544,33 @@ def test_store_helpers_roundtrip(tmp_path: Path):
         auth.close()
 
 
+def test_unsealed_key_needs_no_seal_and_unseal_needs_the_seal(tmp_path: Path):
+    """``put_key(sealed=False)`` needs only the master key. ``unseal_keys`` changes a sealed key only when this process has its seal."""
+    from claire.store.secrets import DEFAULT_KEY_VERSION, clear_volatile_user_seals, register_volatile_user_seal
+
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path))
+    sec = SecretService(master_key=bytes.fromhex(TEST_MASTER_KEY_HEX))
+    try:
+        provider_keys.put_key(auth, account_id=1, provider="gemini", api_key=CANARY, status="active", secret_service=sec, sealed=False)
+        clear_volatile_user_seals()
+        key = provider_keys.load_active_key(auth, account_id=1, secret_service=sec)
+        assert key is not None and key.api_key == CANARY
+        provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=CANARY_B, status="active", secret_service=sec, user_seal="seal-b")
+        clear_volatile_user_seals()
+        assert provider_keys.unseal_keys(auth, account_id=2, secret_service=sec) == 0
+        with pytest.raises(provider_keys.ProviderKeyError):
+            provider_keys.load_active_key(auth, account_id=2, secret_service=sec)
+        register_volatile_user_seal(2, "seal-b")
+        assert provider_keys.unseal_keys(auth, account_id=2, secret_service=sec) == 1
+        clear_volatile_user_seals()
+        key = provider_keys.load_active_key(auth, account_id=2, secret_service=sec)
+        assert key is not None and key.api_key == CANARY_B
+        versions = [int(r[0]) for r in auth.execute("SELECT key_version FROM account_provider_keys ORDER BY account_id").fetchall()]
+        assert versions == [DEFAULT_KEY_VERSION, DEFAULT_KEY_VERSION]
+    finally:
+        auth.close()
+
+
 def test_verify_key_scrubs_provider_errors(monkeypatch: pytest.MonkeyPatch):
     """실제 ``verify_key``를 외부 호출 없이: SDK 클라이언트를 대역으로 바꿔 오류 문구에 키가 남지 않음을 본다."""
     import sys

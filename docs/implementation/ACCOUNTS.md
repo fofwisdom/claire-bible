@@ -269,6 +269,11 @@
     - 단계 인증(`require_recent_auth`) 필수.
     - 쿼리 매개변수: `?provider=gemini` (미지정 시 해당 계정의 모든 키 삭제).
     - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다(관리자 계정은 서버 프로바이더로 돌아간다). 응답: `{"ok": true, "deleted": n}`.
+- **[code] Encryption of a key** (`provider_keys.put_key`, `src/claire/store/secrets.py`):
+  - A member key uses the split-key envelope (`sealed=True`, `key_version` 201): the server master key and a seal of the browser (cookie `BYOK_SEAL_COOKIE`). Decryption needs the seal in the memory of the same process (`register_volatile_user_seal`: at `PUT`, and at each request with the cookie).
+  - The personal key of the server administrator uses the server master key only (`sealed=False`, `key_version` 1). The `PUT` response sets no seal cookie. Reason: the Telegram bot process, the worker loops, and a restarted server have no seal, and a seal against the server administrator has no effect on the key of the server administrator.
+  - A sealed key of the administrator (stored before 2026-11-19) is encrypted again without the seal at the next `GET /api/me/keys` with the seal cookie (`provider_keys.unseal_keys`). Without the cookie, the administrator registers the key again.
+  - [limit] Because of the seal, a member key works only in the API process after a request with the seal cookie of the member. Jobs of a member in the Telegram bot process, in the worker loops, or after a restart fail with `ProviderKeyRejected` until the next request of the member.
 - **폴백 없음 (Fail-closed, Principle C2)**:
   - 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 서버 프로바이더·관리자 CLI로 자동 전환/폴백하지 않는다. 이 규칙은 관리자의 개인 키에도 같다.
 - **WebUI `/settings/keys` 연동**:
