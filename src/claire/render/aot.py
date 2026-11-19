@@ -9,6 +9,13 @@ import html
 import re
 
 
+# Increase this number when a change of the converter changes the HTML of stored bodies. At startup, ``_recompile_stale_detail_html`` in ``store/db.py`` renders all stored bodies again when the number in ``meta`` is different.
+RENDERER_REVISION = 2
+
+# Subscript ``~text~``: no whitespace in the text, and no tilde with a digit on both sides (a range such as ``2014~19년``).
+_SUBSCRIPT_RE = re.compile(r"(?:(?<!\d)~|~(?!\d))([^\s~]+?)(?:~(?!\d)|(?<!\d)~)")
+
+
 def _inline_adoc_format(text: str) -> str:
     """AsciiDoc 인라인 서식(강조, 형광, 링크, 코드, 첨자 등)을 시맨틱 HTML로 변환."""
     if not text:
@@ -111,9 +118,9 @@ def _inline_adoc_format(text: str) -> str:
     s = re.sub(r"__(?![\s_])([^_\n]+?)(?<![\s_])__", r"<em>\1</em>", s)
     s = re.sub(r"(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)", r"<em>\1</em>", s)
 
-    # 11. 첨자: ^위첨자^, ~아래첨자~
-    s = re.sub(r"\^(?![\s\^])([^\^\n]+?)(?<![\s\^])\^", r"<sup>\1</sup>", s)
-    s = re.sub(r"~(?![\s~])([^~\n]+?)(?<![\s~])~", r"<sub>\1</sub>", s)
+    # 11. 첨자: ^위첨자^, ~아래첨자~. As in Asciidoctor, the marked text has no whitespace. A tilde with a digit on both sides is a range (15~29세), not a mark.
+    s = re.sub(r"\^([^\s\^]+?)\^", r"<sup>\1</sup>", s)
+    s = re.sub(_SUBSCRIPT_RE, r"<sub>\1</sub>", s)
 
     # 12. 보호된 링크, 인라인 코드, 수식 복원
     for i, span in enumerate(link_spans):

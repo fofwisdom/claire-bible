@@ -811,6 +811,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
+    _recompile_stale_detail_html(conn)
     backfill_embedding_models(conn)
 
 
@@ -1268,6 +1269,25 @@ def _purge_markdown_bodies(conn: sqlite3.Connection) -> None:
         if cur.rowcount:
             logging.getLogger(__name__).warning("RD25: deleted %d Markdown bodies; backfill-detail writes them again in AsciiDoc", cur.rowcount)
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (MARKDOWN_BODIES_PURGED_KEY, str(int(time.time()))))
+
+
+RENDERER_REVISION_KEY = "aot_renderer_revision"
+
+
+def _recompile_stale_detail_html(conn: sqlite3.Connection) -> None:
+    """Render ``detail_html`` of all stored bodies again when ``RENDERER_REVISION`` of ``render/aot.py`` is not the number in ``meta``. A change of the converter thus reaches the stored documents without an operator step. Only ``detail_html`` changes; ``detail`` stays."""
+    from ..render import render_to_html
+    from ..render.aot import RENDERER_REVISION
+
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (RENDERER_REVISION_KEY,)).fetchone()
+    if row is not None and str(row[0]) == str(RENDERER_REVISION):
+        return
+    rows = conn.execute("SELECT rowid, detail FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''").fetchall()
+    for r in rows:
+        conn.execute("UPDATE documents SET detail_html=? WHERE rowid=?", (render_to_html(r[1]), r[0]))
+    if rows:
+        logging.getLogger(__name__).info("AOT renderer revision %s: rendered %d bodies again", RENDERER_REVISION, len(rows))
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (RENDERER_REVISION_KEY, str(RENDERER_REVISION)))
 
 
 def _migrate_v21_account_feeds(conn: sqlite3.Connection) -> None:

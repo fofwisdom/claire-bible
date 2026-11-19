@@ -296,8 +296,9 @@ function inlineAdocFormat(text){
   s=s.replace(/(?<!\*)\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*(?!\*)/g, '<strong>$1</strong>');
   s=s.replace(/__(?![\s_])([^_\n]+?)(?<![\s_])__/g, '<em>$1</em>');
   s=s.replace(/(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)/g, '<em>$1</em>');
-  s=s.replace(/\^(?![\s\^])([^\^\n]+?)(?<![\s\^])\^/g, '<sup>$1</sup>');
-  s=s.replace(/~(?![\s~])([^~\n]+?)(?<![\s~])~/g, '<sub>$1</sub>');
+  // As in Asciidoctor, the marked text has no whitespace. A tilde with a digit on both sides is a range (15~29세), not a mark. Keep the same rule as _SUBSCRIPT_RE in render/aot.py.
+  s=s.replace(/\^([^\s\^]+?)\^/g, '<sup>$1</sup>');
+  s=s.replace(/(?:(?<!\d)~|~(?!\d))([^\s~]+?)(?:~(?!\d)|(?<!\d)~)/g, '<sub>$1</sub>');
   for(var i=0; i<linkSpans.length; i++) s=s.replace('\x00ADOCLINK'+i+'\x00', linkSpans[i]);
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\x00ADOCCODE'+j+'\x00', codeSpans[j]);
   for(var k=0; k<mathSpans.length; k++) s=s.replace('\x00ADOCMATH'+k+'\x00', mathSpans[k]);

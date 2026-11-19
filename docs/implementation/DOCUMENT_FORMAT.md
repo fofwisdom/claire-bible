@@ -40,8 +40,10 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
   - blocks: sections, quote, admonition, source with callout badges (`conum`) and callout lists (`colist`), math blocks (`[latexmath]`, `[stem]`, `[asciimath]`) to `<div class="mathblock">`, tables with column and row spans and alignment, nested lists, images;
   - anchors `[#id]`, `[[id]]`, and anchors in a section title, to `id` attributes;
   - the thematic break: only a line of three or more `'` becomes `<hr>`. A line `---` stays text.
+- **[code]** Sub- and superscript follow Asciidoctor: `~x~` and `^x^` mark text without whitespace only. A tilde with a digit on both sides is a range (`15~29세`, `2014~19년`), not a subscript mark (`_SUBSCRIPT_RE`). `adoc_parser.js` has the same rules.
 - **[code]** `set_document_detail` stores `detail_html` from `render_to_html` when the caller gives no HTML. It also sets the status of the presentation of the document to `stale` (see [`PRESENTATION.md`](PRESENTATION.md)).
 - **[code]** `get_document_detail_html` renders and stores `detail_html` on read when it is empty. `recompile_all_detail_html` (CLI `recompile-html`) renders all bodies again with the current converter.
+- **[code]** `RENDERER_REVISION` in `aot.py` identifies the converter output. When it is not the value of the key `aot_renderer_revision` in `meta`, `_recompile_stale_detail_html` in `_migrate` renders `detail_html` of all stored bodies again, one time. Increase it when a change of the converter changes stored HTML.
 - Tests: `tests/test_adoc_render.py`.
 
 ### 3.2 Display in the browser

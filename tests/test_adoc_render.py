@@ -1156,3 +1156,66 @@ process.exit(0);
         Path(runner_file).unlink(missing_ok=True)
 
 
+
+
+def test_adoc_tilde_range_is_not_subscript():
+    """A tilde range (15~29세, 2014~19년) is text, not a subscript mark; ~x~ without whitespace stays a subscript. Python and JS give the same HTML."""
+    import json
+    import shutil
+    import subprocess
+
+    sample = "청년층(15~29세)의 고용 부진은 과거 부진기(2014~19년)와 다르다. 2014~19년·2023~24년 비교. H~2~O 와 E=mc^2^ 표기. 물결 ~한다~ 표현과 a ~b c~ d."
+    py_result = render_adoc_to_html(sample)
+
+    assert "15~29세" in py_result
+    assert "2014~19년" in py_result
+    assert "2014~19년·2023~24년" in py_result
+    assert "H<sub>2</sub>O" in py_result
+    assert "mc<sup>2</sup>" in py_result
+    assert "a ~b c~ d" in py_result
+    assert py_result.count("<sub>") == 2  # H~2~O and ~한다~
+
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available")
+
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    runner_code = f"""
+const fs = require('fs');
+global.window = {{}};
+global.document = {{}};
+eval(fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8'));
+console.log(JSON.stringify({{ html: convertAsciidocToHtml({json.dumps(sample)}) }}));
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+    try:
+        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
+        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
+        assert json.loads(proc.stdout)["html"] == py_result
+    finally:
+        Path(runner_file).unlink(missing_ok=True)
+
+
+def test_init_db_renders_stored_bodies_again_after_renderer_revision_change(tmp_path):
+    """A stored detail_html of an older converter revision is rendered again at init_db, one time."""
+    from claire.render.aot import RENDERER_REVISION
+
+    conn = dbm.connect(tmp_path / "claire.db")
+    dbm.init_db(conn)
+    doc = Document(id="doc_tilde", url="https://example.com/tilde", title="t", raw_text="raw")
+    dbm.insert_document(conn, doc)
+    conn.execute("UPDATE documents SET detail=?, detail_html=? WHERE id=?", ("청년층(15~29세)과 과거(2014~19년)", "<p>old</p>", "doc_tilde"))
+    conn.execute("UPDATE meta SET value='1' WHERE key=?", (dbm.RENDERER_REVISION_KEY,))
+    conn.commit()
+
+    dbm.init_db(conn)
+    html_out = conn.execute("SELECT detail_html FROM documents WHERE id='doc_tilde'").fetchone()[0]
+    assert "15~29세" in html_out and "<sub>" not in html_out
+    assert conn.execute("SELECT value FROM meta WHERE key=?", (dbm.RENDERER_REVISION_KEY,)).fetchone()[0] == str(RENDERER_REVISION)
+
+    conn.execute("UPDATE documents SET detail_html='<p>kept</p>' WHERE id='doc_tilde'")
+    conn.commit()
+    dbm.init_db(conn)
+    assert conn.execute("SELECT detail_html FROM documents WHERE id='doc_tilde'").fetchone()[0] == "<p>kept</p>"
+    conn.close()
