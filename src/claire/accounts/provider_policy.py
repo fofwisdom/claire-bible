@@ -290,7 +290,7 @@ class ProviderContext:
     """한 작업이 쓸 프로바이더와 자격. ``api_key``는 repr·비교·직렬화에서 빠진다(§11.3)."""
 
     account_id: int | None          # None = 호스트 운영자(CLI·시스템). 테마 작업은 반드시 테마 소유 계정을 넣는다
-    is_admin: bool
+    is_admin: bool                  # True = the server credentials (providers.json, host CLI). A personal key of the server administrator gives False here and True in server_admin
     source: ContextSource
     provider: str                   # "none"이면 LLM 단계가 ProviderNotConfigured로 실패
     model: str
@@ -300,6 +300,8 @@ class ProviderContext:
     tier: ServerTier = field(default_factory=ServerTier)
     api_key: str = field(default="", repr=False, compare=False)
     feature_models: dict[str, dict[str, str]] = field(default_factory=dict)
+    # The account is the server administrator. With a personal key (source "byok", is_admin False) the account keeps all features and has no server tier limits, but the calls use only the personal key.
+    server_admin: bool = False
 
     @property
     def allows_host_cli(self) -> bool:
@@ -307,7 +309,7 @@ class ProviderContext:
 
     def feature_allowed(self, feature: str) -> bool:
         """관리자는 전부, 관리자 전용 기능은 멤버에게 항상 거부, BYOK는 등급 기능 전부, 서버 등급은 ``tier.features``만."""
-        if self.is_admin:
+        if self.is_admin or self.server_admin:
             return True
         if feature in ADMIN_ONLY_FEATURES:
             return False
@@ -368,7 +370,8 @@ def resolve_provider_context(
 ) -> ProviderContext:
     """§10.2 순서로 컨텍스트를 정한다.
 
-    1. ``account_id``가 None이거나 관리자 계정 → ``admin_context``.
+    1. ``account_id``가 None → ``admin_context``.
+    1a. 관리자 계정: 개인 키가 있으면 ``source="byok"``, ``server_admin=True`` (2와 같은 키 규칙). 키가 없으면 ``admin_context``.
     2. 멤버, ``store.provider_keys.load_active_key``가 키를 돌려줌 → ``source="byok"``.
     3. 멤버, 키 없음 → ``accounts.server_tier.load_server_tier``의 등급. 등급 프로바이더가 api-key 분류가 아니면 ``none``으로 본다.
     4. 등급 ``none`` → ``source="none"``, ``provider="none"`` (예외는 실제 LLM 호출 지점에서 낸다).
@@ -397,14 +400,17 @@ def resolve_provider_context(
                 f"account {account_id}: status {status!r} cannot use LLM providers",
                 remedy="계정이 다시 활성화된 뒤에 작업한다.",
             )
-        if role == "admin":
-            return replace(admin_context(settings), account_id=int(account_id))
-        tier = _server_tier.load_server_tier(conn)
+        server_admin = role == "admin"
+        # The server tier does not apply to the server administrator account.
+        tier = ServerTier() if server_admin else _server_tier.load_server_tier(conn)
     finally:
         conn.close()
 
+    # A registered key that is not usable raises ProviderKeyRejected also for the administrator: no change to the server credentials (C2).
     active = _load_member_key(int(account_id), settings=settings, auth_db_path=auth_db_path,
                               secret_service=secret_service)
+    if server_admin and active is None:
+        return replace(admin_context(settings), account_id=int(account_id))
     if active is not None:
         key_provider = str(active.provider or "").strip().lower()
         if key_provider not in MEMBER_KEY_PROVIDERS or classify_provider(key_provider) != API_KEY:
@@ -449,6 +455,7 @@ def resolve_provider_context(
             tier=tier,
             api_key=active.api_key,
             feature_models=feature_models,
+            server_admin=server_admin,
         )
 
     tier_provider = str(tier.provider or "none").strip().lower()

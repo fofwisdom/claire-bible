@@ -615,13 +615,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
     assert len(security.ROUTE_POLICY) == len(expected)
-    # §9.1 surfaces and modes (full table in tests/test_route_surface_contract.py). Network mode only: the routes for more than one account (invites, member keys). ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
+    # §9.1 surfaces and modes (full table in tests/test_route_surface_contract.py). Network mode only: the routes for more than one account (invites). The key routes are in the two modes because the server administrator has a personal key (keys.py limits members to network mode). ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
     network_only_keys = {
         *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
         *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
-        *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
-        ("POST", "/api/me/keys/verify"),
     }
     assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
     assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())

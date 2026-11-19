@@ -1,7 +1,7 @@
-"""``/api/me/keys``: 멤버 본인의 프로바이더 API 키 (설계 §11, P4 L4-b).
+"""``/api/me/keys``: 계정 본인의 프로바이더 API 키 (설계 §11, P4 L4-b).
 
-- 네트워크 모드 전용이다. 싱글 모드에서는 404(``ROUTE_POLICY``의 ``NETWORK_ONLY``와 같은 판정을 여기서도 한다).
-- 관리자는 403 ``admin_uses_provider_settings``: 관리자는 ``providers.json``을 쓴다.
+- 멤버는 네트워크 모드에서만 쓴다. 싱글 모드의 비관리자는 404.
+- 서버 관리자는 두 모드에서 개인 키를 쓴다(owner decision 2026-11-19). 관리자 계정의 작업은 개인 키가 있으면 그 키만 쓰고, 없으면 ``providers.json``을 쓴다. 서버 작업은 언제나 ``providers.json``을 쓴다.
 - 쓰기 전용 비밀이다(D8). 응답에는 §11.2 메타 필드만 싣고, 키 원문·일부 문자를 어디에도 싣지 않는다.
   요청 본문을 로그에 남기지 않으며, ``api_key`` 값은 읽자마자 ``register_secret``으로 등록해 로그 스크러버가 지우게 한다.
 - 등록·교체(PUT)와 삭제(DELETE)는 단계 인증(`common.require_recent_auth`)을 요구한다.
@@ -69,6 +69,10 @@ def is_network_mode(ctx: AccountsContext) -> bool:
 
 def _is_member(principal: Principal) -> bool:
     return principal.account_id is not None and principal.server_role == "member" and principal.scope == "owner"
+
+
+def _is_owner_admin(principal: Principal) -> bool:
+    return principal.account_id is not None and principal.server_role == "admin" and principal.scope == "owner"
 
 
 def _meta_dict(meta: provider_keys.ProviderKeyMeta) -> dict[str, Any]:
@@ -320,11 +324,9 @@ def _meta_rows(items: list[dict[str, Any]]) -> str:
 def routes(ctx: AccountsContext) -> list[Route]:
     async def _gate(request: Request) -> tuple[Principal, Response | None]:
         principal = request_principal(request)
-        if principal.account_id is None or not await asyncio.to_thread(is_network_mode, ctx):
-            return principal, not_found()
-        if principal.server_role == "admin":
-            return principal, json_error(403, "admin_uses_provider_settings")
-        if not _is_member(principal):
+        if _is_owner_admin(principal):
+            return principal, None
+        if not _is_member(principal) or not await asyncio.to_thread(is_network_mode, ctx):
             return principal, not_found()
         return principal, None
 

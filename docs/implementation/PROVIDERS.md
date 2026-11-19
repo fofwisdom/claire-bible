@@ -15,7 +15,7 @@
 
 1. **[결정] 운영 환경에서는 mock으로 대체하지 않는다.** `CLAIRE_ENVIRONMENT=production`에서 설정한 프로바이더를 쓸 수 없으면 호출이 `ProviderUnavailableError`로 실패한다(§3). 개발 환경의 mock 대체는 허용한다.
 2. **[코드] 프로바이더 전역 설정의 실제 출처는 `data/providers.json`이다.** 이 파일의 값은 export된 환경변수보다도 우선한다(§2).
-3. **[코드] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 멤버는 어떤 경로로도 `host-cli`에 닿지 않는다.
+3. **[코드] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 멤버는 어떤 경로로도 `host-cli`에 닿지 않는다. A server administrator account with a personal key also gets `byok` (§3.2).
 4. **[코드] 폴백은 없다 (C2).** 멤버 키가 거부되거나 예산이 소진되어도 서버 등급이나 관리자 CLI로 전환하지 않고 fail-closed로 실패한다(§3.3).
 5. **[코드] `Settings`를 만들면 디스크가 바뀐다.** `_ProvidersJsonSettingsSource`가 `ProviderManager(auto_migrate=True)`를 만든다. 이때 `providers.json`이 없으면 환경변수로부터 새로 만들고, 저장소 루트의 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`에 속한 줄을 주석 처리한다.
 6. **[코드] 테스트는 개발자의 실제 `.env`를 읽는다.** conftest가 없다. 로컬 `.env`가 `production`이면 테스트도 운영 동작을 본다. mock 대체를 검증하는 테스트는 `Settings(environment="development")`로 환경을 고정한다.
@@ -83,7 +83,7 @@
 | 분류 | 프로바이더 | 실행 방식 | 쓸 수 있는 계정 |
 | :--- | :--- | :--- | :--- |
 | `host-cli` | `antigravity`(agy), `codex`(codex-cli) | 서버 호스트의 바이너리, 호스트 로그인 | 관리자만 |
-| `api-key` | `gemini` (`openai`는 구현 후) | HTTPS API와 키 | 관리자: `providers.json` / 멤버: 자기 키(BYOK) 또는 서버 등급 |
+| `api-key` | `gemini` (`openai`는 구현 후) | HTTPS API와 키 | 서버 작업: `providers.json` / 관리자 계정: 개인 키, 없으면 `providers.json` / 멤버: 자기 키(BYOK) 또는 서버 등급 |
 | `mock` | `mock` | 개발/테스트용 | 개발 환경 |
 
 - **미등록 프로바이더 fail-closed**: 분류표에 없는 이름이나 빈 문자열은 모두 `host-cli`로 간주한다(`classify_provider`).
@@ -97,6 +97,12 @@
 - **서버 등급 기능 게이트**: 서버 등급 컨텍스트(`source="tier"`)는 관리자가 `tier.features`에 명시한 기능(`expand`, `stt`, `vlm`, `presentation`, `synthesize`)만 허용된다. BYOK 멤버는 등급 기능 5종 전체를 쓸 수 있다.
 - **effort 제한**: 서버 등급 컨텍스트의 effort는 `tier.max_effort`를 넘지 않도록 상한으로 낮춘다(`clamp_effort`). 관리자와 BYOK 컨텍스트는 effort를 낮추지 않는다.
 - **동시성 제한**: BYOK 컨텍스트는 서버 등급의 `byok_caps.max_concurrency`로 계정별 동시 LLM 작업 수를 제한한다(`job_slot`).
+- **[code] Personal key of the server administrator** (owner decision 2026-11-19, [ACCOUNTS.md](ACCOUNTS.md) §5.8). `resolve_provider_context` gives the administrator account:
+  - With an active personal key: a context with `source="byok"`, `is_admin=False`, `server_admin=True`, the personal key, and `credential_key="byok:<fingerprint>"`. Thus the calls go through the same member key path as a member BYOK: only the context key, no `host-cli`, no host CLI feature routing, `enable_jev=False` (`settings_for_context`). The model rule is the member rule (equal to or above the admin baseline).
+  - With `server_admin=True`: all features are allowed (`feature_allowed`, also `research`), and the server tier limits do not apply (`server_tier._limits_exempt`: daily ingests, documents, storage, concurrency). The ledger records the tokens (`usage_hooks_for`, `record_usage`).
+  - With a registered key that is not active or cannot be decrypted: `ProviderKeyRejected`. The job does not change to `providers.json` (C2).
+  - Without a registered key: `admin_context` (`providers.json`), as before.
+  - Jobs without an account (`account_id=None`) always get `admin_context`.
 
 ### 3.3 폴백 없음 원칙 (No Fallbacks, Principle C2)
 
@@ -202,6 +208,7 @@
   - 신규 문서 적재 시 `IngestService`가 `try_reserve_ingest`를 호출하여 일 적재 한도를 선확인 및 차감한다.
   - 재생성(`regenerate`), 기존 문서 재적재(`reingest`), recover 재시도는 `daily_ingests` 카운트에 포함하지 않는다(월 토큰만 기록).
 - **BYOK 토큰 계측**: BYOK 계정이 소비한 토큰도 원장에 누적 기록되나, 월 토큰 예산 초과 차단은 서버 등급 컨텍스트(`source="tier"`)에만 적용된다.
+- **[code] Server credentials are not recorded.** The ledger has no row for `admin_context` (the server providers). The tokens of the personal key of the server administrator are recorded on the administrator account.
 
 ---
 
@@ -213,7 +220,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 - **[code] Secret masking**: `ProviderManager.get_settings_dict` returns an API key as `••••••••` when a key is set. `ProviderManager.update_config` keeps the stored key when the request sends the mask or an empty value. It clears the key only for an empty value with `clear_api_key`.
 - **[code] Connection test**: `ProviderManager.test_connection` checks a key, a model, or a CLI binary before or after a save. For Gemini, a masked key in the request means the stored key.
 - **[decision] Seal of the personal CLI clients (owner, 2026-11-19).** The personal CLI clients of the administrator (Antigravity CLI and Codex CLI for the jobs of the administrator account) are sealed. The web UI has no control for them.
-- **[code] Personal CLI seal.** The routes `/api/me/personal-cli` and `/api/me/personal-cli/test` are closed: they are not in the route table and give 404 to each account. `admin_context` and the feature routing (`_resolve_slot_spec`, `_has_feature_routing_override` in `src/claire/extract/provider.py`) do not read a personal CLI setting, and `Settings` has no `personal_cli` field. `ProviderManager.get_config` keeps a `personal_cli` block of `providers.json` as data without a change, and `save_config` writes it back; `get_settings_dict` and `get_sanitized_config` do not give it. A new `providers.json` has no such block. The `/settings/keys` page of the administrator shows only the link to `/admin/providers`. The `host-cli` provider classes (`AntigravityProvider`, `CodexProvider`) stay; the server scope still refuses them (`update_config(server_scope=True)`). Test: `tests/test_personal_cli_seal.py`.
+- **[code] Personal CLI seal.** The routes `/api/me/personal-cli` and `/api/me/personal-cli/test` are closed: they are not in the route table and give 404 to each account. `admin_context` and the feature routing (`_resolve_slot_spec`, `_has_feature_routing_override` in `src/claire/extract/provider.py`) do not read a personal CLI setting, and `Settings` has no `personal_cli` field. `ProviderManager.get_config` keeps a `personal_cli` block of `providers.json` as data without a change, and `save_config` writes it back; `get_settings_dict` and `get_sanitized_config` do not give it. A new `providers.json` has no such block. The `/settings/keys` page of the administrator has no personal CLI control. The `host-cli` provider classes (`AntigravityProvider`, `CodexProvider`) stay; the server scope still refuses them (`update_config(server_scope=True)`). Test: `tests/test_personal_cli_seal.py`.
 - **[code] Storage**: `data/providers.json`, written by `ProviderManager.save_config`. The env migration (`migrate_from_env_if_needed`) and its effect on `.env` are in §0 and §2.1.
 - **[code] CLI**: `claire providers` (`list`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
 

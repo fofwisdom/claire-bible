@@ -545,7 +545,14 @@ def create_app(
             return ctx
         account_id = _provider_account_of(theme)
         if _account_limits_context(account_id) is None:
-            return None
+            if account_id is None:
+                return None
+            # The server administrator: the personal key context when a key is registered, else None (the server credentials).
+            try:
+                admin_ctx = policy.resolve_provider_context(account_id, settings=s)
+            except policy.ProviderNotAllowed:
+                return None
+            return None if admin_ctx.is_admin else admin_ctx
         return policy.resolve_provider_context(account_id, settings=s)
 
     def _require_theme_feature_sync(theme: KnowledgeBaseInfo, theme_svc: Any | None, feature: str) -> None:

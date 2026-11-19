@@ -1,6 +1,6 @@
 """``/api/me/keys`` 쓰기 전용 계정 API 키 (설계 §11, §13.3 ``account_provider_keys``, P4 L4-b).
 
-- 네트워크 모드 멤버 전용. 싱글 모드 404, 관리자 403 ``admin_uses_provider_settings``, 익명 404.
+- 멤버는 네트워크 모드에서만 쓴다(싱글 모드 404). 서버 관리자는 두 모드에서 개인 키를 쓴다. 익명 404.
 - 응답·헤더·로그 어디에도 카나리아 키가 없다. 시험 호출(``verify_key``)은 monkeypatch한다(외부 호출 없음).
 - AAD(``account_id|provider|key_id``) 때문에 암호문을 다른 행으로 옮기면 복호화가 실패한다.
 
@@ -206,49 +206,66 @@ def _rows(settings: _Settings) -> list[dict[str, Any]]:
 # --- 모드·역할 경계 ----------------------------------------------------------------
 
 
-def test_single_mode_hides_every_key_route(settings: _Settings, verify_calls):
+def test_single_mode_hides_member_key_routes_and_keeps_admin_routes(settings: _Settings, verify_calls):
     _setup_admin(settings)
     member = _add_member(settings, "member_alpha", 223456789012)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:
         client = _Client(tc)
-        for sess in (_session(settings, member), _session(settings, 1)):
-            assert client.request("GET", "/api/me/keys", session=sess).status_code == 404
-            assert _put(client, sess, CANARY).status_code == 404
-            assert client.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"}).status_code == 404
-            assert client.request("DELETE", "/api/me/keys", session=sess).status_code == 404
+        sess = _session(settings, member)
+        assert client.request("GET", "/api/me/keys", session=sess).status_code == 404
+        assert _put(client, sess, CANARY).status_code == 404
+        assert client.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"}).status_code == 404
+        assert client.request("DELETE", "/api/me/keys", session=sess).status_code == 404
         legacy = client.request("GET", "/me", session=_session(settings, member))
         assert legacy.status_code == 302 and legacy.headers["location"] == "/settings/account"
         page = client.request("GET", "/settings/keys", session=_session(settings, member))
         assert page.status_code == 200 and 'data-keys-mode="unavailable"' in page.text
         assert "My API keys" not in page.text and "/admin/" not in page.text
-    assert verify_calls == []
-    assert _rows(settings) == []
+        assert verify_calls == []
+        assert _rows(settings) == []
+        # The server administrator registers a personal key also in single mode.
+        admin = _session(settings, 1)
+        r = _put(client, admin, CANARY)
+        assert r.status_code == 200, r.text
+        assert client.request("GET", "/api/me/keys", session=admin).json() == {"keys": [r.json()["key"]]}
+        admin_page = client.request("GET", "/settings/keys", session=admin)
+        assert 'data-keys-mode="byok"' in admin_page.text and 'href="/admin/providers"' in admin_page.text
+        client.assert_never_leaked(CANARY)
+    assert [row["account_id"] for row in _rows(settings)] == [1]
 
 
-def test_admin_gets_403_and_anonymous_404(env, verify_calls):
+def test_admin_registers_personal_key_and_anonymous_gets_404(env, verify_calls):
     c = env.client
     admin = _session(env.settings, 1)
-    for kwargs in ({"session": admin}, {"bearer": OWNER_TOKEN}):
-        r = c.request("GET", "/api/me/keys", **kwargs)
-        assert r.status_code == 403 and r.json() == {"error": "admin_uses_provider_settings"}
-        assert c.request("PUT", "/api/me/keys", json={"provider": "gemini", "api_key": CANARY}, **kwargs).status_code == 403
-        assert c.request("POST", "/api/me/keys/verify", json={"provider": "gemini"}, **kwargs).status_code == 403
-        assert c.request("DELETE", "/api/me/keys", **kwargs).status_code == 403
+    assert c.request("GET", "/api/me/keys", session=admin).json() == {"keys": []}
+    r = _put(c, admin, CANARY)
+    assert r.status_code == 200, r.text
+    meta = r.json()["key"]
+    assert set(meta) == META_FIELDS and meta["status"] == "active"
+    assert verify_calls == [("gemini", CANARY)]
+    policy = c.request("GET", "/api/me/keys?include_policy=1", session=admin).json()
+    assert policy["keys"] == [meta] and "admin_baseline" in policy["model_policy"]
+    admin_page = c.request("GET", "/settings/keys", session=admin)
+    assert admin_page.status_code == 200
+    text = admin_page.text
+    assert 'data-keys-mode="byok"' in text and 'href="/admin/providers"' in text and "data-keys-server-providers" in text
+    assert "My API keys" in text and meta["fingerprint"] in text
+    assert "it does not change to the server providers" in text
+    assert "data-server-tier" not in text
+    v = c.request("POST", "/api/me/keys/verify", session=admin, json={"provider": "gemini"})
+    assert v.status_code == 200 and v.json()["ok"] is True
+    assert c.request("DELETE", "/api/me/keys", session=admin).json() == {"ok": True, "deleted": 1}
+    assert _rows(env.settings) == []
     # 익명은 존재를 숨긴다(ROUTE_POLICY owner 경로의 fail-closed 404).
     assert c.request("GET", "/api/me/keys").status_code == 404
     assert c.request("PUT", "/api/me/keys", json={"provider": "gemini", "api_key": CANARY}).status_code == 404
     assert c.request("POST", "/api/me/keys/verify", json={"provider": "gemini"}).status_code == 404
     assert c.request("DELETE", "/api/me/keys").status_code == 404
     # readonly 세션은 owner 경로에 닿지 않는다.
-    ro = _session(env.settings, env.a, scope="readonly")
-    assert c.request("GET", "/api/me/keys", session=ro).status_code in {401, 403, 404}
-    assert verify_calls == []
-    assert _rows(env.settings) == []
+    for ro in (_session(env.settings, env.a, scope="readonly"), _session(env.settings, 1, scope="readonly")):
+        assert c.request("GET", "/api/me/keys", session=ro).status_code in {401, 403, 404}
     assert c.request("GET", "/me", session=admin).headers["location"] == "/settings/account"
-    admin_page = c.request("GET", "/settings/keys", session=admin)
-    assert admin_page.status_code == 200 and 'data-keys-mode="admin"' in admin_page.text
-    assert "My API keys" not in admin_page.text
     c.assert_never_leaked(CANARY)
 
 

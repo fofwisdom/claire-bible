@@ -716,11 +716,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("PATCH", "/api/me"): _any("owner", "none"),
     ("POST", "/api/me/password"): _any("owner", "none"),
     # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
-    ("GET", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("HEAD", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("PUT", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("DELETE", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
-    ("POST", "/api/me/keys/verify"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/me/keys"): _any("owner", "none"),
+    ("HEAD", "/api/me/keys"): _any("owner", "none"),
+    ("PUT", "/api/me/keys"): _any("owner", "none"),
+    ("DELETE", "/api/me/keys"): _any("owner", "none"),
+    ("POST", "/api/me/keys/verify"): _any("owner", "none"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).
     ("GET", "/api/me/telegram"): _any("owner", "none"),
     ("HEAD", "/api/me/telegram"): _any("owner", "none"),

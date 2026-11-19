@@ -237,11 +237,12 @@
 
 **[코드]** `src/claire/store/provider_keys.py`, `src/claire/api/accounts_routes/keys.py`. 설계 §11.2, §11.3 (P4 L4-b).
 
-- **네트워크 모드 전용**: 싱글 모드에서는 404를 반환한다(`ROUTE_POLICY`의 `modes={"network"}` 및 핸들러의 `is_network_mode`).
-- **권한 및 주체**:
-  - 규칙 `owner`. `account_id` 필수.
-  - 관리자(`server_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
-  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, `write`, `readonly` 등)는 404 Not Found다.
+- **[decision] Personal key of the server administrator (owner, 2026-11-19).** The server administrator can register a personal key on `/settings/keys`. The personal key pays for the jobs of the administrator account. The server providers (`data/providers.json`) pay for the server jobs.
+- **[code] Modes and principals**:
+  - Rule `owner` in the two modes (`ROUTE_POLICY` has no mode limit for these routes). `account_id` is necessary.
+  - The server administrator (`server_role == "admin"`, `scope == "owner"`) uses the routes in single mode and in network mode (`_is_owner_admin`).
+  - A member (`_is_member`: `server_role == "member"`, `scope == "owner"`) uses the routes only in network mode (`is_network_mode`). In single mode a member gets 404.
+  - All other principals (anonymous, `write`, `readonly`) get 404.
 - **쓰기 전용 API 키 및 키 미노출 원칙 (Write-only Secrets, §11.2, §11.3, D8)**:
   - 등록 시 전달받은 `api_key`는 요청 본문에서 읽자마자 `register_secret`으로 등록되어 메모리 내 등록 이후의 모든 로그와 예외 출력(`SecretScrubFilter`, `scrub_text`, `scrub_exception`)에서 마스킹된다.
   - 마스터 키(`CLAIRE_SECRET_KEY` 또는 `data/auth/master.key`)에서 용도별로 파생된 암호화 키를 사용해 AES-256-GCM(`provider_keys.put_key`, AAD: `account_id|provider|key_id`)으로 암호화하여 `auth.db`의 `provider_keys` 테이블에 보관한다.
@@ -267,12 +268,12 @@
   - `DELETE /api/me/keys`: 등록된 키 삭제.
     - 단계 인증(`require_recent_auth`) 필수.
     - 쿼리 매개변수: `?provider=gemini` (미지정 시 해당 계정의 모든 키 삭제).
-    - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다. 응답: `{"ok": true, "deleted": n}`.
+    - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다(관리자 계정은 서버 프로바이더로 돌아간다). 응답: `{"ok": true, "deleted": n}`.
 - **폴백 없음 (Fail-closed, Principle C2)**:
-  - 멤버가 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 관리자 CLI로 자동 전환/폴백하지 않는다.
+  - 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 서버 프로바이더·관리자 CLI로 자동 전환/폴백하지 않는다. 이 규칙은 관리자의 개인 키에도 같다.
 - **WebUI `/settings/keys` 연동**:
   - 네트워크 모드 멤버 계정으로 `/settings/keys`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
-  - 관리자는 BYOK 양식 대신 `/admin/providers` 링크가 있는 안내 카드를 받는다. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다.
+  - [code] The server administrator gets, in the two modes, a card with the link to `/admin/providers` (`data-keys-server-providers`), the same key forms (`data-keys-mode="byok"`), and a usage card of the account (documents, storage, tokens of the personal key this month) in place of the server tier card. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다.
 
 ### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`)
 

@@ -267,6 +267,42 @@ def test_resolve_admin_account(tmp_path, account_db, keys):
     assert keys.tier_reads == 0
 
 
+def test_resolve_admin_account_with_personal_key(tmp_path, account_db, keys):
+    """The server administrator with a personal key: the calls use only that key; the account keeps all features."""
+    keys.active = ActiveKey(provider="gemini", fingerprint="feed0001", api_key=MEMBER_KEY)
+    ctx = _resolve(tmp_path, account_db, ADMIN_ID, provider="codex", gemini_model="gemini-3.8-flash", gemini_effort="high")
+    assert (ctx.account_id, ctx.source, ctx.provider, ctx.credential_key) == (ADMIN_ID, "byok", "gemini", "byok:feed0001")
+    assert ctx.api_key == MEMBER_KEY and not ctx.is_admin and ctx.server_admin
+    assert not ctx.allows_host_cli
+    assert all(ctx.feature_allowed(f) for f in (*pp.TIER_FEATURES, *pp.ADMIN_ONLY_FEATURES))
+    assert (ctx.model, ctx.effort) == ("gemini-3.8-flash", "high")
+    assert keys.tier_reads == 0
+
+
+def test_resolve_admin_inactive_personal_key_does_not_fall_back(tmp_path, account_db, keys):
+    keys.registered = True  # rejected/unverified: load_active_key는 None
+    with pytest.raises(ProviderKeyRejected):
+        _resolve(tmp_path, account_db, ADMIN_ID)
+
+
+def test_admin_personal_key_factories_never_use_server_credentials(tmp_path, account_db, keys, host_cli_present, fake_genai):
+    from claire.extract.gemini_provider import GeminiProvider
+    from claire.extract.provider import get_provider
+    from claire.extract.vision.factory import get_vision_provider
+    from claire.extract.vision.gemini_vision import GeminiVisionProvider
+
+    keys.active = ActiveKey(provider="gemini", fingerprint="feed0001", api_key=MEMBER_KEY)
+    base = _settings(tmp_path, provider="codex", feature_routing={"summarize": {"provider": "antigravity", "model": "", "effort": ""}})
+    ctx = pp.resolve_provider_context(ADMIN_ID, settings=base, db_path=account_db[0], auth_db_path=account_db[1])
+    s = pp.settings_for_context(base, ctx)
+    prov = get_provider(s)
+    assert isinstance(prov, GeminiProvider) and prov.client.api_key == MEMBER_KEY and prov.credential_key == "byok:feed0001"
+    vlm = get_vision_provider(s)
+    assert isinstance(vlm, GeminiVisionProvider) and vlm.api_key == MEMBER_KEY
+    assert set(fake_genai.created) <= {MEMBER_KEY} and ADMIN_KEY not in fake_genai.created
+    assert s.enable_jev is False
+
+
 @pytest.mark.parametrize("account_id", [SUSPENDED_ID, DELETING_ID, PURGED_ID, 999])
 def test_resolve_rejects_unusable_accounts(tmp_path, account_db, keys, account_id):
     keys.active = ActiveKey(provider="gemini", fingerprint="abcd1234", api_key=MEMBER_KEY)

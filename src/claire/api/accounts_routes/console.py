@@ -847,13 +847,15 @@ def _settings_tier_rows_html(tier: ServerTier) -> str:
     return "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
 
 
-def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> str:
+def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool, include_tokens: bool = False) -> str:
     tier: ServerTier = usage["tier"]
     if admin_viewer:
         stats = (
             ("documents", f"{usage['documents']:,}", t("console.usage.documents_own")),
             ("storage", _settings_format_bytes(usage["storage_bytes"]), t("console.usage.storage_own")),
         )
+        if include_tokens:
+            stats += (("tokens", f"{usage['tokens_total']:,}", t("console.usage.tokens_own", period=usage["period"])),)
     else:
         stats = (
             ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", t("console.usage.documents")),
@@ -1115,18 +1117,7 @@ def _settings_keys_body(
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
-    if admin_viewer:
-        # 관리자는 BYOK 키 대신 서버 프로바이더 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
-        notice = t("console.settings.keys.admin_notice")
-        body = (
-            f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="{escape(t("console.settings.keys.admin_label"))}">'
-            f"<h2><span data-icon='bolt'></span> {escape(t('console.settings.keys.admin_title'))}</h2>"
-            f'<p class="hint">{escape(notice)}</p>'
-            f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'
-            "</section>"
-        )
-        return body, {"keys_mode": "admin"}
-    if mode != "network" or principal.server_role != "member":
+    if not admin_viewer and (mode != "network" or principal.server_role != "member"):
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
             f'<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="{escape(t("console.settings.keys.unavailable_label"))}">'
@@ -1146,10 +1137,42 @@ def _settings_keys_body(
     provider_options = "".join(
         f'<option value="{escape(p)}">{escape(keys_routes.PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
     )
+    # The server administrator: the personal key pays for the jobs of the account, the server providers pay for the server jobs (owner decision 2026-11-19).
+    admin_card = (
+        (
+            f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-server-providers aria-label="{escape(t("console.settings.keys.admin_label"))}">'
+            f"<h2><span data-icon='bolt'></span> {escape(t('console.settings.keys.admin_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.settings.keys.admin_notice"))}</p>'
+            f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'
+            "</section>"
+        )
+        if admin_viewer
+        else ""
+    )
+    if admin_viewer:
+        usage_card = (
+            f'<section class="console-subcard" id="settings-keys-usage" aria-label="{escape(t("console.settings.keys.admin_usage_label"))}">'
+            f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.admin_usage_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.settings.keys.admin_usage_hint"))}</p>'
+            f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=True, include_tokens=True)}</div>'
+            "</section>"
+        )
+    else:
+        usage_card = (
+            f'<section class="console-subcard" id="settings-keys-tier" aria-label="{escape(t("console.settings.keys.tier_label"))}">'
+            f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.tier_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.settings.keys.tier_hint"))}</p>'
+            f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
+            f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
+            "</section>"
+        )
+    meta_hint = t("console.settings.keys.admin_meta_hint") if admin_viewer else t("console.settings.keys.meta_hint")
+    delete_hint = t("console.settings.keys.admin_delete_hint") if admin_viewer else t("console.settings.keys.delete_hint")
     body = (
+        f"{admin_card}"
         f'<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="{escape(t("console.settings.keys.meta_label"))}">'
         f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.meta_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.settings.keys.meta_hint"))}</p>'
+        f'<p class="hint">{escape(meta_hint)}</p>'
         f'<p class="hint" data-split-key-notice>{escape(t("console.settings.keys.split_key_notice"))}</p>'
         f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
         "</section>"
@@ -1174,16 +1197,11 @@ def _settings_keys_body(
         f'<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="{escape(t("console.settings.keys.delete_title"))}">'
         f"<h2><span data-icon='trash'></span> {escape(t('console.settings.keys.delete_title'))}</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
-        f'<p class="hint">{escape(t("console.settings.keys.delete_hint"))}</p>'
+        f'<p class="hint">{escape(delete_hint)}</p>'
         f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
-        f'<section class="console-subcard" id="settings-keys-tier" aria-label="{escape(t("console.settings.keys.tier_label"))}">'
-        f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.tier_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.settings.keys.tier_hint"))}</p>'
-        f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
-        f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
-        "</section>"
+        f"{usage_card}"
     )
     return body, {"keys_mode": "byok", "has_password": has_password}
 

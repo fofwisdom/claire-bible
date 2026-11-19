@@ -86,7 +86,13 @@ def save_server_tier(conn: sqlite3.Connection, tier: ServerTier, *, updated_by: 
 
 
 def _is_admin(ctx: ProviderContext) -> bool:
+    """The server credentials: no ledger record."""
     return ctx.is_admin or ctx.account_id is None
+
+
+def _limits_exempt(ctx: ProviderContext) -> bool:
+    """No server tier limits: the server credentials, or the server administrator account with a personal key."""
+    return _is_admin(ctx) or ctx.server_admin
 
 
 def _member_id(ctx: ProviderContext) -> int:
@@ -107,7 +113,7 @@ def _open_ledger(auth_db_path: Path | str) -> sqlite3.Connection:
 
 def check_ingest_allowed(ctx: ProviderContext, *, auth_db_path: Path | str, now: float | None = None) -> None:
     """적재 1건을 예약한다. 관리자는 통과. 멤버(BYOK 포함)는 ``tier.daily_ingests``를 넘으면 ``ProviderBudgetExceeded``."""
-    if _is_admin(ctx):
+    if _limits_exempt(ctx):
         return
     conn = _open_ledger(auth_db_path)
     try:
@@ -241,7 +247,7 @@ def account_storage_bytes(conn: sqlite3.Connection, account_id: int) -> int:
 
 def check_document_quota(conn: sqlite3.Connection, ctx: ProviderContext) -> None:
     """멤버 계정 전체 문서 수가 ``tier.max_documents``에 닿았으면 ``ProviderBudgetExceeded``. 저장 용량(``storage_mb``)도 여기서 본다."""
-    if _is_admin(ctx):
+    if _limits_exempt(ctx):
         return
     account_id = _member_id(ctx)
     if account_document_count(conn, account_id) >= ctx.tier.max_documents:
@@ -269,7 +275,7 @@ def job_slot(ctx: ProviderContext) -> Iterator[None]:
     관리자와 서버 등급 컨텍스트는 그대로 통과한다(서버 등급은 ``daily_ingests``로 묶인다).
     상한은 들어올 때의 ``ctx.tier`` 값으로 판정하므로 관리자가 등급을 바꾸면 다음 작업부터 반영된다.
     """
-    if _is_admin(ctx) or ctx.source != "byok":
+    if _limits_exempt(ctx) or ctx.source != "byok":
         yield
         return
     account_id = _member_id(ctx)

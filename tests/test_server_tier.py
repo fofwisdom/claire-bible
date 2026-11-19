@@ -285,6 +285,30 @@ def test_admin_is_unlimited(auth_path, kdb):
         c.close()
 
 
+def test_admin_personal_key_has_no_limits_but_records_tokens(auth_path, kdb):
+    """The server administrator with a personal key: no server tier limits, but the ledger records the tokens of the personal key."""
+    from dataclasses import replace
+
+    now = _utc(2026, 7, 1)
+    ctx = replace(_ctx(1, source="byok", daily_ingests=0, max_documents=0, storage_mb=0, monthly_tokens=0, byok_max_concurrency=1), server_admin=True)
+    for _ in range(5):
+        st.check_ingest_allowed(ctx, auth_db_path=auth_path, now=now)
+    st.check_tokens_available(ctx, auth_db_path=auth_path, now=now)
+    st.check_document_quota(kdb, ctx)
+    with st.job_slot(ctx), st.job_slot(ctx):
+        pass
+    hooks = st.usage_hooks_for(ctx, auth_db_path=auth_path)
+    assert hooks is not None
+    hooks.before_call()
+    hooks.after_call(7, 3)
+    c = auth_db.connect_auth_db(auth_path)
+    try:
+        usage = ul.get_usage(c, account_id=1)
+        assert usage.tokens_total == 10 and usage.daily_ingests == 0
+    finally:
+        c.close()
+
+
 def test_monthly_tokens_apply_to_tier_context_only(auth_path):
     now = _utc(2026, 8, 15)
     tier_ctx = _ctx(2, source="tier", monthly_tokens=100)

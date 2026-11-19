@@ -247,12 +247,15 @@ def test_keys_page_network_member_is_write_only_and_shows_server_tier(env):
 
 
 @pytest.mark.parametrize("mode", ["single", "network"])
-def test_keys_page_admin_gets_only_provider_settings_link(env, mode: str):
+def test_keys_page_admin_gets_personal_key_forms_and_provider_settings_link(env, mode: str):
     _set_mode(env.db_file, mode)
     html = _get(env, "/settings/keys", env.admin).text
-    assert 'data-keys-mode="admin"' in html
-    assert 'href="/admin/providers"' in html
-    assert 'data-settings-form="provider-key-put"' not in html
+    assert 'data-keys-mode="byok"' in html and _bootstrap(html)["settings_account"]["keys_mode"] == "byok"
+    assert 'href="/admin/providers"' in html and "data-keys-server-providers" in html
+    for form in ("provider-key-put", "provider-key-verify", "provider-key-delete"):
+        assert f'data-settings-form="{form}"' in html
+    # The server tier does not apply to the administrator account: the page shows own usage, not the tier.
+    assert "data-server-tier" not in html and 'data-usage-stat="tokens"' in html
     if mode == "single":
         assert ADMIN_USERNAME not in html
 

@@ -126,12 +126,10 @@ ADMIN_KEYS = {
     ("PUT", "/api/admin/plugins/{id}"),
     ("DELETE", "/api/admin/plugins/{id}"),
 }
-# Network mode only: the routes for more than one account (invites, member keys). ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
+# Network mode only: the routes for more than one account (invites). The key routes are in the two modes because the server administrator has a personal key. ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
-    *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
-    ("POST", "/api/me/keys/verify"),
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
 }
 

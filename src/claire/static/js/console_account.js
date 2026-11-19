@@ -17,7 +17,6 @@
     invalid_display_name: tr("console.js.account.error.invalid_display_name"),
     account_not_active: tr("console.js.account.error.account_not_active"),
     invalid_request: tr("console.js.common.error.invalid_request"),
-    admin_uses_provider_settings: tr("console.js.account.error.admin_uses_provider_settings"),
     unsupported_provider: tr("console.js.account.error.unsupported_provider"),
     invalid_api_key: tr("console.js.account.error.invalid_api_key"),
     key_not_found: tr("console.js.account.keys.empty"),
@@ -799,7 +798,7 @@
     } else if (section === "federation") {
       bindFederation();
     } else if (section === "keys") {
-      if (extra.keys_mode !== "admin") {
+      if (extra.keys_mode === "byok") {
         refreshKeys();
       }
     }
