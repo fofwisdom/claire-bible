@@ -41,7 +41,7 @@ def load_catalog(locale: str) -> dict[str, str]:
 
 
 # Key domains that only the server renders: the auth pages and the public directory (explore.) have no script that reads the catalog, and the bot, the push notifications and the CLI are not in a browser. The inline catalog of a page does not contain them.
-SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.", "explore.")
+SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.", "directory.")
 
 # The ``console.`` domain is the text of the console (/settings/*, /admin/*). The server renders it, thus a browser page does not get it. The exceptions are the keys that the console scripts read:
 # ``console.js.`` goes to each console page, and ``console.js.admin.`` goes only to a page of the administrator area (a member page has no text of the administrator scripts).

@@ -38,7 +38,7 @@
   function renderSettingsKb(host, bs) {
     var activeTab = "personal";
     var account = (bs && bs.account) || {};
-    // The path of the personal knowledge base of the account: "/@user/" in network mode, "/" in single mode (design Section 7).
+    // The path of the personal knowledge base of the account: "/@user/" in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2); "/" only for an account without a USERNAME.
     var homeHref = account.username ? "/@" + encodeURIComponent(account.username) + "/" : "/";
     var state = { personal: null, joined: [], memberships: [], subs: [], rule: null, serverSwitch: false, rep: null, mutual: [], autos: [], mine: [], blocks: [], themes: [], grants: [] };
 

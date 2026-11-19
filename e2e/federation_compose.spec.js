@@ -1,5 +1,5 @@
 // Compose controls of the federation client in /syndication (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 5.4, unit FP4-9), and the quote controls (FEP-044f, Sections 5.4 rules 5 and 6 and 6.6 rule 5, unit FP4-9Q).
-// The server of this test directory is in single mode, and the federation routes exist in network mode only. This file gives the page the network mode and answers the federation routes itself, as federation_client.spec.js does. The routes have their own end-to-end tests with a real app in network mode: tests/test_e2e_federation_outbound.py and tests/test_e2e_federation_quotes.py.
+// The server of this test directory is in single mode. The federation routes work in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5); this file answers them itself, as federation_client.spec.js does, so that the test needs no remote server. The routes have their own end-to-end tests with a real app in network mode: tests/test_e2e_federation_outbound.py and tests/test_e2e_federation_quotes.py.
 const { test, expect } = require('@playwright/test');
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -24,10 +24,6 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     page.on('pageerror', error => { if (!error.message.includes('Service worker is disabled because the context is sandboxed')) pageErrors.push(error.message); });
     page.on('dialog', dialog => dialog.accept());
     await page.setViewportSize({ width: 1400, height: 900 });
-    await page.addInitScript(() => {
-      let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
-    });
     // An own note with a script in its text, and a post of a remote actor.
     const own = item(8, { object_iri: 'http://127.0.0.1:8766/ap/objects/900', author: me, text: 'My note <img src=x onerror="window.__pwned = 1">', note: { id: '900', content: 'My note <img src=x onerror="window.__pwned = 1">', summary: null, sensitive: false, language: 'en', edited_at: NOW - 60, likes: 2, announces: 1, quotes: 0, quote_policy: 'public', quote: null } });
     const items = [own, item(7)];
@@ -150,10 +146,6 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     page.on('pageerror', error => { if (!error.message.includes('Service worker is disabled because the context is sandboxed')) pageErrors.push(error.message); });
     page.on('dialog', dialog => dialog.accept());
     await page.setViewportSize({ width: 1400, height: 900 });
-    await page.addInitScript(() => {
-      let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
-    });
     const json = (body, status) => ({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
     // An own note whose quote waits for the author, a post of a remote actor that quotes item 7, and item 7.
     const own = item(8, { object_iri: 'http://127.0.0.1:8766/ap/objects/900', author: me, text: 'My quote', quote: { iri: 'https://remote.example/notes/5', item_id: null, state: 'pending' }, note: { id: '900', content: 'My quote', summary: null, sensitive: false, language: 'en', edited_at: null, likes: 0, announces: 0, quotes: 3, quote_policy: 'followers', quote: { iri: 'https://remote.example/notes/5', state: 'pending' } } });

@@ -98,8 +98,8 @@ def render_public_kb_page(
     )
 
 
-def explore_head_markup(request: Request) -> str:
-    """Return shared stylesheet and script tags plus a scoped KB catalog for ``explore_accounts.html``."""
+def directory_head_markup(request: Request) -> str:
+    """Return shared stylesheet and script tags plus a scoped KB catalog for ``public_directory.html``."""
     full = i18n_catalog.browser_catalog(scope="page")
     scoped = {
         k: v

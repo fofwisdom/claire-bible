@@ -1,4 +1,4 @@
-"""Public directory and network mode root routing tests (P3 L3-g, D4)."""
+"""Public account directory (``/accounts``, both server modes) and network mode root routing tests (P3 L3-g, D4; KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3)."""
 
 from __future__ import annotations
 
@@ -175,12 +175,14 @@ def test_public_index_store_queries_and_counters(tmp_path: Path):
         conn.close()
 
 
-def test_explore_accounts_json_and_html_negotiation(tmp_path: Path):
+def test_accounts_json_and_html_negotiation(tmp_path: Path):
     s, ids_dict = _setup_network_env(tmp_path)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res_root = client.get("/explore/accounts", headers={"Accept": "application/json"})
+    assert client.get("/explore/accounts").status_code == 404
+    assert client.get("/explore/federation").status_code == 404
+    res_root = client.get("/accounts", headers={"Accept": "application/json"})
     assert res_root.status_code == 200
     assert "application/json" in res_root.headers.get("content-type", "")
     assert res_root.headers.get("vary") == "Cookie, Authorization, Sec-Fetch-Dest, Accept"
@@ -189,14 +191,14 @@ def test_explore_accounts_json_and_html_negotiation(tmp_path: Path):
     root_json = res_root.json()
     assert root_json["type"] == "OrderedCollection"
     assert root_json["totalItems"] == 2
-    assert root_json["first"] == f"{s.public_url.rstrip('/')}/explore/accounts?page=true"
+    assert root_json["first"] == f"{s.public_url.rstrip('/')}/accounts?page=true"
 
-    res_head = client.head("/explore/accounts", headers={"Accept": "application/json"})
+    res_head = client.head("/accounts", headers={"Accept": "application/json"})
     assert res_head.status_code == 200
     assert res_head.headers.get("etag") == etag_root
     assert res_head.text == ""
 
-    res_page = client.get("/explore/accounts?page=true", headers={"Accept": "application/json"})
+    res_page = client.get("/accounts?page=true", headers={"Accept": "application/json"})
     assert res_page.status_code == 200
     page_json = res_page.json()
     assert page_json["type"] == "OrderedCollectionPage"
@@ -206,10 +208,10 @@ def test_explore_accounts_json_and_html_negotiation(tmp_path: Path):
     assert "adminuser" in usernames
 
     etag_page = res_page.headers.get("etag")
-    cond_res = client.get("/explore/accounts?page=true", headers={"Accept": "application/json", "If-None-Match": etag_page})
+    cond_res = client.get("/accounts?page=true", headers={"Accept": "application/json", "If-None-Match": etag_page})
     assert cond_res.status_code == 304
 
-    res_html = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    res_html = client.get("/accounts", headers={"Accept": "text/html"})
     assert res_html.status_code == 200
     assert "text/html" in res_html.headers.get("content-type", "")
     assert "Public directory" in res_html.text
@@ -218,7 +220,7 @@ def test_explore_accounts_json_and_html_negotiation(tmp_path: Path):
     assert "Alice Public Theme" in res_html.text
     assert "Log in" in res_html.text
 
-    res_dest_html = client.get("/explore/accounts", headers={"Sec-Fetch-Dest": "document"})
+    res_dest_html = client.get("/accounts", headers={"Sec-Fetch-Dest": "document"})
     assert res_dest_html.status_code == 200
     assert "text/html" in res_dest_html.headers.get("content-type", "")
 
@@ -250,7 +252,7 @@ def test_network_mode_root_routing(tmp_path: Path):
     assert "Public directory" in res_other.text
 
 
-def test_single_mode_explore_accounts_is_404(tmp_path: Path):
+def test_single_mode_serves_the_account_directory_and_the_old_path_is_gone(tmp_path: Path):
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     store = accounts_store.AccountStore(conn)
@@ -268,8 +270,11 @@ def test_single_mode_explore_accounts_is_404(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
+    # The public account directory is in both server modes. The old path ``/explore/accounts`` is removed in each mode (no redirect: there are no external API consumers).
+    assert client.get("/accounts", headers={"Accept": "application/json"}).status_code == 200
+    assert client.head("/accounts", headers={"Accept": "application/json"}).status_code == 200
     assert client.get("/explore/accounts").status_code == 404
-    assert client.head("/explore/accounts").status_code == 404
+    assert client.get("/explore/federation").status_code == 404
 
     # In single mode ``/`` gives 302 to ``/@{username}/`` after the first setup, and the target is the workspace of the admin, not the directory (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
     username = complete_admin_setup(db_file)
@@ -286,7 +291,7 @@ def test_account_filtering_profile_public_and_status(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/explore/accounts?page=true", headers={"Accept": "application/json"})
+    res = client.get("/accounts?page=true", headers={"Accept": "application/json"})
     assert res.status_code == 200
     items = res.json()["orderedItems"]
     usernames = {it["username"] for it in items}
@@ -297,7 +302,7 @@ def test_account_filtering_profile_public_and_status(tmp_path: Path):
     assert "alice" in usernames
     assert "adminuser" in usernames
 
-    html_res = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    html_res = client.get("/accounts", headers={"Accept": "text/html"})
     assert "Bob Builder" not in html_res.text
     assert "@bob" not in html_res.text
     assert "Carol Singer" not in html_res.text
@@ -326,7 +331,7 @@ def test_empty_state_rendering(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    res = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    res = client.get("/accounts", headers={"Accept": "text/html"})
     assert res.status_code == 200
     assert "There are no public accounts" in res.text
     assert "Log in" in res.text
@@ -351,13 +356,13 @@ def test_public_directory_authenticated_user_navigation_e2e(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    anon_res = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    anon_res = client.get("/accounts", headers={"Accept": "text/html"})
     assert anon_res.status_code == 200
     assert 'href="/login"' in anon_res.text
     assert "Log out" not in anon_res.text
 
     client.cookies.set("claire_session", session_token)
-    auth_res = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    auth_res = client.get("/accounts", headers={"Accept": "text/html"})
     assert auth_res.status_code == 200
     assert "My workspace" in auth_res.text
     assert 'href="/@alice/"' in auth_res.text

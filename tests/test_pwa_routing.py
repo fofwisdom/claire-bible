@@ -312,7 +312,7 @@ def test_network_mode_normal_root_preserves_public_directory(tmp_path: Path):
     res = client.get("/")
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
-    assert "공개 계정 둘러보기" in res.text or "explore" in res.text or "등록된 공개 계정" in res.text
+    assert 'id="public-home-showcase"' in res.text
 
 
 def test_network_mode_non_pwa_query_params(tmp_path: Path):
@@ -362,7 +362,7 @@ def test_single_mode_pwa_launch_returns_workspace(tmp_path: Path):
     assert res.status_code == 200
     assert "text/html" in res.headers.get("content-type", "")
     assert "claire-storage-key" in res.text or "Claire" in res.text
-    assert "explore_accounts" not in res.text
+    assert 'id="public-home-showcase"' not in res.text
 
 
 def test_single_mode_root_without_pwa(tmp_path: Path):

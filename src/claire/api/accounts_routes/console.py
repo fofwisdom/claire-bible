@@ -748,16 +748,15 @@ def _build_settings_account_section(
     """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
 
     - 기존 API만 쓴다(C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/keys*``, ``/themes``, ``/tokens``.
-    - 싱글 모드에서는 USERNAME과 ``profile_public`` 행을 내지 않는다(S9).
     - 비관리자 응답에는 ``/admin/*`` 링크를 넣지 않는다(불변식 3). ``/admin/providers`` 링크는 관리자 뷰어에게만 준다.
     """
     if principal.account_id is None or principal.account_id != account.id:
         raise RuntimeError("settings Group 1 requires the caller's own account principal")
     admin_viewer = is_admin(principal)
     if spec.slug == "account":
-        body, extra = _settings_account_body(ctx, principal=principal, mode=mode, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
+        body, extra = _settings_account_body(ctx, principal=principal, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
     elif spec.slug == "federation":
-        body, extra = settings_federation_body(ctx, mode=mode, account=account)
+        body, extra = settings_federation_body(ctx, account=account)
     elif spec.slug == "keys":
         body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "kb":
@@ -904,7 +903,6 @@ def _settings_account_body(
     ctx: AccountsContext,
     *,
     principal: Principal,
-    mode: accounts_store.ServerMode,
     account: accounts_store.Account,
     owned_themes: list[KnowledgeBaseInfo],
     admin_viewer: bool,
@@ -918,23 +916,19 @@ def _settings_account_body(
     usage = _settings_account_usage(ctx, account.id)
     providers = _settings_enabled_idp_providers(ctx)
 
-    # S9: 싱글 모드에서는 USERNAME과 profile_public 행을 내지 않는다.
-    info_rows: list[tuple[str, str, str]] = [("public_id", t("console.settings.account.field.number"), str(account.public_id))]
-    if mode == "network":
-        info_rows.append(("username", "USERNAME", f"@{account.username}" if account.username else t("console.settings.account.username_unset")))
-    info_rows.extend(
-        (
-            ("display_name", t("console.settings.account.display_name"), account.display_name),
-            ("role", t("console.settings.account.field.role"), account_role_text(account.role)),
-            ("status", t("console.common.status"), account_status_text(account.status)),
-            ("password", t("console.settings.account.password"), t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset")),
-        )
-    )
-    if mode == "network":
-        info_rows.append(("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")))
+    # Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): the USERNAME and profile_public rows are in both server modes.
+    info_rows: list[tuple[str, str, str]] = [
+        ("public_id", t("console.settings.account.field.number"), str(account.public_id)),
+        ("username", "USERNAME", f"@{account.username}" if account.username else t("console.settings.account.username_unset")),
+        ("display_name", t("console.settings.account.display_name"), account.display_name),
+        ("role", t("console.settings.account.field.role"), account_role_text(account.role)),
+        ("status", t("console.common.status"), account_status_text(account.status)),
+        ("password", t("console.settings.account.password"), t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset")),
+        ("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")),
+    ]
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
     # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
-    federation_on = mode == "network" and _federation_on(ctx)
+    federation_on = _federation_on(ctx)
     step_up_attr = ""
     if federation_on:
         step_up_attr = ' data-step-up="password"' if has_password else ' data-step-up="session"'
@@ -950,8 +944,6 @@ def _settings_account_body(
         '</div>'
         f'{federation_hint_html}'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        if mode == "network"
-        else ""
     )
     # Schema v37: the sources of the documents of the personal knowledge base for other readers. Both modes: in single mode other readers can read the knowledge base of the admin too.
     source_toggle_html = (

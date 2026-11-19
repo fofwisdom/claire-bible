@@ -297,11 +297,16 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/settings/tokens"' not in admin_resp.text
 
 
-def test_single_mode_conceals_admin_username_on_console_and_whoami(console_env):
+def test_single_mode_shows_the_admin_username_only_on_the_account_page_and_not_in_whoami(console_env):
     _set_mode(console_env.db_file, "single")
     client = console_env.client
 
-    for path in ("/admin/providers", "/admin/themes", "/settings/account", "/settings/reader"):
+    # Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): the account page shows the USERNAME in both modes.
+    account_page = client.get("/settings/account", headers=console_env.admin_owner, follow_redirects=False)
+    assert account_page.status_code == 200
+    assert f"@{SECRET_ADMIN_USERNAME}" in account_page.text
+
+    for path in ("/admin/providers", "/admin/themes", "/settings/reader"):
         resp = client.get(path, headers=console_env.admin_owner, follow_redirects=False)
         assert resp.status_code == 200, path
         assert SECRET_ADMIN_USERNAME not in resp.text

@@ -190,19 +190,17 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     assert boot["settings_account"]["identity_providers"] == []
 
 
-def test_account_page_single_mode_admin_hides_username_and_profile_public(env):
+def test_account_page_single_mode_admin_shows_username_and_profile_public(env):
+    # Rule S9 is withdrawn and the account actor of the admin federates in single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5).
     _set_mode(env.db_file, "single")
     resp = _get(env, "/settings/account", env.admin)
     html = resp.text
-    assert ADMIN_USERNAME not in html
-    assert all(ADMIN_USERNAME not in v for v in resp.headers.values())
-    assert 'data-account-field="username"' not in html
-    assert 'data-account-field="profile_public"' not in html
-    assert "data-profile-public-hint" not in html
+    assert f'<dd data-account-field="username">@{ADMIN_USERNAME}</dd>' in html
+    assert 'data-account-field="profile_public"' in html
+    assert 'data-settings-toggle="profile-public"' in html
     assert 'data-lifecycle="admin"' in html
     # "Admin Vault" is a shared knowledge base after version 28: the account page lists only the personal knowledge base of the account.
     assert "Admin Vault" not in html
-    assert ADMIN_USERNAME not in json.dumps(_bootstrap(html), ensure_ascii=False)
 
 
 def test_account_page_lists_only_enabled_idp_providers_for_linking(env):

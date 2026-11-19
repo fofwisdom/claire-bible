@@ -6370,7 +6370,7 @@ function renderHome(){
   renderHomeFlow();
 }
 // --- Stage strip (design Section 5.6, unit HW-8): collection, ingestion, publication ---
-// The strip is for the owner. Each count comes from a route that exists; a route that is absent (404 in single mode) or fails gives no count, and the stage shows its link only.
+// The strip is for the owner. Each count comes from a route that exists; a route that gives 404 (the federation routes while federation is off) or fails gives no count, and the stage shows its link only.
 let homeFlowData = null, homeFlowKey = '', homeFlowSeq = 0;
 function paintHomeFlow(){
   const nav = document.getElementById('home-flow'); if(!nav) return;
@@ -6385,7 +6385,7 @@ function paintHomeFlow(){
     tl ? tr('home.flow.unread', {count: tl.unread}) : '',
     tl ? tr('home.flow.mentions', {count: tl.unread_mentions}) : '',
     d.feeds ? tr('home.flow.feeds', {count: d.feeds.count}) : '',
-    // Without a timeline (single mode) the unread count is that of the feeds.
+    // Without a timeline (federation off) the unread count is that of the feeds.
     d.feeds && !tl ? tr('home.flow.unread', {count: d.feeds.unread}) : '',
     d.following != null ? tr('home.flow.following', {count: d.following}) : ''
   ]);

@@ -16,7 +16,7 @@ import pytest
 
 from claire.knowledge_federation import journal, vocabulary
 from claire.store.secrets import reset_secret_service
-from tests.knowledge_federation_servers import B_KB_NUMBER, KfServer, server_actor
+from tests.knowledge_federation_servers import B_KB_NUMBER, KfServer, root_recent, server_actor
 
 A_KB_NUMBER = 1846000000000000200
 ENGINE = ["Ada Lovelace", "Analytical Engine", "Charles Babbage", "Difference Engine", "Punched card"]
@@ -103,18 +103,14 @@ def test_kf2_a_shared_knowledge_base_of_b_is_in_a_theme_and_on_the_root_page_of_
     listed = a.request("GET", "/themes", headers=JSON).json()["themes"]
     assert [(t["number"], t["knowledge_bases"], t["remote_knowledge_bases"]) for t in listed] == [(theme_number, 1, 1)]
 
-    # Criterion, part 2: the root page of A. Its data has the theme with the two counts, the federated server, and the new knowledge base of B.
-    data = a.request("GET", "/explore/federation")
-    assert data.status_code == 200
-    assert data.json() == {
-        "themes": [{"number": theme_number, "url": f"https://a.example/themes/{theme_number}/", "label": theme["label"], "knowledge_type": "real", "local_knowledge_bases": 1, "remote_knowledge_bases": 1}],
-        "servers": [{"domain": "b.example", "software_name": "claire-bible", "software_version": "1.0.0", "knowledge_bases": 1}],
-        "recent": [{"kind": "remote_knowledge_base", "at": data.json()["recent"][0]["at"], "server": "b.example", "label": "Analytical Engine", "url": f"https://b.example/kb/{B_KB_NUMBER}/", "knowledge_type": "real"}],
-    }
-    # The HTML of the root page has the theme with the knowledge base of B and the element that the page script fills from this data.
+    # Criterion, part 2: the root page of A. It has the theme with the knowledge base of B, and the new knowledge base of B in the recent activity. The list of the federated servers is not public (owner decision, 2026-11-19), and the old path /explore/federation is gone.
     root = a.request("GET", "/", headers={"Accept": "text/html"})
     assert root.status_code == 200
-    assert f'href="https://b.example/kb/{B_KB_NUMBER}/"' in root.text and "(b.example)" in root.text and 'id="public-home-federation"' in root.text
+    assert f'href="https://b.example/kb/{B_KB_NUMBER}/"' in root.text and "(b.example)" in root.text and 'id="public-home-recent"' in root.text
+    recent = root_recent(root.text)
+    assert recent == [{"kind": "remote_knowledge_base", "at": recent[0]["at"], "server": "b.example", "label": "Analytical Engine", "url": f"https://b.example/kb/{B_KB_NUMBER}/", "knowledge_type": "real"}]
+    assert "claire-bible 1.0.0" not in root.text
+    assert a.request("GET", "/explore/federation").status_code == 404
 
     # Section 8.3 rule 4: before an account makes a shared knowledge base, it sees the similar ones of this server and of other servers.
     similar = a.request("GET", "/api/kb/similar?knowledge_type=real&label=Analytical%20Engine&seed=Ada%20Lovelace", session=a_admin).json()
@@ -126,7 +122,7 @@ def test_kf2_a_shared_knowledge_base_of_b_is_in_a_theme_and_on_the_root_page_of_
     # A one-sided control (Section 6.3): A blocks B. The records of B go from the theme and from the root page of A.
     assert a.request("POST", "/api/admin/federation/domain-blocks", session=a_admin, json={"domain": "b.example", "note": "test"}).status_code == 201
     assert [kb["remote"] for kb in a.request("GET", f"/themes/{theme_number}/", headers=JSON).json()["knowledge_bases"]] == [False]
-    after = a.request("GET", "/explore/federation").json()
-    assert (after["servers"], after["recent"], after["themes"][0]["remote_knowledge_bases"]) == ([], [], 0)
+    assert root_recent(a.request("GET", "/", headers={"Accept": "text/html"}).text) == []
+    assert [t["remote_knowledge_bases"] for t in a.request("GET", "/themes", headers=JSON).json()["themes"]] == [0]
     # The server actor of A still reads the collection of B, because B has no block; a server that B blocks gets 404 (unit KF1).
     assert b.internal("GET", f"/knowledge-collections/kb?signer={server_actor(a.origin)}").status_code == 200

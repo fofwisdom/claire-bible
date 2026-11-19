@@ -1047,37 +1047,34 @@ paths:
         '200':
           description: The result.
 
-  /explore/federation:
+  /accounts:
     get:
-      summary: Data of the root page of network mode about other servers
+      summary: Public account directory
       description: >-
-        The themes across servers, the federated servers, and the recent activity across servers
-        (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 1 to 3). The data is public. `themes`: the
-        active themes, the one with the most recent activity first, each with `number`, `url`, `label`,
-        `knowledge_type`, `local_knowledge_bases`, and `remote_knowledge_bases` (the counts of the shared
-        knowledge bases of this server and of other servers). `servers`: the known servers that have
-        shared knowledge bases in the store of remote knowledge bases, each with `domain`,
-        `software_name`, `software_version`, and `knowledge_bases` (the count); a blocked server is not
-        in the list. `recent`: the 20 newest items of the recent activity, each with `kind`, `at`,
-        `server`, `label`, and `url` (the knowledge base of the other server and its page there; null
-        without a record): `remote_knowledge_base` (a new record, with `knowledge_type`),
-        `accepted_contribution` (another server approved contributions of an account of this server;
-        `account` is `{"username", "display_name"}`, or null when the account is not active with a
-        public profile and a USERNAME), and `curation` (a shared knowledge base of this server copied
-        documents of another server; `knowledge_base` is `{"number", "label", "url"}`). No item has a
-        document; a blocked domain is not in it. Network mode only: single mode has no root page (404).
-      operationId: getFederationOverview
+        The accounts with a public profile (`profile_public` 1) and the state `active`, in both server
+        modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2). At the root: a JSON
+        OrderedCollection; with `page=true`: an OrderedCollectionPage with the collection parameters
+        `max_id`, `min_id`, `since_id`, and `limit`. Each item has the public number, `username`,
+        `display_name`, and the public themes with their counts. A browser navigation gets the HTML
+        page. The old paths `/explore/accounts` and `/explore/federation` are removed (404). The list of
+        the federated servers is not public.
+      operationId: listPublicAccounts
       x-claire-access: public
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
         - {}
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, requests an OrderedCollectionPage slice instead of the root OrderedCollection.
       responses:
         '200':
-          description: '`{"themes": [...], "servers": [...], "recent": [...]}` with `Cache-Control: public, max-age=60`.'
-        '404':
-          description: The server is in single mode.
+          description: The collection root, a page of the collection, or the HTML page.
 
   /api/kb/similar:
     get:

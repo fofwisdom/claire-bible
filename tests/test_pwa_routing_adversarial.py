@@ -2,7 +2,7 @@
 
 Tests:
 1. Single mode with `/?pwa=1`: verify status 200 OK, HTML content, no redirect.
-2. Network mode normal `GET /`: verify status 200 OK, public account directory HTML (explore_accounts.html).
+2. Network mode normal `GET /`: verify status 200 OK, public account directory HTML (public_directory.html).
 3. Query parameter preservation: `GET /?pwa=1&theme=2&doc=doc-abc` preserves all query parameters.
 4. Expired, forged, and malformed session cookies: verify graceful anonymous fallback.
 5. Account status edge cases, sliding expiration, and adversarial inputs.
@@ -250,7 +250,7 @@ def test_single_mode_pwa_status_200_html_no_redirect(tmp_path: Path):
     assert "Claire" in html
     assert "claire-storage-key" in html or "data-active-pane" in html or "graph" in html
     # Verify public account directory HTML is NOT rendered
-    assert "explore_accounts" not in html
+    assert 'id="public-home-showcase"' not in html
     assert "공개 계정 둘러보기" not in html
 
 
@@ -266,7 +266,7 @@ def test_single_mode_pwa_with_complex_query_params(tmp_path: Path):
     assert res.history == []
     assert res.headers.get("location") is None
     assert "text/html" in res.headers.get("content-type", "")
-    assert "explore_accounts" not in res.text
+    assert 'id="public-home-showcase"' not in res.text
 
 
 def test_single_mode_pwa_head_request(tmp_path: Path):
@@ -305,7 +305,7 @@ def test_single_mode_normal_root_preservation(tmp_path: Path):
     assert res.status_code == 200
     assert res.history == []
     assert "text/html" in res.headers.get("content-type", "")
-    assert "explore_accounts" not in res.text
+    assert 'id="public-home-showcase"' not in res.text
 
 
 # ==============================================================================
@@ -313,7 +313,7 @@ def test_single_mode_normal_root_preservation(tmp_path: Path):
 # ==============================================================================
 
 
-def test_network_mode_normal_root_returns_explore_accounts(tmp_path: Path):
+def test_network_mode_normal_root_returns_public_directory(tmp_path: Path):
     """Verify network mode normal GET / returns status 200 OK and public account directory HTML."""
     s, _ = _setup_network_env(tmp_path)
     app = create_app(s)
@@ -326,8 +326,8 @@ def test_network_mode_normal_root_returns_explore_accounts(tmp_path: Path):
     assert "text/html" in res.headers.get("content-type", "")
 
     html = res.text
-    assert "공개 계정 둘러보기" in html or "explore" in html or "등록된 공개 계정" in html
-    assert "id=\"explore-search\"" in html or "explore-search" in html or "card" in html
+    assert 'id="public-home-showcase"' in html
+    assert 'href="/accounts"' in html
 
 
 def test_network_mode_normal_root_preserves_public_directory_for_logged_in_member(tmp_path: Path):

@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Claire Bible — 서버 간 최근 활동 시각 프로토타입 (설계 8.3 규칙 3, KD15)</title>
+<meta name="robots" content="noindex, nofollow"/>
+<style>
+:root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#5d5d58;--card:#ffffff;--line:#d9d9d4;--accent:#2f5d8a;--badge-bg:#e8e8e4;--hover:#efefeb;--active:#e3ecf5;--note-bg:#fff8e1;--note-line:#e0c46c;--real:#1a7f37;--fic:#8250df;--k-new:#2f5d8a;--k-acc:#1a7f37;--k-cur:#9a6700;--focus:#2f5d8a}
+[data-theme=dark]{--bg:#161615;--fg:#ececea;--muted:#a5a5a0;--card:#20201e;--line:#3a3a37;--accent:#8db6e0;--badge-bg:#2d2d2a;--hover:#2a2a27;--active:#24313f;--note-bg:#2e2817;--note-line:#7a6524;--real:#7ee787;--fic:#d2a8ff;--k-new:#8db6e0;--k-acc:#7ee787;--k-cur:#e3b341;--focus:#8db6e0}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif}
+button{font:inherit;color:inherit}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+main{max-width:46rem;margin:0 auto;padding:1.25rem 1rem 3rem}
+.top{display:flex;align-items:flex-start;gap:.75rem;flex-wrap:wrap}
+.top h1{flex:1 1 16rem;font-size:1.35rem;line-height:1.3;margin:0}
+.intro{color:var(--muted);font-size:.92rem;margin:.6rem 0 1.25rem}
+.btn{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.25rem .7rem;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.muted{color:var(--muted)}
+/* tabs */
+[role=tablist]{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card);margin:0 0 1rem}
+[role=tab]{border:0;border-right:1px solid var(--line);background:none;padding:.5rem .4rem;cursor:pointer;line-height:1.25;text-align:center}
+[role=tab]:last-child{border-right:0}
+[role=tab] small{display:block;font-size:.75rem;color:var(--muted)}
+[role=tab]:hover{background:var(--hover)}
+[role=tab][aria-selected=true]{background:var(--active);box-shadow:inset 0 -3px 0 var(--accent);font-weight:600}
+[role=tab]:focus-visible{outline-offset:-3px}
+[role=tabpanel]{outline:none}
+/* page frame like public_directory.html */
+.frame{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem 1.1rem;margin:0 0 1rem}
+.frame h2{font-size:1.15rem;margin:0 0 .5rem}
+.frame-sub{font-size:.82rem;color:var(--muted);margin:-.3rem 0 .6rem}
+.origin{color:var(--muted);font-size:.85rem}
+.tag{display:inline-block;font-size:.75rem;border-radius:4px;padding:0 .35rem;background:var(--badge-bg);white-space:nowrap;vertical-align:1px}
+.tag.real{color:var(--real)}.tag.fic{color:var(--fic)}
+.kind{display:inline-block;font-size:.72rem;font-weight:600;border-radius:4px;padding:0 .35rem;border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
+.kind.remote_knowledge_base{color:var(--k-new)}.kind.accepted_contribution{color:var(--k-acc)}.kind.curation{color:var(--k-cur)}
+.none{color:var(--muted);font-style:italic}
+time{color:var(--muted);font-size:.82rem;white-space:nowrap}
+.wrap{overflow-wrap:anywhere}
+/* A */
+.list-a{margin:.25rem 0 0;padding-left:1.25rem}
+.list-a li{margin:.35rem 0;font-size:.92rem}
+.list-a time{margin-left:.35rem}
+/* B */
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.25rem 0 .75rem;align-items:center}
+.chips .lbl{font-size:.82rem;color:var(--muted);margin-right:.15rem}
+.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:.1rem .7rem;font-size:.85rem;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--active);border-color:var(--accent);color:var(--accent);font-weight:600}
+.chip .n{font-size:.75rem;color:var(--muted);margin-left:.25rem}
+.day{font-size:.8rem;font-weight:700;color:var(--muted);margin:.8rem 0 .2rem;padding-bottom:.15rem;border-bottom:1px solid var(--line)}
+.day:first-of-type{margin-top:.2rem}
+.list-b{list-style:none;margin:0;padding:0}
+.list-b li{display:grid;grid-template-columns:3.2rem auto 1fr;gap:.5rem;align-items:baseline;padding:.3rem 0;font-size:.9rem;border-bottom:1px dashed var(--line)}
+.list-b li:last-child{border-bottom:0}
+.empty{color:var(--muted);font-size:.9rem;padding:.75rem 0}
+@media (max-width:30rem){.list-b li{grid-template-columns:auto 1fr}.list-b li time{grid-column:1/-1;order:-1}}
+/* C */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:.75rem}
+.card{border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;background:var(--bg);display:flex;flex-direction:column;gap:.35rem;min-width:0}
+.card h3{font-size:1rem;margin:0;line-height:1.35}
+.counts{display:flex;flex-wrap:wrap;gap:.3rem}
+.cnt{font-size:.78rem;border-radius:4px;padding:0 .4rem;background:var(--badge-bg)}
+.cnt b{margin-left:.2rem}
+.cnt.remote_knowledge_base{color:var(--k-new)}.cnt.accepted_contribution{color:var(--k-acc)}.cnt.curation{color:var(--k-cur)}
+.card .foot{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-top:auto;flex-wrap:wrap}
+.card ul{margin:.2rem 0 0;padding-left:1.1rem;font-size:.86rem}
+.card ul li{margin:.2rem 0}
+.card ul[hidden]{display:none}
+/* evaluation and footer */
+.eval{border:1px solid var(--note-line);background:var(--note-bg);border-radius:8px;padding:.6rem .9rem;margin:0 0 1.5rem;font-size:.88rem}
+.eval h3{font-size:.92rem;margin:0 0 .3rem}
+.eval ul{margin:0;padding-left:1.2rem}
+.eval li{margin:.15rem 0}
+footer{border-top:1px solid var(--line);margin-top:1rem;padding-top:.75rem;font-size:.85rem;color:var(--muted)}
+footer h2{font-size:.95rem;color:var(--fg);margin:0 0 .3rem}
+footer ul{margin:0;padding-left:1.2rem}
+footer li{margin:.15rem 0}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>서버 간 최근 활동 — 표시 형식 프로토타입</h1>
+    <button type="button" class="btn" id="theme-toggle" aria-pressed="false">어두운 테마</button>
+  </div>
+  <p class="intro">네트워크 모드 루트 페이지(<code>/</code>)의 두 번째 부분 "서버 간 최근 활동"의 최종 형식을 정하기 전에, 서로 다른 세 가지 형식을 같은 데이터로 비교하는 화면입니다. 데이터는 모두 모의 데이터(예시 도메인 <code>b.example</code>, <code>c.example</code>, <code>d.example</code>)이며, 상대 시각은 오늘 15:00을 기준으로 계산합니다. 소유자 평가용이며, 구현이 아닙니다.</p>
+
+  <div role="tablist" aria-label="표시 형식" id="tabs">
+    <button type="button" role="tab" id="tab-a" aria-controls="panel-a" aria-selected="true" tabindex="0">A. 단순 목록<small>현재 형식</small></button>
+    <button type="button" role="tab" id="tab-b" aria-controls="panel-b" aria-selected="false" tabindex="-1">B. 날짜별<small>종류 필터</small></button>
+    <button type="button" role="tab" id="tab-c" aria-controls="panel-c" aria-selected="false" tabindex="-1">C. 지식 베이스별<small>카드 묶음</small></button>
+  </div>
+
+  <section role="tabpanel" id="panel-a" aria-labelledby="tab-a" tabindex="0">
+    <div class="frame" id="view-a"></div>
+    <div class="eval">
+      <h3>평가 포인트</h3>
+      <ul>
+        <li>장점: 구현이 이미 있고(<code>recentItemHtml</code>), 한 줄에 한 항목이라 읽는 순서가 시간 순서와 같습니다.</li>
+        <li>위험: 같은 지식 베이스의 활동이 흩어져 반복되고, 종류를 문장 앞머리로만 구분하므로 20건이 차면 훑어보기 어렵습니다.</li>
+        <li>확인할 점: 상대 시각("3시간 전")을 더하는 것만으로 충분한지, 아니면 구조 변경이 필요한지.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section role="tabpanel" id="panel-b" aria-labelledby="tab-b" tabindex="0" hidden>
+    <div class="frame" id="view-b"></div>
+    <div class="eval">
+      <h3>평가 포인트</h3>
+      <ul>
+        <li>장점: 오늘 / 어제 / 이전으로 나뉘어 "새 소식이 있는지"를 한눈에 알 수 있고, 종류 칩으로 관심 있는 활동만 남길 수 있습니다.</li>
+        <li>위험: 최대 20건이라 필터 후 항목이 몇 개 남지 않을 수 있고, 활동이 드문 서버에서는 "이전" 묶음만 보여 날짜 구분의 의미가 줄어듭니다.</li>
+        <li>확인할 점: 칩의 상태를 주소(쿼리)에 남길지, 그리고 날짜 경계를 방문자의 시간대로 계산해도 되는지.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section role="tabpanel" id="panel-c" aria-labelledby="tab-c" tabindex="0" hidden>
+    <div class="frame" id="view-c"></div>
+    <div class="eval">
+      <h3>평가 포인트</h3>
+      <ul>
+        <li>장점: 다른 서버의 지식 베이스 하나에 모인 활동(공개, 승인된 기여, 가져온 문서)을 한 카드에서 보므로, 어떤 지식 베이스와 교류가 활발한지 드러납니다.</li>
+        <li>위험: 묶음 기준이 지식 베이스이므로 기록이 없는 항목(<code>label</code>/<code>url</code> 없음)은 묶을 수 없어 따로 카드가 됩니다. 이를 서버 단위로 묶으면 서버별 활동 수가 되어 "서버 수/서버 목록 비공개" 결정에 가까워지므로 이 시안은 묶지 않습니다.</li>
+        <li>위험: 지식 유형(현실/허구)은 20건 안에 "새 공유 지식 베이스" 항목이 있을 때만 알 수 있어, 카드마다 표시가 달라집니다.</li>
+        <li>확인할 점: 카드 수 = 교류한 원격 지식 베이스 수로 읽힐 수 있는데, 이 정도 노출이 괜찮은지.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <h2>세 형식이 모두 지키는 개인정보·공개 규칙</h2>
+    <ul>
+      <li>연합 서버 목록은 공개하지 않습니다(소유자 결정, KD15): 서버 디렉터리, 서버 소프트웨어, 서버 수를 별도 부분으로 보여 주지 않습니다. 도메인은 항목의 출처로만 나타납니다.</li>
+      <li>어떤 항목에도 문서나 문서 제목이 없습니다(제안 문서는 개인 지식 베이스에 있음, KD3, KS5).</li>
+      <li>기여한 계정은 활성 상태이고 공개 프로필과 사용자 이름이 있을 때만 이름이 나타납니다. 그렇지 않으면 이름을 쓰지 않습니다.</li>
+      <li>차단이 적용된 도메인의 항목은 목록에 없습니다(서버가 거릅니다).</li>
+      <li>항목은 최대 20건, 최신순입니다. 원격 지식 베이스 기록이 없으면 제목과 링크 없이 출처 도메인만 보여 줍니다.</li>
+      <li>다른 서버로 가는 링크는 새 탭에서 열고 <code>rel="noopener noreferrer"</code>를 씁니다. 데이터의 모든 값은 HTML로 해석되지 않도록 이스케이프합니다.</li>
+    </ul>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // Fixed reference time: today at 15:00 local time. The day groups of option B stay stable.
+  var NOW_DATE = new Date();
+  NOW_DATE.setHours(15, 0, 0, 0);
+  var NOW = Math.floor(NOW_DATE.getTime() / 1000);
+  var MIN = 60, HOUR = 3600, DAY = 86400;
+
+  // Mock data in the real shape of the "recent" items (KNOWLEDGE_FEDERATION.md Section 16.1). Newest first, at most 20.
+  var RECENT = [
+    { kind: "remote_knowledge_base", at: NOW - 12 * MIN, server: "b.example", label: "조선 왕조 실록 연구", url: "https://b.example/kb/12/", knowledge_type: "real" },
+    { kind: "accepted_contribution", at: NOW - 40 * MIN, server: "c.example", label: "한국 근대 문학 아카이브", url: "https://c.example/kb/3/", account: { username: "minji", display_name: "김민지" } },
+    { kind: "curation", at: NOW - 2 * HOUR, server: "b.example", label: "조선 왕조 실록 연구", url: "https://b.example/kb/12/", knowledge_base: { number: 5, label: "조선 시대 인물 사전", url: "/kb/5/" } },
+    { kind: "accepted_contribution", at: NOW - 3 * HOUR - 20 * MIN, server: "b.example", label: "조선 왕조 실록 연구", url: "https://b.example/kb/12/", account: null },
+    { kind: "remote_knowledge_base", at: NOW - 5 * HOUR, server: "d.example", label: "<b>중간계</b> 연대기 & \"반지\"", url: "https://d.example/kb/7/", knowledge_type: "fictional" },
+    { kind: "accepted_contribution", at: NOW - 26 * HOUR, server: "d.example", label: null, url: null, account: { username: "jun", display_name: "" } },
+    { kind: "curation", at: NOW - 28 * HOUR, server: "d.example", label: "<b>중간계</b> 연대기 & \"반지\"", url: "https://d.example/kb/7/", knowledge_base: { number: 9, label: "판타지 세계관 비교", url: "/kb/9/" } },
+    { kind: "remote_knowledge_base", at: NOW - 30 * HOUR, server: "c.example", label: "제주 방언 사전", url: "https://c.example/kb/8/", knowledge_type: "real" },
+    { kind: "accepted_contribution", at: NOW - 33 * HOUR, server: "c.example", label: "한국 근대 문학 아카이브", url: "https://c.example/kb/3/", account: { username: "seoyeon", display_name: "이서연" } },
+    { kind: "curation", at: NOW - 3 * DAY, server: "c.example", label: null, url: null, knowledge_base: { number: 2, label: "남도 민요 모음", url: "/kb/2/" } },
+    { kind: "remote_knowledge_base", at: NOW - 4 * DAY - 2 * HOUR, server: "b.example", label: "동아시아 천문 기록", url: "https://b.example/kb/21/", knowledge_type: "real" },
+    { kind: "accepted_contribution", at: NOW - 6 * DAY, server: "c.example", label: "제주 방언 사전", url: "https://c.example/kb/8/", account: null },
+    { kind: "remote_knowledge_base", at: NOW - 9 * DAY, server: "d.example", label: "우주 오페라 설정집", url: "https://d.example/kb/15/", knowledge_type: "fictional" },
+    { kind: "curation", at: NOW - 12 * DAY, server: "b.example", label: "동아시아 천문 기록", url: "https://b.example/kb/21/", knowledge_base: { number: 5, label: "조선 시대 인물 사전", url: "/kb/5/" } }
+  ];
+
+  // UI text of the ko locale (catalog keys kb.pub.recent_* where they exist).
+  var T = {
+    title: "서버 간 최근 활동",
+    remote_kb: "새 공유 지식 베이스:",
+    accepted: "다른 서버가 승인한 기여:",
+    by: "기여자:",
+    curation: "다른 서버에서 가져온 문서:",
+    real: "현실",
+    fictional: "허구",
+    no_record: "기록 없는 지식 베이스",
+    kind_short: { remote_knowledge_base: "새 지식 베이스", accepted_contribution: "승인된 기여", curation: "가져온 문서" }
+  };
+  var KINDS = ["remote_knowledge_base", "accepted_contribution", "curation"];
+
+  // Escape a value for HTML text and attribute values.
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // Accept only http and https URLs for links to another server.
+  function safeRemoteUrl(url) {
+    return typeof url === "string" && /^https?:\/\//i.test(url) ? url : null;
+  }
+
+  function remoteLink(url, label) {
+    var u = safeRemoteUrl(url);
+    if (!u || !label) return "";
+    return '<a class="wrap" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(label) + "</a>";
+  }
+
+  function localKbLink(kb) {
+    if (!kb) return "";
+    return '<a class="wrap" href="/kb/' + encodeURIComponent(kb.number) + '/">' + esc(kb.label) + "</a>";
+  }
+
+  function accountLink(acc) {
+    if (!acc) return "";
+    return '<a href="/@' + esc(encodeURIComponent(acc.username)) + '/">' + esc(acc.display_name || acc.username) + "</a>";
+  }
+
+  function typeTag(kt) {
+    if (kt !== "real" && kt !== "fictional") return "";
+    return '<span class="tag ' + (kt === "fictional" ? "fic" : "real") + '">' + esc(kt === "fictional" ? T.fictional : T.real) + "</span>";
+  }
+
+  var RTF = new Intl.RelativeTimeFormat("ko", { numeric: "auto" });
+  function relTime(at) {
+    var d = NOW - at;
+    if (d < MIN) return "방금";
+    if (d < HOUR) return RTF.format(-Math.floor(d / MIN), "minute");
+    if (d < DAY) return RTF.format(-Math.floor(d / HOUR), "hour");
+    if (d < 30 * DAY) return RTF.format(-Math.floor(d / DAY), "day");
+    return RTF.format(-Math.floor(d / (30 * DAY)), "month");
+  }
+  function absTime(at) {
+    return new Date(at * 1000).toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+  function timeEl(at, text) {
+    return '<time datetime="' + esc(new Date(at * 1000).toISOString()) + '" title="' + esc(absTime(at)) + '">' + esc(text) + "</time>";
+  }
+  function hhmm(at) {
+    var d = new Date(at * 1000);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  // The remote part of an item: a link when this server has a record, else a note.
+  function remotePart(it) {
+    return remoteLink(it.url, it.label) || '<span class="none">' + esc(T.no_record) + "</span>";
+  }
+  function originPart(it, withType) {
+    return '<span class="origin">(' + esc(it.server) + (withType && it.kind === "remote_knowledge_base" ? " · " + esc(it.knowledge_type === "fictional" ? T.fictional : T.real) : "") + ")</span>";
+  }
+
+  // The sentence of one item, as in recentItemHtml of public_kb.js.
+  function sentence(it) {
+    if (it.kind === "accepted_contribution") {
+      return esc(T.accepted) + " " + remotePart(it) + " " + originPart(it, false) + (it.account ? " " + esc(T.by) + " " + accountLink(it.account) : "");
+    }
+    if (it.kind === "curation") {
+      return esc(T.curation) + " " + localKbLink(it.knowledge_base) + " ← " + remotePart(it) + " " + originPart(it, false);
+    }
+    return esc(T.remote_kb) + " " + remotePart(it) + " " + originPart(it, true);
+  }
+
+  // Option A: the plain list (current form) with a relative time.
+  function renderA(host) {
+    host.innerHTML = "<h2>" + esc(T.title) + "</h2>" + '<ul class="list-a">' + RECENT.map(function (it) {
+      return '<li class="wrap" data-kind="' + esc(it.kind) + '">' + sentence(it) + timeEl(it.at, relTime(it.at)) + "</li>";
+    }).join("") + "</ul>";
+  }
+
+  // Option B: day groups and kind filter chips. A compact line: time, kind badge, short text.
+  var filterB = { remote_knowledge_base: true, accepted_contribution: true, curation: true };
+  function dayGroup(at) {
+    var start = new Date(NOW_DATE); start.setHours(0, 0, 0, 0);
+    var t0 = Math.floor(start.getTime() / 1000);
+    if (at >= t0) return "today";
+    if (at >= t0 - DAY) return "yesterday";
+    return "earlier";
+  }
+  var GROUP_LABEL = { today: "오늘", yesterday: "어제", earlier: "이전" };
+  function compactText(it) {
+    if (it.kind === "accepted_contribution") return remotePart(it) + " " + originPart(it, false) + (it.account ? " · " + accountLink(it.account) : "");
+    if (it.kind === "curation") return remotePart(it) + " " + originPart(it, false) + " → " + localKbLink(it.knowledge_base);
+    return remotePart(it) + " " + originPart(it, false) + " " + typeTag(it.knowledge_type);
+  }
+  function renderB(host) {
+    var counts = {};
+    KINDS.forEach(function (k) { counts[k] = RECENT.filter(function (it) { return it.kind === k; }).length; });
+    var chips = '<div class="chips" role="group" aria-label="활동 종류 필터"><span class="lbl">종류</span>' + KINDS.map(function (k) {
+      return '<button type="button" class="chip" data-kind="' + esc(k) + '" aria-pressed="' + (filterB[k] ? "true" : "false") + '">' + esc(T.kind_short[k]) + '<span class="n">' + esc(counts[k]) + "</span></button>";
+    }).join("") + "</div>";
+    var shown = RECENT.filter(function (it) { return filterB[it.kind]; });
+    var body = "";
+    if (!shown.length) {
+      body = '<p class="empty">선택한 종류의 활동이 없습니다. 종류를 하나 이상 고르세요.</p>';
+    } else {
+      ["today", "yesterday", "earlier"].forEach(function (g) {
+        var items = shown.filter(function (it) { return dayGroup(it.at) === g; });
+        if (!items.length) return;
+        body += '<h3 class="day">' + esc(GROUP_LABEL[g]) + "</h3>" + '<ul class="list-b">' + items.map(function (it) {
+          var tm = g === "earlier" ? relTime(it.at) : hhmm(it.at);
+          return '<li data-kind="' + esc(it.kind) + '">' + timeEl(it.at, tm) + '<span class="kind ' + esc(it.kind) + '">' + esc(T.kind_short[it.kind]) + '</span><span class="wrap">' + compactText(it) + "</span></li>";
+        }).join("") + "</ul>";
+      });
+    }
+    host.innerHTML = "<h2>" + esc(T.title) + "</h2>" + chips + '<div aria-live="polite">' + body + "</div>";
+    host.querySelectorAll(".chip").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var k = btn.getAttribute("data-kind");
+        filterB[k] = !filterB[k];
+        renderB(host);
+        var again = host.querySelector('.chip[data-kind="' + k + '"]');
+        if (again) again.focus();
+      });
+    });
+  }
+
+  // Option C: one card for each remote knowledge base (key: url). An item without a record gets its own card; it is never grouped by server.
+  var openC = {};
+  function groupsC() {
+    var map = {}, order = [];
+    RECENT.forEach(function (it, i) {
+      var key = safeRemoteUrl(it.url) && it.label ? "kb:" + it.url : "item:" + i;
+      if (!map[key]) { map[key] = { key: key, label: it.label, url: it.url, server: it.server, knowledge_type: null, last: it.at, items: [] }; order.push(key); }
+      var g = map[key];
+      g.items.push(it);
+      if (it.at > g.last) g.last = it.at;
+      if (it.kind === "remote_knowledge_base") g.knowledge_type = it.knowledge_type;
+    });
+    return order.map(function (k) { return map[k]; }).sort(function (a, b) { return b.last - a.last; });
+  }
+  function cardItemText(it) {
+    if (it.kind === "accepted_contribution") return esc(T.kind_short[it.kind]) + (it.account ? " · " + esc(T.by) + " " + accountLink(it.account) : "");
+    if (it.kind === "curation") return esc(T.kind_short[it.kind]) + " → " + localKbLink(it.knowledge_base);
+    return "공유 지식 베이스로 공개됨";
+  }
+  function renderC(host) {
+    var groups = groupsC();
+    host.innerHTML = "<h2>" + esc(T.title) + "</h2>" + '<p class="frame-sub">다른 서버의 지식 베이스별로 묶은 최근 ' + esc(RECENT.length) + "건</p>" + '<div class="cards">' + groups.map(function (g, idx) {
+      var counts = KINDS.map(function (k) {
+        var n = g.items.filter(function (it) { return it.kind === k; }).length;
+        return n ? '<span class="cnt ' + esc(k) + '">' + esc(T.kind_short[k]) + "<b>" + esc(n) + "</b></span>" : "";
+      }).join("");
+      var listId = "c-items-" + idx;
+      var open = !!openC[g.key];
+      return '<article class="card" data-key="' + esc(g.key) + '">' +
+        "<h3>" + (remoteLink(g.url, g.label) || '<span class="none">' + esc(T.no_record) + "</span>") + "</h3>" +
+        '<div><span class="origin">출처 ' + esc(g.server) + "</span> " + typeTag(g.knowledge_type) + "</div>" +
+        '<div class="counts">' + counts + "</div>" +
+        '<div class="foot">' + timeEl(g.last, "마지막 활동 " + relTime(g.last)) +
+        '<button type="button" class="btn" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="' + listId + '">' + (open ? "접기" : "활동 " + esc(g.items.length) + "건 보기") + "</button></div>" +
+        '<ul id="' + listId + '"' + (open ? "" : " hidden") + ">" + g.items.map(function (it) {
+          return '<li class="wrap">' + cardItemText(it) + " " + timeEl(it.at, relTime(it.at)) + "</li>";
+        }).join("") + "</ul></article>";
+    }).join("") + "</div>";
+    host.querySelectorAll(".card .btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var card = btn.closest(".card");
+        var key = card.getAttribute("data-key");
+        openC[key] = !openC[key];
+        var list = document.getElementById(btn.getAttribute("aria-controls"));
+        list.hidden = !openC[key];
+        btn.setAttribute("aria-expanded", openC[key] ? "true" : "false");
+        btn.textContent = openC[key] ? "접기" : "활동 " + list.children.length + "건 보기";
+      });
+    });
+  }
+
+  // Tabs: WAI-ARIA tabs pattern with roving tabindex and automatic activation.
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function selectTab(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+    if (focus) tab.focus();
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener("click", function () { selectTab(tab, false); });
+    tab.addEventListener("keydown", function (e) {
+      var next = null;
+      if (e.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+      else if (e.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === "Home") next = tabs[0];
+      else if (e.key === "End") next = tabs[tabs.length - 1];
+      if (next) { e.preventDefault(); selectTab(next, true); }
+    });
+  });
+
+  // Light and dark theme switch.
+  var themeBtn = document.getElementById("theme-toggle");
+  themeBtn.addEventListener("click", function () {
+    var dark = document.documentElement.getAttribute("data-theme") !== "dark";
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    themeBtn.setAttribute("aria-pressed", dark ? "true" : "false");
+    themeBtn.textContent = dark ? "밝은 테마" : "어두운 테마";
+  });
+
+  renderA(document.getElementById("view-a"));
+  renderB(document.getElementById("view-b"));
+  renderC(document.getElementById("view-c"));
+})();
+</script>
+</body>
+</html>

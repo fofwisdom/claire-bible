@@ -25,7 +25,6 @@
   const $ = (id) => document.getElementById(id);
 
   const IS_OWNER = cfg.authScope === "owner";
-  const IS_NETWORK = cfg.serverMode === "network";
   const STAGES = ["collect", "ingest", "publish"];
   const STREAMS = [
     { key: "home", icon: ic("home"), label: "synd.client.stream.home", filter: "" },
@@ -119,8 +118,8 @@
     if (client) {
       renderClient();
       if (Feeds) Feeds.open();
-      if (IS_NETWORK && !C.loaded) loadTimeline(true);
-      if (IS_NETWORK && C.following === null) loadFollowing();
+      if (!C.loaded) loadTimeline(true);
+      if (C.following === null) loadFollowing();
     }
     renderStageBar();
   }
@@ -132,15 +131,11 @@
     if (!IS_OWNER) return;
     const set = (id, parts) => { const el = $(id); if (el) el.textContent = parts.filter(Boolean).join(" · "); };
     const counts = C.counts;
-    set("stage-collect-counts", IS_NETWORK
-      ? [counts ? tr("home.flow.unread", { count: counts.unread }) : "", counts ? tr("synd.stage.mentions", { count: counts.unread_mentions }) : ""]
-      : [tr("synd.stage.single_mode")]);
+    set("stage-collect-counts", [counts ? tr("home.flow.unread", { count: counts.unread }) : "", counts ? tr("synd.stage.mentions", { count: counts.unread_mentions }) : ""]);
     const theme = bridge.curTheme();
     const docs = (theme && theme.documents) || [];
     set("stage-ingest-counts", [theme && theme.loaded ? tr("home.flow.documents", { count: docs.length }) : "", counts && counts.ingested ? tr("synd.stage.from_posts", { count: counts.ingested }) : ""]);
-    if (!IS_NETWORK) {
-      set("stage-publish-counts", [tr("synd.stage.single_mode")]);
-    } else if (C.publishedLoaded && theme && theme.loaded) {
+    if (C.publishedLoaded && theme && theme.loaded) {
       const published = docs.filter((d) => bridge.state.publishedKeys.has(`${theme.id}:${d.id}`)).length;
       set("stage-publish-counts", [tr("synd.stage.published", { count: published }), tr("synd.stage.unpublished", { count: docs.length - published })]);
     } else {
@@ -156,7 +151,7 @@
 
   // The published documents of the account, as "themeId:documentId" keys for the filter of stage 3.
   async function loadPublished() {
-    if (!IS_NETWORK || !IS_OWNER) { C.publishedLoaded = true; return; }
+    if (!IS_OWNER) { C.publishedLoaded = true; return; }
     const keys = new Set();
     // The counters of each published document (FP4-8), as a text for the knowledge base view.
     const reactions = {};
@@ -188,7 +183,7 @@
   }
 
   async function loadTimeline(reset) {
-    if (!IS_NETWORK || !IS_OWNER) return;
+    if (!IS_OWNER) return;
     const seq = ++C.seq;
     C.loading = true;
     if (reset) { C.items = []; C.nextMaxId = null; }
@@ -213,7 +208,7 @@
 
   // New items come first. A poll reads the first page and puts the items that the list does not have before the others.
   async function pollTimeline() {
-    if (!IS_NETWORK || !IS_OWNER || document.hidden || C.loading) return;
+    if (!IS_OWNER || document.hidden || C.loading) return;
     const filter = streamOf(C.stream).filter;
     const seq = C.seq;
     const result = await api("GET", `/api/federation/timeline?limit=${PAGE}${filter ? `&${filter}` : ""}`);
@@ -259,12 +254,6 @@
     const notice = $("client-notice");
     if (!el) return;
     if (Feeds && Feeds.active) return;
-    if (!IS_NETWORK) {
-      notice.hidden = false;
-      notice.textContent = tr("synd.client.single_mode");
-      el.innerHTML = "";
-      return;
-    }
     const notActor = C.actor && !C.actor.is_actor;
     notice.hidden = !(notActor || C.error);
     notice.textContent = C.error ? tr("synd.error.request", { error: C.error }) : notActor ? tr("synd.client.not_actor") : "";
@@ -332,7 +321,6 @@
     const el = $("client-reader");
     if (!el) return;
     if (Feeds && Feeds.active) return;
-    if (!IS_NETWORK) { el.innerHTML = ""; return; }
     const detail = C.detail;
     if (!detail || String(detail.item.id) !== String(C.selectedId)) {
       el.innerHTML = `<div class="synd-empty">${esc(tr(C.selectedId ? "synd.client.loading" : "synd.client.select_prompt"))}</div>`;
@@ -449,7 +437,7 @@
   // --- Follows -------------------------------------------------------------
 
   async function loadFollowing() {
-    if (!IS_NETWORK || !IS_OWNER) return;
+    if (!IS_OWNER) return;
     const [following, status] = await Promise.all([api("GET", "/api/federation/following?limit=80"), api("GET", "/api/federation/status")]);
     C.following = following.ok ? following.data : { items: [], total: 0 };
     C.actor = status.ok ? status.data : null;
@@ -460,8 +448,8 @@
     const el = $("client-following");
     const folder = $("client-following-folder");
     if (!el || !folder) return;
-    folder.hidden = !IS_NETWORK;
-    if (!IS_NETWORK || C.following === null) { el.innerHTML = ""; return; }
+    folder.hidden = false;
+    if (C.following === null) { el.innerHTML = ""; return; }
     const items = C.following.items || [];
     el.innerHTML = items.length
       ? items.map((f) => `<div class="synd-follow-row"><span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span><span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
@@ -721,7 +709,7 @@
 
   const requested = new URLSearchParams(window.location.search).get("stage");
   setStage(IS_OWNER && STAGES.includes(requested) ? requested : "ingest", { keepUrl: true });
-  if (IS_OWNER && IS_NETWORK) {
+  if (IS_OWNER) {
     // The counts of the stage bar. The lists load when their stage opens.
     pollTimeline();
     loadPublished().then(renderStageBar);

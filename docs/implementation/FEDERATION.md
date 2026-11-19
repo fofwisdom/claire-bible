@@ -464,7 +464,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 ### 7.5 Console and Account Routes (Unit FP2-4)
 
-**Account routes.** The routes are for the owner of an account, in network mode only (`ROUTE_POLICY`: `_any("owner", modes=NETWORK_ONLY)`). Single mode gives 404. The routes use the account of the credential. No route reads an account from the request.
+**Account routes.** The routes are for the owner of an account, in both server modes (`ROUTE_POLICY`: `_any("owner")`; KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, 2026-11-19). The routes use the account of the credential. No route reads an account from the request.
 
 `GET /api/federation/status` returns, with `Cache-Control: no-store`:
 
@@ -503,13 +503,13 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 **Console sections.**
 
-- `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). In single mode the section shows a notice only and no USERNAME.
+- `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). The section is the same in both server modes.
 - `/admin/federation` (admin): the switch, the readiness checks GF1 to GF17 in two groups (`account` and `knowledge`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
 ### 7.6 Publishing Routes (Unit FP3-1)
 
-The routes need the scope `write` or `owner`, in network mode only (`ROUTE_POLICY`: `_any("write", "write", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the knowledge base must be the personal knowledge base of that account (`_own_theme`): the admin cannot publish for a member, and a document of a shared knowledge base cannot be published (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
+The routes need the scope `write` or `owner`, in both server modes (`ROUTE_POLICY`: `_any("write", "write")`). A `readonly` credential cannot call them. The principal must have an account, and the knowledge base must be the personal knowledge base of that account (`_own_theme`): the admin cannot publish for a member, and a document of a shared knowledge base cannot be published (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
 
 `POST /api/federation/publish` with the body `{"theme": "<theme number>", "document_id": "..."}`:
 
@@ -544,7 +544,7 @@ A cookie request that is not from the same origin gets 403 (`AuthenticationMiddl
 
 The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/claire/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
 
-- The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. In single mode the status route gives 404, and the dialog does not change.
+- The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. The rule is the same in both server modes.
 - The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee.
 - The button sends `POST /api/federation/publish` with the theme number and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
 - The button is disabled for a document of a private theme.
@@ -892,9 +892,9 @@ The internal API gives a client task only for an account that is an actor now; t
 
 | Method | Path | Access | Answer |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/federation/following` | owner, network mode | `{"total", "limit", "items": [{"id", "request", "actor_iri", "actor_type", "display_name", "state", "created_at", "updated_at"}], "next_max_id"}`; query `limit` (1 to 80, default 40), `max_id` |
-| `POST` | `/api/federation/following` | owner, network mode | 202 `{"following", "created": true}` or 200 `{"following", "created": false}` |
-| `DELETE` | `/api/federation/following/{id}` | owner, network mode | `{"removed": true}`; 404 `following_not_found` |
+| `GET` | `/api/federation/following` | owner, both modes | `{"total", "limit", "items": [{"id", "request", "actor_iri", "actor_type", "display_name", "state", "created_at", "updated_at"}], "next_max_id"}`; query `limit` (1 to 80, default 40), `max_id` |
+| `POST` | `/api/federation/following` | owner, both modes | 202 `{"following", "created": true}` or 200 `{"following", "created": false}` |
+| `DELETE` | `/api/federation/following/{id}` | owner, both modes | `{"removed": true}`; 404 `following_not_found` |
 
 Tests: `tests/test_e2e_federation_following.py`, `tests/test_federation_routes.py` (contract fixtures), `sidecar/fedify/tests/client_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
 
@@ -944,7 +944,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 ### 19.1 Routes
 
-All routes are for the owner of the account, in network mode only. An item of another account gives 404.
+All routes are for the owner of the account, in both server modes. An item of another account gives 404.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
@@ -975,7 +975,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 - Stage 3 has the filter all, not published, and published. The published documents come from `GET /api/federation/objects`.
 - Knowledge base view: the context menu (right click) of a document has "open original", "Markdown export" (`GET /document/export`, MD-3), "publish or dispatch", and "toggle star". The article menu of the reader has the Markdown export too.
 - The page has the command palette of the workspace (`command_palette.js`, the `/` key) with the three stages.
-- In single mode the stage bar shows; stage 1 has a notice and sends no timeline request.
+- Stage 1 is the same in both server modes. An account that is not an actor (for example, while `federation` is off) gets the notice `synd.client.not_actor`, and the timeline has only the stored items.
 - The stage strip of the home page (HW-8) shows the counts of the timeline (`GET /api/federation/timeline?limit=1`) and its three links go to the three stages.
 - Code: `src/claire/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/claire/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.
 
@@ -1213,7 +1213,7 @@ Changes of the routes of Section 15.3:
 
 A feed item and a timeline item of the same account are the same post when the `url` of the feed item is the `url` or the `object_iri` of the timeline item.
 
-- The feed item has `timeline_item_id`. The view shows the mark "in timeline" and the action "open in timeline" (network mode).
+- The feed item has `timeline_item_id`. The view shows the mark "in timeline" and the action "open in timeline".
 - The read state and the star are one state: a change of the feed item changes the timeline item, and `PATCH /api/federation/timeline/{item_id}` changes the feed item. "Mark all as read" of a feed does the same.
 - The ingest of one of the two gives the document link to the other, when the other has no document.
 
@@ -1222,13 +1222,13 @@ A feed item and a timeline item of the same account are the same post when the `
 - The client view (stage 1) has the folder "Feeds" in its tree: "all feed items", "starred feed items", each folder with its feeds, then the feeds without a folder, each with its unread count. A feed whose last poll failed has the warning icon and the reason as its title.
 - Subscribe: the form takes the address of a feed or of a site (without a scheme, `https://` is added) and an optional folder. One found feed is added at once; for more feeds the owner selects one. A new feed is polled at once. The tools are "poll all feeds now", OPML import (a file, 1 MiB at most), and OPML export.
 - The list pane and the reader pane are those of the timeline. A feed scope takes them; a stream of the timeline gives them back. The list has "unread only", "mark all as read", and older items by a cursor.
-- Actions of an item: star, read or unread, "share link", "take into knowledge base" (the dialog of Section 19.3 with the feed route), and, for an item with a document, "open document" and (network mode) "publish". Opening an item marks it as read. The keys `j`, `k`, and `s` work as in the timeline list.
-- Single mode: the client view shows the feeds, the notice that follows and the timeline need network mode, and no stream tree and no follow tree. The stage bar shows the unread count of the feeds. In network mode the stage bar adds that count only when it is above 0.
+- Actions of an item: star, read or unread, "share link", "take into knowledge base" (the dialog of Section 19.3 with the feed route), and, for an item with a document, "open document" and "publish". Opening an item marks it as read. The keys `j`, `k`, and `s` work as in the timeline list.
+- The client view has the stream tree, the follow tree, and the feeds in both server modes. The stage bar adds the unread count of the feeds only when it is above 0.
 - The texts are the catalog keys `synd.feeds.*` in English and Korean.
 
 ### 23.5 Differences from the Design and Limits
 
-- In single mode, "Share" is the share sheet of the device (a touch device) or a copy of the address to the clipboard. In network mode it is a new note with the link (unit FP4-9, Section 25.6).
+- "Share" is a new note with the link (unit FP4-9, Section 25.6). Without the compose dialog (a credential that is not `owner`) it is the share sheet of the device (a touch device) or a copy of the address to the clipboard.
 - The merge keeps the two rows. The post shows in the feed list and in the timeline, with one state and one document link. The lists are not one list, thus no row is hidden.
 - The merge is by exact address. Two addresses of the same post that differ (a redirect, a query part) do not merge.
 - The discovery finds feeds only. It does not look for an ActivityPub actor of the same site and does not offer a follow in place of the feed.
@@ -1247,7 +1247,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 | Method | Path | Function |
 | :--- | :--- | :--- |
-| `POST` | `/api/federation/timeline/{item_id}/context` | Owner, network mode only (`ROUTE_POLICY`). No body. Makes the `fetch_context` task for the thread of the item. Answer `{"state", "pending"}`: `queued` (a new task, status 202), `recent` (no task was made, status 200), or `off` (status 200). `pending` is true while a task of the thread waits for the sidecar. An item that the caller does not have gives 404 `item_not_found`. |
+| `POST` | `/api/federation/timeline/{item_id}/context` | Owner, both server modes (`ROUTE_POLICY`). No body. Makes the `fetch_context` task for the thread of the item. Answer `{"state", "pending"}`: `queued` (a new task, status 202), `recent` (no task was made, status 200), or `off` (status 200). `pending` is true while a task of the thread waits for the sidecar. An item that the caller does not have gives 404 `item_not_found`. |
 | `GET` | `/internal/federation/v1/context-tasks` | Query `limit` (1 to 50, default 2). Gives a lease (300 seconds) on the oldest `fetch_context` tasks of the accounts that are actors: `{"tasks": [{"id", "actor_public_id", "object_iri", "max_items", "max_depth", "created_at", "lease_until"}]}`. `max_items` is `context_max_items`, and `max_depth` is `context_depth`. |
 | `POST` | `/internal/federation/v1/context-objects` | Body `{"task_id", "objects"}`: `objects` has 1000 normal forms at most (the shape of Section 18). Answer `{"decision", "reason", "stored", "refused"}`. 404 when `task_id` is not a `fetch_context` task that waits. |
 
@@ -1306,7 +1306,7 @@ Code: `src/claire/federation_notes.py` (text to HTML), `src/claire/store/federat
 
 ### 25.1 Routes
 
-All routes are for the owner of the account, in network mode only. A note, an edit, a favourite, and a boost need an account that is an actor (409 `not_actor`). A note or an item of another account gives 404.
+All routes are for the owner of the account, in both server modes. A note, an edit, a favourite, and a boost need an account that is an actor (409 `not_actor`). A note or an item of another account gives 404.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
@@ -1373,7 +1373,7 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 - An item of the list and each post of the reader have the controls reply, favourite, and boost. An own note has reply, edit, and delete, and shows its counters and "edited". The controls are line icons (`comment`, `heart`, `repeat`, `edit`, `trash`); the reader shows them with their text.
 - The tool bar of stage 1 has "New note". One dialog serves a new note, a reply (it starts with the handle of the author), and an edit: text with a character count, content warning, and language. An error of the route shows in the dialog.
 - The view never puts note HTML into the page. The list shows plain text, and the body is in the sandbox frame of the reader.
-- "Share link" of the feed view (Section 23.4) opens the dialog of a new note with the title and the address of the feed item, in network mode. In single mode it is the share sheet or the clipboard, as before.
+- "Share link" of the feed view (Section 23.4) opens the dialog of a new note with the title and the address of the feed item, in both server modes. Without the compose dialog it is the share sheet or the clipboard.
 - The texts are the catalog keys `synd.compose.*` in English and Korean.
 
 ### 25.7 Differences from the Design and Limits
@@ -1402,7 +1402,7 @@ Code: `src/claire/store/federation_quotes.py` (store), `src/claire/api/accounts_
 
 ### 26.1 Routes
 
-All routes of the owner are in network mode only (`ROUTE_POLICY`). A request or an object of another account gives 404.
+All routes of the owner are in both server modes (`ROUTE_POLICY`). A request or an object of another account gives 404.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |

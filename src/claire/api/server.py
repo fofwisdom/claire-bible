@@ -61,7 +61,6 @@ from ..store import auth_db
 from ..store import kb_collab
 from ..store import themes as themes_store
 from ..store import federation as federation_store
-from ..knowledge_federation import known_servers as kf_known_servers
 from ..knowledge_federation import remote_kbs
 from ..knowledge_federation import grants as kf_grants
 from ..knowledge_federation import offers as kf_offers
@@ -938,16 +937,12 @@ def create_app(
     SIMILAR_MAX = 12
     SIMILAR_SEEDS_MAX = 20
 
-    async def explore_federation_route(request: Request) -> Response:
-        """``GET /explore/federation``: the data of the root page of network mode about other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 1 to 3). The data is public.
+    def _recent_activity(origin: str) -> list[dict[str, Any]]:
+        """The recent activity across servers for the root page, the newest first (``knowledge_federation.recent``, KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3).
 
-        - ``themes``: the active themes, the one with the most recent activity first, with the counts of the shared knowledge bases of this server and of other servers.
-        - ``servers``: the known servers that have shared knowledge bases in the store of remote knowledge bases, with the domain, the software, and the count. A blocked server is not in the list.
-        - ``recent``: the recent activity across servers, the newest first (``knowledge_federation.recent``): ``remote_knowledge_base`` (a new shared knowledge base of another server), ``accepted_contribution`` (another server approved a contribution of an account of this server; the account is named only when its profile is public), and ``curation`` (a shared knowledge base of this server copied documents of another server). No item has a document.
+        The kinds are ``remote_knowledge_base`` (a new shared knowledge base of another server), ``accepted_contribution`` (another server approved a contribution of an account of this server; the account is named only when its profile is public), and ``curation`` (a shared knowledge base of this server copied documents of another server). No item has a document. The list of the federated servers is not public (owner decision, 2026-11-19).
         """
         from ..knowledge_federation import recent as kf_recent
-
-        origin = _public_origin(request).rstrip("/")
 
         def _local_kb(kb_id: int) -> dict[str, Any] | None:
             try:
@@ -958,29 +953,11 @@ def create_app(
                 return None
             return {"number": ids.format_public_id(kb.number), "label": kb.label, "url": f"{origin}{kb_base_path(kb.number)}"}
 
-        def _build() -> dict[str, Any]:
-            views = _active_theme_views(origin=origin)
-            conn = dbm.connect_existing(s.db_file, readonly=True)
-            try:
-                remote = remote_kbs.list_all(conn)
-                counts: dict[str, int] = {}
-                for kb in remote:
-                    counts[kb.domain] = counts.get(kb.domain, 0) + 1
-                servers = [
-                    {"domain": server.domain, "software_name": server.software_name, "software_version": server.software_version, "knowledge_bases": counts[server.domain]}
-                    for server in kf_known_servers.list_servers(conn)
-                    if server.domain in counts
-                ]
-                recent = kf_recent.recent_activity(conn, local_kb=_local_kb, domain_of=lambda iri: urlsplit(iri).hostname or None, limit=FEDERATION_RECENT_MAX)
-            finally:
-                conn.close()
-            return {
-                "themes": [{"number": v["number"], "url": v["url"], "label": v["label"], "knowledge_type": v["knowledge_type"], "local_knowledge_bases": v["shared_knowledge_bases"], "remote_knowledge_bases": v["remote_knowledge_bases"]} for v in views],
-                "servers": servers,
-                "recent": recent,
-            }
-
-        return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "public, max-age=60"})
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            return kf_recent.recent_activity(conn, local_kb=_local_kb, domain_of=lambda iri: urlsplit(iri).hostname or None, limit=FEDERATION_RECENT_MAX)
+        finally:
+            conn.close()
 
     async def kb_similar_route(request: Request) -> Response:
         """``GET /api/kb/similar?knowledge_type=&label=&seed=``: the shared knowledge bases of this server and of other servers that are near a subject, for the dialog that makes a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4).
@@ -1018,7 +995,8 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "no-store"})
 
-    async def explore_accounts_route(request: Request, *, force_html: bool = False) -> Response:
+    async def public_directory_route(request: Request, *, root_page: bool = False) -> Response:
+        """``GET /accounts``: the public account directory, in both server modes (HTML or JSON with the collection contract). With ``root_page``, the root page of network mode: the themes, the recent activity across servers, and the first accounts."""
         query = collections.parse_collection_query(request.query_params)
         principal = request_principal(request)
 
@@ -1040,7 +1018,7 @@ def create_app(
 
         total_items, accounts = await asyncio.to_thread(_fetch_data)
         base_origin = _public_origin(request).rstrip("/")
-        collection_url = f"{base_origin}/explore/accounts"
+        collection_url = f"{base_origin}/accounts"
 
         account_id = principal.account_id
         if account_id is None:
@@ -1054,8 +1032,8 @@ def create_app(
                 finally:
                     conn_s.close()
 
-        if force_html or collections.wants_html(request):
-            template_path = Path(__file__).resolve().parent.parent / "templates" / "explore_accounts.html"
+        if root_page or collections.wants_html(request):
+            template_path = Path(__file__).resolve().parent.parent / "templates" / "public_directory.html"
             template_text = template_path.read_text(encoding="utf-8")
 
             username = None
@@ -1069,21 +1047,21 @@ def create_app(
             if account_id is not None:
                 home_url = f"/@{username}/" if username else "/me"
                 nav_auth = (
-                    f'<a href="{html.escape(home_url)}">{html.escape(_t("explore.my_workspace"))}</a>'
+                    f'<a href="{html.escape(home_url)}">{html.escape(_t("directory.my_workspace"))}</a>'
                     f'<form method="post" action="/logout"><button type="submit" class="link">{html.escape(_t("common.action.logout"))}</button></form>'
                 )
             else:
-                nav_auth = f'<a href="/login">{html.escape(_t("explore.login"))}</a>'
+                nav_auth = f'<a href="/login">{html.escape(_t("directory.login"))}</a>'
 
             if not accounts:
                 if account_id is not None:
-                    btn_html = f'<a class="btn" href="{html.escape(f"/@{username}/" if username else "/me")}">{html.escape(_t("explore.go_workspace"))}</a>'
+                    btn_html = f'<a class="btn" href="{html.escape(f"/@{username}/" if username else "/me")}">{html.escape(_t("directory.go_workspace"))}</a>'
                 else:
-                    btn_html = f'<a class="btn" href="/login">{html.escape(_t("explore.login"))}</a>'
+                    btn_html = f'<a class="btn" href="/login">{html.escape(_t("directory.login"))}</a>'
                 content_html = (
                     '<section class="empty-state">'
-                    f'<h2>{html.escape(_t("explore.empty_title"))}</h2>'
-                    f'<p>{html.escape(_t("explore.empty"))}</p>'
+                    f'<h2>{html.escape(_t("directory.empty_title"))}</h2>'
+                    f'<p>{html.escape(_t("directory.empty"))}</p>'
                     f'{btn_html}'
                     '</section>'
                 )
@@ -1094,57 +1072,60 @@ def create_app(
                     for t in a.themes:
                         t_url = f"/@{html.escape(a.username)}/themes/{t.number}/" if t.number else f"/@{html.escape(a.username)}/"
                         t_items.append(
-                            f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({html.escape(_t("explore.theme_docs", count=t.documents))})</span></li>'
+                            f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({html.escape(_t("directory.theme_docs", count=t.documents))})</span></li>'
                         )
                     if t_items:
                         themes_html = f'<ul class="themes-list">{"".join(t_items)}</ul>'
                     else:
-                        themes_html = f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{html.escape(_t("explore.no_themes"))}</p>'
+                        themes_html = f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{html.escape(_t("directory.no_themes"))}</p>'
 
                     card = (
                         '<article class="account-card">'
                         '<div class="account-header">'
                         f'<a class="account-name" href="/@{html.escape(a.username)}/">{html.escape(a.display_name or a.username)}'
                         f'<span class="account-handle">@{html.escape(a.username)}</span></a>'
-                        f'<span class="badge">{html.escape(_t("explore.badge", themes=a.public_themes, documents=a.public_documents))}</span>'
+                        f'<span class="badge">{html.escape(_t("directory.badge", themes=a.public_themes, documents=a.public_documents))}</span>'
                         '</div>'
                         f'{themes_html}'
                         '</article>'
                     )
                     cards.append(card)
                 content_html = "".join(cards)
-            if force_html and not query.page:
+            if root_page and not query.page:
                 # Design Section 8.4: the root page of network mode shows the themes first, the one with the most recent activity first, with a link to the collection.
                 theme_views = await asyncio.to_thread(lambda: _active_theme_views(origin=base_origin))
-                # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3: the federated servers and the recent activity across servers come after the themes. The page script fills this element from ``GET /explore/federation``.
-                federation_host = '<div id="public-home-federation"></div>'
+                # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3: the recent activity across servers comes after the themes. The page script renders the items from this JSON element.
+                recent = await asyncio.to_thread(_recent_activity, base_origin)
+                recent_json = json.dumps({"recent": recent}, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+                recent_host = f'<script type="application/json" id="public-home-recent-data">{recent_json}</script><div id="public-home-recent"></div>'
+                accounts_heading = f'<h2>{html.escape(_t("themes.accounts_title"))} <a href="/accounts" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
                 if theme_views:
                     content_html = (
                         f'<h2>{html.escape(_t("themes.section_title"))} <a href="/themes" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
                         + _theme_cards_html(theme_views)
-                        + federation_host
-                        + f'<h2>{html.escape(_t("themes.accounts_title"))}</h2>'
+                        + recent_host
+                        + accounts_heading
                         + content_html
                     )
                 else:
-                    content_html = federation_host + content_html
+                    content_html = recent_host + accounts_heading + content_html
 
             pagination_parts = []
             if query.page:
                 if len(accounts) == query.limit:
                     last_id = ids.format_public_id(accounts[-1].public_id)
-                    pagination_parts.append(f'<a href="/explore/accounts?page=true&max_id={last_id}">{html.escape(_t("explore.next"))} &rarr;</a>')
+                    pagination_parts.append(f'<a href="/accounts?page=true&max_id={last_id}">{html.escape(_t("directory.next"))} &rarr;</a>')
                 if query.max_id is not None and accounts:
                     first_id = ids.format_public_id(accounts[0].public_id)
-                    pagination_parts.insert(0, f'<a href="/explore/accounts?page=true&min_id={first_id}">&larr; {html.escape(_t("explore.prev"))}</a>')
+                    pagination_parts.insert(0, f'<a href="/accounts?page=true&min_id={first_id}">&larr; {html.escape(_t("directory.prev"))}</a>')
             pagination_html = f'<div class="pagination">{"".join(pagination_parts)}</div>' if pagination_parts else ""
 
             rendered = string.Template(template_text).substitute(
-                title=html.escape(_t("explore.title")),
+                title=html.escape(_t("directory.title")),
                 html_lang=get_locale(),
-                explore_head_html=public_kb_routes.explore_head_markup(request),
-                nav_label=html.escape(_t("explore.nav_label")),
-                subtitle=html.escape(_t("explore.subtitle")),
+                directory_head_html=public_kb_routes.directory_head_markup(request),
+                nav_label=html.escape(_t("directory.nav_label")),
+                subtitle=html.escape(_t("directory.subtitle")),
                 nav_auth=nav_auth,
                 content=content_html,
                 pagination=pagination_html,
@@ -3993,7 +3974,7 @@ def create_app(
                     target = f"/@{admin_username}/" + (f"?{qs}" if qs else "")
                     return RedirectResponse(target, status_code=308)
                 return PlainTextResponse("Not Found", status_code=404)
-            return await explore_accounts_route(request, force_html=True)
+            return await public_directory_route(request, root_page=True)
 
         scope = request_auth_scope(request)
         principal = request_principal(request)
@@ -6754,7 +6735,6 @@ def create_app(
         Route("/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}", admin_theme_remote_member_route, methods=["PUT"]),
         Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
         Route("/api/kb/similar", kb_similar_route, methods=["GET", "HEAD"]),
-        Route("/explore/federation", explore_federation_route, methods=["GET", "HEAD"]),
         Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
         Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
         Route("/curations", kb_curations_route, methods=["POST"]),
@@ -6794,7 +6774,7 @@ def create_app(
         Route("/document/regenerate", do_regenerate, methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
-        Route("/explore/accounts", explore_accounts_route, methods=["GET", "HEAD"]),
+        Route("/accounts", public_directory_route, methods=["GET", "HEAD"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),

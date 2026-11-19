@@ -223,7 +223,7 @@ def test_m1_pwa_head_tags_across_entry_points(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url)
 
-    entry_routes = ["/", "/explore/accounts"]
+    entry_routes = ["/", "/accounts"]
     for route in entry_routes:
         res = client.get(route, headers={"accept": "text/html"})
         assert res.status_code == 200, f"Route {route} failed with {res.status_code}"
@@ -308,7 +308,7 @@ def test_m2_normal_root_preservation(tmp_path: Path):
 
     res = client.get("/")
     assert res.status_code == 200
-    assert "public" in res.text.lower() or "accounts" in res.text.lower() or "explore" in res.text.lower()
+    assert 'id="public-home-showcase"' in res.text
 
 
 def test_m2_query_parameters_preserved(tmp_path: Path):

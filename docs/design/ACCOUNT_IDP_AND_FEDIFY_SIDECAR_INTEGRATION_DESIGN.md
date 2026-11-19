@@ -28,7 +28,7 @@ Owner decisions FD1 to FD12 (locked 2026-11-10):
 | ID | Decision | Reason |
 | :--- | :--- | :--- |
 | FD1 | Claire hosts ActivityPub actors for accounts through a Fedify sidecar. | The sidecar takes the protocol risks that stopped the earlier native design. |
-| FD2 | Federation operates in network mode only. | Single mode must not show the USERNAME of the admin (S9). A handle shows the USERNAME. |
+| FD2 | Federation operates in network mode only. **Replaced** by KD2 and Section 15 of [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md): federation works in both modes, and rule S9 is withdrawn. | Single mode must not show the USERNAME of the admin (S9). A handle shows the USERNAME. |
 | FD3 | The gate of an account is `profile_public` together with the server switch. There is no separate switch for each account. | One public profile rule. A remote server cannot find which private accounts exist: all other states give the same 404. |
 | FD4 | The actor ID contains the public number of the account, not the USERNAME. | A released USERNAME can go to a new account. The new account must not get the old identity, followers, or trust. A public number is never used again. |
 | FD5 | Claire keeps the actor keys, encrypted. The sidecar gets a key only on the internal channel. | Backup, purge, and rotation follow the existing secret rules. |

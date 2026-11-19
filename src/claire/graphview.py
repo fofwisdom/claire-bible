@@ -1016,7 +1016,6 @@ def _render_syndication_bundle(
         .replace("__AUTH_SCOPE__", safe_scope)
         .replace("__THEMES_JSON__", themes_json_safe)
         .replace("__CLAIRE_STORAGE_KEY__", storage_key)
-        .replace("__SERVER_MODE__", "network" if is_network_mode else "single")
         .replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script>')
     )
     if is_network_mode and account_username:

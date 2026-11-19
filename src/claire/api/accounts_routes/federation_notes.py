@@ -1,6 +1,6 @@
 """Routes of the outbound interactions of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 5.4, unit FP4-9).
 
-For the owner of the account, in network mode only. A note, an edit, a favourite, and a boost need an account that is an actor (409 ``not_actor``).
+For the owner of the account, in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5). A note, an edit, a favourite, and a boost need an account that is an actor (409 ``not_actor``).
 
 - ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
 - ``PATCH /api/federation/notes/{note_id}``: change the text, the content warning, the language (Section 5.4 rule 12), or the quote policy.
@@ -109,10 +109,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return principal.account_id if principal.scope == "owner" and principal.account_id is not None else None
 
     def _actor(conn: Any, account_id: int, *, need_actor: bool = True) -> tuple[accounts_store.AccountStore, accounts_store.Account] | None:
-        """The account of the caller, or ``None`` in single mode (the same 404 as ``ROUTE_POLICY`` gives). Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11)."""
+        """The account of the caller. Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11)."""
         store = accounts_store.AccountStore(conn)
-        if store.server_mode() != "network":
-            return None
         account = store.get(account_id)
         if need_actor and actor_state(account, federation=store.federation_state()) != "active":
             raise _Refused(409, "not_actor")

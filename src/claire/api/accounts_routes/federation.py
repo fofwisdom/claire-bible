@@ -7,20 +7,20 @@ Admin routes. Other principals get the same 404 as for the other admin routes.
 - ``GET``, ``POST``, ``DELETE /api/admin/federation/domain-blocks``: list, add, and remove a blocked domain. A change requires the same origin and recent authentication, and writes an ``admin_audit`` row.
 - ``GET /admin/federation``: the console section.
 
-Account routes, for the owner of the account, in network mode only.
+Account routes, for the owner of the account, in both server modes.
 
 - ``GET /api/federation/status``: handle, actor ID, actor state, and follower count of the account of the caller.
 - ``GET /api/federation/followers``: one cursor page of the followers of the account of the caller.
 - ``DELETE /api/federation/followers``: remove one follower of the account of the caller. The route deletes the row only. ``Reject(Follow)`` needs the outbox of phase FP3.
 
-Publishing routes, for a credential of the account with the scope `owner` or `write`, in network mode only (design Sections 8.3 item 4, 9.1 to 9.3).
+Publishing routes, for a credential of the account with the scope `owner` or `write`, in both server modes (design Sections 8.3 item 4, 9.1 to 9.3).
 
 - ``POST /api/federation/publish``: publish one document of a public theme, or publish it again. The object row and the outbox task are in one transaction.
 - ``POST /api/federation/retract``: delete one published object. The tombstone, the row removal, and the ``delete`` task are in one transaction.
 
 The account of each task is the account of the caller, and the theme must be of that account. No route has a default account, and the admin cannot publish for a member (K5).
 
-Federation client routes, for the owner of the account, in network mode only (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 8, unit FP4-5).
+Federation client routes, for the owner of the account, in both server modes (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 8, unit FP4-5).
 
 - ``GET /api/federation/timeline``: one cursor page of the timeline of the caller, with the counts of the stage bar. The list has plain text only, no remote HTML.
 - ``GET /api/federation/timeline/{item_id}``: one item with its thread and the render URL of each body.
@@ -363,10 +363,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         return principal.account_id if _is_account_owner(principal) else None
 
-    def _network_mode(conn: Any) -> bool:
-        # ``ROUTE_POLICY`` gives 404 in single mode before the handler runs. This check keeps the handler safe without the policy.
-        return accounts_store.AccountStore(conn).server_mode() == "network"
-
     async def federation_status_get(request: Request) -> Response:
         account_id = _owner_account_id(request)
         if account_id is None:
@@ -375,7 +371,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
             try:
-                return account_federation_status(ctx, conn, account_id) if _network_mode(conn) else None
+                return account_federation_status(ctx, conn, account_id)
             finally:
                 conn.close()
 
@@ -394,8 +390,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 total = federation_store.count_followers(conn, account_id)
                 rows = federation_store.list_followers(conn, account_id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
             finally:
@@ -425,8 +419,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _execute() -> tuple[bool, int] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 # The key has the account of the caller. Thus the route cannot delete a follower of a different account.
                 removed = federation_store.remove_follower(conn, account_id, actor_iri)
                 conn.commit()
@@ -482,8 +474,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 following_limit = int(federation_client_store.get_reading_settings(conn)["following_limit"])
             finally:
                 conn.close()
@@ -514,8 +504,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 store = accounts_store.AccountStore(conn)
                 account = store.get(account_id)
                 # Section 5.1 rule 1 (RD4): only an account that is an actor can follow.
@@ -557,12 +545,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(404, "following_not_found")
 
         def _execute() -> bool | None:
-            conn = open_db(ctx)
-            try:
-                if not _network_mode(conn):
-                    return None
-            finally:
-                conn.close()
             client = open_client_db(ctx)
             try:
                 removed = federation_client_store.remove_following(client, account_id, int(raw_id))
@@ -624,8 +606,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                if not _network_mode(conn):
-                    return None
                 theme = _own_theme(conn, principal, number=number)
                 if theme is None:
                     return 404, {"error": "theme_not_found"}
@@ -674,8 +654,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 obj = federation_store.get_object(conn, object_id)
                 # An object of a different account gives the same answer as no object.
                 if obj is None or obj.account_id != principal.account_id or _own_theme(conn, principal, kb_id=obj.kb_id) is None:
@@ -746,13 +724,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         raw = request.path_params["item_id"]
         return int(raw) if raw.isascii() and raw.isdigit() and raw[0] != "0" and len(raw) <= 18 else None
 
-    def _network() -> bool:
-        conn = open_db(ctx)
-        try:
-            return _network_mode(conn)
-        finally:
-            conn.close()
-
     async def federation_timeline_get(request: Request) -> Response:
         account_id = _owner_account_id(request)
         if account_id is None:
@@ -769,8 +740,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 # The count of stage 3 of the stage bar: the published documents of the account.
                 published = federation_store.count_objects(conn, account_id)
             finally:
@@ -797,8 +766,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(404, "item_not_found")
 
         def _fetch() -> dict[str, Any] | None | bool:
-            if not _network():
-                return None
             client = open_client_db(ctx)
             try:
                 item = federation_client_store.get_timeline_item(client, account_id, item_id)
@@ -828,8 +795,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "invalid_request", fields=["unread", "starred"])
 
         def _execute() -> dict[str, Any] | None | bool:
-            if not _network():
-                return None
             client = open_client_db(ctx)
             try:
                 item = federation_client_store.set_timeline_flags(client, account_id, item_id, unread=body.get("unread"), starred=body.get("starred"))
@@ -861,8 +826,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _execute() -> dict[str, Any] | None | bool:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 store = accounts_store.AccountStore(conn)
                 reading = federation_client_store.get_reading_settings(conn)
                 # The sidecar takes only the tasks of an account that is an actor: a task of another account would wait without an end.
@@ -899,8 +862,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
             try:
-                if not _network_mode(conn):
-                    return None
                 total = federation_store.count_objects(conn, account_id)
                 rows = federation_store.list_objects(conn, account_id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
             finally:

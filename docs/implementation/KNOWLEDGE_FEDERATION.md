@@ -365,7 +365,7 @@ Design: Sections 8.1, 8.2, 8.3, 9.1, 9.2, and 14.
 | `src/claire/store/themes.py` | The table `theme_remote_knowledge_bases` and the functions of the remote members. |
 | `src/claire/theme_judgement.py` | Step 4b of `run_judgement`, `remote_signature`, `wire_signature`, `subject_score`. |
 | `src/claire/api/knowledge_federation_internal.py` | The internal routes (Section 11.4). |
-| `src/claire/api/server.py` | The theme view, `GET /explore/federation`, `GET /api/kb/similar`, `PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}`, the root page. |
+| `src/claire/api/server.py` | The theme view, the recent activity of the root page (`_recent_activity`), `GET /api/kb/similar`, `PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}`, the root page. |
 | `src/claire/store/db.py` | `_migrate_v30_remote_knowledge_bases`, schema version 30. |
 
 ### 11.2 The `/kb` Collection for Another Server
@@ -422,8 +422,9 @@ The sidecar reads the root, then each page (`first`, then `next`): at most 60 pa
 
 ### 11.6 Root Page and the Dialog for a New Shared Knowledge Base
 
-- `GET /explore/federation` (public, network mode only) gives the data of the root page about other servers: `themes` (with the two counts), `servers` (the known servers that have records, with the domain, the software, and the count), and `recent` (the 20 newest records, `kind` `remote_knowledge_base`). A Claire server has no name setting; the domain is its name.
-- The root page (`explore_accounts_route`) has the themes first, each with the two counts and with the remote members (the origin link and the domain), then the element `#public-home-federation` that `public_kb.js` fills with the sections "Federated servers" and "Recent activity across servers".
+- The root page of network mode (`public_directory_route` with `root_page`) has the themes first, each with the two counts and with the remote members (the origin link and the domain). Then it has the recent activity across servers (Section 16.1) in the JSON element `#public-home-recent-data`; `public_kb.js` renders it in `#public-home-recent`. The JSON text has `<`, `>`, and `&` as `\u003c`, `\u003e`, and `\u0026`, so that a label of another server cannot end the element. Then it has the first accounts of the public account directory with a link to `/accounts` (ACCOUNTS.md Section 5.11).
+- The list of the federated servers is not public (owner decision, 2026-11-19): no public page and no public route has it. The admin sees the known servers in `/admin/federation`. A Claire server has no name setting; the domain is its name.
+- The data route `GET /explore/federation` is removed (404 in both modes). The counts of the themes are in `GET /themes`.
 - `GET /api/kb/similar` gives the shared knowledge bases of this server and of other servers near the label and the seed entities that the account typed (`theme_judgement.subject_score`: the part of the terms that are a name in the signature or the label of the candidate, or the Jaccard of the words of the two labels). The dialog of `kb_dialogs.js` shows them before the account makes a new one.
 - The other kinds of recent activity of design Section 8.3 rule 3 (contributions that other servers approved, curations) are in Section 16.1.
 
@@ -743,10 +744,10 @@ WebUI:
 
 ### 13.7 Single Mode (design Section 15 rules 5 and 6)
 
-- The mode is not a condition of the internal routes (`federation_routes._federation_active`), of `actors.account_actor_iri`, of the name change `Update(Person)`, of the purge `Delete`, and of the sidecar (each path and each loop): while the switch `federation` is on, the server actor, the account actor of the admin (with `profile_public` and a USERNAME), and the knowledge federation work in single mode. The account routes `/api/federation/*` of `ROUTE_POLICY` stay network mode only.
+- The mode is not a condition of the internal routes (`federation_routes._federation_active`), of `actors.account_actor_iri`, of the name change `Update(Person)`, of the purge `Delete`, and of the sidecar (each path and each loop): while the switch `federation` is on, the server actor, the account actor of the admin (with `profile_public` and a USERNAME), and the knowledge federation work in single mode. Since 2026-11-19 the account routes `/api/federation/*` and `/render/remote/{item_id}` are in both modes too ([`FEDERATION.md`](FEDERATION.md) Section 7.5), and `/settings/account` has the USERNAME and the switch `profile_public` in both modes.
 - Readiness check GF1 passes in network mode, and in single mode when the admin account is `active` and has a USERNAME.
 - `POST /api/admin/server/mode` to `single` no longer refuses while `federation` is on (FEDERATION.md Section 8.3).
-- `/admin/federation` in single mode shows a note that the server actor and the knowledge federation work, and that the pages of the account federation are in network mode only.
+- `/admin/federation` is the same in both modes. The note of single mode is removed (2026-11-19).
 
 ### 13.8 Choices Made in the Code
 
@@ -967,7 +968,7 @@ Design: Sections 8.3 rule 3, 9.2 rule 2, 9.3, 12.3, and 14; [`SHARED_KNOWLEDGE_B
 
 ### 16.1 Recent Activity of the Root Page (design Section 8.3 rule 3)
 
-`knowledge_federation/recent.py` (`recent_activity`) makes `recent` of `GET /explore/federation` from three stores, the newest first, at most 20 items:
+`knowledge_federation/recent.py` (`recent_activity`) makes the recent activity of the root page (`_recent_activity` in `api/server.py`) from three stores, the newest first, at most 20 items:
 
 | `kind` | Source | Keys |
 | :--- | :--- | :--- |

@@ -6,6 +6,7 @@ One ``KfServer`` is one Claire server with its own database: the public app (``s
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,16 @@ def fixture(kind: str, name: str) -> dict[str, Any]:
 
 def server_actor(origin: str) -> str:
     return f"{origin}/ap/actors/server"
+
+
+_ROOT_RECENT = re.compile(r'<script type="application/json" id="public-home-recent-data">(.*?)</script>', re.S)
+
+
+def root_recent(page: str) -> list[dict[str, Any]]:
+    """Return the recent activity across servers that the root page of network mode has in its JSON element (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3)."""
+    match = _ROOT_RECENT.search(page)
+    assert match is not None, "the root page has no element public-home-recent-data"
+    return json.loads(match.group(1))["recent"]
 
 
 @dataclass

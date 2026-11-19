@@ -1,7 +1,7 @@
 /* Claire Bible — feed view of the federation client of /syndication (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F3).
  *
  * Rules of this file:
- * - Feeds are first collection of the account. They work in single mode and in network mode; in single mode the client view shows the feeds only.
+ * - Feeds are first collection of the account. They work in both server modes, also when the account is not a federation actor.
  * - The feed view uses the list pane and the reader pane of the client view. While a feed scope is active (Feeds.active), syndication_client.js does not render the timeline into these panes.
  * - Feed HTML is not trusted. The item list has plain text only. The body of an item is a sandbox iframe from the render URL that the server gives (the usercontent origin). This file never puts feed HTML into the page.
  * - Each text of this view is a catalog key (ClaireI18n). Each value from the server goes through esc().
@@ -20,7 +20,6 @@
   const $ = (id) => document.getElementById(id);
 
   const IS_OWNER = cfg.authScope === "owner";
-  const IS_NETWORK = cfg.serverMode === "network";
   const PAGE = 50;
 
   const F = {
@@ -41,8 +40,8 @@
     seq: 0
   };
 
-  // In single mode the client view has no timeline: the feed view is always active (design Section 1.3 rule 7).
-  const Feeds = { active: !IS_NETWORK };
+  // The client view opens with the timeline in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5). A feed selection makes the feed view active.
+  const Feeds = { active: false };
 
   async function api(method, path, body) {
     const init = { method, headers: { Accept: "application/json" }, credentials: "same-origin" };
@@ -178,7 +177,7 @@
   function itemBadges(item) {
     const badges = [];
     if (item.linked) badges.push(`<span class="tt-link-dot linked">${ic("book")} ${esc(tr("synd.client.badge.ingested"))}</span>`);
-    if (item.timeline_item_id && IS_NETWORK) badges.push(`<span class="tt-link-dot unlinked">${ic("merge")} ${esc(tr("synd.feeds.badge.in_timeline"))}</span>`);
+    if (item.timeline_item_id) badges.push(`<span class="tt-link-dot unlinked">${ic("merge")} ${esc(tr("synd.feeds.badge.in_timeline"))}</span>`);
     return badges.join("");
   }
 
@@ -197,9 +196,8 @@
     const el = $("client-list");
     const notice = $("client-notice");
     if (!el || !notice) return;
-    // Single mode: the notice says that follows and the timeline are not available. The feeds are.
-    notice.hidden = !F.error && IS_NETWORK;
-    notice.textContent = F.error ? tr("synd.error.request", { error: F.error }) : IS_NETWORK ? "" : tr("synd.client.single_mode");
+    notice.hidden = !F.error;
+    notice.textContent = F.error ? tr("synd.error.request", { error: F.error }) : "";
     const canMarkAll = scopeFeeds().some((f) => Number(f.unread) > 0);
     const bar = `<div class="synd-feed-bar"><b class="synd-feed-bar-title">${ic("broadcast")} ${esc(scopeTitle())}</b>
       <button type="button" class="tt-btn synd-mini ${F.unreadOnly ? "tt-btn-pri" : ""}" data-feed-unread-only aria-pressed="${F.unreadOnly ? "true" : "false"}">${esc(tr("synd.feeds.unread_only"))}</button>
@@ -239,8 +237,8 @@
       <button type="button" class="tt-btn" data-feed-read="${esc(item.id)}">${esc(tr(item.unread ? "synd.client.action.mark_read" : "synd.client.action.mark_unread"))}</button>
       ${item.url ? `<button type="button" class="tt-btn" data-feed-share="${esc(item.id)}">${ic("link")} ${esc(tr("synd.feeds.share_link"))}</button>` : ""}
       ${documentButtons(item, "tt-btn", true)}
-      ${item.linked && IS_NETWORK ? `<button type="button" class="tt-btn tt-btn-pri" data-feed-publish="${esc(item.id)}">${ic("megaphone")} ${esc(tr("synd.client.action.publish"))}</button>` : ""}
-      ${item.timeline_item_id && IS_NETWORK ? `<button type="button" class="tt-btn" data-feed-timeline="${esc(item.timeline_item_id)}">${ic("merge")} ${esc(tr("synd.feeds.open_in_timeline"))}</button>` : ""}
+      ${item.linked ? `<button type="button" class="tt-btn tt-btn-pri" data-feed-publish="${esc(item.id)}">${ic("megaphone")} ${esc(tr("synd.client.action.publish"))}</button>` : ""}
+      ${item.timeline_item_id ? `<button type="button" class="tt-btn" data-feed-timeline="${esc(item.timeline_item_id)}">${ic("merge")} ${esc(tr("synd.feeds.open_in_timeline"))}</button>` : ""}
     </div>`;
     const tags = (item.categories || []).slice(0, 12).map((tag) => `<span class="tt-link-dot unlinked">${ic("tag")} ${esc(tag)}</span>`).join("");
     // The frame has no script permission and an opaque origin. The server sends the same policy in the Content-Security-Policy header of the page.
@@ -319,11 +317,11 @@
     await loadItems(true);
   }
 
-  // Link share. A feed has no interaction target (design Section 1.3 rule 7): the share is a new note with the address of the item (network mode), or the address goes to the share sheet of the device or to the clipboard (single mode).
+  // Link share. A feed has no interaction target (design Section 1.3 rule 7): the share is a new note with the address of the item, or the address goes to the share sheet of the device or to the clipboard when the compose dialog is not available.
   async function shareLink(id) {
     const item = findItem(id);
     if (!item || !item.url) return;
-    // Network mode (unit FP4-9): the share is a new note with the link. The owner can change the text before it is sent.
+    // Unit FP4-9: the share is a new note with the link. The owner can change the text before it is sent.
     const compose = window.ClaireSyndicationCompose;
     if (compose && compose.available && compose.open({ mode: "new", text: `${item.title ? `${item.title}\n` : ""}${item.url}` })) return;
     try {
@@ -466,8 +464,7 @@
   Feeds.init = function (host) {
     F.host = host;
     const streams = $("client-streams-folder");
-    // Single mode: the feeds, and no stream tree of the timeline.
-    if (streams) streams.hidden = !IS_NETWORK;
+    if (streams) streams.hidden = false;
     if (IS_OWNER) loadFeeds();
   };
 
@@ -487,22 +484,20 @@
     loadItems(true);
   };
 
-  // A stream of the timeline was selected (network mode).
+  // A stream of the timeline was selected.
   Feeds.deactivate = function () {
-    if (!IS_NETWORK) return;
     Feeds.active = false;
     renderTree();
   };
 
   Feeds.unreadTotal = unreadTotal;
 
-  // The feed count in the stage bar. In network mode it comes after the counts of the timeline, only when a feed item is unread. In single mode it replaces the "network mode only" text.
+  // The feed count in the stage bar. It comes after the counts of the timeline, only when a feed item is unread.
   Feeds.decorateStageBar = function () {
     const el = $("stage-collect-counts");
     if (!el || !IS_OWNER || F.feeds === null) return;
     const text = tr("synd.feeds.stage_unread", { count: unreadTotal() });
-    if (!IS_NETWORK) el.textContent = text;
-    else if (unreadTotal() > 0) el.textContent = el.textContent ? `${el.textContent} · ${text}` : text;
+    if (unreadTotal() > 0) el.textContent = el.textContent ? `${el.textContent} · ${text}` : text;
   };
 
   window.ClaireSyndicationFeeds = Feeds;

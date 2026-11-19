@@ -38,10 +38,8 @@ async function servePublicView(page, path, fromPath, view, ref) {
   });
 }
 
-// The data of the root page about other servers ("explore_federation_route" with "knowledge_federation.recent"): the three kinds of the recent activity. An account that is not public has "account" null.
-const FEDERATION = {
-  themes: [],
-  servers: [{ domain: 'b.example', software_name: 'claire-bible', software_version: '1.0.0', knowledge_bases: 1 }],
+// The recent activity across servers that the root page has in its JSON element ("_recent_activity" with "knowledge_federation.recent"): the three kinds. An account that is not public has "account" null.
+const RECENT = {
   recent: [
     { kind: 'curation', at: 1700000400, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', knowledge_base: { number: '101', label: 'Modern History', url: ORIGIN + '/kb/101/' } },
     { kind: 'accepted_contribution', at: 1700000300, server: 'b.example', label: 'Elf Atlas', url: 'https://b.example/kb/77/', account: { username: 'ben', display_name: 'Ben' } },
@@ -51,7 +49,7 @@ const FEDERATION = {
 };
 
 function installPublicApi(page, state) {
-  return installJsonApi(page, (u) => u.pathname === '/kb' || u.pathname === '/themes' || u.pathname === '/explore/federation' || /^\/(kb|themes)\/\d+\//.test(u.pathname), ({ path, method }) => {
+  return installJsonApi(page, (u) => u.pathname === '/kb' || u.pathname === '/themes' || /^\/(kb|themes)\/\d+\//.test(u.pathname), ({ path, method }) => {
     if (method !== 'GET') return null;
     if (path === '/kb') return [{ ...collection('/kb', 'knowledge_bases', state.kbs), personal_kb: null, multi_theme: true }];
     if (path === '/kb/101/') return [{ knowledge_base: state.kbs[0] }];
@@ -59,7 +57,6 @@ function installPublicApi(page, state) {
     if (path === '/kb/101/members') return [collection('/kb/101/members', 'members', state.members)];
     if (path === '/themes') return [collection('/themes', 'themes', THEMES)];
     if (path === '/themes/202/') return [state.theme];
-    if (path === '/explore/federation') return [FEDERATION];
     return null;
   });
 }
@@ -252,23 +249,24 @@ test('the public pages without a sign-in: the link to the sign-in in place of th
   expect(errors).toEqual([]);
 });
 
-test('the part of the root page about other servers: the federated servers and the three kinds of the recent activity across servers', async ({ page }) => {
+test('the part of the root page about other servers: the three kinds of the recent activity across servers, and no list of the federated servers', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   const { unknown } = await installPublicApi(page, makeState(false));
-  // The E2E server is in single mode and has no root page: the page of "/themes" gets the element of the root page that public_kb.js fills ("explore_accounts_route" in network mode).
+  // The E2E server is in single mode and has no root page: the page of "/themes" gets the elements of the root page that public_kb.js reads ("public_directory_route" in network mode).
   await page.route((u) => u.pathname === '/themes', async (route) => {
     const req = route.request();
     if (req.resourceType() !== 'document') return route.fallback();
     const res = await route.fetch();
-    const html = (await res.text()).replace('<main id="public-kb-root"', '<div id="public-home-federation"></div><main id="public-kb-root"');
-    expect(html).toContain('id="public-home-federation"');
+    const data = JSON.stringify(RECENT).replace(/</g, '\\u003c');
+    const html = (await res.text()).replace('<main id="public-kb-root"', '<script type="application/json" id="public-home-recent-data">' + data + '</script><div id="public-home-recent"></div><main id="public-kb-root"');
+    expect(html).toContain('id="public-home-recent"');
     return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
   });
 
   await page.goto('/themes', { waitUntil: 'domcontentloaded' });
-  const host = page.locator('#public-home-federation');
-  await expect(host.locator('[data-federated-server="b.example"]')).toContainText('claire-bible 1.0.0');
+  const host = page.locator('#public-home-recent');
+  await expect(host.locator('[data-federated-server]')).toHaveCount(0);
   const items = host.locator('[data-federation-recent]');
   await expect(items).toHaveCount(4);
   // A curation: the shared knowledge base of this server and the source on the other server.

@@ -4,7 +4,7 @@
 
 1. 관리자 E2E: `/` '관리 및 설정' 드로어(⚡ 프로바이더 · 📏 적재 제한 · 🛠️ 관리자 콘솔) → `/admin` 진입 → 통합 사이드바로 모든 `/admin/*`·`/settings/*` 섹션 이동 → D3 리다이렉트 → 텔레메트리 API.
 2. 멤버 격리 E2E(network): `is_admin` false, `/settings/*`에 관리자 링크·DOM·번들 없음, `/settings/keys` BYOK 쓰기 전용 흐름, 모든 `/admin*`이 404(403·302 아님).
-3. single 모드 `@username` 비노출(S9).
+3. single mode: rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4). `/whoami` has no USERNAME; `/settings/account` shows it in both modes.
 4. 레거시 `/me`·`/syndication/preferences?tab=` 302 호환 리다이렉트(D4).
 
 모든 상태는 tmp_path에만 기록하고 CLAIRE_*·GEMINI_* 환경변수를 격리한다. 외부 네트워크 호출은 없다(BYOK 시험 호출은 monkeypatch).
@@ -195,8 +195,8 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     _set_mode(console_e2e.db_file, mode)
     env = console_e2e
 
-    # network 모드에서 그래프 루트는 /@{username}/ 네임스페이스에 있다(single 모드는 /).
-    root_path = "/" if mode == "single" else f"/@{ADMIN_USERNAME}/"
+    # The graph root is in the namespace /@{username}/ in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2: single mode sends "/" to it).
+    root_path = f"/@{ADMIN_USERNAME}/"
     root = _get(env, root_path, env.admin)
     assert root.status_code == 200, root.status_code
     html = root.text
@@ -210,7 +210,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     assert topbar.index('id="homelinkbtn"') < topbar.index('id="syndlink"') < topbar.index('id="hamburger-btn"')
     assert topbar.index('id="pop-hamburger-menu"') < topbar.index('id="consolelinkbtn"') < topbar.index('action="/logout"')
 
-    who = _get(env, "/whoami", env.admin)
+    who = _get(env, f"/@{ADMIN_USERNAME}/whoami", env.admin)
     assert who.status_code == 200
     assert who.json()["is_admin"] is True
     assert who.json()["scope"] == "owner"
@@ -364,14 +364,16 @@ def test_member_byok_flow_at_settings_keys_is_write_only(console_e2e, monkeypatc
     assert page_after_resp.status_code == 200
 
 
-# --- 3. single 모드 USERNAME 비노출 -----------------------------------------------------
+# --- 3. single mode and the USERNAME (rule S9 is withdrawn) ------------------------------
 
 
-def test_single_mode_never_emits_username_on_console_or_whoami(console_e2e):
+def test_single_mode_whoami_has_no_username_and_the_account_page_shows_it(console_e2e):
     _set_mode(console_e2e.db_file, "single")
     env = console_e2e
 
-    who = _get(env, "/whoami", env.admin)
+    # Single mode sends the root paths to the namespace of the admin (Section 15 rule 2): "/whoami" gives 308, and the answer of the target has no USERNAME.
+    assert _get(env, "/whoami", env.admin).status_code == 308
+    who = _get(env, f"/@{ADMIN_USERNAME}/whoami", env.admin)
     assert who.status_code == 200
     assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
@@ -379,19 +381,19 @@ def test_single_mode_never_emits_username_on_console_or_whoami(console_e2e):
     for path, status in (("/admin", 302), ("/settings", 302), ("/settings/themes", 308), ("/settings/tokens", 302)):
         resp = _get(env, path, env.admin)
         assert resp.status_code == status, path
-        _assert_no_username_leak(resp, path)
 
     for slug in ADMIN_SECTIONS:
         path = f"/admin/{slug}"
-        resp = _get(env, path, env.admin)
-        _assert_console_page(resp, path)
-        _assert_no_username_leak(resp, path)
+        _assert_console_page(_get(env, path, env.admin), path)
 
     for slug in ("keys", *SETTINGS_SECTIONS):
         path = f"/settings/{slug}"
-        resp = _get(env, path, env.admin)
-        _assert_console_page(resp, path)
-        _assert_no_username_leak(resp, path)
+        _assert_console_page(_get(env, path, env.admin), path)
+
+    # The account actor of the admin federates in single mode (Section 15 rule 5): the account page shows the USERNAME and the switch of the public profile.
+    account = _get(env, "/settings/account", env.admin)
+    assert f'<dd data-account-field="username">@{ADMIN_USERNAME}</dd>' in account.text
+    assert 'data-settings-toggle="profile-public"' in account.text
 
 
 # --- 4. 레거시 302 호환 리다이렉트 (D4) -------------------------------------------------

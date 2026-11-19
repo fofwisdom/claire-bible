@@ -336,11 +336,11 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     finally:
         conn.close()
 
+    # Single mode has the same switch: the account actor of the admin federates in single mode with the same rules (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
     single_page = client.request("GET", "/settings/account", session=token)
     assert single_page.status_code == 200
-    assert 'data-settings-toggle="profile-public"' not in single_page.text
-    assert 'data-account-field="profile_public"' not in single_page.text
-    assert "data-profile-public-hint" not in single_page.text
+    assert 'data-settings-toggle="profile-public"' in single_page.text
+    assert '<dd data-account-field="profile_public">Private</dd>' in single_page.text
 
 
 

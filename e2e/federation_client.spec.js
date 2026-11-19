@@ -1,5 +1,5 @@
 // Federation client view of /syndication (FEDERATION_REMOTE_READING_DESIGN.md Sections 1.3 and 8, unit FP4-5).
-// The server of this test directory is in single mode, and the federation routes exist in network mode only. This file gives the page the network mode and answers the federation routes itself. The routes have their own end-to-end tests with a real app in network mode: tests/test_e2e_federation_client.py.
+// The server of this test directory is in single mode. The federation routes work in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5); this file answers them itself, so that the test needs no remote server. The routes have their own end-to-end tests with a real app in network mode: tests/test_e2e_federation_client.py.
 const { test, expect } = require('@playwright/test');
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -28,10 +28,7 @@ test.describe('federation client view (FP4-5)', () => {
     // With service workers blocked, the test runner puts its own script into each frame. In the sandbox frame that script fails; it is not a script of the page or of the post.
     page.on('pageerror', error => { if (!error.message.includes('Service worker is disabled because the context is sandboxed')) pageErrors.push(error.message); });
     await page.setViewportSize({ width: 1400, height: 900 });
-    // The page config says "single" on this server. The client view reads the mode from it.
     await page.addInitScript(() => {
-      let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
       window.addEventListener('message', event => { if (event.data === 'pwned') window.__pwned = 1; });
     });
     const json = body => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
@@ -154,7 +151,7 @@ test.describe('federation client view (FP4-5)', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('FP4-5: in single mode stage 1 shows a notice and no timeline request', async ({ page }) => {
+  test('FP4-5: in single mode stage 1 reads the timeline like network mode, and an account that is not an actor gets the notice', async ({ page }) => {
     await page.goto('/?t=e2e-fedsingle-token-0123456789abcd', { waitUntil: 'domcontentloaded' });
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     // The requests of /syndication only. The home page asks the timeline counts for its stage strip, also in single mode.
@@ -164,8 +161,12 @@ test.describe('federation client view (FP4-5)', () => {
     await expect(page.locator('#stagebar')).toBeVisible();
     await expect(page.locator('#panel-kb')).toBeVisible();
     await page.locator('[data-stage-btn="collect"]').click();
-    await expect(page.locator('#client-notice')).toContainText('네트워크 모드');
+    // The real routes of this server answer: federation is off here, thus the account is not an actor. The view has no "network mode only" text.
+    await expect(page.locator('#client-notice')).toContainText('연합 액터가 아닙니다');
+    await expect(page.locator('#client-notice')).not.toContainText('네트워크 모드');
+    await expect(page.locator('#client-following-folder')).toBeVisible();
     await expect(page.locator('.synd-post')).toHaveCount(0);
-    expect(requests.filter(url => url.includes('/timeline'))).toEqual([]);
+    expect(requests.filter(url => url.includes('/api/federation/timeline')).length).toBeGreaterThan(0);
+    expect(requests.filter(url => url.includes('/api/federation/status')).length).toBeGreaterThan(0);
   });
 });

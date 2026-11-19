@@ -321,7 +321,8 @@ def test_removal_does_not_need_recent_authentication(env):
 # --- Single mode ---
 
 
-def test_single_mode_gives_404_for_the_account_routes_and_shows_no_username(tmp_path):
+def test_single_mode_serves_the_account_routes_like_network_mode(tmp_path):
+    """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5: the account actor of the admin federates in single mode with the same rules, and the USERNAME is public in both modes."""
     settings, _alpha, _beta = _prepare(tmp_path)
     _db(settings, lambda conn: conn.execute("DELETE FROM accounts WHERE id != 1"))
     _follow(settings, 1, BOB, at=100.0)
@@ -336,13 +337,14 @@ def test_single_mode_gives_404_for_the_account_routes_and_shows_no_username(tmp_
         settings_page = client.request("GET", "/settings/federation", session=admin)
         admin_page = client.request("GET", "/admin/federation", session=admin)
 
-    assert (status.status_code, listed.status_code, removed.status_code) == (404, 404, 404)
-    assert _followers(settings, 1) == [BOB]
+    assert (status.status_code, listed.status_code, removed.status_code) == (200, 200, 200)
+    assert status.json()["handle"].startswith("@admin_kim@")
+    assert [item["actor_iri"] for item in listed.json()["items"]] == [BOB]
+    assert _followers(settings, 1) == []
     assert settings_page.status_code == 200
-    assert 'data-federation-mode="unavailable"' in settings_page.text
-    assert "admin_kim" not in settings_page.text
+    assert 'id="settings-federation-status"' in settings_page.text and "admin_kim" in settings_page.text
     assert admin_page.status_code == 200
-    assert "admin_kim" not in admin_page.text
+    assert 'id="admin-federation-single-note"' not in admin_page.text
 
 
 # --- /api/admin/federation/domain-blocks ---

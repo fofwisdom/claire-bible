@@ -29,7 +29,7 @@ from claire.store import federation as federation_store
 from claire.store import themes as themes_store
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import reset_token_stores
-from tests.knowledge_federation_servers import KfWorld, server_actor
+from tests.knowledge_federation_servers import KfWorld, root_recent, server_actor
 from tests.test_auto_contribution import KOREA, _document, _mcp
 from tests.test_contributions import _fresh_token_stores, no_llm, world  # noqa: F401 (fixtures)
 
@@ -129,9 +129,9 @@ def test_the_recent_activity_has_the_three_kinds_and_names_only_a_public_account
         conn.execute(copy, (1846000000000000902, kb_id, "copy_2", "hidden", 450.0, 450.0, 450.0, hidden_source.iri, f"{hidden_source.iri}/documents/8", f"{hidden_source.iri}/documents/8"))
 
     b.db(_rows)
-    response = b.client.get("/explore/federation")
+    response = b.client.get("/", headers={"Accept": "text/html"})
     assert response.status_code == 200
-    recent = response.json()["recent"]
+    recent = root_recent(response.text)
     assert [(item["kind"], item["at"]) for item in recent] == [("curation", 400.0), ("accepted_contribution", 300.0), ("accepted_contribution", 200.0), ("remote_knowledge_base", 100.0), ("remote_knowledge_base", 90.0)]
     curation, ben, ann = recent[0], recent[1], recent[2]
     assert (curation["server"], curation["label"], curation["url"], curation["knowledge_base"]["number"], curation["knowledge_base"]["label"]) == ("c.example", "Cities of C", cities.url, kb["number"], "Cities")
@@ -140,6 +140,15 @@ def test_the_recent_activity_has_the_three_kinds_and_names_only_a_public_account
     # No item has a document of a personal knowledge base or its title.
     text = json.dumps(recent)
     assert "doc_" not in text and "documents/" not in text and "title" not in text
+
+
+def test_a_label_of_another_server_cannot_end_the_json_element_of_the_root_page(b: KfWorld) -> None:
+    # The label of a remote knowledge base comes from another server. The root page puts it in a JSON element; the text must not close that element.
+    hostile = '</script><script>alert(1)</script><!--'
+    _record(b, f"{C}/ap/kb/3", label=hostile, first_seen_at=100.0)
+    page = b.client.get("/", headers={"Accept": "text/html"}).text
+    assert "<script>alert(1)" not in page and "</script><!--" not in page
+    assert [item["label"] for item in root_recent(page)] == [hostile]
 
 
 # --- Item 2: the follow state on the public theme page ------------------------------------------------------

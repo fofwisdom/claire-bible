@@ -15,6 +15,7 @@
   - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The areas of the admin console (Section 6.5) are tabs of the section `/admin/federation` in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md).
   - Rev. 9 (2026-11-18, base commit `33748825`): owner decisions KD10 to KD12. The readiness checks of the knowledge federation GF8 to GF17 and the contract change with the sidecar (Section 14.1), the acceptance path KA1 to KA5 (Section 14.2), unit KF6 (Section 17), and the open questions PQ14 and PQ15 (Section 16).
   - Rev. 10 (2026-11-19): owner decisions KD13 (`PQ14: A`) and KD14 (`PQ15: C`), and unit KF6 implementation complete.
+  - Rev. 11 (2026-11-19): owner decision KD15. The root page has no list of the federated servers; the public account directory is `/accounts` in both modes; the form of the recent activity waits for an evaluation of prototypes (Section 8.3). The account routes of the federation are in both modes (Section 15 rule 5).
 - **Related Documents**:
   - [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) (the development network of two servers for the acceptance path, KD12)
   - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout and tabs of the console)
@@ -53,7 +54,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 
 Production state (owner, 2026-11-16): the production server is in network mode, and its admin has a USERNAME.
 
-### 2.1 Decisions (2026-11-16 and 2026-11-18)
+### 2.1 Decisions (2026-11-16 to 2026-11-19)
 
 | ID | Question | Decision |
 | :--- | :--- | :--- |
@@ -71,6 +72,7 @@ Production state (owner, 2026-11-16): the production server is in network mode, 
 | KD12 | Development stack (2026-11-18) | The Docker development stack can be used when it is necessary. It must become a common environment, so that the community can contribute code ([`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md), decision CD1). |
 | KD13 | PQ14: gate of `federation` switch (2026-11-19) | Option A: changing `federation` to `on` (`POST /api/admin/federation`) requires every required check that applies at that time (GF1 to GF7 and GF8 to GF13). GF14 to GF16 apply after the change; GF17 is a warning only (Section 14.1.1 rule 8). |
 | KD14 | PQ15: scope of KA3 (2026-11-19) | Option C: KA3 runs between the two servers of the development network; the first exchange of a server of the owner with another server on the internet is part of KA5 (Section 14.2). |
+| KD15 | Root page and directory (owner review, 2026-11-19) | The root page has no list of the federated servers: there is no reason to make it public, and the admin sees the known servers in the console. A public list of the blocked domains can be more useful; it has its own proposal ([`PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md`](PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md)). The public account directory is useful at its own path: `/accounts`, in both modes. The path `/explore` is retired (the namespace design §4.4 is retired). The form of the recent activity across servers waits for an evaluation of prototypes ([`prototypes/recent_activity_prototypes.html`](prototypes/recent_activity_prototypes.html)). |
 
 ---
 
@@ -301,14 +303,14 @@ The relay is not part of this design. [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/
 2. The same subject can have different theme numbers on different servers. A theme number never leaves its server as an identifier.
 3. The theme page shows local and remote knowledge bases. A remote knowledge base links to its origin.
 
-### 8.3 Root Page (Network Mode)
+### 8.3 Root Page (Network Mode) and Public Account Directory
 
 1. Themes first, with the counts of local and remote shared knowledge bases.
-2. A section "Federated servers": the known servers that have shared knowledge bases, with name, domain, and counts.
-3. Recent activity across servers: new shared knowledge bases of other servers, contributions that other servers approved from accounts of this server, curations.
+2. **Public account directory (KD15).** The accounts with a public profile are at `/accounts`, in both server modes (HTML for a browser, the collection contract of the namespace design §7.4 for an API client). The root page shows the first accounts and links to `/accounts`. The page has no list of the federated servers (KD15): the known servers are in the admin console only.
+3. Recent activity across servers: new shared knowledge bases of other servers, contributions that other servers approved from accounts of this server, curations. The current form is a plain list. The final form waits for an evaluation of prototypes (KD15, [`prototypes/recent_activity_prototypes.html`](prototypes/recent_activity_prototypes.html)).
 4. The page "Make a shared knowledge base" shows similar local and remote shared knowledge bases before the account makes a new one (B3).
 
-Single mode shows no root page (Section 15).
+Single mode shows no root page (Section 15). The public account directory (rule 2) and the collections `/themes` and `/kb` are in both modes.
 
 ---
 
@@ -614,7 +616,7 @@ Rules:
 2. **Root.** `/` sends a temporary redirect (302) to `/@{username}/`. It is temporary because the meaning of `/` depends on the server mode, which the admin can change. Other root paths of the personal knowledge base of single mode get 308 to `/@{username}/…`; these targets stay valid in network mode.
 3. **Setup not complete.** While the admin account has the state `setup_required`, `/` with the admin credential goes to `/setup` (as today); other requests get a page "setup not complete". There is no other target.
 4. **USERNAME exposure.** Rule S9 of the namespace design (no USERNAME in single mode) is withdrawn. The test `tests/test_single_mode_no_username_leak.py` is replaced by a test of the redirects. The setup confirmation says that the USERNAME is public in both modes.
-5. **Federation in single mode.** The server actor and the federation of shared knowledge work in single mode. The readiness check GF1 (network mode) changes for them. The account actor of the admin federates in single mode with the same rules as network mode: `profile_public` and step-up (KD2).
+5. **Federation in single mode.** The server actor and the federation of shared knowledge work in single mode. The readiness check GF1 (network mode) changes for them. The account actor of the admin federates in single mode with the same rules as network mode: `profile_public` and step-up (KD2). The account routes of the federation (`/api/federation/*`, the timeline, notes, and publishing), `/settings/account`, `/settings/federation`, and `/syndication` are the same in both modes; only the routes for more than one account (invites, member keys) are in network mode only (2026-11-19).
 6. **Mode change.** The refusal of `network` → `single` while `federation` is `on` (FEDERATION.md §8.3) changes, because federation can be on in single mode. A change to single mode still needs no members.
 
 ---

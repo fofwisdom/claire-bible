@@ -1,6 +1,6 @@
 # 멀티 계정 네임스페이스와 단일 FQDN URI 통제 설계
 
-- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. 구현되지 않은 계획: §4.4의 추가 통합 뷰(구현된 것은 공개 계정 목록뿐), §14의 7(스트림의 컬렉션 계약)과 8(계정 간 발행 본문). 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
+- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. **Retired (owner, 2026-11-19): this design gets no more implementation.** The plans that were not implemented are retired: the network-only views under `/explore` (§4.4; the collections `/themes` and `/kb` and the root page are the views of both modes, and the public account directory is `/accounts` in both modes: KNOWLEDGE_FEDERATION_DESIGN.md §8.3, KD15), §14 item 7 (the feed items moved to `/api/feeds/items` in `client.db`), and §14 item 8 (contributions to shared knowledge bases replace the publications between accounts: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9). The path `/explore` and its two routes are removed. Federation is not a condition of the mode: it works in both modes (KNOWLEDGE_FEDERATION_DESIGN.md §15). 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
 - **작성일**: 2026-11-02 · 기준 커밋 `f420b8f`
 - **개정 이력**
   - Rev. 1 (2026-11-02): 초안
@@ -120,6 +120,8 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 4. 관리자 USERNAME 설정(§8.4)을 마치기 전에는 네트워크 모드를 켤 수 없다(G7).
 
 ### 4.4 네트워크 전용 통합 뷰 예약 (R12)
+
+> **Retired (2026-11-19).** The views of this section are not made, and the path `/explore` is removed. The public account directory moved to `/accounts` (both modes), and the root page of network mode has the themes, the recent activity, and the first accounts (KNOWLEDGE_FEDERATION_DESIGN.md §8.3). The text below is the history.
 
 - `/explore` 이하 시스템 경로를 네트워크 전용(`modes={"network"}`)으로 예약한다. 싱글 모드에서는 404다.
 - 첫 소비자는 D4의 공개 계정·테마 목록이다. 네트워크 모드의 `/`는 이 목록을 그리고, 데이터는 `GET /explore/accounts` 컬렉션(§7.4)에서 받는다.
@@ -952,8 +954,8 @@ CREATE TABLE admin_audit (
 4. **토큰 암호화**: `syndication_accounts.token_enc`는 §11.1의 비밀 서비스를 쓴다.
 5. **본문 렌더링**: 연합 게시물과 다른 계정의 발행 본문은 usercontent origin에서 그린다(K10).
 6. **미디어**: 첨부와 미리보기 이미지는 `media_url`(§5.4)로 만든다.
-7. **스트림**: `items` 스트림은 컬렉션 계약(§7.4)을 적용할 첫 후속 후보다. 항목 ID를 시간 정렬 번호로 바꿀지는 Syndication 2단계에서 정한다.
-8. **사용자 간 발행 본문**: 단일 DB가 되었으므로, 기존 설계의 별도 `data/shared/publications.db` 대신 `claire.db`의 `publications` 테이블(`account_id` 포함)로 둘 수 있다. 그 목록은 `/explore` 통합 뷰(§4.4)의 후보다. 결정은 Syndication 2단계에서 한다. 목록 규칙, 재사용 방식, 가져오기, 철회의 이전 계획은 지운 두 문서 `EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md` §4.7과 `SYNDICATION_ENDPOINT_DESIGN.md` §3.9에 있었다(git 이력의 커밋 `d15ae8e0`). 구현은 없다.
+7. **스트림** (**retired 2026-11-19**: the feed items are at `/api/feeds/items` in `client.db`, and no plan applies this contract to them): `items` 스트림은 컬렉션 계약(§7.4)을 적용할 첫 후속 후보다. 항목 ID를 시간 정렬 번호로 바꿀지는 Syndication 2단계에서 정한다.
+8. **사용자 간 발행 본문** (**retired 2026-11-19**: contributions to shared knowledge bases, curation, and fork do this work: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9): 단일 DB가 되었으므로, 기존 설계의 별도 `data/shared/publications.db` 대신 `claire.db`의 `publications` 테이블(`account_id` 포함)로 둘 수 있다. 그 목록은 `/explore` 통합 뷰(§4.4)의 후보다. 결정은 Syndication 2단계에서 한다. 목록 규칙, 재사용 방식, 가져오기, 철회의 이전 계획은 지운 두 문서 `EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md` §4.7과 `SYNDICATION_ENDPOINT_DESIGN.md` §3.9에 있었다(git 이력의 커밋 `d15ae8e0`). 구현은 없다.
 9. **프로토타입 패널 교체**: `/syndication/preferences?tab=idp`와 `?tab=userdb`의 제안 패널은 실제 `/admin/accounts`, `/me`로 연결한다.
 10. **명명 규칙**: `/@username`은 Mastodon 프로필 URL 관례와 같다. `acct:username@FQDN` 형식은 예약만 해 두고 WebFinger는 구현하지 않는다(철회 결정 유지). (2026-11-10 보완: 소유자 결정 FD1로 Fedify 사이드카를 통한 계정 액터와 WebFinger를 승인했다. [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.3 참고)
 

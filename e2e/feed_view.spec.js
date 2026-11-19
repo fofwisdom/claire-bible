@@ -1,5 +1,5 @@
 // Feed view of the federation client of /syndication (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F3).
-// The server of this test directory is in single mode: the feed view works there. This file answers the feed routes itself, so that the test needs no feed server. The routes have their own end-to-end test with a real app and a local feed server: tests/test_e2e_feed_view.py.
+// The server of this test directory is in single mode: the feed view works there, and the client view has the same trees as in network mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5). This file answers the feed routes itself, so that the test needs no feed server. The routes have their own end-to-end test with a real app and a local feed server: tests/test_e2e_feed_view.py.
 const { test, expect } = require('@playwright/test');
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -66,12 +66,12 @@ test.describe('feed view (FP4-F3)', () => {
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     await page.goto('/syndication?stage=collect', { waitUntil: 'domcontentloaded' });
 
-    // Single mode: the feeds, and no stream tree and no follow tree of the timeline.
+    // Both server modes: the feeds, the stream tree, and the follow tree of the timeline. With no unread feed item, the stage bar has no feed count.
     await expect(page.locator('#panel-client')).toBeVisible();
     await expect(page.locator('#client-feeds-folder')).toBeVisible();
-    await expect(page.locator('#client-streams-folder')).toBeHidden();
-    await expect(page.locator('#client-following-folder')).toBeHidden();
-    await expect(page.locator('#stage-collect-counts')).toHaveText('피드: 읽지 않음 0개');
+    await expect(page.locator('#client-streams-folder')).toBeVisible();
+    await expect(page.locator('#client-following-folder')).toBeVisible();
+    await expect(page.locator('#stage-collect-counts')).not.toContainText('피드');
     await expect(page.locator('#client-feeds')).toContainText('아직 피드가 없습니다');
 
     // Subscribe: the address of a site gives two feeds. The owner selects one. The first poll gives the items.
@@ -90,7 +90,7 @@ test.describe('feed view (FP4-F3)', () => {
     await expect(feedButton.locator('.tt-count-pill')).toHaveText('2');
     await expect(page.locator('#client-feeds [data-feed-scope="folder:Garden"]')).toBeVisible();
     await expect(feedButton).toHaveClass(/active/);
-    await expect(page.locator('#stage-collect-counts')).toHaveText('피드: 읽지 않음 2개');
+    await expect(page.locator('#stage-collect-counts')).toContainText('피드: 읽지 않음 2개');
 
     // The list has text only.
     const posts = page.locator('#client-list .synd-post');
@@ -128,7 +128,7 @@ test.describe('feed view (FP4-F3)', () => {
     await expect(page.locator('#modal-item-ingest')).not.toHaveAttribute('open', '');
     await expect(page.locator('#client-reader [data-feed-doc]')).toBeVisible();
     await expect(page.locator('#client-reader [data-feed-ingest]')).toHaveCount(0);
-    // No request went to the route of the timeline items.
+    // The ingest of a feed item used only the feed routes.
     expect(calls.some(call => call.path.includes('/api/federation/'))).toBe(false);
 
     // "Unread only" is a filter of the list request.

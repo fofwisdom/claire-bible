@@ -303,8 +303,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/authorize/poll",
         "/login",
         "/invite/{code}",
-        "/explore/accounts",
-        "/explore/federation",
+        "/accounts",
         "/auth/oidc/{id}/start",
         "/auth/oidc/{id}/callback",
         "/invite/complete",
@@ -616,36 +615,13 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
     assert len(security.ROUTE_POLICY) == len(expected)
-    # §9.1 표면·모드(전체 표는 tests/test_route_surface_contract.py). P3 네트워크 전용 항목 검증.
+    # §9.1 surfaces and modes (full table in tests/test_route_surface_contract.py). Network mode only: the routes for more than one account (invites, member keys). ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
     network_only_keys = {
         *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
         *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
-        *((m, "/explore/accounts") for m in ("GET", "HEAD")),
-        *((m, "/explore/federation") for m in ("GET", "HEAD")),
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
         *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
         ("POST", "/api/me/keys/verify"),
-        *((m, "/api/federation/status") for m in ("GET", "HEAD")),
-        *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
-        *((m, "/api/federation/following") for m in ("GET", "HEAD", "POST")),
-        ("DELETE", "/api/federation/following/{following_id}"),
-        *((m, "/api/federation/timeline") for m in ("GET", "HEAD")),
-        *((m, "/api/federation/timeline/{item_id}") for m in ("GET", "HEAD", "PATCH")),
-        ("POST", "/api/federation/timeline/{item_id}/ingest"),
-        ("POST", "/api/federation/timeline/{item_id}/context"),
-        *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
-        *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
-        # Outbound interactions (FP4-9)
-        ("POST", "/api/federation/notes"),
-        *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
-        *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
-        *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
-        # Quotes (FP4-9Q)
-        *((m, "/api/federation/quotes") for m in ("GET", "HEAD")),
-        ("PATCH", "/api/federation/quotes/{quote_id}"),
-        ("PATCH", "/api/federation/objects/{object_id}"),
-        ("POST", "/api/federation/publish"),
-        ("POST", "/api/federation/retract"),
     }
     assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
     assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())

@@ -1,6 +1,6 @@
 """Routes of the quote requests of the federation client (FEP-044f; FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rule 6 and 6.6 rule 5; unit FP4-9Q).
 
-For the owner of the account, in network mode only.
+For the owner of the account, in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 
 - ``GET /api/federation/quotes``: the requests of remote actors to quote an own object: those that wait for the owner (``requests``) and the approved ones (``authorizations``).
 - ``PATCH /api/federation/quotes/{quote_id}``: the decision of the owner. ``approved`` or ``refused`` for a request that waits, ``revoked`` for an approved one. The sidecar sends ``Accept`` with the ``QuoteAuthorization``, ``Reject``, or ``Delete`` of the authorization.
@@ -83,8 +83,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             client = open_client_db(ctx)
             try:
-                if accounts_store.AccountStore(conn).server_mode() != "network":
-                    return None
                 pending = quotes_store.list_authorizations(client, account_id, states=("pending",), limit=QUOTES_LIST_MAX)
                 approved = quotes_store.list_authorizations(client, account_id, states=("approved",), limit=QUOTES_LIST_MAX)
                 return 200, {
@@ -116,8 +114,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             client = open_client_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                if store.server_mode() != "network":
-                    return None
                 # The answer goes out with the key of the actor (Section 5.4 rule 11).
                 if actor_state(store.get(account_id), federation=store.federation_state()) != "active":
                     return 409, {"error": "not_actor"}
@@ -150,8 +146,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
             try:
-                if accounts_store.AccountStore(conn).server_mode() != "network":
-                    return None
                 try:
                     obj = federation_store.get_object(conn, ids.parse_public_id(request.path_params["object_id"]))
                 except ValueError:

@@ -63,9 +63,8 @@ SYSTEM = {
     "/admin/accounts", "/api/admin/accounts",
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
-    "/explore/accounts",
-    # Root page data about other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3, unit KF2)
-    "/explore/federation",
+    # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2)
+    "/accounts",
     "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
@@ -127,36 +126,13 @@ ADMIN_KEYS = {
     ("PUT", "/api/admin/plugins/{id}"),
     ("DELETE", "/api/admin/plugins/{id}"),
 }
-# 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
+# Network mode only: the routes for more than one account (invites, member keys). ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
-    *((m, "/explore/accounts") for m in ("GET", "HEAD")),
-    *((m, "/explore/federation") for m in ("GET", "HEAD")),
     *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
     *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
     ("POST", "/api/me/keys/verify"),
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
-    *((m, "/api/federation/status") for m in ("GET", "HEAD")),
-    *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
-    *((m, "/api/federation/following") for m in ("GET", "HEAD", "POST")),
-    ("DELETE", "/api/federation/following/{following_id}"),
-    *((m, "/api/federation/timeline") for m in ("GET", "HEAD")),
-    *((m, "/api/federation/timeline/{item_id}") for m in ("GET", "HEAD", "PATCH")),
-    ("POST", "/api/federation/timeline/{item_id}/ingest"),
-    ("POST", "/api/federation/timeline/{item_id}/context"),
-    *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
-    *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
-    # Outbound interactions (FP4-9)
-    ("POST", "/api/federation/notes"),
-    *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
-    *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
-    *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
-    # Quotes (FP4-9Q)
-    *((m, "/api/federation/quotes") for m in ("GET", "HEAD")),
-    ("PATCH", "/api/federation/quotes/{quote_id}"),
-    ("PATCH", "/api/federation/objects/{object_id}"),
-    ("POST", "/api/federation/publish"),
-    ("POST", "/api/federation/retract"),
 }
 
 

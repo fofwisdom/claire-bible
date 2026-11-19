@@ -332,7 +332,7 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
     )
     net_app = server.create_app(net_settings)
     net_client = TestClient(net_app, base_url="http://127.0.0.1:8000")
-    resp_explore = net_client.get("/explore/accounts", headers={"Accept": "text/html"})
+    resp_explore = net_client.get("/accounts", headers={"Accept": "text/html"})
     assert resp_explore.status_code == 200
     assert 'href="/manifest.json"' in resp_explore.text
     assert '/static/js/pwa-register.js' in resp_explore.text

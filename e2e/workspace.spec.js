@@ -3395,6 +3395,8 @@ test.describe('stage strip (HW-8)', () => {
 
     // A route that fails gives no count: the stage keeps its link only.
     await page.route('**/api/federation/status', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
+    // The timeline route works in both modes; here it fails, so the unread count is that of the feeds.
+    await page.route('**/api/federation/timeline?limit=1', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
     await page.route('**/api/federation/following?limit=1', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total: 3, limit: 1, items: [], next_max_id: null }) }));
     await page.route('**/api/feeds', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ feeds: [{ id: 1, unread: 4 }, { id: 2, unread: 1 }], folders: [], limit: 1000 }) }));
     // A login token of the seed database is for one login. This test has its own token.

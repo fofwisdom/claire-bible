@@ -1,7 +1,7 @@
 """Adversarial challenge test suite for PWA head tags, template injection, and credential form isolation.
 
 Empirically tests:
-1. GET / in network mode (explore_accounts.html): PWA manifest and pwa-register.js present.
+1. GET / in network mode (public_directory.html): PWA manifest and pwa-register.js present.
 2. GET /login: PWA manifest present, strictly NO <script> tags (credential form isolation).
 3. GET /setup: PWA manifest present, strictly NO <script> tags (credential form isolation).
 4. GET / in single mode: PWA manifest and pwa-register.js present in workspace HTML.
@@ -46,8 +46,8 @@ def base_settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_network_mode_explore_accounts_pwa_head_tags(tmp_path: Path) -> None:
-    """Check GET / in network mode (explore_accounts.html).
+def test_network_mode_public_directory_pwa_head_tags(tmp_path: Path) -> None:
+    """Check GET / in network mode (public_directory.html).
 
     Verifies <link rel="manifest"> and <script src="/static/js/pwa-register.js" defer></script>.
     """
@@ -72,7 +72,7 @@ def test_network_mode_explore_accounts_pwa_head_tags(tmp_path: Path) -> None:
     app = server.create_app(settings)
     client = TestClient(app, base_url="http://127.0.0.1:8000")
 
-    # 1. GET / in network mode -> renders explore_accounts.html
+    # 1. GET / in network mode -> renders public_directory.html
     resp = client.get("/", headers={"Accept": "text/html"})
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
@@ -88,8 +88,8 @@ def test_network_mode_explore_accounts_pwa_head_tags(tmp_path: Path) -> None:
     assert '<meta name="theme-color" content="#0e1116"/>' in html
     assert '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>' in html
 
-    # 2. GET /explore/accounts directly
-    resp_explore = client.get("/explore/accounts", headers={"Accept": "text/html"})
+    # 2. GET /accounts directly
+    resp_explore = client.get("/accounts", headers={"Accept": "text/html"})
     assert resp_explore.status_code == 200
     assert '<link rel="manifest" href="/manifest.json"/>' in resp_explore.text
     assert '<script src="/static/js/pwa-register.js" defer></script>' in resp_explore.text

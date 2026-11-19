@@ -24,7 +24,7 @@
       { id: "home", href: "/", label: t("kb.pub.nav_home") },
       { id: "themes", href: "/themes", label: t("kb.pub.nav_themes") },
       { id: "kb", href: "/kb", label: t("kb.pub.nav_kbs") },
-      { id: "accounts", href: "/explore/accounts", label: t("kb.pub.nav_accounts") }
+      { id: "accounts", href: "/accounts", label: t("kb.pub.nav_accounts") }
     ];
     return '<nav class="claire-pubnav" aria-label="' + esc(t("kb.pub.nav_label")) + '">' + links.map(function (it) {
       return '<a href="' + esc(it.href) + '"' + (it.id === current ? ' aria-current="page"' : "") + ">" + esc(it.label) + "</a>";
@@ -79,26 +79,15 @@
     return esc(t("kb.pub.recent_remote_kb")) + " " + remote + server;
   }
 
-  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3). GET /explore/federation gives "servers" (domain, software_name, software_version, knowledge_bases = the count) and "recent" (kind, at, server, label, url, and the keys of each kind: recentItemHtml). The page has the styles of explore_accounts.html. With no known server that has shared knowledge bases and no recent activity, the part shows nothing.
-  function renderHomeFederation(host) {
-    ui().request("/explore/federation").then(function (r) {
-      var servers = (r.ok && r.data && r.data.servers) || [];
-      var recent = (r.ok && r.data && r.data.recent) || [];
-      if (!servers.length && !recent.length) { host.innerHTML = ""; return; }
-      var h = servers.length ? "<h2>" + esc(t("kb.pub.servers_title")) + "</h2>" : "";
-      h += servers.map(function (sv) {
-        var software = sv.software_name ? sv.software_name + (sv.software_version ? " " + sv.software_version : "") : "";
-        return '<article class="account-card" data-federated-server="' + esc(sv.domain) + '"><div class="account-header"><span class="account-name">' + remoteLink("https://" + sv.domain + "/", sv.domain) + "</span>" +
-          '<span class="badge">' + esc(t("kb.pub.kb_count", { count: sv.knowledge_bases || 0 })) + "</span></div>" +
-          (software ? '<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">' + esc(software) + "</p>" : "") + "</article>";
-      }).join("");
-      if (recent.length) {
-        h += "<h2>" + esc(t("kb.pub.recent_title")) + "</h2>" + '<article class="account-card"><ul class="themes-list">' + recent.map(function (it) {
-          return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
-        }).join("") + "</ul></article>";
-      }
-      host.innerHTML = h;
-    });
+  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3). The server puts the recent activity across servers in the JSON element "public-home-recent-data": {"recent": [items of recentItemHtml]}. The page has the styles of public_directory.html. With no recent activity, the part shows nothing.
+  function renderHomeRecent(host) {
+    var source = document.getElementById("public-home-recent-data");
+    var recent = [];
+    try { recent = (source && JSON.parse(source.textContent).recent) || []; } catch (e) { recent = []; }
+    if (!recent.length) { host.innerHTML = ""; return; }
+    host.innerHTML = "<h2>" + esc(t("kb.pub.recent_title")) + "</h2>" + '<article class="account-card"><ul class="themes-list">' + recent.map(function (it) {
+      return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
+    }).join("") + "</ul></article>";
   }
 
   // GET /themes: the root of the collection has each theme in "themes" (number, url, label, description, knowledge_type, state, knowledge_bases = the count of knowledge bases of this server, remote_knowledge_bases = the count of shared knowledge bases of other servers).
@@ -377,8 +366,8 @@
   function boot() {
     var homeShowcase = document.getElementById("public-home-showcase");
     if (homeShowcase) renderHomeShowcase(homeShowcase);
-    var homeFederation = document.getElementById("public-home-federation");
-    if (homeFederation) renderHomeFederation(homeFederation);
+    var homeRecent = document.getElementById("public-home-recent");
+    if (homeRecent) renderHomeRecent(homeRecent);
     var rootEl = document.getElementById("public-kb-root");
     if (!rootEl) return;
     var bs = parseBootstrap() || {};

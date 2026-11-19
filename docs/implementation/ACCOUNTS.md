@@ -308,7 +308,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 네트워크 모드이고 `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, USERNAME 행, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 목록 응답도 소유자에게 번들마다 같은 `download_url`을 준다(서포트 번들은 `telemetry.db`의 행, 데이터 번들은 모드 `0600` sidecar가 토큰을 가진다). 그래서 목록의 각 행에 "링크 복사"가 번들이 만료될 때까지 있다. 목록에는 그 밖의 토큰 필드가 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. 토큰을 sidecar에 두기 전에 만든 데이터 번들은 행에 링크가 없다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
 | `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
@@ -351,14 +351,15 @@
 | `userdb` | `/admin/accounts` | `/settings/account` |
 | 그 밖 | 404 | 404 |
 
-### 5.11 공개 계정 디렉터리 (`/explore/accounts`)
+### 5.11 공개 계정 디렉터리 (`/accounts`)
 
-기준 커밋: `d15ae8e0` (2026-11-16).
+Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
 
-- **[코드]** `GET`·`HEAD /explore/accounts` has the rule `_system("public", modes=NETWORK_ONLY)`. In single mode it is 404.
-- **[코드]** `explore_accounts_route` (`src/claire/api/server.py`) reads only the public index (`SqlitePublicIndexStore`, `src/claire/store/public_index.py`). It lists the accounts with `profile_public = 1` and `status = 'active'`, with their public themes (`is_public = 1`) and the count of documents that are not hidden. The query uses the collection parameters of `src/claire/api/collections.py` (`max_id`, `min_id`, `since_id`, `limit`).
-- **[코드]** `collections.wants_html` selects the format: HTML (`templates/explore_accounts.html`) when `Sec-Fetch-Dest` is `document`, or when that header is absent and the first `Accept` item is `text/html`. Otherwise JSON.
-- **[코드]** In network mode, `GET /` (`graph_ui`, without a prefix) shows this directory as HTML, with these exceptions. With `pwa=1`, it is 302 to `/@{username}/` of the signed-in active account; without such an account, 302 to `/@{admin}/` when anonymous read is on, else 302 to `/login`. With `doc`, `node`, or `theme`, it is 308 to `/@{admin}/` with the same query.
+- **[코드]** `GET`·`HEAD /accounts` has the rule `_system("public", "none")`: both server modes. The old path `/explore/accounts` and the old data route `/explore/federation` are removed (404 in both modes, no redirect).
+- **[코드]** `public_directory_route` (`src/claire/api/server.py`) reads only the public index (`SqlitePublicIndexStore`, `src/claire/store/public_index.py`). It lists the accounts with `profile_public = 1` and `status = 'active'`, with their public themes (`is_public = 1`) and the count of documents that are not hidden. In single mode the list has the admin only, when its profile is public. The query uses the collection parameters of `src/claire/api/collections.py` (`max_id`, `min_id`, `since_id`, `limit`).
+- **[코드]** `collections.wants_html` selects the format: HTML (`templates/public_directory.html`) when `Sec-Fetch-Dest` is `document`, or when that header is absent and the first `Accept` item is `text/html`. Otherwise JSON. The text keys are `directory.*` (server only).
+- **[코드]** The public menu of `/themes` and `/kb` (`public_kb.js`, `publicNavHtml`) links to `/accounts` in both modes.
+- **[코드]** In network mode, `GET /` (`graph_ui`, without a prefix) is the root page: the same template with the themes, the recent activity across servers ([KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) Section 11.6), and the first accounts with a link to `/accounts`. These are the exceptions: with `pwa=1`, it is 302 to `/@{username}/` of the signed-in active account; without such an account, 302 to `/@{admin}/` when anonymous read is on, else 302 to `/login`. With `doc`, `node`, or `theme`, it is 308 to `/@{admin}/` with the same query. In single mode `/` gives 302 to `/@{admin}/` (no root page).
 
 
 ## 6. 비밀번호

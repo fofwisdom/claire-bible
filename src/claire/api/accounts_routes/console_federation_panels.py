@@ -35,9 +35,9 @@ ACTOR_STATES = ("active", "account_not_active", "no_username", "federation_off",
 
 
 def actor_state(account: accounts_store.Account, *, federation: str) -> ActorState:
-    """Return ``active`` when the account is a federation actor in network mode. If not, return the first condition of the actor rule that fails.
+    """Return ``active`` when the account is a federation actor. If not, return the first condition of the actor rule that fails. The rule is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 
-    The sequence is: account status, USERNAME, server switch, ``profile_public``. The caller makes sure that the mode is ``network``.
+    The sequence is: account status, USERNAME, server switch, ``profile_public``.
     """
     if account.status != "active":
         return "account_not_active"
@@ -51,7 +51,7 @@ def actor_state(account: accounts_store.Account, *, federation: str) -> ActorSta
 
 
 def account_federation_status(ctx: AccountsContext, conn: sqlite3.Connection, account_id: int) -> dict[str, Any]:
-    """Return the federation state of one account. The mode must be ``network``.
+    """Return the federation state of one account.
 
     ``handle`` and ``actor_id`` are ``None`` when the account has no USERNAME. They are the future addresses when the account is not an actor now.
     """
@@ -79,17 +79,8 @@ def domain_block_view(block: federation_store.DomainBlock) -> dict[str, Any]:
 # --- /settings/federation -------------------------------------------------------
 
 
-def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.ServerMode, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
-    """Return the body and the bootstrap data of ``/settings/federation``. In single mode the body has a notice only and shows no USERNAME (S9)."""
-    if mode != "network":
-        body = (
-            f'<section class="console-subcard" id="settings-federation-unavailable" data-federation-mode="unavailable" aria-label="{escape(t("console.federation.unavailable_label"))}">'
-            f"<h2><span data-icon='globe'></span> {escape(t('console.federation.unavailable_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.federation.unavailable_hint"))}</p>'
-            "</section>"
-        )
-        return body, {"federation_mode": "unavailable"}
-
+def settings_federation_body(ctx: AccountsContext, *, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
+    """Return the body and the bootstrap data of ``/settings/federation``. The body is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5)."""
     conn = open_db(ctx)
     try:
         status = account_federation_status(ctx, conn, account.id)
@@ -104,7 +95,7 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Serve
     )
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-federation-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in rows)
     body = (
-        f'<section class="console-subcard" id="settings-federation-status" data-federation-mode="network" data-actor-state="{escape(state)}" aria-label="{escape(t("console.federation.actor.label"))}">'
+        f'<section class="console-subcard" id="settings-federation-status" data-actor-state="{escape(state)}" aria-label="{escape(t("console.federation.actor.label"))}">'
         f"<h2><span data-icon='globe'></span> {escape(t('console.federation.actor.title'))}</h2>"
         f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/settings/account">{escape(t("console.federation.actor.hint_link"))}</a></p>'
         f"<dl>{info_html}</dl>"
@@ -120,7 +111,7 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Serve
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
     )
-    return body, {"federation_mode": "network", "federation_status": status}
+    return body, {"federation_status": status}
 
 
 # --- /admin/federation ----------------------------------------------------------
@@ -193,13 +184,7 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     target = "off" if federation == "on" else "on"
     switch_label = t("console.federation.switch.turn_off") if federation == "on" else t("console.federation.switch.turn_on")
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
-    single_note = (
-        f'<div class="claire-note warn" id="admin-federation-single-note"><span>{escape(t("console.admin.federation.single_mode_note"))}</span></div>'
-        if mode != "network"
-        else ""
-    )
     sw_panel = (
-        f'{single_note}'
         f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="{escape(t("console.federation.switch.title"))}">'
         f"<h2><span data-icon='globe'></span> {escape(t('console.federation.switch.title'))}</h2>"
         "<dl>"
