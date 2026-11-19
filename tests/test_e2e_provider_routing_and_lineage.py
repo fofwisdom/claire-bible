@@ -160,7 +160,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         # 2. Member fetches /settings/keys HTML and /api/me/keys?include_policy=1 without exposing admin routes.
         page_resp = client.get("/settings/keys", headers={"Cookie": f"claire_session={member_sess}"})
         assert page_resp.status_code == 200
-        assert "data-split-key-notice" in page_resp.text
+        assert "data-key-storage-notice" in page_resp.text
         assert "data-byok-model-select" in page_resp.text
         assert "data-byok-effort-select" not in page_resp.text
         assert "/admin/" not in page_resp.text
@@ -173,7 +173,6 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert policy["admin_defaults"]["render_detail"]["model"] == "gemini-3.8-flash-high"
         assert "gemini-4-argon-high" in policy["allowed_models"]
         assert "gemini-4-argon" not in policy["allowed_models"]
-        assert policy["split_key_enabled"] is True
 
         # 3. Member is rejected for mock and for an unknown model. A model below the administrator default is accepted: the administrator values are only defaults.
         bad_mock = client.put("/api/me/keys", headers=member_headers, json={"provider": "mock", "api_key": BYOK_CANARY})
@@ -196,21 +195,21 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         )
         assert mismatch_eff.status_code == 400
 
-        # 4. Member registers an enumerated model without separate effort and receives a split-key seal cookie.
+        # 4. Member registers an enumerated model without separate effort. The key has no browser seal, thus no seal cookie.
         ok_put = client.put(
             "/api/me/keys",
             headers=member_headers,
             json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon-high"},
         )
         assert ok_put.status_code == 200, ok_put.text
-        seal_cookie = ok_put.cookies.get(BYOK_SEAL_COOKIE)
-        assert seal_cookie
+        assert ok_put.cookies.get(BYOK_SEAL_COOKIE) is None
 
-        # 5. Clearing in-memory volatile seals fails admin-only decryption, while member cookie restores verify.
+        # 5. Without any seal in the process memory (as in the Telegram bot process), the key can be decrypted.
         clear_volatile_user_seals()
+        client.cookies.clear()
         verify_with_cookie = client.post(
             "/api/me/keys/verify",
-            headers={"Cookie": f"claire_session={member_sess}; {BYOK_SEAL_COOKIE}={seal_cookie}", "Origin": ORIGIN},
+            headers={"Cookie": f"claire_session={member_sess}", "Origin": ORIGIN},
             json={"provider": "gemini"},
         )
         assert verify_with_cookie.status_code == 200

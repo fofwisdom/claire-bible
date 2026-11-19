@@ -1817,6 +1817,9 @@ def _run_recover_cycle(
 def cmd_recover_loop(args) -> int:
     """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
     _set_plugin_process("recover_loop")
+    from .accounts.provider_policy import refuse_personal_keys_in_this_process
+
+    refuse_personal_keys_in_this_process()
     import time
 
     from .ingest.service import IngestService
@@ -1915,6 +1918,9 @@ def cmd_refresh_run(args) -> int:
 def cmd_refresh_loop(args) -> int:
     """갱신 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     _set_plugin_process("refresh_loop")
+    from .accounts.provider_policy import refuse_personal_keys_in_this_process
+
+    refuse_personal_keys_in_this_process()
     import time
 
     from .ingest.service import IngestService
@@ -2132,6 +2138,9 @@ def _run_expand_cycle(
 def cmd_expand_loop(args) -> int:
     """자동 확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     _set_plugin_process("expand_loop")
+    from .accounts.provider_policy import refuse_personal_keys_in_this_process
+
+    refuse_personal_keys_in_this_process()
     import time
 
     from .ingest.service import IngestService

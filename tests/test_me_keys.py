@@ -555,7 +555,7 @@ def test_unsealed_key_needs_no_seal_and_unseal_needs_the_seal(tmp_path: Path):
         clear_volatile_user_seals()
         key = provider_keys.load_active_key(auth, account_id=1, secret_service=sec)
         assert key is not None and key.api_key == CANARY
-        provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=CANARY_B, status="active", secret_service=sec, user_seal="seal-b")
+        provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=CANARY_B, status="active", secret_service=sec, user_seal="seal-b", sealed=True)
         clear_volatile_user_seals()
         assert provider_keys.unseal_keys(auth, account_id=2, secret_service=sec) == 0
         with pytest.raises(provider_keys.ProviderKeyError):

@@ -58,32 +58,28 @@ def _memory_db() -> sqlite3.Connection:
     return conn
 
 
-def test_split_key_envelope_encryption_requires_volatile_seal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify split-key encrypted credentials fail decryption without the volatile user seal."""
+def test_old_sealed_key_needs_the_seal_once_and_is_then_unsealed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A key stored with the old split-key seal needs the seal for the first decryption. That decryption stores it again with the server master key only (owner decision 2026-11-19)."""
     monkeypatch.setenv("CLAIRE_SECRET_KEY", "55" * 32)
     reset_secret_service()
     try:
-        db_path = auth_db.auth_db_path(tmp_path)
-        conn = auth_db.connect_auth_db(db_path)
+        conn = auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path))
         try:
             secret_svc = SecretService(master_key=bytes.fromhex("55" * 32))
             seal = generate_user_seal()
-            record = provider_keys.put_key(conn, account_id=7, provider="gemini", api_key="AIzaSplitKeySecretTestValue012345", status="active", user_seal=seal, model_prefs={"model": "gemini-4-argon", "effort": "high"}, secret_service=secret_svc)
-            assert record.fingerprint
-            assert len(seal) >= 16
-
-            # Decrypt succeeds with the active volatile user seal or explicit cookie seal.
-            loaded = provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc)
-            assert loaded is not None and loaded.api_key == "AIzaSplitKeySecretTestValue012345"
-
-            # Admin or maintainer with only DB and master.key cannot decrypt after seals clear.
+            provider_keys.put_key(conn, account_id=7, provider="gemini", api_key="AIzaSplitKeySecretTestValue012345", status="active", user_seal=seal, sealed=True, secret_service=secret_svc)
             clear_volatile_user_seals()
             with pytest.raises((provider_keys.ProviderKeyError, SecretDecryptionError)):
                 provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc)
-
-            # Providing the volatile user cookie seal restores decryption.
             restored = provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc, user_seal=seal)
             assert restored is not None and restored.api_key == "AIzaSplitKeySecretTestValue012345"
+            clear_volatile_user_seals()
+            again = provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc)
+            assert again is not None and again.api_key == "AIzaSplitKeySecretTestValue012345"
+            # A new key needs no seal.
+            provider_keys.put_key(conn, account_id=8, provider="gemini", api_key="AIzaPlainKeySecretTestValue0123456", status="active", secret_service=secret_svc)
+            clear_volatile_user_seals()
+            assert provider_keys.load_active_key(conn, account_id=8, secret_service=secret_svc).api_key == "AIzaPlainKeySecretTestValue0123456"
         finally:
             conn.close()
     finally:

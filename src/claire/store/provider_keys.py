@@ -78,12 +78,12 @@ def put_key(
     now: float | None = None,
     user_seal: str | bytes | None = None,
     model_prefs: dict[str, Any] | None = None,
-    sealed: bool = True,
+    sealed: bool = False,
 ) -> ProviderKeyMeta:
     """Store or replace an account BYOK key.
 
-    ``sealed=True``: split-key envelope encryption (server master key and the browser seal of the account).
-    ``sealed=False``: the server master key only. The personal key of the server administrator uses this, because the Telegram bot process, the worker loops, and a restarted server have no browser seal, and a seal against the server administrator has no effect on the key of the server administrator.
+    ``sealed=False`` (the rule, owner decision 2026-11-19): the server master key only, thus the Telegram bot process can decrypt the key.
+    ``sealed=True``: the old split-key envelope (server master key and a browser seal). Only tests and the read of old rows use it.
     """
     if status not in KEY_STATUSES:
         raise ValueError("invalid key status")
@@ -251,7 +251,7 @@ def load_key(
     ).fetchone()
     if row is None:
         return None
-    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
 
 
 def load_active_key(
@@ -272,11 +272,31 @@ def load_active_key(
 
     order = {name: i for i, name in enumerate(MEMBER_KEY_PROVIDERS)}
     row = min(rows, key=lambda r: order.get(str(tuple(r)[1]), len(order)))
-    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+
+
+def _decrypt_and_unseal(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, account_id: int, sec: "SecretService", user_seal: str | bytes | None) -> ActiveKey:
+    """Decrypt a row. A sealed row (old rule) that this process can decrypt is encrypted again with the server master key only."""
+    from claire.store.secrets import SPLIT_KEY_VERSION_OFFSET
+
+    key = _decrypt_row(row, account_id=account_id, sec=sec, user_seal=user_seal)
+    key_id, provider, _ct, _nonce, key_version, _fp = tuple(row)
+    if int(key_version) >= SPLIT_KEY_VERSION_OFFSET:
+        _store_unsealed(conn, key_id=str(key_id), account_id=account_id, provider=str(provider), api_key=key.api_key, sec=sec)
+    return key
+
+
+def _store_unsealed(conn: sqlite3.Connection, *, key_id: str, account_id: int, provider: str, api_key: str, sec: "SecretService") -> None:
+    encrypted = sec.encrypt(api_key, key_aad(account_id, provider, key_id))
+    with conn:
+        conn.execute(
+            "UPDATE account_provider_keys SET ciphertext=?, nonce=?, key_version=? WHERE id=? AND account_id=?",
+            (encrypted.ciphertext, encrypted.nonce, encrypted.key_version, key_id, account_id),
+        )
 
 
 def unseal_keys(conn: sqlite3.Connection, *, account_id: int, secret_service: "SecretService | None" = None) -> int:
-    """Encrypt the sealed keys of an account again with the server master key only (``put_key(sealed=False)``). Returns the number of changed keys.
+    """Encrypt the sealed keys (old rule) of an account again with the server master key only. Returns the number of changed keys.
 
     A sealed key needs the seal of the account (the volatile seal of this process). A key that this process cannot decrypt stays as it is.
     """
@@ -293,14 +313,8 @@ def unseal_keys(conn: sqlite3.Connection, *, account_id: int, secret_service: "S
             key = _decrypt_row(row, account_id=account_id, sec=sec)
         except ProviderKeyError:
             continue
-        key_id = str(tuple(row)[0])
-        encrypted = sec.encrypt(key.api_key, key_aad(account_id, key.provider, key_id))
+        _store_unsealed(conn, key_id=str(tuple(row)[0]), account_id=account_id, provider=key.provider, api_key=key.api_key, sec=sec)
         del key
-        with conn:
-            conn.execute(
-                "UPDATE account_provider_keys SET ciphertext=?, nonce=?, key_version=? WHERE id=? AND account_id=?",
-                (encrypted.ciphertext, encrypted.nonce, encrypted.key_version, key_id, account_id),
-            )
         changed += 1
     return changed
 

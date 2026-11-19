@@ -430,6 +430,15 @@ def _load_member_model_prefs(
         conn.close()
 
 
+# The worker loops (recover, refresh, expand) set this to False. The owner did not decide that jobs without a request of the account spend the personal key of the account.
+_PERSONAL_KEYS_IN_PROCESS: list[bool] = [True]
+
+
+def refuse_personal_keys_in_this_process() -> None:
+    """Called by the worker loops at start. A job of an account with a registered key then fails with ``ProviderNotAllowed``; it does not change to the server credentials (C2)."""
+    _PERSONAL_KEYS_IN_PROCESS[0] = False
+
+
 def _load_member_key(
     account_id: int,
     *,
@@ -452,6 +461,11 @@ def _load_member_key(
     conn = _auth_db.connect_auth_db(path)
     remedy = "내 계정 > API 키에서 다시 검증하거나 교체하세요"
     try:
+        if not _PERSONAL_KEYS_IN_PROCESS[0] and _provider_keys.has_key(conn, account_id=account_id):
+            raise ProviderNotAllowed(
+                f"account {account_id}: background jobs do not use the personal key of the account",
+                remedy="Run the job from the web or from the Telegram bot.",
+            )
         try:
             active = _provider_keys.load_active_key(conn, account_id=account_id, secret_service=secret_service)
         except _provider_keys.ProviderKeyError as exc:

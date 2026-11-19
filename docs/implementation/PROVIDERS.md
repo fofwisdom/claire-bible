@@ -105,6 +105,7 @@
   - With a registered key that is not active or cannot be decrypted: `ProviderKeyRejected`. The job does not change to `providers.json` (C2).
   - Without a registered key: `admin_context` (`providers.json`), as before.
   - Jobs without an account (`account_id=None`) always get `admin_context`.
+  - In a worker loop process, a registered personal key gives `ProviderNotAllowed` (no change to `providers.json`). See [ACCOUNTS.md](ACCOUNTS.md) §5.8.
 
 ### 3.3 폴백 없음 원칙 (No Fallbacks, Principle C2)
 

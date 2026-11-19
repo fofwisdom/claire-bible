@@ -2,6 +2,7 @@
 
 - 멤버는 네트워크 모드에서만 쓴다. 싱글 모드의 비관리자는 404.
 - 서버 관리자는 두 모드에서 개인 키를 쓴다(owner decision 2026-11-19). 관리자 계정의 작업은 개인 키가 있으면 그 키만 쓰고, 없으면 ``providers.json``을 쓴다. 서버 작업은 언제나 ``providers.json``을 쓴다.
+- 키는 서버 마스터 키로만 암호화한다(owner decision 2026-11-19, 텔레그램 봇 프로세스가 키를 쓴다). 브라우저 봉인 쿠키는 더 발급하지 않는다. 봉인된 옛 키는 봉인 쿠키가 있는 요청에서 봉인 없이 다시 암호화한다.
 - 쓰기 전용 비밀이다(D8). 응답에는 §11.2 메타 필드만 싣고, 키 원문·일부 문자를 어디에도 싣지 않는다.
   요청 본문을 로그에 남기지 않으며, ``api_key`` 값은 읽자마자 ``register_secret``으로 등록해 로그 스크러버가 지우게 한다.
 - 등록·교체(PUT)와 삭제(DELETE)는 단계 인증(`common.require_recent_auth`)을 요구한다.
@@ -33,7 +34,7 @@ from ...secret_scrub import register_secret, scrub_text
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import provider_keys
-from ...store.secrets import BYOK_SEAL_COOKIE, generate_user_seal, register_volatile_user_seal
+from ...store.secrets import BYOK_SEAL_COOKIE, register_volatile_user_seal
 from ..principal import Principal, request_principal
 from ..security import read_json_body
 from .common import (
@@ -213,9 +214,7 @@ def store_key(
     provider: str,
     api_key: str,
     *,
-    user_seal: str | None = None,
     model_prefs: dict[str, Any] | None = None,
-    sealed: bool = True,
 ) -> dict[str, Any]:
     auth = open_auth_db(ctx)
     try:
@@ -225,9 +224,7 @@ def store_key(
             provider=provider,
             api_key=api_key,
             status="active",
-            user_seal=user_seal,
             model_prefs=model_prefs,
-            sealed=sealed,
         )
         auth_db.record_admin_audit(
             auth,
@@ -241,8 +238,8 @@ def store_key(
         auth.close()
 
 
-def unseal_admin_keys(ctx: AccountsContext, account_id: int) -> int:
-    """Encrypt a sealed key of the server administrator again without the seal (a key stored before the administrator keys were unsealed)."""
+def unseal_account_keys(ctx: AccountsContext, account_id: int) -> int:
+    """Encrypt a sealed key (old rule) of the account again without the seal. The request registered the seal cookie of the browser (security middleware)."""
     auth = open_auth_db(ctx)
     try:
         return provider_keys.unseal_keys(auth, account_id=account_id)
@@ -329,10 +326,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         assert principal.account_id is not None
-        admin = _is_owner_admin(principal)
-        if admin:
-            # The request registered the seal cookie of the browser (security middleware). Thus a sealed key of the administrator can be unsealed now.
-            await asyncio.to_thread(unseal_admin_keys, ctx, principal.account_id)
+        if request.cookies.get(BYOK_SEAL_COOKIE):
+            await asyncio.to_thread(unseal_account_keys, ctx, principal.account_id)
         items = await asyncio.to_thread(list_meta, ctx, principal.account_id)
         payload: dict[str, Any] = {"keys": items}
         if str(request.query_params.get("include_policy") or "").lower() in ("1", "true", "yes"):
@@ -346,8 +341,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 "allowed_embed_models": list(DEFAULT_GEMINI_EMBED_MODELS),
                 "effort_order": list(EFFORT_ORDER),
                 "model_prefs": prefs,
-                "split_key_enabled": not admin,
-                "has_cookie_seal": bool(request.cookies.get(BYOK_SEAL_COOKIE)),
             }
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
@@ -386,34 +379,11 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(503, "key_verification_unavailable", message=scrub_text(exc, extra=(api_key,)))
         if not ok:
             return json_error(422, "key_verification_failed", message=scrub_text(message, extra=(api_key,)))
-        # The personal key of the server administrator has no seal (provider_keys.put_key, sealed=False).
-        sealed = not _is_owner_admin(principal)
-        seal = (request.cookies.get(BYOK_SEAL_COOKIE) or generate_user_seal()) if sealed else None
-        meta = await asyncio.to_thread(
-            store_key,
-            ctx,
-            principal.account_id,
-            provider,
-            api_key,
-            user_seal=seal,
-            model_prefs=prefs,
-            sealed=sealed,
-        )
+        meta = await asyncio.to_thread(store_key, ctx, principal.account_id, provider, api_key, model_prefs=prefs)
         res_body: dict[str, Any] = {"key": meta}
         if prefs:
             res_body["model_prefs"] = prefs
-        resp = JSONResponse(res_body, headers={"Cache-Control": "no-store"})
-        if seal is None:
-            return resp
-        resp.set_cookie(
-            BYOK_SEAL_COOKIE,
-            seal,
-            httponly=True,
-            samesite="lax",
-            secure=bool(ctx.config.secure_cookie),
-            path="/",
-        )
-        return resp
+        return JSONResponse(res_body, headers={"Cache-Control": "no-store"})
 
     async def keys_verify(request: Request) -> Response:
         principal, denied = await _gate(request)

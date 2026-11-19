@@ -6,6 +6,7 @@ The real ``GeminiProvider`` constructor selects the key. ``google.genai.Client``
 
 from __future__ import annotations
 
+import inspect
 import os
 import time
 from pathlib import Path
@@ -66,7 +67,9 @@ def gemini_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
             if hooks is not None:
                 hooks.before_call()
                 hooks.after_call(5, 5)
-            return getattr(mock, name)(*args, **kwargs)
+            target = getattr(mock, name)
+            params = inspect.signature(target).parameters
+            return target(*args, **{k: v for k, v in kwargs.items() if k in params})
 
         return method
 
@@ -116,12 +119,12 @@ def _setup(tmp_path: Path) -> tuple[Path, Path, Settings]:
     return data_dir, db_file, settings
 
 
-def test_e2e_sealed_admin_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_calls) -> None:
-    """A key that the administrator stored with a browser seal (before this rule) becomes usable without the seal after the next visit of /settings/keys."""
+def test_e2e_sealed_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_calls) -> None:
+    """A key stored with a browser seal (old rule) becomes usable without the seal after the next visit of /settings/keys."""
     data_dir, db_file, settings = _setup(tmp_path)
     auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
     try:
-        provider_keys.put_key(auth, account_id=1, provider="gemini", api_key=PERSONAL_KEY, status="active", user_seal="browser-seal-1")
+        provider_keys.put_key(auth, account_id=1, provider="gemini", api_key=PERSONAL_KEY, status="active", user_seal="browser-seal-1", sealed=True)
     finally:
         auth.close()
     assert _key_versions(data_dir)[0] >= SPLIT_KEY_VERSION_OFFSET
@@ -218,3 +221,51 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         assert third.status_code == 200, third.text
         assert len(gemini_calls) == before
         assert SERVER_KEY not in {key for key, _ in gemini_calls}
+
+
+MEMBER_KEY = "canary-member-personal-key-6a7b8c9d0e1f"
+
+
+def test_e2e_member_key_works_in_the_bot_process_and_not_in_a_loop_process(tmp_path: Path, gemini_calls, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A member registers a key on the web. A process without a web request (as the Telegram bot process) ingests with that key. A worker loop process does not use the key."""
+    from claire.accounts import provider_policy
+    from claire.ingest.service import IngestServicePool
+
+    data_dir, db_file, settings = _setup(tmp_path)
+    conn = dbm.connect_existing(db_file)
+    try:
+        now = time.time()
+        conn.execute(
+            "INSERT INTO accounts (id, public_id, username, role, status, display_name, created_at, activated_at, updated_at) VALUES (2, 223456789077, 'member_e2e', 'member', 'active', 'Member', ?, ?, ?)",
+            (now, now, now),
+        )
+        accounts_store.AccountStore(conn).set_setting("mode", "network", updated_by=1)
+        conn.commit()
+    finally:
+        conn.close()
+    tm = KnowledgeBaseManager(settings)
+    member_kb = tm.define_kb("Member personal", is_personal=True, account_id=2)
+    app = server.create_app(settings=settings)
+    with TestClient(app, base_url=PUBLIC_URL) as client:
+        client.cookies.clear()
+        put = client.put("/api/me/keys", json={"provider": "gemini", "api_key": MEMBER_KEY}, headers={"Cookie": f"claire_session={_session(db_file, 2)}", "Origin": PUBLIC_URL})
+        assert put.status_code == 200, put.text
+        assert BYOK_SEAL_COOKIE not in put.cookies
+
+    # The bot process: no web request of the member, no seal in memory. It builds its own service pool (telegram_bot.py).
+    clear_volatile_user_seals()
+    pool = IngestServicePool(settings, None, theme_manager=KnowledgeBaseManager(settings), account_id=2)
+    report = pool.get_service(member_kb.id).ingest("Bot message about the Sea of Galilee.", source="telegram", expand_max=0)
+    assert not getattr(report, "error", None), report
+    assert gemini_calls and {key for key, _ in gemini_calls} == {MEMBER_KEY}
+
+    # A worker loop process (recover, refresh, expand) refuses the personal key and does not change to the server key.
+    monkeypatch.setattr(provider_policy, "_PERSONAL_KEYS_IN_PROCESS", [True])
+    provider_policy.refuse_personal_keys_in_this_process()
+    before = len(gemini_calls)
+    loop_pool = IngestServicePool(settings, None, theme_manager=KnowledgeBaseManager(settings), account_id=2)
+    loop_svc = loop_pool.get_service(member_kb.id)
+    assert loop_svc.provider_error is not None and loop_svc.provider_error.code == "provider_not_allowed"
+    loop_report = loop_svc.ingest("Loop document about Capernaum.", source="refresh", expand_max=0)
+    assert getattr(loop_report, "error", None)
+    assert len(gemini_calls) == before
