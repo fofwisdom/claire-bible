@@ -519,6 +519,6 @@ def test_aad_cross_decryption_failure(tmp_path: Path) -> None:
 
         # Decrypting account 20's key must fail because AAD does not match
         with pytest.raises(provider_keys.ProviderKeyError):
-            provider_keys.load_active_key(auth_conn, account_id=20, secret_service=service)
+            provider_keys.load_active_key(auth_conn, account_id=20, purpose="request", secret_service=service)
     finally:
         auth_conn.close()

@@ -213,6 +213,8 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
             auth.close()
         page = call("GET", "/settings/keys")
         assert put.json()["key"]["fingerprint"] in page.text and 'data-usage-stat="tokens"' in page.text
+        # The decryption audit of the job is on the page.
+        assert "data-key-audit-row" in page.text and "Preparation of a request" in page.text
 
         # 5. After the deletion, the jobs use the server provider again.
         assert call("DELETE", "/api/me/keys").json() == {"ok": True, "deleted": 1}
@@ -254,10 +256,18 @@ def test_e2e_member_key_works_in_the_bot_process_and_not_in_a_loop_process(tmp_p
 
     # The bot process: no web request of the member, no seal in memory. It builds its own service pool (telegram_bot.py).
     clear_volatile_user_seals()
+    monkeypatch.setattr(provider_keys, "_PROCESS_LABEL", ["bot"])
     pool = IngestServicePool(settings, None, theme_manager=KnowledgeBaseManager(settings), account_id=2)
     report = pool.get_service(member_kb.id).ingest("Bot message about the Sea of Galilee.", source="telegram", expand_max=0)
     assert not getattr(report, "error", None), report
     assert gemini_calls and {key for key, _ in gemini_calls} == {MEMBER_KEY}
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+    try:
+        records = provider_keys.list_key_decryptions(auth, account_id=2, limit=50)
+    finally:
+        auth.close()
+    assert any(r.process == "bot" and r.purpose == "request" for r in records)
+    bot_count = sum(r.count for r in records)
 
     # A worker loop process (recover, refresh, expand) refuses the personal key and does not change to the server key.
     monkeypatch.setattr(provider_policy, "_PERSONAL_KEYS_IN_PROCESS", [True])
@@ -269,3 +279,9 @@ def test_e2e_member_key_works_in_the_bot_process_and_not_in_a_loop_process(tmp_p
     loop_report = loop_svc.ingest("Loop document about Capernaum.", source="refresh", expand_max=0)
     assert getattr(loop_report, "error", None)
     assert len(gemini_calls) == before
+    # The loop refused the key before a decryption: no new record.
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+    try:
+        assert sum(r.count for r in provider_keys.list_key_decryptions(auth, account_id=2, limit=50)) == bot_count
+    finally:
+        auth.close()

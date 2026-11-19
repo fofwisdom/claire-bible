@@ -1494,6 +1494,9 @@ def _set_plugin_process(name: str) -> None:
     from .plugin_host.runtime import runtime
 
     runtime().set_process_name(name)
+    from .store.provider_keys import set_process_label
+
+    set_process_label(name)
 
 
 def cmd_bot(_args) -> int:

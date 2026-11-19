@@ -37,7 +37,8 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 # v3 (P5 L5-b): ``oidc_states``에 계정 연결용 ``account_id``를 더한다(§12-7, §13.3).
 # v4 (유저 단위 기능): ``account_telegram_bots``(계정별 텔레그램 봇)와 ``account_backup_policies``(계정 백업 주기)를 더한다.
 # v5 (Fedify sidecar FP1-2): adds ``actor_keys`` (federation actor key pairs, ``store/actor_keys.py``). The design document names this change "auth.db version 4" because it was written before v4 was used.
-AUTH_DB_SCHEMA_VERSION = 5
+# v6 (key decryption audit, owner decision 2026-11-19): adds ``provider_key_decryptions`` (one row for each minute, account, key, process, and purpose; kept 31 days, ``store/provider_keys.py``).
+AUTH_DB_SCHEMA_VERSION = 6
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -108,6 +109,9 @@ def connect_auth_db(path: Path | str) -> sqlite3.Connection:
         init_auth_db(conn)
         prune_stale_redemptions(conn)
         prune_stale_oidc_states(conn)
+        from .provider_keys import prune_key_decryptions
+
+        prune_key_decryptions(conn)
     except BaseException:
         conn.close()
         raise
@@ -553,6 +557,19 @@ CREATE TABLE IF NOT EXISTS actor_keys (
     created_at REAL NOT NULL,
     PRIMARY KEY (account_id, alg)
 );
+CREATE TABLE IF NOT EXISTS provider_key_decryptions (
+    account_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    process TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    minute INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    first_at REAL NOT NULL,
+    last_at REAL NOT NULL,
+    PRIMARY KEY (account_id, provider, fingerprint, process, purpose, minute)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_key_decryptions_last_at ON provider_key_decryptions(last_at);
 CREATE TABLE IF NOT EXISTS admin_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,
     actor_account_id INTEGER NOT NULL, action TEXT NOT NULL,

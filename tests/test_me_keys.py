@@ -363,7 +363,7 @@ def test_replace_changes_fingerprint_and_key_id(env, verify_calls):
     assert rows[0]["id"] != first_row["id"] and bytes(rows[0]["nonce"]) != bytes(first_row["nonce"])
     auth = _auth(env.settings)
     try:
-        active = provider_keys.load_active_key(auth, account_id=env.a)
+        active = provider_keys.load_active_key(auth, account_id=env.a, purpose="request")
     finally:
         auth.close()
     assert active is not None and active.api_key == CANARY_2 and CANARY_2 not in repr(active)
@@ -381,7 +381,7 @@ def test_reverify_marks_rejected_and_inactive(env, verify_calls):
     assert body["ok"] is False and body["key"]["status"] == "rejected" and "[REDACTED]" in body["message"]
     auth = _auth(env.settings)
     try:
-        assert provider_keys.load_active_key(auth, account_id=env.a) is None
+        assert provider_keys.load_active_key(auth, account_id=env.a, purpose="request") is None
         assert provider_keys.has_key(auth, account_id=env.a) is True
     finally:
         auth.close()
@@ -418,7 +418,7 @@ def test_reverify_unavailable_leaves_status_untouched(env, verify_calls):
     )
     auth = _auth(env.settings)
     try:
-        assert provider_keys.load_active_key(auth, account_id=env.a) is not None
+        assert provider_keys.load_active_key(auth, account_id=env.a, purpose="request") is not None
     finally:
         auth.close()
     c.assert_never_leaked(CANARY)
@@ -490,7 +490,7 @@ def test_aad_binds_ciphertext_to_its_row(env, verify_calls):
     assert _put(c, _session(env.settings, env.b), CANARY_B).status_code == 200
     auth = _auth(env.settings)
     try:
-        assert provider_keys.load_active_key(auth, account_id=env.b).api_key == CANARY_B
+        assert provider_keys.load_active_key(auth, account_id=env.b, purpose="request").api_key == CANARY_B
         a_row = auth.execute(
             "SELECT ciphertext, nonce FROM account_provider_keys WHERE account_id=?", (env.a,)
         ).fetchone()
@@ -501,14 +501,14 @@ def test_aad_binds_ciphertext_to_its_row(env, verify_calls):
                 (a_row["ciphertext"], a_row["nonce"], env.b),
             )
         with pytest.raises(provider_keys.ProviderKeyError) as excinfo:
-            provider_keys.load_active_key(auth, account_id=env.b)
+            provider_keys.load_active_key(auth, account_id=env.b, purpose="request")
         assert CANARY not in str(excinfo.value)
         # A의 행 자체를 다른 계정으로 옮겨도 실패한다.
         with auth:
             auth.execute("DELETE FROM account_provider_keys WHERE account_id=?", (env.b,))
             auth.execute("UPDATE account_provider_keys SET account_id=? WHERE account_id=?", (env.b, env.a))
         with pytest.raises(provider_keys.ProviderKeyError):
-            provider_keys.load_active_key(auth, account_id=env.b)
+            provider_keys.load_active_key(auth, account_id=env.b, purpose="request")
     finally:
         auth.close()
     # 재검증 경로도 복호화 실패를 409로 드러내고 폴백하지 않는다.
@@ -521,18 +521,18 @@ def test_store_helpers_roundtrip(tmp_path: Path):
     auth = auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path))
     sec = SecretService(master_key=bytes.fromhex(TEST_MASTER_KEY_HEX))
     try:
-        assert provider_keys.load_active_key(auth, account_id=7, secret_service=sec) is None
+        assert provider_keys.load_active_key(auth, account_id=7, purpose="request", secret_service=sec) is None
         assert provider_keys.has_key(auth, account_id=7) is False
         meta = provider_keys.put_key(
             auth, account_id=7, provider="gemini", api_key=CANARY, status="unverified", secret_service=sec, now=100.0
         )
         assert meta.created_at == 100.0 and meta.last_verified_at is None and meta.status == "unverified"
-        assert provider_keys.load_active_key(auth, account_id=7, secret_service=sec) is None
+        assert provider_keys.load_active_key(auth, account_id=7, purpose="request", secret_service=sec) is None
         provider_keys.set_key_status(auth, account_id=7, provider="gemini", status="active", verified_at=150.0)
         provider_keys.touch_last_used(auth, account_id=7, provider="gemini", now=200.0)
         (m,) = provider_keys.get_key_meta(auth, account_id=7)
         assert (m.status, m.last_verified_at, m.last_used_at) == ("active", 150.0, 200.0)
-        key = provider_keys.load_active_key(auth, account_id=7, secret_service=sec)
+        key = provider_keys.load_active_key(auth, account_id=7, purpose="request", secret_service=sec)
         assert key is not None and key.api_key == CANARY and CANARY not in repr(key)
         # 복호화한 값은 스크러버에 등록된다.
         assert CANARY not in secret_scrub.scrub_text(f"boom {CANARY}")
@@ -553,20 +553,46 @@ def test_unsealed_key_needs_no_seal_and_unseal_needs_the_seal(tmp_path: Path):
     try:
         provider_keys.put_key(auth, account_id=1, provider="gemini", api_key=CANARY, status="active", secret_service=sec, sealed=False)
         clear_volatile_user_seals()
-        key = provider_keys.load_active_key(auth, account_id=1, secret_service=sec)
+        key = provider_keys.load_active_key(auth, account_id=1, purpose="request", secret_service=sec)
         assert key is not None and key.api_key == CANARY
         provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=CANARY_B, status="active", secret_service=sec, user_seal="seal-b", sealed=True)
         clear_volatile_user_seals()
         assert provider_keys.unseal_keys(auth, account_id=2, secret_service=sec) == 0
         with pytest.raises(provider_keys.ProviderKeyError):
-            provider_keys.load_active_key(auth, account_id=2, secret_service=sec)
+            provider_keys.load_active_key(auth, account_id=2, purpose="request", secret_service=sec)
         register_volatile_user_seal(2, "seal-b")
         assert provider_keys.unseal_keys(auth, account_id=2, secret_service=sec) == 1
         clear_volatile_user_seals()
-        key = provider_keys.load_active_key(auth, account_id=2, secret_service=sec)
+        key = provider_keys.load_active_key(auth, account_id=2, purpose="request", secret_service=sec)
         assert key is not None and key.api_key == CANARY_B
         versions = [int(r[0]) for r in auth.execute("SELECT key_version FROM account_provider_keys ORDER BY account_id").fetchall()]
         assert versions == [DEFAULT_KEY_VERSION, DEFAULT_KEY_VERSION]
+    finally:
+        auth.close()
+
+
+def test_decryption_audit_counts_each_minute_and_keeps_31_days(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Each decryption is recorded (account, key, process, purpose, minute). Rows older than 31 days are deleted."""
+    monkeypatch.setattr(provider_keys, "_PROCESS_LABEL", ["bot"])
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path))
+    sec = SecretService(master_key=bytes.fromhex(TEST_MASTER_KEY_HEX))
+    try:
+        meta = provider_keys.put_key(auth, account_id=3, provider="gemini", api_key=CANARY, status="active", secret_service=sec)
+        for _ in range(3):
+            provider_keys.load_active_key(auth, account_id=3, purpose="request", secret_service=sec)
+        provider_keys.load_key(auth, account_id=3, provider="gemini", purpose="verify", secret_service=sec)
+        rows = provider_keys.list_key_decryptions(auth, account_id=3, limit=10)
+        assert sorted((r.process, r.purpose, r.count, r.fingerprint) for r in rows) == [("bot", "request", 3, meta.fingerprint), ("bot", "verify", 1, meta.fingerprint)]
+        assert provider_keys.list_key_decryptions(auth, account_id=4, limit=10) == []
+        with pytest.raises(ValueError):
+            provider_keys.load_active_key(auth, account_id=3, purpose="bogus", secret_service=sec)
+        now = time.time()
+        provider_keys.record_decryption(auth, account_id=3, provider="gemini", fingerprint=meta.fingerprint, purpose="request", now=now - 32 * 86400)
+        provider_keys.record_decryption(auth, account_id=3, provider="gemini", fingerprint=meta.fingerprint, purpose="request", now=now - 30 * 86400)
+        assert len(provider_keys.list_key_decryptions(auth, account_id=3, limit=10)) == 4
+        assert provider_keys.prune_key_decryptions(auth, now=now) == 1
+        assert len(provider_keys.list_key_decryptions(auth, account_id=3, limit=10)) == 3
+        assert CANARY not in repr(provider_keys.list_key_decryptions(auth, account_id=3, limit=10))
     finally:
         auth.close()
 

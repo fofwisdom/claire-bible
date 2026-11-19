@@ -200,6 +200,44 @@ def list_meta(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
         auth.close()
 
 
+DECRYPTION_LIST_LIMIT = 200
+
+
+def list_decryptions(ctx: AccountsContext, account_id: int) -> list[provider_keys.KeyDecryption]:
+    auth = open_auth_db(ctx)
+    try:
+        return provider_keys.list_key_decryptions(auth, account_id=account_id, limit=DECRYPTION_LIST_LIMIT)
+    finally:
+        auth.close()
+
+
+def _process_text(process: str) -> str:
+    key = f"console.settings.keys.audit.process.{process}"
+    text = t(key)
+    return process if text == key else text
+
+
+def decryption_rows_html(items: list[provider_keys.KeyDecryption]) -> str:
+    """The table of the key decryption audit (newest first)."""
+    if not items:
+        return f'<p class="hint" data-key-audit-empty>{escape(t("console.settings.keys.audit.empty"))}</p>'
+    head = "".join(
+        f"<th>{escape(t(k))}</th>"
+        for k in ("console.settings.keys.audit.col.time", "console.settings.keys.audit.col.process", "console.settings.keys.audit.col.purpose", "console.settings.keys.audit.col.count", "console.settings.keys.audit.col.key")
+    )
+    body = "".join(
+        "<tr data-key-audit-row>"
+        f"<td>{escape(format_ts(item.last_at))}</td>"
+        f"<td>{escape(_process_text(item.process))}</td>"
+        f"<td>{escape(t(f'console.settings.keys.audit.purpose.{item.purpose}'))}</td>"
+        f"<td>{item.count:,}</td>"
+        f"<td>{escape(PROVIDER_TEXT.get(item.provider, item.provider))} · {escape(item.fingerprint)}</td>"
+        "</tr>"
+        for item in items
+    )
+    return f'<table class="pref-table" data-key-audit><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+
+
 def get_member_prefs(ctx: AccountsContext, account_id: int, provider: str = "gemini") -> dict[str, Any]:
     auth = open_auth_db(ctx)
     try:
@@ -251,7 +289,7 @@ def reverify_key(ctx: AccountsContext, account_id: int, provider: str) -> dict[s
     """저장된 키를 복호화해 다시 시험한다. 키가 없으면 None."""
     auth = open_auth_db(ctx)
     try:
-        key = provider_keys.load_key(auth, account_id=account_id, provider=provider)
+        key = provider_keys.load_key(auth, account_id=account_id, provider=provider, purpose="verify")
         if key is None:
             return None
         try:

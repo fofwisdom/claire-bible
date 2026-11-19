@@ -70,16 +70,16 @@ def test_old_sealed_key_needs_the_seal_once_and_is_then_unsealed(tmp_path: Path,
             provider_keys.put_key(conn, account_id=7, provider="gemini", api_key="AIzaSplitKeySecretTestValue012345", status="active", user_seal=seal, sealed=True, secret_service=secret_svc)
             clear_volatile_user_seals()
             with pytest.raises((provider_keys.ProviderKeyError, SecretDecryptionError)):
-                provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc)
-            restored = provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc, user_seal=seal)
+                provider_keys.load_active_key(conn, account_id=7, purpose="request", secret_service=secret_svc)
+            restored = provider_keys.load_active_key(conn, account_id=7, purpose="request", secret_service=secret_svc, user_seal=seal)
             assert restored is not None and restored.api_key == "AIzaSplitKeySecretTestValue012345"
             clear_volatile_user_seals()
-            again = provider_keys.load_active_key(conn, account_id=7, secret_service=secret_svc)
+            again = provider_keys.load_active_key(conn, account_id=7, purpose="request", secret_service=secret_svc)
             assert again is not None and again.api_key == "AIzaSplitKeySecretTestValue012345"
             # A new key needs no seal.
             provider_keys.put_key(conn, account_id=8, provider="gemini", api_key="AIzaPlainKeySecretTestValue0123456", status="active", secret_service=secret_svc)
             clear_volatile_user_seals()
-            assert provider_keys.load_active_key(conn, account_id=8, secret_service=secret_svc).api_key == "AIzaPlainKeySecretTestValue0123456"
+            assert provider_keys.load_active_key(conn, account_id=8, purpose="request", secret_service=secret_svc).api_key == "AIzaPlainKeySecretTestValue0123456"
         finally:
             conn.close()
     finally:

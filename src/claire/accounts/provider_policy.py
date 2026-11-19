@@ -467,7 +467,7 @@ def _load_member_key(
                 remedy="Run the job from the web or from the Telegram bot.",
             )
         try:
-            active = _provider_keys.load_active_key(conn, account_id=account_id, secret_service=secret_service)
+            active = _provider_keys.load_active_key(conn, account_id=account_id, purpose="request", secret_service=secret_service)
         except _provider_keys.ProviderKeyError as exc:
             raise ProviderKeyRejected(
                 f"account {account_id}: stored provider key could not be used ({scrub_exception(exc)})",

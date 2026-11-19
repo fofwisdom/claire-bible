@@ -28,6 +28,18 @@ KEY_STATUSES: Final[tuple[str, ...]] = ("active", "rejected", "unverified")
 VERIFY_MODELS: Final[dict[str, str]] = {"gemini": "gemini-3.1-flash-lite"}
 
 
+# Key decryption audit (owner decision 2026-11-19): each decryption is recorded; rows are kept 31 days.
+DECRYPTION_AUDIT_DAYS: Final[int] = 31
+# request: the server prepared the provider context of the account for a request (a web or API request, also a page view; a Telegram bot message). verify: a check of the key. unseal: a sealed key (old rule) was stored again without the seal.
+DECRYPTION_PURPOSES: Final[tuple[str, ...]] = ("request", "verify", "unseal")
+# The process that decrypts: "api", "bot", or a worker loop. A long-running process sets it at start (cli._set_plugin_process).
+_PROCESS_LABEL: list[str] = ["other"]
+
+
+def set_process_label(name: str) -> None:
+    _PROCESS_LABEL[0] = str(name or "other")
+
+
 class ProviderKeyError(RuntimeError):
     """키 저장·검증 실패. 메시지에 키 원문을 넣지 않는다."""
 
@@ -241,27 +253,29 @@ def load_key(
     *,
     account_id: int,
     provider: str,
+    purpose: str,
     secret_service: "SecretService | None" = None,
     user_seal: str | bytes | None = None,
 ) -> ActiveKey | None:
-    """Decrypt a stored provider key regardless of status for reverification."""
+    """Decrypt a stored provider key regardless of status for reverification. The decryption is recorded (``purpose``)."""
     row = conn.execute(
         f"SELECT {_KEY_COLUMNS} FROM account_provider_keys WHERE account_id=? AND provider=?",
         (account_id, provider),
     ).fetchone()
     if row is None:
         return None
-    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal, purpose=purpose)
 
 
 def load_active_key(
     conn: sqlite3.Connection,
     *,
     account_id: int,
+    purpose: str,
     secret_service: "SecretService | None" = None,
     user_seal: str | bytes | None = None,
 ) -> ActiveKey | None:
-    """Decrypt and return the active provider key for an account, or None."""
+    """Decrypt and return the active provider key for an account, or None. The decryption is recorded (``purpose``)."""
     rows = conn.execute(
         f"SELECT {_KEY_COLUMNS} FROM account_provider_keys WHERE account_id=? AND status='active' ORDER BY provider",
         (account_id,),
@@ -272,18 +286,71 @@ def load_active_key(
 
     order = {name: i for i, name in enumerate(MEMBER_KEY_PROVIDERS)}
     row = min(rows, key=lambda r: order.get(str(tuple(r)[1]), len(order)))
-    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+    return _decrypt_and_unseal(conn, row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal, purpose=purpose)
 
 
-def _decrypt_and_unseal(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, account_id: int, sec: "SecretService", user_seal: str | bytes | None) -> ActiveKey:
-    """Decrypt a row. A sealed row (old rule) that this process can decrypt is encrypted again with the server master key only."""
+def _decrypt_and_unseal(conn: sqlite3.Connection, row: sqlite3.Row | tuple, *, account_id: int, sec: "SecretService", user_seal: str | bytes | None, purpose: str) -> ActiveKey:
+    """Decrypt a row and record the decryption. A sealed row (old rule) that this process can decrypt is encrypted again with the server master key only.
+
+    If the record cannot be written, the key is not returned (no decryption without a record).
+    """
     from claire.store.secrets import SPLIT_KEY_VERSION_OFFSET
 
     key = _decrypt_row(row, account_id=account_id, sec=sec, user_seal=user_seal)
-    key_id, provider, _ct, _nonce, key_version, _fp = tuple(row)
+    key_id, provider, _ct, _nonce, key_version, fingerprint = tuple(row)
+    record_decryption(conn, account_id=account_id, provider=str(provider), fingerprint=str(fingerprint), purpose=purpose)
     if int(key_version) >= SPLIT_KEY_VERSION_OFFSET:
         _store_unsealed(conn, key_id=str(key_id), account_id=account_id, provider=str(provider), api_key=key.api_key, sec=sec)
     return key
+
+
+def record_decryption(conn: sqlite3.Connection, *, account_id: int, provider: str, fingerprint: str, purpose: str, now: float | None = None) -> None:
+    """Add one decryption to the row of this minute, and delete the rows older than ``DECRYPTION_AUDIT_DAYS``."""
+    if purpose not in DECRYPTION_PURPOSES:
+        raise ValueError(f"unknown decryption purpose: {purpose!r}")
+    ts = time.time() if now is None else now
+    with conn:
+        conn.execute(
+            "INSERT INTO provider_key_decryptions (account_id, provider, fingerprint, process, purpose, minute, count, first_at, last_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?) "
+            "ON CONFLICT(account_id, provider, fingerprint, process, purpose, minute) DO UPDATE SET count=count+1, last_at=excluded.last_at",
+            (account_id, provider, fingerprint, _PROCESS_LABEL[0], purpose, int(ts // 60), ts, ts),
+        )
+        conn.execute("DELETE FROM provider_key_decryptions WHERE last_at < ?", (ts - DECRYPTION_AUDIT_DAYS * 86400,))
+
+
+def prune_key_decryptions(conn: sqlite3.Connection, *, now: float | None = None) -> int:
+    """Delete the decryption records older than ``DECRYPTION_AUDIT_DAYS``."""
+    ts = time.time() if now is None else now
+    with conn:
+        cur = conn.execute("DELETE FROM provider_key_decryptions WHERE last_at < ?", (ts - DECRYPTION_AUDIT_DAYS * 86400,))
+    return int(cur.rowcount)
+
+
+@dataclass(frozen=True, slots=True)
+class KeyDecryption:
+    """One row of the decryption audit: decryptions of one key in one minute, by one process, for one purpose."""
+
+    provider: str
+    fingerprint: str
+    process: str
+    purpose: str
+    count: int
+    first_at: float
+    last_at: float
+
+
+def list_key_decryptions(conn: sqlite3.Connection, *, account_id: int, limit: int) -> list[KeyDecryption]:
+    """The decryption records of the account, newest first."""
+    rows = conn.execute(
+        "SELECT provider, fingerprint, process, purpose, count, first_at, last_at FROM provider_key_decryptions "
+        "WHERE account_id=? ORDER BY last_at DESC LIMIT ?",
+        (account_id, int(limit)),
+    ).fetchall()
+    return [
+        KeyDecryption(provider=str(r[0]), fingerprint=str(r[1]), process=str(r[2]), purpose=str(r[3]), count=int(r[4]), first_at=float(r[5]), last_at=float(r[6]))
+        for r in rows
+    ]
 
 
 def _store_unsealed(conn: sqlite3.Connection, *, key_id: str, account_id: int, provider: str, api_key: str, sec: "SecretService") -> None:
@@ -313,6 +380,7 @@ def unseal_keys(conn: sqlite3.Connection, *, account_id: int, secret_service: "S
             key = _decrypt_row(row, account_id=account_id, sec=sec)
         except ProviderKeyError:
             continue
+        record_decryption(conn, account_id=account_id, provider=key.provider, fingerprint=key.fingerprint, purpose="unseal")
         _store_unsealed(conn, key_id=str(tuple(row)[0]), account_id=account_id, provider=key.provider, api_key=key.api_key, sec=sec)
         del key
         changed += 1

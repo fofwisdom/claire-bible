@@ -150,7 +150,7 @@ def keys(monkeypatch):
 
     state = SimpleNamespace(active=None, registered=False, error=None, tier=ServerTier(), tier_reads=0)
 
-    def load_active_key(conn, *, account_id, secret_service=None):
+    def load_active_key(conn, *, account_id, purpose, secret_service=None):
         if state.error is not None:
             raise state.error
         return state.active

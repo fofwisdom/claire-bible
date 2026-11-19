@@ -23,6 +23,7 @@ from starlette.routing import Route
 from ... import ids, ui_chrome
 from ...i18n import SUPPORTED_LOCALES, get_locale, t
 from ...ontology.label_language import ENTITY_LANGUAGES
+from ...store.provider_keys import DECRYPTION_AUDIT_DAYS
 from ...store import accounts as accounts_store
 from ...store.telemetry import query_mcp_telemetry
 from ...store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
@@ -1128,6 +1129,7 @@ def _settings_keys_body(
         return body, {"keys_mode": "unavailable"}
 
     items = keys_routes.list_meta(ctx, account.id)
+    decryptions = keys_routes.list_decryptions(ctx, account.id)
     usage = _settings_account_usage(ctx, account.id)
     auth = open_auth_db(ctx)
     try:
@@ -1201,6 +1203,11 @@ def _settings_keys_body(
         f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
+        f'<section class="console-subcard" id="settings-keys-audit" aria-label="{escape(t("console.settings.keys.audit.title"))}">'
+        f"<h2><span data-icon='list'></span> {escape(t('console.settings.keys.audit.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.settings.keys.audit.hint", days=DECRYPTION_AUDIT_DAYS))}</p>'
+        f"{keys_routes.decryption_rows_html(decryptions)}"
+        "</section>"
         f"{usage_card}"
     )
     return body, {"keys_mode": "byok", "has_password": has_password}

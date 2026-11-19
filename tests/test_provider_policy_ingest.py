@@ -126,7 +126,7 @@ def member_keys(monkeypatch):
 
     keys: dict[int, ActiveKey] = {}
 
-    def load_active_key(conn, *, account_id, secret_service=None):
+    def load_active_key(conn, *, account_id, purpose, secret_service=None):
         return keys.get(int(account_id))
 
     def has_key(conn, *, account_id):
