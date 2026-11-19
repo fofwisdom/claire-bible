@@ -4668,7 +4668,6 @@ def create_app(
         return FileResponse(path)
 
     async def documents_list_route(request: Request) -> JSONResponse:
-        from .. import ids as ids_mod  # the name ``ids`` is the list of the ``id`` filter in this function
         from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
@@ -4676,8 +4675,6 @@ def create_app(
         include_hidden = _sees_hidden(request, theme)
         hides_sources = _hides_sources(request, theme)
         render_format = getattr(theme_settings, "render_format", "adoc")
-        requester = request_principal(request)
-        own_personal = theme.is_personal and requester.account_id is not None and requester.account_id == theme.account_id and request_auth_scope(request) != "anonymous"
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
         params = request.query_params
@@ -4731,14 +4728,6 @@ def create_app(
                 page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
                 if hides_sources:
                     page["documents"] = _apply_source_rule(conn, theme, page["documents"])
-                if own_personal:
-                    # The account sees, in its personal knowledge base, the theme match of each document and the flag "never contribute" (design Section 10.3). One query for the page for each of the two.
-                    matches = themes_store.document_matches_with_themes(conn, [str(d["id"]) for d in page["documents"]])
-                    blocked = kb_collab.contribution_blocks(conn, int(theme.account_id))
-                    for doc in page["documents"]:
-                        match = matches.get(str(doc["id"]))
-                        doc["theme_match"] = None if match is None else {"theme": ids_mod.format_public_id(match["theme_number"]), "theme_label": match["theme_label"], "knowledge_type": match["knowledge_type"], "score": match["score"]}
-                        doc["never_contribute"] = str(doc["id"]) in blocked
                 return {
                     "documents": page["documents"],
                     "format_status": format_status,

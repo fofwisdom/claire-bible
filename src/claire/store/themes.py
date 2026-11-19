@@ -284,18 +284,6 @@ def get_document_match(conn: sqlite3.Connection, document_id: str) -> dict[str, 
     return None if row is None else dict(zip(_MATCH_KEYS, tuple(row)))
 
 
-def document_matches_with_themes(conn: sqlite3.Connection, document_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """The theme match of each given document that has a theme, with one query: ``{document_id: {"theme_number", "theme_label", "knowledge_type", "score"}}``. A document with no match, or with a match that has no theme, is not in the result."""
-    if not document_ids:
-        return {}
-    marks = ", ".join("?" for _ in document_ids)
-    rows = conn.execute(
-        f"SELECT m.document_id, t.number, t.label, m.knowledge_type, m.score FROM kb_document_matches m JOIN themes t ON t.id = m.theme_id WHERE m.document_id IN ({marks})",
-        list(document_ids),
-    ).fetchall()
-    return {str(r[0]): {"theme_number": int(r[1]), "theme_label": r[2], "knowledge_type": r[3], "score": r[4]} for r in rows}
-
-
 def delete_document_matches_of_kb(conn: sqlite3.Connection, kb_id: int) -> None:
     conn.execute("DELETE FROM kb_document_matches WHERE kb_id=?", (int(kb_id),))
 

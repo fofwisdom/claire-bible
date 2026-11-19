@@ -3704,64 +3704,15 @@ function docItemHtml(dc){
       '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
       '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
-  // Design Sections 8.6 and 9.9: the account sees its fiction-like documents and the flag "never contribute" on the documents of its personal knowledge base. GET /documents gives the two fields to the account of the knowledge base: ``theme_match`` ({theme, theme_label, knowledge_type, score} or null) and ``never_contribute``.
-  const tags = [];
-  const themeMatch = dc.theme_match || null;
-  const neverContribute = dc.never_contribute === true;
-  if(kbDocFlagsActive() && themeMatch && themeMatch.knowledge_type === 'fictional'){
-    tags.push('<span class="claire-tag fic" title="' + esc(themeMatch.theme_label || '') + '">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
-  }
-  if(kbDocFlagsActive() && neverContribute){
-    tags.push('<span class="claire-tag warn">' + esc(tr('ws.kb.never_badge')) + '</span>');
-  }
-  const menuHtml = (kbDocFlagsActive() && window.ClaireUi && typeof window.ClaireUi.renderRowMenu === 'function')
-    ? '<span class="docitem-actions" onclick="event.stopPropagation()">' + window.ClaireUi.renderRowMenu([
-        { action: 'doc_kb_contrib', value: dc.id, label: (themeMatch && themeMatch.theme) ? tr('campaign.contribute_action') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
-        { action: neverContribute ? 'doc_kb_allow' : 'doc_kb_never', value: dc.id, label: tr(neverContribute ? 'ws.kb.allow_contribute' : 'ws.kb.never_contribute'), icon: 'block' }
-      ], dc.title || dc.id) + '</span>'
-    : '';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
     pinBtn+
     (watching?'<span class=wbadge title="' + tr("ws.list.watch") + '"><span data-icon="restore"></span></span>':'')+
     (unread?'<span class=ubadge title="' + tr("ws.list.unread") + '">●</span>':'')+
-    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+menuHtml+
+    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
     '</div>'+
-    (tags.length ? '<div class="doc-kb-meta">' + tags.join('') + '</div>' : '')+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
-}
-if(typeof document !== 'undefined' && !window.__claireDocKbBound){
-  window.__claireDocKbBound = true;
-  document.addEventListener('click', function(ev){
-    const mi = ev.target && ev.target.closest ? ev.target.closest('[data-menu-action^="doc_kb_"]') : null;
-    if(!mi) return;
-    ev.stopPropagation();
-    const act = mi.getAttribute('data-menu-action');
-    const docId = mi.getAttribute('data-menu-value');
-    const dc = (allDocs || []).find(d => String(d.id) === String(docId)) || { id: docId };
-    const themeMatch = dc.theme_match || null;
-    if(act === 'doc_kb_contrib' && window.ClaireKbDialogs){
-      window.ClaireKbDialogs.openContribPreview({
-        documentId: docId,
-        documentTitle: dc.title || docId,
-        theme: (themeMatch && themeMatch.theme) || '',
-        themeLabel: (themeMatch && themeMatch.theme_label) || '',
-        homeHref: API_BASE
-      });
-    } else if((act === 'doc_kb_never' || act === 'doc_kb_allow') && window.ClaireUi){
-      const nextBlock = act === 'doc_kb_never';
-      window.ClaireUi.request('/api/contribution-blocks/' + encodeURIComponent(docId), { method: nextBlock ? 'PUT' : 'DELETE' }).then(res => {
-        if(!res.ok){ window.ClaireUi.toast(window.ClaireUi.errorText(res), 'danger'); return; }
-        dc.never_contribute = nextBlock;
-        renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
-      });
-    }
-  });
-}
-function kbDocFlagsActive(){
-  // Only the owner in its own personal knowledge base contributes documents: a page that pins a shared knowledge base shows copies.
-  return canWrite() && !KB_PIN_RE.test(API_BASE) && isMultiThemeEnabled();
 }
 
 // --- Shared knowledge base bar (shared knowledge base design Section 10.3) ---

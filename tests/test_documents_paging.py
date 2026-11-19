@@ -133,8 +133,7 @@ def test_get_documents_default_response_is_unchanged_plus_additive_fields(tmp_pa
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
         body = client.get("/documents", headers=OWNER_HEADERS).json()
         assert set(body) == {"documents", "format_status", "kb_id", "theme_label", "next_before", "total"}
-        # The account of the personal knowledge base also gets the theme match and the flag "never contribute" of each document (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3).
-        assert body["documents"] == [{**d, "theme_match": None, "never_contribute": False} for d in expected_owner]
+        assert body["documents"] == expected_owner
         assert [d["id"] for d in body["documents"]] == order
         assert body["next_before"] is None and body["total"] == 10
         anon = client.get("/documents").json()

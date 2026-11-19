@@ -157,30 +157,23 @@ def test_reputation_gives_the_limits_of_the_level(world) -> None:  # noqa: F811
     assert mine["limits"] == {"pending": int(settings["pending_limit_good"]), "auto_documents": None}
 
 
-def test_document_list_of_the_personal_knowledge_base_has_the_theme_match_and_the_block(world) -> None:  # noqa: F811
+def test_document_list_has_no_contribution_fields(world) -> None:  # noqa: F811
+    """The workspace of a personal knowledge base has no contribution functions (owner decision 2026-11-19): the theme match and the flag "never contribute" are in /settings/kb, not in the document list."""
     client = world.client
     matched = _personal_document(world.settings, world.manager, BEN, "Seoul and Busan are cities of Korea. " * 3)
     plain = _personal_document(world.settings, world.manager, BEN, "A note about a quiet river. " * 3)
-    no_theme = _personal_document(world.settings, world.manager, BEN, "A note about a loud harbor. " * 3)
     theme = _theme_with(world, world.kb)
     personal = world.manager.personal_kb_for(BEN)
     conn = dbm.connect(world.settings.db_file)
     try:
         theme_id = themes_store.get_theme_by_number(conn, ids.parse_public_id(theme))["id"]
         themes_store.save_document_match(conn, document_id=matched, kb_id=personal.id, theme_id=theme_id, knowledge_type="real", score=0.75)
-        themes_store.save_document_match(conn, document_id=no_theme, kb_id=personal.id, theme_id=None, knowledge_type=None, score=None)
         conn.commit()
     finally:
         conn.close()
     assert client.put(f"/api/contribution-blocks/{plain}", headers=world.ben).status_code == 200
 
-    own = {d["id"]: d for d in client.get("/@ben/documents", headers=world.ben).json()["documents"]}
-    assert own[matched]["theme_match"] == {"theme": theme, "theme_label": "Places", "knowledge_type": "real", "score": 0.75}
-    assert own[plain]["theme_match"] is None and own[no_theme]["theme_match"] is None
-    assert {doc: own[doc]["never_contribute"] for doc in (matched, plain, no_theme)} == {matched: False, plain: True, no_theme: False}
-
-    # Another requester of the public personal knowledge base, and each requester of a shared knowledge base, do not get the two keys.
-    for path, headers in (("/@ben/documents", world.ann), ("/@ben/documents", None), (f"{world.base}/documents", world.ben), (f"{world.base}/documents", world.ann)):
+    for path, headers in (("/@ben/documents", world.ben), ("/@ben/documents", world.ann), ("/@ben/documents", None), (f"{world.base}/documents", world.ben), (f"{world.base}/documents", world.ann)):
         response = client.get(path, headers=headers)
         assert response.status_code == 200, (path, response.text)
         for document in response.json()["documents"]:

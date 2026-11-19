@@ -7,7 +7,7 @@ test.use({ serviceWorkers: 'block' });
 
 // One document of the page in the shape of "queries.documents_list", with the two fields that "documents_route" adds for the own personal knowledge base.
 function doc(id, title) {
-  return { id, title, url: null, source_type: 'text', fetched_at: 1700000000, seen: 1, watch: 0, pinned: 0, hidden: 0, summary: '', has_presentation: false, has_detail: false, detail_format: 'adoc', theme_match: null, never_contribute: false };
+  return { id, title, url: null, source_type: 'text', fetched_at: 1700000000, seen: 1, watch: 0, pinned: 0, hidden: 0, summary: '', has_presentation: false, has_detail: false, detail_format: 'adoc' };
 }
 
 const DOCS = [

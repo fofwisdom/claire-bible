@@ -2278,11 +2278,6 @@ paths:
   /documents:
     get:
       summary: List archived documents
-      description: >-
-        In the personal knowledge base, for its account, each document also has `theme_match`
-        (`{"theme": "<number>", "theme_label", "knowledge_type", "score"}`, or null when the document
-        has no matched theme) and `never_contribute` (the flag "never contribute" of the document). For
-        each other requester and for a shared knowledge base, the two keys are absent.
       operationId: listDocuments
       x-claire-access: read
       security:

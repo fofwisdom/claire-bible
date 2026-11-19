@@ -236,3 +236,31 @@ test('the campaign notices of the ingest dialog: the standing message with its t
   await expectNoRawKeys(page);
   expect(errors).toEqual([]);
 });
+
+test('the document list of the profile page has no contribution functions: no row menu and no contribution badge, also in multi-theme mode', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  await authenticateOwner(page, 'kbwspace4');
+  // Owner decision 2026-11-19: contribution is a function of the syndication page and the console, not of the profile page. The old list showed the row menu "contribute" and "never contribute" only in multi-theme mode, thus the page gets themeMode "multi". The list answer keeps the two old fields, so that only the page decides.
+  await page.route((u) => u.pathname === ADMIN_BASE, async (route) => {
+    if (route.request().resourceType() !== 'document') return route.fallback();
+    const res = await route.fetch();
+    const html = (await res.text()).replace(/themeMode: '[^']*'/, "themeMode: 'multi'");
+    expect(html).toContain("themeMode: 'multi'");
+    return route.fulfill({ status: res.status(), contentType: 'text/html; charset=utf-8', body: html });
+  });
+  const doc = (id, title, extra) => Object.assign({ id, title, url: null, source_type: 'web', fetched_at: 1700000000, seen: 1, watch: 0, pinned: 0, hidden: 0, summary: '', has_presentation: false, has_detail: false, detail_format: 'adoc' }, extra);
+  await page.route((u) => u.pathname === ADMIN_BASE + 'documents', (route) => json(route, { documents: [
+    doc('doc-a', 'Agent Substrate: Architecture', { theme_match: { theme: '202', theme_label: 'Dragons · Elves', knowledge_type: 'fictional', score: 0.9 }, never_contribute: false }),
+    doc('doc-b', 'Minisforum ESP4B', { theme_match: null, never_contribute: true })
+  ], format_status: null, kb_id: 0, theme_label: '', next_before: null, total: 2 }));
+  await page.goto(ADMIN_BASE, { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.__CLAIRE_CONFIG.themeMode)).toBe('multi');
+  const items = page.locator('#doclist .docitem');
+  await expect(items.filter({ hasText: 'Agent Substrate: Architecture' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'Minisforum ESP4B' })).toHaveCount(1);
+  await expect(page.locator('.docitem .docitem-actions, .docitem .doc-kb-meta, [data-menu-action^="doc_kb_"]')).toHaveCount(0);
+  await expect(page.locator('#doclist')).not.toContainText('기여');
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});
