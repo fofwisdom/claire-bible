@@ -245,7 +245,7 @@ def test_admin_registers_personal_key_and_anonymous_gets_404(env, verify_calls):
     assert set(meta) == META_FIELDS and meta["status"] == "active"
     assert verify_calls == [("gemini", CANARY)]
     policy = c.request("GET", "/api/me/keys?include_policy=1", session=admin).json()
-    assert policy["keys"] == [meta] and "admin_baseline" in policy["model_policy"]
+    assert policy["keys"] == [meta] and "admin_defaults" in policy["model_policy"]
     admin_page = c.request("GET", "/settings/keys", session=admin)
     assert admin_page.status_code == 200
     text = admin_page.text

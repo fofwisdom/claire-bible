@@ -21,7 +21,6 @@
     invalid_api_key: tr("console.js.account.error.invalid_api_key"),
     key_not_found: tr("console.js.account.keys.empty"),
     key_unreadable: tr("console.js.account.error.key_unreadable"),
-    model_below_admin_baseline: tr("console.js.account.error.model_below_admin_baseline"),
     follower_not_found: tr("console.js.account.error.follower_not_found"),
     cannot_unlink_last_credential: tr("console.js.account.error.cannot_unlink_last_credential"),
     unauthorized: tr("console.js.common.error.unauthorized")
@@ -126,64 +125,35 @@
     });
   }
 
-  var BYOK_EFFORT_RANKS = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
-
-  function byokModelRank(modelName, explicitEffort, ranks) {
-    var raw = String(modelName || "").trim().toLowerCase();
-    var eff = String(explicitEffort || "").trim().toLowerCase();
-    var base = raw;
-    if (typeof ranks[raw] !== "number") {
-      var suffixes = ["xhigh", "high", "medium", "low", "minimal", "none"];
-      for (var i = 0; i < suffixes.length; i += 1) {
-        var token = "-" + suffixes[i];
-        if (raw.length > token.length && raw.slice(-token.length) === token) {
-          var cand = raw.slice(0, -token.length);
-          if (typeof ranks[cand] === "number") {
-            base = cand;
-            if (!eff) eff = suffixes[i];
-            break;
-          }
-        }
-      }
-    }
-    var tierRank = typeof ranks[base] === "number" ? ranks[base] : 0;
-    var effRank = Object.prototype.hasOwnProperty.call(BYOK_EFFORT_RANKS, eff) ? BYOK_EFFORT_RANKS[eff] : BYOK_EFFORT_RANKS.medium;
-    return [tierRank, effRank];
-  }
-
   function renderModelPolicy(policy) {
     if (!policy) return;
-    var baseline = policy.admin_baseline || {};
-    var ranks = policy.model_ranks || {};
+    // The administrator values are only the defaults. Each allowed model can be selected (no baseline).
+    var defaults = (policy.admin_defaults || {}).extract_graph || {};
     var prefs = policy.model_prefs || {};
     var summaryEl = document.querySelector("[data-byok-policy-summary]");
     if (summaryEl) {
-      var bMod = baseline.model || tr("console.js.account.byok.model_default");
-      var bEff = baseline.effort || "medium";
+      var dMod = defaults.model || tr("console.js.account.byok.model_default");
+      var dEff = defaults.effort || "medium";
       var sealText = policy.has_cookie_seal ? tr("console.js.account.byok.seal_active") : tr("console.js.account.byok.seal_pending");
-      summaryEl.textContent = tr("console.js.account.byok.policy_summary", { model: bMod, effort: bEff, seal: sealText });
+      summaryEl.textContent = tr("console.js.account.byok.policy_summary", { model: dMod, effort: dEff, seal: sealText });
     }
     var modelSel = document.querySelector("[data-byok-model-select]");
     if (modelSel) {
       while (modelSel.firstChild) modelSel.removeChild(modelSel.firstChild);
       var defOpt = document.createElement("option");
       defOpt.value = "";
-      defOpt.textContent = tr("console.js.account.byok.model_auto", { model: baseline.model || "-" });
+      defOpt.textContent = tr("console.js.account.byok.model_auto", { model: defaults.model || "-" });
       modelSel.appendChild(defOpt);
-      var baseRankPair = byokModelRank(baseline.model, baseline.effort, ranks);
       var preferredVal = prefs.model || "";
       if (preferredVal && prefs.effort && !/-(?:none|minimal|low|medium|high|xhigh|max)$/i.test(preferredVal)) {
         preferredVal = preferredVal + "-" + String(prefs.effort).toLowerCase();
       }
       (Array.isArray(policy.allowed_models) ? policy.allowed_models : []).forEach(function (m) {
-        if (!m || m === "mock") return;
+        if (!m) return;
         var opt = document.createElement("option");
         opt.value = String(m);
-        var mRankPair = byokModelRank(m, "", ranks);
-        var allowed = baseRankPair[0] === 0 || mRankPair[0] > baseRankPair[0] || (mRankPair[0] === baseRankPair[0] && mRankPair[1] >= baseRankPair[1]);
-        opt.textContent = allowed ? String(m) : tr("console.js.account.byok.model_locked", { model: String(m) });
-        if (!allowed) opt.disabled = true;
-        if (preferredVal && preferredVal === m && allowed) opt.selected = true;
+        opt.textContent = String(m);
+        if (preferredVal && preferredVal === m) opt.selected = true;
         modelSel.appendChild(opt);
       });
     }

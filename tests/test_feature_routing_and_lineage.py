@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-from claire.accounts.provider_policy import MODEL_CAPABILITY_RANKS, clamp_byok_model_for_feature, is_model_equal_or_higher
 from claire.config import Settings
 from claire.extract.jev import JevShadow
 from claire.extract.provider import ExtractedEntity, ExtractedRelation, ExtractionResult, FeatureRoutedProvider, MockProvider, RelationJudgement, get_provider
@@ -57,19 +56,6 @@ def _memory_db() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
     return conn
-
-
-def test_model_capability_ranks_and_byok_baseline_clamping() -> None:
-    """Verify baseline rank checks reject weaker models and clamp to admin minimums."""
-    assert MODEL_CAPABILITY_RANKS["mock"] < MODEL_CAPABILITY_RANKS["gemini-3.5-flash-lite"]
-    assert is_model_equal_or_higher("gemini-4-hydrogen", "high", "gemini-3.8-flash", "medium") is True
-    assert is_model_equal_or_higher("gemini-3.8-flash", "medium", "gemini-3.8-flash", "medium") is True
-    assert is_model_equal_or_higher("gemini-3.5-flash-lite", "high", "gemini-3.8-flash", "medium") is False
-    assert is_model_equal_or_higher("gemini-3.8-flash", "low", "gemini-3.8-flash", "high") is False
-
-    clamped_model, clamped_effort = clamp_byok_model_for_feature("gemini-2.5-flash-lite", "low", "gemini-3.8-flash", "medium")
-    assert clamped_model == "gemini-3.8-flash"
-    assert clamped_effort == "medium"
 
 
 def test_split_key_envelope_encryption_requires_volatile_seal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

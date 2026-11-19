@@ -168,24 +168,26 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         policy_resp = client.get("/api/me/keys?include_policy=1", headers={"Cookie": f"claire_session={member_sess}"})
         assert policy_resp.status_code == 200
         policy = policy_resp.json()["model_policy"]
-        assert policy["admin_baseline"]["extract_graph"]["model"] == "gemini-3.8-flash"
-        assert policy["admin_baseline"]["summarize"]["model"] == "gemini-4-argon"
-        assert policy["admin_baseline"]["render_detail"]["model"] == "gemini-3.8-flash-high"
+        assert policy["admin_defaults"]["extract_graph"]["model"] == "gemini-3.8-flash"
+        assert policy["admin_defaults"]["summarize"]["model"] == "gemini-4-argon"
+        assert policy["admin_defaults"]["render_detail"]["model"] == "gemini-3.8-flash-high"
         assert "gemini-4-argon-high" in policy["allowed_models"]
         assert "gemini-4-argon" not in policy["allowed_models"]
         assert policy["split_key_enabled"] is True
 
-        # 3. Member is rejected when trying mock or a weaker model than admin baseline.
+        # 3. Member is rejected for mock and for an unknown model. A model below the administrator default is accepted: the administrator values are only defaults.
         bad_mock = client.put("/api/me/keys", headers=member_headers, json={"provider": "mock", "api_key": BYOK_CANARY})
         assert bad_mock.status_code == 400
+        bad_model = client.put("/api/me/keys", headers=member_headers, json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "mock"})
+        assert bad_model.status_code == 400 and bad_model.json()["error"] == "unsupported_model"
 
-        below_base = client.put(
+        lower = client.put(
             "/api/me/keys",
             headers=member_headers,
             json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-3.5-flash-lite-medium"},
         )
-        assert below_base.status_code == 400
-        assert below_base.json()["error"] == "model_below_admin_baseline"
+        assert lower.status_code == 200, lower.text
+        assert lower.json()["model_prefs"] == {"model": "gemini-3.5-flash-lite-medium", "effort": "medium"}
 
         mismatch_eff = client.put(
             "/api/me/keys",
@@ -194,7 +196,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         )
         assert mismatch_eff.status_code == 400
 
-        # 4. Member registers an equal-or-higher enumerated model without separate effort and receives a split-key seal cookie.
+        # 4. Member registers an enumerated model without separate effort and receives a split-key seal cookie.
         ok_put = client.put(
             "/api/me/keys",
             headers=member_headers,

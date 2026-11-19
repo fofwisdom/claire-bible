@@ -318,6 +318,16 @@ def test_resolve_member_byok(tmp_path, account_db, keys):
     assert ctx.effort == "high"  # BYOK는 effort를 낮추지 않는다
 
 
+def test_resolve_member_byok_keeps_a_model_below_the_admin_default(tmp_path, account_db, keys, monkeypatch):
+    """No administrator baseline: the selected model and effort stay, also below the administrator default."""
+    keys.active = ActiveKey(provider="gemini", fingerprint="abcd1234", api_key=MEMBER_KEY)
+    prefs = {"model": "gemini-3.5-flash-lite-low", "effort": "low", "feature_models": {"summarize": {"provider": "gemini", "model": "gemini-2.5-flash-lite", "effort": "none"}}}
+    monkeypatch.setattr(pp, "_load_member_model_prefs", lambda *_a, **_k: prefs)
+    ctx = _resolve(tmp_path, account_db, MEMBER_ID, gemini_model="gemini-4-argon", gemini_effort="high")
+    assert (ctx.model, ctx.effort) == ("gemini-3.5-flash-lite-low", "low")
+    assert ctx.feature_models["summarize"] == {"provider": "gemini", "model": "gemini-2.5-flash-lite", "effort": "none"}
+
+
 def test_resolve_member_without_key_uses_tier_none_by_default(tmp_path, account_db, keys):
     ctx = _resolve(tmp_path, account_db, MEMBER_ID)
     assert (ctx.source, ctx.provider, ctx.api_key, ctx.credential_key) == ("none", "none", "", "tier")

@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, enumerate_gemini_model_variants, get_model_rank, infer_model_effort_suffix, is_model_equal_or_higher, split_gemini_model_and_effort
+from .accounts.provider_policy import FEATURE_SLOTS, enumerate_gemini_model_variants, infer_model_effort_suffix, split_gemini_model_and_effort
 from .config import (
     ROOT,
     diagnose_agy_environment,
@@ -641,7 +641,6 @@ class ProviderManager:
         out["feature_slots"] = list(FEATURE_SLOTS)
         out["server_active_providers"] = list(SUPPORTED_SERVER_ACTIVE_PROVIDERS)
         out["server_route_providers"] = list(ALLOWED_SERVER_ROUTE_PROVIDERS)
-        out["model_ranks"] = dict(MODEL_CAPABILITY_RANKS)
         out["embed_task_types"] = list(ALLOWED_EMBED_TASK_TYPES)
         out["jev_modes"] = list(ALLOWED_JEV_MODES)
         out["lineage_summary"] = self.get_lineage_summary(cfg)
