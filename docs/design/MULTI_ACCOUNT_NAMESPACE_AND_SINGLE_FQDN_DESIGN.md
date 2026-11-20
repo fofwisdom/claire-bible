@@ -34,7 +34,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | R4 | 계정의 외부 공개 웹페이지는 `FQDN/@USERNAME`이다 | 접두 `/@{username}`을 미들웨어가 해석한다 | §6 |
 | R5 | 싱글 모드(관리자만, USERNAME 비노출)와 네트워크 모드(USERNAME 단위 경로) | 네트워크 모드에서는 관리자 홈도 `/@{admin}/`으로 옮긴다(D2 확정) | §4 |
 | R6 | OAuth로 IdP 연동 | OIDC 우선, GitHub은 OAuth 2.0 | §12 |
-| R7 | 서버 호스트 CLI 실행은 폐기하고 외부 에이전트는 `agent_client`·OAuth 2.1로 분리한다 | (2026-11-20 `AED8` 개정) `AntigravityProvider`·`CodexProvider` 등 서버 호스트 CLI 실행과 비-Google 프로바이더(ChatGPT, Codex, Claude)는 폐기·제거한다. 서버 프로바이더는 Google Gemini API(`gemini`)만 두며 외부 에이전트는 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)의 `agent_client` 경계로 동작한다 | §10 |
+| R7 | 서버 호스트 CLI 실행은 폐기하고 외부 에이전트는 `agent_client`·OAuth 2.1로 분리한다 | (2026-11-20 `AED8` 개정) `AntigravityProvider`·`CodexProvider`(`host-cli`)와 `ChatGPT`·`Codex`·`Claude`는 폐기·제거한다. 서버 프로바이더는 `api-key` 분류(현재 구현 기준선 `gemini`)로 운영하며 외부 에이전트는 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)의 `agent_client` 경계로 동작한다 | §10 |
 | R8 | 다른 계정은 고유 API 키를 기입할 수 있다. 기입 후에는 아무도 조회할 수 없다. 키가 없으면 서버 관리자가 정의한 수준만 쓴다 | 쓰기 전용 비밀 저장소와 관리자 정의 "서버 등급"(기본 `none`, D6) | §10.3, §11 |
 | R9 | 가입은 초대제다. `/invite` 경로에 8자리 토큰을 쓴다. 생성할 때 사용 횟수와 만기를 정한다. 관리자와 생성자는 언제든 비활성화할 수 있다. 가입 이용 횟수를 계측한다(D9) | Crockford Base32 8자 코드, 원자적 사용 계수, 가입 기록. 생성은 관리자만 한다(N1) | §8.8 |
 | R10 | 테마는 `/@USERNAME/themes`에서 계정 단위로 조회하고, `/themes/(숫자)`로 표기한다. 숫자는 참고 자료(Mastodon Collections)의 원리를 따른다 | 시간 정렬 64비트 번호, 2단계 컬렉션과 커서 페이지네이션 | §7 |
@@ -61,7 +61,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 2. **[코드] 인증.** 주체는 범위 문자열 하나(`owner`, `collaborator`, `readonly`, `anonymous`)다. 누가 요청했는지는 식별하지 않는다. 자격증명은 네 곳에 있다: `data/auth/api_tokens.json`(`TokenStore`), `auth_sessions`, `oauth_tokens`, 환경변수 토큰.
 3. **[코드] 라우트 정책.** `ROUTE_POLICY`는 `(method, 정확한 path)`를 키로 하는 평면 표다. 등록되지 않은 경로는 404다. 경로 매개변수는 이미지 경로에만 있고, 이마저도 접두 비교로 예외 처리한다.
 4. **[코드] 저장.** 단일 `data/claire.db`(v14)에 모든 테마가 있고 `theme_id`로 나뉜다. 테마 파티션 테이블은 16개다. `themes.id`는 0부터 늘어나는 일련번호다. `users`, `theme_members` 테이블은 스키마에만 있고 코드에서 쓰지 않는다. `users.email`이 `UNIQUE`다.
-5. **[코드/개정] 프로바이더.** 설정은 전역 `data/providers.json`이다. (2026-11-20 `AED6`·`AED8` 개정) 운영 서버 LLM은 Google Gemini(`gemini`)만 사용하며 `antigravity`·`codex` 서버 호스트 CLI 실행은 폐기 확정되었다(코드 제거는 `AE8`). `IngestServicePool`은 테마별 서비스를 캐시하고 LLM 인스턴스를 공유한다.
+5. **[코드/개정] 프로바이더.** 설정은 전역 `data/providers.json`이다. (2026-11-20 `AED6`·`AED8` 개정) 현재 운영 서버 LLM 기준선은 `api-key` 프로바이더(`gemini`)이며, `antigravity`·`codex` 서버 호스트 CLI 실행은 `AED8`로 폐기 확정되었다(코드 제거는 `AE8`). `IngestServicePool`은 테마별 서비스를 캐시하고 LLM 인스턴스를 공유한다.
 6. **[코드] WebUI 경로.** `src/claire/static/js/app.js`는 API를 상대 경로로 부른다(`fetch('graph')`, `fetch('themes')`). 그래서 UI를 `/@alice/`에서 열면 호출이 `/@alice/graph`로 간다. 절대 경로 리터럴은 `reader.js`, `syndication_app.js`, `share.html` 등에 남아 있다(**[실측]** grep 21곳).
 7. **[코드] WebUI 테마 ID.** `app.js`는 테마 ID를 `parseInt(themeId, 10)`으로 다룬다(376행 외 5곳). `localStorage`의 `claire_selected_theme`에 내부 ID를 저장한다.
 8. **[코드] 테마 목록 응답.** `GET /themes`는 `{"themes": [...], "default_theme_id": …, "multi_theme": …}`를 돌려준다. 페이지네이션은 없다. `/documents`는 `limit=300` 고정이고 커서가 없다.
@@ -670,11 +670,11 @@ class RouteRule:
 
 ### 10.1 분류
 
-> **2026-11-20 개정 (`AED6`, `AED8`)**: 서버 프로바이더는 **Google 전용**(`gemini` 및 개발용 `mock`)으로 한정한다. 이전 설계의 `host-cli`(`AntigravityProvider`, `CodexProvider`, ChatGPT, Codex), `openai`, Claude 고려사항은 원칙·설계·구현에서 모두 폐기되었으며 남아 있는 레거시 코드 제거는 `AE8`([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md))에서 수행한다.
+> **2026-11-20 개정 (`AED6`, `AED8`)**: 서버 프로바이더는 `api-key` 분류(현재 구현 기준선 `gemini`, 개발용 `mock`)를 사용한다. `AED8`에 따라 `host-cli`(`AntigravityProvider`, `CodexProvider`)와 `ChatGPT`, `Codex`, `Claude`는 원칙·설계·구현에서 모두 폐기되며, `AED6`에 따라 기존 미구현 `openai` 표기를 정리하고 남아 있는 레거시 코드 제거는 `AE8`([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md))에서 수행한다. 새 `api-key` 프로바이더 확장은 [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md)와 [`PROVIDERS.md`](../implementation/PROVIDERS.md) §6 절차를 따른다.
 
 | 분류 | 프로바이더 | 실행 방식 | 쓸 수 있는 계정 |
 | :--- | :--- | :--- | :--- |
-| `api-key` | `gemini` | Google Gemini HTTPS API와 키 | 관리자: `providers.json`의 키 또는 개인 키 / 멤버: 자기 키 또는 서버 등급 |
+| `api-key` | `gemini` (현재 구현 기준선; `PROVIDERS.md` §6 절차로 추가 가능) | HTTPS API와 키 | 관리자: `providers.json`의 키 또는 개인 키 / 멤버: 자기 키 또는 서버 등급 |
 | `mock` | `mock` | 개발용 | 개발 환경 |
 
 - 분류표에 없는 새 프로바이더나 알 수 없는 이름은 사용 불가로 실패한다(fail-closed, `C2`).
@@ -686,14 +686,14 @@ class RouteRule:
 작업마다 테마 → 계정 → 컨텍스트 순서로 프로바이더를 정한다.
 
 1. **관리자**: 지금과 같다(`providers.json`).
-2. **멤버, 자기 키 있음**: 그 키의 Google Gemini 프로바이더를 쓴다. 모델과 effort는 멤버 설정이고, 상한은 서버 등급의 `byok_caps`다.
-3. **멤버, 자기 키 없음**: 서버 등급(§10.3)을 쓴다. 등급 프로바이더로는 `api-key` 분류(`gemini`)만 고를 수 있다.
+2. **멤버, 자기 키 있음**: 그 키의 `api-key` 프로바이더(현재 구현: `gemini`)를 쓴다. 모델과 effort는 멤버 설정이고, 상한은 서버 등급의 `byok_caps`다.
+3. **멤버, 자기 키 없음**: 서버 등급(§10.3)을 쓴다. 등급 프로바이더로는 `api-key` 분류(현재 구현: `gemini`)를 고른다.
 4. **서버 등급이 `none`(D6 기본값)** 또는 계정이 `extraction_mode = "client"`인 경우: 서버 LLM 단계를 자동 호출하지 않는다. `client` 모드는 원문을 스테이징(`full_content=True`)해 에이전트 클라이언트에 맡기고(`AED4`, `AED9`), 키 없는 `provider` 모드는 원문 저장과 FTS를 유지한 채 키 등록 후 재적재할 수 있게 남긴다(A1).
 
 적용 지점은 다음과 같다. 하나라도 빠지면 멤버가 관리자의 자격을 쓰게 된다.
 - `get_provider`, `get_transcript_provider`, `get_vision_provider`
-- `get_lowest_effort_provider`: Google Gemini(`gemini`) 기준 저비용 모델을 고르며 폐기된 `host-cli` 후보는 사용하지 않는다(`AED8`)
-- `GeminiProvider` 호출 간격·재시도 직렬화 상태(`_CALL_LOCK`, `_LAST_CALL`): 프로세스 전역이 아니라 자격 지문(`credential_key`) 단위로 분리해 한 계정의 BYOK 호출·백오프가 관리자나 다른 계정의 호출을 막지 않게 한다(Rev. 2.3)
+- `get_lowest_effort_provider`: 등록된 `api-key` 프로바이더(현재 `gemini`) 기준 저비용 모델을 고르며 폐기된 `host-cli` 후보는 사용하지 않는다(`AED8`)
+- `GeminiProvider` 등 API 프로바이더의 호출 간격·재시도 직렬화 상태(`_CALL_LOCK`, `_LAST_CALL`): 프로세스 전역이 아니라 자격 지문(`credential_key`) 단위로 분리해 한 계정의 BYOK 호출·백오프가 관리자나 다른 계정의 호출을 막지 않게 한다(Rev. 2.3)
 - `IngestServicePool`: 테마별 서비스가 계정 컨텍스트의 프로바이더를 쓰도록 캐시 키를 바꾼다
 - recover·refresh·expand 루프: 테마를 소유한 계정의 컨텍스트로 실행한다. 정지·삭제 중인 계정의 테마는 건너뛴다
 
@@ -703,7 +703,7 @@ class RouteRule:
 
 | 항목 | 의미 | 기본값 |
 | :--- | :--- | :--- |
-| `provider`, `model` | 키 없는 멤버가 쓰는 프로바이더(`gemini`) 또는 `none` | `none` (D6) |
+| `provider`, `model` | 키 없는 멤버가 쓰는 `api-key` 프로바이더(현재 `gemini`) 또는 `none` | `none` (D6) |
 | `monthly_tokens` | 월 LLM 토큰 상한 | 0 |
 | `daily_ingests` | 하루 적재 건수 | 20 |
 | `max_effort` | 허용하는 최대 effort | `low` |
@@ -716,10 +716,10 @@ class RouteRule:
 
 ### 10.4 임베딩
 
-- **Google 전용 정책 (`AED6`)**: 운영 환경의 임베딩은 Google Gemini Embedding만 사용하며 잠정 선택지는 최신 Gemini Embedding 모델(`gemini-embedding-2`, MRL 차원 고정 및 `< 3072` 자동 정규화)이다. 기존 `gemini-embedding-001` 테마는 공식 종료일(2028-05-14) 이전에 Shadow Backfill + Dual-Embed(`AED7`)로 이관하며, 지원·이관 상세 계획(`AE6a`–`AE6d`)은 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3을 따른다. OpenAI·로컬 모델·호스트 CLI 의사 임베딩 등 비-Google 고려사항은 모두 제외한다.
+- **현재 구현·설계 기준선 (`AED6`, `AED10`, `AED11`)**: 현재 운영 구현과 향후 임베딩 설계 기준선은 Google Gemini Embedding이며 확정 기본 모델은 `gemini-embedding-2`(`3072`차원 고정 `AED10`, Stage 1 텍스트 우선 전환 `AED11`)이다. 기존 `gemini-embedding-001` 테마는 공식 종료일(2028-05-14) 이전에 Shadow Backfill + Dual-Embed(`AED7`)로 이관하며 상세 계획(`AE6a`–`AE6d`)은 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3을 따른다(향후 다른 `api-key` 프로바이더를 추가할 때도 동일한 `embedding_spaces` 공간 격리·EOS 규칙을 적용한다).
 - 임베딩 공간은 테마마다 고정한다. `themes` 테이블에 `embed_provider`·`embed_model`(장기 EOS 수명주기 도입 후 `active_space_id`·`target_space_id`) 열을 두고(§13.2), `VectorStore.search`가 테마의 활성 임베딩 공간과 일치하는 `embeddings.model` 행만 조회해 다른 모델의 벡터를 절대 섞지 않게 한다(Rev. 2.3).
-- **장기 모델 EOS(End-of-Support) 전환 (`AED7`)**: 새 Gemini Embedding 세대로 전환할 때는 비차단 Shadow Backfill을 수행하며, 유입되는 공유 KB 기여는 `active` 공간이 아직 EOS 상태가 아닐 때 `active`와 `target` 양쪽 공간에 Dual-Embed하고(`active`가 이미 EOS면 `target`에만 임베딩), 100% 완료 후 원자적으로 컷오버한다([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7).
-- Google 키가 없거나 모델이 EOS 되어 임베딩을 만들 수 없으면 의사 벡터로 폴백하지 않고 실패 처리·명시적 FTS 저하(`C2`)와 함께 화면에 re-embed 필요 상태를 표시한다.
+- **장기 모델 EOS(End-of-Support) 전환 (`AED7`)**: 새 임베딩 세대로 전환할 때는 비차단 Shadow Backfill을 수행하며, 유입되는 공유 KB 기여는 `active` 공간이 아직 EOS 상태가 아닐 때 `active`와 `target` 양쪽 공간에 Dual-Embed하고(`active`가 이미 EOS면 `target`에만 임베딩), 100% 완료 후 원자적으로 컷오버한다([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7).
+- API 키가 없거나 모델이 EOS 되어 임베딩을 만들 수 없으면 의사 벡터로 폴백하지 않고 실패 처리·명시적 FTS 저하(`C2`)와 함께 화면에 re-embed 필요 상태를 표시한다.
 - 검색 질의 임베딩은 네임스페이스 소유자의 요청에서만 만든다. 그 밖의 요청은 FTS다(§9.2).
 
 ---

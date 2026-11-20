@@ -46,7 +46,7 @@
 
 **C2. 숨은 폴백을 두지 않는다.** 외부 서비스 연동이 실패하면 빈 데이터나 mock 결과로 파이프라인을 채우지 않고 실패로 처리한다.
 - 운영 환경(`CLAIRE_ENVIRONMENT=production`)에서는 설정한 LLM·STT·VLM·임베딩 프로바이더를 쓸 수 없을 때 mock이나 의사 벡터로 대체하지 않는다. 키·자격이 없거나 모델이 EOS로 만료되었거나 값이 알 수 없는 경우가 여기에 해당한다. 서비스 기동과 상태 조회는 계속되고(상태 표시는 `unavailable`), 실제 호출은 `ProviderUnavailableError`로 실패한다. 개발 환경의 mock 대체는 허용한다. 명시적으로 `mock`을 지정한 것은 폴백이 아니다. (결정 2026-11-02)
-- Google 전용 서버 프로바이더 및 호스트 CLI 폐기 (결정 2026-11-20 `AED6`·`AED8`): 운영 서버 프로바이더는 Google Gemini API(`gemini`)만 사용하며 서버 호스트 CLI 실행(`AntigravityProvider`, `CodexProvider`) 및 비-Google 백엔드·클라이언트(ChatGPT, Codex, OpenAI, Claude)는 원칙·설계·구현에서 모두 폐기한다(레거시 코드 제거는 [`design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) `AE8`).
+- 호스트 CLI 및 특정 외부 클라이언트 폐기 (결정 2026-11-20 `AED8`): 서버 호스트 CLI 실행(`AntigravityProvider`, `CodexProvider`)과 ChatGPT·Codex·Claude는 원칙·설계·구현에서 모두 폐기한다(레거시 코드 제거는 [`design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) `AE8`). 운영 서버 프로바이더는 HTTPS `api-key` 방식(현재 구현·설계 기준선: Google `gemini`)으로 확장·운영하며 미등록 프로바이더나 EOS 모델은 무언 폴백 없이 실패한다.
 - 집행: `Settings.provider_unavailable_reason`, `extract/provider.py`·`transcript/factory.py`·`vision/factory.py`의 `Unavailable*Provider`, `tests/test_provider_unavailable.py`
 
 **C3. 에이전트용 CLI 계약을 지킨다.** `--json` 모드에서는 다음이 성립한다.

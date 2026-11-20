@@ -1,7 +1,7 @@
-# Agent-Driven Extraction, `agent_client` Plugins, Unified OAuth 2.1, and Google-Only Embedding EOS Lifecycle
+# Agent-Driven Extraction, `agent_client` Plugins, Unified OAuth 2.1, and Embedding EOS Lifecycle
 
-- **Status**: Approved design (Rev. 2.1), not implemented
-- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 owner decisions `AED1`–`AED9` locked; Rev. 2.1 concrete `gemini-embedding-2` support and migration plan added)
+- **Status**: Approved design (Rev. 2.4), not implemented
+- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 `AED1`–`AED9` locked; Rev. 2.1 `gemini-embedding-2` plan added; Rev. 2.2 `AED10`–`AED11` locked; Rev. 2.3 `AED6` baseline and `AED8` scope clarified; Rev. 2.4 staging schema/`document_id` unified and 4-layer `AED9` prompt-injection defense restored)
 - **Principles**: [`PRINCIPLES.md`](../PRINCIPLES.md) A1–A4, B1–B4, C1–C5, D1–D3, E1–E4, G1
 - **Related docs**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md`](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`PROVIDERS.md`](../implementation/PROVIDERS.md)
 
@@ -20,7 +20,7 @@ Claire Bible previously tried to call developer CLI tools (`agy`, `codex`) as su
 
 Claire Bible inverts control:
 
-- **Server side**: The Claire Bible server runs ONLY **Google Gemini API** (`gemini`) or development `mock` for server-side LLM, STT, VLM, and embedding calls (`AED6`). The server never spawns local agent CLIs (`AED8`).
+- **Server side**: The Claire Bible server runs HTTPS `api-key` providers (currently Google Gemini `gemini` as the implemented baseline) or development `mock` for server-side LLM, STT, VLM, and embedding calls (`AED6`). The server never spawns host-CLI processes (`AntigravityProvider`, `CodexProvider`; `AED8`).
 - **Client side (`agent_client`)**: When an operator or member uses Antigravity (IDE, Antigravity 2.0, or `agy` CLI) on their own workstation under their own license, the agent acts as an explicit user-authorized **client** over standard HTTP / MCP using scoped **OAuth 2.1** credentials (`AED5`).
 - **Agent-driven extraction (`AED4`, `AED9`)**: Accounts that configure `extraction_mode = "client"` stage raw full-content sources on the server; their Antigravity client pulls staged content, runs extraction locally using the user's own agent session, and submits structured JSON results back to the server for ontology resolution, persistence, and Google Option B vector embedding.
 
@@ -38,16 +38,16 @@ Claire Bible inverts control:
 |  - Serves agent_client bundle (uri_path OR clients.<domain> FQDN) |
 |  - OAuth 2.1 provider (/login?tx= Telegram-free + optional RFC8628|
 |  - Staging store (full_content=True), schema/ontology validation  |
-|  - Option B Google Embedding (gemini-embedding-2 + EOS backfill)  |
-|  - Server provider calls: Google Gemini API only (no host-CLI)    |
+|  - Option B Embedding (gemini-embedding-2 baseline + EOS backfill)  |
+|  - Server provider calls: api-key providers (gemini; no host-CLI) |
 +-------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Locked Owner Decisions (`AED1`–`AED9`, 2026-11-20)
+## 2. Locked Owner Decisions (`AED1`–`AED11`, 2026-11-20)
 
-All nine design questions (`AEQ1`–`AEQ9`) are resolved:
+All eleven design questions (`AEQ1`–`AEQ11`) are resolved:
 
 | ID | Topic | Locked Decision |
 | :--- | :--- | :--- |
@@ -56,10 +56,12 @@ All nine design questions (`AEQ1`–`AEQ9`) are resolved:
 | `AED3` | Client bundle delivery | Deliver `agent_client` bundles from the Claire Bible server using a WebUI server-settings switch between a fixed derived **FQDN** and a fixed **URI path**. The server administrator selects only the delivery method and cannot customize hostnames or paths. |
 | `AED4` | Extraction mode scope | `extraction_mode` (`provider` \| `client`) is configured **per account**. |
 | `AED5` | Token and OAuth unification | Deprecate manual persistent Bearer tokens (`api_tokens.json`, `/tokens`, `claire token`, Telegram `/token`) and unify authentication on **OAuth 2.1** (`readonly` and `write` scopes) following Modern Web Guidance. Ensure OAuth works cleanly when no Telegram bot is configured. |
-| `AED6` | Google-only provider and embedding scope | Restrict server providers and embeddings to **Google only**. Provisional Option B target is the latest Gemini Embedding model (**`gemini-embedding-2`** with MRL dimension pinning and automatic renormalization; migrating existing `gemini-embedding-001` themes before its May 14, 2028 official shutdown). Remove all non-Google considerations from `PROVIDERS.md`, `MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md` §10.4, `MULTI_PROVIDER_DESIGN.md`, and related design/principles docs. |
+| `AED6` | Google baseline for current implementation & Option B embedding | Remove unimplemented `openai` placeholders from `PROVIDERS.md`, `MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md` §10.4, and `MULTI_PROVIDER_DESIGN.md`. Document Google (`gemini`, `gemini-embedding-2` pinned at `3072` dimensions per `AED10`, migrating `gemini-embedding-001` before May 14, 2028) as the current implementation and Option B embedding design baseline while keeping general `api-key` provider extensibility open. |
 | `AED7` | Dual-embed during EOS backfill | While an embedding End-of-Support (EOS) shadow backfill is running (`target` space exists alongside `active` space), dual-embed incoming shared KB contributions into BOTH `active` and `target` spaces. If `active` is already retired/EOS, embed into `target` only. |
-| `AED8` | Retire `AntigravityProvider` & non-Google clients/CLIs | Retire and remove `AntigravityProvider`, ChatGPT, Codex (`CodexProvider`), and Claude across principles, roadmap, design, and implementation (code removal executes in work unit `AE8`). |
+| `AED8` | Retire `host-cli` providers and `ChatGPT` / `Codex` / `Claude` | Retire and remove strictly `AntigravityProvider`, `CodexProvider` (`host-cli`), `ChatGPT`, `Codex`, and `Claude` across principles, design, and implementation (code removal executes in work unit `AE8`). |
 | `AED9` | Full content default on staging | `stage_source(url=...)` and client-mode staged documents default to `full_content = True`. Always retain full raw content without truncation for staged sources. |
+| **`AED10`** | Target MRL `output_dimensionality` for `gemini-embedding-2` | Lock `gemini-embedding-2` target `output_dimensionality` to **`3072`** (maximum full fidelity, matching `gemini-embedding-001` dimension size). |
+| **`AED11`** | Multimodal embedding scope | Execute **Stage 1 text-only parity first (`AE6a`–`AE6d`)** covering entity frames, search queries, and May 14, 2028 EOS migration; defer native multimodal (`image`, `PDF`, `audio`, `video`) embeddings to a separate Stage 2 design. |
 
 ---
 
@@ -67,7 +69,7 @@ All nine design questions (`AEQ1`–`AEQ9`) are resolved:
 
 ### 3.1 Terms
 
-- **Server Provider (`provider`)**: A server-side AI backend used directly by Claire Bible workers (`gemini` via Google AI Studio / Gemini API, or `mock` in development). Host-CLI providers are retired (`AED8`).
+- **Server Provider (`provider`)**: A server-side HTTPS `api-key` backend used directly by Claire Bible workers (currently `gemini` via Google AI Studio / Gemini API as the implemented baseline; `mock` in development). Host-CLI providers (`AntigravityProvider`, `CodexProvider`) are retired (`AED8`).
 - **Ingest Adapter Plugin (`ingest_adapter`)**: Existing server-side Python plugin (`PLUGIN_TYPES = ("ingest_adapter",)` in `src/claire/plugin_host/manifest.py`) that fetches external sources inside the server process.
 - **Agent Client Plugin (`agent_client`)**: A new plugin category (`AED1`) containing declarative, client-consumable artifacts that teach an external user agent (Antigravity) how to connect to the user's Claire Bible server, authenticate via OAuth 2.1, claim staged sources, extract knowledge matching Claire's ontology schema, and query the graph.
 
@@ -82,7 +84,15 @@ Update `src/claire/plugin_host/` and `src/claire/plugin_sdk/`:
   - `client_id`: lowercase ASCII slug matching `[a-z0-9][a-z0-9-]{1,31}` (for example, `"antigravity"`)
   - `api_level: 1`
   - `required_scopes`: e.g. `["readonly", "write"]`
-  - `files`: validated relative asset paths inside the plugin's immutable bundle directory (`SKILL.md`, `references/*.md`, `scripts/*` or `mcp-template.json`), rejecting `..`, symlinks, and executable server hooks.
+  - `files`: validated relative asset paths inside the plugin's immutable bundle directory, rejecting `..`, symlinks, and executable server hooks.
+- **Structural Zero-Network / Zero-Subprocess Lock (`plugin_host`)**:
+  - `src/claire/plugin_host/manifest.py` rejects (`ManifestError`) any `agent_client` manifest requesting `permissions.network`, `permissions.network_modules`, `permissions.executables`, `permissions.providers`, or `permissions.private_network = true`.
+  - `src/claire/plugin_host/importcheck.py` blocks `socket`, `ssl`, `http`, `urllib`, `subprocess`, `os.system`, `os.popen`, `os.spawn*`, and `ctypes` in `agent_client` plugins so a bundle can never act as a hidden server-side subprocess wrapper.
+- **Reference Bundle Layout (`client_bundle/`)**:
+  - `mcp_config.json.tmpl` (Streamable HTTP client template targeting fixed `uri_path` or `fqdn` endpoint; zero embedded secrets per `PRINCIPLES.md` B4)
+  - `rules/AGENTS.md` (untrusted full-content framing rule, personal-KB `CT4` rule, mandatory isolated subagent delegation)
+  - `agents/claire-extractor.md` (isolated subagent definition granted **only Claire MCP tools**, with zero shell/file/browser tools)
+  - `skills/*/SKILL.md` (knowledge work, staged extraction, and query skills)
 - Server computes SHA-256 checksums for every bundle file at discovery time so agents and WebUI display exact integrity hashes.
 
 ---
@@ -122,35 +132,50 @@ The Claire Bible server hosts and serves registered `agent_client` bundles. To s
 
 ---
 
-## 5. Per-Account Extraction Mode & Staging Contract (`AED4`, `AED9`)
+## 5. Per-Account Extraction Mode, Staging Contract, and Prompt-Injection Defense (`AED4`, `AED9`)
 
-### 5.1 Per-Account `extraction_mode` (`AED4`)
+### 5.1 Per-Account `extraction_mode` & Canonical Staging Storage (`AED4`)
 
 - Add `extraction_mode TEXT NOT NULL DEFAULT 'provider'` (allowed values: `'provider'`, `'client'`) to the account settings table/model (`accounts` or per-account preferences).
-- Each account independently selects `"provider"` (server calls Google Gemini API using BYOK or allowed server tier) or `"client"` (server stages raw content for the account's own `agent_client` to extract).
+- Each account independently selects `"provider"` (server calls registered `api-key` provider using BYOK or allowed server tier) or `"client"` (server stages raw content for the account's own `agent_client` to extract).
+- **Canonical Storage (`documents` + `raw_inbox`, no duplicate raw table)**:
+  - `pipeline.stage_raw()` (lines 297–618 of `src/claire/ingest/pipeline.py`) stores staged raw sources directly in **`documents`** (`extraction_status TEXT NOT NULL DEFAULT 'extracted'` extended with `'pending'` | `'extracted'` | `'failed'`, plus lease/hash columns `claim_token`, `lease_expires_at`, `claimed_by_client_id`, `content_hash`) and logs **`raw_inbox`** (`status = 'staged'`, skipped by `recover-loop` so staged items never trigger retry exhaustion).
+  - **Isolation of `pending` documents**: Visible only to the owning account in its personal KB (`list_staged_sources`, `/documents`); excluded from anonymous/cross-account reads (even when `is_public = 1`), `sitemap.xml`, ActivityPub publish (`409 document_not_extracted`), and shared KB contributions (`409 document_not_extracted`).
 - **No silent fallback (`C2`)**:
-  - When `extraction_mode == "client"`, ingestion requests (`ingest_url`, `ingest_file`, WebUI submit, Telegram URL forward, CLI ingest for that account) stop after fetch + canonical raw storage and mark the job `staged_for_client` (never silently calling server Gemini).
-  - If the account later requests immediate server extraction for one item, that requires an explicit per-action user override or switching the account setting back to `"provider"`.
+  - When `extraction_mode == "client"`, ingestion requests (`ingest_url`, `ingest_file`, WebUI submit, Telegram URL forward, feed ingest) stop after `pipeline.stage_raw()` and report `"Raw content saved; queued for Agent Client extraction"` (never silently calling server LLM providers).
+  - Switching a single item to server extraction requires an explicit per-action user override or switching the account setting back to `"provider"`.
 
 ### 5.2 Full-Content Default on Staging (`AED9`)
 
 - `stage_source(url=..., ...)` and any automatic ingestion staging when `extraction_mode == "client"` MUST default to `full_content = True`.
-- Store the complete untruncated normalized Markdown/text payload (plus metadata: MIME type, final URL, fetch timestamp, SHA-256 digest, total character/byte length) in the account's isolated staging store (`staging_sources` linked to `account_id` and `theme_id`).
-- If an external agent's context window requires piecewise reading of a very large staged document, offer an explicit offset/limit read parameter on `get_staged_source(source_id, offset=0, limit=...)` whose default `offset=0, limit=None` returns the full untruncated content (`AED9`). Never discard tail content during staging.
+- Store the complete untruncated normalized raw payload (plus MIME type, canonical URL, fetch timestamp, `content_hash` SHA-256 digest, and `raw_chars` byte/character length) in **`documents`** / `.txt.zst` archive (`PRINCIPLES.md` A1).
+- `get_staged_source(document_id, claim_token=..., offset=0, limit=None)` defaults to returning the complete untruncated raw source (`full_content = True`). If a very large document exceeds a single transport payload cap (`MAX_REQUEST_BODY` 1 MiB) or agent context window, the agent pages deterministically with explicit `offset` / `limit` (`next_offset`, `total_chars`) without ever discarding tail content during staging (`AED9`).
 
-### 5.3 Client Extraction Protocol (MCP & HTTP, `write` Scope Required)
+### 5.3 Client Extraction Protocol & Deterministic Commit Gates (MCP & HTTP, `write` Scope Required)
 
-All staging and submission endpoints require OAuth 2.1 `write` scope and strict `account_id` / `theme_id` namespace enforcement (`B1`–`B4`):
+All staging and submission endpoints use **`document_id`** uniformly as the sole document identifier, require OAuth 2.1 `write` scope, enforce strict `account_id` / `kb_id` isolation (`B1`–`B4`), and restrict write targets to the caller's personal KB (`CT4`, rejecting shared KB writes with `kb_ingest_by_contribution`):
 
-1. `stage_source(url, theme=..., full_content=True)` -> creates a `staged_sources` row in state `pending` and returns `staged_id` + byte length + checksum.
-2. `list_staged_sources(theme=..., status="pending")` -> lists staged items owned by the authenticated `account_id` (optionally filtered by theme).
-3. `claim_staged_source(staged_id, client_id=...)` -> atomically transitions `pending` (or expired lease) -> `claimed` with a short lease (`lease_expires_at`, e.g., 15 minutes) and single-use `claim_token`. Supports `renew_staged_claim`.
-4. `get_staged_source(staged_id, claim_token=...)` -> returns complete untruncated raw source (`full_content = True`), target theme ontology schema snapshot (`docs`/schema version/canonical relation types/entity types), and prompt/rubric reference version so client output matches server extraction schema.
-5. `submit_client_extraction(staged_id, claim_token, payload)` -> validates `payload` against the same shared extraction JSON Schema used by `GeminiProvider`:
-   - Rejects malformed types, unknown relation types not mapped by schema, empty claims, or stale `claim_token` (`422`/`409`, `C1`).
-   - Records provenance: `extraction_origin = "agent_client"`, `client_id`, `oauth_client_id`, `schema_version`, `staged_source_sha256`.
-   - Runs server-side ontology resolution (`src/claire/ontology/registry.py`), entity/claim deduplication, SQLite persistence (`src/claire/ingest/pipeline.py` & `src/claire/contributions.py`), and server-side Google Option B vector embedding (Section 7).
-   - Marks `staged_sources.status = "completed"` atomically with persistence.
+1. `stage_source(url=..., theme=..., full_content=True)` (or `raw_text` + `title` for local client files) -> runs `pipeline.stage_raw()`, inserts/updates **`documents`** (`extraction_status = 'pending'`) and **`raw_inbox`** (`status = 'staged'`), and returns `{document_id, content_hash, raw_chars, status}`.
+2. `list_staged_sources(theme=..., status="pending")` -> lists pending `documents` rows owned by the authenticated `account_id`, returning `document_id`, `title`, `url`, `source_type`, `content_hash`, `raw_chars`, and `staged_at`.
+3. `claim_staged_source(document_id, client_id=...)` -> atomically claims a `pending` document (or reclaims an expired lease) for a short window (`lease_expires_at`, e.g., 15 minutes) and issues a single-use `claim_token` + `content_hash`. Supports `renew_staged_claim(document_id, claim_token)`.
+4. `get_staged_source(document_id, claim_token=..., offset=0, limit=None)` -> returns nonce-framed untruncated raw source (`full_content = True`), `expected_content_hash` (`content_hash`), target theme ontology snapshot (`EntityType`, `RelationType`, `RELATION_DOMAIN_RANGE`), and shared prompt/AsciiDoc/summary spec version.
+5. `submit_client_extraction(document_id, claim_token, expected_content_hash, payload, dry_run=False)` -> executes server-side deterministic verification gates before any DB write (`ConfigDict(extra="forbid", strict=True)` per `C4`):
+   - **Ownership, Lease & Optimistic Lock**: Verifies `document_id` belongs to caller's personal KB, `claim_token` is active, and `documents.content_hash == expected_content_hash` (`409 content_hash_mismatch` on concurrent source refresh).
+   - **Summary & Schema Validation**: Validates `payload` against the shared extraction JSON Schema; runs `clean_plain_summary()` and `evaluate_summary_verdict()` to reject empty summaries, `[mock]` prefixes, raw slices, or Markdown/AsciiDoc markup leaks (`422`, `C1`).
+   - **Deterministic AsciiDoc Lint & AOT Sanitization**: Rejects Markdown leaks (`# Heading`, triple-backtick fences, `**bold**`, `---` horizontal rules), then runs `sanitize_rendered_detail()` and `render_to_html()`.
+   - **Ontology & Hard Invariants**: Validates every relation with `validate_relation()`, logs valid `proposed_type` entries, verifies every referenced existing entity belongs to the same personal `kb_id`, and enforces `is_type_compatible()` and `passes_hard_invariants()`.
+   - **Atomic Commit & Non-Partial Error Handling**: Only after all gates pass (and `dry_run` is false), records provenance (`extraction_origin = "agent_client"`, `client_id`, `oauth_client_id`, `schema_version`, `expected_content_hash`), removes prior contributions for `document_id` atomically, persists entities/claims/edges/detail, runs server-side Option B vector embedding (Section 7), and marks `documents.extraction_status = 'extracted'` and `raw_inbox.status = 'done'`. Gate failures abort with zero partial writes and return structured `{ok: false, errors: [{field, code, message}]}`.
+
+### 5.4 Prompt Injection Threat Model and 4-Layer Defense Under `AED9` (`full_content = True`)
+
+Delivering complete untruncated external web pages, PDFs, and posts (`AED9`: `full_content = True`) expands the untrusted attack surface sent to the client agent: long tail sections, comment threads, hidden footnotes, or boilerplate that previously fell beyond `raw_char_budget` are now preserved and read in full. Because an interactive top-level user agent possesses local shell and file tools, client-side extraction MUST enforce defense-in-depth across four independent layers:
+
+| Layer | Where Enforced | Control (`AED9` Hardened) |
+| :--- | :--- | :--- |
+| **1. Mandatory Isolated Subagent** | `agent_client` bundle (`agents/claire-extractor.md`, `rules/AGENTS.md`) | `rules/AGENTS.md` and extraction skills forbid the top-level interactive Antigravity agent (which holds `run_command`, file write/edit, and browser tools) from reading staged raw documents directly. The top-level agent MUST delegate extraction to `claire-extractor`, an isolated subagent granted **only Claire MCP tools** (`get_staged_source`, `get_extraction_spec`, `resolve_entity`, `search`, `neighbors`, `submit_client_extraction`) and **zero** shell, **zero** file write/edit, and **zero** browser tools. |
+| **2. Nonce-Bound Untrusted Data Framing** | `get_staged_source` + `rules/AGENTS.md` | Every `get_staged_source` response wraps raw source text inside a per-call random-nonce boundary: `<untrusted_source_document nonce="<hex>" document_id="..." sha256="...">...</untrusted_source_document>`. Before wrapping, the server neutralizes or escapes any literal closing-tag sequences inside `raw_text` so full-length untrusted payloads (`AED9`) cannot close the fence early or inject instructions across truncated/paginated chunks. `rules/AGENTS.md` instructs `claire-extractor` to treat all text inside the nonce fence strictly as inert data. |
+| **3. Least-Privilege OAuth 2.1 `write` Scope & Personal-KB Gate (`CT4`)** | Claire OAuth 2.1 & MCP Auth Middleware | Extraction credentials carry OAuth 2.1 `write` scope (never admin or cookie session authority). A `write` token cannot read `/admin/*`, mutate `/api/me/keys`, manage `/oauth/*` grants, or modify shared KBs directly (`CT4` confines writes to the caller's personal KB). |
+| **4. Server Validation & AOT HTML Sanitization Gates** | Claire `submit_client_extraction` | Server deterministically rejects invalid JSON schemas (`extra="forbid"`), cross-KB entity references, ontology domain/range violations, hard-invariant violations, and Markdown leaks; compiled detail HTML is sanitized via `sanitize_rendered_detail()` / `render_to_html()`, while original raw text and `.txt.zst` remain immutable (`A1`). |
 
 ---
 
@@ -246,17 +271,17 @@ All `/login`, `/device`, `/oauth/authorize`, and `/settings/mcp` templates and r
 
 ---
 
-## 7. Google-Only Option B Embedding, Multi-Year EOS Lifecycle, and `gemini-embedding-2` Plan (`AED6`, `AED7`)
+## 7. Option B Embedding Baseline, Multi-Year EOS Lifecycle, and `gemini-embedding-2` Plan (`AED6`, `AED7`, `AED10`, `AED11`)
 
-### 7.1 Google-Only Embedding Policy and Official Model Timeline (`AED6`)
+### 7.1 Current Google Embedding Baseline and Official Model Timeline (`AED6`)
 
-Only Google Gemini embeddings (`provider = "google"`) are allowed in production (`mock` is allowed only in explicit dev/test mode per `PRINCIPLES.md` C2). Server-side embedding generation applies uniformly to both `extraction_mode = "provider"` and `extraction_mode = "client"`: the client submits structured claims, entities, and summaries, and the server embeds them into active space(s) via `GeminiProvider`.
+The current production implementation and Option B design baseline uses Google Gemini embeddings (`provider = "google"`; `mock` is allowed only in explicit dev/test mode per `PRINCIPLES.md` C2). Other `api-key` embedding providers can be added later through the standard `src/claire/accounts/provider_policy.py` and `embedding_spaces` registry rules without changing the EOS lifecycle contract. Server-side embedding generation applies uniformly to both `extraction_mode = "provider"` and `extraction_mode = "client"`: the client submits structured claims, entities, and summaries, and the server embeds them into active space(s) via `GeminiProvider`.
 
 Official Gemini Developer API model status (verified against Gemini API documentation as of 2026-11-20):
 
 | Model | Status | Release / Shutdown | Input / Token Limit | Output Dimensions & Norm | Price (Text / 1M tokens) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`gemini-embedding-2`** | Stable GA (**Provisional Option B target**) | Released Apr 22, 2026 · No shutdown announced | Text, image, video, audio, PDF · 8,192 tokens | 128–3,072 MRL (rec: 768, 1,536, 3,072) · Auto-normalized `< 3072` | `$0.20` standard · `$0.10` Batch API |
+| **`gemini-embedding-2`** | Stable GA (**Locked Option B baseline target, `3072d` per `AED10`**) | Released Apr 22, 2026 · No shutdown announced | Text, image, video, audio, PDF · 8,192 tokens | 128–3,072 MRL (rec: 768, 1,536, 3,072) · Auto-normalized `< 3072` | `$0.20` standard · `$0.10` Batch API |
 | **`gemini-embedding-001`** | Current legacy prod default (Migrate before EOS) | Released Jul 14, 2025 · **Shutdown May 14, 2028** | Text only · 2,048 tokens | 128–3,072 MRL · Manual L2 norm required `< 3072` | Standard / Batch |
 | `gemini-embedding-2-preview` (`embedding-2-preview`) | **Shut down** (Remove from code defaults) | Mar 10, 2026 – **Aug 10, 2026** | — | — | Replaced by `gemini-embedding-2` |
 | `text-embedding-004` | **Shut down** | Apr 9, 2024 – **Jan 14, 2026** | — | — | Replaced by `gemini-embedding-2` |
@@ -266,7 +291,7 @@ Official Gemini Developer API model status (verified against Gemini API document
 Google embedding models have multi-year lifecycles followed by End-of-Support (EOS). Because vector spaces across embedding models (`gemini-embedding-001` vs `gemini-embedding-2`) are mathematically incompatible, `VectorStore.search` MUST never mix vectors across models, dimensions, or prompt formats. To upgrade cleanly without downtime or LLM re-extraction:
 
 1. **Embedding Space Registry (`embedding_spaces`)**:
-   - Each vector space has an immutable key: `space_id = "{provider}:{model}:{dim}:{prompt_format_version}"` (for example, `google:gemini-embedding-001:3072:v1_param` and `google:gemini-embedding-2:1536:v2_prompt`).
+   - Each vector space has an immutable key: `space_id = "{provider}:{model}:{dim}:{prompt_format_version}"` (for example, `google:gemini-embedding-001:3072:v1_param` and `google:gemini-embedding-2:3072:v2_prompt`).
    - Lifecycle states per space: `active` -> `backfilling` (staged target) -> `draining` (old space after cutover) -> `eos_retired`.
    - Store normalized source text hashes and canonical entity frame metadata so re-embedding reads directly from stored canonical text and never re-runs LLM extraction.
 2. **Non-Blocking Shadow Backfill**:
@@ -330,24 +355,24 @@ Introduce an explicit model-family embedding adapter keyed by verified model cap
 - Enable `AED7` dual-embed writes inside `pipeline.py` and `contributions.py` whenever a theme has `target_space_id` active.
 - Run a shadow calibration step (`claire reembed --calibrate`) on sample entity pairs using adaptive mean centering on `gemini-embedding-2` vectors before cutover, verifying or storing space-scoped threshold overrides for `sim_tier_auto_merge` (`0.93`), `sim_tier_borderline` (`0.72`), `sim_tier_relational` (`0.70`), and `sim_tier_multihop` (`0.55`) ([`KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md`](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)).
 
-#### E. Phased Rollout & Provisional Open Choices (`AEQ10`, `AEQ11`)
+#### E. Locked Rollout Decisions (`AED10`, `AED11`)
 
-Before `AE6a` implementation starts, two provisional defaults await owner sign-off (pre-selected recommendations are reversible per new space):
+Both rollout scope decisions are locked by the owner (2026-11-20):
 
-| Question | Topic | Provisional Choice (Default) | Alternatives |
-| :--- | :--- | :--- | :--- |
-| **`AEQ10`** | Target MRL `output_dimensionality` for `gemini-embedding-2` | **`1536`** — Cuts SQLite BLOB storage in half and roughly doubles Python brute-force cosine scan speed in `VectorStore.search`, with automatic MRL normalization built into `gemini-embedding-2`. | **`3072`** (maximum fidelity, same byte footprint as `gemini-embedding-001`) or **`768`** (smallest storage). |
-| **`AEQ11`** | Multimodal embedding scope (`image`, `PDF <= 6p`, `audio <= 180s`, `video <= 120s`) | **Stage 1 text-only parity first (`AE6a`–`AE6d`)** — Ship safe `gemini-embedding-2` entity-frame + query migration and EOS lifecycle ahead of May 14, 2028; design raw media part embedding separately in Stage 2. | Enable native image/PDF/audio/video part embedding immediately inside `AE6`. |
+| ID | Topic | Locked Choice |
+| :--- | :--- | :--- |
+| **`AED10`** | Target `output_dimensionality` for `gemini-embedding-2` | **`3072`** (`space_id = google:gemini-embedding-2:3072:v2_prompt`) — Preserves full fidelity, avoids dimensionality truncation variance during EOS cutover, and retains normalized 3,072-dimensional output. (`< 3072` spaces would auto-normalize if added later per space rules.) |
+| **`AED11`** | Multimodal embedding scope | **Stage 1 text-only parity first (`AE6a`–`AE6d`)** — Ship `gemini-embedding-2` entity-frame, search query, and May 14, 2028 EOS migration first; design native multimodal (`image`, `PDF <= 6p`, `audio <= 180s`, `video <= 120s`) ingestion/embedding separately in a Stage 2 design. |
 
 ---
 
-## 8. Google-Only Scope & Retirement Inventory (`AED6`, `AED8`)
+## 8. Retirement Inventory (`AED6`, `AED8`)
 
-Per `AED6` and `AED8`, Claire Bible drops all non-Google LLM/embedding support and all server-side host-CLI execution (`AntigravityProvider`, `CodexProvider`, ChatGPT, Codex, Claude, OpenAI-compatible gateways, local vLLM/Ollama):
+Per `AED8`, Claire Bible retires strictly `AntigravityProvider`, `CodexProvider` (`host-cli`), `ChatGPT`, `Codex`, and `Claude` across principles, design, and implementation. Per `AED6`, unimplemented `openai` placeholders are removed while preserving general `api-key` provider extensibility:
 
 | Category | Items Retired / Removed | Timing |
 | :--- | :--- | :--- |
-| **Principles & Vision** | `PRINCIPLES.md` obsolete Antigravity host-CLI note under solved violations removed; `C2` clarifies Google-only server providers and retired host-CLIs. | **This design revision** |
+| **Principles & Vision** | `PRINCIPLES.md` obsolete Antigravity host-CLI note under solved violations removed; `C2` records `AED8` retirement of `AntigravityProvider`, `CodexProvider`, `ChatGPT`, `Codex`, and `Claude`. | **This design revision** |
 | **Design Docs** | Delete retired `ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md` completely. Update [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md). | **This design revision** |
 | **Implementation Docs (Policy & Non-Code Scope)** | Update [`PROVIDERS.md`](../implementation/PROVIDERS.md) to remove `openai` placeholders, `CodexProvider` / `AntigravityProvider` operational sections, and `ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md` links, documenting that `src/claire/extract/{antigravity,codex}_provider.py` and sealed `personal_cli` hooks are retired legacy code scheduled for deletion in `AE8`. *(Keep `ENVIRONMENT_VARIABLES.md` parity with `config.py` until `AE8` removes `Settings` fields so `tests/test_docs_consistency.py` passes.)* | **This design revision** + `AE8` |
 | **Code, Config, Env Vars & Tests** | Remove `src/claire/extract/antigravity_provider.py`, `src/claire/extract/codex_provider.py`, `find_agy_executable`, `find_codex_executable`, `host-cli` runtime paths, `openai` stubs in `provider_manager.py`, sealed `personal_cli` migration hooks (`tests/test_personal_cli_seal.py`), `CLAIRE_AGY_*` / `CLAIRE_CODEX_*` `Settings` fields + `ENVIRONMENT_VARIABLES.md` rows. | **Implementation Unit `AE8`** |
@@ -363,11 +388,11 @@ Implementation is explicitly out of scope for this design turn. When approved fo
 | **`AE1`** | `agent_client` plugin type & fixed server bundle delivery (`uri_path` `/clients/<client_id>/...` + `"clients"` in `RESERVED_USERNAMES` + `"clients"` `HostRole` for derived `clients.<domain>` / `:8770`, cookie stripping, CSP, signed `?t=` handoff, `/admin/server` mode toggle). | `AED1`, `AED2`, `AED3`; unit + E2E routing/isolation tests |
 | **`AE2`** | Unified OAuth 2.1 hardening: `S256`-only PKCE, `readonly` + `write` scopes without upscoping, `write` step-up (`has_recent_auth` + passkey `allowCredentials`), refresh rotation + reuse revocation, `/oauth/revoke`, `/settings/mcp`, Telegram-free `/login?tx=` + `__Host-claire_oauth_tx` CSRF guard, optional RFC 8628 `/device`, zero-JS/i18n/SVG templates, Modern Web Guidance headers & autofill rules. | `AED5`; OAuth PKCE/scope/CSRF/headless E2E tests |
 | **`AE3`** | Deprecation banners, `Deprecation: true` headers, CLI/Telegram `/token` migration notices, and scheduled retirement of manual `api_tokens.json` / `/tokens`. | `AED5`; legacy token deprecation & revocation tests |
-| **`AE4`** | Per-account `extraction_mode` (`provider` \| `client`) preference, `staging_sources` DB schema, no silent fallback (`C2`), and `stage_source(..., full_content=True)` defaulting to untruncated full raw capture. | `AED4`, `AED9`; isolation & full-content boundary tests |
-| **`AE5`** | Client extraction MCP/HTTP contract (`list_staged_sources`, `claim_staged_source`, `get_staged_source`, `submit_client_extraction`), lease expiry, shared extraction JSON Schema validation, provenance recording, server ontology resolution & contribution persistence. | `AED1`, `AED4`, `AED9`; E2E client-mode extraction test |
-| **`AE6a`** | `gemini-embedding-2` request adapter in `gemini_provider.py`: model-family routing (`v1_param_task_type` vs `v2_prompt_task_prefix`), prompt prefix formatting, 8,192-token budget, `types.Content` aggregation guard, and explicit `output_dimensionality` pinning. | `AED6`; unit tests for request shape and fail-closed unknown models |
-| **`AE6b`** | `embedding_spaces` registry, `embeddings` PK migration `(owner_id, kb_id, space_id)`, `active_space_id` / `target_space_id` on `knowledge_bases`, and `space_id`-enforced `VectorStore.search`/`upsert`. | `AED6`, `AED7`; schema migration & zero-downtime compatibility tests |
-| **`AE6c`** | Remove shut-down `gemini-embedding-2-preview`, unlock `ProviderManager.update_config(server_scope=True)` for governed space lifecycle transitions, default new KBs to `gemini-embedding-2`, and add WebUI Embedding Space Lifecycle Panel + May 14, 2028 EOS banner. | `AED6`; WebUI & API config lifecycle tests |
-| **`AE6d`** | `claire reembed --target-space --mode batch\|sync` (Batch API 50% discount + sync fallback), `AED7` dual-embed in `pipeline.py` & `contributions.py`, atomic cutover, `claire reembed --calibrate` 4-tier verification, and FTS fail-closed degradation on EOS (`C2`). | `AED6`, `AED7`; dual-embed, Batch backfill, calibration & cutover tests |
-| **`AE7`** | Reference `antigravity` `agent_client` plugin bundle (`SKILL.md`, schema reference, OAuth/MCP instructions) packaged inside server plugin catalog. | `AED1`, `AED3` |
+| **`AE4`** | Per-account `extraction_mode` (`provider` \| `client`) preference, `pipeline.stage_raw(...)` staging on `documents` (`extraction_status`, `claim_token`, `lease_expires_at`) + `raw_inbox` (`status = 'staged'`), visibility isolation of `pending` documents, no silent fallback (`C2`), and `stage_source(..., full_content=True)` defaulting to untruncated full raw capture. | `AED4`, `AED9`; isolation & full-content boundary tests |
+| **`AE5`** | Client extraction MCP/HTTP contract keyed uniformly by `document_id` (`list_staged_sources`, `claim_staged_source`, `get_staged_source` with nonce-bound `<untrusted_source_document>` framing & escaping, `submit_client_extraction`), deterministic gates (summary/AsciiDoc/ontology/hard-invariants/`CT4`), provenance recording, and atomic commit. | `AED1`, `AED4`, `AED9`; E2E client-mode extraction & framing tests |
+| **`AE6a`** | `gemini-embedding-2` request adapter in `gemini_provider.py`: model-family routing (`v1_param_task_type` vs `v2_prompt_task_prefix`), prompt prefix formatting, 8,192-token budget, `types.Content` aggregation guard, and explicit `output_dimensionality=3072` pinning. | `AED6`, `AED10`, `AED11`; unit tests for request shape and fail-closed unknown models |
+| **`AE6b`** | `embedding_spaces` registry, `embeddings` PK migration `(owner_id, kb_id, space_id)`, `active_space_id` / `target_space_id` on `knowledge_bases`, and `space_id`-enforced `VectorStore.search`/`upsert`. | `AED6`, `AED7`, `AED10`; schema migration & zero-downtime compatibility tests |
+| **`AE6c`** | Remove shut-down `gemini-embedding-2-preview`, unlock `ProviderManager.update_config(server_scope=True)` for governed space lifecycle transitions, default new KBs to `gemini-embedding-2` (`3072`), and add WebUI Embedding Space Lifecycle Panel + May 14, 2028 EOS banner. | `AED6`, `AED10`; WebUI & API config lifecycle tests |
+| **`AE6d`** | `claire reembed --target-space --mode batch\|sync` (Batch API 50% discount + sync fallback), `AED7` dual-embed in `pipeline.py` & `contributions.py`, atomic cutover, `claire reembed --calibrate` 4-tier verification, and FTS fail-closed degradation on EOS (`C2`). | `AED6`, `AED7`, `AED10`, `AED11`; dual-embed, Batch backfill, calibration & cutover tests |
+| **`AE7`** | Reference `antigravity` `agent_client` plugin bundle (`client_bundle/` with isolated MCP-only `agents/claire-extractor.md`, `rules/AGENTS.md` untrusted-data rules, `skills/`, `mcp_config.json.tmpl`) packaged under `plugin_host` zero-network/zero-subprocess locks. | `AED1`, `AED3`, `AED9` |
 | **`AE8`** | Delete `antigravity_provider.py`, `codex_provider.py`, `openai` stubs, `host-cli` paths, sealed `personal_cli` legacy code, `CLAIRE_AGY_*` / `CLAIRE_CODEX_*` `Settings` fields, and corresponding `ENVIRONMENT_VARIABLES.md` / `PROVIDERS.md` entries. | `AED6`, `AED8`; full test suite + `test_docs_consistency.py` |
