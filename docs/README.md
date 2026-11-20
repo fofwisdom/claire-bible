@@ -29,7 +29,6 @@ docs/
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
 │   ├── PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md
 │   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html (지식 연합·콘솔 배치 설계와 공용), 첫 프로토타입 shared_knowledge_federation_prototype.html은 참고용
-│   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md  # 텔레메트리 schema v1·읽기 전용 진단·format v4 미구현
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
 │   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3 → implementation/FEDERATION.md
 │   ├── ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md  # → ACCOUNTS.md

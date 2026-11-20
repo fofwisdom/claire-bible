@@ -2,7 +2,7 @@
 
 - **Status**: Partly implemented. Implemented (Phase 1 and 2): tools forbidden and an empty working directory for `agy` calls that need no tools, `effort=low` for judgement tasks, `call_type` and `document_id` in telemetry, and parallel relation judgement. Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §4.2. Planned, not implemented: the ontology plausibility gate (Phase 3, §3.3) and the production regression check (Phase 4).
 - **Date**: 2026-09-27 · condensed 2026-11-16
-- **Related**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)
+- **Related**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md)
 
 ## 1. 배경 및 프로덕션 실사 데이터 분석
 

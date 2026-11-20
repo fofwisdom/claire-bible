@@ -1,6 +1,6 @@
 # Telemetry and Support Bundles
 
-Basis: commit d15ae8e0 (2026-11-16); §3.6 and the member list of §3.3: the commit that adds `support_bundle_services.py` (2026-11-18) · Design reasons and planned work: [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
+Basis: commit d15ae8e0 (2026-11-16); §3.6 and the member list of §3.3: the commit that adds `support_bundle_services.py` (2026-11-18) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
 
 This document tells how the code records telemetry now, and how it makes, keeps, and deletes Support Bundles. It uses file paths and function names as anchors.
 
@@ -24,7 +24,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 
 - **[code] Separate file.** Telemetry goes to `telemetry.db` in the data directory (`get_telemetry_db_path`). It never goes to the knowledge database `claire.db` (principle A4).
 - **[code] Connection.** `connect_telemetry` sets `journal_mode=WAL` and `busy_timeout=1000`, and opens SQLite with a timeout of 1 second. Each connection also runs `TELEMETRY_SCHEMA` (`CREATE ... IF NOT EXISTS`) and `_migrate_support_bundles_account_id`. Thus every connection, also a diagnostic read, can write to the file.
-- **[code] No version marker.** The telemetry database has no `schema_version` and no `schema_lineage`. The planned telemetry schema v1 is in the design document.
+- **[code] No version marker.** The telemetry database has no `schema_version` and no `schema_lineage`.
 - **[code] Tables.**
   - `provider_telemetry`: one row for each provider call (provider, model, call type, input size, exit code, duration, status, `google_block_reason`, error message, output snippet, `summary_verdict`).
   - `mcp_telemetry`: one row for each MCP tool call (`call_type="tool_call"`) or failed MCP HTTP request (`call_type="http_mcp"`, with the HTTP status in `error_code`).
