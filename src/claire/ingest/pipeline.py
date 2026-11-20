@@ -1129,6 +1129,11 @@ def extract_resolve_store(
         attach_resolution_meta(doc, decisions)
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         report.has_decision_stream = True
+        if jev_shadow is not None:
+            # Entity pair review queue (schema v38): pairs of the Jev shadow that carry information, with the pre-merge snapshots
+            from ..store import pair_review
+
+            pair_review.enqueue_decisions(conn, kb_id=tid, document_id=doc.id, decisions=decisions)
 
     if name_to_id:
         from ..extract.decision import evaluate_decision_matrix

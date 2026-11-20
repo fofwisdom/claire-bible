@@ -62,6 +62,8 @@ Rules:
 
 import re
 
+from .same_entity_rule import SAME_ENTITY_FALSE, SAME_ENTITY_TRUE
+
 _LEADING_BIBLIO_LABEL_RE = re.compile(
     r"(?:저자|작성자|발행(?:일자|일)?|출처|원문|URL|DOI|arXiv(?:\s+ID)?|"
     r"Author|Published(?:\s+(?:at|date))?|Source)\s*:",
@@ -968,7 +970,11 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
         "   - Cross-lingual transliterations, localizations, or honorific variants of the same character, person, organization, or concept (e.g., 'Marcus' and '마커스' / '마커스 양', 'Ulrich' and '울리히', 'Enigma' and '이니그마', 'Medicine Pocket' and '메디슨 포켓') are SAME.\n"
         "   - Official full organization/institution names and their common short names or localized names (e.g., 'Laplace Scientific Computing Center' and '라플라스' / '라플라스 연구 센터' / '라플라스 연구소') are SAME when they refer to the same organization in the domain context.\n"
         "2. DIFFERENT: The entries are distinct subjects, even if they belong to the same category, "
-        "group, domain, or ecosystem (e.g., Docker vs Podman, Kafka vs Silver Wolf, Claude vs GPT-4).\n\n"
+        "group, domain, or ecosystem (e.g., Docker vs Podman, Kafka vs Silver Wolf, Claude vs GPT-4).\n"
+        # One rule with Jev and the shadow review (owner decision 2026-11-20, same_entity_rule.py)
+        f"3. SAME also means: {SAME_ENTITY_TRUE}\n"
+        f"4. DIFFERENT also means: {SAME_ENTITY_FALSE} "
+        "(e.g., 'Windows 11' vs 'Windows', 'Gemini 3.5 Flash-Lite' vs 'Gemini 3.5 Flash', 'NIST AI RMF' vs 'NIST').\n\n"
         f"A: name={mc.new_name!r} type={mc.new_type!r} aliases={mc.new_aliases}\n"
         f"   notes={' | '.join(mc.new_observations)[:400]}\n"
         f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"

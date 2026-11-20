@@ -30,7 +30,7 @@ from .store.vectors import looks_like_hash_fallback, unpack_vector
 
 logger = logging.getLogger(__name__)
 
-REVIEW_SCHEMA_VERSION = 3
+REVIEW_SCHEMA_VERSION = 4
 SHADOW_AGREEMENT_THRESHOLDS = (0.5, 0.9)
 LLM_VERDICT_OUTCOMES = {"judge_same": True, "judge_different": False}
 # Candidate outcomes that only a filter-mode decision gave (2026-11-16 to 2026-11-18). A record without "role" and with one of these is a filter-mode record.
@@ -120,6 +120,40 @@ CREATE TABLE review_shadow_pairs (
     jev_latency_ms REAL,
     PRIMARY KEY (document_id, seq, candidate_id)
 );
+CREATE TABLE review_pair_items (
+    id INTEGER PRIMARY KEY,
+    kb_id INTEGER,
+    document_id TEXT,
+    seq INTEGER,
+    decided_at REAL,
+    candidate_id TEXT,
+    reasons TEXT,
+    new_entity TEXT,
+    candidate TEXT,
+    snapshot_source TEXT,
+    outcome TEXT,
+    merged INTEGER,
+    jev_noul REAL,
+    jev_model TEXT,
+    jev_latency_ms REAL,
+    prelabel_engine TEXT,
+    prelabel_model TEXT,
+    prelabel_noul REAL,
+    prelabel_confidence REAL,
+    prelabel_status TEXT,
+    prelabel_at REAL,
+    rule_version TEXT,
+    created_at REAL
+);
+CREATE TABLE review_pair_verdicts (
+    item_id INTEGER NOT NULL,
+    contributor INTEGER NOT NULL,
+    verdict TEXT NOT NULL,
+    blind INTEGER NOT NULL,
+    rule_version TEXT,
+    created_at REAL,
+    updated_at REAL
+);
 CREATE INDEX idx_review_decisions_stage ON review_decisions(stage);
 CREATE INDEX idx_review_decisions_target ON review_decisions(target_entity_id);
 CREATE INDEX idx_review_pairs_band ON review_candidate_pairs(band);
@@ -135,6 +169,15 @@ REVIEW_TABLES = (
     "review_candidate_pairs",
     "review_judge_calls",
     "review_shadow_pairs",
+    "review_pair_items",
+    "review_pair_verdicts",
+)
+
+# Columns of pair_review_items that a bundle copies (all of them; the order is the order of review_pair_items)
+_PAIR_ITEM_COLUMNS = (
+    "id", "kb_id", "document_id", "seq", "decided_at", "candidate_id", "reasons", "new_entity", "candidate", "snapshot_source",
+    "outcome", "merged", "jev_noul", "jev_model", "jev_latency_ms", "prelabel_engine", "prelabel_model", "prelabel_noul",
+    "prelabel_confidence", "prelabel_status", "prelabel_at", "rule_version", "created_at",
 )
 
 
@@ -699,6 +742,7 @@ def export_review_evidence(
     else:
         embeddings, pairs = pairs_result, pairs_result
     judge_calls = _guarded("judge_calls", _export_judge_calls, data_dir, export_conn, document_ids)
+    pair_review_meta = _guarded("pair_review", _export_pair_review, source_conn, export_conn, document_ids)
 
     shadow = decisions.pop("shadow", None) or {"status": decisions.get("status", "missing")}
     meta = {
@@ -711,6 +755,7 @@ def export_review_evidence(
         "candidate_pairs": pairs,
         "judge_calls": judge_calls,
         "shadow": shadow,
+        "pair_review": pair_review_meta,
     }
     export_conn.executemany(
         "INSERT INTO review_meta (key, value) VALUES (?, ?)",
@@ -728,7 +773,52 @@ def export_review_evidence(
         "judge_calls_status": judge_calls.get("status"),
         "shadow_decisions": shadow.get("decisions_with_shadow", 0),
         "shadow_pairs_scored": shadow.get("pairs_scored", 0),
+        "pair_review_items": (pair_review_meta.get("items") or {}).get("total", 0) if isinstance(pair_review_meta.get("items"), dict) else 0,
     }
+
+
+def _export_pair_review(
+    source_conn: sqlite3.Connection,
+    export_conn: sqlite3.Connection,
+    document_ids: set[str],
+) -> dict[str, Any]:
+    """Copy the entity pair review items of the exported documents and their verdicts, and add the report of these items.
+
+    Verdicts leave the server without the account and without the note: each account of the bundle gets a number (``contributor``, 1, 2, ...).
+    """
+    from .store import pair_review
+
+    tables = {r[0] for r in source_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "pair_review_items" not in tables:
+        return {"status": "missing"}
+    cols = ", ".join(_PAIR_ITEM_COLUMNS)
+    items = [tuple(r) for r in source_conn.execute(f"SELECT {cols} FROM pair_review_items ORDER BY id") if r[2] in document_ids]
+    item_ids = [int(r[0]) for r in items]
+    verdicts: list[tuple[Any, ...]] = []
+    if item_ids:
+        verdicts = [tuple(r) for r in source_conn.execute(
+            f"SELECT item_id, account_id, verdict, blind, rule_version, created_at, updated_at FROM pair_review_verdicts "
+            f"WHERE item_id IN ({','.join('?' for _ in item_ids)}) ORDER BY item_id, created_at",
+            item_ids,
+        )]
+    contributors: dict[int, int] = {}
+    pseudonymous = [(v[0], contributors.setdefault(int(v[1]), len(contributors) + 1), *v[2:]) for v in verdicts]
+    marks = ", ".join("?" for _ in _PAIR_ITEM_COLUMNS)
+    export_conn.executemany(f"INSERT INTO review_pair_items ({cols}) VALUES ({marks})", items)
+    export_conn.executemany("INSERT INTO review_pair_verdicts VALUES (?, ?, ?, ?, ?, ?, ?)", pseudonymous)
+
+    # The report of the exported items only: the same function on a copy in memory
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    try:
+        mem.execute(f"CREATE TABLE pair_review_items ({', '.join(_PAIR_ITEM_COLUMNS)})")
+        mem.execute("CREATE TABLE pair_review_verdicts (item_id, account_id, verdict, note, blind, rule_version, created_at, updated_at)")
+        mem.executemany(f"INSERT INTO pair_review_items VALUES ({marks})", items)
+        mem.executemany("INSERT INTO pair_review_verdicts VALUES (?, ?, ?, NULL, ?, ?, ?, ?)", pseudonymous)
+        result = pair_review.report(mem)
+    finally:
+        mem.close()
+    return {"status": "ok", **result}
 
 
 def count_review_tables(conn: sqlite3.Connection) -> dict[str, int]:

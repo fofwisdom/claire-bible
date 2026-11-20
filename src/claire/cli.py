@@ -12,7 +12,7 @@ Command Groups:
   Presentations:         presentation
   Reprocess & Backfill:  reprocess, regenerate, summary-regenerate, reextract, backfill-detail, backfill-summary, backfill-images, recompile-html, video-reprocess
   Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill, media
-  Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run, expand-shadow
+  Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run, expand-shadow, pair-review
   Document Management:   doc, doc-title, watch, share, auth
   Graph & Entities:      link-relations, re-embed, entity, export-graph, import-graph
   Deduplication & Purge: dedup-scan, recanonicalize, dedup-merge, purge, audit
@@ -2019,6 +2019,66 @@ def cmd_expand_run(args) -> int:
             print(f"  🔗 {r.get('document_id', '?')}: candidates {r.get('candidates', 0)} · selected {r.get('selected', 0)}"
                   f" · ingested {r.get('stored', 0)} · shadow records {r.get('shadowed', 0)} · skipped {r.get('skipped', 0)}")
     print(f"{len(results)} processed, {sum(r.get('stored',0) for r in results)} ingested")
+    return 0
+
+
+def cmd_pair_review(args) -> int:
+    """The entity pair review (schema v38): list the items, or print the routine evaluation report. Read only."""
+    import json as _json
+
+    from .store import pair_review
+
+    s, theme = get_effective_settings(args)
+    kb_ids = [theme.id] if theme else None
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        if args.pair_action == "report":
+            rep = pair_review.report(conn, kb_ids=kb_ids)
+            if args.json:
+                print(_json.dumps(rep, ensure_ascii=False, indent=2))
+                return 0
+            items, verdicts = rep["items"], rep["verdicts"]
+            print(f"Entity pair review (rule {rep['rule_version']}): {items['total']} items, {items['with_consensus']} with a consensus "
+                  f"({items['positives']} same), {items['with_prelabel']} with a pre-label.")
+            print(f"  verdicts: {verdicts['total']} from {verdicts['accounts']} accounts ({verdicts['blind']} blind).")
+            for model, data in rep["jev_by_model"].items():
+                print(f"  Jev {model}: {data['labeled_pairs']} labeled pairs, {data['positives']} same, latency p95 {data['latency_ms_p95']} ms")
+                for t, c in data["thresholds"].items():
+                    print(f"    at {t}: TP {c['tp']} FP {c['fp']} FN {c['fn']} precision {c['precision']} (95% low {c['precision_low95']}) recall {c['recall']}")
+            j = rep["judge"]
+            print(f"  LLM judge: TP {j['tp']} FP {j['fp']} FN {j['fn']} precision {j['precision']} recall {j['recall']}")
+            print(f"  pipeline merges: {rep['pipeline_merges']['labeled']} labeled, {rep['pipeline_merges']['false_merges']} false")
+            print(f"  gate: {rep['gate']['positives_now']} of {rep['gate']['positives_needed_with_zero_errors']} positives that the gate needs.")
+            return 0
+        where, params = "", []
+        if kb_ids:
+            where, params = " WHERE kb_id=?", [kb_ids[0]]
+        sql = "SELECT * FROM pair_review_items" + where + " ORDER BY created_at DESC, id DESC"
+        if args.limit and args.limit > 0:
+            sql += f" LIMIT {int(args.limit)}"
+        rows = [dict(r) for r in conn.execute(sql, params)]
+        counts = {int(r["id"]): pair_review.item_counts(conn, int(r["id"])) for r in rows}
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        c = counts[int(r["id"])]
+        out.append({
+            "id": r["id"], "kb_id": r["kb_id"], "document_id": r["document_id"], "reasons": _json.loads(r["reasons"]),
+            "new_entity": _json.loads(r["new_entity"])["name"], "candidate": _json.loads(r["candidate"])["name"],
+            "outcome": r["outcome"], "merged": bool(r["merged"]), "jev_noul": r["jev_noul"],
+            "prelabel_status": r["prelabel_status"], "prelabel_noul": r["prelabel_noul"],
+            "verdict_counts": c, "consensus": pair_review.consensus(c),
+        })
+    if args.json:
+        print(_json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Entity pair review: {len(out)} items.")
+    for it in out:
+        jev = "-" if it["jev_noul"] is None else f"{it['jev_noul']:.2f}"
+        pre = "-" if it["prelabel_noul"] is None else f"{it['prelabel_noul']:.2f}"
+        print(f"  #{it['id']} {it['new_entity']} | {it['candidate']}  [{', '.join(it['reasons'])}] outcome {it['outcome']} jev {jev} pre-label {pre} consensus {it['consensus'] or '-'} {it['verdict_counts']}")
     return 0
 
 
@@ -5756,6 +5816,21 @@ def build_parser() -> argparse.ArgumentParser:
     pxs_report.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
     pxs_report.add_argument("--json", action="store_true", help="output the report in JSON format")
     pxs.set_defaults(func=cmd_expand_shadow)
+
+    ppr = sub.add_parser(
+        "pair-review",
+        help="read the entity pair review queue and the routine Jev evaluation report",
+        description="Read the entity pair review: the queue of Jev shadow pairs (schema v38) and the report that compares Jev, the LLM judge, and the pre-label with the consensus of the verdicts of people. The command does not change data: people give the verdicts through the API (/api/me/pair-review).",
+    )
+    ppr_sub = ppr.add_subparsers(dest="pair_action", required=True)
+    ppr_list = ppr_sub.add_parser("list", help="show the items, the newest first")
+    ppr_list.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
+    ppr_list.add_argument("--limit", type=int, default=50, help="maximum items to show (0 = all, default: 50)")
+    ppr_list.add_argument("--json", action="store_true", help="output the items in JSON format")
+    ppr_report = ppr_sub.add_parser("report", help="show the routine evaluation report")
+    ppr_report.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: all themes)")
+    ppr_report.add_argument("--json", action="store_true", help="output the report in JSON format")
+    ppr.set_defaults(func=cmd_pair_review)
 
     pi = sub.add_parser(
         "ingest",

@@ -20,8 +20,9 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 SCHEMA_LINEAGE = "claire-bible/common"
+PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
 _RETIRED_SUPPORT_RECOVERY_TARGET = 11
@@ -325,6 +326,48 @@ CREATE TABLE IF NOT EXISTS same_subject_shadow (
     verdict_by INTEGER             -- the account that gave the verdict in the WebUI
 );
 CREATE INDEX IF NOT EXISTS idx_same_subject_shadow_kb ON same_subject_shadow(kb_id, created_at);
+
+-- [Entity pair review, v38] Pairs of the Jev shadow that carry information for the evaluation (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation").
+-- Each item keeps the entity snapshots, so that it stands alone after later merges. A person gives a verdict; the pre-label of a third engine is not a label.
+CREATE TABLE IF NOT EXISTS pair_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,           -- index in documents.meta.resolution_log
+    decided_at REAL NOT NULL,       -- timestamp of the decision
+    candidate_id TEXT NOT NULL,
+    reasons TEXT NOT NULL,          -- JSON list: disagree | invariant | merged | near_variant | sample
+    new_entity TEXT NOT NULL,       -- JSON {name, type, aliases, observations}
+    candidate TEXT NOT NULL,        -- JSON {name, type, aliases, observations}
+    snapshot_source TEXT NOT NULL,  -- decision (pre-merge state) | current (state when the item was made from an old record)
+    outcome TEXT,                   -- candidate outcome of the pipeline (judge_same, judge_different, invariant_reject, ...)
+    merged INTEGER NOT NULL DEFAULT 0,
+    jev_noul REAL,
+    jev_model TEXT,
+    jev_latency_ms REAL,
+    prelabel_engine TEXT,
+    prelabel_model TEXT,
+    prelabel_noul REAL,
+    prelabel_confidence REAL,
+    prelabel_status TEXT,           -- NULL = not asked | ok | no_key | error:<type>
+    prelabel_at REAL,
+    rule_version TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE (document_id, seq, decided_at, candidate_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pair_review_items_kb ON pair_review_items(kb_id, created_at);
+CREATE TABLE IF NOT EXISTS pair_review_verdicts (
+    item_id INTEGER NOT NULL REFERENCES pair_review_items(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL,    -- the account that gave the verdict (auth.db)
+    verdict TEXT NOT NULL CHECK (verdict IN ('same', 'different', 'unsure')),
+    note TEXT,
+    blind INTEGER NOT NULL,         -- 1 = the pre-label was hidden until the verdict
+    rule_version TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (item_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pair_review_verdicts_account ON pair_review_verdicts(account_id);
 
 -- [주기 재확인] watch 대상 문서가 재크롤 시 '내용이 바뀌었을 때' 변경 '전' 원문을 시계열로
 -- 보존(데이터 보존 협약 — 벤치/순위처럼 변하는 콘텐츠의 추세를 살림). 그래프(엔티티)는
@@ -808,6 +851,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v35_expansion_source_names(conn)
     _migrate_v36_shadow_verdict_columns(conn)
     _migrate_v37_personal_source_public(conn)
+    _migrate_v38_pair_review_backfill(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1625,6 +1669,18 @@ def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
     if renamed:
         conn.commit()
         logger.info("schema v35: %d raw_inbox rows got the new source names of link expansion", renamed)
+
+
+def _migrate_v38_pair_review_backfill(conn: sqlite3.Connection) -> None:
+    """v38 schema (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation"): the tables ``pair_review_items`` and ``pair_review_verdicts`` come from the schema script. This step fills the queue once from the Jev shadow records that exist in ``documents.meta`` (candidate state of now, ``snapshot_source='current'``), and marks the work in ``meta``. Idempotent (A3): it runs at each start and does nothing after the first fill; a repeated insert is ignored."""
+    if not _table_exists(conn, "pair_review_items") or not _table_exists(conn, "documents"):
+        return
+    if conn.execute("SELECT 1 FROM meta WHERE key=?", (PAIR_REVIEW_BACKFILL_KEY,)).fetchone():
+        return
+    from . import pair_review
+
+    added = pair_review.backfill_from_records(conn)
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (PAIR_REVIEW_BACKFILL_KEY, str(added)))
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

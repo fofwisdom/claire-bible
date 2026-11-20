@@ -209,7 +209,7 @@ def test_manifest_v2_and_checksum_cover_review_tables(exported: dict[str, Any]) 
     manifest = exported["manifest"]
     assert manifest["bundle_version"] == 4
     review = manifest["review"]
-    assert review["schema_version"] == 3
+    assert review["schema_version"] == 4
     assert review["shadow_decisions"] == 1
     assert review["shadow_pairs_scored"] == 2
     assert review["decisions"] == 2

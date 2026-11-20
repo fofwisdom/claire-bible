@@ -3040,6 +3040,129 @@ def create_app(
 
         return await asyncio.to_thread(_work)
 
+    # --- Entity pair review (schema v38, JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation") -------------------------
+    # Any account that can read the knowledge base of an item can give a verdict (owner decision 2026-11-20). The frontend comes later.
+
+    def _pair_review_account(request: Request) -> int:
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return int(principal.account_id)
+
+    def _readable_kb_ids(request: Request) -> list[int]:
+        return [kb.id for kb in theme_mgr.list_kbs(include_private=True) if _kb_decide(request, kb, "read") == "allow"]
+
+    def _pair_item_id(request: Request) -> int:
+        try:
+            return int(request.path_params["item_id"])
+        except (KeyError, ValueError):
+            raise HTTPException(status_code=404, detail="pair_item_not_found") from None
+
+    async def pair_review_items_route(request: Request) -> JSONResponse:
+        """``GET /api/me/pair-review/items?limit=N``: items that wait for a verdict of the account (default 5, at most 20), with the rule text. Items without a pre-label get one first (Gemini Decisions API, server key); a blind item hides it until the verdict."""
+        account_id = _pair_review_account(request)
+        try:
+            limit = int(request.query_params.get("limit", "5"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="limit_invalid") from None
+        if limit < 1 or limit > 20:
+            raise HTTPException(status_code=400, detail="limit_invalid")
+        kb_ids = _readable_kb_ids(request)
+        live = getattr(request.app.state, "settings", s)
+
+        def _work() -> dict[str, Any]:
+            from ..extract import decisions_prelabel
+            from ..extract.same_entity_rule import SAME_ENTITY_FALSE, SAME_ENTITY_RULE_VERSION, SAME_ENTITY_TRUE
+            from ..store import pair_review
+
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                items = pair_review.pending_items_for(conn, account_id=account_id, readable_kb_ids=kb_ids, limit=limit)
+                missing = pair_review.items_without_prelabel(items)
+                if missing:
+                    results = decisions_prelabel.prelabel(missing, api_key=str(getattr(live, "gemini_api_key", "") or ""))
+                    pair_review.store_prelabels(conn, results)
+                    conn.commit()
+                    items = [dict(pair_review.get_item(conn, int(it["id"])) or it, _counts=it["_counts"]) for it in items]
+                views = [pair_review.item_view(it, account_id=account_id, counts=it["_counts"]) for it in items]
+            finally:
+                conn.close()
+            return {
+                "rule": {"version": SAME_ENTITY_RULE_VERSION, "same": SAME_ENTITY_TRUE, "different": SAME_ENTITY_FALSE},
+                "verdicts": list(pair_review.VERDICTS),
+                "items": views,
+            }
+
+        return JSONResponse(await asyncio.to_thread(_work))
+
+    async def pair_review_verdict_route(request: Request) -> JSONResponse:
+        """``PUT`` or ``DELETE /api/me/pair-review/items/{item_id}/verdict``: the account gives, changes, or removes its verdict. Body of PUT: ``{"verdict": "same" | "different" | "unsure", "note": "..."}``. Answer: the item with the pre-label (shown after the verdict) and the verdict counts; 404 ``pair_item_not_found``; 400 ``verdict_invalid``."""
+        account_id = _pair_review_account(request)
+        item_id = _pair_item_id(request)
+        verdict, note = None, ""
+        if request.method == "PUT":
+            body = await _json_object(request)
+            if set(body) - {"verdict", "note"} or "verdict" not in body:
+                raise HTTPException(status_code=400, detail="verdict_invalid")
+            verdict, note = body["verdict"], body.get("note") or ""
+            from ..store import pair_review as _pr
+
+            if verdict not in _pr.VERDICTS or not isinstance(note, str) or len(note) > _pr.NOTE_MAX:
+                raise HTTPException(status_code=400, detail="verdict_invalid")
+        kb_ids = set(_readable_kb_ids(request))
+
+        def _work() -> JSONResponse:
+            from ..store import pair_review
+
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                item = pair_review.get_item(conn, item_id)
+                if item is None or int(item["kb_id"]) not in kb_ids:
+                    return JSONResponse({"error": "pair_item_not_found"}, status_code=404)
+                if verdict is None:
+                    if not pair_review.delete_verdict(conn, item_id=item_id, account_id=account_id):
+                        return JSONResponse({"error": "verdict_not_found"}, status_code=404)
+                else:
+                    pair_review.set_verdict(conn, item_id=item_id, account_id=account_id, verdict=verdict, note=note)
+                conn.commit()
+                own = pair_review.own_verdict(conn, item_id, account_id)
+                view = pair_review.item_view(item, account_id=account_id, counts=pair_review.item_counts(conn, item_id), own=own)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True, "item": view})
+
+        return await asyncio.to_thread(_work)
+
+    async def pair_review_stats_route(request: Request) -> JSONResponse:
+        """``GET /api/me/pair-review/stats``: the verdicts of the account by value, and the count of items that wait for it."""
+        account_id = _pair_review_account(request)
+        kb_ids = _readable_kb_ids(request)
+
+        def _work() -> dict[str, Any]:
+            from ..store import pair_review
+
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return pair_review.account_stats(conn, account_id=account_id, readable_kb_ids=kb_ids)
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_work))
+
+    async def admin_pair_review_report_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/pair-review/report``: the server administrator reads the routine evaluation report of all knowledge bases (design R5). It shows the gate; it changes no role."""
+
+        def _work() -> dict[str, Any]:
+            from ..store import pair_review
+
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return pair_review.report(conn)
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_work))
+
     async def admin_themes_judge_route(request: Request) -> JSONResponse:
         """``POST /api/admin/themes/judge``: the admin starts a run of the judgement (design Section 8.2 rule 10)."""
 
@@ -6722,6 +6845,10 @@ def create_app(
         Route("/api/admin/reputations", admin_reputations_route, methods=["GET", "HEAD"]),
         Route("/api/admin/expansion/shadow", admin_expansion_shadow_route, methods=["GET", "HEAD"]),
         Route("/api/admin/expansion/shadow/{record_id}/verdict", admin_expansion_shadow_verdict_route, methods=["PUT"]),
+        Route("/api/me/pair-review/items", pair_review_items_route, methods=["GET", "HEAD"]),
+        Route("/api/me/pair-review/items/{item_id}/verdict", pair_review_verdict_route, methods=["PUT", "DELETE"]),
+        Route("/api/me/pair-review/stats", pair_review_stats_route, methods=["GET", "HEAD"]),
+        Route("/api/admin/pair-review/report", admin_pair_review_report_route, methods=["GET", "HEAD"]),
         Route("/api/admin/reputations/settings", admin_reputation_settings_route, methods=["PUT"]),
         Route("/api/admin/themes", admin_themes_route, methods=["GET", "HEAD", "POST"]),
         Route("/api/admin/themes/settings", admin_themes_settings_route, methods=["PUT"]),

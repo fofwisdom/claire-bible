@@ -87,9 +87,11 @@ SYSTEM = {
     # Automatic contribution and mutual collaboration (Sections 9.9, 9.10)
     "/api/kb/similar", "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
     "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
+    # Entity pair review: verdicts of people on Jev shadow pairs (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation", schema v38)
+    "/api/me/pair-review/items", "/api/me/pair-review/items/{item_id}/verdict", "/api/me/pair-review/stats",
 }
 # The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2), and reviews the shadow records of the same-subject source merge (EXPANSION.md §3.1).
-SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), *((m, "/api/admin/expansion/shadow") for m in ("GET", "HEAD")), ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge")}
+SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), *((m, "/api/admin/expansion/shadow") for m in ("GET", "HEAD")), ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"), *((m, "/api/admin/pair-review/report") for m in ("GET", "HEAD")), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge")}
 ADMIN_KEYS = {
     *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),

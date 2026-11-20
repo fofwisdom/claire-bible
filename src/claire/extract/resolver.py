@@ -381,10 +381,12 @@ def resolve_or_create(
     # 병합이 후보를 변경하기 전 상태로 미리 읽는다: Jev shadow 입력이 병합 결과를 보지 않게 하기 위함
     loaded = {owner_id: dbm.get_entity(conn, owner_id, kb_id=kb_id) for owner_id, _ in ordered}
     shadow_call = None
+    candidate_snapshots: dict[str, dict[str, Any]] = {}
     if shadow is not None and any(loaded.values()):
+        candidate_snapshots = {oid: snapshot_of(c) for oid, c in loaded.items() if c is not None}
         shadow_call = shadow.submit(
             entity_snapshot(name, etype, aliases, observations),
-            [(oid, snapshot_of(c)) for oid, c in loaded.items() if c is not None],
+            list(candidate_snapshots.items()),
         )
 
 
@@ -412,6 +414,7 @@ def resolve_or_create(
         # Collect shadow scores at finish and attach them to candidate trace entries.
         if shadow is not None and shadow_call is not None:
             dec.shadow, noul = shadow.collect(shadow_call)
+            dec.candidate_snapshots = candidate_snapshots
             for entry in trace:
                 if entry["id"] in noul:
                     entry["jev_noul"] = noul[entry["id"]]

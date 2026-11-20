@@ -37,7 +37,8 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 34 | 직전 version (아래 "v34" 절) | `kf_outbound_offers.automatic` |
 | 35 | 직전 version (아래 "v35" 절) | 링크 확장 원천 이름(`raw_inbox.source`), 동일 주제 출처 병합의 shadow 기록(`same_subject_shadow`) |
 | 36 | 직전 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
-| 37 | 현재 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
+| 37 | 직전 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
+| 38 | 현재 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
 | 38 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
@@ -343,6 +344,12 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v37 (sources of a personal knowledge base for other readers)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 37`.
+- **[코드] 버전 상수**: v37 도입 당시 `SCHEMA_VERSION`은 37이었다(현재 값은 아래 "v38" 절).
 - **[코드]** The step `_migrate_v37_personal_source_public` runs at each start, after the step v36, and is idempotent (`_ensure_column`). It adds `accounts.personal_source_public` (`INTEGER NOT NULL DEFAULT 1`, 0 or 1). Each account of v36 and each new account gets 1: each reader sees the sources, as before v37 (owner decision 2026-11-18). With 0 only the account sees them. No other row changes. The rule of the responses is in [`ACCOUNTS.md`](ACCOUNTS.md) ("출처 공개").
 - **[테스트]** `tests/test_schema_v37.py`.
+
+## v38 (entity pair review)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 38`.
+- **[코드]** The schema script makes `pair_review_items` (one row for each queued pair of a Jev shadow decision: knowledge base, document, decision index and time, candidate, reasons, snapshots of the two entities, outcome, Jev score and model, pre-label, rule version; unique on document, index, time, and candidate; deleted with its document and its knowledge base) and `pair_review_verdicts` (one verdict for each item and account: `same`, `different`, or `unsure`, note, blind flag, rule version; deleted with its item and, by the account data cleanup, with its account). The step `_migrate_v38_pair_review_backfill` runs at each start, after the step v37: once (mark `meta.pair_review_backfill_v38`) it makes items from the shadow records that exist in `documents.meta` (`snapshot_source='current'`). No other row changes. Rules: [GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5.5.
+- **[테스트]** `tests/test_schema_v38.py`.

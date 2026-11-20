@@ -169,3 +169,6 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 플러그인 버전 | **플러그인 리비전 · 추종 커밋** | Plugin Revision · Core Commit | `revision`, `core_commit` | 버전은 이 두 값이다(`r3 @ 6010d69b`). 리비전은 커밋된 변경마다 1씩 오른다. 추종 커밋은 작성자가 기준으로 삼은 코어 커밋의 40자 해시다. "기여 리비전"(`kb_contribution_revisions`)과 다르다. API 수준(`api`)은 버전이 아니라 호환성 필드다 |
 | 배타 선택 | **겹침** | Overlap | `overlap_group`, 상태 `overlap`, 오류 `plugin_overlap` | 같은 유형의 두 플러그인이 같은 종류·이름의 항목이나 같은 호스트를 가지면 겹친다(`*`는 제외). 겹침 그룹에서 하나만 켤 수 있다 |
 | 판정 권한 없는 평가 | **Jev shadow 평가** | Jev Shadow Evaluation | `shadow.role = "shadow"` | 같은 후보를 Jev에 동시 질의하고 결과만 판정 기록에 남긴다 ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5) |
+| Jev shadow 쌍을 사람이 판정 | **엔티티 쌍 검토** | Entity Pair Review | `pair_review_items`, `pair_review_verdicts`, `/api/me/pair-review` | 정보가 있는 shadow 쌍을 대기열에 넣고, 그 지식 베이스를 읽을 수 있는 계정이 판정한다. 판정 2개 이상, 2/3 이상 일치가 합의 라벨이다 ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5.5) |
+| 제3 엔진의 미리 낸 답 | **사전 라벨** | Pre-label | `prelabel_*`, `decisions_prelabel` | Gemini Decisions API의 확률. 라벨로 세지 않고 사람 판정과 비교만 한다. 10건 중 3건은 판정 전까지 숨긴다 |
+| 동일 엔티티 기준 | **동일 엔티티 규칙** | Same-Entity Rule | `same_entity_rule.py`, `SAME_ENTITY_RULE_VERSION` | LLM 판정, Jev, 사전 라벨, 사람 판정이 함께 쓰는 한 기준. 버전·에디션·제품과 회사·넓은 개념과 좁은 개념은 다른 것이다 |

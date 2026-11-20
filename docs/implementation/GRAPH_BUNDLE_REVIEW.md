@@ -13,10 +13,13 @@ This document tells what the code does now. Anchors are file paths and symbol na
 | `src/claire/extract/decision.py` | `ResolutionDecision`, `HeatmapMatrixData`, `attach_resolution_meta`, `get_resolution_log_from_meta`, `rollback_resolution`, `get_all_resolution_decisions`, `build_fallback_matrix`, `evaluate_decision_matrix` |
 | `src/claire/extract/resolver.py` | `resolve_or_create` (gated resolution), `_execute_reversible_merge`, `_trace_entry`, constants `AUTO_MERGE`, `CANDIDATE_FLOOR`, `MAX_JUDGE`, `ACRONYM_MIN` |
 | `src/claire/extract/jev.py` | `JevClient`, `JevShadow`, `make_jev_shadow`, `build_same_entity_request`, `parse_noul_answers`, `entity_snapshot` |
+| `src/claire/extract/same_entity_rule.py` | The one rule for "same entity": `SAME_ENTITY_RULE_VERSION`, `SAME_ENTITY_TRUE`, `SAME_ENTITY_FALSE` (Jev criteria, LLM judge prompt, pre-label, review) |
+| `src/claire/extract/decisions_prelabel.py` | `prelabel`, `build_request`: pre-labels from the Gemini Decisions API |
+| `src/claire/store/pair_review.py` | Entity pair review: `queue_reasons`, `enqueue_decisions`, `backfill_from_records`, `pending_items_for`, `set_verdict`, `consensus`, `report` |
 | `src/claire/ingest/pipeline.py` | Calls the resolver with the Jev settings, writes `resolution_log` and `heatmap_matrix` into `documents.meta`, sends the `heatmap_matrix` progress event |
 | `src/claire/graph_bundle.py` | `create_graph_bundle`, `import_graph_bundle`, `GRAPH_BUNDLE_FORMAT_VERSION`, `GRAPH_BUNDLE_TTL_SECONDS` |
 | `src/claire/graph_bundle_review.py` | `export_review_evidence`, `count_review_tables`, `REVIEW_SCHEMA_VERSION`, `REVIEW_TABLES` |
-| `src/claire/api/server.py` | `rollback_resolution_route`, `resolution_decisions_route`, `create_graph_bundle_route`, `download_graph_bundle_route` |
+| `src/claire/api/server.py` | `rollback_resolution_route`, `resolution_decisions_route`, `create_graph_bundle_route`, `download_graph_bundle_route`, `pair_review_items_route`, `pair_review_verdict_route`, `pair_review_stats_route`, `admin_pair_review_report_route` |
 | `src/claire/static/js/app.js` | `renderHeatmapMatrix`, `renderMiniMatrixBannerHtml`, `renderDecisionStreamCenter`, `triggerRollback`, `isDecisionStreamEnabledForActiveTheme` |
 | `src/claire/static/js/reader.js` | `renderReader`: heatmap banner on top of a document |
 | `scripts/verify_jev_system1.py` | Offline Jev benchmark on a golden set, with the Go / No-Go gate |
@@ -115,6 +118,21 @@ When the candidate loop starts, `_finish` writes:
 - Owner decision 2026-11-20: Jev has no decision role, whatever the administrator selects. The filter and hybrid modes (2026-11-15) are removed from the code and from the console. Reason: the evaluation of 2026-11-20 ([`JEV_EVALUATION.md`](JEV_EVALUATION.md)) did not show the precision for a decision role.
 - [measured] The filter mode was used in production from 2026-11-16 to 2026-11-18. Records of that time keep the outcome `jev_filtered`; their `shadow` record has no `role`. The bundle gives them `jev_role = "filter"` (§6.2).
 
+### 5.5 Entity pair review (schema v38) [code]
+
+Design: [`JEV_SHADOW_EVALUATION_DESIGN.md`](../design/JEV_SHADOW_EVALUATION_DESIGN.md) section "Routine evaluation". The backend is ready; the frontend (a page and a request in a popup) comes later.
+
+- **One rule** (`same_entity_rule.py`, version `2026-11-20`). The Jev criteria, the LLM judge prompt (`judge_same_entity_prompt`, rules 3 and 4), the pre-label, and the rule text of the review API use the same text. [decision] owner, 2026-11-20.
+- **Queue** (`queue_reasons`). A candidate pair of a decision with a shadow record goes to `pair_review_items` for one or more reasons, in this order: `disagree` (Jev ≥ 0.5 and judge different, or Jev < 0.5 and judge same), `invariant` (Jev ≥ 0.5 and Gate 2 rejected the pair), `merged` (the decision merged the pair), `near_variant` (the words of one name contain the words of the other, the names share at least half of their words, or they differ only in a version or edition mark), `sample` (about 5% of the other pairs with a Jev score, by a hash of the key). The pipeline adds the items after it writes `resolution_log`, only when the Jev shadow ran; the item keeps the pre-merge snapshot of the candidate (`ResolutionDecision.candidate_snapshots`, in memory only; `snapshot_source='decision'`). The step v38 makes items once from the old records with the candidate state of that time (`snapshot_source='current'`).
+- **Who gives a verdict.** Each signed-in account, for the items of the knowledge bases that it can read (`_kb_decide(..., "read")`). [decision] owner, 2026-11-20: the verdicts of the administrator and the moderators alone are too few. A member never sees an item of a private knowledge base of another account.
+- **Pre-label** (`decisions_prelabel.prelabel`). When `GET /api/me/pair-review/items` gives an item without a pre-label, the server asks the Gemini Decisions API (`gemini-decision-1`, `client.decisions.create`, server Gemini key of the live settings) first: one request for each decision, one `noul` question for each item, criteria of the one rule. The answer goes to the item (`prelabel_noul`, `prelabel_confidence`, `prelabel_status` `ok`, `no_key`, or `error:<type>`); a failure never stops the answer. No paid-tier rule: [decision] owner, 2026-11-20 — the data is public information, and the use of the inputs to improve the products is acceptable.
+- **Blind share** (`is_blind`). For 3 of 10 pairs of item and account (a hash), the item has `prelabel: null` and `prelabel_hidden: true` until the account gives a verdict. [decision] owner, 2026-11-20.
+- **Verdicts** (`set_verdict`, `delete_verdict`). `same`, `different`, or `unsure`, an optional note of up to 500 characters, one for each item and account; a new verdict replaces the old one. The row keeps the blind flag and the rule version.
+- **Consensus** (`consensus`). An item has a label when it has at least 2 verdicts `same` or `different` and at least 2/3 of them agree; `unsure` does not count. An item with a label does not go to more accounts. Order of the items for an account: items one verdict short of a label first, then the reason order above, then the oldest.
+- **Report** (`report`; `GET /api/admin/pair-review/report`, `claire pair-review report`). Only labels by consensus count. Items (by reason, with label, positives), verdicts (accounts, blind), Jev for each model version (TP, FP, FN, TN, precision with the 95% Wilson lower bound, recall, false-positive rate at 0.5, 0.7, 0.9; latency p95), the LLM judge on the same items, false merges of the pipeline, the pre-label against the label and its agreement with the judge, and the agreement of single verdicts with the pre-label for blind and shown items (anchoring check). The gate part gives the positives now against the 150 that the gate needs. The report changes no role.
+- **Deletion.** An item goes with its document and its knowledge base (foreign keys); a verdict goes with its item and, in the data cleanup of a removed account, with its account (`accounts._gc_account_disk_artifacts`).
+- [unverified] The calibration of the pre-label probabilities (vendor claim). The share of the 5% sample that has positives.
+
 ---
 
 ## 6. Graph bundle
@@ -128,16 +146,18 @@ When the candidate loop starts, `_finish` writes:
 - The procedure that uses a bundle for graph checks in development mode: [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §11.2.
 - The review evidence has only the decisions and heatmaps of the exported documents (`_export_decisions_and_heatmaps`). The source database has the documents of all knowledge bases of the server, thus a document of another knowledge base never goes into the bundle.
 
-### 6.2 Review evidence tables (`REVIEW_SCHEMA_VERSION = 3`) [code]
+### 6.2 Review evidence tables (`REVIEW_SCHEMA_VERSION = 4`) [code]
 
 | Table | Content | Source |
 | :--- | :--- | :--- |
-| `review_meta` | Key-value JSON: `review_schema_version`, `generated_at`, `thresholds`, `pipeline`, `coverage`, `embeddings`, `candidate_pairs`, `judge_calls`, `shadow` | Settings and the sections below |
+| `review_meta` | Key-value JSON: `review_schema_version`, `generated_at`, `thresholds`, `pipeline`, `coverage`, `embeddings`, `candidate_pairs`, `judge_calls`, `shadow`, `pair_review` (the §5.5 report of the exported items) | Settings and the sections below |
 | `review_decisions` | One row for each `resolution_log` item: all record fields; JSON for `rollback_payload`, `candidates`, `input_snapshot`, `gate_params`, `shadow` | `documents.meta` |
 | `review_heatmaps` | `generated_by`, row and column counts, thresholds, `created_at` | `documents.meta["heatmap_matrix"]` |
 | `review_candidate_pairs` | `entity_a < entity_b`, `score`, `band` | Stored entity embeddings |
 | `review_judge_calls` | `judge_same_entity` and `judge_relationship` calls: time, document, provider, model, input size, duration, status | `telemetry.db` |
 | `review_shadow_pairs` | One row for each traced candidate of a decision with a `shadow` record: names, types, origin, vector score, outcome, `judge_ms`, `jev_noul`, Jev status and model, final stage and decision, `merged`, and (schema 3) `decided_at`, `jev_role`, `jev_latency_ms` | `documents.meta` |
+| `review_pair_items` (schema 4) | The entity pair review items of the exported documents, all columns (§5.5) | `pair_review_items` |
+| `review_pair_verdicts` (schema 4) | Their verdicts without the account and without the note: `item_id`, `contributor` (a number for each account in this bundle: 1, 2, ...), `verdict`, `blind`, `rule_version`, times | `pair_review_verdicts` |
 
 Rules:
 
@@ -182,5 +202,8 @@ Design: [SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md](../design/SHARED_KNOWLEDGE
 | `tests/test_safe_gating_resolver.py` | Gate order and candidate trace outcomes, `input_snapshot`, `gate_params` |
 | `tests/test_jev_shadow.py` | Request contract, `noul` parsing, error status, circuit, settings gate, accounts that get Jev (administrator with server credentials and with a personal key; no member), resolver integration (no decision change, pre-merge candidate state, Gate 1 makes no call, FTS merge `score=None`) |
 | `tests/test_feature_routing_and_lineage.py` | Jev never changes a decision (low and high scores), Jev gets the candidates that Gate 2 rejects, `not_reached` keeps the name |
+| `tests/test_schema_v38.py` | Entity pair review: queue reasons, one-time fill from old records, pre-merge snapshots from the resolver, verdicts, consensus, report, blind share, deletion with an account |
+| `tests/test_decisions_prelabel.py` | Gemini Decisions pre-label: one request for each decision with the one rule, answers, failures, SDK resource |
+| `tests/test_e2e_pair_review.py` | Members get items with pre-labels, give verdicts, consensus, private knowledge base, admin report, CLI report, bundle tables without accounts |
 | `tests/test_decision_stream_and_heatmap.py` | Decision record round trip, `fallback_vector` heatmap regardless of Jev settings, matrix purge from the document and the active ingest, purge route authorization |
 | `tests/test_resolution_benchmark.py`, `tests/eval_resolution_benchmark.py` | Resolution benchmark harness (`src/claire/extract/benchmark.py`) |

@@ -27,7 +27,7 @@ def test_a_v36_database_gets_the_column_with_public_sources(tmp_path: Path):
 
     conn = _db(tmp_path)
     try:
-        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 37
+        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION
         assert [tuple(r) for r in conn.execute("SELECT id, personal_source_public FROM accounts ORDER BY id")] == [(1, 1), (2, 1)]
         store = accounts_store.AccountStore(conn)
         assert store.get(2).personal_source_public is True

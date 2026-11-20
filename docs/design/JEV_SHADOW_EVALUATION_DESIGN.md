@@ -1,6 +1,6 @@
 # TypeSafe AI Jev Shadow Evaluation
 
-- **Status**: Shadow evaluation implemented. Jev has only the shadow role (owner decision 2026-11-20; the filter and hybrid modes of 2026-11-15 are removed). Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow role), §6.2 (shadow evidence in bundles). The Go / No-Go evaluation (Section "Evaluation") is a process, not code. Results of each run: [`JEV_EVALUATION.md`](../implementation/JEV_EVALUATION.md) (first run 2026-11-20). Section "Routine evaluation" is a design that is not implemented.
+- **Status**: Shadow evaluation implemented. Jev has only the shadow role (owner decision 2026-11-20; the filter and hybrid modes of 2026-11-15 are removed). Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow role), §6.2 (shadow evidence in bundles). The Go / No-Go evaluation (Section "Evaluation") is a process, not code. Results of each run: [`JEV_EVALUATION.md`](../implementation/JEV_EVALUATION.md) (first run 2026-11-20). Section "Routine evaluation": the backend is implemented ([`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5.5, schema v38); the frontend (a page and a request in a popup) and R7 are not.
 - **Date**: 2026-10-31 · condensed 2026-11-16 · shadow only and routine evaluation 2026-11-20
 - **Related**: [GOALS.md](../GOALS.md) track 2 (extraction and linking quality), [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
 
@@ -45,7 +45,7 @@ Two errors made the earlier picture wrong:
 
 Jev has only the shadow role, whatever the administrator selects. The filter and hybrid modes (owner decision 2026-11-16) are removed. Reason: the first evaluation (2026-11-20) gave No-Go; 3 positives cannot show the precision for a decision role. A later role change needs a new owner decision, based on the routine evaluation below.
 
-## Routine evaluation (design, 2026-11-20, not implemented)
+## Routine evaluation (design, 2026-11-20; backend implemented)
 
 ### Problem
 
@@ -67,18 +67,18 @@ R2. **Queue the pairs that carry information.** A pair goes to the review queue 
 
 A pair is in the queue once; the record keeps all its reasons.
 
-R3. **A third engine gives a pre-label; a person gives the label** (owner proposal 2026-11-20). The pre-label engine is the Gemini Decisions API (`gemini-decision-1`): one request for each decision, one `noul` question for each queued pair, the same rule text as R6. The person sees the pre-label and accepts it or changes it. Conditions from the API documentation:
+R3. **A third engine gives a pre-label; a person gives the label** (owner proposal and decision 2026-11-20). The pre-label engine is the Gemini Decisions API (`gemini-decision-1`): one request for each decision, one `noul` question for each queued pair, the same rule text as R6. The person sees the pre-label and accepts it or changes it. Conditions from the API documentation:
 - The API returns probabilities only (`noul` 0.01 to 0.99 and `confidence`), no reason. Thus the card shows the evidence (names, types, aliases, observations, and links to the source documents of both entities), not a reason.
 - The API has no web search and no stated knowledge cutoff. A new product name (as in the Astra pair) can be outside its knowledge. A pre-label is never a label: only the verdict of a person counts in the report.
-- The paid tier only. On the free tier the inputs are used to improve the products. The data region is not stated. The data goes to Google, as decision 11 says for Jev; only the administrator account (decision 9).
+- No paid-tier rule (owner decision 2026-11-20): the data is public information for the mosaic intelligence of people, thus the use of the inputs to improve the products is acceptable. The data region is not stated. The data goes to Google, as decision 11 says for Jev; only data of the jobs of the administrator account (decision 9).
 - The judge of the administrator is also a Gemini model. The report shows the agreement of the pre-label with the judge, so that a shared error of the two Google models can be seen.
-- Anchoring: a person who sees a pre-label agrees more often. Proposal (agent): one item in ten is shown without the pre-label until the person answers; the report compares the agreement rate of the two groups.
+- Anchoring: a person who sees a pre-label agrees more often. Three of ten pairs of item and account show no pre-label until the person answers (owner decision 2026-11-20); the report compares the agreement rate of the two groups.
 
-R4. **Verdict in the WebUI, as for the expansion shadow.** A review card on the administrator console, as the card "동일 주제 출처 병합 검토" ([`EXPANSION.md`](../implementation/EXPANSION.md)): verdicts `same`, `different`, `unsure`, an optional note, the account and the time. A table in the server database keyed by (document, decision sequence, candidate) keeps the queue reasons, the pre-label, the verdict, and the rule version. The CLI only lists and reports. Pre-labels are requested in batches when the administrator opens the queue: no background process, and no cost when nobody reviews.
+R4. **Verdicts from all users** (owner decision 2026-11-20). The verdicts of the administrator and the moderators alone come slowly and give few measurements. Each signed-in account can help: later a dedicated page, or a request in a popup that the user can answer. The backend comes first; the frontend comes later. An account gets only items of the knowledge bases that it can read. Verdicts `same`, `different`, `unsure`, an optional note, the account and the time; one verdict for each item and account. A table in the server database keeps the queue items (with the entity snapshots, so that an item stands alone after later merges), and a second table keeps the verdicts. The label of an item is the consensus of the verdicts (agent decision: at least 2 verdicts `same` or `different`, and 2/3 of them agree). The CLI only lists and reports. Pre-labels are requested in batches when an account gets items: no background process, and no cost when nobody reviews.
 
 R5. **The report comes from the records and the verdicts.** For each model version and period: pairs, scored pairs, Jev latency p50 and p95, input tokens; Jev precision, recall, and false-positive rate at 0.5, 0.7, and 0.9 with the 95% Wilson lower bound; the judge on the same pairs; false merges of the pipeline; the filter simulation; positives with a verdict against the about 150 that the gate needs; the agreement of the pre-label with the person and with the judge; the queue size. The console card shows it, and the bundle gets the verdict table and the report (review schema 4). The report shows the gate result; it changes no role.
 
-R6. **One rule for "same entity".** The person, Jev, the judge, and the pre-label engine must use one rule, else the comparison measures the rule difference. Now the Jev criteria say that versions, editions, a product and its vendor, and a broad and a narrow concept are different; the judge prompt (`judge_same_entity_prompt`) does not. One rule text in one place; each verdict keeps the rule version. The content of the rule is an owner decision (open).
+R6. **One rule for "same entity".** The person, Jev, the judge, and the pre-label engine must use one rule, else the comparison measures the rule difference. Owner decision 2026-11-20: the rule of the Jev criteria (versions, editions, a product and its vendor, and a broad and a narrow concept are different) is the rule of all; the judge prompt takes it. One rule text in one place (`same_entity_rule.py`); each verdict keeps the rule version.
 
 R7. **A judge failure is not a judge answer.** Now a failed judge call returns `False` and the trace records `judge_different` (all providers). Before the report counts the judge, the trace must record a failure as its own outcome.
 
@@ -88,11 +88,12 @@ R7. **A judge failure is not a judge answer.** Now a failed judge call returns `
 - The Google AI Studio provider writes no telemetry rows, thus the judge calls of that provider are not in `review_judge_calls` of a bundle. The bundle (review schema 3) has the judge latency from the trace for all providers.
 - The candidate state in a bundle is the state at bundle time, not at decision time. The review card shows the current state and the observation count at decision time (`cand_obs_count`). [unverified] How often a later merge changes a candidate so much that the verdict changes.
 
-### Open items for the owner
+### Decisions of the owner (2026-11-20)
 
-1. The rule of R6, and whether the judge prompt takes it.
-2. The pre-label engine (Gemini Decisions API, paid tier) and its data going to Google.
-3. The blind share of R3 (proposal: one in ten).
+1. R6: one rule, the rule of the Jev criteria; the judge prompt takes it.
+2. R3: the Gemini Decisions API gives the pre-label; no paid-tier rule.
+3. R3: three of ten without the pre-label first.
+4. R4: verdicts from all users who can read the knowledge base of an item; backend first.
 
 ## Limits for later changes
 

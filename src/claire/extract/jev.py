@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from ..ontology.base import Entity
+from .same_entity_rule import SAME_ENTITY_FALSE, SAME_ENTITY_TRUE
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +46,7 @@ SAME_ENTITY_INSTRUCTIONS = (
     "Do new_entity and candidates.{key} refer to the same real-world entity, "
     "so that they should be merged into one knowledge-graph node?"
 )
-SAME_ENTITY_CRITERIA = {
-    "true": (
-        "The same referent written differently: spelling or case variant, alias, abbreviation or acronym, "
-        "translation, or a rename or rebrand of the same thing."
-    ),
-    "false": (
-        "Different referents, including different versions, releases, editions, sizes or variants of a product; "
-        "a product and its vendor; a person and their organization or work; rival, related or successor "
-        "products; a broad concept and a narrower one."
-    ),
-}
+SAME_ENTITY_CRITERIA = {"true": SAME_ENTITY_TRUE, "false": SAME_ENTITY_FALSE}
 
 
 class JevError(Exception):

@@ -109,10 +109,10 @@ The lowest Jev probability of a positive is 0.79. Thus 0.20 keeps a large margin
 
 ### 1.8 Open items for the owner
 
-- Confirm the labels: the Astra pair, and the suspect merges in section 1.7 item 2. The owner does not know the Astra pair; the routine evaluation gives such pairs a pre-label from a third engine and a verdict from a person ([`JEV_SHADOW_EVALUATION_DESIGN.md`](../design/JEV_SHADOW_EVALUATION_DESIGN.md) section "Routine evaluation").
-- Choose one rule for "same entity" for the judge and for Jev (design R6).
+- Confirm the labels: the Astra pair, and the suspect merges in section 1.7 item 2. The step v38 puts the pairs of the shadow records into the entity pair review queue (the Astra pair with the reason `near_variant`), where a pre-label and the verdicts of people give the label ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) §5.5). The nine suspect merges have no shadow record (they are older than the shadow, or from 2026-11-19 when the personal key context had no Jev) and do not go to the queue; the owner checks them in the decision stream.
 
 ### 1.9 Decisions after this run [decision]
 
 - Owner, 2026-11-20: Jev has only the shadow role; the filter and hybrid modes are removed ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) §5.4).
 - Owner, 2026-11-20: the jobs of the administrator account call Jev also with the personal key of the administrator, so that evaluation data comes in again (§5.1 there).
+- Owner, 2026-11-20: one rule for "same entity" (the rule of the Jev criteria) for the judge, Jev, the pre-label, and people; a routine evaluation with verdicts from all users who can read the knowledge base of an item (§5.5 there).

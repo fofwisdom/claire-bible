@@ -337,6 +337,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/members",
         "/submissions",
         "/api/reputation",
+        "/api/me/pair-review/items",
+        "/api/me/pair-review/stats",
         "/api/auto-rule",
         "/api/kb/similar",
         "/api/kb/remote-grants",
@@ -405,6 +407,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/me/password",
     }
     owner_methods = {
+        ("PUT", "/api/me/pair-review/items/{item_id}/verdict"),
+        ("DELETE", "/api/me/pair-review/items/{item_id}/verdict"),
         ("PUT", "/api/auto-rule"),
         ("PUT", "/api/contribution-blocks/{document}"),
         ("DELETE", "/api/contribution-blocks/{document}"),
@@ -526,6 +530,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),
         *((m, "/api/admin/expansion/shadow") for m in ("GET", "HEAD")), ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"),
+        *((m, "/api/admin/pair-review/report") for m in ("GET", "HEAD")),
         *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
         *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(

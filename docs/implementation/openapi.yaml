@@ -1386,6 +1386,103 @@ paths:
         '200':
           description: '`{"mode": "off" | "shadow", "report": {"records", "judged", "pending", "tp", "fp", "fn", "tn", "precision", "recall", "accuracy"}, "records": [{"id", "parent": {"document_id", "title", "url"}, "child": {"document_id", "title", "url"}, "same_subject", "relevance", "quality", "interpretation", "reason", "created_at", "verdict", "verdict_note", "verdict_at"}]}`. A metric is null when its denominator is 0.'
 
+  /api/me/pair-review/items:
+    get:
+      summary: Entity pair review items that wait for a verdict of the account (schema v38)
+      operationId: listPairReviewItems
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 20, default: 5}
+          description: 400 `limit_invalid` outside 1 to 20.
+      responses:
+        '200':
+          description: '`{"rule": {"version", "same", "different"}, "verdicts": ["same", "different", "unsure"], "items": [{"id", "kb_id", "document_id", "decided_at", "reasons", "new_entity", "candidate", "snapshot_source", "rule_version", "prelabel_hidden", "prelabel", "verdict_counts", "consensus"}]}`. Only items of knowledge bases that the account can read. A blind item has `prelabel: null` and `prelabel_hidden: true` until the verdict.'
+        '404':
+          description: 'No signed-in account.'
+
+  /api/me/pair-review/items/{item_id}/verdict:
+    put:
+      summary: Give or change the verdict of the account on one item
+      operationId: setPairReviewVerdict
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict: {type: string, enum: [same, different, unsure]}
+                note: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: '`{"ok": true, "item": {..., "prelabel", "my_verdict": {"verdict", "note", "blind", "rule_version", "created_at", "updated_at"}}}`'
+        '400':
+          description: '`verdict_invalid`'
+        '404':
+          description: '`pair_item_not_found` (also for an item of a knowledge base that the account cannot read)'
+    delete:
+      summary: Remove the verdict of the account on one item
+      operationId: deletePairReviewVerdict
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: '`{"ok": true, "item": {...}}`'
+        '404':
+          description: '`pair_item_not_found` or `verdict_not_found`'
+
+  /api/me/pair-review/stats:
+    get:
+      summary: Verdicts of the account and the items that wait for it
+      operationId: pairReviewStats
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"verdicts", "by_verdict": {"same", "different", "unsure"}, "waiting"}`'
+
+  /api/admin/pair-review/report:
+    get:
+      summary: Routine evaluation report of the entity pair review (Jev, LLM judge, pre-label against the consensus of people)
+      operationId: pairReviewReport
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"rule_version", "consensus_rule", "items", "verdicts", "jev_by_model", "judge", "pipeline_merges", "prelabel", "gate"}`. It shows the gate; it changes no role.'
+
   /api/admin/expansion/shadow/{record_id}/verdict:
     put:
       summary: Give the human verdict of one shadow record

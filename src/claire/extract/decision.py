@@ -34,9 +34,13 @@ class ResolutionDecision:
     input_snapshot: dict[str, Any] | None = None  # 판정 시점 신규 엔티티 입력
     gate_params: dict[str, Any] | None = None  # 판정 시점 임계값 및 질의 임베딩 유효성
     shadow: dict[str, Any] | None = None  # Jev shadow 평가 메타 (docs/implementation/GRAPH_BUNDLE_REVIEW.md §5); 판정에 관여하지 않음
+    # Pre-merge snapshots of the candidates that Jev got ({candidate id: snapshot}). Only in memory: the pipeline gives them to the entity pair review queue; to_dict does not write them.
+    candidate_snapshots: dict[str, dict[str, Any]] | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("candidate_snapshots", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResolutionDecision:
