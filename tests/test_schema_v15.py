@@ -237,12 +237,6 @@ def test_new_credentials_record_admin_account() -> None:
     assert row["account_id"] == 1
     assert row["authenticated_at"] is not None
 
-    nonce = dbm.create_auth_nonce(conn)
-    assert conn.execute("SELECT account_id FROM auth_sessions WHERE nonce=?", (nonce,)).fetchone()[0] == 1
-    approved = dbm.approve_auth_nonce(conn, nonce)
-    assert approved
-    assert conn.execute("SELECT authenticated_at FROM auth_sessions WHERE nonce=?", (nonce,)).fetchone()[0]
-
     req = dbm.create_oauth_auth_request(conn, "cli", "https://x/cb", "ch")
     code = dbm.approve_oauth_auth_request(conn, req)
     assert code

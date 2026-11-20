@@ -3576,47 +3576,6 @@ def log_extraction(
     conn.commit()
 
 
-def create_auth_nonce(conn: sqlite3.Connection, *, ttl: float = 600.0) -> str:
-    """웹 접속 승인 요청 nonce 생성(승인 대기 ttl초). 추측 불가 토큰."""
-    nonce = secrets.token_urlsafe(16)
-    now = time.time()
-    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
-    conn.execute(
-        "INSERT INTO auth_sessions(nonce,approved,created_at,expires_at,account_id) VALUES (?,0,?,?,?)",
-        (nonce, now, now + ttl, ADMIN_ACCOUNT_ID))
-    conn.commit()
-    return nonce
-
-
-def approve_auth_nonce(
-    conn: sqlite3.Connection, nonce: str, *, session_ttl: float = 86400.0
-) -> str | None:
-    """[봇 콜백] 미승인·미만료 nonce 를 승인하고 세션 토큰 발급(만료 갱신). 없으면 None."""
-    row = conn.execute(
-        "SELECT expires_at FROM auth_sessions WHERE nonce=? AND approved=0", (nonce,)
-    ).fetchone()
-    if row is None or row["expires_at"] < time.time():
-        return None
-    token = secrets.token_urlsafe(32)
-    now = time.time()
-    # 텔레그램 버튼 승인은 사람이 방금 인증한 시점이다(단계 인증 §8.5).
-    conn.execute(
-        "UPDATE auth_sessions SET approved=1, session_token=?, expires_at=?, authenticated_at=? WHERE nonce=?",
-        (token, now + session_ttl, now, nonce))
-    conn.commit()
-    return token
-
-
-def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
-    """[웹 폴링] 승인됐으면 세션 토큰 반환(미승인/만료면 None)."""
-    row = conn.execute(
-        "SELECT session_token, approved, expires_at FROM auth_sessions WHERE nonce=?",
-        (nonce,)).fetchone()
-    if row and row["approved"] and row["expires_at"] >= time.time():
-        return row["session_token"]
-    return None
-
-
 # 웹 세션 슬라이딩 수명(초). 남은 수명이 절반 아래로 내려갔을 때만 갱신해
 # 인증 요청마다 SQLite writer lock을 잡지 않는다.
 SESSION_TTL = 7 * 86400.0
@@ -3646,7 +3605,7 @@ def plausible_session_token(token: str) -> bool:
 
 
 def revoke_all_sessions(conn: sqlite3.Connection) -> int:
-    """모든 세션/대기 nonce 무효화. 반환: 삭제 행 수."""
+    """모든 세션 무효화. 반환: 삭제 행 수."""
     n = conn.execute("DELETE FROM auth_sessions").rowcount
     conn.commit()
     return n

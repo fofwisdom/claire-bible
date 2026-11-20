@@ -1,6 +1,6 @@
 """동일 주제 출처 병합(same_subject) — docs/implementation/EXPANSION.md §3. 네트워크 없이 mock provider 로 검증.
 
-자동 확장은 병합하지 않는다(소유자 결정, 2026-11-18): 모드 "off"(기본)는 판정을 버리고, 모드 "shadow"는 판정을 same_subject_shadow 에 기록한다. 두 모드 모두 자식을 독립 문서로 적재한다. 병합 함수(merge_source_into_document)는 부르는 코드가 없지만 남아 있으므로 직접 부르는 테스트로 검증한다.
+자동 확장은 병합하지 않는다(소유자 결정, 2026-11-18): 모드 "off"(기본)는 판정을 버리고, 모드 "shadow"는 판정을 same_subject_shadow 에 기록한다. 두 모드 모두 자식을 독립 문서로 적재한다. 예전 병합이 남긴 extra_sources 는 데이터로 남을 수 있으므로 후보 제외만 검증한다.
 
 mock provider 훅(judge_gate, extract/provider.py):
   - report/context 에 '무관' → 저품질(게이트 거절)
@@ -19,10 +19,9 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 
 PARENT = "https://parent.example/post"
-SAME_SUBJECT = "https://same.example/repo"     # same_subject=True 기본값 → 병합 대상
+SAME_SUBJECT = "https://same.example/repo"     # same_subject=True 기본값
 OTHER_SUBJECT = "https://other.example/post"   # '별개주제' 훅 → 독립 문서
 LOW_QUALITY = "https://low.example/post"       # '무관' 훅 → 게이트 거절
-EXISTING_DUP = "https://existing.example/already-ingested"  # SAME_SUBJECT 와 내용(content_hash) 동일 — 이미 독립 문서로 존재
 
 
 def _patch_fetch(monkeypatch, fn):
@@ -59,11 +58,6 @@ def _fetch(payload):
                     title="별개 프로젝트")
     if payload == LOW_QUALITY:
         return _doc(LOW_QUALITY, "무관한 다른 주제의 내용. " * 20)
-    if payload == EXISTING_DUP:
-        # SAME_SUBJECT 와 완전히 동일한 본문(= 동일 content_hash) — URL 만 다른 "같은 자료의
-        # 다른 입구"(실사고: twclid 같은 트래킹 파라미터로 canonicalize_url 이 못 거른 경우).
-        return _doc(EXISTING_DUP, "그 프로젝트의 github 저장소 본문. " + body,
-                    title="같은 주제의 github 저장소")
     raise RuntimeError(f"unexpected fetch {payload}")
 
 
@@ -71,21 +65,6 @@ def _svc(monkeypatch, tmp_path, mode="off"):
     s = _mem(monkeypatch, tmp_path).model_copy(update={"same_subject_merge": mode})
     _patch_fetch(monkeypatch, _fetch)
     return s, IngestService(s)
-
-
-def _merge(s, svc, parent_id, url):
-    """Call the merge function as the old expansion branch did (no caller in the service now)."""
-    from claire.store.vectors import make_vector_store
-
-    conn = dbm.connect(s.db_file); dbm.init_db(conn)
-    try:
-        vstore = make_vector_store(conn, s.vector_backend, kb_id=svc.kb_id)
-        parent_full = dbm.get_document(conn, parent_id, kb_id=svc.kb_id)
-        return pipemod.merge_source_into_document(
-            conn, svc.provider, vstore, parent_full, _fetch(url),
-            data_dir=s.data_dir, format=s.render_format, kb_id=svc.kb_id, settings=s)
-    finally:
-        conn.close()
 
 
 def test_off_mode_stores_each_child_as_its_own_document(monkeypatch, tmp_path):
@@ -163,65 +142,19 @@ def test_low_quality_still_skipped_before_subject_check(monkeypatch, tmp_path):
     conn.close()
 
 
-def test_merge_function_puts_the_child_into_the_parent(monkeypatch, tmp_path):
-    s, svc = _svc(monkeypatch, tmp_path)
-    parent = svc.ingest(PARENT, source="cli", expand_max=0)
-    m = _merge(s, svc, parent.document_id, SAME_SUBJECT)
-
-    assert m["merged"] is True
-    conn = dbm.connect(s.db_file); dbm.init_db(conn)
-    assert dbm.find_document_by_canonical_url(conn, SAME_SUBJECT) is None
-    assert dbm.find_document_by_extra_source(conn, SAME_SUBJECT) == parent.document_id
-    assert "github 저장소 본문" in dbm.get_document_row(conn, parent.document_id)["raw_text"]
-    conn.close()
-
-
-def test_merge_failure_rolls_back_to_pre_merge_snapshot(monkeypatch, tmp_path):
-    s, svc = _svc(monkeypatch, tmp_path)
-    parent = svc.ingest(PARENT, source="cli", expand_max=0)
-    conn = dbm.connect(s.db_file); dbm.init_db(conn)
-    original_text = dbm.get_document_row(conn, parent.document_id)["raw_text"]
-    conn.close()
-
-    def boom(doc, ontology_block=None):
-        raise RuntimeError("simulated extract failure")
-
-    monkeypatch.setattr(svc.provider, "extract", boom)
-    m = _merge(s, svc, parent.document_id, SAME_SUBJECT)
-
-    assert m["merged"] is False and m["error"]
-    conn = dbm.connect(s.db_file); dbm.init_db(conn)
-    row = dbm.get_document_row(conn, parent.document_id)
-    assert row["raw_text"] == original_text  # 병합 시도 이전 상태로 복원
-    assert dbm.get_document_extra_sources(conn, parent.document_id) == []
-    conn.close()
-
-
 def test_merged_source_url_not_reproposed_as_candidate(monkeypatch, tmp_path):
     s, svc = _svc(monkeypatch, tmp_path)
     parent = svc.ingest(PARENT, source="cli", expand_max=0)
-    _merge(s, svc, parent.document_id, SAME_SUBJECT)  # 예전에 병합된 출처(데이터에 남아 있을 수 있음)
-
     conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    # 예전 병합이 남긴 출처(데이터에 남아 있을 수 있음).
+    row = dbm.get_document_row(conn, parent.document_id)
+    dbm.update_document_content(
+        conn, parent.document_id, title=row["title"], raw_text=row["raw_text"],
+        content_hash=row["content_hash"], fetched_at=row["fetched_at"],
+        meta={"extra_sources": [{"url": SAME_SUBJECT, "canonical_url": SAME_SUBJECT}]})
     other_parent_doc = _doc(
         "https://another-parent.example/post", "다른 부모 문서",
         links=[SAME_SUBJECT])
     cands = find_candidates(conn, other_parent_doc, limit=5)
     assert SAME_SUBJECT not in cands  # 이미 다른 문서에 병합 출처로 흡수됨
-    conn.close()
-
-
-def test_merge_function_refuses_a_child_that_exists_as_a_document(monkeypatch, tmp_path):
-    """2026-07-14 실사고 재현: child 가 canonicalize_url 로 못 거른 URL 변형 등으로 이미 독립 문서로 존재하면(content_hash 일치) 병합하지 않는다."""
-    s, svc = _svc(monkeypatch, tmp_path)
-    existing = svc.ingest(EXISTING_DUP, source="cli", expand_max=0)
-    assert not existing.error and not existing.duplicate
-    parent = svc.ingest(PARENT, source="cli", expand_max=0)
-    m = _merge(s, svc, parent.document_id, SAME_SUBJECT)
-
-    assert m["merged"] is False and "duplicate" in m["error"]
-    conn = dbm.connect(s.db_file); dbm.init_db(conn)
-    assert "github 저장소 본문" not in dbm.get_document_row(conn, parent.document_id)["raw_text"]
-    assert dbm.get_document_extra_sources(conn, parent.document_id) == []
-    assert dbm.find_document_by_canonical_url(conn, EXISTING_DUP) == existing.document_id
     conn.close()

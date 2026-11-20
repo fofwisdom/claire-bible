@@ -104,8 +104,8 @@ AdminThemeScope = AccountThemeScope
 
 # 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(서버 세션·토큰·전체 현황을 다루기 때문이다).
 ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webro", "token", "status"})
-# 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
-ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
+# 운영자 봇에서만 받는 콜백(OAuth 승인 푸시).
+ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("oauth_appr:", "oauth_deny:")
 # The commands of the Telegram command menu, in menu order. The description of each command is the catalog key ``bot.command.<name>``.
 COMMAND_MENU: tuple[str, ...] = ("kb", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webro", "failed", "retry", "start")
 
@@ -1828,7 +1828,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             query.from_user.id if query.from_user else None,
         )
         if not is_admin_bot and data.startswith(ADMIN_ONLY_CALLBACK_PREFIXES):
-            # 멤버 계정 봇은 웹 로그인·OAuth 승인 콜백을 처리하지 않는다(위조 콜백 방지).
+            # 멤버 계정 봇은 OAuth 승인 콜백을 처리하지 않는다(위조 콜백 방지).
             return
         if data.startswith("oauth_appr:"):
             user = update.effective_user
@@ -2074,23 +2074,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     await query.edit_message_text(_plain(msg_text))
             except Exception as e:
                 await query.answer(_t("bot.theme.change_failed", error=e))
-            return
-        if data.startswith("auth:"):
-            # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
-            user = update.effective_user
-            if not _is_allowed(user.id if user else None):
-                return
-
-            conn = dbm.connect(svc.s.db_file)
-            try:
-                dbm.init_db(conn)
-                tok = dbm.approve_auth_nonce(conn, data[5:])
-            finally:
-                conn.close()
-            # 메시지 편집 = 버튼 제거(reply_markup 미지정 → 제거).
-            await query.edit_message_text(
-                _t("bot.web.approved")
-                if tok else _t("bot.web.approval_expired"))
             return
         if data.startswith("no:"):
             # 거절: 진행/결과 메시지를 아예 삭제(스팸 감소 — 적재 결과는 원본 reaction 으로

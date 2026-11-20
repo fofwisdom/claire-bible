@@ -14,7 +14,7 @@
 
 1. **[코드] 계정은 두 DB에 걸친다.** 계정 행과 자격증명의 계정 귀속은 `data/claire.db`(계정 스키마는 v15에서 도입)에, 비밀번호 해시·로그인 실패 기록·감사 기록은 `data/auth/auth.db`에 있다. 두 DB를 한 트랜잭션으로 묶지 않는다. 쓰기 순서는 §5.1에 있다.
 2. **[코드] 관리자는 `accounts.id = 1` 하나다.** 상수는 `src/claire/store/db.py`의 `ADMIN_ACCOUNT_ID`이고 `src/claire/store/accounts.py`가 다시 내보낸다. `idx_accounts_single_admin`이 `role='admin'` 행을 하나로 제한한다.
-3. **[코드] P1의 기존 자격증명 발급 경로는 모두 관리자 계정으로 기록한다.** `create_session`, `create_auth_nonce`, `approve_auth_nonce`, `create_oauth_code`, `create_oauth_token`, `approve_oauth_auth_request`(모두 `src/claire/store/db.py`)와 `TokenStore.create_token`(`src/claire/store/token_store.py`)의 기본값이 `ADMIN_ACCOUNT_ID`다. 코드 주석은 P3 L3-e에서 명시 인자로 바꾼다고 적는다.
+3. **[코드] P1의 기존 자격증명 발급 경로는 모두 관리자 계정으로 기록한다.** `create_session`, `create_oauth_code`, `create_oauth_token`, `approve_oauth_auth_request`(모두 `src/claire/store/db.py`)와 `TokenStore.create_token`(`src/claire/store/token_store.py`)의 기본값이 `ADMIN_ACCOUNT_ID`다. 코드 주석은 P3 L3-e에서 명시 인자로 바꾼다고 적는다.
 4. **[결정] 운영 서버에 접근하지 않는다.** 검증은 개발 모드와 단위 테스트로 한다.
 
 ## 1. 파일 지도
@@ -79,7 +79,7 @@
 | 상시 API·MCP 토큰 | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 그 항목을 무시한다(경고 로그) | `api:<id>` | None |
 | OAuth 액세스 토큰 | `oauth_tokens.account_id` | 행 값. NULL이면 거부 | 토큰 SHA-256 hex 앞 16자 | None |
 | 세션(쿠키·`X-Session`·Bearer로 보낸 세션 토큰) | `auth_sessions.account_id`, `authenticated_at` | 행 값. NULL이면 거부 | `nonce` SHA-256 hex 앞 16자(토큰 회전에도 유지) | cookie·x-session 채널에서만 행 값. Bearer로 보낸 세션은 None |
-| 텔레그램 승인·CLI 매직 링크 | `auth_sessions`(`approve_auth_nonce`, `create_session`) | P1에서는 관리자(1) | 세션과 같음 | 발급·승인·링크 교환 시각 |
+| CLI·텔레그램 매직 링크 | `auth_sessions`(`create_session`) | P1에서는 관리자(1) | 세션과 같음 | 발급·링크 교환 시각 |
 
 - **[코드] 검증 순서(Bearer)**: API 토큰 → 환경변수 토큰 → OAuth 토큰 → 세션 토큰(cross-origin이 아닐 때). 그다음 계정 행을 읽고 상태를 확인한다(`_bind_account`). 환경변수 토큰만 계정 행을 읽지 않는다.
 - **[코드] 익명**: 자격증명 없이 `read` 규칙 라우트에 익명 대체가 일어나면 `ANONYMOUS`.
@@ -117,7 +117,7 @@
 ### 5.3 단계 인증과 `/api/auth/reauth`
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
-- **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), 텔레그램 승인(`approve_auth_nonce`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
+- **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
 - **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):

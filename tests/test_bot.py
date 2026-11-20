@@ -1785,9 +1785,9 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     update, msg = _update(42)
     await handlers["on_help"](update, ctx)
     assert "/web " not in msg.reply_text.call_args[0][0] and "/search" in msg.reply_text.call_args[0][0]
-    # 웹 로그인 승인 콜백은 처리하지 않는다.
+    # 운영자 전용 콜백(OAuth 승인)은 처리하지 않는다.
     query = AsyncMock()
-    query.data = "auth:nonce"
+    query.data = "oauth_appr:request"
     cb_update = MagicMock()
     cb_update.callback_query = query
     cb_update.effective_user = SimpleNamespace(id=42)

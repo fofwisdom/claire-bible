@@ -280,8 +280,6 @@ YouTube has its own fetcher in the project plugin `claire.youtube` (`fetch_youtu
 - `stt_custom_vocabulary`, else `DEFAULT_CUSTOM_VOCABULARY`, goes into the prompt.
 - Timestamps are rebased to the full audio.
 
-`src/claire/extract/transcript/antigravity_stt.py` has transcript parsing helpers only; the factory does not return an Antigravity STT provider. [code]
-
 ### 9.4 Media cache
 
 `src/claire/store/video_cache.py` keeps a downloaded media file in `data/cache/video/` when STT fails after the download, for `video_cache_ttl_sec` (default 259,200 s, three days). The next fetch of the same URL uses the cached file. A file smaller than 1 KiB is deleted. The cached file is deleted after a successful transcript or a failed STT on the cached file. `claire video-reprocess` uses the same path. [code]

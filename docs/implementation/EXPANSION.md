@@ -73,16 +73,9 @@ The columns `verdict` (`same`: the child is the same subject as the parent, so t
 
 The records follow the documents: a purge (`purge_document_cascade`) deletes the records of a purged parent or child, `dedup-merge` moves them to the keeper, and the deletion of a knowledge base, the reset of a knowledge base, the purge of an account, and the conversion to a shared knowledge base delete the rows of that knowledge base. [code]
 
-### 3.2 The merge function (no caller)
+### 3.2 Merged sources of earlier merges
 
-`merge_source_into_document` in `src/claire/ingest/pipeline.py` stays for a later decision, with its tests. No code calls it now. What it does: [code]
-
-1. It refuses the merge when the child already exists as another document: same `content_hash`, same `canonical_url`, or a near duplicate (`near_duplicate_document`, parent excluded). The error is `duplicate: already exists as document <id>`.
-2. It appends `{url, canonical_url, title, source_type, added_at}` to `meta["extra_sources"]`.
-3. It appends the child text to the parent raw text after a separator line, a `[추가 출처: <title>]` line, and the child URL. The stored text is not cut.
-4. `dbm.update_document_content` writes the new text, a new content hash, and the new meta. `save_artifact` writes the merged text as the artifact of the parent.
-5. `extract_resolve_store` runs again with the parent ID.
-6. On any failure, it writes the snapshot of the parent row back and returns `{"merged": False, "error": ...}`. Entities and relations that the failed run already committed stay.
+The merge function is removed (owner request 2026-11-21). The idea of a document merge is in [REVERSIBLE_MERGE_IDEAS.md](../ideas/REVERSIBLE_MERGE_IDEAS.md). [code]
 
 Documents that earlier merges made keep their `extra_sources`. A document with `extra_sources` gets the merged extraction budget (`effective_merged_extract_char_budget`, [INGESTION.md](INGESTION.md) §7.2) and the longer detail prompt with retries (`_MERGED_DETAIL_MIN_CHARS`, 1000). [code]
 
@@ -92,7 +85,7 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
 
 ## 5. Tests
 
-`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, the merge function), `tests/test_schema_v35.py` (source names, shadow records, telemetry), `tests/test_schema_v36.py` (the verdict columns of a v35 database, verdicts and report, account scope), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts through the admin API, and the report command), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section and the review card). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
+`tests/test_same_subject_merge.py` (modes off and shadow, the refused value, no new candidate for a merged source), `tests/test_schema_v35.py` (source names, shadow records, telemetry), `tests/test_schema_v36.py` (the verdict columns of a v35 database, verdicts and report, account scope), `tests/test_e2e_same_subject_shadow.py` (setting, records, verdicts through the admin API, and the report command), `tests/test_expand.py`, `tests/test_expand_automatic.py`, `tests/test_research.py`, and `e2e/admin_limits.spec.js` (the WebUI section and the review card). The mock provider (`MockProvider` in `src/claire/extract/provider.py`) returns `same_subject=False` only when the text has `별개주제`, rejects text with `무관`, and skips candidates with `skip` in the URL or anchor. [code]
 
 ## 6. Known limits
 

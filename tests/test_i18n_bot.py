@@ -18,7 +18,7 @@ from starlette.testclient import TestClient
 
 from claire import notify, telegram_bot
 from claire.config import Settings
-from claire.i18n import get_locale, t, use_locale
+from claire.i18n import get_locale, t
 from claire.store import db as dbm
 from claire.store.accounts import AccountStore
 
@@ -225,35 +225,6 @@ def test_push_locale_chain() -> None:
     assert notify.push_locale(None, SimpleNamespace(ui_lang="ko")) == "ko"
     assert notify.push_locale(None, SimpleNamespace(ui_lang="")) == "en"
     assert notify.push_locale(None, None) == "en"
-
-
-def test_approval_button_and_expiry_text_localize(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent: list[dict] = []
-
-    class _Resp:
-        status_code = 200
-
-        @staticmethod
-        def json() -> dict:
-            return {"result": {"message_id": 7}}
-
-    def fake_post(url: str, **kw: object) -> _Resp:
-        sent.append({"url": url, "json": kw.get("json")})
-        return _Resp()
-
-    monkeypatch.setattr(notify.httpx, "post", fake_post)
-    assert notify.send_approval_button("TOKEN", 5, "prompt", "nonce1", locale="en") == 7
-    assert notify.send_approval_button("TOKEN", 5, "prompt", "nonce1", locale="ko") == 7
-    buttons = [item["json"]["reply_markup"]["inline_keyboard"][0][0] for item in sent]
-    assert [b["text"] for b in buttons] == ["✅ Approve web access", "✅ 웹 접속 승인"]
-    assert {b["callback_data"] for b in buttons} == {"auth:nonce1"}
-
-    sent.clear()
-    assert notify.expire_button("TOKEN", 5, 7, locale="en") is True
-    with use_locale("ko"):
-        assert notify.expire_button("TOKEN", 5, 7) is True
-    assert notify.expire_button("TOKEN", 5, 7, "custom") is True
-    assert [item["json"]["text"] for item in sent] == ["⏱ The approval request is expired. Try again on the web.", "⏱ 승인 요청이 만료되었습니다. 웹에서 다시 시도하세요.", "custom"]
 
 
 @dataclass
