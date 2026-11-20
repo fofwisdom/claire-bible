@@ -22,6 +22,7 @@ docs/
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
+│   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합, KF0–KF6 구현, 남은 일 KA1–KA5, 루트 페이지 최근 활동 형태는 design/prototypes/recent_activity_prototypes.html 평가 대기(KD15)
 │   ├── KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md  # Phase 3 미구현
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /accounts·/themes로, 계정 간 발행 본문은 기여로 대체
@@ -44,7 +45,6 @@ docs/
 │   ├── I18N_DESIGN.md                     # ID1–ID6 → I18N.md
 │   ├── INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md  # → INGESTION.md
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md  # 원문 보존·관측성 원칙 → INGESTION.md
-│   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # → GRAPH_BUNDLE_REVIEW.md, 평가 결과 JEV_EVALUATION.md
 │   ├── LLM_PRESENTATION_AUTHORING_AND_COMPOSITION_DESIGN.md  # → PRESENTATION.md
 │   ├── MARKDOWN_RETIREMENT_DESIGN.md      # RD22–RD25 → DOCUMENT_FORMAT.md
 │   ├── MCP_SUPPORT.md                     # → API_AND_MCP_GUIDE.md, 미구현 제안 MP1–MP4
@@ -71,7 +71,7 @@ docs/
 │   ├── EXTRACTION.md           # 추출·엔티티 해소·온톨로지·임베딩·문서 간 링크
 │   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1–FP4: 내부 연합 API, 탐색, 팔로워, 발행, 연합 클라이언트, 원격 읽기, 피드)
 │   ├── GLOSSARY.md             # 용어 정의: 지식 코어 데이터 모델 및 시스템 표준 용어집
-│   ├── GRAPH_BUNDLE_REVIEW.md  # 그래프 번들, 해소 판정 기록·히트맵·판단 기록 스트림, 검토 증거, Jev 평가
+│   ├── GRAPH_BUNDLE_REVIEW.md  # 그래프 번들, 해소 판정 기록·히트맵·판단 기록 스트림, 검토 증거, Jev shadow 평가, 엔티티 쌍 검토(사람 판정·사전 라벨·정기 평가 보고서)
 │   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라)과 페이지 조립·정적 자산
 │   ├── I18N.md                 # 인터페이스 언어: 카탈로그, 언어 결정 순서, 번역 범위, 검색 토크나이저
 │   ├── JEV_EVALUATION.md       # Jev 평가 절차의 실행 결과 (라벨, 정밀도·재현율, 관문, 역할)
