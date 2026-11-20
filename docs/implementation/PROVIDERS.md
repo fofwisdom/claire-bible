@@ -1,6 +1,6 @@
 # LLM·STT·VLM 프로바이더 구현 정본
 
-기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md), [ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](../design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
+기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
 
 이 문서는 **지금 코드가 어떤 프로바이더를 어떻게 분류·선택·격리하고 호출하는지**를 적는다. 줄 번호 대신 파일 경로와 함수·상수 이름을 기준점으로 삼는다.
 

@@ -7,7 +7,6 @@
   - [`../PRINCIPLES.md`](../PRINCIPLES.md)
   - [`INGEST_ADAPTER_PLUGIN_DESIGN.md`](INGEST_ADAPTER_PLUGIN_DESIGN.md)
   - [`MCP_SUPPORT.md`](MCP_SUPPORT.md)
-  - [`ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md`](ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md)
   - [`../implementation/GLOSSARY.md`](../implementation/GLOSSARY.md)
   - [`../implementation/PROVIDERS.md`](../implementation/PROVIDERS.md)
   - [`../implementation/API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md)
