@@ -17,17 +17,14 @@ docs/
 │   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md  # Phase 3–4 미구현
 │   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # 에이전트 주도 추출·agent_client 플러그인 유형·장기 임베딩 EOS 수명주기 제안(AEQ1–AEQ9 소유자 답변 대기), 미구현
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
-│   ├── DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md  # 완전 가역 병합·UI 롤백 미구현
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합, KF0–KF6 구현, 남은 일 KA1–KA5, 루트 페이지 최근 활동 형태는 design/prototypes/recent_activity_prototypes.html 평가 대기(KD15)
-│   ├── KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md  # Phase 3 미구현
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /accounts·/themes로, 계정 간 발행 본문은 기여로 대체
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
-│   ├── PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md
 │   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html (지식 연합·콘솔 배치 설계와 공용), 첫 프로토타입 shared_knowledge_federation_prototype.html은 참고용
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
 │   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3 → implementation/FEDERATION.md
@@ -35,6 +32,7 @@ docs/
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md     # → DOCUMENT_FORMAT.md
 │   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md  # → EXTRACTION.md
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md  # → DATA_LIFECYCLE.md
+│   ├── DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md  # → GRAPH_BUNDLE_REVIEW.md, 가역 병합·UI 롤백은 구상(ideas/REVERSIBLE_MERGE_IDEAS.md)
 │   ├── FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md  # → DATA_LIFECYCLE.md
 │   ├── GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md  # → GRAPH_BUNDLE_REVIEW.md
 │   ├── GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md  # → GRAPH_ENGINE.md
@@ -43,6 +41,7 @@ docs/
 │   ├── HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md  # HD1–HD14 → WEBUI.md
 │   ├── I18N_DESIGN.md                     # ID1–ID6 → I18N.md
 │   ├── INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md  # → INGESTION.md
+│   ├── KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md  # → EXTRACTION.md, 2홉 누락 링크는 구상(ideas/MISSING_LINK_DISCOVERY_IDEAS.md)
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md  # 원문 보존·관측성 원칙 → INGESTION.md
 │   ├── LLM_PRESENTATION_AUTHORING_AND_COMPOSITION_DESIGN.md  # → PRESENTATION.md
 │   ├── MARKDOWN_RETIREMENT_DESIGN.md      # RD22–RD25 → DOCUMENT_FORMAT.md
@@ -51,6 +50,7 @@ docs/
 │   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md  # → THEMES.md
 │   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md  # → INGESTION.md
 │   ├── PER_ACCOUNT_FEATURES_DESIGN.md     # PA1–PA4 → ACCOUNTS.md
+│   ├── PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md  # → PUBLIC_SITE.md, 남은 색인 항목은 구상(ideas/PUBLIC_SITE_INDEXING_IDEAS.md)
 │   ├── PREFERRED_LANGUAGES_DESIGN.md      # → EXTRACTION.md
 │   ├── QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md  # → PROVIDERS.md, EXTRACTION.md
 │   ├── TABLE_INGESTION_DESIGN.md          # → INGESTION.md

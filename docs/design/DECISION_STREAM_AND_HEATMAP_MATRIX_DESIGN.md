@@ -1,6 +1,6 @@
 # Resolution Decision Stream, Heatmap Matrix, and Safe Gating
 
-- **Status**: Partly implemented. Implemented: the decision record in document metadata, the gated resolver, the rollback payload with a rollback function and an owner API, the heatmap (local matrix only), and the decision stream view; see [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §2 to §4. Planned, not implemented: full reversible merge (Section "Planned"). The rollback button is off because the rollback is not tested, and the decision stream pages are off for all themes and can be removed ([`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md) §2).
+- **Status**: Implemented. Design principles only. Implemented: the decision record in document metadata, the gated resolver, the rollback payload with a rollback function and an owner API, the heatmap (local matrix only), and the decision stream view; see [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §2 to §4. The rollback button is off because the rollback is not tested, and the decision stream pages are off for all themes and can be removed ([`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md) §2). The full reversible merge, the soft merge of documents, and the rollback in the UI are now ideas: [`REVERSIBLE_MERGE_IDEAS.md`](../ideas/REVERSIBLE_MERGE_IDEAS.md) (owner, 2026-11-20).
 - **Date**: 2026-09-27 · condensed 2026-11-16
 - **Related**: [GOALS.md](../GOALS.md) track 2 (extraction and linking quality), [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [JEV_SHADOW_EVALUATION_DESIGN.md](JEV_SHADOW_EVALUATION_DESIGN.md), [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md)
 
@@ -37,12 +37,6 @@ Thus every gate is designed for zero false merges first, and recall second.
 5. **Each merge is reversible by design.** The record stores what the merge added, so that a false merge can be undone without data loss.
 6. **The heatmap engine is local.** The matrix comes from recorded decision scores and lexical similarity. Jev never makes it. (An earlier plan let Jev produce the matrix; it was replaced by the shadow evaluation.)
 7. **Measure against a golden set before a new engine decides.** Categories: exact and alias matches, acronyms, true synonyms, competing tools, version splits, homonyms. The gate is zero false merges and precision at least 98%. A synthetic harness only proves the measuring rig, not the engine.
-
-## Planned, not implemented
-
-- **Full reversible merge.** The rollback payload also records moved relations and a full snapshot of an absorbed entity. Rollback then reconnects relations and can add a relation (for example `competes_with` or `related_to`) between the two restored entities.
-- **Soft merge of documents.** A document merge marks the loser document with a tombstone (`merged_into`, status `merged`) instead of a physical delete, so that its metadata and decision records stay.
-- **Rollback in the UI.** One action in the decision stream undoes a merge. It needs tests of the rollback first.
 
 ## Rejected alternatives
 

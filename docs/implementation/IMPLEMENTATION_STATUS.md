@@ -138,7 +138,7 @@ Limits:
 
 1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
 2. `evaluate_summary_verdict`는 `AntigravityProvider`에서만 돌고, 판정 결과에 따라 동작하는 코드가 없다.
-3. `multihop_candidates`는 엣지를 만들지 않는다(링킹 Phase 3은 계획).
+3. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
 4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
 5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
 6. `CLAIRE_PREFERRED_LANGUAGES`는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
