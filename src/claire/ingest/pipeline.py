@@ -19,7 +19,7 @@ from typing import Any
 
 from ..accounts.provider_policy import ProviderPolicyError, context_of
 from ..extract.provider import Provider, RelationCandidate, emit_progress
-from ..extract.resolver import resolve_or_create
+from ..extract.resolver import _call_provider_embed, resolve_or_create
 from ..ontology.base import Document, Relation
 from ..ontology.registry import (
     classify_entity_type,
@@ -29,7 +29,7 @@ from ..ontology.registry import (
 from ..store import db as dbm
 from ..store.graph import GraphStore
 from ..secret_scrub import scrub_exception, scrub_text
-from ..store.vectors import VectorStore, resolve_embed_identity
+from ..store.vectors import VectorStore, is_kb_active_space_eos, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
 from .active import active_job, clear_active_ingest, set_active_ingest, update_active_ingest
 from .fetchers.base import bound_fetch_settings
 from .router import fetch as default_fetch
@@ -1049,6 +1049,14 @@ def extract_resolve_store(
     # Jev has no decision role: it scores the same candidates at the same time and only records the result (JEV_SHADOW_EVALUATION_DESIGN.md, owner decision 2026-11-20)
     jev_shadow = make_jev_shadow(settings)
     embed_pin = resolve_embed_identity(provider, settings)
+    kb_pin = read_embed_pin(conn, tid)
+    active_sid, target_sid = read_kb_embedding_spaces(conn, tid)
+    active_eos = is_kb_active_space_eos(conn, tid)
+    eff_embed_model = embed_pin.model
+    eff_embed_provider = embed_pin.provider
+    if kb_pin is not None and kb_pin.model and target_sid and target_sid != active_sid and not active_eos:
+        eff_embed_model = kb_pin.model
+        eff_embed_provider = kb_pin.provider or embed_pin.provider
     has_embed = bool(provider.has_embed_capability()) if hasattr(provider, "has_embed_capability") else True
 
     name_to_id: dict[str, str] = {}
@@ -1068,16 +1076,12 @@ def extract_resolve_store(
             report.proposals += 1
 
         embed_callable = None
-        if has_embed:
-            def _embed(ee=ee):
+        if has_embed and not active_eos:
+            def _embed(ee=ee, _model=eff_embed_model):
                 from ..extract.frame import format_entity_frame
 
                 frame_text = format_entity_frame(ee)
-                return provider.embed(
-                    frame_text,
-                    task_type="RETRIEVAL_DOCUMENT",
-                    title=ee.name,
-                )
+                return _call_provider_embed(provider, frame_text, title=ee.name, model=_model if _model and _model != embed_pin.model else None)
 
             embed_callable = _embed
 
@@ -1092,8 +1096,9 @@ def extract_resolve_store(
             embed_fn=embed_callable, judge_fn=_judge_fn, provisional=prov,
             on_judge=_on_judge_candidate, shadow=jev_shadow,
             kb_id=tid,
-            embed_model=embed_pin.model,
-            embed_provider=embed_pin.provider,
+            embed_model=eff_embed_model,
+            embed_provider=eff_embed_provider,
+            provider=provider if has_embed else None,
         )
         ent, created = res.entity, res.created
         resolution_results.append(res)

@@ -16,11 +16,74 @@ from typing import Any, NamedTuple
 LEGACY_EMBED_MODELS: tuple[str, ...] = ("claire",)
 # MockProvider 의 sha256 의사 임베딩. 실제 모델 공간과 섞이지 않도록 별도 이름을 쓴다.
 MOCK_EMBED_MODEL = "mock-sha256"
+DEFAULT_EMBED_DIM = 3072
+DEFAULT_EMBED_EOS_DATES: dict[str, str] = {"gemini-embedding-001": "2028-05-14"}
+RETIRED_EMBED_MODELS: frozenset[str] = frozenset({"gemini-embedding-2-preview", "embedding-2-preview", "text-embedding-004", "embedding-001", "embedding-gecko-001", "gemini-embedding-exp", "gemini-embedding-exp-03-07"})
+
+
+def canonical_provider_slug(provider: str | None) -> str:
+    """Normalize provider names into canonical space_id prefix."""
+    clean = str(provider or "").strip().lower()
+    if clean in ("gemini", "google"):
+        return "google"
+    if not clean:
+        return "legacy"
+    return clean
+
+
+def infer_prompt_format_version(model: str | None) -> str:
+    """Infer prompt format version ('v2_prompt' for Gemini Embedding 2, else 'v1_param')."""
+    clean = str(model or "").strip().lower()
+    if "embedding-2" in clean:
+        return "v2_prompt"
+    return "v1_param"
+
+
+def canonical_space_id(provider: str | None, model: str | None, dim: int | None = None, prompt_format_version: str | None = None) -> str:
+    """Build canonical space_id '{provider}:{model}:{dim}:{prompt_format_version}'."""
+    clean_model = str(model or "").strip()
+    if not clean_model or is_legacy_model(clean_model):
+        return ""
+    d_val = int(dim) if dim and int(dim) > 0 else DEFAULT_EMBED_DIM
+    pfv = str(prompt_format_version or "").strip() or infer_prompt_format_version(clean_model)
+    return f"{canonical_provider_slug(provider)}:{clean_model}:{d_val}:{pfv}"
+
+
+def parse_space_id(space_id: str) -> tuple[str, str, int, str]:
+    """Parse canonical space_id into (provider, model, dim, prompt_format_version)."""
+    parts = [p.strip() for p in str(space_id or "").split(":")]
+    if len(parts) != 4 or not parts[0] or not parts[1]:
+        raise ValueError(f"Invalid embedding space_id {space_id!r}; expected 'provider:model:dim:prompt_format_version'")
+    try:
+        dim = int(parts[2])
+    except ValueError as exc:
+        raise ValueError(f"Invalid dimension in embedding space_id {space_id!r}") from exc
+    if dim <= 0:
+        raise ValueError(f"Dimension must be positive in embedding space_id {space_id!r}")
+    return parts[0], parts[1], dim, parts[3]
 
 
 class EmbedPin(NamedTuple):
     provider: str
     model: str
+
+    @property
+    def space_id(self) -> str:
+        return canonical_space_id(self.provider, self.model)
+
+    def space_id_for(self, dim: int | None = None) -> str:
+        return canonical_space_id(self.provider, self.model, dim=dim)
+
+
+class EmbeddingSpaceInfo(NamedTuple):
+    space_id: str
+    provider: str
+    model: str
+    dim: int
+    prompt_format_version: str
+    normalized: int
+    eos_date: str | None
+    status: str
 
 
 class EmbeddingModelMismatch(ValueError):
@@ -38,6 +101,120 @@ class EmbeddingModelMismatch(ValueError):
 
 def is_legacy_model(model: str | None) -> bool:
     return not model or model in LEGACY_EMBED_MODELS
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    return row is not None
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        return {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.OperationalError:
+        return set()
+
+
+def _runtime_provider_name(provider_slug: str) -> str:
+    clean = str(provider_slug or "").strip().lower()
+    if clean == "google":
+        return "gemini"
+    if clean == "legacy":
+        return ""
+    return clean
+
+
+def ensure_embedding_space(conn: sqlite3.Connection, *, provider: str, model: str, dim: int | None = None, space_id: str | None = None, status: str = "active", eos_date: str | None = None) -> str:
+    """Register or update an entry in embedding_spaces and return its canonical space_id."""
+    sid = str(space_id or canonical_space_id(provider, model, dim=dim)).strip()
+    if not sid:
+        return ""
+    if not _table_exists(conn, "embedding_spaces"):
+        return sid
+    try:
+        p_slug, m_name, d_val, pfv = parse_space_id(sid)
+    except ValueError:
+        p_slug = canonical_provider_slug(provider)
+        m_name = str(model or "").strip()
+        d_val = int(dim) if dim and int(dim) > 0 else DEFAULT_EMBED_DIM
+        pfv = infer_prompt_format_version(m_name)
+    eff_eos = eos_date if eos_date is not None else DEFAULT_EMBED_EOS_DATES.get(m_name)
+    conn.execute(
+        "INSERT INTO embedding_spaces(space_id, provider, model, dim, prompt_format_version, normalized, eos_date, status) VALUES (?, ?, ?, ?, ?, 1, ?, ?) ON CONFLICT(space_id) DO UPDATE SET status = CASE WHEN excluded.status != 'active' OR embedding_spaces.status = '' THEN excluded.status ELSE embedding_spaces.status END, eos_date = COALESCE(embedding_spaces.eos_date, excluded.eos_date)",
+        (sid, p_slug, m_name, d_val, pfv, eff_eos, status),
+    )
+    return sid
+
+
+def read_embedding_space(conn: sqlite3.Connection, space_id: str) -> EmbeddingSpaceInfo | None:
+    if not space_id or not _table_exists(conn, "embedding_spaces"):
+        return None
+    row = conn.execute(
+        "SELECT space_id, provider, model, dim, prompt_format_version, normalized, eos_date, status FROM embedding_spaces WHERE space_id=?",
+        (space_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return EmbeddingSpaceInfo(str(row[0]), str(row[1]), str(row[2]), int(row[3]), str(row[4]), int(row[5]), str(row[6]) if row[6] is not None else None, str(row[7]))
+
+
+def read_kb_embedding_spaces(conn: sqlite3.Connection, kb_id: int | None) -> tuple[str, str]:
+    """Return (active_space_id, target_space_id) for the given knowledge base."""
+    if kb_id is None:
+        return "", ""
+    cols = _table_columns(conn, "knowledge_bases")
+    if not cols or "embed_model" not in cols:
+        return "", ""
+    if "active_space_id" in cols and "target_space_id" in cols:
+        row = conn.execute(
+            "SELECT active_space_id, target_space_id, embed_provider, embed_model FROM knowledge_bases WHERE id=?",
+            (kb_id,),
+        ).fetchone()
+        if row is None:
+            return "", ""
+        active_sid = str(row[0] or "").strip()
+        target_sid = str(row[1] or "").strip()
+        if not active_sid and row[3]:
+            active_sid = canonical_space_id(str(row[2] or ""), str(row[3] or ""))
+        return active_sid, target_sid
+    row = conn.execute("SELECT embed_provider, embed_model FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
+    if row is None or not row[1]:
+        return "", ""
+    return canonical_space_id(str(row[0] or ""), str(row[1] or "")), ""
+
+
+def is_kb_active_space_eos(conn: sqlite3.Connection, kb_id: int | None) -> bool:
+    """Return True if the KB's active embedding space or pinned model is EOS-retired."""
+    if kb_id is None:
+        return False
+    pin = read_embed_pin(conn, kb_id)
+    if pin is not None and pin.model.strip().lower() in RETIRED_EMBED_MODELS:
+        return True
+    active_sid, _ = read_kb_embedding_spaces(conn, kb_id)
+    if active_sid and _table_exists(conn, "embedding_spaces"):
+        info = read_embedding_space(conn, active_sid)
+        if info is not None and info.status == "eos_retired":
+            return True
+    if pin is not None and pin.model and _table_exists(conn, "embedding_spaces"):
+        row = conn.execute(
+            "SELECT 1 FROM embedding_spaces WHERE model=? AND status='eos_retired' LIMIT 1",
+            (pin.model,),
+        ).fetchone()
+        if row is not None:
+            return True
+    return False
+
+
+def mark_space_eos_retired(conn: sqlite3.Connection, space_id_or_model: str) -> int:
+    """Mark matching embedding_spaces rows as 'eos_retired' and return updated row count."""
+    if not space_id_or_model or not _table_exists(conn, "embedding_spaces"):
+        return 0
+    cur = conn.execute(
+        "UPDATE embedding_spaces SET status='eos_retired' WHERE space_id=? OR model=?",
+        (space_id_or_model.strip(), space_id_or_model.strip()),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 def _str_attr(obj: Any, name: str) -> str:
@@ -86,14 +263,25 @@ def read_embed_pin(conn: sqlite3.Connection, kb_id: int) -> EmbedPin | None:
     return EmbedPin(str(row[0] or "").strip(), model)
 
 
-def _adopt_legacy_rows(conn: sqlite3.Connection, kb_id: int, model: str, dim: int | None) -> int:
+def _adopt_legacy_rows(conn: sqlite3.Connection, kb_id: int, model: str, dim: int | None, *, space_id: str = "") -> int:
     """모델 미기록 행을 고정 모델로 다시 적는다. 차원이 다른 행은 다른 모델이 분명하므로 두고, 검색에서 빠진다."""
     marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
-    sql = (
-        "UPDATE embeddings SET model=? WHERE kb_id=? "
-        f"AND (model IS NULL OR model='' OR model IN ({marks}))"
-    )
-    params: list[Any] = [model, kb_id, *LEGACY_EMBED_MODELS]
+    has_space_col = "space_id" in _table_columns(conn, "embeddings")
+    clean_space = str(space_id or "").strip() if has_space_col else ""
+    if has_space_col and clean_space:
+        del_sql = f"DELETE FROM embeddings WHERE kb_id=? AND space_id='' AND (model IS NULL OR model='' OR model IN ({marks}))"
+        del_params: list[Any] = [kb_id, *LEGACY_EMBED_MODELS]
+        if dim is not None:
+            del_sql += " AND dim=?"
+            del_params.append(dim)
+        del_sql += " AND EXISTS (SELECT 1 FROM embeddings e2 WHERE e2.owner_id=embeddings.owner_id AND e2.kb_id=embeddings.kb_id AND e2.space_id=?)"
+        del_params.append(clean_space)
+        conn.execute(del_sql, del_params)
+        sql = f"UPDATE embeddings SET model=?, space_id=CASE WHEN space_id='' THEN ? ELSE space_id END WHERE kb_id=? AND (model IS NULL OR model='' OR model IN ({marks}))"
+        params: list[Any] = [model, clean_space, kb_id, *LEGACY_EMBED_MODELS]
+    else:
+        sql = f"UPDATE embeddings SET model=? WHERE kb_id=? AND (model IS NULL OR model='' OR model IN ({marks}))"
+        params = [model, kb_id, *LEGACY_EMBED_MODELS]
     if dim is not None:
         sql += " AND dim=?"
         params.append(dim)
@@ -219,41 +407,99 @@ class VectorStore:
         kb_id: int | None = None,
         *,
         embed_provider: str | None = None,
+        space_id: str | None = None,
     ) -> None:
-        """벡터 저장. 테마가 아직 고정되지 않았으면 이 모델로 고정한다(원자적).
-
-        고정된 모델과 다른 모델이면 저장하지 않고 ``EmbeddingModelMismatch``를 던진다. 모델을 바꾸려면 ``replace_theme_embeddings``(re-embed)를 쓴다.
-        """
+        """Store vector into the KB active or shadow target space with fail-closed space/dimension pinning."""
         tid = self.kb_id if kb_id is None else kb_id
+        clean_model = str(model or "").strip()
+        clean_provider = str(embed_provider or "").strip()
+        dim = len(vector)
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
+        resolved_space_id = ""
+        pin: EmbedPin | None = None
+        is_shadow_write = False
         if tid is not None:
-            pinned = self._pin_if_unset(tid, model, embed_provider, len(vector))
-            if pinned is not None and pinned != model:
-                raise EmbeddingModelMismatch(tid, pinned, model)
-        self.conn.execute(
-            "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) "
-            "VALUES (?,?,?,?,?,?)",
-            (owner_id, tid, len(vector), pack_vector(vector), model, time.time()),
-        )
+            pin = read_embed_pin(self.conn, tid)
+            active_sid, target_sid = read_kb_embedding_spaces(self.conn, tid)
+            if space_id is not None:
+                resolved_space_id = str(space_id).strip()
+            else:
+                eff_provider = pin.provider if (pin is not None and pin.model == clean_model and pin.provider) else clean_provider
+                resolved_space_id = canonical_space_id(eff_provider, clean_model, dim=dim)
+            is_shadow_write = bool(target_sid and resolved_space_id and resolved_space_id == target_sid and resolved_space_id != active_sid)
+            if is_shadow_write:
+                target_info = read_embedding_space(self.conn, target_sid)
+                if target_info is not None:
+                    if clean_model and clean_model != target_info.model:
+                        raise EmbeddingModelMismatch(tid, target_info.model, clean_model)
+                    if target_info.dim > 0 and dim != target_info.dim:
+                        raise EmbeddingModelMismatch(tid, f"{target_info.model}@{target_info.dim}d", f"{clean_model}@{dim}d")
+            else:
+                pinned = self._pin_if_unset(tid, clean_model, clean_provider, dim, space_id=resolved_space_id)
+                if pinned is not None and pinned != clean_model:
+                    raise EmbeddingModelMismatch(tid, pinned, clean_model)
+                if pin is not None and has_space_col:
+                    active_dim_row = self.conn.execute(
+                        "SELECT dim FROM embeddings WHERE kb_id=? AND (space_id=? OR (space_id='' AND model=?)) LIMIT 1",
+                        (tid, active_sid, pin.model),
+                    ).fetchone()
+                    if active_dim_row is not None and active_dim_row[0] is not None and int(active_dim_row[0]) != dim:
+                        raise EmbeddingModelMismatch(tid, f"{pin.model}@{int(active_dim_row[0])}d", f"{clean_model}@{dim}d")
+                    if space_id is not None and active_sid and resolved_space_id != active_sid and active_dim_row is not None:
+                        raise EmbeddingModelMismatch(tid, active_sid, resolved_space_id)
+        else:
+            resolved_space_id = str(space_id or canonical_space_id(clean_provider, clean_model, dim=dim)).strip()
+
+        if resolved_space_id:
+            status = "shadow_building" if is_shadow_write else "active"
+            eff_space_prov = clean_provider or (pin.provider if pin is not None else "")
+            ensure_embedding_space(self.conn, provider=eff_space_prov, model=clean_model, dim=dim, space_id=resolved_space_id, status=status)
+
+        now = time.time()
+        if has_space_col:
+            if resolved_space_id and tid is not None:
+                marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
+                self.conn.execute(
+                    f"DELETE FROM embeddings WHERE owner_id=? AND kb_id=? AND space_id='' AND (model=? OR model IS NULL OR model='' OR model IN ({marks}))",
+                    (owner_id, tid, clean_model, *LEGACY_EMBED_MODELS),
+                )
+            self.conn.execute(
+                "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,space_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?,?)",
+                (owner_id, tid, resolved_space_id, dim, pack_vector(vector), clean_model, now),
+            )
+        else:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?)",
+                (owner_id, tid, dim, pack_vector(vector), clean_model, now),
+            )
         self.conn.commit()
 
     def _pin_if_unset(
-        self, kb_id: int, model: str, embed_provider: str | None, dim: int
+        self, kb_id: int, model: str, embed_provider: str | None, dim: int, *, space_id: str | None = None
     ) -> str | None:
         """고정 모델을 돌려준다. 미고정이면 ``model``로 고정하고(레거시 라벨은 고정하지 않음) 같은 차원의 레거시 행을 넘겨받는다."""
         pin = read_embed_pin(self.conn, kb_id)
         if pin is not None:
             return pin.model
         if not is_legacy_model(model):
+            sid = str(space_id or canonical_space_id(embed_provider, model, dim=dim)).strip()
+            ensure_embedding_space(self.conn, provider=embed_provider or "", model=model, dim=dim, space_id=sid, status="active")
+            kb_cols = _table_columns(self.conn, "knowledge_bases")
             try:
-                cur = self.conn.execute(
-                    "UPDATE knowledge_bases SET embed_model=?, embed_provider=? "
-                    "WHERE id=? AND (embed_model IS NULL OR embed_model='')",
-                    (model, (embed_provider or "").strip() or None, kb_id),
-                )
+                if "active_space_id" in kb_cols:
+                    cur = self.conn.execute(
+                        "UPDATE knowledge_bases SET embed_model=?, embed_provider=?, active_space_id=? WHERE id=? AND (embed_model IS NULL OR embed_model='')",
+                        (model, (embed_provider or "").strip() or None, sid or None, kb_id),
+                    )
+                else:
+                    cur = self.conn.execute(
+                        "UPDATE knowledge_bases SET embed_model=?, embed_provider=? WHERE id=? AND (embed_model IS NULL OR embed_model='')",
+                        (model, (embed_provider or "").strip() or None, kb_id),
+                    )
             except sqlite3.OperationalError:
                 return None
             if cur.rowcount == 1:
-                _adopt_legacy_rows(self.conn, kb_id, model, dim)
+                _adopt_legacy_rows(self.conn, kb_id, model, dim, space_id=sid)
                 return model
         pin = read_embed_pin(self.conn, kb_id)
         return pin.model if pin else None
@@ -270,46 +516,146 @@ class VectorStore:
         if is_legacy_model(model):
             raise ValueError(f"cannot pin theme {kb_id} to legacy embedding label {model!r}")
         now = time.time()
+        clean_provider = (embed_provider or "").strip() or None
+        dim = len(items[0][1]) if items else DEFAULT_EMBED_DIM
+        sid = canonical_space_id(clean_provider, model, dim=dim)
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
+        kb_cols = _table_columns(self.conn, "knowledge_bases")
         try:
-            self.conn.execute(
-                "UPDATE knowledge_bases SET embed_provider=?, embed_model=? WHERE id=?",
-                ((embed_provider or "").strip() or None, model, kb_id),
-            )
-            self.conn.execute(
-                "DELETE FROM embeddings WHERE kb_id=? AND (model IS NULL OR model != ?)",
-                (kb_id, model),
-            )
-            self.conn.executemany(
-                "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) "
-                "VALUES (?,?,?,?,?,?)",
-                [
-                    (owner_id, kb_id, len(vec), pack_vector(vec), model, now)
-                    for owner_id, vec in items
-                ],
-            )
+            ensure_embedding_space(self.conn, provider=clean_provider or "", model=model, dim=dim, space_id=sid, status="active")
+            if "active_space_id" in kb_cols and "target_space_id" in kb_cols:
+                self.conn.execute(
+                    "UPDATE knowledge_bases SET embed_provider=?, embed_model=?, active_space_id=?, target_space_id=NULL WHERE id=?",
+                    (clean_provider, model, sid or None, kb_id),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE knowledge_bases SET embed_provider=?, embed_model=? WHERE id=?",
+                    (clean_provider, model, kb_id),
+                )
+            self.conn.execute("DELETE FROM embeddings WHERE kb_id=?", (kb_id,))
+            if has_space_col:
+                self.conn.executemany(
+                    "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,space_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    [(owner_id, kb_id, sid, len(vec), pack_vector(vec), model, now) for owner_id, vec in items],
+                )
+            else:
+                self.conn.executemany(
+                    "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) VALUES (?,?,?,?,?,?)",
+                    [(owner_id, kb_id, len(vec), pack_vector(vec), model, now) for owner_id, vec in items],
+                )
             self.conn.commit()
         except Exception:
             self.conn.rollback()
             raise
         return len(items)
 
-    def get(self, owner_id: str, kb_id: int | None = None) -> list[float] | None:
-        tid = self.kb_id if kb_id is None else kb_id
-        if tid is not None:
-            row = self.conn.execute(
-                "SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=?", (owner_id, tid)
-            ).fetchone()
+    def start_shadow_backfill(
+        self,
+        kb_id: int,
+        *,
+        target_model: str,
+        embed_provider: str = "gemini",
+        dim: int = DEFAULT_EMBED_DIM,
+        target_space_id: str | None = None,
+    ) -> str:
+        """Register target embedding space and set knowledge_bases.target_space_id for non-blocking backfill."""
+        if is_legacy_model(target_model):
+            raise ValueError(f"cannot shadow-backfill theme {kb_id} to legacy label {target_model!r}")
+        sid = ensure_embedding_space(self.conn, provider=embed_provider, model=target_model, dim=dim, space_id=target_space_id, status="shadow_building")
+        self.conn.execute("UPDATE knowledge_bases SET target_space_id=? WHERE id=?", (sid, kb_id))
+        self.conn.commit()
+        return sid
+
+    def cutover_target_space(self, kb_id: int, *, delete_old_vectors: bool = True) -> str:
+        """Atomically promote target_space_id to active_space_id and clear stale vectors."""
+        active_sid, target_sid = read_kb_embedding_spaces(self.conn, kb_id)
+        if not target_sid:
+            raise ValueError(f"theme {kb_id} has no target_space_id staged for cutover")
+        info = read_embedding_space(self.conn, target_sid)
+        if info is not None:
+            p_slug, target_model, target_dim = info.provider, info.model, info.dim
         else:
-            row = self.conn.execute(
-                "SELECT vector FROM embeddings WHERE owner_id=?", (owner_id,)
-            ).fetchone()
+            p_slug, target_model, target_dim, _ = parse_space_id(target_sid)
+        target_count = self.count(kb_id, space_id=target_sid)
+        active_count = self.count(kb_id) if active_sid else 0
+        if target_count == 0 and active_count > 0:
+            raise ValueError(f"refusing cutover for theme {kb_id}: target space {target_sid!r} has 0 vectors while active space has {active_count}")
+        runtime_prov = _runtime_provider_name(p_slug) or None
+        try:
+            ensure_embedding_space(self.conn, provider=p_slug, model=target_model, dim=target_dim, space_id=target_sid, status="active")
+            self.conn.execute("UPDATE embedding_spaces SET status='active' WHERE space_id=?", (target_sid,))
+            if active_sid and active_sid != target_sid:
+                in_use_elsewhere = self.conn.execute(
+                    "SELECT 1 FROM knowledge_bases WHERE id != ? AND active_space_id=? LIMIT 1",
+                    (kb_id, active_sid),
+                ).fetchone()
+                if in_use_elsewhere is None:
+                    self.conn.execute(
+                        "UPDATE embedding_spaces SET status = CASE WHEN status='eos_retired' THEN 'eos_retired' ELSE 'deprecated' END WHERE space_id=?",
+                        (active_sid,),
+                    )
+            self.conn.execute(
+                "UPDATE knowledge_bases SET active_space_id=?, target_space_id=NULL, embed_provider=?, embed_model=? WHERE id=?",
+                (target_sid, runtime_prov, target_model, kb_id),
+            )
+            if delete_old_vectors:
+                self.conn.execute("DELETE FROM embeddings WHERE kb_id=? AND space_id != ?", (kb_id, target_sid))
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return target_sid
+
+    def get(self, owner_id: str, kb_id: int | None = None, *, space_id: str | None = None) -> list[float] | None:
+        tid = self.kb_id if kb_id is None else kb_id
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
+        if tid is not None:
+            if space_id is not None and has_space_col:
+                row = self.conn.execute(
+                    "SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=? AND space_id=?",
+                    (owner_id, tid, space_id),
+                ).fetchone()
+            elif has_space_col:
+                pin = read_embed_pin(self.conn, tid)
+                active_sid, _ = read_kb_embedding_spaces(self.conn, tid)
+                if pin is not None and active_sid:
+                    row = self.conn.execute(
+                        "SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=? AND (space_id=? OR (space_id='' AND model=?)) LIMIT 1",
+                        (owner_id, tid, active_sid, pin.model),
+                    ).fetchone()
+                else:
+                    row = self.conn.execute(
+                        "SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=? LIMIT 1",
+                        (owner_id, tid),
+                    ).fetchone()
+            else:
+                row = self.conn.execute("SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=?", (owner_id, tid)).fetchone()
+        else:
+            row = self.conn.execute("SELECT vector FROM embeddings WHERE owner_id=?", (owner_id,)).fetchone()
         return unpack_vector(row["vector"]) if row else None
 
-    def count(self, kb_id: int | None = None) -> int:
+    def count(self, kb_id: int | None = None, *, space_id: str | None = None) -> int:
         """저장된 임베딩 총 개수."""
         tid = self.kb_id if kb_id is None else kb_id
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
         if tid is not None:
-            row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=?", (tid,)).fetchone()
+            if space_id is not None and has_space_col:
+                row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=? AND space_id=?", (tid, space_id)).fetchone()
+            elif has_space_col:
+                pin = read_embed_pin(self.conn, tid)
+                active_sid, _ = read_kb_embedding_spaces(self.conn, tid)
+                if pin is not None and active_sid:
+                    row = self.conn.execute(
+                        "SELECT count(*) FROM embeddings WHERE kb_id=? AND (space_id=? OR (space_id='' AND model=?))",
+                        (tid, active_sid, pin.model),
+                    ).fetchone()
+                elif pin is not None:
+                    row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=? AND model=?", (tid, pin.model)).fetchone()
+                else:
+                    row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=?", (tid,)).fetchone()
+            else:
+                row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=?", (tid,)).fetchone()
         else:
             row = self.conn.execute("SELECT count(*) FROM embeddings").fetchone()
         return row[0] if row else 0
@@ -321,6 +667,8 @@ class VectorStore:
         adaptive_center: bool = False,
         kb_id: int | None = None,
         query_model: str | None = None,
+        *,
+        space_id: str | None = None,
     ) -> list[tuple[str, float]]:
         """(owner_id, score) 리스트, score 내림차순.
         
@@ -329,14 +677,29 @@ class VectorStore:
         테마에 고정 모델이 있으면 그 모델의 행만 본다(§10.4). ``query_model``이 주어졌는데 고정과 다르면 공간이 달라 비교할 수 없으므로 빈 결과다. 미고정(레거시) 테마는 전과 같다.
         """
         tid = self.kb_id if kb_id is None else kb_id
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
         pin = read_embed_pin(self.conn, tid) if tid is not None else None
-        if pin is not None:
+        if space_id is None and tid is not None and is_kb_active_space_eos(self.conn, tid):
+            return []
+        if space_id is not None and has_space_col:
+            rows = self.conn.execute(
+                "SELECT owner_id, vector FROM embeddings WHERE kb_id = ? AND space_id = ?",
+                (tid, space_id),
+            ).fetchall()
+        elif pin is not None:
             if query_model is not None and query_model != pin.model:
                 return []
-            rows = self.conn.execute(
-                "SELECT owner_id, vector FROM embeddings WHERE kb_id = ? AND model = ?",
-                (tid, pin.model),
-            ).fetchall()
+            active_sid, _ = read_kb_embedding_spaces(self.conn, tid)
+            if has_space_col and active_sid:
+                rows = self.conn.execute(
+                    "SELECT owner_id, vector FROM embeddings WHERE kb_id = ? AND (space_id = ? OR (space_id = '' AND model = ?))",
+                    (tid, active_sid, pin.model),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    "SELECT owner_id, vector FROM embeddings WHERE kb_id = ? AND model = ?",
+                    (tid, pin.model),
+                ).fetchall()
         elif tid is not None:
             rows = self.conn.execute(
                 "SELECT owner_id, vector FROM embeddings WHERE kb_id = ?",
@@ -373,6 +736,84 @@ class VectorStore:
 
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
+
+    def calibrate_theme_embeddings(self, kb_id: int | None = None, *, target_space_id: str | None = None, sample_limit: int = 50) -> dict[str, Any]:
+        """Measure adaptive-centered cosine distribution across 4 resolution tiers for active vs shadow space."""
+        tid = self.kb_id if kb_id is None else kb_id
+        if tid is None:
+            raise ValueError("kb_id is required for embedding space calibration")
+        active_sid, kb_target_sid = read_kb_embedding_spaces(self.conn, tid)
+        eff_target_sid = str(target_space_id or kb_target_sid or "").strip()
+        try:
+            from ..config import get_settings
+
+            settings = get_settings()
+            t1 = float(getattr(settings, "sim_tier_auto_merge", 0.93))
+            t2 = float(getattr(settings, "sim_tier_verify", 0.72))
+            t3 = float(getattr(settings, "sim_tier_related", 0.70))
+            t4 = float(getattr(settings, "sim_tier_distinct", 0.55))
+        except Exception:
+            t1, t2, t3, t4 = 0.93, 0.72, 0.70, 0.55
+
+        has_space_col = "space_id" in _table_columns(self.conn, "embeddings")
+
+        def _space_stats(sid: str, fallback_model: str = "") -> dict[str, Any]:
+            if has_space_col and sid:
+                rows = self.conn.execute(
+                    "SELECT owner_id, dim, vector FROM embeddings WHERE kb_id=? AND (space_id=? OR (space_id='' AND model=?)) ORDER BY owner_id LIMIT ?",
+                    (tid, sid, fallback_model, int(sample_limit)),
+                ).fetchall()
+            elif sid:
+                rows = self.conn.execute(
+                    "SELECT owner_id, dim, vector FROM embeddings WHERE kb_id=? ORDER BY owner_id LIMIT ?",
+                    (tid, int(sample_limit)),
+                ).fetchall()
+            else:
+                rows = []
+            vectors = [unpack_vector(r["vector"]) for r in rows if r["vector"]]
+            total_count = self.count(tid, space_id=sid if (sid and has_space_col) else None) if sid else 0
+            tiers = {"auto_merge": 0, "verify": 0, "related": 0, "distinct": 0}
+            if len(vectors) < 2:
+                return {"space_id": sid, "vector_count": total_count, "sampled": len(vectors), "dim": int(rows[0]["dim"]) if rows else 0, "pair_count": 0, "mean_similarity": 0.0, "p50_similarity": 0.0, "p90_similarity": 0.0, "max_similarity": 0.0, "tiers": tiers}
+            mean_v = compute_mean_vector(vectors)
+            centered = [center_and_normalize(v, mean_v) if mean_v else v for v in vectors]
+            sims: list[float] = []
+            for i in range(len(centered)):
+                for j in range(i + 1, len(centered)):
+                    sim = _cosine(centered[i], centered[j])
+                    sims.append(sim)
+                    if sim >= t1:
+                        tiers["auto_merge"] += 1
+                    elif sim >= t2:
+                        tiers["verify"] += 1
+                    elif sim >= t3:
+                        tiers["related"] += 1
+                    else:
+                        tiers["distinct"] += 1
+            sims.sort()
+            n_pairs = len(sims)
+            return {
+                "space_id": sid,
+                "vector_count": total_count,
+                "sampled": len(vectors),
+                "dim": int(rows[0]["dim"]) if rows else 0,
+                "pair_count": n_pairs,
+                "mean_similarity": round(sum(sims) / n_pairs, 4),
+                "p50_similarity": round(sims[n_pairs // 2], 4),
+                "p90_similarity": round(sims[min(n_pairs - 1, int(n_pairs * 0.9))], 4),
+                "max_similarity": round(sims[-1], 4),
+                "tiers": tiers,
+            }
+
+        pin = read_embed_pin(self.conn, tid)
+        active_stats = _space_stats(active_sid, fallback_model=pin.model if pin else "")
+        target_stats = _space_stats(eff_target_sid) if eff_target_sid else None
+        return {
+            "kb_id": tid,
+            "thresholds": {"auto_merge": t1, "verify": t2, "related": t3, "distinct": t4},
+            "active": active_stats,
+            "target": target_stats,
+        }
 
 
 def make_vector_store(

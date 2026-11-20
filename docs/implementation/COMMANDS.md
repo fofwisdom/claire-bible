@@ -319,7 +319,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
 | `reextract` | `./cb-manuscript app --advanced reextract [--tables] [--no-rebuild] [--limit N]` | `uv run claire reextract [...]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 (파괴적 명령으로 호스트에서 `--advanced` 필요) |
-| `re-embed` | `./cb-manuscript app re-embed [--limit N] [--dry-run]` | `uv run claire re-embed [...]` | 테마의 모든 엔티티를 `format_entity_frame`과 현재 임베딩 모델(기본 `gemini-embedding-001`)로 다시 임베딩하고, 테마 고정 모델을 바꾸며 다른 모델의 벡터를 지운다 (기본: 실행, 시뮬레이션: `--dry-run`) |
+| `re-embed` | `./cb-manuscript app re-embed [--target-space <id|model>] [--mode sync\|batch] [--calibrate] [--cutover] [--no-cutover] [--limit N] [--dry-run]` | `uv run claire re-embed [...]` | 엔티티 일괄 재임베딩(기본 `gemini-embedding-2`, `3072d`), v39 그림자 백필(`--target-space`), Batch API 실행(`--mode batch`), 4계층 임계값 교정(`--calibrate`), 원자 전환(`--cutover`) (`reembed` 별칭 지원) |
 | `link-relations` | `./cb-manuscript app link-relations [--limit N] [--min-score F] [--dry-run]` | `uv run claire link-relations [...]` | 기존 지식 그래프 내의 엔티티 간 벡터 유사도를 기반으로 횡단 관계(Edge)를 자동 발굴·수립 (기본: apply, 시뮬레이션: `--dry-run`) |
 | `recover-run` | `./cb-manuscript app recover-run [--limit N] [--max-attempts N]` | `uv run claire recover-run [...]` | **[에러 인박스 자동복구]** 재시도 기한(next_retry_at)이 도래한 실패 항목 지수 백오프 1회 재처리 |
 | `replay-failed` | `./cb-manuscript app replay-failed [--limit N] [--include-failed]` | `uv run claire replay-failed [...]` | **[실패 인박스 강제 재적재]** `raw_inbox`의 에러/실패 항목을 즉시 수동 강제 재적재 |
@@ -449,16 +449,22 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
 
 #### `re-embed`
-저장된 지식그래프 엔티티의 벡터 임베딩을 현재 임베딩 모델(기본 `gemini-embedding-001`)과 온톨로지 구조화 프레임(`format_entity_frame`)으로 다시 계산해 벡터 저장소를 갱신한다. 기본은 실행이다. ([EXTRACTION.md](EXTRACTION.md) §6 참조)
+저장된 지식그래프 엔티티의 벡터 임베딩을 현재 임베딩 모델(기본 `gemini-embedding-2`, `3072d`)과 온톨로지 구조화 프레임(`format_entity_frame`)으로 재계산하거나, EOS 마이그레이션을 위한 그림자 백필(`--target-space`, `--mode batch`), 임계값 교정(`--calibrate`), 무중단 원자 전환(`--cutover`)을 실행한다. (`reembed` 별칭 지원, [EXTRACTION.md](EXTRACTION.md) §6 및 [PROVIDERS.md](PROVIDERS.md) §4.2 참조)
 * **사용법**:
   ```bash
   ./cb-manuscript app re-embed --dry-run          # 대상 노드 수와 계획만 출력 (DB 변경 없음)
-  ./cb-manuscript app re-embed                    # 실제 임베딩 API 호출 및 DB 갱신
-  ./cb-manuscript app re-embed --limit 50         # 상위 50개 노드만 부분 갱신
+  ./cb-manuscript app re-embed                    # 기본 모델로 전량 재임베딩 (replace_theme_embeddings)
+  ./cb-manuscript app re-embed --target-space google:gemini-embedding-2:3072:v2_prompt --mode batch  # Gemini Batch API 그림자 백필
+  ./cb-manuscript app re-embed --calibrate        # 4계층 임계값(0.93/0.72/0.70/0.55) 분포 검증
+  ./cb-manuscript app re-embed --cutover          # target_space_id를 active_space_id로 원자 전환
   ```
 * **옵션**:
   * `--dry-run`: 대상 노드 수와 계획만 출력하고 DB 변경 없음.
   * `--limit <N>`: 재계산할 최대 엔티티 수 제한.
+  * `--target-space <space_id|model>`: 기존 `active_space_id`를 유지한 채 그림자 백필할 대상 공간 또는 모델.
+  * `--mode {sync,batch}`: 실행 모드(`sync`: 단건 순차 호출, `batch`: Gemini Batch API 비동기 일괄 처리).
+  * `--calibrate`: 활성/목표 공간의 코사인 유사도 분포와 4계층 티어 통계 출력.
+  * `--cutover` / `--no-cutover`: 목표 공간을 `active_space_id`로 원자 승격하거나 전환을 보류.
 
 #### `link-relations`
 기존에 축적된 지식베이스 전체 엔티티의 벡터 임베딩을 분석하여, 아직 연결되지 않은 엔티티 쌍 중 유사도 `[min_score, 0.93)` 대역에 위치한 후보군을 발굴하고 LLM 관계 판정기(`judge_relationship`)를 통해 전역 횡단 엣지(Edge)를 일괄 수립한다. ([EXTRACTION.md](EXTRACTION.md) §6 참조)

@@ -14,7 +14,7 @@ from typing import Literal
 
 from ..ontology.base import Entity
 from ..store import db as dbm
-from ..store.vectors import VectorStore, resolve_embed_identity
+from ..store.vectors import VectorStore, is_kb_active_space_eos, resolve_embed_identity
 
 # Reciprocal Rank Fusion 상수.
 RRF_K = 60
@@ -80,21 +80,23 @@ def search(
     # 1) FTS 후보
     fts_ids = dbm.fts_search(conn, query, limit=20, kb_id=kb_id)
 
-    # 2) 벡터 후보 (provider 가 임베딩 가능할 때만)
+    # 2) 벡터 후보 (provider 가 임베딩 가능하고 active space가 EOS 퇴역이 아닐 때만)
     vec_ranked: list[tuple[str, float]] = []
     if mode == "hybrid":
         if vstore is None or provider is None:
             raise ValueError("hybrid search requires a provider and vector store")
-        try:
+        eff_kb_id = kb_id if kb_id is not None else getattr(vstore, "kb_id", None)
+        if not is_kb_active_space_eos(conn, eff_kb_id):
             try:
-                qvec = provider.embed(query, task_type="RETRIEVAL_QUERY")
-            except TypeError:
-                qvec = provider.embed(query)
-            # 질의 임베딩 모델이 테마 고정 모델과 다르면 벡터 후보 없이 FTS 만 쓴다(§10.4).
-            qmodel = resolve_embed_identity(provider).model or None
-            vec_ranked = vstore.search(qvec, limit=20, query_model=qmodel)
-        except Exception:  # noqa: BLE001
-            vec_ranked = []
+                try:
+                    qvec = provider.embed(query, task_type="RETRIEVAL_QUERY")
+                except TypeError:
+                    qvec = provider.embed(query)
+                # 질의 임베딩 모델이 테마 고정 모델과 다르면 벡터 후보 없이 FTS 만 쓴다(§10.4).
+                qmodel = resolve_embed_identity(provider).model or None
+                vec_ranked = vstore.search(qvec, limit=20, kb_id=eff_kb_id, query_model=qmodel)
+            except Exception:  # noqa: BLE001
+                vec_ranked = []
 
     via_map: dict[str, list[str]] = {}
     for eid in fts_ids:

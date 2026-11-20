@@ -57,7 +57,7 @@
 
 `providers.json`이 없으면 `migrate_from_env_if_needed`가 환경변수와 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`를 모아 파일을 만든다. 그 뒤로는 파일 값이 이긴다. 기본값은 `DEFAULT_PROVIDERS_CONFIG` 값이 실제 기본값이다.
 
-- 모델(`gemini.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. Google AI Studio(`gemini`) 생성 모델은 사고 수준(effort)을 접미사로 인코딩한 `<model>-<effort>` 형태(예: `gemini-3.8-flash-medium`, `gemini-4-argon-high`)로 열거해 선택하며 별도의 UI 추론 수준 선택지를 두지 않는다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
+- 모델(`gemini.model`, `gemini.embed_model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. Google AI Studio(`gemini`) 생성 모델은 사고 수준(effort)을 접미사로 인코딩한 `<model>-<effort>` 형태(예: `gemini-3.8-flash-medium`, `gemini-4-argon-high`)로 열거해 선택하며 별도의 UI 추론 수준 선택지를 두지 않는다. `gemini.embed_model`은 기본값이 `gemini-embedding-2`(`3072d`, `v2_prompt`)이며 서버 공용 설정(`ProviderManager.update_config(server_scope=True)`)에서 활성 Google AI Studio 임베딩 모델(`gemini-embedding-2`, `gemini-embedding-001`)만 선택할 수 있고 폐기 모델(`gemini-embedding-2-preview`, `text-embedding-004` 등)과 타 프로바이더는 거부한다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
 - VLM 설정(`CLAIRE_ENABLE_VLM_TRANSCRIPTION`, `CLAIRE_VLM_PROVIDER`, `CLAIRE_VLM_MODEL`)은 `providers.json`에 없고 환경변수로만 정한다.
 
 ### 2.2 작업별 `ProviderContext`
@@ -139,17 +139,14 @@
 - **[코드] 기능별 라우팅 슬롯 분리 (`FEATURE_SLOTS`)**: `summarize`(요약 및 프레젠테이션)와 `render_detail`(가독 상세 렌더링)은 별도 슬롯으로 분리되어 서로 다른 모델·추론 수준을 지정할 수 있다(`FeatureRoutedProvider.summarize_document` → `summarize`, `FeatureRoutedProvider.render_detail` → `render_detail`).
 - **[코드] 사용량 훅 (`UsageHooks`)**: 호출 직전 `before_call`로 예산 초과 여부를 점검하고, 호출 완료 후 `after_call`로 소비된 토큰(입력/출력)을 `account_usage` 원장에 가산한다.
 
-### 4.2 테마별 임베딩 모델 고정 (Theme Embedding Pinning)
+### 4.2 테마별 임베딩 모델 고정·다중 공간 EOS 전환 (Theme Embedding Pinning & EOS Lifecycle)
 
-**[코드]** `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py`. 설계 §10.4 (P4 L4-a3), 임베딩 기준선(`AED6`).
+**[코드]** `src/claire/extract/gemini_provider.py`, `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py`, `src/claire/extract/resolver.py`. 설계 §10.4 (P4 L4-a3), `AED6`, `AED7`, `AED10`, `AED11` (`AE6a`–`AE6d` 구현 2026-11-21).
 
-- **현재 구현·설계 기준선 및 `gemini-embedding-2` 이관 계획**: 현재 구현된 서버 고정 임베딩 모델은 `gemini-embedding-001`(공식 종료일 2028-05-14 예정)이다. 최신 `gemini-embedding-2`(`3072`차원 고정 `AED10`, Stage 1 텍스트 우선 전환 `AED11`) 무중단 지원·이관 계획(`AE6a`–`AE6d`: `task_type` 프롬프트 접두사 전환, `space_id` 스키마 확장, Batch API Shadow Backfill + `AED7` Dual-Embed)은 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3 참고.
-- **테마별 공간 고정**: `knowledge_bases` 테이블에 `embed_provider`, `embed_model` 열을 두어 테마 단위로 임베딩 모델 공간을 고정한다.
-- **모델 혼합 거부**: 테마에 고정된 모델과 다른 모델로 생성된 벡터를 저장하려 하면 `EmbeddingModelMismatch` 예외를 내며 저장을 거부한다.
-- **검색 필터링**: `VectorStore.search`는 테마의 고정 모델(`themes.embed_model`)과 일치하는 `embeddings.model` 행만 조회한다.
-  - 검색 질의 모델(`query_model`)이 테마의 고정 모델과 다르면 벡터 공간이 달라 유사도 비교가 불가능하므로 빈 결과를 반환한다.
-- **Mock 모델 격리**: `MockProvider`의 의사 임베딩 모델명은 `mock-sha256`으로 명시하여 실제 모델 공간과 격리한다.
-- **재임베딩 (re-embed)**: 모델이 바뀌면 `claire reembed -t <theme>`(`replace_theme_embeddings`)으로 해당 테마의 벡터를 새로운 고정 모델로 일괄 재구축해야 한다. `reset_kb` 시에는 테마 임베딩 고정이 해제된다.
+- **듀얼 버전 어댑터 및 3072차원 기준(`AE6a`, `AED10`)**: `GeminiProvider.embed`는 `classify_gemini_embed_model`로 모델을 라우팅한다. `gemini-embedding-2`(`v2_prompt`)는 `EmbedContentConfig(output_dimensionality=3072)`만 전달하고 `task_type`/`title`을 프롬프트 접두사(`format_v2_embed_prompt`)로 인코딩한다. `gemini-embedding-001`(`v1_param`, 공식 EOS 2028-05-14)는 SDK `task_type`/`title`을 유지하며 비-3072 차원 시 L2 정규화를 수행한다. 폐기 모델(`gemini-embedding-2-preview`, `text-embedding-004` 등)은 `ValueError`로 fail-closed 차단한다(`C2`). `embed_many`(`types.Content` 래핑)와 `embed_batch_job`(`client.batches.create_embeddings`)으로 배치 적재를 지원한다.
+- **v39 다중 공간 스키마 및 검색 격리(`AE6b`)**: `embedding_spaces` 레지스트리와 `knowledge_bases.active_space_id`·`target_space_id`, `embeddings(owner_id, kb_id, space_id)` 복합 키를 사용한다. `VectorStore.search`와 `VectorStore.count`는 `active_space_id` 행만 조회해 그림자 전환 중 공간 혼합을 차단한다.
+- **무중단 그림자 전환·Dual-Embed·EOS fail-closed 퇴역(`AE6d`, `AED7`)**: `claire re-embed --target-space <space_id|model> --mode batch|sync`가 `target_space_id`에 그림자 벡터를 백필하는 동안 실시간 엔티티 생성·병합은 `sync_entity_space_embeddings`로 활성/목표 공간에 동시 임베딩(Dual-Embed)된다. `--calibrate`로 4계층 임계값(`0.93 / 0.72 / 0.70 / 0.55`) 분포를 검증한 뒤 `--cutover`로 `active_space_id`를 원자 전환하고 구 벡터를 정리한다. 활성 공간이 `eos_retired`이면 `VectorStore.search`와 `retrieval.query.search`는 퇴역 모델을 호출하지 않고 FTS 전용(`via == ["fts"]`)으로 강등된다(`C2`).
+- **Mock 모델 격리 및 초기화**: `MockProvider`의 의사 임베딩 모델명은 `mock-sha256`으로 명시하여 실제 모델 공간과 격리하며, `reset_kb` 시 `embed_provider`, `embed_model`, `active_space_id`, `target_space_id`를 모두 초기화한다.
 - **공개 테마 검색 격리**: 네임스페이스 소유자가 아닌 타 계정 또는 익명 사용자의 검색은 임베딩 비용 전가를 막기 위해 FTS 전용으로 동작한다.
 
 ### 4.3 저비용 분류 (`get_lowest_effort_provider`)
@@ -219,7 +216,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ## 7. 알려진 한계와 미검증
 
-- **[코드] `gemini-embedding-2` 지원 차단 요소 (`AE6a`–`AE6d` 예정)**: `Settings.gemini_embed_model`(`src/claire/config.py`)과 `DEFAULT_PROVIDERS_CONFIG` 기본값은 모두 `gemini-embedding-001`이며, `DEFAULT_GEMINI_EMBED_MODELS`(`src/claire/provider_manager.py`)에는 `gemini-embedding-2`와 이미 종료된 `gemini-embedding-2-preview`(2026-08-10 종료)가 함께 들어 있다. 그러나 `ProviderManager.update_config(server_scope=True)`가 `gemini-embedding-001` 외 모델 변경을 차단하고, `GeminiProvider.embed`(`src/claire/extract/gemini_provider.py`)가 `gemini-embedding-2`에서 미지원인 `task_type` 매개변수를 항상 전달하며, `embeddings` 테이블(`src/claire/store/db.py`) 기본 키가 `(owner_id, kb_id)`여서 Shadow Backfill 중 `AE6a`–`AE6d` 완료 전까지 `gemini-embedding-2`를 직접 활성화할 수 없다. 모델을 바꿀 때는 공간 비호환으로 인해 전량 `re-embed`가 필요하다.
+- **[코드] `gemini-embedding-2` Stage 2 멀티모달 임베딩**: Track B (`AE6a`–`AE6d`)로 `gemini-embedding-2`(`3072d`, `v2_prompt`) 텍스트 임베딩, `embedding_spaces` v39 스키마, Batch API Shadow Backfill 및 `AED7` Dual-Embed가 구현되었다. 이미지·PDF·오디오·영상 네이티브 멀티모달 임베딩(Stage 2)은 후속 범위다(`AED11`).
 - **[코드] BYOK 멤버 모델/effort 설정**: 현재 BYOK 멤버의 LLM 모델과 effort는 관리자 기본값을 상속받으며, 멤버별 세부 설정 UI는 후속 과제다.
 - **[코드] 서버 등급 `none` 멤버 테마의 recover 루프**: 서버 등급이 `none`인 멤버의 테마에 적재 실패 문서가 남아 있을 경우, recover 재시도가 최대 시도 횟수까지 소모된 뒤 영구 실패로 마킹된다.
 - **[미검증]** 텔레그램 봇과 백그라운드 루프가 운영 환경에서 `unavailable`일 때 사용자에게 어떤 메시지를 보여 주는지는 확인하지 않았다. `raw_inbox` 오류 기록까지만 확인했다.

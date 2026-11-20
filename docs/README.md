@@ -14,7 +14,7 @@ docs/
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 명세
 ├── design/                     # [설계] 의도와 이유: 구현을 마치지 않은 아키텍처, 구현을 마친 작업의 설계 원칙 (현재 상태는 말하지 않음)
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
-│   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # 에이전트 주도 추출·agent_client·OAuth 2.1 통일·4계층 보안·gemini-embedding-2 지원/이관 계획(AED1–AED11, AE6a–AE6d, Rev. 2.4), 미구현
+│   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # 에이전트 주도 추출·agent_client·OAuth 2.1 통일·4계층 보안·gemini-embedding-2 지원·4트랙 분할 구현 계획(AED1–AED11, Rev. 2.5), Track B(AE6a–AE6d) 구현 → PROVIDERS.md·SCHEMA_VERSIONING.md·EXTRACTION.md·COMMANDS.md, Tracks A·C·D 미구현
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/

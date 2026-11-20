@@ -70,7 +70,7 @@ def test_a_v37_database_gets_the_tables_and_one_fill_from_old_records(tmp_path: 
     conn.close()
 
     conn = _db(tmp_path)
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(dbm.SCHEMA_VERSION) == "38"
+    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION >= 38
     rows = conn.execute("SELECT document_id, seq, candidate_id, reasons, candidate, snapshot_source, jev_model FROM pair_review_items").fetchall()
     assert len(rows) == 1
     row = rows[0]

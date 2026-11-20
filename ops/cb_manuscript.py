@@ -152,6 +152,7 @@ APP_ONE_OFF_COMMANDS = {
     "video-reprocess",
     "reprocess-video",
     "re-embed",
+    "reembed",
     "telemetry",
     "support-bundle",
     "providers",

@@ -122,6 +122,8 @@ class KnowledgeBaseInfo:
     # 테마 고정 임베딩 공간(§10.4). 빈 값이면 아직 정하지 않음.
     embed_provider: str = ""
     embed_model: str = ""
+    active_space_id: str | None = None
+    target_space_id: str | None = None
 
     @property
     def knowledge_manager(self) -> str:
@@ -179,6 +181,8 @@ def embed_mismatch(theme: KnowledgeBaseInfo, embed_provider: str | None, embed_m
     프로바이더 이름은 ``store.vectors.resolve_embed_identity``가 돌려주는 임베딩 백엔드 이름으로 넘긴다.
     ``theme``은 DB에서 다시 읽은 값이어야 한다. 고정은 첫 임베딩 저장 때 DB에서 일어나므로 캐시된 ``KnowledgeBaseInfo``는 늦을 수 있다.
     """
+    from .vectors import canonical_provider_slug
+
     pinned_model = (theme.embed_model or "").strip()
     if not pinned_model:
         return False
@@ -186,7 +190,9 @@ def embed_mismatch(theme: KnowledgeBaseInfo, embed_provider: str | None, embed_m
         return True
     pinned_provider = (theme.embed_provider or "").strip()
     current_provider = (embed_provider or "").strip()
-    return bool(pinned_provider and current_provider and pinned_provider != current_provider)
+    if not (pinned_provider and current_provider):
+        return False
+    return canonical_provider_slug(pinned_provider) != canonical_provider_slug(current_provider)
 
 
 def _theme_number(raw: Any, source: str, kb_id: Any) -> int | None:
@@ -287,6 +293,8 @@ def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
         visibility_epoch=_visibility_epoch(d.get("visibility_epoch"), "themes table", tid),
         embed_provider=str(d.get("embed_provider") or "").strip(),
         embed_model=str(d.get("embed_model") or "").strip(),
+        active_space_id=str(d["active_space_id"]).strip() if d.get("active_space_id") else None,
+        target_space_id=str(d["target_space_id"]).strip() if d.get("target_space_id") else None,
     )
 
 
@@ -1212,7 +1220,7 @@ class KnowledgeBaseManager:
             now = time.time()
             # 임베딩이 모두 지워졌으므로 고정도 푼다. 다음 첫 저장이 그때의 모델로 다시 고정한다(§10.4).
             conn.execute(
-                "UPDATE knowledge_bases SET updated_at = ?, embed_provider = NULL, embed_model = NULL WHERE id = ?",
+                "UPDATE knowledge_bases SET updated_at = ?, embed_provider = NULL, embed_model = NULL, active_space_id = NULL, target_space_id = NULL WHERE id = ?",
                 (now, tid),
             )
             conn.commit()
@@ -1223,6 +1231,8 @@ class KnowledgeBaseManager:
         theme.updated_at = now
         theme.embed_provider = ""
         theme.embed_model = ""
+        theme.active_space_id = None
+        theme.target_space_id = None
         self._rebuild_fqdn_index()
 
         log.info(

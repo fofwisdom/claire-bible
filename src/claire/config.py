@@ -371,7 +371,7 @@ class Settings(BaseSettings):
     # The model fields have no environment variable: the Web UI (providers.json) sets the models. ``_WithoutModelFields`` removes them from the environment sources.
     gemini_model: str = Field(default="gemini-3.1-flash-lite-medium")
     gemini_effort: str = Field(default="medium", alias="CLAIRE_GEMINI_EFFORT")
-    gemini_embed_model: str = Field(default="gemini-embedding-001")
+    gemini_embed_model: str = Field(default="gemini-embedding-2")
     embed_task_type: str = Field(
         default="SEMANTIC_SIMILARITY", alias="CLAIRE_EMBED_TASK_TYPE"
     )

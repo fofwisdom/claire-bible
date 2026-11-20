@@ -250,3 +250,78 @@ def test_fixed_effort_gemini_model_resolves_api_model_and_thinking_level():
     assert judge_kwargs["model"] == "gemini-3.8-flash"
     assert judge_kwargs["generation_config"]["thinking_level"] == "medium"
 
+
+def test_embed_v2_prompt_routing_and_config_contract():
+    """Verify gemini-embedding-2 encodes task instruction in prompt and omits unsupported EmbedContentConfig fields."""
+    p = _make_provider()
+    p.embed_model = "gemini-embedding-2"
+    p.client.models.embed_content.return_value = SimpleNamespace(embeddings=[SimpleNamespace(values=[0.5, 0.5])])
+
+    vec_doc = p.embed("Vector body text", task_type="RETRIEVAL_DOCUMENT", title="Spec")
+    assert vec_doc == [0.5, 0.5]
+    doc_kwargs = p.client.models.embed_content.call_args.kwargs
+    assert doc_kwargs["model"] == "gemini-embedding-2"
+    assert doc_kwargs["contents"] == "title: Spec | text: Vector body text"
+    assert doc_kwargs["config"].output_dimensionality == 3072
+    assert doc_kwargs["config"].task_type is None
+    assert doc_kwargs["config"].title is None
+
+    p.client.models.embed_content.reset_mock()
+    p.embed("search query", task_type="RETRIEVAL_QUERY")
+    q_kwargs = p.client.models.embed_content.call_args.kwargs
+    assert q_kwargs["contents"] == "task: search result | query: search query"
+    assert q_kwargs["config"].output_dimensionality == 3072
+    assert q_kwargs["config"].task_type is None
+
+
+def test_embed_v1_param_normalizes_non_3072_and_fails_closed_on_retired():
+    """Verify gemini-embedding-001 passes SDK task_type/title, normalizes reduced dim, and retired models fail closed."""
+    p = _make_provider()
+    p.embed_model = "gemini-embedding-001"
+    p.client.models.embed_content.return_value = SimpleNamespace(embeddings=[SimpleNamespace(values=[3.0, 4.0])])
+
+    vec = p.embed("Doc text", task_type="RETRIEVAL_DOCUMENT", title="Alpha", output_dimensionality=768)
+    assert pytest.approx(vec, rel=1e-6) == [0.6, 0.8]
+    kwargs = p.client.models.embed_content.call_args.kwargs
+    assert kwargs["model"] == "gemini-embedding-001"
+    assert kwargs["contents"] == "Doc text"
+    assert kwargs["config"].task_type == "RETRIEVAL_DOCUMENT"
+    assert kwargs["config"].title == "Alpha"
+    assert kwargs["config"].output_dimensionality == 768
+
+    for retired in ("gemini-embedding-2-preview", "text-embedding-004", "gemini-embedding-exp"):
+        with pytest.raises(ValueError, match="Unsupported"):
+            p.embed("text", model=retired)
+
+
+def test_embed_many_and_batch_job_use_sdk_content_and_batch_contract():
+    """Verify embed_many wraps items in Content and embed_batch_job calls client.batches.create_embeddings."""
+    from google.genai import types
+
+    p = _make_provider()
+    p.embed_model = "gemini-embedding-2"
+    p.client.models.embed_content.return_value = SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 0.0]), SimpleNamespace(values=[0.0, 1.0])])
+
+    vecs = p.embed_many(["First", "Second"], task_type="RETRIEVAL_DOCUMENT", titles=["T1", "T2"])
+    assert vecs == [[1.0, 0.0], [0.0, 1.0]]
+    many_kwargs = p.client.models.embed_content.call_args.kwargs
+    assert all(isinstance(c, types.Content) for c in many_kwargs["contents"])
+    assert many_kwargs["contents"][0].parts[0].text == "title: T1 | text: First"
+    assert many_kwargs["config"].output_dimensionality == 3072
+
+    pending = SimpleNamespace(name="batches/job-1", state="JOB_STATE_PENDING", dest=None)
+    done = SimpleNamespace(
+        name="batches/job-1",
+        state="JOB_STATE_SUCCEEDED",
+        dest=SimpleNamespace(inlined_embed_content_responses=[SimpleNamespace(error=None, response=SimpleNamespace(embedding=SimpleNamespace(values=[0.2, 0.4]))), SimpleNamespace(error=None, response=SimpleNamespace(embedding=SimpleNamespace(values=[0.6, 0.8])))]),
+    )
+    p.client.batches.create_embeddings.return_value = pending
+    p.client.batches.get.return_value = done
+
+    b_vecs = p.embed_batch_job(["Item A", "Item B"], task_type="RETRIEVAL_DOCUMENT", titles=["A", "B"], poll_interval_s=0.0)
+    assert b_vecs == [[0.2, 0.4], [0.6, 0.8]]
+    create_kwargs = p.client.batches.create_embeddings.call_args.kwargs
+    assert create_kwargs["model"] == "gemini-embedding-2"
+    assert isinstance(create_kwargs["src"], types.EmbeddingsBatchJobSource)
+    assert create_kwargs["src"].inlined_requests.config.output_dimensionality == 3072
+

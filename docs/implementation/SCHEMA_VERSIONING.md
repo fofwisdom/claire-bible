@@ -38,8 +38,9 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 35 | 직전 version (아래 "v35" 절) | 링크 확장 원천 이름(`raw_inbox.source`), 동일 주제 출처 병합의 shadow 기록(`same_subject_shadow`) |
 | 36 | 직전 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
 | 37 | 직전 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
-| 38 | 현재 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
-| 38 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 38 | 직전 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
+| 39 | 현재 version (아래 "v39" 절) | 임베딩 공간 레지스트리(`embedding_spaces`), KB별 활성/목표 공간(`active_space_id`, `target_space_id`), 다중 공간 벡터 PK(`embeddings(owner_id, kb_id, space_id)`) |
+| 39 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -350,6 +351,18 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v38 (entity pair review)
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 38`.
+- **[코드] 버전 상수**: v38 도입 당시 `SCHEMA_VERSION`은 38이었다(현재 값은 아래 "v39" 절).
 - **[코드]** The schema script makes `pair_review_items` (one row for each queued pair of a Jev shadow decision: knowledge base, document, decision index and time, candidate, reasons, snapshots of the two entities, outcome, Jev score and model, pre-label, rule version; unique on document, index, time, and candidate; deleted with its document and its knowledge base) and `pair_review_verdicts` (one verdict for each item and account: `same`, `different`, or `unsure`, note, blind flag, rule version; deleted with its item and, by the account data cleanup, with its account). The step `_migrate_v38_pair_review_backfill` runs at each start, after the step v37: once (mark `meta.pair_review_backfill_v38`) it makes items from the shadow records that exist in `documents.meta` (`snapshot_source='current'`). No other row changes. Rules: [GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5.5.
 - **[테스트]** `tests/test_schema_v38.py`.
+
+## v39 (임베딩 공간 레지스트리 및 다중 공간 EOS 전환, AE6b)
+
+확인 기준: Track B (`AE6a`–`AE6d`) 구현 (2026-11-21). 설계: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3 (`AED7`, `AED10`, `AED11`).
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 39`.
+- **[코드] 추가·변경 객체**(`_migrate_v39_embedding_spaces`, 멱등):
+  - 테이블 `embedding_spaces(space_id PRIMARY KEY, provider, model, dim, prompt_format_version, normalized, eos_date, status)`. 초기 시드로 `google:gemini-embedding-001:3072:v1_param`(`eos_date='2028-05-14'`)과 `google:gemini-embedding-2:3072:v2_prompt`(`dim=3072`, `prompt_format_version='v2_prompt'`)를 등록한다.
+  - 열 `knowledge_bases.active_space_id` (`TEXT`), `knowledge_bases.target_space_id` (`TEXT`).
+  - 테이블 `embeddings`: `space_id TEXT NOT NULL DEFAULT ''` 열을 추가하고 기본 키를 `(owner_id, kb_id, space_id)`로 재구성하며 인덱스 `idx_embeddings_kb_space(kb_id, space_id)`를 생성한다.
+- **[코드] 데이터 이관**: v38 이하 DB의 기존 `embeddings` 행은 `(knowledge_bases.embed_provider, embeddings.model, embeddings.dim)` 기준으로 표준 `space_id`를 계산해 재적재하며(레거시 `'claire'`·빈 모델 행은 `space_id=''`), `embed_model`이 설정된 KB의 `active_space_id`를 채운다.
+- **[테스트]** `tests/test_schema_v39.py`, `tests/test_embedding_pin.py`.

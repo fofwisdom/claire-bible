@@ -200,6 +200,8 @@
     const activeProv = document.getElementById('prov-active-select').value;
     const gemKey = document.getElementById('prov-gemini-key');
     const gemModel = document.getElementById('prov-gemini-model').value.trim();
+    const gemEmbedEl = document.getElementById('prov-gemini-embed-model');
+    const gemEmbedModel = gemEmbedEl ? gemEmbedEl.value.trim() : '';
     const cfgGemEffort = ((((_provState.config || {}).providers || {}).gemini || {}).effort || 'medium');
     const gemEffort = splitGeminiModelEffort(gemModel).effort || cfgGemEffort;
     const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
@@ -234,7 +236,7 @@
       active_provider: activeProv,
       feature_routing: featureRouting,
       providers: {
-        gemini: { model: gemModel, effort: gemEffort, min_interval: gemInterval, max_retries: gemRetries },
+        gemini: { model: gemModel, effort: gemEffort, ...(gemEmbedModel ? { embed_model: gemEmbedModel } : {}), min_interval: gemInterval, max_retries: gemRetries },
         jev: { enabled: jevEnabled, base_url: jevUrl },
         stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
       }
@@ -445,11 +447,28 @@
       'prov-active-select',
       'prov-gemini-key',
       'prov-gemini-model',
+      'prov-gemini-embed-model',
       'prov-jev-enabled',
       'prov-stt-enabled',
       'prov-stt-prov',
       'prov-stt-lang'
     ];
+    const embedSelEl = document.getElementById('prov-gemini-embed-model');
+    const embedLifecycleEl = document.getElementById('prov-gemini-embed-lifecycle');
+    if (embedSelEl && embedLifecycleEl) {
+      const syncEmbedLifecycleBanner = () => {
+        const m = String(embedSelEl.value || 'gemini-embedding-2').trim();
+        const isV1 = m === 'gemini-embedding-001';
+        const spaceId = isV1 ? 'google:gemini-embedding-001:3072:v1_param' : `google:${m}:3072:v2_prompt`;
+        let msg = `<code>${esc(spaceId)}</code> · 3072d`;
+        if (isV1) {
+          msg += '<div style="margin-top:4px;color:var(--warn,#9a6700);"><b>EOS Warning (2028-05-14):</b> <code>gemini-embedding-001</code> is scheduled for retirement. Migrate non-blocking with <code>./cb-manuscript app re-embed --target-space google:gemini-embedding-2:3072:v2_prompt --mode batch</code></div>';
+        }
+        embedLifecycleEl.innerHTML = msg;
+      };
+      embedSelEl.addEventListener('change', syncEmbedLifecycleBanner);
+      syncEmbedLifecycleBanner();
+    }
     for (const id of standardIds) {
       const el = document.getElementById(id);
       if (!el) continue;
@@ -901,8 +920,17 @@
     h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.model_label")) + '</label>';
     h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, selectedGeminiModel, 'gemini-3.8-flash-medium');
     h += '</div>';
+    const selEmbedModel = String(gemini.embed_model || 'gemini-embedding-2').trim() || 'gemini-embedding-2';
+    const rawEmbedModels = Array.isArray(gemini.available_embed_models) && gemini.available_embed_models.length ? gemini.available_embed_models.map((x) => (typeof x === 'string' ? x : String((x && x.id) || ''))).filter(Boolean) : ['gemini-embedding-2', 'gemini-embedding-001'];
+    const embedChoices = Array.from(new Set(['gemini-embedding-2', 'gemini-embedding-001', ...rawEmbedModels, selEmbedModel].filter((x) => x && x !== 'gemini-embedding-2-preview')));
     h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
-    h += `<div id="prov-gemini-embed-info" style="margin-top:2px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11.5px;line-height:1.4;"><div><code>${esc(gemini.embed_model || 'gemini-embedding-001')}</code> <span style="opacity:0.75;">(Google AI Studio · 3072d)</span></div><div style="font-size:10.5px;opacity:0.8;margin-top:2px;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</div></div>`;
+    h += '<select id="prov-gemini-embed-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    for (const em of embedChoices) {
+      const emTag = em === 'gemini-embedding-2' ? ' (3072d · GA Recommended)' : (em === 'gemini-embedding-001' ? ' (3072d · Legacy, EOS 2028-05-14)' : ' (3072d)');
+      h += `<option value="${esc(em)}" ${selEmbedModel === em ? 'selected' : ''}>${esc(em + emTag)}</option>`;
+    }
+    h += '</select>';
+    h += `<div id="prov-gemini-embed-info" style="margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11.5px;line-height:1.4;"><div id="prov-gemini-embed-lifecycle"><code>google:${esc(selEmbedModel)}:3072:${selEmbedModel === 'gemini-embedding-2' ? 'v2_prompt' : 'v1_param'}</code> · 3072d</div><div style="font-size:10.5px;opacity:0.8;margin-top:2px;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</div></div>`;
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.min_interval"))}</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;

@@ -39,11 +39,30 @@ DEFAULT_GEMINI_BASE_MODELS: tuple[str, ...] = (
 
 DEFAULT_GEMINI_MODELS: tuple[str, ...] = tuple(enumerate_gemini_model_variants(DEFAULT_GEMINI_BASE_MODELS))
 
-DEFAULT_GEMINI_EMBED_MODELS: tuple[str, ...] = (
-    "gemini-embedding-001",
-    "gemini-embedding-2",
-    "gemini-embedding-2-preview",
-)
+DEFAULT_GEMINI_EMBED_MODELS: tuple[str, ...] = ("gemini-embedding-2", "gemini-embedding-001")
+
+GEMINI_EMBED_LIFECYCLE_CATALOG: dict[str, dict[str, Any]] = {
+    "gemini-embedding-2": {
+        "model": "gemini-embedding-2",
+        "space_id": "google:gemini-embedding-2:3072:v2_prompt",
+        "dim": 3072,
+        "prompt_format_version": "v2_prompt",
+        "status": "active",
+        "eos_date": None,
+        "label": "gemini-embedding-2 (3072d · GA Recommended)",
+    },
+    "gemini-embedding-001": {
+        "model": "gemini-embedding-001",
+        "space_id": "google:gemini-embedding-001:3072:v1_param",
+        "dim": 3072,
+        "prompt_format_version": "v1_param",
+        "status": "deprecated",
+        "eos_date": "2028-05-14",
+        "label": "gemini-embedding-001 (3072d · Legacy, EOS 2028-05-14)",
+    },
+}
+
+_RETIRED_GEMINI_EMBED_MODELS: frozenset[str] = frozenset({"gemini-embedding-2-preview", "embedding-2-preview", "text-embedding-004", "embedding-001", "embedding-gecko-001", "gemini-embedding-exp", "gemini-embedding-exp-03-07"})
 
 _GEMINI_DISCOVERED_MODELS: list[str] = []
 
@@ -133,7 +152,7 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "api_key": "",
             "model": "gemini-3.1-flash-lite-medium",
             "effort": "medium",
-            "embed_model": "gemini-embedding-001",
+            "embed_model": "gemini-embedding-2",
             "embed_task_type": "SEMANTIC_SIMILARITY",
             "min_interval": 4.0,
             "max_retries": 5,
@@ -222,7 +241,7 @@ def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) ->
             actions = [str(a) for a in (getattr(item, "supported_actions", None) or getattr(item, "supported_generation_methods", None) or [])]
             low = mid.lower()
             if "embedContent" in actions or "embedding" in low:
-                if mid.startswith(("gemini-embedding", "text-embedding")) and mid not in emb_ids:
+                if mid.startswith("gemini-embedding") and low not in _RETIRED_GEMINI_EMBED_MODELS and not low.endswith("-preview") and mid not in emb_ids:
                     emb_ids.append(mid)
             elif "generateContent" in actions and mid.startswith("gemini-"):
                 if not any(skip in low for skip in ("embedding", "imagen", "veo", "aqa", "tts", "audio")) and mid not in gen_base_ids:
@@ -472,7 +491,7 @@ class ProviderManager:
         def _base_model(prov_name: str, slot: str) -> tuple[str, str]:
             if prov_name == "gemini":
                 if slot == "embed":
-                    return str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-001"), ""
+                    return str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-2"), ""
                 gem_m = str(providers.get("gemini", {}).get("model") or "")
                 _, gem_embedded_eff = split_gemini_model_and_effort(gem_m)
                 return gem_m, gem_embedded_eff or str(providers.get("gemini", {}).get("effort") or "")
@@ -557,16 +576,36 @@ class ProviderManager:
             except Exception as exc:
                 log.debug("lineage summary db read skipped: %s", exc)
 
+        eff_embed_model = str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-2").strip() or "gemini-embedding-2"
+        embed_meta = GEMINI_EMBED_LIFECYCLE_CATALOG.get(eff_embed_model) or {
+            "model": eff_embed_model,
+            "space_id": f"google:{eff_embed_model}:3072:v2_prompt",
+            "dim": 3072,
+            "prompt_format_version": "v2_prompt",
+            "status": "active",
+            "eos_date": None,
+        }
+        eos_date = embed_meta.get("eos_date")
+        eos_warning = f"'{eff_embed_model}' 모델은 {eos_date} 서비스 종료(EOS) 예정입니다. 'gemini-embedding-2' (3072d)로 그림자 백필 전환을 권장합니다." if eos_date else ""
+
         return {
             "effective_slots": effective_slots,
             "jev": jev_stats,
             "fallbacks": list(REMOVED_FALLBACK_CATALOG),
+            "embedding_lifecycle": {
+                "active_model": eff_embed_model,
+                "active_space_id": embed_meta["space_id"],
+                "output_dimensionality": 3072,
+                "eos_date": eos_date,
+                "eos_warning": eos_warning,
+                "supported_models": list(GEMINI_EMBED_LIFECYCLE_CATALOG.values()),
+            },
             "architecture_specs": [
                 {
-                    "stage": "벡터 임베딩 모델 (고정)",
-                    "fixed_value": "gemini-embedding-001 (3072d · Google AI Studio)",
+                    "stage": "벡터 임베딩 모델 (기본값 / 라이프사이클)",
+                    "fixed_value": f"{eff_embed_model} (3072d · Google AI Studio)",
                     "scope": "config.py, extract/gemini_provider.py, store/vectors.py",
-                    "rationale": "엔티티 프레임(이름·타입·별칭·관찰) 색인, 하이브리드 검색, 유사 엔티티 후보 탐색에 사용하며 테마별 벡터 공간 일관성을 위해 서버에서 단일 모델로 고정합니다.",
+                    "rationale": "엔티티 프레임(이름·타입·별칭·관찰) 색인, 하이브리드 검색, 유사 엔티티 후보 탐색에 사용하며 KB별 공간 핀 및 EOS 무중단 그림자 전환을 지원합니다.",
                 },
                 {
                     "stage": "임베딩 Task Type (문서 색인)",
@@ -735,6 +774,8 @@ class ProviderManager:
         warnings: list[str] = []
         if active == "mock":
             warnings.append(provider_caps["mock"]["advisory"])
+        if gem_embed == "gemini-embedding-001":
+            warnings.append("Gemini 임베딩 모델 'gemini-embedding-001'은 2028-05-14 서비스 종료(EOS) 예정입니다. 'gemini-embedding-2' (3072d)로 그림자 백필 전환을 권장합니다.")
 
         stt_enabled = stt.get("enabled", True) is not False
         stt_prov = str(stt.get("provider") or "gemini").strip().lower()
@@ -766,19 +807,20 @@ class ProviderManager:
     def update_config(self, payload: dict[str, Any], *, server_scope: bool = False) -> dict[str, Any]:
         """Validate candidate provider settings against runtime capabilities, persist, and return sanitized config."""
         if server_scope:
+            active_embed_models = set(DEFAULT_GEMINI_EMBED_MODELS)
             gem_in = (payload.get("providers") or {}).get("gemini") if isinstance(payload.get("providers"), dict) else None
             if isinstance(gem_in, dict) and "embed_model" in gem_in:
                 req_embed_model = str(gem_in.get("embed_model") or "").strip()
-                if req_embed_model and req_embed_model != "gemini-embedding-001":
-                    raise ValueError("서버 공용 벡터 임베딩 모델은 'gemini-embedding-001'로 고정되어 변경할 수 없습니다.")
+                if req_embed_model and req_embed_model not in active_embed_models:
+                    raise ValueError(f"서버 공용 벡터 임베딩 모델은 활성 Google AI Studio 임베딩 모델({', '.join(DEFAULT_GEMINI_EMBED_MODELS)})만 선택할 수 있습니다: {req_embed_model!r}")
             fr_in = payload.get("feature_routing")
             if isinstance(fr_in, dict):
                 for slot_key, item in fr_in.items():
                     if slot_key == "embed" and isinstance(item, dict):
                         emb_prov = str(item.get("provider") or "inherit").strip().lower()
                         emb_model = str(item.get("model") or "").strip()
-                        if emb_prov not in ("", "inherit") or emb_model not in ("", "gemini-embedding-001"):
-                            raise ValueError("서버 공용 벡터 임베딩은 Google AI Studio의 'gemini-embedding-001'로 고정되어 프로바이더나 모델을 선택할 수 없습니다.")
+                        if emb_prov not in ("", "inherit", "gemini") or (emb_model and emb_model not in active_embed_models):
+                            raise ValueError(f"서버 공용 벡터 임베딩은 Google AI Studio 활성 임베딩 모델({', '.join(DEFAULT_GEMINI_EMBED_MODELS)})만 허용됩니다.")
         current = self.get_config()
         merged = self._merge_payload(current, payload, validate_models=True)
         caps = self._evaluate_capabilities(merged)

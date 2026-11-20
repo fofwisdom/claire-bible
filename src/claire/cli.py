@@ -4807,20 +4807,68 @@ def cmd_migrate(_args) -> int:
     return _migrate_plugin_store(s)
 
 
-def cmd_reembed(args) -> int:
-    """테마의 모든 엔티티를 온톨로지 프레임 및 현재 임베딩 모델로 일괄 재임베딩.
+def _parse_reembed_target_space(raw_target: str, default_provider: str) -> tuple[str, str, int, str]:
+    """Parse --target-space value (canonical space_id or model shorthand) into (provider, model, dim, space_id)."""
+    from .extract.gemini_provider import classify_gemini_embed_model
+    from .store.vectors import DEFAULT_EMBED_DIM, MOCK_EMBED_MODEL, canonical_space_id, parse_space_id
 
-    테마의 임베딩 공간 고정(§10.4)을 현재 모델로 바꾸는 유일한 경로다. 벡터를 모두 만든 뒤 한 트랜잭션에서 고정을 바꾸고, 다른 모델 행을 지우고, 새 행을 넣는다.
-    """
+    clean = str(raw_target or "").strip()
+    if ":" in clean:
+        prov_slug, model_name, dim, _pfv = parse_space_id(clean)
+        eff_prov = "gemini" if prov_slug == "google" else prov_slug
+        if model_name.startswith("gemini-embedding") or eff_prov == "gemini":
+            classify_gemini_embed_model(model_name)
+        return eff_prov, model_name, dim, clean
+    model_name = clean
+    eff_prov = str(default_provider or "gemini").strip() or "gemini"
+    if model_name == MOCK_EMBED_MODEL:
+        eff_prov = "mock"
+        dim = 64
+    else:
+        classify_gemini_embed_model(model_name)
+        eff_prov = "gemini"
+        dim = DEFAULT_EMBED_DIM
+    return eff_prov, model_name, dim, canonical_space_id(eff_prov, model_name, dim=dim)
+
+
+def cmd_reembed(args) -> int:
+    """테마의 모든 엔티티를 온톨로지 프레임 및 임베딩 모델로 재임베딩·그림자 백필·임계값 검증·무중단 컷오버."""
     from .extract.frame import format_entity_frame
+    from .extract.resolver import _call_provider_embed
     from .ingest.service import IngestService
-    from .store.vectors import make_vector_store, read_embed_pin, resolve_embed_identity
+    from .store.vectors import canonical_space_id, make_vector_store, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
 
     s, theme = get_effective_settings(args)
     tid = theme.id if theme is not None else int(getattr(s, "kb_id", 0) or 0)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     vstore = make_vector_store(conn, s.vector_backend, kb_id=tid)
+    raw_target = str(getattr(args, "target_space", None) or "").strip()
+    mode = str(getattr(args, "mode", None) or "sync").strip().lower()
+    do_calibrate = bool(getattr(args, "calibrate", False))
+    do_cutover = bool(getattr(args, "cutover", False))
+    no_cutover = bool(getattr(args, "no_cutover", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    limit = getattr(args, "limit", 0) or 0
+
+    if not raw_target and do_calibrate and not do_cutover:
+        cal = vstore.calibrate_theme_embeddings(tid)
+        print(f"Theme {tid} embedding calibration (thresholds={cal['thresholds']}):")
+        print(f"  active: {cal['active']}")
+        if cal["target"] is not None:
+            print(f"  target: {cal['target']}")
+        conn.close()
+        return 0
+
+    if not raw_target and do_cutover:
+        promoted = vstore.cutover_target_space(tid)
+        print(f"Theme {tid} cutover complete: active_space_id={promoted}")
+        if do_calibrate:
+            cal = vstore.calibrate_theme_embeddings(tid)
+            print(f"Theme {tid} post-cutover calibration: {cal['active']}")
+        conn.close()
+        return 0
+
     svc = IngestService(s)
     provider = svc.provider
 
@@ -4830,13 +4878,62 @@ def cmd_reembed(args) -> int:
         conn.close()
         return 0
 
-    limit = getattr(args, "limit", 0) or 0
     if limit > 0:
         ents = ents[:limit]
 
-    dry_run = getattr(args, "dry_run", False)
     provider_name = getattr(provider, "name", "?")
     ident = resolve_embed_identity(provider, s)
+
+    if raw_target:
+        target_prov, target_model, target_dim, target_sid = _parse_reembed_target_space(raw_target, ident.provider or provider_name)
+        active_sid, _ = read_kb_embedding_spaces(conn, tid)
+        print(f"Theme {tid}: shadow backfill into {target_sid} (mode={mode}, entities={len(ents)}, active={active_sid or 'none'}, dry_run={dry_run})")
+        if dry_run:
+            conn.close()
+            return 0
+        vstore.start_shadow_backfill(tid, target_model=target_model, embed_provider=target_prov, dim=target_dim, target_space_id=target_sid)
+        success = 0
+        failed = 0
+        if mode == "batch" and hasattr(provider, "embed_batch_job"):
+            frames = [format_entity_frame(ent) for ent in ents]
+            titles = [ent.name for ent in ents]
+            vectors = provider.embed_batch_job(frames, task_type="RETRIEVAL_DOCUMENT", titles=titles, model=target_model, output_dimensionality=target_dim)
+            for ent, vec in zip(ents, vectors):
+                vstore.put(ent.id, vec, target_model, tid, embed_provider=target_prov, space_id=target_sid)
+                success += 1
+        elif mode == "batch" and hasattr(provider, "embed_many"):
+            frames = [format_entity_frame(ent) for ent in ents]
+            titles = [ent.name for ent in ents]
+            vectors = provider.embed_many(frames, task_type="RETRIEVAL_DOCUMENT", titles=titles, model=target_model, output_dimensionality=target_dim)
+            for ent, vec in zip(ents, vectors):
+                vstore.put(ent.id, vec, target_model, tid, embed_provider=target_prov, space_id=target_sid)
+                success += 1
+        else:
+            for i, ent in enumerate(ents, 1):
+                frame_text = format_entity_frame(ent)
+                try:
+                    vec = _call_provider_embed(provider, frame_text, title=ent.name, model=target_model, dim=target_dim)
+                    if not vec:
+                        raise RuntimeError("empty embedding vector returned")
+                    vstore.put(ent.id, vec, target_model, tid, embed_provider=target_prov, space_id=target_sid)
+                    success += 1
+                    if i % 10 == 0 or i == len(ents):
+                        print(f"  [{i}/{len(ents)}] {ent.name} ({ent.type}) shadow-embedded")
+                except Exception as e:
+                    failed += 1
+                    print(f"  [{i}/{len(ents)}] {ent.name} failed: {e}")
+        if do_calibrate:
+            cal = vstore.calibrate_theme_embeddings(tid, target_space_id=target_sid)
+            print(f"Theme {tid} shadow calibration (thresholds={cal['thresholds']}):")
+            print(f"  active: {cal['active']}")
+            print(f"  target: {cal['target']}")
+        if do_cutover and not no_cutover and failed == 0 and success > 0:
+            promoted = vstore.cutover_target_space(tid)
+            print(f"Theme {tid} cutover complete: active_space_id={promoted}")
+        conn.close()
+        print(f"\nShadow backfill done: {success} of {len(ents)} succeeded, {failed} failed (space={target_sid})")
+        return 0 if failed == 0 else 1
+
     model_name = ident.model
     if not model_name:
         print("The embedding model is not known. Claire does not embed again.")
@@ -4876,6 +4973,10 @@ def cmd_reembed(args) -> int:
             print(f"Theme {tid} embedding pinned: {model_name} (vectors of other models deleted)")
         else:
             print("No new vector. The pin and the old vectors stay.")
+
+    if do_calibrate:
+        cal = vstore.calibrate_theme_embeddings(tid, target_space_id=canonical_space_id(ident.provider, model_name))
+        print(f"Theme {tid} calibration: {cal['active']}")
 
     conn.close()
     print(f"\nEmbedding done: {success} of {len(ents)} succeeded, {failed} failed")
@@ -6378,11 +6479,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     preembed = sub.add_parser(
         "re-embed",
-        help="re-compute embeddings for all entities using current model and ontology frame",
-        description="Re-compute vector embeddings for all entities using current embedding model and format_entity_frame.",
+        aliases=["reembed"],
+        help="re-compute embeddings or run shadow backfill, calibration, and cutover",
+        description="Re-compute vector embeddings or orchestrate non-blocking shadow backfill (--target-space, --mode sync|batch), 4-tier threshold calibration (--calibrate), and atomic cutover (--cutover).",
     )
     preembed.add_argument("--limit", type=int, default=0, help="limit number of entities to re-embed (0 = all)")
     preembed.add_argument("--dry-run", action="store_true", help="simulate re-embedding without writing to database")
+    preembed.add_argument("--target-space", default=None, help="shadow target space_id (e.g. google:gemini-embedding-2:3072:v2_prompt) or model name")
+    preembed.add_argument("--mode", choices=["sync", "batch"], default="sync", help="shadow backfill mode: sync or Gemini Batch API (50%% discount)")
+    preembed.add_argument("--calibrate", action="store_true", help="run 4-tier resolution threshold shadow calibration report")
+    preembed.add_argument("--cutover", action="store_true", help="atomically cut over active_space_id to target_space_id")
+    preembed.add_argument("--no-cutover", action="store_true", help="keep shadow vectors in target_space_id without cutover")
     preembed.set_defaults(func=cmd_reembed)
 
     plink = sub.add_parser(

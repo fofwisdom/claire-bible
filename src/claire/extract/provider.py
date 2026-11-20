@@ -174,9 +174,7 @@ class Provider(Protocol):
 
     def extract(self, doc: Document, ontology_block: str) -> ExtractionResult: ...
 
-    def embed(
-        self, text: str, *, task_type: str | None = None, title: str | None = None
-    ) -> list[float]: ...
+    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[float]: ...
 
     def judge_same_entity(
         self, mc: MergeCandidate, *, document_id: str | None = None
@@ -287,9 +285,7 @@ class MockProvider:
         )
         return result
 
-    def embed(
-        self, text: str, *, task_type: str | None = None, title: str | None = None
-    ) -> list[float]:
+    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[float]:
         """해시 기반 결정론적 의사 임베딩(차원 EMBED_DIM)."""
         h = hashlib.sha256(text.encode("utf-8", "ignore")).digest()
         # 바이트를 차원만큼 순환시켜 [-1,1] 범위로
@@ -658,7 +654,7 @@ def _accepts_kwarg(fn: Any, kw: str) -> bool:
 def _provider_default_model(settings: Any, provider_name: str, slot: str) -> str:
     if provider_name == "gemini":
         if slot == "embed":
-            return str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
+            return str(getattr(settings, "gemini_embed_model", "gemini-embedding-2") or "gemini-embedding-2")
         return str(getattr(settings, "gemini_model", "") or "")
     if provider_name == "mock":
         return "mock-embed-64d" if slot == "embed" else "mock"
@@ -941,20 +937,42 @@ class FeatureRoutedProvider:
     def compose_presentation(self, doc: Document, **kwargs: Any) -> str:
         return self._call_stage("summarize", lambda p: p.compose_presentation(doc, **kwargs), effort_override=kwargs.get("effort"))
 
-    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None) -> list[float]:
+    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[float]:
         req_prov, req_model, _ = self.slot_spec("embed")
+        eff_model = str(model or req_model)
         prov = self.slot_provider("embed")
         actual_prov = self.embed_provider or str(getattr(prov, "name", req_prov) or req_prov)
         started = time.perf_counter()
+        call_kwargs: dict[str, Any] = {"task_type": task_type, "title": title}
+        if model is not None and _accepts_kwarg(prov.embed, "model"):
+            call_kwargs["model"] = model
+        if output_dimensionality is not None and _accepts_kwarg(prov.embed, "output_dimensionality"):
+            call_kwargs["output_dimensionality"] = output_dimensionality
         try:
-            out = prov.embed(text, task_type=task_type, title=title)
+            out = prov.embed(text, **call_kwargs)
         except Exception as exc:
             elapsed = (time.perf_counter() - started) * 1000.0
-            self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=req_model, requested_effort="", final_provider=actual_prov, final_model=req_model, status="error", duration_ms=elapsed, detail=str(exc)[:240])
+            self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=eff_model, requested_effort="", final_provider=actual_prov, final_model=eff_model, status="error", duration_ms=elapsed, detail=str(exc)[:240])
             raise
         elapsed = (time.perf_counter() - started) * 1000.0
-        self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=req_model, requested_effort="", final_provider=actual_prov, final_model=req_model, status="ok", duration_ms=elapsed)
+        self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=eff_model, requested_effort="", final_provider=actual_prov, final_model=eff_model, status="ok", duration_ms=elapsed)
         return out
+
+    def embed_many(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[list[float]]:
+        prov = self.slot_provider("embed")
+        if hasattr(prov, "embed_many"):
+            return prov.embed_many(items, task_type=task_type, titles=titles, model=model, output_dimensionality=output_dimensionality)
+        out: list[list[float]] = []
+        for idx, item in enumerate(items):
+            item_title = titles[idx] if titles is not None and idx < len(titles) else None
+            out.append(self.embed(item, task_type=task_type, title=item_title, model=model, output_dimensionality=output_dimensionality))
+        return out
+
+    def embed_batch_job(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None, poll_interval_s: float = 2.0, timeout_s: float = 600.0) -> list[list[float]]:
+        prov = self.slot_provider("embed")
+        if hasattr(prov, "embed_batch_job"):
+            return prov.embed_batch_job(items, task_type=task_type, titles=titles, model=model, output_dimensionality=output_dimensionality, poll_interval_s=poll_interval_s, timeout_s=timeout_s)
+        return self.embed_many(items, task_type=task_type, titles=titles, model=model, output_dimensionality=output_dimensionality)
 
     def judge_same_entity(self, mc: MergeCandidate, *, document_id: str | None = None) -> bool:
         def _invoke(p: Provider) -> bool:

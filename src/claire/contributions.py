@@ -27,12 +27,12 @@ from typing import Any, Callable
 
 from .extract.decision import EXTRACTED_NAME_KEY, Provenance
 from .extract.provider import ExtractionResult
-from .extract.resolver import resolve_or_create
+from .extract.resolver import _call_provider_embed, resolve_or_create
 from .ontology.base import Relation, new_id
 from .ontology.registry import classify_entity_type, classify_relation_type, validate_relation
 from .store import db as dbm
 from .store import kb_collab
-from .store.vectors import EmbeddingModelMismatch, make_vector_store, read_embed_pin, resolve_embed_identity
+from .store.vectors import EmbeddingModelMismatch, is_kb_active_space_eos, make_vector_store, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
 
 log = logging.getLogger("claire.contributions")
 
@@ -353,8 +353,16 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     has_embed = bool(provider.has_embed_capability()) if hasattr(provider, "has_embed_capability") else True
     pin = resolve_embed_identity(provider, settings)
     fixed = read_embed_pin(conn, kb_id)
-    if has_embed and fixed is not None and fixed.model and fixed.model != pin.model:
+    active_sid, target_sid = read_kb_embedding_spaces(conn, kb_id)
+    active_eos = is_kb_active_space_eos(conn, kb_id)
+    target_matches_pin = bool(target_sid and pin.model and f":{pin.model}:" in target_sid)
+    if has_embed and fixed is not None and fixed.model and fixed.model != pin.model and not active_eos and not target_matches_pin:
         raise ContributionError(409, "embedding_model_unavailable", model=fixed.model)
+    eff_model = pin.model
+    eff_provider = pin.provider
+    if fixed is not None and fixed.model and fixed.model != pin.model and target_matches_pin and not active_eos:
+        eff_model = fixed.model
+        eff_provider = fixed.provider or pin.provider
     vstore = make_vector_store(conn, getattr(settings, "vector_backend", "brute"), kb_id=kb_id)
 
     name_to_id: dict[str, str] = {}
@@ -368,11 +376,11 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
             # An entity of K with the same authority identifier, the same type, and a name or an alias that agrees is matched first: its name goes to the resolver, which then merges by the name; the name of the extraction becomes an alias. Without such an entity the keys decide, as for each other entity (federation design Section 10.4, KS4: an identifier of another server alone makes no merge).
             matched_name = _entity_with_authority_id(conn, kb_id, authority, etype=etype, names=[extracted.name, *extracted.aliases]) if authority else None
             embed_fn = None
-            if has_embed:
-                def _embed(extracted=extracted):
+            if has_embed and not active_eos:
+                def _embed(extracted=extracted, _model=eff_model):
                     from .extract.frame import format_entity_frame
 
-                    return provider.embed(format_entity_frame(extracted), task_type="RETRIEVAL_DOCUMENT", title=extracted.name)
+                    return _call_provider_embed(provider, format_entity_frame(extracted), title=extracted.name, model=_model if _model and _model != pin.model else None)
 
                 embed_fn = _embed
             try:
@@ -380,7 +388,7 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
                     conn, vstore,
                     name=matched_name or extracted.name, etype=etype, aliases=extracted.aliases if matched_name is None else [*extracted.aliases, extracted.name], observations=extracted.observations,
                     document_id=document_id, embed_fn=embed_fn, judge_fn=None, provisional=provisional, shadow=None,
-                    kb_id=kb_id, embed_model=pin.model, embed_provider=pin.provider,
+                    kb_id=kb_id, embed_model=eff_model, embed_provider=eff_provider, provider=provider if has_embed else None,
                 )
             except EmbeddingModelMismatch as exc:
                 raise ContributionError(409, "embedding_model_unavailable") from exc
@@ -1500,10 +1508,16 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
             conn.execute("INSERT INTO entities_fts (entity_id, name, body) SELECT ?, name, body FROM entities_fts WHERE entity_id=?", (copy_id, str(row["id"])))
         else:
             conn.execute("INSERT INTO entities_fts (entity_id, name, body) VALUES (?, ?, ?)", (copy_id, values["name"], _fts_body(str(values["name"]), kept_aliases, kept_observations)))
-        conn.execute(
-            "INSERT INTO embeddings (owner_id, kb_id, dim, vector, model, updated_at) SELECT ?, ?, dim, vector, model, updated_at FROM embeddings WHERE owner_id=? AND kb_id=?",
-            (copy_id, target_kb_id, str(row["id"]), source_kb_id),
-        )
+        if "space_id" in _columns(conn, "embeddings"):
+            conn.execute(
+                "INSERT OR REPLACE INTO embeddings (owner_id, kb_id, space_id, dim, vector, model, updated_at) SELECT ?, ?, space_id, dim, vector, model, updated_at FROM embeddings WHERE owner_id=? AND kb_id=?",
+                (copy_id, target_kb_id, str(row["id"]), source_kb_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO embeddings (owner_id, kb_id, dim, vector, model, updated_at) SELECT ?, ?, dim, vector, model, updated_at FROM embeddings WHERE owner_id=? AND kb_id=?",
+                (copy_id, target_kb_id, str(row["id"]), source_kb_id),
+            )
 
     relation_columns = _columns(conn, "relations")
     relations = 0

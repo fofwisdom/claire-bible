@@ -8,9 +8,11 @@ rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 �
 
 from __future__ import annotations
 
+import math
 import re
 import threading
 import time as _time
+from typing import Any
 
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
@@ -77,8 +79,55 @@ _CALL_LOCK = _call_state("admin").lock
 _LAST_CALL = _call_state("admin").last
 _RETRYABLE = (429, 500, 503)
 _KEY_REJECTED_CODES = (401, 403)
-_KEY_REJECTED_MARKERS = ("api key not valid", "api_key_invalid", "permission_denied", "unauthenticated",
-                         "api key expired", "invalid api key")
+_KEY_REJECTED_MARKERS = ("api key not valid", "api_key_invalid", "permission_denied", "unauthenticated", "api key expired", "invalid api key")
+
+GEMINI_EMBED_DEFAULT_DIM = 3072
+GEMINI_EMBED_V1_CHAR_BUDGET = 8000
+GEMINI_EMBED_V2_CHAR_BUDGET = 24000
+ACTIVE_GEMINI_EMBED_MODELS = ("gemini-embedding-2", "gemini-embedding-001")
+RETIRED_GEMINI_EMBED_MODELS = frozenset({"gemini-embedding-2-preview", "embedding-2-preview", "text-embedding-004", "embedding-001", "embedding-gecko-001", "gemini-embedding-exp", "gemini-embedding-exp-03-07"})
+_BATCH_SUCCEEDED_STATES = frozenset({"JOB_STATE_SUCCEEDED", "SUCCEEDED"})
+_BATCH_FAILED_STATES = frozenset({"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_CANCELLING", "JOB_STATE_EXPIRED", "FAILED", "CANCELLED", "EXPIRED"})
+
+
+def classify_gemini_embed_model(model_name: str) -> str:
+    """Return prompt format key ('v1_param' or 'v2_prompt') for an active Gemini embedding model, or fail closed."""
+    clean = str(model_name or "").strip()
+    if clean.startswith("models/"):
+        clean = clean[len("models/"):]
+    low = clean.lower()
+    if not low or low in RETIRED_GEMINI_EMBED_MODELS or low.endswith("-preview") or low.startswith("text-embedding-"):
+        raise ValueError(f"Unsupported or retired Gemini embedding model: {model_name!r}. Use 'gemini-embedding-2' or 'gemini-embedding-001'.")
+    if low == "gemini-embedding-2":
+        return "v2_prompt"
+    if low == "gemini-embedding-001":
+        return "v1_param"
+    raise ValueError(f"Unsupported Gemini embedding model: {model_name!r}. Supported models: 'gemini-embedding-2', 'gemini-embedding-001'.")
+
+
+def format_v2_embed_prompt(text: str, *, task_type: str | None = None, title: str | None = None) -> str:
+    """Encode Gemini Embedding 2 task instruction and optional title into the prompt text."""
+    body = text or " "
+    tt = str(task_type or "").strip().upper()
+    if tt == "RETRIEVAL_DOCUMENT":
+        clean_title = str(title or "").strip() or "none"
+        return f"title: {clean_title} | text: {body}"
+    if tt == "RETRIEVAL_QUERY":
+        return f"task: search result | query: {body}"
+    if tt == "SEMANTIC_SIMILARITY":
+        return f"task: sentence similarity | query: {body}"
+    if tt == "CLASSIFICATION":
+        return f"task: classification | query: {body}"
+    if tt == "CLUSTERING":
+        return f"task: clustering | query: {body}"
+    return body
+
+
+def _l2_normalize(vec: list[float]) -> list[float]:
+    norm = math.sqrt(sum(x * x for x in vec))
+    if norm <= 0.0:
+        return vec
+    return [x / norm for x in vec]
 
 
 def _is_key_rejection(err) -> bool:
@@ -433,32 +482,114 @@ class GeminiProvider:
         result.prompt_version = PROMPT_VERSION
         return result
 
-    def embed(
-        self, text: str, *, task_type: str | None = None, title: str | None = None
-    ) -> list[float]:
-        """Generate embedding using configured task_type without silent config strip fallback."""
+    def _resolve_embed_settings(self) -> Any:
         settings = getattr(self, "settings", None)
         if settings is None:
             from ..config import get_settings
 
             settings = get_settings()
-        limit = getattr(settings, "embed_char_budget", 8000)
-        tt = task_type or "RETRIEVAL_DOCUMENT"
+        return settings
 
+    def _prepare_embed_payload(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> tuple[str, str, int, str, Any]:
         from google.genai import types
 
-        embed_cfg_kwargs: dict[str, Any] = {"task_type": tt}
-        if title and tt == "RETRIEVAL_DOCUMENT":
-            embed_cfg_kwargs["title"] = title
-        config = types.EmbedContentConfig(**embed_cfg_kwargs)
-        resp = self._call(
-            lambda: self.client.models.embed_content(
-                model=self.embed_model,
-                contents=text[:limit] or " ",
-                config=config,
-            )
-        )
-        return list(resp.embeddings[0].values)
+        target_model = str(model or getattr(self, "embed_model", "") or "").strip()
+        if target_model.startswith("models/"):
+            target_model = target_model[len("models/"):]
+        prompt_fmt = classify_gemini_embed_model(target_model)
+        dim = int(output_dimensionality or GEMINI_EMBED_DEFAULT_DIM)
+        if dim <= 0:
+            raise ValueError(f"output_dimensionality must be positive, got {dim}")
+        settings = self._resolve_embed_settings()
+        cfg_budget = int(getattr(settings, "embed_char_budget", GEMINI_EMBED_V1_CHAR_BUDGET) or GEMINI_EMBED_V1_CHAR_BUDGET)
+        budget = max(cfg_budget, GEMINI_EMBED_V2_CHAR_BUDGET) if (prompt_fmt == "v2_prompt" and cfg_budget == GEMINI_EMBED_V1_CHAR_BUDGET) else cfg_budget
+        clipped = (text or "")[:budget] or " "
+        default_tt = getattr(settings, "embed_task_type", None) or "RETRIEVAL_DOCUMENT"
+        tt = task_type if task_type is not None else default_tt
+        if prompt_fmt == "v2_prompt":
+            payload_text = format_v2_embed_prompt(clipped, task_type=tt, title=title)
+            config = types.EmbedContentConfig(output_dimensionality=dim)
+        else:
+            payload_text = clipped
+            embed_cfg_kwargs: dict[str, Any] = {"output_dimensionality": dim}
+            if tt:
+                embed_cfg_kwargs["task_type"] = tt
+            if title and str(tt).upper() == "RETRIEVAL_DOCUMENT":
+                embed_cfg_kwargs["title"] = title
+            config = types.EmbedContentConfig(**embed_cfg_kwargs)
+        return target_model, prompt_fmt, dim, payload_text, config
+
+    def _finalize_embed_vector(self, values: Any, *, prompt_fmt: str, dim: int) -> list[float]:
+        vec = [float(x) for x in values]
+        if prompt_fmt == "v1_param" and dim != GEMINI_EMBED_DEFAULT_DIM:
+            return _l2_normalize(vec)
+        return vec
+
+    def _prepare_batch_contents(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None) -> tuple[str, str, int, list[Any], Any]:
+        from google.genai import types
+
+        contents: list[Any] = []
+        target_model = ""
+        prompt_fmt = "v2_prompt"
+        dim = GEMINI_EMBED_DEFAULT_DIM
+        config = None
+        for idx, item in enumerate(items):
+            item_title = titles[idx] if titles is not None and idx < len(titles) else None
+            target_model, prompt_fmt, dim, payload_text, config = self._prepare_embed_payload(item, task_type=task_type, title=item_title, model=model, output_dimensionality=output_dimensionality)
+            contents.append(types.Content(parts=[types.Part.from_text(text=payload_text)]))
+        return target_model, prompt_fmt, dim, contents, config
+
+    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[float]:
+        """Generate one text embedding with active Gemini model version routing and dimension normalization."""
+        target_model, prompt_fmt, dim, payload_text, config = self._prepare_embed_payload(text, task_type=task_type, title=title, model=model, output_dimensionality=output_dimensionality)
+        resp = self._call(lambda: self.client.models.embed_content(model=target_model, contents=payload_text, config=config))
+        return self._finalize_embed_vector(resp.embeddings[0].values, prompt_fmt=prompt_fmt, dim=dim)
+
+    def embed_many(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[list[float]]:
+        """Embed multiple texts as separate Content items so gemini-embedding-2 does not aggregate them."""
+        if not items:
+            return []
+        target_model, prompt_fmt, dim, contents, config = self._prepare_batch_contents(items, task_type=task_type, titles=titles, model=model, output_dimensionality=output_dimensionality)
+        resp = self._call(lambda: self.client.models.embed_content(model=target_model, contents=contents, config=config))
+        return [self._finalize_embed_vector(emb.values, prompt_fmt=prompt_fmt, dim=dim) for emb in resp.embeddings]
+
+    def embed_batch_job(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None, poll_interval_s: float = 2.0, timeout_s: float = 600.0) -> list[list[float]]:
+        """Submit an asynchronous Gemini Batch API embedding job and return ordered vectors."""
+        if not items:
+            return []
+        from google.genai import types
+
+        target_model, prompt_fmt, dim, contents, config = self._prepare_batch_contents(items, task_type=task_type, titles=titles, model=model, output_dimensionality=output_dimensionality)
+        src = types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=contents, config=config))
+        job = self._call(lambda: self.client.batches.create_embeddings(model=target_model, src=src))
+        deadline = _time.monotonic() + float(timeout_s)
+        while True:
+            raw_state = getattr(job, "state", None)
+            state_name = (getattr(raw_state, "name", None) or str(raw_state or "")).upper()
+            if state_name in _BATCH_SUCCEEDED_STATES:
+                break
+            if state_name in _BATCH_FAILED_STATES:
+                raise RuntimeError(f"Gemini embedding batch job {getattr(job, 'name', '<unknown>')} failed with state {state_name}")
+            if _time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for Gemini embedding batch job {getattr(job, 'name', '<unknown>')}")
+            _time.sleep(max(0.0, float(poll_interval_s)))
+            job = self._call(lambda: self.client.batches.get(name=job.name))
+        dest = getattr(job, "dest", None)
+        responses = list(getattr(dest, "inlined_embed_content_responses", None) or [])
+        out: list[list[float]] = []
+        for entry in responses:
+            err = getattr(entry, "error", None)
+            if err is not None:
+                raise RuntimeError(f"Batch item embedding error: {err}")
+            resp = getattr(entry, "response", None)
+            emb_obj = getattr(resp, "embedding", None)
+            if emb_obj is None:
+                embs = getattr(resp, "embeddings", None)
+                emb_obj = embs[0] if embs else None
+            if emb_obj is None or getattr(emb_obj, "values", None) is None:
+                raise RuntimeError("Batch item embedding response contains no values")
+            out.append(self._finalize_embed_vector(emb_obj.values, prompt_fmt=prompt_fmt, dim=dim))
+        return out
 
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""

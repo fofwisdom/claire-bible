@@ -121,9 +121,9 @@ When there are candidates, the `ResolutionDecision` keeps a trace with one entry
 
 ## 5. Embeddings and vector search
 
-- **Entity text.** `format_entity_frame` in `src/claire/extract/frame.py` makes the text: `[ENTITY: name]`, `TYPE:`, `ALIASES:`, and up to 5 `OBSERVATIONS`. The pipeline embeds it with `task_type="RETRIEVAL_DOCUMENT"` and `title=<name>`. [code]
-- **Query text.** Hybrid search in `src/claire/retrieval/query.py` embeds the query with `task_type="RETRIEVAL_QUERY"`. `Settings.embed_task_type` (default `SEMANTIC_SIMILARITY`) applies only when a caller gives no task type. [code]
-- **Model.** The default embedding model is `gemini-embedding-001`. The model fields have no environment variable. Each theme pins one embedding model. See [PROVIDERS.md](PROVIDERS.md). [code]
+- **Entity text.** `format_entity_frame` in `src/claire/extract/frame.py` makes the text: `[ENTITY: name]`, `TYPE:`, `ALIASES:`, and up to 5 `OBSERVATIONS`. `GeminiProvider` embeds documents with `RETRIEVAL_DOCUMENT` (`format_v2_embed_prompt` prefix for `gemini-embedding-2`; SDK `task_type`/`title` params for `gemini-embedding-001`) at `output_dimensionality=3072`. [code]
+- **Query text.** Hybrid search in `src/claire/retrieval/query.py` uses `task_type="RETRIEVAL_QUERY"`. When the KB active space is `eos_retired`, query embedding and `VectorStore.search` fail closed to FTS-only (`via == ["fts"]`). `Settings.embed_task_type` (default `SEMANTIC_SIMILARITY`) applies only when a caller gives no task type. [code]
+- **Model & EOS Lifecycle.** The default embedding model is `gemini-embedding-2` (`google:gemini-embedding-2:3072:v2_prompt`). `gemini-embedding-001` (`eos_date='2028-05-14'`) remains selectable as an active legacy option. Each knowledge base tracks `active_space_id` and optional `target_space_id` in v39 (`embedding_spaces`), supporting live `AED7` dual-embed during shadow backfill. See [PROVIDERS.md](PROVIDERS.md). [code]
 - **Store.** `VectorStore` in `src/claire/store/vectors.py` keeps vectors as BLOBs in the `embeddings` table and computes cosine similarity in Python. This brute-force backend is the only backend. `make_vector_store` calls `probe_sqlite_vec` but always returns the brute-force store. [code]
 - **Adaptive centering.** With `adaptive_center=True`, `VectorStore.search` subtracts the mean of the stored vectors from the query and from each vector, and normalizes them again. Entity resolution and `link-relations` pass `vector_adaptive_centering` (default true). Hybrid search does not use centering. [code]
 - **Fusion.** Hybrid search fuses the FTS rank and the vector rank with reciprocal rank fusion (`_rrf_fuse`, constant `RRF_K`). [code]
@@ -143,7 +143,7 @@ When `enable_relation_linking` is true and the provider has `judge_relationship`
 CLI: [code]
 
 - `link-relations` (`cmd_link_relations` in `src/claire/cli.py`) does the same judge step for all entities of a theme. It uses vector pairs with a score in `[--min-score, sim_tier_auto_merge)`. `--min-score` defaults to `sim_tier_relational`, `--limit` defaults to 50. It writes edges unless `--dry-run` is given.
-- `re-embed` (`cmd_reembed`) embeds all entities of a theme again with `format_entity_frame` and the current model, then calls `VectorStore.replace_theme_embeddings`, which changes the theme pin and deletes vectors of other models. It writes unless `--dry-run` is given. There is no `--apply` option.
+- `re-embed` (`reembed`, `cmd_reembed`) supports direct replacement (`replace_theme_embeddings`), non-blocking shadow backfill (`--target-space <space_id|model> --mode batch|sync`), 4-tier threshold calibration (`--calibrate`), and atomic space promotion (`--cutover`). It writes unless `--dry-run` is given.
 
 ## 7. Summary quality checks
 

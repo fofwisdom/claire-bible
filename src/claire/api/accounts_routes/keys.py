@@ -111,7 +111,7 @@ def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
         pdata = providers.get(pname, {}) if isinstance(providers, dict) else {}
         if pname == "gemini":
             if slot == "embed":
-                return str(pdata.get("embed_model") or getattr(ctx.settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001"), ""
+                return str(pdata.get("embed_model") or getattr(ctx.settings, "gemini_embed_model", "gemini-embedding-2") or "gemini-embedding-2"), ""
             gem_m = str(pdata.get("model") or getattr(ctx.settings, "gemini_model", "") or "")
             _, gem_embedded_eff = split_gemini_model_and_effort(gem_m)
             return gem_m, gem_embedded_eff or str(pdata.get("effort") or getattr(ctx.settings, "gemini_effort", "medium") or "medium")

@@ -295,3 +295,126 @@ def test_reembed_replaces_pin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(EmbeddingModelMismatch):
         vs.put("late", [1.0, 0.0], "old-model")
     conn.close()
+
+
+def test_e2e_shadow_backfill_dual_embed_calibrate_cutover_and_eos_degradation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """E2E test for v39 EOS lifecycle: gemini-embedding-001 pin -> Batch shadow backfill -> AED7 live dual-embed -> 4-tier calibration -> cutover -> post-EOS fail-closed FTS degradation."""
+    from types import SimpleNamespace
+    from claire.cli import cmd_reembed
+    from claire.extract.resolver import resolve_or_create
+    from claire.ontology.base import Document
+    from claire.retrieval.query import search as hybrid_search
+    from claire.store.vectors import mark_space_eos_retired, read_kb_embedding_spaces
+
+    db_file = tmp_path / "e2e_lifecycle.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    doc = Document(id="d1", title="Seed Doc", raw_text="Claire lifecycle body", source_type="text")
+    dbm.insert_document(conn, doc, kb_id=0)
+    e1 = Entity(type="Model", name="LegacyAlpha", observations=["Initial alpha model"], sources=["d1"])
+    e2 = Entity(type="Model", name="LegacyBeta", observations=["Initial beta model"], sources=["d1"])
+    dbm.upsert_entity(conn, e1, kb_id=0)
+    dbm.upsert_entity(conn, e2, kb_id=0)
+
+    vs = VectorStore(conn, "brute", kb_id=0)
+    v1_a = [1.0, 0.0] + [0.0] * 3070
+    v1_b = [0.0, 1.0] + [0.0] * 3070
+    vs.put(e1.id, v1_a, "gemini-embedding-001", 0, embed_provider="gemini")
+    vs.put(e2.id, v1_b, "gemini-embedding-001", 0, embed_provider="gemini")
+    conn.close()
+
+    batch_calls: list[dict] = []
+
+    class _FakeDualGeminiProvider:
+        name = "gemini"
+        embed_model = "gemini-embedding-2"
+
+        def has_embed_capability(self) -> bool:
+            return True
+
+        def embed(self, text: str, *, task_type: str | None = None, title: str | None = None, model: str | None = None, output_dimensionality: int | None = None) -> list[float]:
+            import hashlib
+
+            eff_model = model or self.embed_model
+            dim = int(output_dimensionality or 3072)
+            digest = hashlib.sha256(f"{eff_model}:{title or ''}:{text}".encode("utf-8")).digest()
+            offset = 4 if eff_model == "gemini-embedding-2" else 2
+            vec = [0.0] * dim
+            vec[offset] = (digest[0] + 1) / 256.0
+            vec[offset + 1 + (digest[1] % 4)] = (digest[2] + 1) / 256.0
+            return vec
+
+        def embed_batch_job(self, items: list[str], *, task_type: str | None = None, titles: list[str | None] | None = None, model: str | None = None, output_dimensionality: int | None = None, **_kw) -> list[list[float]]:
+            batch_calls.append({"count": len(items), "model": model, "dim": output_dimensionality})
+            dim = int(output_dimensionality or 3072)
+            out: list[list[float]] = []
+            for idx, item in enumerate(items):
+                t = titles[idx] if titles and idx < len(titles) else None
+                out.append(self.embed(item, task_type=task_type, title=t, model=model, output_dimensionality=dim))
+            return out
+
+    fake_prov = _FakeDualGeminiProvider()
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    monkeypatch.setenv("CLAIRE_VAULT_PATH", str(tmp_path / "vault"))
+    get_settings.cache_clear()
+    monkeypatch.setattr("claire.ingest.service.IngestService", lambda _s: SimpleNamespace(provider=fake_prov))
+
+    # 1. Start Batch API shadow backfill without cutover: active search stays on gemini-embedding-001.
+    rc = cmd_reembed(Namespace(limit=0, dry_run=False, theme=None, target_space="google:gemini-embedding-2:3072:v2_prompt", mode="batch", calibrate=True, cutover=False, no_cutover=False))
+    assert rc == 0
+    assert batch_calls == [{"count": 2, "model": "gemini-embedding-2", "dim": 3072}]
+
+    conn = dbm.connect(db_file)
+    vs = VectorStore(conn, "brute", kb_id=0)
+    active_sid, target_sid = read_kb_embedding_spaces(conn, 0)
+    assert active_sid == "google:gemini-embedding-001:3072:v1_param"
+    assert target_sid == "google:gemini-embedding-2:3072:v2_prompt"
+    assert vs.count(0) == 2
+    assert vs.count(0, space_id=target_sid) == 2
+    assert {oid for oid, _ in vs.search([1.0, 0.0] + [0.0] * 3070, limit=10)} == {e1.id, e2.id}
+
+    # 2. AED7 live dual-embed while shadow backfill is active: merging existing entity updates both spaces, and creating new entity writes both spaces.
+    res_merge = resolve_or_create(conn, vs, name="LegacyAlpha", etype="Model", aliases=[], observations=["Fresh observation"], document_id="d1", embed_fn=lambda: fake_prov.embed("LegacyAlpha", title="LegacyAlpha", model="gemini-embedding-001"), kb_id=0, embed_model="gemini-embedding-001", embed_provider="gemini", provider=fake_prov)
+    assert res_merge.created is False
+    res_new = resolve_or_create(conn, vs, name="LiveGamma", etype="Model", aliases=[], observations=["Dual embedded entity"], document_id="d1", embed_fn=lambda: fake_prov.embed("LiveGamma", title="LiveGamma", model="gemini-embedding-001"), kb_id=0, embed_model="gemini-embedding-001", embed_provider="gemini", provider=fake_prov)
+    assert res_new.created is True
+    assert vs.count(0, space_id=active_sid) == 3
+    assert vs.count(0, space_id=target_sid) == 3
+
+    # 3. Calibrate & atomic cutover to gemini-embedding-2 (3072d).
+    cal = vs.calibrate_theme_embeddings(0)
+    assert cal["thresholds"] == {"auto_merge": 0.93, "verify": 0.72, "related": 0.70, "distinct": 0.55}
+    assert cal["active"]["vector_count"] == 3 and cal["target"]["vector_count"] == 3 and cal["target"]["dim"] == 3072
+    conn.close()
+
+    assert cmd_reembed(Namespace(limit=0, dry_run=False, theme=None, target_space=None, mode="sync", calibrate=False, cutover=True, no_cutover=False)) == 0
+    conn = dbm.connect(db_file)
+    vs = VectorStore(conn, "brute", kb_id=0)
+    active_after, target_after = read_kb_embedding_spaces(conn, 0)
+    assert active_after == "google:gemini-embedding-2:3072:v2_prompt"
+    assert target_after == ""
+    assert read_embed_pin(conn, 0) == ("gemini", "gemini-embedding-2")
+    assert conn.execute("SELECT COUNT(*) FROM embeddings WHERE kb_id=0 AND space_id != ?", (active_after,)).fetchone()[0] == 0
+
+    # 4. C2 fail-closed EOS degradation + AED7 target-only dual-embed when active space is eos_retired.
+    mark_space_eos_retired(conn, active_after)
+    assert vs.search([0.6, 0.8] + [0.0] * 3070, limit=10) == []
+
+    class _ExplodingQueryProvider:
+        name = "gemini"
+        embed_model = "gemini-embedding-2"
+
+        def embed(self, *_a, **_kw):
+            raise AssertionError("Retired active space must not invoke provider.embed during search")
+
+    search_res = hybrid_search(conn, vs, _ExplodingQueryProvider(), "LiveGamma", summarize=False, kb_id=0)
+    assert search_res.hits and search_res.hits[0].entity.id == res_new.entity.id
+    assert search_res.hits[0].via == ["fts"]
+
+    vs.start_shadow_backfill(0, target_model="gemini-embedding-2", embed_provider="gemini", dim=3072, target_space_id="google:gemini-embedding-2-next:3072:v2_prompt")
+    conn.commit()
+    res_eos = resolve_or_create(conn, vs, name="TargetOnlyDelta", etype="Model", aliases=[], observations=["EOS active skips primary embed"], document_id="d1", embed_fn=lambda: fake_prov.embed("TargetOnlyDelta", title="TargetOnlyDelta", model="gemini-embedding-2"), kb_id=0, embed_model="gemini-embedding-2", embed_provider="gemini", provider=fake_prov)
+    assert res_eos.created is True
+    assert vs.get(res_eos.entity.id, 0, space_id="google:gemini-embedding-2-next:3072:v2_prompt") is not None
+    assert conn.execute("SELECT COUNT(*) FROM embeddings WHERE owner_id=? AND space_id=?", (res_eos.entity.id, active_after)).fetchone()[0] == 0
+    conn.close()

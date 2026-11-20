@@ -744,7 +744,7 @@ def create_app(
         return raw
 
     # Fields of ``KnowledgeBaseInfo.to_dict`` that are internal: the file path of the database, internal account IDs, and settings of the operator. Only a requester with the capability ``settings`` gets them.
-    _KB_INTERNAL_FIELDS = ("db_path", "seq", "account_id", "created_by_account_id", "visibility_epoch", "fqdn", "ga_measurement_id", "default_focus")
+    _KB_INTERNAL_FIELDS = ("db_path", "seq", "account_id", "created_by_account_id", "visibility_epoch", "fqdn", "ga_measurement_id", "default_focus", "active_space_id", "target_space_id")
 
     def _kb_public_dict(kb: KnowledgeBaseInfo, *, settings_view: bool) -> dict[str, Any]:
         item = kb.to_dict()

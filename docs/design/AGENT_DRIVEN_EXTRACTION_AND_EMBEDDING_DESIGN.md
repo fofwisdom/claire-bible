@@ -1,7 +1,7 @@
 # Agent-Driven Extraction, `agent_client` Plugins, Unified OAuth 2.1, and Embedding EOS Lifecycle
 
-- **Status**: Approved design (Rev. 2.4), not implemented
-- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 `AED1`–`AED9` locked; Rev. 2.1 `gemini-embedding-2` plan added; Rev. 2.2 `AED10`–`AED11` locked; Rev. 2.3 `AED6` baseline and `AED8` scope clarified; Rev. 2.4 staging schema/`document_id` unified and 4-layer `AED9` prompt-injection defense restored)
+- **Status**: Partially implemented — Track B (`AE6a`–`AE6d`: `gemini-embedding-2`, `v39` `embedding_spaces`, Batch shadow backfill, `AED7` dual-embed) implemented → [`PROVIDERS.md`](../implementation/PROVIDERS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md), [`COMMANDS.md`](../implementation/COMMANDS.md); Tracks A/C/D not implemented
+- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 `AED1`–`AED9` locked; Rev. 2.1 `gemini-embedding-2` plan added; Rev. 2.2 `AED10`–`AED11` locked; Rev. 2.3 `AED6` baseline and `AED8` scope clarified; Rev. 2.4 staging schema/`document_id` unified and 4-layer `AED9` prompt-injection defense restored; Rev. 2.5 4-track parallel implementation split)
 - **Principles**: [`PRINCIPLES.md`](../PRINCIPLES.md) A1–A4, B1–B4, C1–C5, D1–D3, E1–E4, G1
 - **Related docs**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md`](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`PROVIDERS.md`](../implementation/PROVIDERS.md)
 
@@ -379,20 +379,65 @@ Per `AED8`, Claire Bible retires strictly `AntigravityProvider`, `CodexProvider`
 
 ---
 
-## 9. Implementation Plan (`AE1`–`AE8`, Deferred)
+## 9. Phased & Parallel Implementation Plan (4 Tracks, Deferred)
 
-Implementation is explicitly out of scope for this design turn. When approved for implementation, execute in these work units:
+Implementation is explicitly out of scope for this design turn. To allow safe incremental shipping and parallel work without cross-module merge conflicts, split delivery into **4 independent tracks** and **13 bounded work units**.
 
-| Unit | Deliverable | Key Decisions & Tests |
-| :--- | :--- | :--- |
-| **`AE1`** | `agent_client` plugin type & fixed server bundle delivery (`uri_path` `/clients/<client_id>/...` + `"clients"` in `RESERVED_USERNAMES` + `"clients"` `HostRole` for derived `clients.<domain>` / `:8770`, cookie stripping, CSP, signed `?t=` handoff, `/admin/server` mode toggle). | `AED1`, `AED2`, `AED3`; unit + E2E routing/isolation tests |
-| **`AE2`** | Unified OAuth 2.1 hardening: `S256`-only PKCE, `readonly` + `write` scopes without upscoping, `write` step-up (`has_recent_auth` + passkey `allowCredentials`), refresh rotation + reuse revocation, `/oauth/revoke`, `/settings/mcp`, Telegram-free `/login?tx=` + `__Host-claire_oauth_tx` CSRF guard, optional RFC 8628 `/device`, zero-JS/i18n/SVG templates, Modern Web Guidance headers & autofill rules. | `AED5`; OAuth PKCE/scope/CSRF/headless E2E tests |
-| **`AE3`** | Deprecation banners, `Deprecation: true` headers, CLI/Telegram `/token` migration notices, and scheduled retirement of manual `api_tokens.json` / `/tokens`. | `AED5`; legacy token deprecation & revocation tests |
-| **`AE4`** | Per-account `extraction_mode` (`provider` \| `client`) preference, `pipeline.stage_raw(...)` staging on `documents` (`extraction_status`, `claim_token`, `lease_expires_at`) + `raw_inbox` (`status = 'staged'`), visibility isolation of `pending` documents, no silent fallback (`C2`), and `stage_source(..., full_content=True)` defaulting to untruncated full raw capture. | `AED4`, `AED9`; isolation & full-content boundary tests |
-| **`AE5`** | Client extraction MCP/HTTP contract keyed uniformly by `document_id` (`list_staged_sources`, `claim_staged_source`, `get_staged_source` with nonce-bound `<untrusted_source_document>` framing & escaping, `submit_client_extraction`), deterministic gates (summary/AsciiDoc/ontology/hard-invariants/`CT4`), provenance recording, and atomic commit. | `AED1`, `AED4`, `AED9`; E2E client-mode extraction & framing tests |
-| **`AE6a`** | `gemini-embedding-2` request adapter in `gemini_provider.py`: model-family routing (`v1_param_task_type` vs `v2_prompt_task_prefix`), prompt prefix formatting, 8,192-token budget, `types.Content` aggregation guard, and explicit `output_dimensionality=3072` pinning. | `AED6`, `AED10`, `AED11`; unit tests for request shape and fail-closed unknown models |
-| **`AE6b`** | `embedding_spaces` registry, `embeddings` PK migration `(owner_id, kb_id, space_id)`, `active_space_id` / `target_space_id` on `knowledge_bases`, and `space_id`-enforced `VectorStore.search`/`upsert`. | `AED6`, `AED7`, `AED10`; schema migration & zero-downtime compatibility tests |
-| **`AE6c`** | Remove shut-down `gemini-embedding-2-preview`, unlock `ProviderManager.update_config(server_scope=True)` for governed space lifecycle transitions, default new KBs to `gemini-embedding-2` (`3072`), and add WebUI Embedding Space Lifecycle Panel + May 14, 2028 EOS banner. | `AED6`, `AED10`; WebUI & API config lifecycle tests |
-| **`AE6d`** | `claire reembed --target-space --mode batch\|sync` (Batch API 50% discount + sync fallback), `AED7` dual-embed in `pipeline.py` & `contributions.py`, atomic cutover, `claire reembed --calibrate` 4-tier verification, and FTS fail-closed degradation on EOS (`C2`). | `AED6`, `AED7`, `AED10`, `AED11`; dual-embed, Batch backfill, calibration & cutover tests |
-| **`AE7`** | Reference `antigravity` `agent_client` plugin bundle (`client_bundle/` with isolated MCP-only `agents/claire-extractor.md`, `rules/AGENTS.md` untrusted-data rules, `skills/`, `mcp_config.json.tmpl`) packaged under `plugin_host` zero-network/zero-subprocess locks. | `AED1`, `AED3`, `AED9` |
-| **`AE8`** | Delete `antigravity_provider.py`, `codex_provider.py`, `openai` stubs, `host-cli` paths, sealed `personal_cli` legacy code, `CLAIRE_AGY_*` / `CLAIRE_CODEX_*` `Settings` fields, and corresponding `ENVIRONMENT_VARIABLES.md` / `PROVIDERS.md` entries. | `AED6`, `AED8`; full test suite + `test_docs_consistency.py` |
+### 9.1 Four Independent Tracks & Dependency DAG
+
+```mermaid
+flowchart LR
+    subgraph TA["Track A: Legacy Cleanup"]
+        AE8["AE8: Retire host-cli & openai stubs"]
+    end
+
+    subgraph TB["Track B: gemini-embedding-2 & EOS"]
+        AE6a["AE6a: v1/v2 Request Adapter"] --> AE6b["AE6b: Space Schema"] --> AE6c["AE6c: Config & Lifecycle UI"] --> AE6d["AE6d: Batch Backfill, Dual-Embed & Cutover"]
+    end
+
+    subgraph TC["Track C: Unified OAuth 2.1 & Token Deprecation"]
+        AE2a["AE2a: OAuth Core (S256, write, revoke)"] --> AE2b["AE2b: /login?tx=, /device & MCP UI"] --> AE3["AE3: Deprecate Manual Tokens"]
+    end
+
+    subgraph TD["Track D: agent_client & Client Extraction"]
+        AE1a["AE1a: agent_client Manifest & Locks"] --> AE1b["AE1b: Fixed uri_path / fqdn Router"]
+        AE4["AE4: Per-Account extraction_mode & stage_raw"] --> AE5["AE5: MCP Contract & Commit Gates"]
+        AE1b --> AE7["AE7: Reference claire.antigravity Bundle"]
+        AE5 --> AE7
+    end
+
+    AE2a -.->|"write scope gate"| AE5
+```
+
+- **Track A (`AE8`)**: Zero dependencies on Tracks B, C, or D and zero DB schema changes. Can ship immediately or alongside Wave 1.
+- **Track B (`AE6a -> AE6b -> AE6c -> AE6d`)**: Zero dependencies on Tracks A, C, or D. Upgrades both server-mode and client-mode KBs to `gemini-embedding-2` (`3072d` per `AED10`) and prepares May 14, 2028 EOS migration.
+- **Track C (`AE2a -> AE2b -> AE3`)**: Zero dependencies on Tracks A, B, or D. `AE2a` unblocks `AE5` `write`-scope enforcement while `AE2b` (Telegram-free `/login?tx=`, `/device`, `/settings/mcp`) and `AE3` (manual token deprecation) finish independently.
+- **Track D (`(AE1a -> AE1b) || AE4 -> AE5 -> AE7`)**: `AE1a`/`AE1b` (bundle manifest & fixed host/URI router) and `AE4` (per-account `extraction_mode` & `documents`/`raw_inbox` staging) touch disjoint files and execute in parallel. `AE5` depends on `AE4` + `AE2a` and calls existing `VectorStore`/`provider.embed` interfaces, working before or after Track B. `AE7` packages the reference bundle and runs the full client E2E verification.
+
+### 9.2 Work Units, File Boundaries, DB Impact, and Verification Gates
+
+| Unit | Track & Prereqs | DB Schema Impact | Primary Files Touched | Deliverable & Verification Gates |
+| :--- | :--- | :--- | :--- | :--- |
+| **`AE8`** | Track A · None | None | `src/claire/extract/antigravity_provider.py`, `src/claire/extract/codex_provider.py`, `src/claire/provider_manager.py`, `src/claire/config.py`, `src/claire/extract/provider.py`, `docs/implementation/ENVIRONMENT_VARIABLES.md`, `docs/implementation/PROVIDERS.md` | Delete `host-cli` providers, sealed `personal_cli` legacy paths, `openai` stubs, and `CLAIRE_AGY_*` / `CLAIRE_CODEX_*` settings; remove obsolete `test_personal_cli_seal.py` assertions. Verify: `pytest tests/test_provider_policy.py tests/test_docs_consistency.py`. |
+| **`AE6a`** | Track B · None | None | `src/claire/extract/gemini_provider.py` | Explicit model-family embed adapter (`v1_param_task_type` vs `v2_prompt_task_prefix`), v2 prompt prefixes, `output_dimensionality=3072` pinning, 8,192-token budget, `types.Content` multi-input wrapper, and fail-closed unknown model check (`C2`). Verify: unit tests on v1/v2 request payloads. |
+| **`AE6b`** | Track B · `AE6a` | `claire.db` DDL (`embedding_spaces` table; `embeddings` PK `(owner_id, kb_id, space_id)`; `knowledge_bases.active_space_id` / `target_space_id`) | `src/claire/store/db.py`, `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py` | Idempotent schema migration keeping existing `gemini-embedding-001` rows intact; `EmbedPin` & `VectorStore.search`/`upsert` enforced by `space_id`. Verify: migration compatibility & mixed-space rejection unit tests. |
+| **`AE6c`** | Track B · `AE6b` | None | `src/claire/provider_manager.py`, `src/claire/api/accounts_routes/keys.py`, `src/claire/static/js/manage_panels.js` | Remove shut-down `gemini-embedding-2-preview`, replace hardcoded `gemini-embedding-001` lock in `update_config(server_scope=True)`, default new KBs to `gemini-embedding-2` (`3072d`), and render WebUI Embedding Space Lifecycle Panel + May 14, 2028 EOS warning. Verify: provider API + WebUI lifecycle tests. |
+| **`AE6d`** | Track B · `AE6c` | None (`embedding_spaces.state` updates) | `src/claire/cli.py`, `src/claire/ingest/pipeline.py`, `src/claire/contributions.py`, `src/claire/config.py` | `claire reembed --target-space --mode batch\|sync` (Batch API 50% discount), `AED7` live dual-embed (`active` + `target`, or `target` only post-EOS), `claire reembed --calibrate` 4-tier threshold check, atomic cutover, and FTS fail-closed degradation on EOS (`C2`). Verify: dual-embed, Batch backfill, calibration & cutover integration tests. |
+| **`AE2a`** | Track C · None | `claire.db` / `auth.db` OAuth columns (`granted_scope`, `token_family_id`, `rotated_at`, `device_codes`) | `src/claire/api/oauth.py`, `src/claire/store/db.py`, `src/claire/api/mcp_tools.py` | `S256`-only PKCE, exact `readonly` + `write` scope persistence without upscoping, `write` step-up (`has_recent_auth` + passkey `allowCredentials`), refresh token rotation + family reuse revocation, and `POST /oauth/revoke` (RFC 7009). Verify: OAuth PKCE/scope/rotation/revocation E2E tests. |
+| **`AE2b`** | Track C · `AE2a` | `oauth_pending_requests` (`tx_id`, expiry) | `src/claire/api/oauth.py`, `src/claire/api/accounts_routes/login.py`, `src/claire/templates/login.html`, `src/claire/api/security.py` | Telegram-free `/login?tx=` + `__Host-claire_oauth_tx` CSRF binding, IdP/Passkey state handoff, optional RFC 8628 `/oauth/device_authorization` + `/device`, `/settings/mcp` grant manager, zero-JS i18n/SVG templates (`PRINCIPLES.md` G1), `Sec-Fetch-Site` (`same-origin`/`none`), `autocomplete="current-password"`, and opaque `"null"` origin rejection. Verify: Telegram-free login, headless device & security header E2E tests. |
+| **`AE3`** | Track C · `AE2b` | None | `src/claire/api/server.py`, `src/claire/cli.py`, WebUI `/tokens` & Telegram `/token` notice | `Deprecation: true` response header on legacy manual tokens, `/tokens` & CLI migration notices pointing to `/settings/mcp` OAuth 2.1, and scheduled retirement toggle for `api_tokens.json`. Verify: deprecation header & revocation tests. |
+| **`AE1a`** | Track D · None | None | `src/claire/plugin_host/manifest.py`, `src/claire/plugin_host/discovery.py`, `src/claire/plugin_host/importcheck.py`, `src/claire/plugin_sdk/__init__.py` | Add `"agent_client"` to `PLUGIN_TYPES` (keeping `PLUGIN_API_LEVEL = 1`), SHA-256 bundle file hashing, `ManifestError` rejection on network/executable/provider permissions, and static importcheck blocking `socket`/`ssl`/`http`/`urllib`/`subprocess`/`ctypes`. Verify: plugin discovery & lock unit tests. |
+| **`AE1b`** | Track D · `AE1a` | `server_settings` key (`agent_client_delivery_mode`) | `src/claire/api/host_router.py`, `src/claire/api/prototype_host.py`, `src/claire/accounts/username_policy.py`, `src/claire/api/server.py` | Reserve `"clients"` in `RESERVED_USERNAMES`, add `"clients"` `HostRole` (`clients.<domain>` / `:8770`), enforce cookie stripping + `CSP: default-src 'none'; sandbox`, implement fixed `/clients/<client_id>/...` vs derived FQDN router, signed `?t=` handoff, and non-customizable `/admin/server` toggle. Verify: cross-origin isolation & routing E2E tests. |
+| **`AE4`** | Track D · None | `claire.db` / `auth.db` (`accounts.extraction_mode`; `documents.extraction_status`, `claim_token`, `lease_expires_at`, `claimed_by_client_id`; `raw_inbox.status = 'staged'`) | `src/claire/store/db.py`, `src/claire/ingest/pipeline.py`, Telegram/WebUI/feed ingest handlers | Per-account `extraction_mode` preference (`provider` \| `client`), extract `pipeline.stage_raw(...)`, `stage_source(..., full_content=True)` default, `pending` document visibility isolation, `recover-loop` skipping `'staged'`, and zero silent LLM fallback (`C2`). Verify: isolation, `full_content`, and 0-LLM staging tests. |
+| **`AE5`** | Track D · `AE4` + `AE2a` | None | `src/claire/api/mcp_tools.py`, `src/claire/ingest/pipeline.py`, `src/claire/ontology/registry.py`, `src/claire/contributions.py`, `src/claire/store/vectors.py` | Client extraction endpoints keyed by `document_id` (`list_staged_sources`, `claim_staged_source`, `get_staged_source` with nonce-bound `<untrusted_source_document>` escaping, `submit_client_extraction`), deterministic gates (concurrency lock, schema `extra="forbid"`, summary lint, AsciiDoc lint + `sanitize_rendered_detail`/`render_to_html`, ontology invariants, personal-KB `CT4`), provenance, and atomic commit. Verify: contract, framing-escape & E2E extraction tests. |
+| **`AE7`** | Track D · `AE1b` + `AE5` | None | New `plugins/agent_client/claire.antigravity/` (`plugin.toml`, `client_bundle/`), `docs/implementation/` sync | Package reference bundle (`agents/claire-extractor.md` MCP-only subagent, `rules/AGENTS.md` untrusted-data & `CT4` rules, `skills/`, `mcp_config.json.tmpl`) + sync `implementation/` docs (`GLOSSARY.md`, `PROVIDERS.md`, `API_AND_MCP_GUIDE.md`, `SCHEMA_VERSIONING.md`). Verify: `test_docs_consistency.py` + end-to-end Antigravity extraction flow. |
+
+### 9.3 Recommended Execution Order (3 Safe Waves)
+
+1. **Wave 1 — Parallel Foundation (Zero Shared File or Migration Conflicts)**:
+   - Run **`AE8`** (Track A), **`AE6a`** (Track B), **`AE2a`** (Track C), and **`AE1a`** (Track D) in parallel.
+2. **Wave 2 — Schema Migrations, Account Mode, and UI Surfaces**:
+   - Coordinate DDL ordering on `src/claire/store/db.py` when landing **`AE6b`** (`embedding_spaces` / `embeddings`), **`AE2b`** (`oauth_pending_requests`), and **`AE4`** (`documents` / `raw_inbox` / `accounts.extraction_mode`), since each modifies a disjoint set of tables.
+   - Run **`AE6c`** (after `AE6b`), **`AE3`** (after `AE2b`), and **`AE1b`** (parallel with all).
+3. **Wave 3 — End-to-End Pipelines & Cutover**:
+   - Run **`AE6d`** (`gemini-embedding-2` Batch backfill, `AED7` dual-embed, calibration, cutover) in parallel with **`AE5 -> AE7`** (MCP extraction contract, 4-layer defense validation, reference `claire.antigravity` bundle, and full `scripts/ci.sh` gate).

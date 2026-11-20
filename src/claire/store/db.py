@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -136,14 +136,26 @@ CREATE TABLE IF NOT EXISTS relations (
 CREATE INDEX IF NOT EXISTS idx_relations_src ON relations(source_id);
 CREATE INDEX IF NOT EXISTS idx_relations_tgt ON relations(target_id);
 
+CREATE TABLE IF NOT EXISTS embedding_spaces (
+    space_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    prompt_format_version TEXT NOT NULL,
+    normalized INTEGER NOT NULL DEFAULT 1,
+    eos_date TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+
 CREATE TABLE IF NOT EXISTS embeddings (
-    owner_id TEXT,
+    owner_id TEXT NOT NULL,
     kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    space_id TEXT NOT NULL DEFAULT '',
     dim INTEGER,
     vector BLOB,
     model TEXT,
     updated_at REAL,
-    PRIMARY KEY (owner_id, kb_id)
+    PRIMARY KEY (owner_id, kb_id, space_id)
 );
 
 CREATE TABLE IF NOT EXISTS proposals (
@@ -850,6 +862,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v36_shadow_verdict_columns(conn)
     _migrate_v37_personal_source_public(conn)
     _migrate_v38_pair_review_backfill(conn)
+    _migrate_v39_embedding_spaces(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1680,6 +1693,91 @@ def _migrate_v38_pair_review_backfill(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (PAIR_REVIEW_BACKFILL_KEY, str(added)))
 
 
+def _migrate_v39_embedding_spaces(conn: sqlite3.Connection) -> None:
+    """v39 schema: embedding_spaces registry, per-KB active/target spaces, and multi-space embeddings PK."""
+    from .vectors import canonical_space_id, ensure_embedding_space
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS embedding_spaces (
+            space_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dim INTEGER NOT NULL,
+            prompt_format_version TEXT NOT NULL,
+            normalized INTEGER NOT NULL DEFAULT 1,
+            eos_date TEXT,
+            status TEXT NOT NULL DEFAULT 'active'
+        )
+        """
+    )
+    ensure_embedding_space(conn, provider="gemini", model="gemini-embedding-001", dim=3072, status="active", eos_date="2028-05-14")
+    ensure_embedding_space(conn, provider="gemini", model="gemini-embedding-2", dim=3072, status="active")
+
+    if _table_exists(conn, "knowledge_bases"):
+        _ensure_column(conn, "knowledge_bases", "active_space_id", "TEXT")
+        _ensure_column(conn, "knowledge_bases", "target_space_id", "TEXT")
+
+    if _table_exists(conn, "embeddings"):
+        tinfo = conn.execute("PRAGMA table_info(embeddings)").fetchall()
+        cols = {str(r["name"]): int(r["pk"] or 0) for r in tinfo}
+        if "space_id" not in cols or cols.get("space_id", 0) == 0:
+            kb_prov_map: dict[int, str] = {}
+            if _table_exists(conn, "knowledge_bases") and "embed_provider" in _column_names(conn, "knowledge_bases"):
+                for krow in conn.execute("SELECT id, embed_provider FROM knowledge_bases").fetchall():
+                    kb_prov_map[int(krow[0])] = str(krow[1] or "").strip()
+            conn.execute(
+                """
+                CREATE TABLE embeddings_v39 (
+                    owner_id TEXT NOT NULL,
+                    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                    space_id TEXT NOT NULL DEFAULT '',
+                    dim INTEGER,
+                    vector BLOB,
+                    model TEXT,
+                    updated_at REAL,
+                    PRIMARY KEY (owner_id, kb_id, space_id)
+                )
+                """
+            )
+            old_rows = conn.execute("SELECT owner_id, kb_id, dim, vector, model, updated_at FROM embeddings").fetchall()
+            for r in old_rows:
+                kb_id_val = int(r[1] or 0)
+                dim_val = int(r[2]) if r[2] is not None else None
+                model_val = str(r[4] or "").strip()
+                sid = canonical_space_id(kb_prov_map.get(kb_id_val, ""), model_val, dim=dim_val)
+                conn.execute(
+                    "INSERT OR REPLACE INTO embeddings_v39(owner_id, kb_id, space_id, dim, vector, model, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (r[0], kb_id_val, sid, r[2], r[3], r[4], r[5]),
+                )
+                if sid:
+                    ensure_embedding_space(conn, provider=kb_prov_map.get(kb_id_val, ""), model=model_val, dim=dim_val, space_id=sid, status="active")
+            conn.execute("DROP TABLE embeddings")
+            conn.execute("ALTER TABLE embeddings_v39 RENAME TO embeddings")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_kb ON embeddings(kb_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_kb_space ON embeddings(kb_id, space_id)")
+
+    if _table_exists(conn, "knowledge_bases") and "embed_model" in _column_names(conn, "knowledge_bases"):
+        kb_rows = conn.execute(
+            "SELECT id, embed_provider, embed_model, active_space_id FROM knowledge_bases WHERE embed_model IS NOT NULL AND embed_model != ''"
+        ).fetchall()
+        for krow in kb_rows:
+            kb_id_val = int(krow[0])
+            e_prov = str(krow[1] or "").strip()
+            e_model = str(krow[2] or "").strip()
+            curr_active = str(krow[3] or "").strip()
+            if curr_active:
+                continue
+            dim_row = conn.execute(
+                "SELECT dim, COUNT(*) AS n FROM embeddings WHERE kb_id=? AND model=? AND dim IS NOT NULL GROUP BY dim ORDER BY n DESC LIMIT 1",
+                (kb_id_val, e_model),
+            ).fetchone()
+            dim_val = int(dim_row[0]) if dim_row is not None else None
+            sid = ensure_embedding_space(conn, provider=e_prov, model=e_model, dim=dim_val, status="active")
+            if sid:
+                conn.execute("UPDATE knowledge_bases SET active_space_id=? WHERE id=?", (sid, kb_id_val))
+
+
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
     """v36 schema (SCHEMA_VERSIONING.md "v36"): the columns of the human verdict in ``same_subject_shadow`` (``verdict``, ``verdict_note``, ``verdict_at``, ``verdict_by``). A table of v35 gets them with NULL values; no row changes. Idempotent (A3); it runs at each start."""
     if not _table_exists(conn, "same_subject_shadow"):
@@ -1954,20 +2052,23 @@ def backfill_embedding_models(conn: sqlite3.Connection) -> int:
     고정되지 않은 테마는 건드리지 않는다. 그 테마의 검색은 레거시대로 모든 행을 보고, 첫 저장이 고정하면서 같은 차원의 행을 넘겨받는다(``VectorStore.put``).
     바꾼 행 수를 반환한다. 커밋은 호출자 몫이다.
     """
-    from .vectors import LEGACY_EMBED_MODELS
+    from .vectors import LEGACY_EMBED_MODELS, canonical_space_id, ensure_embedding_space
 
-    if "embed_model" not in _column_names(conn, "knowledge_bases") or "model" not in _column_names(
-        conn, "embeddings"
-    ):
+    kb_cols = _column_names(conn, "knowledge_bases")
+    emb_cols = _column_names(conn, "embeddings")
+    if "embed_model" not in kb_cols or "model" not in emb_cols:
         return 0
+    has_space_col = "space_id" in emb_cols
     marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
     legacy = f"(model IS NULL OR model='' OR model IN ({marks}))"
+    prov_col = "embed_provider" if "embed_provider" in kb_cols else "'' AS embed_provider"
+    active_col = "active_space_id" if "active_space_id" in kb_cols else "'' AS active_space_id"
     pinned = conn.execute(
-        "SELECT id, embed_model FROM knowledge_bases WHERE embed_model IS NOT NULL AND embed_model != ''"
+        f"SELECT id, embed_model, {prov_col}, {active_col} FROM knowledge_bases WHERE embed_model IS NOT NULL AND embed_model != ''"
     ).fetchall()
     changed = 0
     for row in pinned:
-        kb_id, model = int(row[0]), str(row[1])
+        kb_id, model, embed_provider, active_sid = int(row[0]), str(row[1]), str(row[2] or "").strip(), str(row[3] or "").strip()
         if conn.execute(
             f"SELECT 1 FROM embeddings WHERE kb_id=? AND {legacy} LIMIT 1",
             (kb_id, *LEGACY_EMBED_MODELS),
@@ -1978,8 +2079,24 @@ def backfill_embedding_models(conn: sqlite3.Connection) -> int:
             "GROUP BY dim ORDER BY n DESC LIMIT 1",
             (kb_id, model),
         ).fetchone()
-        sql = f"UPDATE embeddings SET model=? WHERE kb_id=? AND {legacy}"
-        params: list[Any] = [model, kb_id, *LEGACY_EMBED_MODELS]
+        target_dim = int(dim_row[0]) if (dim_row is not None and dim_row[0] is not None) else None
+        sid = active_sid or canonical_space_id(embed_provider, model, dim=target_dim)
+        if sid:
+            ensure_embedding_space(conn, provider=embed_provider, model=model, dim=target_dim, space_id=sid, status="active")
+        if has_space_col and sid:
+            del_sql = f"DELETE FROM embeddings WHERE kb_id=? AND space_id='' AND {legacy}"
+            del_params: list[Any] = [kb_id, *LEGACY_EMBED_MODELS]
+            if dim_row is not None:
+                del_sql += " AND dim=?"
+                del_params.append(dim_row[0])
+            del_sql += " AND EXISTS (SELECT 1 FROM embeddings e2 WHERE e2.owner_id=embeddings.owner_id AND e2.kb_id=embeddings.kb_id AND e2.space_id=?)"
+            del_params.append(sid)
+            conn.execute(del_sql, del_params)
+            sql = f"UPDATE embeddings SET model=?, space_id=CASE WHEN space_id='' THEN ? ELSE space_id END WHERE kb_id=? AND {legacy}"
+            params: list[Any] = [model, sid, kb_id, *LEGACY_EMBED_MODELS]
+        else:
+            sql = f"UPDATE embeddings SET model=? WHERE kb_id=? AND {legacy}"
+            params = [model, kb_id, *LEGACY_EMBED_MODELS]
         if dim_row is not None:
             sql += " AND dim=?"
             params.append(dim_row[0])

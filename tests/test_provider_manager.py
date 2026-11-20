@@ -379,23 +379,39 @@ def test_provider_capability_checks_and_locks(tmp_path: Path, monkeypatch):
 
 
 def test_server_scope_locks_embedding_selection_and_documents_purpose(tmp_path: Path):
-    """Verify server_scope forbids changing the embedding provider/model and documents gemini-embedding-001."""
+    """Verify server_scope defaults to gemini-embedding-2, allows active Gemini embed models, rejects retired/non-Gemini models, and exposes EOS lifecycle metadata."""
     pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
 
-    with pytest.raises(ValueError, match="gemini-embedding-001"):
-        pm.update_config({"providers": {"gemini": {"embed_model": "gemini-embedding-2"}}}, server_scope=True)
+    sanitized_default = pm.get_sanitized_config()
+    assert sanitized_default["providers"]["gemini"]["embed_model"] == "gemini-embedding-2"
+    avail_emb = [m["id"] for m in sanitized_default["providers"]["gemini"]["available_embed_models"]]
+    assert "gemini-embedding-2" in avail_emb and "gemini-embedding-001" in avail_emb
+    assert "gemini-embedding-2-preview" not in avail_emb
 
-    with pytest.raises(ValueError, match="gemini-embedding-001"):
-        pm.update_config({"feature_routing": {"embed": {"provider": "gemini", "model": "gemini-embedding-2"}}}, server_scope=True)
-
-    with pytest.raises(ValueError, match="gemini-embedding-001"):
-        pm.update_config({"feature_routing": {"embed": {"provider": "mock", "model": ""}}}, server_scope=True)
-
-    sanitized = pm.get_sanitized_config()
-    specs = sanitized["lineage_summary"]["architecture_specs"]
-    assert specs[0]["fixed_value"].startswith("gemini-embedding-001")
+    specs = sanitized_default["lineage_summary"]["architecture_specs"]
+    assert specs[0]["fixed_value"].startswith("gemini-embedding-2")
+    assert "3072d" in specs[0]["fixed_value"]
     assert "색인" in specs[0]["rationale"]
     assert "검색" in specs[0]["rationale"]
+    lifecycle = sanitized_default["lineage_summary"]["embedding_lifecycle"]
+    assert lifecycle["active_model"] == "gemini-embedding-2"
+    assert lifecycle["output_dimensionality"] == 3072
+    assert lifecycle["eos_date"] is None
+
+    # Allow switching between active Gemini embedding models at server scope.
+    updated_v1 = pm.update_config({"providers": {"gemini": {"embed_model": "gemini-embedding-001"}}}, server_scope=True)
+    assert updated_v1["providers"]["gemini"]["embed_model"] == "gemini-embedding-001"
+    assert updated_v1["lineage_summary"]["embedding_lifecycle"]["eos_date"] == "2028-05-14"
+    assert "2028-05-14" in updated_v1["lineage_summary"]["embedding_lifecycle"]["eos_warning"]
+
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"gemini": {"embed_model": "gemini-embedding-2-preview"}}}, server_scope=True)
+
+    with pytest.raises(ValueError):
+        pm.update_config({"feature_routing": {"embed": {"provider": "gemini", "model": "text-embedding-004"}}}, server_scope=True)
+
+    with pytest.raises(ValueError):
+        pm.update_config({"feature_routing": {"embed": {"provider": "mock", "model": ""}}}, server_scope=True)
 
 
 def test_gemini_enumerated_effort_models_probe_and_sync(tmp_path: Path, monkeypatch):
