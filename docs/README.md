@@ -16,6 +16,7 @@ docs/
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
 │   ├── CLAIRE_ARCHITECTURE_ROADMAP.md  # 듀얼 트랙(Docker/K8s) 로드맵, 대부분 미구현
 │   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md  # Phase 3–4 미구현
+│   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # 에이전트 주도 추출·agent_client 플러그인 유형·장기 임베딩 EOS 수명주기 제안(AEQ1–AEQ9 소유자 답변 대기), 미구현
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md  # 완전 가역 병합·UI 롤백 미구현
 │   ├── EXPANSION_DESIGN.md
