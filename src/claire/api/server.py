@@ -3408,8 +3408,10 @@ def create_app(
 
         pm = get_provider_manager(s.data_dir)
         live = bool(body.get("live", False))
-        refresh_agy = bool(body.get("refresh_agy", False))
-        caps = pm.check_capabilities(body, live=live, refresh_agy=refresh_agy)
+        try:
+            caps = pm.check_capabilities(body, live=live)
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
         return JSONResponse(caps)
 
     async def limits_get_route(request: Request) -> JSONResponse:

@@ -229,7 +229,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     (logs_dir / "telegram.log").write_text("2026-09-10 12:00:00 [INFO] (claire.telegram): Telegram bot started\n")
-    (logs_dir / "agy.log").write_text("2026-09-10 12:00:00 [INFO] agy run ok\n")
+    (logs_dir / "worker.log").write_text("2026-09-10 12:00:00 [INFO] worker run ok\n")
 
     # 기본 1일 번들 생성
     info = create_support_bundle(s, days=1)
@@ -267,7 +267,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert any(n.endswith("pipeline/db_integrity.json") for n in names)
     assert any(n.endswith("pipeline/active_ingest.json") for n in names)
     assert any(n.endswith("logs/telegram.log") for n in names)
-    assert any(n.endswith("logs/agy.log") for n in names)
+    assert any(n.endswith("logs/worker.log") for n in names)
 
     # Manifest 내용 파싱
     manifest_name = [n for n in names if n.endswith("manifest.json")][0]

@@ -1,7 +1,7 @@
 """Static and integration contract tests for Docker Compose mounts and container isolation.
 
 These tests ensure that:
-1. Local CLI provider bridges (/host-bin, credentials) remain connected.
+1. Optional host tools (/host-bin) stay connected read-only, and no host CLI credentials are mounted.
 2. Custom CA certificate mounting (/extra-certs) is strictly preserved.
 3. Host-specific Ubuntu system paths (/etc/ssl/certs, /etc/localtime, etc.) do NOT regress.
 4. Dockerfile environment (PATH with /host-bin, gosu installation) is strictly enforced.
@@ -25,14 +25,16 @@ def test_docker_compose_mounts_host_bin():
     assert "/host-bin:ro" in dev_compose, "docker-compose.dev.yml must mount host binaries at /host-bin:ro"
 
 
-def test_docker_compose_mounts_credentials():
-    """Verify credential volumes (.gemini, .codex) are mounted for CLI providers."""
+def test_docker_compose_mounts_no_host_cli_credentials():
+    """The host-cli providers are retired (AED8): the containers get no login directory of a host CLI."""
     prod_compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     dev_compose = (REPO_ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8")
+    entrypoint = (REPO_ROOT / "scripts" / "docker-entrypoint.sh").read_text(encoding="utf-8")
 
-    for mount in ("/root/.gemini", "/root/.codex"):
-        assert mount in prod_compose, f"docker-compose.yml must mount {mount}"
-        assert mount in dev_compose, f"docker-compose.dev.yml must mount {mount}"
+    for text in ("/root/.gemini", "/root/.codex", "CB_GEMINI_DIR", "CB_CODEX_DIR"):
+        assert text not in prod_compose, f"docker-compose.yml must not mount {text}"
+        assert text not in dev_compose, f"docker-compose.dev.yml must not mount {text}"
+        assert text not in entrypoint
 
 
 def test_docker_compose_mounts_custom_ca():
@@ -62,7 +64,7 @@ def test_docker_compose_no_ubuntu_system_mounts():
 
 
 def test_dockerfile_path_contains_host_bin():
-    """Verify Dockerfile PATH contains /host-bin so CLI tools (agy, codex) are executable."""
+    """Verify Dockerfile PATH contains /host-bin so optional host tools are executable."""
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "/host-bin" in dockerfile, "Dockerfile PATH must include /host-bin"
     assert re.search(r'PATH="[^"]*/host-bin[^"]*"', dockerfile), "Dockerfile must define PATH containing /host-bin"
@@ -93,32 +95,11 @@ def test_ci_script_volume_assertions():
     assert "Host Ubuntu system paths must not be mounted" in ci_script
 
 
-def test_preflight_antigravity_detects_missing_host_bin(tmp_path, monkeypatch):
-    """cb-manuscript preflight must fail if CLAIRE_PROVIDER=antigravity and /host-bin:ro is missing."""
-    import ops.cb_manuscript as cb
+def test_preflight_does_not_check_host_cli_binaries(tmp_path):
+    """The host-cli providers are retired (AED8). An old CLAIRE_PROVIDER=antigravity does not make the preflight look for agy or for a /host-bin mount."""
+    import subprocess
+    from unittest.mock import patch
 
-    env_content = (
-        "CLAIRE_ENVIRONMENT=production\n"
-        "CB_API_BIND=127.0.0.1\n"
-        "CLAIRE_FQDN=localhost\n"
-        "CLAIRE_PROVIDER=antigravity\n"
-        "CLAIRE_INJECT_TOKEN=" + "a" * 32 + "\n"
-    )
-    (tmp_path / ".env").write_text(env_content, encoding="utf-8")
-    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-    (tmp_path / "certs").mkdir()
-    (tmp_path / "vault").mkdir()
-    (tmp_path / "data").mkdir()
-
-    layout = cb.Layout(tmp_path)
-    runtime = cb.load_runtime(layout)
-
-    with pytest.raises(cb.ManuscriptError, match="must mount /host-bin:ro for CLI providers"):
-        cb.command_preflight(runtime)
-
-
-def test_preflight_antigravity_detects_missing_binary(tmp_path, monkeypatch):
-    """cb-manuscript preflight must fail if agy binary is missing or not executable."""
     import ops.cb_manuscript as cb
 
     env_content = (
@@ -130,58 +111,11 @@ def test_preflight_antigravity_detects_missing_binary(tmp_path, monkeypatch):
         "CLAIRE_INJECT_TOKEN=" + "a" * 32 + "\n"
     )
     (tmp_path / ".env").write_text(env_content, encoding="utf-8")
-    (tmp_path / "docker-compose.yml").write_text(
-        "services:\n  claire:\n    volumes:\n      - /fake/bin:/host-bin:ro\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     (tmp_path / "certs").mkdir()
     (tmp_path / "vault").mkdir()
     (tmp_path / "data").mkdir()
 
-    layout = cb.Layout(tmp_path)
-    runtime = cb.load_runtime(layout)
-
-    from unittest.mock import patch
-    import subprocess
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
     with patch.object(cb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
-        with pytest.raises(cb.ManuscriptError, match="Antigravity CLI binary .* not found or not executable"):
-            cb.command_preflight(runtime)
-
-
-def test_preflight_antigravity_succeeds_with_valid_binary_and_mount(tmp_path):
-    """cb-manuscript preflight passes when /host-bin is mounted and executable binary exists."""
-    import ops.cb_manuscript as cb
-
-    fake_bin_dir = tmp_path / "bin"
-    fake_bin_dir.mkdir()
-    fake_agy = fake_bin_dir / "agy"
-    fake_agy.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    fake_agy.chmod(0o755)
-
-    env_content = (
-        "CLAIRE_ENVIRONMENT=production\n"
-        "CB_API_BIND=127.0.0.1\n"
-        "CLAIRE_FQDN=localhost\n"
-        "CLAIRE_PROVIDER=antigravity\n"
-        f"CLAIRE_AGY_BIN={fake_agy}\n"
-        "CLAIRE_INJECT_TOKEN=" + "a" * 32 + "\n"
-    )
-    (tmp_path / ".env").write_text(env_content, encoding="utf-8")
-    (tmp_path / "docker-compose.yml").write_text(
-        f"services:\n  claire:\n    volumes:\n      - {fake_bin_dir}:/host-bin:ro\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "certs").mkdir()
-    (tmp_path / "vault").mkdir()
-    (tmp_path / "data").mkdir()
-
-    layout = cb.Layout(tmp_path)
-    runtime = cb.load_runtime(layout)
-
-    from unittest.mock import patch
-    import subprocess
-    with patch.object(cb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
-        # Should succeed without error
-        ret = cb.command_preflight(runtime)
-        assert ret == 0
-
+        assert cb.command_preflight(runtime) == 0

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from claire.config import ProviderUnavailableError, Settings
@@ -18,7 +16,7 @@ def _settings(environment: str, **kwargs) -> Settings:
     return Settings(environment=environment, gemini_api_key="", **kwargs)
 
 
-@pytest.mark.parametrize("provider", ["gemini", "openai"])
+@pytest.mark.parametrize("provider", ["gemini", "openai", "antigravity", "codex"])
 def test_llm_falls_back_to_mock_only_in_development(provider):
     dev = _settings("development", provider=provider)
     assert dev.effective_provider == "mock"
@@ -29,10 +27,12 @@ def test_llm_falls_back_to_mock_only_in_development(provider):
     assert isinstance(get_provider(prod), UnavailableProvider)
 
 
-def test_openai_without_implementation_names_the_gap():
-    s = _settings("production", provider="openai")
+@pytest.mark.parametrize("provider", ["openai", "antigravity", "codex"])
+def test_unregistered_provider_names_the_gap(provider):
+    """A retired or never implemented provider name in an old configuration is unknown: production is unavailable with the reason (C2)."""
+    s = _settings("production", provider=provider)
     assert s.effective_provider == "unavailable"
-    assert "구현이 없다" in (s.provider_unavailable_reason("llm") or "")
+    assert "알 수 없는 프로바이더" in (s.provider_unavailable_reason("llm") or "")
 
 
 def test_unavailable_llm_fails_on_call_with_reason():
@@ -42,13 +42,6 @@ def test_unavailable_llm_fails_on_call_with_reason():
         prov.extract(None, "")
     with pytest.raises(ProviderUnavailableError):
         prov.embed(["text"])
-
-
-def test_missing_agy_binary_is_unavailable_in_production():
-    with patch("claire.config.find_agy_executable", return_value=None):
-        s = _settings("production", provider="antigravity")
-        assert s.effective_provider == "unavailable"
-        assert "agy" in (s.provider_unavailable_reason("llm") or "")
 
 
 def test_explicit_mock_is_allowed_in_production():
@@ -85,15 +78,3 @@ def test_disabled_features_report_no_unavailable_reason():
     s = _settings("production", enable_video_transcription=False, enable_vlm_transcription=False)
     assert s.provider_unavailable_reason("stt") is None
     assert s.provider_unavailable_reason("vlm") is None
-
-
-def test_antigravity_embedding_does_not_fake_vectors():
-    from claire.extract.antigravity_provider import AntigravityProvider
-
-    dev = AntigravityProvider(_settings("development", provider="antigravity"))
-    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY"):
-        dev.embed("text")
-
-    prod = AntigravityProvider(_settings("production", provider="antigravity"))
-    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY"):
-        prod.embed("text")

@@ -1567,42 +1567,17 @@ def test_preflight_reports_anonymous_readonly_exposure(tmp_path, capsys):
     assert "hidden documents" in output
 
 
-@pytest.mark.parametrize(
-    "argv,env_file,provider",
-    (
-        (["preflight"], ".env", "codex"),
-        (["preflight"], ".env", " CODEX-CLI "),
-        (["dev", "preflight"], ".env.dev", "codex"),
-        (["dev", "preflight"], ".env.dev", " CODEX-CLI "),
-    ),
-)
-def test_preflight_rejects_codex_in_every_docker_profile_before_subprocess(
-    tmp_path, capsys, argv, env_file, provider
-):
+@pytest.mark.parametrize("argv,env_file", ((["preflight"], ".env"), (["dev", "preflight"], ".env.dev")))
+def test_preflight_does_not_stop_on_a_retired_provider_name(tmp_path, capsys, argv, env_file):
+    """The host-cli providers are retired (AED8). An old CLAIRE_PROVIDER=codex in the environment file does not stop the preflight."""
     _write_layout(tmp_path)
     with (tmp_path / env_file).open("a", encoding="utf-8") as stream:
-        stream.write(f"CLAIRE_PROVIDER={provider}\n")
+        stream.write("CLAIRE_PROVIDER=codex\n")
 
-    with patch.object(cb.subprocess, "run") as run:
-        assert cb.main(argv, root=tmp_path) == 2
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success):
+        assert cb.main(argv, root=tmp_path) == 0
 
-    run.assert_not_called()
-    error = capsys.readouterr().err
-    assert "The Codex provider is native-only" in error
-    assert "uv run claire ..." in error
-
-
-def test_config_preflight_rejects_codex_before_compose_validation(tmp_path):
-    _write_layout(tmp_path, dev=False)
-    with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
-        stream.write("CLAIRE_PROVIDER=codex-cli\n")
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-
-    with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="The Codex provider is native-only"):
-            cb.config_preflight(runtime)
-
-    run.assert_not_called()
+    assert "native-only" not in capsys.readouterr().err
 
 
 def test_invalid_project_name_fails_before_subprocess(tmp_path, monkeypatch):

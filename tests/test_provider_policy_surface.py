@@ -207,7 +207,6 @@ def _assert_policy(r, status: int, code: str) -> None:
 @pytest.fixture
 def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     import claire.research as research_mod
-    from claire.extract.antigravity_provider import AntigravityProvider
 
     calls: list[Any] = []
 
@@ -215,11 +214,7 @@ def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         calls.append((settings, provider, kwargs))
         return {"ok": True, "answer": "fake"}
 
-    def _never(*_a: Any, **_k: Any) -> dict:
-        raise AssertionError("AntigravityProvider.research reached")
-
     monkeypatch.setattr(research_mod, "contextual_research", _fake)
-    monkeypatch.setattr(AntigravityProvider, "research", _never)
     return calls
 
 

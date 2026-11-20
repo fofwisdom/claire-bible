@@ -35,7 +35,6 @@ from .store.vectors import probe_sqlite_vec
 
 def cmd_preflight(_args) -> int:
     s = get_settings()
-    configured_provider = s.provider.strip().lower()
     print("claire preflight")
     print("=" * 40)
     print(f"python            : {sys.version.split()[0]}")
@@ -43,10 +42,7 @@ def cmd_preflight(_args) -> int:
     print(f"source base url   : {s.effective_source_base_url}")
     print(f"provider (config) : {s.provider}")
     print(f"provider (eff*)   : {s.effective_provider}")
-    if configured_provider in ("codex", "codex-cli"):
-        gemini_state = "yes (embedding=gemini)" if s.gemini_api_key else "NO (search=fts-only)"
-    else:
-        gemini_state = "yes" if s.gemini_api_key else "NO (-> mock)"
+    gemini_state = "yes" if s.gemini_api_key else "NO (-> mock)"
     print(f"  gemini key set  : {gemini_state}")
     print(f"telegram token    : {'set' if s.telegram_bot_token else 'NOT set'}")
     print(f"allowed users     : {sorted(s.allowed_user_ids) or 'ALL'}")
@@ -65,36 +61,7 @@ def cmd_preflight(_args) -> int:
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")
 
     # provider 실호출 점검 (생성 + 임베딩이 조용히 실패하지 않는지)
-    if configured_provider in ("codex", "codex-cli"):
-        from .extract.codex_provider import probe_codex_cli
-
-        probe = probe_codex_cli(s)
-        print(f"codex binary      : {probe['binary']}")
-        print(f"codex version     : {probe['version']}")
-        print(f"codex login       : {probe['login']}")
-        print(
-            f"codex model       : {s.codex_model or 'codex-cli-default'} "
-            f"(effort={s.codex_effort})"
-        )
-        if s.gemini_api_key:
-            print(f"codex embedding   : gemini (model={s.gemini_embed_model})")
-        else:
-            print("codex embedding   : unavailable (search=fts-only)")
-    elif s.effective_provider == "antigravity":
-        import shutil
-
-        from .extract.provider import get_provider
-
-        bin_path = shutil.which(s.agy_bin)
-        print(f"agy binary        : {bin_path or 'NOT found'}")
-        print(f"agy model         : {s.agy_model} (effort={s.agy_effort})")
-        try:
-            prov = get_provider(s)
-            v = prov.embed("claire embedding probe")
-            print(f"agy embed         : OK (dim={len(v)})")
-        except Exception as e:  # noqa: BLE001
-            print(f"agy embed         : FAIL ({type(e).__name__}: {str(e)[:120]})")
-    elif s.effective_provider == "gemini":
+    if s.effective_provider == "gemini":
         from .extract.provider import get_provider
 
         try:
@@ -188,24 +155,6 @@ def cmd_doctor(args) -> int:
             return 0 if report["is_healthy"] else 1
 
         print("claire doctor: Integrity report of the knowledge graph and the database")
-        if s.provider.strip().lower() in ("codex", "codex-cli"):
-            from .extract.codex_provider import probe_codex_cli
-
-            probe = probe_codex_cli(s)
-            print(
-                f"Codex: binary={probe['binary']} · version={probe['version']} · "
-                f"login={probe['login']}"
-            )
-            print(
-                f"Codex model={s.codex_model or 'codex-cli-default'} · "
-                f"effort={s.codex_effort}"
-            )
-            embedding = (
-                f"gemini ({s.gemini_embed_model})"
-                if s.gemini_api_key
-                else "unavailable · search=fts-only"
-            )
-            print(f"Codex embedding={embedding}")
         from .presentation import find_asciidoctor_executable
         asc_exec = find_asciidoctor_executable()
         asc_desc = " · ".join(asc_exec) if asc_exec else "not installed (asciidoctor-revealjs is necessary)"
@@ -5402,7 +5351,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptel.add_argument("--limit", type=int, default=30, help="maximum number of telemetry records to show (default: 30)")
     ptel.add_argument("--failed", action="store_true", help="show only failed or degraded invocations")
     ptel.add_argument("--doc", type=str, default=None, help="filter records by document ID")
-    ptel.add_argument("--provider", type=str, default=None, help="filter records by provider name (e.g. gemini, codex, antigravity)")
+    ptel.add_argument("--provider", type=str, default=None, help="filter records by provider name (e.g. gemini, mock)")
     ptel.add_argument("--stats", action="store_true", help="show aggregate telemetry statistics (success rate, latency percentiles, error causes)")
     ptel.add_argument("--json", action="store_true", help="output records in JSON format")
     ptel.add_argument("--prune", type=int, default=None, metavar="DAYS", help="prune records older than specified number of days (e.g. 14)")
@@ -5458,7 +5407,7 @@ def build_parser() -> argparse.ArgumentParser:
     pprov = sub.add_parser(
         "providers",
         help="manage LLM and hyperscaler providers (WebUI-managed providers.json)",
-        description="Manage AI providers configured in data/providers.json (Gemini, Antigravity, Codex, Mock).",
+        description="Manage AI providers configured in data/providers.json (Gemini, Mock).",
     )
     pprov_sub = pprov.add_subparsers(dest="provider_action")
     pprov_sub.add_parser(

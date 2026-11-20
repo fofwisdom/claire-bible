@@ -187,7 +187,7 @@ class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
 
 
 # The model of each provider comes from the Web UI (providers.json) only. The old variables are read one time by ``ProviderManager.migrate_from_env_if_needed``.
-MODEL_FIELDS = ("gemini_model", "gemini_embed_model", "agy_model", "codex_model", "jev_model", "stt_model")
+MODEL_FIELDS = ("gemini_model", "gemini_embed_model", "jev_model", "stt_model")
 
 
 class _WithoutModelFields(PydanticBaseSettingsSource):
@@ -263,114 +263,6 @@ def _is_executable_file(path: Path) -> bool:
         return path.is_file() and os.access(path, os.X_OK)
     except OSError:
         return False
-
-
-def _is_readable_file(path: Path) -> bool:
-    """True when ``path`` is a file. A path in a directory that the process cannot read is not a file for the diagnosis: on Python 3.11 ``Path.is_file`` raises ``PermissionError`` for such a path."""
-    try:
-        return path.is_file()
-    except OSError:
-        return False
-
-
-def find_agy_executable(agy_bin: str = "agy") -> str | None:
-    """Find agy executable in PATH or standard container/host locations."""
-    if not agy_bin:
-        agy_bin = "agy"
-    if _is_executable_file(Path(agy_bin)):
-        return str(Path(agy_bin).resolve())
-    found = shutil.which(agy_bin)
-    if found:
-        return found
-    extra_dirs = [
-        "/host-bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        str(Path.home() / ".local" / "bin"),
-        "/root/.local/bin",
-    ]
-    for d in extra_dirs:
-        cand = Path(d) / agy_bin
-        if _is_executable_file(cand):
-            return str(cand.resolve())
-    return None
-
-
-def diagnose_agy_environment(agy_bin: str = "agy") -> dict:
-    """agy 바이너리 탐색 및 실행 환경에 대한 상세 진단 정보 수집."""
-    if not agy_bin:
-        agy_bin = "agy"
-
-    diagnosis: dict = {
-        "raw_bin": agy_bin,
-        "found_path": None,
-        "is_executable": False,
-        "checked_paths": [],
-        "uid": os.getuid() if hasattr(os, "getuid") else None,
-        "path_env": os.environ.get("PATH", ""),
-        "error": None,
-    }
-
-    p = Path(agy_bin)
-    if _is_readable_file(p):
-        exec_ok = os.access(p, os.X_OK)
-        diagnosis["checked_paths"].append({"path": str(p), "exists": True, "executable": exec_ok})
-        if exec_ok:
-            diagnosis["found_path"] = str(p.resolve())
-            diagnosis["is_executable"] = True
-            return diagnosis
-    else:
-        diagnosis["checked_paths"].append({"path": str(p), "exists": False, "executable": False})
-
-    which_found = shutil.which(agy_bin)
-    if which_found:
-        diagnosis["checked_paths"].append({"path": which_found, "via": "which", "exists": True, "executable": True})
-        diagnosis["found_path"] = which_found
-        diagnosis["is_executable"] = True
-        return diagnosis
-
-    extra_dirs = [
-        "/host-bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        str(Path.home() / ".local" / "bin"),
-        "/root/.local/bin",
-    ]
-    for d in extra_dirs:
-        cand = Path(d) / agy_bin
-        exists = _is_readable_file(cand)
-        exec_ok = exists and os.access(cand, os.X_OK)
-        diagnosis["checked_paths"].append({"path": str(cand), "exists": exists, "executable": exec_ok})
-        if exec_ok:
-            diagnosis["found_path"] = str(cand.resolve())
-            diagnosis["is_executable"] = True
-            return diagnosis
-
-    diagnosis["error"] = f"agy binary '{agy_bin}' not found or not executable in checked paths"
-    return diagnosis
-
-
-def find_codex_executable(codex_bin: str = "codex") -> str | None:
-    """명시 경로, 현재 PATH 또는 표준 컨테이너/호스트 마운트 위치(/host-bin 등)에서 Codex CLI를 찾는다."""
-    raw = str(codex_bin or "codex").strip() or "codex"
-    explicit = Path(raw).expanduser()
-    if _is_executable_file(explicit):
-        return str(explicit.resolve())
-    found = shutil.which(raw)
-    if found:
-        return str(Path(found).resolve())
-    extra_dirs = [
-        "/host-bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        str(Path.home() / ".local" / "bin"),
-        "/root/.local/bin",
-    ]
-    for d in extra_dirs:
-        cand = Path(d) / raw
-        if _is_executable_file(cand):
-            return str(cand.resolve())
-    return None
 
 
 def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:
@@ -521,25 +413,6 @@ class Settings(BaseSettings):
     )
     jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
     jev_model: str = Field(default="jev-latest")
-
-    # --- Antigravity CLI (agy) ---
-    agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")
-    agy_model: str = Field(default="gemini-3.8-flash-medium")
-    agy_effort: str = Field(default="medium", alias="CLAIRE_AGY_EFFORT")
-    agy_timeout: float = Field(default=180.0, alias="CLAIRE_AGY_TIMEOUT")
-    agy_detail_timeout: float = Field(
-        default=300.0, alias="CLAIRE_AGY_DETAIL_TIMEOUT"
-    )
-    agy_max_concurrency: int = Field(default=2, alias="CLAIRE_AGY_MAX_CONCURRENCY")
-
-    # --- Codex CLI (native host only) ---
-    codex_bin: str = Field(default="codex", alias="CLAIRE_CODEX_BIN")
-    codex_model: str = Field(default="")
-    codex_effort: str = Field(default="medium", alias="CLAIRE_CODEX_EFFORT")
-    codex_timeout: float = Field(default=300.0, alias="CLAIRE_CODEX_TIMEOUT")
-    codex_max_concurrency: int = Field(
-        default=1, alias="CLAIRE_CODEX_MAX_CONCURRENCY"
-    )
 
     # --- Video & Audio Transcription (STT) ---
     enable_video_transcription: bool = Field(
@@ -1070,35 +943,10 @@ class Settings(BaseSettings):
         raw = self.provider.strip().lower()
         if self._member_context() is not None:
             return self._member_unavailable_reason("llm", raw)
-        if raw in ("antigravity", "agy"):
-            if find_agy_executable(self.agy_bin) is not None:
-                return None
-            try:
-                from .store.telemetry import record_telemetry
-
-                diag = diagnose_agy_environment(self.agy_bin)
-                record_telemetry(
-                    getattr(self, "data_dir", None),
-                    provider="antigravity",
-                    call_type="env_discovery",
-                    status="DEGRADED",
-                    google_block_reason="ENV_MISSING",
-                    error_message=diag.get("error"),
-                    summary_verdict="MOCK_PREFIX",
-                )
-            except Exception:
-                pass
-            return f"CLAIRE_PROVIDER={self.provider}: agy 실행 파일을 찾지 못했다 (CLAIRE_AGY_BIN={self.agy_bin})"
-        if raw in ("codex", "codex-cli"):
-            if find_codex_executable(self.codex_bin) is not None:
-                return None
-            return f"CLAIRE_PROVIDER={self.provider}: codex 실행 파일을 찾지 못했다 (CLAIRE_CODEX_BIN={self.codex_bin})"
         if raw == "gemini":
             return None if self.gemini_api_key else "CLAIRE_PROVIDER=gemini: GEMINI_API_KEY가 비어 있다"
         if raw == "mock":
             return None
-        if raw == "openai":
-            return "CLAIRE_PROVIDER=openai: WebUI 설정만 있고 LLM 프로바이더 구현이 없다"
         return f"CLAIRE_PROVIDER={self.provider}: 알 수 없는 프로바이더"
 
     def _stt_unavailable_reason(self) -> str | None:
@@ -1136,12 +984,7 @@ class Settings(BaseSettings):
         """쓸 수 없으면 개발 환경은 mock, 운영 환경은 unavailable."""
         if self._llm_unavailable_reason() is not None:
             return self._unavailable_or_mock()
-        raw = self.provider.strip().lower()
-        if raw in ("antigravity", "agy"):
-            return "antigravity"
-        if raw in ("codex", "codex-cli"):
-            return "codex"
-        return raw
+        return self.provider.strip().lower()
 
     @property
     def effective_stt_provider(self) -> str:

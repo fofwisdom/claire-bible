@@ -38,23 +38,6 @@ fi
 USER_HOME=$(getent passwd "$TARGET_UID" | cut -d: -f6 2>/dev/null || echo "/home/claire")
 mkdir -p "$USER_HOME" /app/data /app/vault
 
-# Allow traversing /root if config volumes were mounted at /root/.gemini or /root/.codex
-chmod 755 /root 2>/dev/null || true
-
-# Symlink credentials to user home if mounted at /root and adjust ownership
-if [ -d "/root/.gemini" ]; then
-  chown -R "$TARGET_UID:$TARGET_GID" /root/.gemini 2>/dev/null || true
-  if [ ! -e "$USER_HOME/.gemini" ]; then
-    ln -sfn /root/.gemini "$USER_HOME/.gemini"
-  fi
-fi
-if [ -d "/root/.codex" ]; then
-  chown -R "$TARGET_UID:$TARGET_GID" /root/.codex 2>/dev/null || true
-  if [ ! -e "$USER_HOME/.codex" ]; then
-    ln -sfn /root/.codex "$USER_HOME/.codex"
-  fi
-fi
-
 # Automatically align ownership of user home and application data/vault
 # so existing volumes from previous root deployments are seamlessly migrated without manual host intervention!
 chown -R "$TARGET_UID:$TARGET_GID" "$USER_HOME" /app/data /app/vault 2>/dev/null || true

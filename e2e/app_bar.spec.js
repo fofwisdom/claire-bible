@@ -199,8 +199,8 @@ test('ingest modals expose only selectable provider effort options and fixed mod
   await page.keyboard.press('Escape');
 
   effortSpec = {
-    provider: 'antigravity',
-    model: 'claude-opus-5-5-medium',
+    provider: 'gemini',
+    model: 'gemini-3.8-flash-medium',
     options: [],
     default_effort: 'medium',
     fixed: true,
@@ -215,6 +215,6 @@ test('ingest modals expose only selectable provider effort options and fixed mod
   await expect.poll(() =>
     page.locator('#ingest-effort-grid input[name="ingest-effort"]').evaluateAll((els) => els.map((e) => e.value))
   ).toEqual(['']);
-  await expect(page.locator('#ingest-effort-hint')).toContainText('claude-opus-5-5-medium');
+  await expect(page.locator('#ingest-effort-hint')).toContainText('gemini-3.8-flash-medium');
   await context.close();
 });

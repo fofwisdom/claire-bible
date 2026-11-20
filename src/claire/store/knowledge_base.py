@@ -176,7 +176,7 @@ def embed_mismatch(theme: KnowledgeBaseInfo, embed_provider: str | None, embed_m
     """현재 임베딩 설정이 테마의 고정 임베딩 공간과 다른가(§10.4). 화면의 re-embed 필요 표시용.
 
     아직 고정되지 않은 테마는 첫 저장이 고정하므로 False다. 모델이 다르면 True. 프로바이더는 양쪽 모두 알려져 있고 다를 때만 True다.
-    프로바이더 이름은 ``store.vectors.resolve_embed_identity``가 돌려주는 임베딩 백엔드 이름(codex·antigravity → gemini)으로 넘긴다.
+    프로바이더 이름은 ``store.vectors.resolve_embed_identity``가 돌려주는 임베딩 백엔드 이름으로 넘긴다.
     ``theme``은 DB에서 다시 읽은 값이어야 한다. 고정은 첫 임베딩 저장 때 DB에서 일어나므로 캐시된 ``KnowledgeBaseInfo``는 늦을 수 있다.
     """
     pinned_model = (theme.embed_model or "").strip()

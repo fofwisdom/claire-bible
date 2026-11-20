@@ -48,7 +48,7 @@ graph TD
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
 5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
-6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
+6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
 7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다. 파일이 이미 있으면 파일에 없는 키(나중 버전에서 추가된 키)만 이전한다. 설정 소스는 값을 별칭(`CLAIRE_*`) 이름으로 넘기므로 export된 환경변수보다 우선한다. `recover-loop`, `refresh-loop`, `expand-loop`는 주기마다 이 파일을 다시 읽으므로, WebUI 변경은 재시작 없이 적용된다. `bot`(텔레그램)은 시작 시점의 값을 쓴다.
 
 ---
@@ -80,8 +80,7 @@ graph TD
 | `CB_DATA_DIR` | `./data` / `./.dev/data` | 호스트 디렉터리 경로 | SQLite DB, raw 아티팩트, 이미지 등이 저장되는 호스트 데이터 마운트 경로 (`/app/data`). |
 | `CB_VAULT_DIR` | `./vault` / `./.dev/vault` | 호스트 디렉터리 경로 | Obsidian/AsciiDoc 볼트 파일이 동기화되는 호스트 마운트 경로 (`/app/vault`). |
 | `CB_PLUGINS_DIR` | `./var/plugins` / `./.dev/var/plugins` | 호스트 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 컨테이너에 읽기 전용으로 마운트된다(`/app/var/plugins`). `cb-manuscript`가 한 번 해석하고, 데이터·볼트·백업·프로젝트 플러그인 폴더와 같거나 겹치면 거부하며, 없으면 만든다. 백업 구성 요소 `plugins`. |
-| `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 CLI 바이너리(예: `agy`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
-| `CB_GEMINI_DIR` | `~/.gemini` | 호스트 디렉터리 경로 | 호스트의 Gemini CLI 인증 토큰 디렉터리를 컨테이너 내부 `/root/.gemini`로 마운트하기 위한 경로. |
+| `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 선택 도구 바이너리(예: `ffmpeg`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
@@ -136,7 +135,7 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키나 실행 파일이 없거나 알 수 없는 값이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). 상태 표시에는 `unavailable`로 나온다. 명시적으로 `mock`을 지정하면 운영 환경에서도 그대로 쓴다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
+| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키가 없거나 알 수 없는 값(폐기된 `antigravity`, `codex` 포함)이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). 상태 표시에는 `unavailable`로 나온다. 명시적으로 `mock`을 지정하면 운영 환경에서도 그대로 쓴다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
 | `CLAIRE_EMBED_TASK_TYPE` | `SEMANTIC_SIMILARITY` | 문자열 | 호출자가 task_type을 지정하지 않을 때 쓰는 임베딩 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). 적재 파이프라인과 `re-embed`의 온톨로지 프레임 임베딩은 `RETRIEVAL_DOCUMENT`를 직접 지정하므로 이 값의 영향을 받지 않는다. |
 | `CLAIRE_GEMINI_MIN_INTERVAL` | `4.0` | 부동소수점 (초) | Gemini API 호출 간 최소 대기 간격 (무료 티어 Rate Limit 보호용). |
@@ -144,36 +143,13 @@ graph TD
 
 ---
 
-### 2.6 Antigravity CLI 프로바이더 (`CLAIRE_AGY_*`)
+### 2.6 폐기된 호스트 CLI 변수 (`CLAIRE_AGY_*`, `CLAIRE_CODEX_*`)
 
-> [!WARNING] Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용이다.
-
-`CLAIRE_PROVIDER=antigravity` 사용할 때 적용된다.
-
-| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
-| :--- | :--- | :--- | :--- |
-| `CLAIRE_AGY_BIN` | `agy` | 실행 파일명 또는 절대 경로 | `agy` 실행 바이너리 경로 (호스트 PATH 또는 `/host-bin`에서 자동 탐색). |
-| `CLAIRE_AGY_EFFORT` | `medium` | `low`, `medium`, `high` | Antigravity CLI 추론 사고 레벨. |
-| `CLAIRE_AGY_TIMEOUT` | `180.0` | 부동소수점 (초) | `agy` 프로세스 실행 제한 시간. |
-| `CLAIRE_AGY_DETAIL_TIMEOUT` | `300.0` | 부동소수점 (초) | 상세(Detail) 생성 호출에 적용하는 `agy` 실행 제한 시간. 일반 호출의 `CLAIRE_AGY_TIMEOUT`과 별도로 적용된다. |
-| `CLAIRE_AGY_MAX_CONCURRENCY` | `2` | 정수 | `agy` CLI 최대 동시 실행 프로세스 수. |
+**[결정·코드]** 호스트 CLI 프로바이더(Antigravity `agy`, Codex)는 폐기되었다([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) `AED8`, 작업 단위 `AE8`). `Settings`에는 이 변수들의 필드가 없다. 예전 `.env`나 환경에 남은 값은 읽지 않고 무시하며, `providers.json` 이전도 이 변수들을 읽지 않는다. 기동은 멈추지 않는다.
 
 ---
 
-### 2.7 Codex CLI 프로바이더 (`CLAIRE_CODEX_*` - Native Host 전용)
-
-> [!WARNING] Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용이다.
-
-| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
-| :--- | :--- | :--- | :--- |
-| `CLAIRE_CODEX_BIN` | `codex` | 실행 파일명 또는 경로 | Codex CLI 실행 파일 경로. |
-| `CLAIRE_CODEX_EFFORT` | `medium` | `low`, `medium`, `high` | Codex CLI 추론 레벨. |
-| `CLAIRE_CODEX_TIMEOUT` | `300.0` | 부동소수점 (초) | Codex CLI 실행 제한 시간. |
-| `CLAIRE_CODEX_MAX_CONCURRENCY` | `1` | 정수 | Codex CLI 최대 동시 실행 수. |
-
----
-
-### 2.8 비디오 및 오디오 음성 전사 (STT Pipeline)
+### 2.7 비디오 및 오디오 음성 전사 (STT Pipeline)
 
 비디오 적재는 이 설정과 무관하게 선호 언어의 발행자 CC를 먼저 탐색·다운로드한다. 아래 변수는 유효한 CC가 없을 때의 오디오 STT 폴백을 제어한다.[^video-caption-settings]
 
@@ -182,7 +158,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([INGESTION.md](INGESTION.md) §9 참조) |
-| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더(`antigravity` 등)이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
+| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
 | `CLAIRE_STT_CUSTOM_VOCABULARY` | *(빈 목록)* | 쉼표 또는 줄바꿈 구분 문자열 | STT 프롬프트에 추가할 사용자 지정 용어 목록 (예: `vSAN,vCenter,Tanzu`). |
@@ -197,7 +173,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.9 저장소, 렌더링 포맷 및 데이터 수명주기
+### 2.8 저장소, 렌더링 포맷 및 데이터 수명주기
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -216,7 +192,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.10 링크 확장 및 주기 재확인 정책
+### 2.9 링크 확장 및 주기 재확인 정책
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -225,11 +201,11 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_SAME_SUBJECT_MERGE` | `off` | `off`, `shadow` | 동일 주제 출처 병합 모드. `data/ingest_limits.json`의 `same_subject_merge`가 정본이고 이 이름은 설정 별칭일 뿐이다(파일이 환경변수보다 우선). `shadow`는 판정만 기록하고 병합하지 않는다. 병합하는 값은 없다. ([EXPANSION.md](EXPANSION.md) §3.1) |
 | `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위, 0보다 큼) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
 
-이 세 변수는 `data/ingest_limits.json`의 `expand_max`, `auto_expand`, `watch_interval_days`로 이전된다. 서버 관리자는 `/admin/limits`의 **링크 확장 및 주기 재확인** 구역에서 설정한다(§2.11 참조). 같은 구역의 `same_subject_merge`(동일 주제 출처 병합, `off` 기본 또는 `shadow`)는 환경변수가 없고 이 파일에만 있다([EXPANSION.md](EXPANSION.md) §3.1).
+이 세 변수는 `data/ingest_limits.json`의 `expand_max`, `auto_expand`, `watch_interval_days`로 이전된다. 서버 관리자는 `/admin/limits`의 **링크 확장 및 주기 재확인** 구역에서 설정한다(§2.10 참조). 같은 구역의 `same_subject_merge`(동일 주제 출처 병합, `off` 기본 또는 `shadow`)는 환경변수가 없고 이 파일에만 있다([EXPANSION.md](EXPANSION.md) §3.1).
 
 ---
 
-### 2.10.1 웹 수집기(Fetcher) 및 온프레미스 사설망 보안 정책
+### 2.9.1 웹 수집기(Fetcher) 및 온프레미스 사설망 보안 정책
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -238,7 +214,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.10.2 벡터 임베딩 및 지식 링킹 캘리브레이션 (Vector Calibration & Graph Linking)
+### 2.9.2 벡터 임베딩 및 지식 링킹 캘리브레이션 (Vector Calibration & Graph Linking)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -253,7 +229,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.10.3 TypeSafe AI Jev 엔티티 해소 shadow 평가 (도입 검토용 System 1 Engine)
+### 2.9.3 TypeSafe AI Jev 엔티티 해소 shadow 평가 (도입 검토용 System 1 Engine)
 
 TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 관리자 개인 키든)에서 플래그와 API 키가 모두 있을 때만 호출된다. 판정 권한은 없고(shadow 전용, 소유자 결정 2026-11-20) 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 예전 `jev.mode`·`filter_threshold`·`auto_merge_threshold` 값은 효과가 없다([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5). 히트맵은 모드와 무관하게 `fallback_vector`다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
 
@@ -266,7 +242,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.11 상황 별 적재 제한 및 텍스트 슬라이싱 예산 (Situational Ingest Limits & Slicing)
+### 2.10 상황 별 적재 제한 및 텍스트 슬라이싱 예산 (Situational Ingest Limits & Slicing)
 
 > [!NOTE]
 > 상황 별 적재 제한 및 슬라이싱 예산 설정은 이제 WebUI(Drawer > **상세 메뉴** > **📏 적재 제한**)에서 단독 기능으로 관리되며 `data/ingest_limits.json`에 영구 저장된다. 환경변수에서의 선언은 사용이 공식 종료되었으며, 기동 시 기존 `.env` 및 `.env.dev`의 설정은 자동으로 `ingest_limits.json`으로 마이그레이션된 후 주석 처리된다.
@@ -294,7 +270,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.12 선호 언어 및 로컬라이제이션
+### 2.11 선호 언어 및 로컬라이제이션
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -303,7 +279,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.13 웹 서비스, 인증 및 보안 경계 (Web API, Auth, Security)
+### 2.12 웹 서비스, 인증 및 보안 경계 (Web API, Auth, Security)
 
 > [!IMPORTANT] 웹 서비스의 보안 경계와 인증 토큰은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 설계 명세를 엄격히 준수한다.
 
@@ -330,7 +306,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.13.1 공개 사이트 크롤링 및 사이트 메타데이터
+### 2.12.1 공개 사이트 크롤링 및 사이트 메타데이터
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -343,7 +319,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.14 소스 코드 저장소 메타데이터
+### 2.13 소스 코드 저장소 메타데이터
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -353,7 +329,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.15 원격 배포 제어 (`.env.deploy`)
+### 2.14 원격 배포 제어 (`.env.deploy`)
 
 이 변수들은 `deploy.sh` 및 `cb-manuscript deploy`가 로컬 개발 머신에서 원격 서버로 배포할 때 사용하며, 원격 컨테이너 내부로는 절대 주입되지 않는다.
 

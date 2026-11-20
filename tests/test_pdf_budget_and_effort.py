@@ -216,23 +216,13 @@ def test_truncation_scan_pdf_budget(monkeypatch: pytest.MonkeyPatch):
 
 def test_lowest_effort_provider_uses_configured_provider():
     """Verify get_lowest_effort_provider returns the configured provider without cross-provider scanning."""
-    s1 = Settings(provider="gemini", gemini_api_key="dummy-key", agy_effort="low", gemini_effort="high")
+    s1 = Settings(provider="gemini", gemini_api_key="dummy-key", gemini_effort="high")
     prov1 = get_lowest_effort_provider(s1)
     assert prov1.name == "gemini"
-
-    s2 = Settings(provider="antigravity", gemini_api_key="dummy-key", agy_effort="high", gemini_effort="low")
-    with patch("claire.config.find_agy_executable", return_value="/usr/local/bin/agy"):
-        prov2 = get_lowest_effort_provider(s2)
-        assert prov2.name == "antigravity"
 
     s3 = Settings(provider="mock")
     prov3 = get_lowest_effort_provider(s3)
     assert prov3.name == "mock"
-
-    s4 = Settings(provider="codex", codex_effort="high", agy_effort="low", gemini_api_key="dummy-key", gemini_effort="low")
-    with patch("claire.config.find_codex_executable", return_value="/usr/local/bin/codex"):
-        prov4 = get_lowest_effort_provider(s4)
-        assert prov4.name == "codex"
 
 
 def test_classify_paper_logic():

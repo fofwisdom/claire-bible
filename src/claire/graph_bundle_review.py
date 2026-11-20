@@ -687,7 +687,7 @@ def _export_judge_calls(
             call_type: _latency_aggregate(samples) for call_type, samples in sorted(unattributed.items())
         },
         "retention_note": "telemetry.db keeps roughly 30 days",
-        "coverage_note": "only providers that write telemetry rows (host CLI providers) give rows; the judge latency of every provider is in coverage.judge_latency_from_trace",
+        "coverage_note": "no current provider writes telemetry rows; rows come only from earlier runs of the retired host CLI providers; the judge latency of every provider is in coverage.judge_latency_from_trace",
     }
 
 

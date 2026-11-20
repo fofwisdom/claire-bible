@@ -1,6 +1,6 @@
 # LLM·STT·VLM 프로바이더 구현 정본
 
-기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md), [AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
+기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04), §3.1의 분류와 `AE8` 삭제: `AE8` 커밋 (2026-11-21) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md), [AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
 
 이 문서는 **지금 코드가 어떤 프로바이더를 어떻게 분류·선택·격리하고 호출하는지**를 적는다. 줄 번호 대신 파일 경로와 함수·상수 이름을 기준점으로 삼는다.
 
@@ -15,7 +15,7 @@
 
 1. **[결정] 운영 환경에서는 mock으로 대체하지 않는다.** `CLAIRE_ENVIRONMENT=production`에서 설정한 프로바이더를 쓸 수 없으면 호출이 `ProviderUnavailableError`로 실패한다(§3). 개발 환경의 mock 대체는 허용한다.
 2. **[코드] 프로바이더 전역 설정의 실제 출처는 `data/providers.json`이다.** 이 파일의 값은 export된 환경변수보다도 우선한다(§2).
-3. **[코드/결정] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 현재 구현된 운영 서버 프로바이더는 `api-key` 분류의 `gemini`이며, `host-cli`(`AntigravityProvider`, `CodexProvider`) 및 ChatGPT·Codex·Claude는 2026-11-20 소유자 결정(`AED8`)으로 폐기되었다(코드 제거 `AE8`). A server administrator account with a personal key also gets `byok` (§3.2).
+3. **[코드/결정] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 현재 구현된 운영 서버 프로바이더는 `api-key` 분류의 `gemini`이며, `host-cli`(`AntigravityProvider`, `CodexProvider`) 및 ChatGPT·Codex·Claude는 2026-11-20 소유자 결정(`AED8`)으로 폐기되었고, 코드는 `AE8`에서 삭제되었다(2026-11-21). A server administrator account with a personal key also gets `byok` (§3.2).
 4. **[코드] 폴백은 없다 (C2).** 멤버 키가 거부되거나 예산이 소진되어도 서버 등급이나 다른 경로로 자동 전환하지 않고 fail-closed로 실패한다(§3.3).
 5. **[코드] `Settings`를 만들면 디스크가 바뀐다.** `_ProvidersJsonSettingsSource`가 `ProviderManager(auto_migrate=True)`를 만든다. 이때 `providers.json`이 없으면 환경변수로부터 새로 만들고, 저장소 루트의 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`에 속한 줄을 주석 처리한다.
 6. **[코드] 테스트는 개발자의 실제 `.env`를 읽는다.** conftest가 없다. 로컬 `.env`가 `production`이면 테스트도 운영 동작을 본다. mock 대체를 검증하는 테스트는 `Settings(environment="development")`로 환경을 고정한다.
@@ -82,9 +82,11 @@
 | :--- | :--- | :--- | :--- |
 | `api-key` | `gemini` (현재 구현 기준선; §6 절차로 추가 가능) | HTTPS API와 키 | 서버 작업: `providers.json` / 관리자 계정: 개인 키, 없으면 `providers.json` / 멤버: 자기 키(BYOK) 또는 서버 등급 |
 | `mock` | `mock` | 개발/테스트용 | 개발 환경 |
+| `unregistered` | 분류표(`PROVIDER_CLASSES`)에 없는 이름 | 없음 | 아무도 쓸 수 없다 |
 
-- **[결정 2026-11-20 (`AED6`, `AED8`)]**: `host-cli`(`AntigravityProvider`, `CodexProvider`)와 `ChatGPT`, `Codex`, `Claude`는 원칙·설계·구현에서 모두 폐기한다(`AED8`). 기존에 미구현 상태로 적혀 있던 비-Google(`openai`) 항목은 문서에서 삭제했으며(`AED6`), 남아 있는 레거시 클래스·설정 잔여분 제거는 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)의 `AE8` 단위에서 수행한다. 타 `api-key` 프로바이더를 새로 구현·추가하는 일반 확장 구조(§6)는 열려 있다.
-- **미등록·폐기 프로바이더 fail-closed**: 분류표에 없는 이름이나 빈 문자열은 운영 환경에서 사용할 수 없도록 거부한다(`classify_provider`, `require_provider_allowed`, `C2`).
+- **[결정 2026-11-20 (`AED6`, `AED8`)]**: `host-cli`(`AntigravityProvider`, `CodexProvider`)와 `ChatGPT`, `Codex`, `Claude`는 원칙·설계·구현에서 모두 폐기한다(`AED8`). 기존에 미구현 상태로 적혀 있던 비-Google(`openai`) 항목은 문서에서 삭제했다(`AED6`). 타 `api-key` 프로바이더를 새로 구현·추가하는 일반 확장 구조(§6)는 열려 있다.
+- **[코드] `AE8` 삭제 (2026-11-21)**: `src/claire/extract/{antigravity,codex}_provider.py`, CLI 탐색 함수(`find_agy_executable`, `find_codex_executable`, `diagnose_agy_environment`), `CLAIRE_AGY_*`·`CLAIRE_CODEX_*` `Settings` 필드, `host-cli` 분류, `openai` 기본 블록, 컨테이너의 `~/.gemini`·`~/.codex` 마운트가 없다. 예전 `providers.json`의 `antigravity`·`codex`·`openai` 블록과 최상위 `personal_cli` 블록은 파일에 데이터로 남지만 읽는 코드가 없고, Web UI 응답(`get_sanitized_config`)에는 나가지 않는다. 갱신 요청에 들어온 알려지지 않은 프로바이더 블록은 무시한다.
+- **미등록·폐기 프로바이더 fail-closed**: 분류표에 없는 이름(폐기된 `antigravity`·`codex`·`openai` 포함)이나 빈 문자열은 `unregistered`다. 멤버 컨텍스트는 `ProviderNotAllowed`로 거부되고(`require_provider_allowed`), 관리자 설정에서는 `Settings.effective_provider`가 개발 환경에서 `mock`, 운영 환경에서 `unavailable`이 된다(`C2`). 서버 시작은 멈추지 않는다.
 - **멤버 제한**: 멤버 컨텍스트는 `MEMBER_KEY_PROVIDERS` / `TIER_PROVIDERS`에 등록된 `api-key` 프로바이더(현재 `gemini`)만 허용하며 `ProviderNotAllowed`로 비허용 프로바이더를 차단한다.
 - **저비용 분류**: `get_lowest_effort_provider`는 사용 가능한 `api-key` 프로바이더(현재 `gemini`)를 평가한다.
 
@@ -152,7 +154,7 @@
 
 ### 4.3 저비용 분류 (`get_lowest_effort_provider`)
 
-**[코드/개정]** `classify_paper` 같은 1차 분류는 등록된 `api-key` 프로바이더(현재 `gemini`) 중 가장 낮은 effort 구성을 우선 선택한다(`AED8`: 폐기된 `host-cli` 후보는 사용하지 않으며, 레거시 분기 제거는 `AE8`에서 완료한다).
+**[코드/개정]** `classify_paper` 같은 1차 분류는 등록된 `api-key` 프로바이더(현재 `gemini`) 중 가장 낮은 effort 구성을 우선 선택한다(`AED8`: 폐기된 `host-cli` 후보는 없으며, 그 분기는 `AE8`에서 삭제되었다).
 
 ---
 
@@ -199,7 +201,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 - **[code] HTTP routes**: `GET`/`HEAD /providers`, `PATCH`/`POST /providers`, `POST /providers/test`, and `POST /providers/check` in `src/claire/api/server.py`. The route table in `src/claire/api/security.py` allows them only for `admin`, and `POST /providers/test` and `POST /providers/check` additionally require an admin browser cookie session and same-origin request (Bearer API tokens are rejected with 403).
 - **[code] Secret masking**: `ProviderManager.get_settings_dict` returns an API key as `••••••••` when a key is set. `ProviderManager.update_config` keeps the stored key when the request sends the mask or an empty value. It clears the key only for an empty value with `clear_api_key`.
 - **[code] Connection test**: `ProviderManager.test_connection` checks an API key and model before or after a save. For Gemini, a masked key in the request means the stored key.
-- **[decision] Retirement of host-CLI providers and ChatGPT/Codex/Claude (owner, 2026-11-19 seal -> 2026-11-20 `AED8` retirement).** Previously, the administrator's personal CLI routes (`/api/me/personal-cli`, `/api/me/personal-cli/test`) were sealed with 404. On 2026-11-20 (`AED8`), the owner formally retired server-side `host-cli` providers (`AntigravityProvider`, `CodexProvider`) and `ChatGPT`, `Codex`, `Claude` across principles, design, and implementation (`AED6` also removed unimplemented `openai` placeholders). Remaining legacy server CLI modules and `Settings` keys exist on disk solely until implementation unit `AE8` deletes them ([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)).
+- **[decision] Retirement of host-CLI providers and ChatGPT/Codex/Claude (owner, 2026-11-19 seal -> 2026-11-20 `AED8` retirement).** Previously, the administrator's personal CLI routes (`/api/me/personal-cli`, `/api/me/personal-cli/test`) were sealed with 404. On 2026-11-20 (`AED8`), the owner formally retired server-side `host-cli` providers (`AntigravityProvider`, `CodexProvider`) and `ChatGPT`, `Codex`, `Claude` across principles, design, and implementation (`AED6` also removed unimplemented `openai` placeholders). Implementation unit `AE8` deleted the server CLI modules and `Settings` keys on 2026-11-21 ([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)). `POST /providers/check` answers 400 for an active provider that is not `mock` or `gemini`.
 - **[code] Storage**: `data/providers.json`, written by `ProviderManager.save_config`. The env migration (`migrate_from_env_if_needed`) and its effect on `.env` are in §0 and §2.1.
 - **[code] CLI**: `claire providers` (`list`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
 
@@ -209,7 +211,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 2. `src/claire/accounts/provider_policy.py`의 `PROVIDER_CLASSES`에 `api-key` 분류를 등록한다(미등록 이름은 fail-closed).
 3. 멤버 키로 지원하려면 `MEMBER_KEY_PROVIDERS`에 추가하고, 서버 등급으로 지원하려면 `TIER_PROVIDERS`에 추가한다.
 4. `get_provider` 및 `resolve_provider_context`에 분기를 추가하고, `Settings._llm_unavailable_reason`에 사용 가능 조건을 추가한다.
-5. WebUI에서 고를 수 있게 하려면 `SUPPORTED_ACTIVE_PROVIDERS`, `DEFAULT_PROVIDERS_CONFIG`, `get_settings_dict`, `migrate_from_env_if_needed`를 함께 고친다.
+5. WebUI에서 고를 수 있게 하려면 `SUPPORTED_ACTIVE_PROVIDERS`, `ALLOWED_ROUTE_PROVIDERS`, `DEFAULT_PROVIDERS_CONFIG`, `get_settings_dict`, `migrate_from_env_if_needed`를 함께 고친다.
 6. 새 `Settings` 필드는 [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md)에 행을 추가한다. 빠뜨리면 `tests/test_docs_consistency.py`가 실패한다.
 7. 운영 환경 실패 동작 및 정책 검속 동작을 `tests/test_provider_policy.py`에 추가한다.
 

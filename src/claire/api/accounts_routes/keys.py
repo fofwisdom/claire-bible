@@ -115,10 +115,6 @@ def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
             gem_m = str(pdata.get("model") or getattr(ctx.settings, "gemini_model", "") or "")
             _, gem_embedded_eff = split_gemini_model_and_effort(gem_m)
             return gem_m, gem_embedded_eff or str(pdata.get("effort") or getattr(ctx.settings, "gemini_effort", "medium") or "medium")
-        if pname == "antigravity":
-            return str(pdata.get("model") or getattr(ctx.settings, "agy_model", "") or ""), str(pdata.get("effort") or getattr(ctx.settings, "agy_effort", "medium") or "medium")
-        if pname == "codex":
-            return str(pdata.get("model") or getattr(ctx.settings, "codex_model", "") or "codex-default"), str(pdata.get("effort") or getattr(ctx.settings, "codex_effort", "medium") or "medium")
         return ("mock", "") if pname == "mock" else ("", "")
 
     defaults: dict[str, dict[str, str]] = {}

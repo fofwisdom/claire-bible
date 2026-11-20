@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.extract.antigravity_provider import AntigravityProvider
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import IngestReport
 from claire.ingest.service import IngestService
@@ -47,12 +43,11 @@ def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
         public_url="http://127.0.0.1:8765",
         environment="development",
         render_format="md",
-        agy_detail_timeout=300.0,
     )
 
     class TimeoutDetailProvider(MockProvider):
         def render_detail(self, doc: Document, format: str = "md", focus: str | None = None, **kwargs) -> str:
-            raise RuntimeError("agy CLI invocation timed out after 300.0s")
+            raise RuntimeError("detail rendering timed out after 300.0s")
 
     service = IngestService(settings=settings, provider=TimeoutDetailProvider())
 
@@ -151,41 +146,6 @@ def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
         assert "--detail --apply" in res.text
 
 
-def test_e2e_antigravity_multitier_fallback_execution():
-    """Verify F3 removal: AntigravityProvider raises timeout strictly without lowering effort or compressing prompts."""
-    settings = Settings(
-        provider="antigravity",
-        agy_bin="agy",
-        agy_model="gemini-3.8-flash",
-        agy_effort="high",
-        agy_detail_timeout=300.0,
-    )
-    prov = AntigravityProvider(settings)
-
-    efforts_seen: list[str] = []
-
-    def mock_run_side_effect(cmd, input=None, timeout=None, **kwargs):
-        assert timeout == 300.0
-        eff_idx = cmd.index("--effort") if "--effort" in cmd else -1
-        effort_val = cmd[eff_idx + 1] if eff_idx != -1 else "none"
-        efforts_seen.append(effort_val)
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
-
-    huge_text = "NVIDIA Kimodo Detailed Architecture Paper " * 1200  # > 40,000자
-    doc = Document(
-        id="doc_kimodo_e2e",
-        title="Kimodo Tech Report",
-        raw_text=huge_text,
-        source_type="pdf",
-    )
-
-    with patch("subprocess.run", side_effect=mock_run_side_effect):
-        with pytest.raises(RuntimeError, match="timed out"):
-            prov.render_detail(doc, effort="high")
-
-    assert efforts_seen == ["high"]
-
-
 def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):
     """E2E Scenario 3:
     본문 생성이 누락되었던 문서를 '🔄 본문 재생성 (기존 원문 기준)'을 통해 복구할 때,
@@ -257,35 +217,3 @@ def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):
         assert page_res.status_code == 200
         # JSON 데이터 블록 내에 복구된 본문이 존재
         assert "복구된 Kimodo 기술 상세" in page_res.text
-
-
-def test_e2e_timeout_setting_pipeline_propagation(tmp_path: Path):
-    """E2E Scenario 4:
-    Settings -> ProviderManager -> AntigravityProvider -> subprocess.run 간의
-    agy_detail_timeout (기본 300초 또는 커스텀 450초) 설정이 누락 없이 관통되는지 검증.
-    """
-    s = Settings(
-        provider="antigravity",
-        agy_timeout=180.0,
-        agy_detail_timeout=450.0,
-        data_dir=tmp_path,
-    )
-    prov = AntigravityProvider(s)
-    assert prov.detail_timeout == 450.0
-    assert prov.timeout == 180.0
-
-    captured_timeouts: list[float] = []
-
-    def mock_run(cmd, timeout=None, **kwargs):
-        captured_timeouts.append(timeout)
-        return SimpleNamespace(returncode=0, stdout="OK", stderr="")
-
-    doc = Document(id="doc_prop", title="Test", raw_text="Short", source_type="text")
-    with patch("subprocess.run", side_effect=mock_run):
-        # 1. render_detail 호출 시 detail_timeout (450초) 적용
-        prov.render_detail(doc)
-        assert captured_timeouts[-1] == 450.0
-
-        # 2. 일반 summarize_search 호출 시 표준 timeout (180초) 적용
-        prov.summarize_search("query", "context")
-        assert captured_timeouts[-1] == 180.0

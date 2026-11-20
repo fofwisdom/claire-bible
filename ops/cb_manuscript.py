@@ -51,7 +51,6 @@ ROLE_HOST_SETTINGS = (
 DEVELOPMENT = "development"
 PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
-CODEX_PROVIDER_ALIASES = frozenset(("codex", "codex-cli"))
 BACKUP_FORMAT_VERSION = 1
 BACKUP_COMPONENTS = ("data", "vault", "plugins")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
@@ -284,94 +283,6 @@ class Layout:
         return self.development_state if dev else self.production_state
 
 
-def _path_check(check: Callable[[], bool]) -> bool:
-    """Run one file system check. A path that the process cannot read (for example /root/.gemini when the process is not root) gives False: on Python 3.11 ``Path.is_dir`` and ``Path.is_file`` raise ``PermissionError`` for such a path."""
-    try:
-        return bool(check())
-    except OSError:
-        return False
-
-
-def detect_host_antigravity_paths(
-    values: Mapping[str, str] | None = None,
-) -> tuple[str, str]:
-    """Detect host agy binary location and .gemini credentials directory."""
-    agy_name = "agy"
-    if values:
-        agy_name = _effective(values, "CLAIRE_AGY_BIN").strip() or "agy"
-
-    # 1. agy binary directory
-    host_bin_dir = str(Path.home() / ".local" / "bin")
-    agy_path: str | None = None
-
-    if Path(agy_name).is_file() and os.access(agy_name, os.X_OK):
-        agy_path = str(Path(agy_name).resolve())
-    else:
-        which_path = shutil.which(agy_name)
-        if which_path and Path(which_path).is_file() and os.access(which_path, os.X_OK):
-            agy_path = str(Path(which_path).resolve())
-        else:
-            candidates = [
-                Path("/usr/local/bin") / agy_name,
-                Path("/usr/bin") / agy_name,
-                Path.home() / ".local" / "bin" / agy_name,
-                Path("/root/.local/bin") / agy_name,
-            ]
-            home_root = Path("/home")
-            if home_root.is_dir():
-                try:
-                    for u in home_root.iterdir():
-                        if u.is_dir():
-                            candidates.append(u / ".local" / "bin" / agy_name)
-                except Exception:
-                    pass
-            for c in candidates:
-                if _path_check(lambda: c.is_file() and os.access(c, os.X_OK)):
-                    agy_path = str(c.resolve())
-                    break
-
-    if agy_path:
-        host_bin_dir = str(Path(agy_path).parent)
-
-    # 2. .gemini credentials directory
-    host_gemini_dir = str(Path.home() / ".gemini")
-    gemini_candidates = [Path.home() / ".gemini", Path("/root/.gemini")]
-    home_root = Path("/home")
-    if home_root.is_dir():
-        try:
-            for u in home_root.iterdir():
-                if u.is_dir():
-                    gemini_candidates.append(u / ".gemini")
-        except Exception:
-            pass
-
-    # 1순위: 실제 antigravity-oauth-token 또는 settings.json이 존재하는 디렉터리 우선
-    for gc in gemini_candidates:
-        if _path_check(gc.is_dir):
-            try:
-                if (
-                    (gc / "antigravity-cli" / "antigravity-oauth-token").is_file()
-                    or (gc / "antigravity-oauth-token").is_file()
-                    or (gc / "antigravity-cli" / "settings.json").is_file()
-                ):
-                    host_gemini_dir = str(gc.resolve())
-                    break
-            except Exception:
-                pass
-    else:
-        # 2순위: 내용물이 존재하는 디렉터리
-        for gc in gemini_candidates:
-            if _path_check(gc.is_dir):
-                try:
-                    if any(gc.iterdir()):
-                        host_gemini_dir = str(gc.resolve())
-                        break
-                except Exception:
-                    pass
-
-    return host_bin_dir, host_gemini_dir
-
-
 @dataclass(frozen=True)
 class Runtime:
     layout: Layout
@@ -456,10 +367,7 @@ class Runtime:
         if tz_value:
             env["TZ"] = tz_value
 
-        host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(self.values)
-        env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or host_bin_dir
-        env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
-        env["CB_CODEX_DIR"] = env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
+        env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or str(Path.home() / ".local" / "bin")
 
         host_uid = str(os.getuid()) if hasattr(os, "getuid") else "1000"
         host_gid = str(os.getgid()) if hasattr(os, "getgid") else "1000"
@@ -1148,17 +1056,6 @@ def _get_provider_from_providers_json(runtime: Runtime) -> str:
     return ""
 
 
-def _reject_native_only_provider(runtime: Runtime) -> None:
-    raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
-    if not raw_provider:
-        raw_provider = _get_provider_from_providers_json(runtime)
-    if raw_provider in CODEX_PROVIDER_ALIASES:
-        raise ManuscriptError(
-            "The Codex provider is native-only. It cannot run in the cb-manuscript "
-            "Docker profile. Run Claire natively with `uv run claire ...`."
-        )
-
-
 def _check_pdf_parser(runtime: Runtime) -> None:
     raw_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip().lower()
     if not raw_parser:
@@ -1184,7 +1081,6 @@ def _check_pdf_parser(runtime: Runtime) -> None:
 
 
 def config_preflight(runtime: Runtime) -> None:
-    _reject_native_only_provider(runtime)
     _check_pdf_parser(runtime)
     for path in (*runtime.env_files, *runtime.compose_files):
         if not path.is_file():
@@ -1620,8 +1516,6 @@ def command_init(layout: Layout) -> int:
     layout.data.mkdir(parents=True, exist_ok=True)
     layout.vault.mkdir(parents=True, exist_ok=True)
     layout.certs.mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".gemini").mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".codex").mkdir(parents=True, exist_ok=True)
     (Path.home() / ".local" / "bin").mkdir(parents=True, exist_ok=True)
 
     detected_tz = _detect_system_timezone()
@@ -3648,7 +3542,6 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
 
 
 def command_preflight(runtime: Runtime) -> int:
-    _reject_native_only_provider(runtime)
     run_command(("docker", "--version"), cwd=runtime.layout.root)
     run_command(("docker", "compose", "version"), cwd=runtime.layout.root)
     run_command(
@@ -3679,43 +3572,6 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"provider: {raw_provider or 'mock'}")
     raw_pdf_parser = _effective(runtime.values, "CLAIRE_PDF_PARSER").strip() or "default"
     print(f"pdf parser: {raw_pdf_parser}")
-
-    if raw_provider in ("antigravity", "agy", "codex", "codex-cli"):
-        # Verify host-bin volume mount exists in Compose configuration
-        compose_text = runtime.layout.compose.read_text(encoding="utf-8")
-        if "/host-bin" not in compose_text:
-            raise ManuscriptError("docker-compose.yml must mount /host-bin:ro for CLI providers")
-        print("host-bin mount: verified (/host-bin:ro)")
-
-    if raw_provider in ("antigravity", "agy"):
-        host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(runtime.values)
-        agy_bin_val = _effective(runtime.values, "CLAIRE_AGY_BIN").strip()
-        if not agy_bin_val:
-            data_dir_str = _effective(runtime.values, "CB_DATA_DIR").strip() or "./data"
-            data_dir = (runtime.layout.root / data_dir_str).resolve()
-            p_file = data_dir / "providers.json"
-            if p_file.is_file():
-                try:
-                    p_raw = json.loads(p_file.read_text(encoding="utf-8"))
-                    agy_bin_val = str(p_raw.get("providers", {}).get("antigravity", {}).get("bin", "agy")).strip()
-                except Exception:
-                    pass
-        agy_bin = Path(host_bin_dir) / (agy_bin_val or "agy")
-        if not agy_bin.is_file() or not os.access(agy_bin, os.X_OK):
-            raise ManuscriptError(f"Antigravity CLI binary '{agy_bin}' not found or not executable. Install agy to ~/.local/bin or set CLAIRE_AGY_BIN.")
-        print(f"antigravity binary: {agy_bin} (executable)")
-        print(f"antigravity credentials: {host_gemini_dir}")
-    elif raw_provider in ("codex", "codex-cli"):
-        codex_bin_val = _effective(runtime.values, "CLAIRE_CODEX_BIN").strip() or "codex"
-        host_bin_dir = runtime.env.get("CB_BIN_DIR", "").strip() or str(Path.home() / ".local" / "bin")
-        cdx_bin = Path(host_bin_dir) / codex_bin_val
-        if not cdx_bin.is_file() and shutil.which(codex_bin_val):
-            cdx_bin = Path(shutil.which(codex_bin_val))
-        if not cdx_bin.is_file() or not os.access(cdx_bin, os.X_OK):
-            raise ManuscriptError(f"Codex CLI binary '{codex_bin_val}' not found or not executable. Install codex to PATH or set CLAIRE_CODEX_BIN.")
-        print(f"codex binary: {cdx_bin} (executable)")
-        host_codex_dir = runtime.env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
-        print(f"codex credentials: {host_codex_dir}")
 
     print("preflight: OK")
     return 0

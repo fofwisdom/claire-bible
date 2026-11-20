@@ -137,7 +137,7 @@ Limits:
 ### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 
 1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
-2. `evaluate_summary_verdict`는 `AntigravityProvider`에서만 돌고, 판정 결과에 따라 동작하는 코드가 없다.
+2. `evaluate_summary_verdict`를 부르는 코드가 없다. 유일한 호출자였던 `AntigravityProvider`는 `AE8`에서 삭제되었다(2026-11-21).
 3. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
 4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
 5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
@@ -174,7 +174,7 @@ Limits:
 
 1. `telemetry.db`의 모든 연결(`connect_telemetry`)이 DDL·ALTER를 실행한다. Support Bundle 진단 조회도 읽기 전용이 아니다.
 2. 텔레메트리 자동 정리는 없다. `claire telemetry --prune`만 지운다. 보관 기한 30일은 설정할 수 없다.
-3. 프로바이더 텔레메트리는 Antigravity만 기록한다.
+3. 프로바이더 텔레메트리(`provider_telemetry`)를 기록하는 코드가 없다. 유일한 기록자였던 `AntigravityProvider`는 `AE8`에서 삭제되었고(2026-11-21), 예전 행은 읽기 경로에 남는다. MCP 텔레메트리는 계속 기록된다.
 4. `cb-manuscript update`는 업데이트 전 백업을 자동으로 만들지 않는다. backup v1 manifest는 `claire.db` 하나만 검증한다.
 5. 데이터 저장 배치 DS-3(계정별 관리자 적재 한도)은 구현되지 않았다.
 6. 연합 FP4 보류 항목: D1(계정별 차단·숨김·신고), D2(계정별 발신 속도 한도), D4/RD12(외부 연결 계정), 피드 자동 적재 규칙.

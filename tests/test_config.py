@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from claire.config import Settings, find_codex_executable, resolve_app_root
+from claire.config import Settings, resolve_app_root
 
 
 def test_app_root_uses_source_checkout_when_pyproject_exists(tmp_path):
@@ -288,40 +288,28 @@ def test_presentation_pdf_max_bytes_must_be_positive(monkeypatch, tmp_path):
         Settings(_env_file=None, CLAIRE_PRESENTATION_PDF_MAX_BYTES=0)
 
 
-def test_codex_config_defaults(monkeypatch):
-    for name in (
-        "CLAIRE_CODEX_BIN",
-        "CLAIRE_CODEX_EFFORT",
-        "CLAIRE_CODEX_TIMEOUT",
-        "CLAIRE_CODEX_MAX_CONCURRENCY",
-    ):
-        monkeypatch.delenv(name, raising=False)
+def test_old_host_cli_variables_are_ignored(monkeypatch, tmp_path: Path):
+    """An old .env or environment can still set the variables of the retired host-cli providers. The settings load and have no field for them."""
+    old = {
+        "CLAIRE_AGY_BIN": "agy",
+        "CLAIRE_AGY_EFFORT": "high",
+        "CLAIRE_AGY_TIMEOUT": "180",
+        "CLAIRE_AGY_DETAIL_TIMEOUT": "300",
+        "CLAIRE_AGY_MAX_CONCURRENCY": "2",
+        "CLAIRE_CODEX_BIN": "codex",
+        "CLAIRE_CODEX_EFFORT": "medium",
+        "CLAIRE_CODEX_TIMEOUT": "300",
+        "CLAIRE_CODEX_MAX_CONCURRENCY": "1",
+    }
+    for name, value in old.items():
+        monkeypatch.setenv(name, value)
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("".join(f"{name}={value}\n" for name, value in old.items()), encoding="utf-8")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=dotenv)
 
-    assert settings.codex_bin == "codex"
-    assert settings.codex_model == ""
-    assert settings.codex_effort == "medium"
-    assert settings.codex_timeout == 300.0
-    assert settings.codex_max_concurrency == 1
-
-
-def test_find_codex_executable_checks_only_explicit_path_or_path(
-    tmp_path: Path, monkeypatch
-):
-    executable = tmp_path / "codex-custom"
-    executable.write_text("#!/bin/sh\n", encoding="utf-8")
-    executable.chmod(0o700)
-
-    assert find_codex_executable(str(executable)) == str(executable.resolve())
-
-    monkeypatch.setattr("claire.config.shutil.which", lambda _name: None)
-    assert find_codex_executable("codex-not-on-path") is None
-
-    monkeypatch.setattr(
-        "claire.config.shutil.which", lambda _name: str(executable)
-    )
-    assert find_codex_executable("codex-from-path") == str(executable.resolve())
+    assert not [name for name in Settings.model_fields if name.startswith(("agy_", "codex_"))]
+    assert not hasattr(settings, "agy_bin") and not hasattr(settings, "codex_bin")
 
 
 def test_preferred_languages_config(monkeypatch):
@@ -342,7 +330,7 @@ def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):
 
     # A providers.json without models: no value of the file hides an environment value.
     config = json.loads(json.dumps(DEFAULT_PROVIDERS_CONFIG))
-    for name, keys in (("gemini", ("model", "embed_model")), ("antigravity", ("model",)), ("codex", ("model",)), ("jev", ("model",)), ("stt", ("model",))):
+    for name, keys in (("gemini", ("model", "embed_model")), ("jev", ("model",)), ("stt", ("model",))):
         for key in keys:
             config["providers"][name].pop(key, None)
     (tmp_path / "providers.json").write_text(json.dumps(config), encoding="utf-8")
@@ -350,7 +338,7 @@ def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):
         monkeypatch.setenv(f"CLAIRE_{field.upper()}", "from-env")
         monkeypatch.setenv(field.upper(), "from-env")
     dotenv = tmp_path / ".env"
-    dotenv.write_text("CLAIRE_AGY_MODEL=from-dotenv\n", encoding="utf-8")
+    dotenv.write_text("CLAIRE_GEMINI_MODEL=from-dotenv\n", encoding="utf-8")
     settings = Settings(_env_file=dotenv, data_dir=tmp_path)
     assert {field: getattr(settings, field) for field in MODEL_FIELDS} == {field: Settings.model_fields[field].default for field in MODEL_FIELDS}
     # The field defaults are the defaults of providers.json.

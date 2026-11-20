@@ -349,11 +349,8 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     if doc is None:
         raise ContributionError(404, "document_not_found")
 
-    # The same rule as the ingest pipeline: a provider without the function embeds, but the CLI providers need a Gemini key for it.
-    if hasattr(provider, "has_embed_capability"):
-        has_embed = bool(provider.has_embed_capability())
-    else:
-        has_embed = getattr(provider, "name", "") not in ("codex", "antigravity") or bool(getattr(getattr(provider, "settings", settings), "gemini_api_key", ""))
+    # The same rule as the ingest pipeline: a provider without the function embeds.
+    has_embed = bool(provider.has_embed_capability()) if hasattr(provider, "has_embed_capability") else True
     pin = resolve_embed_identity(provider, settings)
     fixed = read_embed_pin(conn, kb_id)
     if has_embed and fixed is not None and fixed.model and fixed.model != pin.model:

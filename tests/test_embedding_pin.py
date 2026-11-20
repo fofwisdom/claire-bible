@@ -129,7 +129,7 @@ def test_hybrid_search_falls_back_to_fts_on_model_mismatch(tmp_path: Path) -> No
                   summarize=False, kb_id=0)
     assert same.hits and "vec" in same.hits[0].via
 
-    other = search(conn, vs, _FakeProvider("openai", "model-b", [1.0, 0.0]), "Ollama",
+    other = search(conn, vs, _FakeProvider("other-backend", "model-b", [1.0, 0.0]), "Ollama",
                    summarize=False, kb_id=0)
     assert other.hits and other.hits[0].entity.id == ent.id
     assert other.hits[0].via == ["fts"]
@@ -211,7 +211,7 @@ def test_backfill_relabels_all_legacy_rows_when_pin_has_no_rows(tmp_path: Path) 
 def test_resolver_records_provider_embed_model(tmp_path: Path) -> None:
     conn = _conn(tmp_path)
     vs = VectorStore(conn, "brute")
-    provider = _FakeProvider("codex", "gemini-embedding-001", [0.3, 0.7])
+    provider = _FakeProvider("gemini", "gemini-embedding-001", [0.3, 0.7])
 
     def _embed():
         return provider.embed("frame")
@@ -241,7 +241,6 @@ def test_resolver_skips_vector_on_model_mismatch(tmp_path: Path) -> None:
 
 def test_resolve_embed_identity() -> None:
     assert resolve_embed_identity(_FakeProvider("gemini", "m1", [])) == ("gemini", "m1")
-    assert resolve_embed_identity(_FakeProvider("antigravity", "m1", [])).provider == "gemini"
 
     class _Mock:
         name = "mock"
@@ -255,10 +254,10 @@ def test_embed_mismatch_helper() -> None:
     pinned = KnowledgeBaseInfo(id=0, seq=0, label="t", embed_provider="gemini", embed_model="m1")
     assert embed_mismatch(pinned, "gemini", "m1") is False
     assert embed_mismatch(pinned, "gemini", "m2") is True
-    assert embed_mismatch(pinned, "openai", "m1") is True
+    assert embed_mismatch(pinned, "other-backend", "m1") is True
     assert embed_mismatch(pinned, "", "m1") is False
     legacy_provider = KnowledgeBaseInfo(id=0, seq=0, label="t", embed_model="m1")
-    assert embed_mismatch(legacy_provider, "openai", "m1") is False
+    assert embed_mismatch(legacy_provider, "other-backend", "m1") is False
 
 
 def test_reembed_replaces_pin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

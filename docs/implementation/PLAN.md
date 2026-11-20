@@ -36,7 +36,7 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 
 ### 추출과 온톨로지
 
-- `src/claire/extract/`: mock·Gemini·Antigravity·Codex provider, 구조화 추출, 엔티티 해소, 관계 판정
+- `src/claire/extract/`: mock·Gemini provider, 구조화 추출, 엔티티 해소, 관계 판정
 - `src/claire/ontology/`: 엔티티·관계 모델과 domain/range 레지스트리
 
 모델 출력은 닫힌 타입 집합을 우선 사용한다. 새 타입 제안은 별도 provisional 데이터로 보존하며, 관계는 저장 전에 허용 source/target 타입을 검증한다. 엔티티는 exact·alias·약어·임베딩 후보와 선택적 모델 판정을 조합해 기존 노드로 해소한다. [코드] 현재 동작의 정본: [EXTRACTION.md](EXTRACTION.md)

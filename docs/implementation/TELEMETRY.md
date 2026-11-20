@@ -1,6 +1,6 @@
 # Telemetry and Support Bundles
 
-Basis: commit d15ae8e0 (2026-11-16); §3.6 and the member list of §3.3: the commit that adds `support_bundle_services.py` (2026-11-18) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
+Basis: commit d15ae8e0 (2026-11-16); §3.6 and the member list of §3.3: the commit that adds `support_bundle_services.py` (2026-11-18); the writers of §2 and the log list of §3.3: the commit that removes the host-cli providers (`AE8`, 2026-11-21) · Principle: [`PRINCIPLES.md`](../PRINCIPLES.md) A4 · Commands: [`COMMANDS.md`](COMMANDS.md) §3.9
 
 This document tells how the code records telemetry now, and how it makes, keeps, and deletes Support Bundles. It uses file paths and function names as anchors.
 
@@ -15,7 +15,6 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 | `src/claire/support_bundle_services.py` | Collectors of the server-wide Support Bundle for the services, the runtime configuration, the federation, `client.db`, `auth.db`, the worker queues, and the shared knowledge bases (§3.6) |
 | `src/claire/loop_runtime.py` | Log file and state file of the worker loops `refresh-loop`, `recover-loop`, `expand-loop` (§3.6) |
 | `src/claire/account_support_bundle.py` | Account-scope Support Bundle (data of one account only) |
-| `src/claire/extract/antigravity_provider.py` | Writes provider telemetry for each `agy` call |
 | `src/claire/api/mcp_tools.py`, `src/claire/api/security.py`, `src/claire/api/server.py` | Write MCP telemetry |
 | `src/claire/cli.py` (`telemetry`, `support-bundle`) | CLI surface |
 | `src/claire/telegram_bot.py` | `/support bundle` command of the bot |
@@ -30,8 +29,8 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
   - `mcp_telemetry`: one row for each MCP tool call (`call_type="tool_call"`) or failed MCP HTTP request (`call_type="http_mcp"`, with the HTTP status in `error_code`).
   - `support_bundles`: the database registry of bundles, with the column `account_id` (NULL means a server-wide bundle).
 - **[code] Fire-and-forget.** Callers catch telemetry errors. A telemetry failure does not stop ingestion or an MCP response.
-- **[code] Classification.** `diagnose_google_block` sorts a CLI result by text match into `RECITATION`, `SAFETY`, `RATE_LIMIT_429`, `QUOTA_EXCEEDED`, `MAX_TOKENS`, `INVALID_SCHEMA`, `TIMEOUT`, `ENV_MISSING`, `CLI_ERROR`, or `NONE`. `evaluate_summary_verdict` marks a summary as `REAL_LLM`, `RAW_SLICE_200`, `MOCK_PREFIX`, or `EMPTY`.
-- **[code] Writers.** `AntigravityProvider` writes provider rows for its calls. `Settings._llm_unavailable_reason` writes one `env_discovery` row when the `agy` binary is missing. The MCP tool wrapper in `src/claire/api/mcp_tools.py`, the MCP authentication failure path in `src/claire/api/security.py`, and the MCP HTTP route in `src/claire/api/server.py` write MCP rows. Other providers (Gemini, Codex) do not call `record_telemetry`.
+- **[code] Classification.** `diagnose_google_block` sorts a CLI result by text match into `RECITATION`, `SAFETY`, `RATE_LIMIT_429`, `QUOTA_EXCEEDED`, `MAX_TOKENS`, `INVALID_SCHEMA`, `TIMEOUT`, `ENV_MISSING`, `CLI_ERROR`, or `NONE`. `evaluate_summary_verdict` marks a summary as `REAL_LLM`, `RAW_SLICE_200`, `MOCK_PREFIX`, or `EMPTY`. No code calls these two functions: their only caller was the retired `AntigravityProvider`.
+- **[code] Writers.** No code writes `provider_telemetry` rows: the retired host-cli provider `AntigravityProvider` was the only writer. Its old rows stay in `telemetry.db` until `claire telemetry --prune` deletes them, and the readers (`query_telemetry`, the Support Bundles, the graph bundle) still show them. The MCP tool wrapper in `src/claire/api/mcp_tools.py`, the MCP authentication failure path in `src/claire/api/security.py`, and the MCP HTTP route in `src/claire/api/server.py` write MCP rows. The Gemini provider does not call `record_telemetry`.
 - **[code] Retention.** `DEFAULT_TELEMETRY_RETENTION_DAYS` is 30. No `Settings` field changes it (the code reads `telemetry_retention_days` with `getattr` and a default of 30). No scheduler prunes telemetry. Only `claire telemetry --prune <days>` deletes old rows (`prune_old_telemetry`, which deletes from `provider_telemetry` and `mcp_telemetry`).
 
 ## 3. Server-wide Support Bundle
@@ -63,7 +62,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
   - `pipeline/`: `health.json`, `inbox_summary.json`, `failed_items.json`, `shares_index.json`, `db_integrity.json`, `oauth_summary.json`, `active_ingest.json`, `worker_queues.json`, `shared_kb.json`
   - `federation/`: `server_queues.json`, `client_db.json`
   - `accounts/`: `auth_db.json`
-  - `logs/`: the last 5000 lines of `agy.log`, `telegram.log`, `api.log`, and of each other `*.log` in `data/logs/` (also `refresh-loop.log`, `recover-loop.log`, `expand-loop.log`, §3.6)
+  - `logs/`: the last 5000 lines of `telegram.log`, `api.log`, and of each other `*.log` in `data/logs/` (also `refresh-loop.log`, `recover-loop.log`, `expand-loop.log`, §3.6)
   - `tracked_document/` (only with a target): `target_resolution.json`, `document_detail.json`, `extractions.json`, `graph_fragment.json`, `inbox_record.json`, `inbox_records.jsonl`, `telemetry_history.jsonl`
 - **[code] Storage diagnostics.** `_collect_storage_diagnostics` records real paths, the enclosing mount from `/proc/self/mountinfo`, file identity (inode, size, mtime), and a limited scan for SQLite candidates (`_MAX_STORAGE_SCAN_ENTRIES` 2000, `_MAX_STORAGE_DATABASES` 100). It skips `auth`, `backups`, `cache`, `fedify`, `logs`, `offsite-backups`, `raw`, `run`, and `support_bundles`.
 - **[code] Build identity.** `build.json` uses the commit that `cb-manuscript` gives to the image as the build argument `CLAIRE_BUILD_COMMIT` (also the OCI label `org.opencontainers.image.revision`, see `Dockerfile`).

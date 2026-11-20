@@ -1,10 +1,10 @@
 """적재 경로의 프로바이더 정책 적용 (설계 §10.2, §10.3, §11.3, P4 L4-a2i).
 
-멤버 테마 적재는 풀·IngestService·상주 루프·파이프라인 분류기·fetcher STT/VLM·presentation 어디서도 host-cli(agy·codex)나 관리자
+멤버 테마 적재는 풀·IngestService·상주 루프·파이프라인 분류기·fetcher STT/VLM·presentation 어디서도 관리자의 프로바이더나 관리자
 gemini 키에 닿지 않는다. 등급 none 멤버는 원문을 보존하고 raw_inbox에 오류 코드를 남긴다. 일 적재 상한·BYOK 동시 작업 상한은
 실패로 끝나고, 계정이 다르면 풀 캐시와 프로바이더가 분리된다. 관리자 테마는 지금과 같다.
 
-외부 호출 없음: genai.Client는 가짜, agy·codex 바이너리는 tmp_path의 빈 스크립트, 생성자는 기록만 한다. CLAIRE_*·GEMINI_*를 지운다.
+외부 호출 없음: genai.Client는 가짜이고, 관리자 설정은 mock이다. CLAIRE_*·GEMINI_*를 지운다.
 """
 
 from __future__ import annotations
@@ -87,35 +87,20 @@ def fake_genai(monkeypatch):
 
 
 @pytest.fixture
-def host_cli(monkeypatch, tmp_path):
-    """agy·codex 바이너리가 있는 호스트. CLI 프로바이더 생성은 기록만 하고 실제로 실행하지 않는다."""
-    agy = tmp_path / "bin" / "agy"
-    codex = tmp_path / "bin" / "codex"
-    agy.parent.mkdir(exist_ok=True)
-    for b in (agy, codex):
-        b.write_text("#!/bin/sh\nexit 0\n")
-        b.chmod(0o755)
-    import claire.config as config
-    import claire.extract.classifier as classifier
-    from claire.extract import antigravity_provider, codex_provider
-
-    for mod in (config, classifier):
-        monkeypatch.setattr(mod, "find_agy_executable", lambda *_a, **_k: str(agy))
-        monkeypatch.setattr(mod, "find_codex_executable", lambda *_a, **_k: str(codex))
+def admin_built(monkeypatch):
+    """Records each provider of the administrator setting (mock) that the factory builds. Member paths must never build it."""
+    from claire.extract import provider as provider_mod
 
     built: list[tuple[str, object]] = []
+    real = provider_mod._build_direct_provider
 
-    def _record(name):
-        def __init__(self, settings, *a, **k):
-            built.append((name, getattr(settings, "provider_context", None)))
-            self.settings = settings
-            self.name = name
-            self.effort = "medium"
+    def spy(settings):
+        prov = real(settings)
+        if getattr(prov, "name", "") == "mock":
+            built.append(("mock", getattr(settings, "provider_context", None)))
+        return prov
 
-        return __init__
-
-    monkeypatch.setattr(codex_provider.CodexProvider, "__init__", _record("codex"))
-    monkeypatch.setattr(antigravity_provider.AntigravityProvider, "__init__", _record("antigravity"))
+    monkeypatch.setattr(provider_mod, "_build_direct_provider", spy)
     return built
 
 
@@ -152,7 +137,7 @@ def _insert_account(conn, account_id, username, role="member", status="active"):
 
 @pytest.fixture
 def world(tmp_path):
-    """claire.db(계정 3·테마 5), auth.db, 테마 레지스트리. 관리자 설정은 codex + 관리자 gemini 키."""
+    """claire.db(계정 3·테마 5), auth.db, 테마 레지스트리. 관리자 설정은 mock + 관리자 gemini 키."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     db_file = data_dir / "claire.db"
@@ -196,12 +181,10 @@ def world(tmp_path):
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_MULTI_THEME=True,
         environment="development",
-        provider="codex",
+        provider="mock",
         gemini_api_key=ADMIN_KEY,
         gemini_min_interval=0.0,
         gemini_max_retries=0,
-        agy_effort="none",
-        codex_effort="none",
         stt_provider="gemini",
         vlm_provider="gemini",
         enable_video_transcription=True,
@@ -250,7 +233,7 @@ def _no_admin_secret(fake_genai, built):
 # --- 풀 -------------------------------------------------------------------------
 
 
-def test_pool_member_theme_uses_member_key_never_host_cli(world, host_cli, fake_genai, member_keys):
+def test_pool_member_theme_uses_member_key_never_admin_provider(world, admin_built, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
     pool = IngestServicePool(world.settings, theme_manager=KnowledgeBaseManager(world.settings))
 
@@ -265,20 +248,20 @@ def test_pool_member_theme_uses_member_key_never_host_cli(world, host_cli, fake_
     assert svc.provider_context.source == "byok" and svc.provider_context.account_id == MEMBER_ID
     assert svc.s.gemini_api_key == MEMBER_KEY and svc.s.provider == "gemini"
     assert svc.s.enable_jev is False
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
-    # 관리자 테마는 지금과 같다: 공유 프로바이더(codex) 하나, 설정 사본 없음, 훅 없음
+    # 관리자 테마는 지금과 같다: 공유 프로바이더(mock) 하나, 설정 사본 없음, 훅 없음
     admin_svc = pool.get_service(ADMIN_THEME)
     admin_svc2 = pool.get_service(ADMIN_THEME2)
     assert admin_svc.provider is pool.shared_provider is admin_svc2.provider
     assert admin_svc.provider_context.is_admin
-    assert getattr(admin_svc.provider, "name", "") == "codex"
-    assert [name for name, _ in host_cli] == ["codex"]
-    assert host_cli[0][1] is None  # 관리자 경로는 컨텍스트를 입히지 않은 원래 설정
+    assert getattr(admin_svc.provider, "name", "") == "mock"
+    assert [name for name, _ in admin_built] == ["mock"]
+    assert admin_built[0][1] is None  # 관리자 경로는 컨텍스트를 입히지 않은 원래 설정
     assert admin_svc.s.gemini_api_key == ADMIN_KEY
 
 
-def test_pool_cache_separates_accounts_and_tracks_credentials(world, host_cli, fake_genai, member_keys):
+def test_pool_cache_separates_accounts_and_tracks_credentials(world, admin_built, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
     member_keys[OTHER_ID] = _byok("fp000002", OTHER_KEY)
     pool = IngestServicePool(world.settings, theme_manager=KnowledgeBaseManager(world.settings))
@@ -308,13 +291,13 @@ def test_pool_cache_separates_accounts_and_tracks_credentials(world, host_cli, f
 
     pool.clear()
     assert pool.get_service(OTHER_THEME) is not b
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
 
 # --- IngestService·파이프라인 ---------------------------------------------------
 
 
-def test_tier_none_member_ingest_keeps_raw_and_records_code(world, host_cli, fake_genai, member_keys):
+def test_tier_none_member_ingest_keeps_raw_and_records_code(world, admin_built, fake_genai, member_keys):
     svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "none"
 
@@ -326,10 +309,10 @@ def test_tier_none_member_ingest_keeps_raw_and_records_code(world, host_cli, fak
     assert rows[0]["error"].startswith("provider_not_configured")
     assert rows[0]["payload"] == LONG_TEXT  # 원문 보존(A1)
     assert _doc_count(world, MEMBER_THEME) == 1  # 원문 문서는 저장, FTS 동작
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
 
-def test_member_pdf_classifier_never_uses_admin_or_host_cli(world, host_cli, fake_genai, member_keys, monkeypatch):
+def test_member_pdf_classifier_never_uses_admin_provider(world, admin_built, fake_genai, member_keys, monkeypatch):
     from claire.extract import classifier
 
     seen = []
@@ -350,10 +333,10 @@ def test_member_pdf_classifier_never_uses_admin_or_host_cli(world, host_cli, fak
     assert seen and all(ctx is not None and not ctx.is_admin for ctx, _ in seen)
     assert all(isinstance(p, UnavailableProvider) for _, p in seen)
     assert _doc_count(world, MEMBER_THEME) == 1
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
 
-def test_daily_ingest_limit_fails_and_preserves_raw(world, host_cli, fake_genai, member_keys):
+def test_daily_ingest_limit_fails_and_preserves_raw(world, admin_built, fake_genai, member_keys):
     _save_tier(world, ServerTier(daily_ingests=1))
     svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
 
@@ -375,7 +358,7 @@ def test_daily_ingest_limit_fails_and_preserves_raw(world, host_cli, fake_genai,
         conn.close()
 
 
-def test_document_quota_blocks_before_insert(world, host_cli, fake_genai, member_keys):
+def test_document_quota_blocks_before_insert(world, admin_built, fake_genai, member_keys):
     _save_tier(world, ServerTier(max_documents=0))
     svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
 
@@ -386,7 +369,7 @@ def test_document_quota_blocks_before_insert(world, host_cli, fake_genai, member
     assert _inbox_rows(world, MEMBER_THEME)[0]["payload"] == LONG_TEXT
 
 
-def test_byok_job_slot_limits_concurrency_but_allows_nesting(world, host_cli, fake_genai, member_keys):
+def test_byok_job_slot_limits_concurrency_but_allows_nesting(world, admin_built, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
     svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "byok"
@@ -410,7 +393,7 @@ def test_byok_job_slot_limits_concurrency_but_allows_nesting(world, host_cli, fa
         assert admin.ingest(LONG_TEXT + " 관리자", source="cli").error is None
 
 
-def test_expand_feature_gate_records_scrubbed_error(world, host_cli, fake_genai, member_keys):
+def test_expand_feature_gate_records_scrubbed_error(world, admin_built, fake_genai, member_keys):
     _save_tier(world, ServerTier(provider="gemini", features=frozenset()))  # 서버 등급, expand 꺼짐
     svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "tier"
@@ -450,7 +433,7 @@ def test_raw_inbox_error_has_no_canary_key(world, member_keys):
 # --- fetcher STT·VLM ----------------------------------------------------------
 
 
-def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_keys, monkeypatch):
+def test_fetcher_stt_vlm_use_member_context(world, admin_built, fake_genai, member_keys, monkeypatch):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
     from claire.extract.transcript.factory import get_transcript_provider
     from claire.extract.vision.factory import get_vision_provider
@@ -474,7 +457,7 @@ def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_
     assert s.provider_context.account_id == MEMBER_ID and s.gemini_api_key == MEMBER_KEY
     assert stt.provider_context.api_key == MEMBER_KEY and stt.usage_hooks is not None
     assert vlm.provider_context.api_key == MEMBER_KEY and vlm.usage_hooks is not None
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
     # 서버 등급 none: STT·VLM은 자리표시자, 관리자 키·mock으로 대체되지 않는다
     captured.clear()
@@ -484,7 +467,7 @@ def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_
     assert captured["settings"].gemini_api_key == ""
     assert type(captured["stt"]).__name__ == "UnavailableTranscriptProvider"
     assert type(captured["vlm"]).__name__ == "UnavailableVisionProvider"
-    _no_admin_secret(fake_genai, host_cli)
+    _no_admin_secret(fake_genai, admin_built)
 
 
 def test_fetch_settings_outside_job_is_host_operator(world):
@@ -499,7 +482,7 @@ def test_fetch_settings_outside_job_is_host_operator(world):
 # --- 상주 루프 ------------------------------------------------------------------
 
 
-def test_loop_services_carry_owner_context(world, host_cli, fake_genai, member_keys):
+def test_loop_services_carry_owner_context(world, admin_built, fake_genai, member_keys):
     state = cli._ThemeLoopState()
 
     services = dict((t.id, svc) for t, svc in cli._theme_services_for_cycle(world.settings, state, IngestService))
@@ -509,7 +492,7 @@ def test_loop_services_carry_owner_context(world, host_cli, fake_genai, member_k
     assert member.provider_context.account_id == MEMBER_ID and member.provider_context.source == "none"
     assert isinstance(member.provider, UnavailableProvider)
     assert services[ADMIN_THEME].provider_context.is_admin
-    assert [name for name, ctx in host_cli if ctx is not None and not ctx.is_admin] == []
+    assert [name for name, ctx in admin_built if ctx is not None and not ctx.is_admin] == []
 
     # 멤버가 키를 등록하면 다음 cycle에 서비스를 새로 만든다
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
@@ -542,7 +525,7 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
 # --- presentation --------------------------------------------------------------
 
 
-def test_presentation_uses_theme_owner_context(world, host_cli, fake_genai, member_keys):
+def test_presentation_uses_theme_owner_context(world, admin_built, fake_genai, member_keys):
     from claire.presentation.service import PresentationService
 
     conn = dbm.connect(world.db_file)
@@ -557,19 +540,19 @@ def test_presentation_uses_theme_owner_context(world, host_cli, fake_genai, memb
         svc = PresentationService(settings=world.settings, kb_id=MEMBER_THEME)
         with pytest.raises(ProviderNotAllowed):
             asyncio.run(svc.compose_presentation(conn, "d1"))
-        _no_admin_secret(fake_genai, host_cli)
+        _no_admin_secret(fake_genai, admin_built)
 
         # BYOK → 멤버 키의 Gemini, 원장 훅
         member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
         ctx = svc.provider_context(conn)
         prov = svc._provider_for_context(ctx)
         assert prov._api_key == MEMBER_KEY and prov.usage_hooks is not None
-        _no_admin_secret(fake_genai, host_cli)
+        _no_admin_secret(fake_genai, admin_built)
 
-        # 관리자 테마는 지금과 같다(codex)
+        # 관리자 테마는 지금과 같다(mock)
         admin_svc = PresentationService(settings=world.settings, kb_id=ADMIN_THEME)
         admin_prov = admin_svc._provider_for_context(admin_svc.provider_context(conn))
-        assert getattr(admin_prov, "name", "") == "codex"
+        assert getattr(admin_prov, "name", "") == "mock"
     finally:
         conn.close()
 

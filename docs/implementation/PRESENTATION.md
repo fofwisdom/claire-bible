@@ -46,7 +46,7 @@ A presentation is a reveal.js slide deck of one document. It has two stages:
   - the reveal.js header attributes, a 16:9 page of 1280 x 720;
   - no Markdown;
   - about `slide_budget - 2` to `slide_budget + 4` slides (at least 4).
-- **[code]** Providers: `compose_presentation` in `GeminiProvider`, `AntigravityProvider`, `CodexProvider`, and the mock provider (`src/claire/extract/`).
+- **[code]** Providers: `compose_presentation` in `GeminiProvider` and the mock provider (`src/claire/extract/`).
 - **[code]** The source text is `detail`, or `raw_text` when `detail` is empty. A document without both fails.
 - **[code]** The provider is the provider of the account that owns the theme (`provider_context`). A member theme needs the tier feature `presentation` (`require_feature`); the effort is clamped (`clamp_effort`). See [`PROVIDERS.md`](PROVIDERS.md).
 - **[code]** Concurrency: one composition at a time per process (`_PRES_SEMAPHORE`, a one-thread executor). Requests with the same `document_id:theme:transition` wait for the running job (`_PRES_IN_FLIGHT`).

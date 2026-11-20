@@ -1,6 +1,6 @@
 """중앙 프롬프트 엔진 — 지식그래프 추출, 상세 렌더링, 요약, 리서치, 판정 템플릿.
 
-모든 LLM Provider(Gemini, Antigravity agy 등)가 공유하는 표준 프롬프트 템플릿과 문어체/서술체 어조 규칙을 단일 모듈에서 중앙 관리한다.
+모든 LLM Provider(Gemini 등)가 공유하는 표준 프롬프트 템플릿과 문어체/서술체 어조 규칙을 단일 모듈에서 중앙 관리한다.
 """
 
 from __future__ import annotations

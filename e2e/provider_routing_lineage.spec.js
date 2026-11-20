@@ -75,7 +75,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
               { stage: '임베딩 Task Type (검색 질의)', fixed_value: 'RETRIEVAL_QUERY', scope: 'retrieval/query.py', rationale: '질의 고정' }
             ],
             fallbacks: [
-              { id: 'F1', location: 'antigravity_provider.py', status: 'REMOVED', description: 'Removed silent plain-text fallback.' },
+              { id: 'F2', location: 'gemini_provider.extract', status: 'REMOVED', description: 'Removed silent plain-text fallback.' },
               { id: 'F10', location: 'pdf_fetcher', status: 'OUT_OF_SCOPE', description: 'Non-LLM parser chain left unchanged.' }
             ],
             recent_documents: [
@@ -203,7 +203,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   expect(patchedPayload.server_tier.max_effort).toBe('medium');
   expect(patchedPayload.server_tier.features).toEqual(['expand', 'stt']);
 
-  // The personal CLI clients of the administrator are sealed: the keys page shows only the link to the provider page and asks for no personal CLI state.
+  // The personal CLI clients of the administrator are removed: the keys page shows only the link to the provider page and asks for no personal CLI state.
   const personalCliRequests = [];
   page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/me/personal-cli')) personalCliRequests.push(req.url()); });
   await page.goto('/settings/keys', { waitUntil: 'domcontentloaded' });

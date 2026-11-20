@@ -27,7 +27,7 @@ from typing import Any
 
 import zstandard as zstd
 
-from .config import ROOT, Settings, diagnose_agy_environment, get_settings
+from .config import ROOT, Settings, get_settings
 from .store import db as dbm
 from .store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
@@ -1316,7 +1316,6 @@ def create_support_bundle(
                     "sqlite_version": sqlite3.sqlite_version,
                     "zstd_version": zstd.ZSTD_VERSION,
                     "disk_usage": {},
-                    "provider_env": diagnose_agy_environment(),
                 }
                 try:
                     usage = shutil.disk_usage(data_dir)
@@ -1644,7 +1643,7 @@ def create_support_bundle(
                         json.dumps(sanitize_sensitive_data(member_report), ensure_ascii=False, indent=2, default=str).encode("utf-8"),
                     )
 
-                # 6. 로그 수집 (agy.log, telegram.log, api.log 및 data/logs/*.log)
+                # 6. 로그 수집 (telegram.log, api.log 및 data/logs/*.log)
                 logs_dir = Path(data_dir) / "logs"
                 collected_logs: set[str] = set()
 
@@ -1662,11 +1661,6 @@ def create_support_bundle(
                             collected_logs.add(arc_name)
                         except Exception as e:  # noqa: BLE001
                             logger.warning("Failed to read log %s: %s", src_path, e)
-
-                # agy.log
-                _add_log_file(logs_dir / "agy.log", "agy.log")
-                if "agy.log" not in collected_logs:
-                    _add_log_file(Path(data_dir) / "agy.log", "agy.log")
 
                 # telegram.log
                 _add_log_file(logs_dir / "telegram.log", "telegram.log")

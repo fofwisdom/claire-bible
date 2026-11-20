@@ -1049,7 +1049,7 @@ def extract_resolve_store(
     # Jev has no decision role: it scores the same candidates at the same time and only records the result (JEV_SHADOW_EVALUATION_DESIGN.md, owner decision 2026-11-20)
     jev_shadow = make_jev_shadow(settings)
     embed_pin = resolve_embed_identity(provider, settings)
-    has_embed = provider.has_embed_capability() if hasattr(provider, "has_embed_capability") else (getattr(provider, "name", "") not in ("codex", "antigravity") or bool(getattr(getattr(provider, "settings", settings), "gemini_api_key", "")))
+    has_embed = bool(provider.has_embed_capability()) if hasattr(provider, "has_embed_capability") else True
 
     name_to_id: dict[str, str] = {}
     touched_entities = []

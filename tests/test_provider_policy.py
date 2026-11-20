@@ -1,6 +1,6 @@
 """프로바이더 정책 코어와 팩토리 (설계 §10.1, §10.2, §11.3, §15 S10).
 
-멤버 컨텍스트는 어떤 팩토리로도 host-cli(agy·codex)나 관리자 키에 닿지 않고, 키 거부·예산 소진은 폴백 없이 실패한다.
+멤버 컨텍스트는 어떤 팩토리로도 미등록 프로바이더나 관리자 키에 닿지 않고, 키 거부·예산 소진은 폴백 없이 실패한다.
 네트워크 호출은 하지 않는다(genai.Client는 가짜). 환경변수는 CLAIRE_*·GEMINI_*를 지우고 tmp_path만 쓴다(§18.2-6).
 """
 
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -66,35 +65,15 @@ def fake_genai(monkeypatch):
     return _FakeClient
 
 
-@pytest.fixture
-def host_cli_present(monkeypatch, tmp_path):
-    """agy·codex 바이너리가 호스트에 있는 상태."""
-    agy = tmp_path / "bin" / "agy"
-    codex = tmp_path / "bin" / "codex"
-    agy.parent.mkdir(exist_ok=True)
-    for b in (agy, codex):
-        b.write_text("#!/bin/sh\nexit 0\n")
-        b.chmod(0o755)
-    import claire.config as config
-    import claire.extract.classifier as classifier
-
-    for mod in (config, classifier):
-        monkeypatch.setattr(mod, "find_agy_executable", lambda *_a, **_k: str(agy))
-        monkeypatch.setattr(mod, "find_codex_executable", lambda *_a, **_k: str(codex))
-    return agy, codex
-
-
 def _settings(tmp_path, **kwargs) -> Settings:
     base = dict(
         _env_file=None,
         db_path=str(tmp_path / "claire.db"),
         environment="development",
-        provider="codex",
+        provider="gemini",
         gemini_api_key=ADMIN_KEY,
         gemini_min_interval=0.0,
         gemini_max_retries=2,
-        agy_effort="none",  # 관리자 경로라면 agy가 최저 effort 후보가 될 상태
-        codex_effort="none",
     )
     base.update(kwargs)
     return Settings(**base)
@@ -198,30 +177,30 @@ class _Hooks:
 # --- 분류와 컨텍스트 ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["", None, "brand-new-cli", "openrouter", "unavailable", "none", "AGY "])
-def test_unknown_or_empty_provider_is_host_cli(name):
-    assert pp.classify_provider(name) == "host-cli"
+# The retired host-cli names (agy, codex) and the openai placeholder can stay in an old providers.json. They are unregistered like any other unknown name.
+@pytest.mark.parametrize("name", ["", None, "brand-new-cli", "openrouter", "unavailable", "none", "AGY ", "codex", "antigravity", "openai"])
+def test_unknown_empty_or_retired_provider_is_unregistered(name):
+    assert pp.classify_provider(name) == "unregistered"
 
 
 def test_known_classes():
     assert pp.classify_provider("Gemini") == "api-key"
-    assert pp.classify_provider("codex") == "host-cli"
-    assert pp.classify_provider("antigravity") == "host-cli"
     assert pp.classify_provider("mock") == "mock"
+    assert set(pp.PROVIDER_CLASSES) == {"gemini", "mock"}
 
 
-def test_require_provider_allowed_blocks_host_cli_for_members_only():
+def test_require_provider_allowed_blocks_unregistered_for_members_only():
     member = _ctx()
     for name in ("codex", "antigravity", "agy", "something-new", ""):
         with pytest.raises(ProviderNotAllowed):
             pp.require_provider_allowed(member, name)
     pp.require_provider_allowed(member, "gemini")
-    pp.require_provider_allowed(None, "codex")
-    pp.require_provider_allowed(pp.admin_context(_settings_noop()), "codex")
+    pp.require_provider_allowed(None, "something-new")
+    pp.require_provider_allowed(pp.admin_context(_settings_noop()), "something-new")
 
 
 def _settings_noop() -> Settings:
-    return Settings(_env_file=None, provider="codex", gemini_api_key=ADMIN_KEY)
+    return Settings(_env_file=None, provider="gemini", gemini_api_key=ADMIN_KEY)
 
 
 def test_require_feature():
@@ -254,7 +233,6 @@ def test_admin_context_matches_settings(tmp_path):
     ctx = pp.admin_context(_settings(tmp_path, provider="gemini", gemini_model="gm", gemini_effort="high"))
     assert (ctx.account_id, ctx.is_admin, ctx.source, ctx.provider) == (None, True, "admin", "gemini")
     assert (ctx.model, ctx.effort, ctx.credential_key) == ("gm", "high", "admin")
-    assert ctx.allows_host_cli
 
 
 def test_resolve_none_account_is_admin(tmp_path, account_db, keys):
@@ -270,10 +248,9 @@ def test_resolve_admin_account(tmp_path, account_db, keys):
 def test_resolve_admin_account_with_personal_key(tmp_path, account_db, keys):
     """The server administrator with a personal key: the calls use only that key; the account keeps all features."""
     keys.active = ActiveKey(provider="gemini", fingerprint="feed0001", api_key=MEMBER_KEY)
-    ctx = _resolve(tmp_path, account_db, ADMIN_ID, provider="codex", gemini_model="gemini-3.8-flash", gemini_effort="high")
+    ctx = _resolve(tmp_path, account_db, ADMIN_ID, provider="mock", gemini_model="gemini-3.8-flash", gemini_effort="high")
     assert (ctx.account_id, ctx.source, ctx.provider, ctx.credential_key) == (ADMIN_ID, "byok", "gemini", "byok:feed0001")
     assert ctx.api_key == MEMBER_KEY and not ctx.is_admin and ctx.server_admin
-    assert not ctx.allows_host_cli
     assert all(ctx.feature_allowed(f) for f in (*pp.TIER_FEATURES, *pp.ADMIN_ONLY_FEATURES))
     assert (ctx.model, ctx.effort) == ("gemini-3.8-flash", "high")
     assert keys.tier_reads == 0
@@ -285,14 +262,14 @@ def test_resolve_admin_inactive_personal_key_does_not_fall_back(tmp_path, accoun
         _resolve(tmp_path, account_db, ADMIN_ID)
 
 
-def test_admin_personal_key_factories_never_use_server_credentials(tmp_path, account_db, keys, host_cli_present, fake_genai):
+def test_admin_personal_key_factories_never_use_server_credentials(tmp_path, account_db, keys, fake_genai):
     from claire.extract.gemini_provider import GeminiProvider
     from claire.extract.provider import get_provider
     from claire.extract.vision.factory import get_vision_provider
     from claire.extract.vision.gemini_vision import GeminiVisionProvider
 
     keys.active = ActiveKey(provider="gemini", fingerprint="feed0001", api_key=MEMBER_KEY)
-    base = _settings(tmp_path, provider="codex", feature_routing={"summarize": {"provider": "antigravity", "model": "", "effort": ""}})
+    base = _settings(tmp_path, provider="mock", feature_routing={"summarize": {"provider": "brand-new-cli", "model": "", "effort": ""}})
     ctx = pp.resolve_provider_context(ADMIN_ID, settings=base, db_path=account_db[0], auth_db_path=account_db[1])
     s = pp.settings_for_context(base, ctx)
     prov = get_provider(s)
@@ -399,20 +376,26 @@ def test_member_none_settings_never_become_mock(tmp_path):
     assert s.effective_stt_provider == "unavailable" and s.effective_vlm_provider == "unavailable"
 
 
-# --- 팩토리: 멤버는 host-cli·관리자 키에 닿지 않는다 -------------------------------
+# --- 팩토리: 멤버는 미등록 프로바이더·관리자 키에 닿지 않는다 -------------------------------
 
 
-def test_admin_path_still_picks_host_cli(tmp_path, host_cli_present, fake_genai):
+@pytest.mark.parametrize("environment", ["development", "production"])
+def test_admin_with_a_retired_provider_name_builds_no_cli_provider(tmp_path, fake_genai, environment):
+    """An old providers.json can still name a retired host-cli provider. The server does not start a CLI: development uses mock, production is unavailable (C2)."""
     from claire.extract.classifier import get_lowest_effort_provider
-    from claire.extract.codex_provider import CodexProvider
     from claire.extract.provider import get_provider
 
-    s = _settings(tmp_path)
-    assert isinstance(get_provider(s), CodexProvider)
-    assert get_lowest_effort_provider(s).name in ("codex", "antigravity")
+    for name in ("codex", "antigravity", "agy"):
+        s = _settings(tmp_path, provider=name, environment=environment)
+        expected = "mock" if environment == "development" else "unavailable"
+        assert s.effective_provider == expected
+        assert "알 수 없는 프로바이더" in (s.provider_unavailable_reason("llm") or "")
+        for factory in (get_provider, get_lowest_effort_provider):
+            assert factory(s).name == expected
+    assert fake_genai.created == []
 
 
-def test_member_factories_use_only_member_key(tmp_path, host_cli_present, fake_genai):
+def test_member_factories_use_only_member_key(tmp_path, fake_genai):
     from claire.extract.classifier import get_lowest_effort_provider
     from claire.extract.gemini_provider import GeminiProvider
     from claire.extract.provider import get_provider
@@ -433,28 +416,23 @@ def test_member_factories_use_only_member_key(tmp_path, host_cli_present, fake_g
     assert ADMIN_KEY not in fake_genai.created
 
 
-def test_member_with_tampered_provider_never_builds_host_cli(tmp_path, host_cli_present, fake_genai):
-    from claire.extract.antigravity_provider import AntigravityProvider
+def test_member_with_tampered_provider_never_builds_an_unregistered_provider(tmp_path, fake_genai):
     from claire.extract.classifier import get_lowest_effort_provider
-    from claire.extract.codex_provider import CodexProvider
     from claire.extract.provider import get_provider
 
     base = _member_settings(tmp_path, ctx=_ctx("byok"))
-    for name in ("antigravity", "agy", "codex"):
+    for name in ("antigravity", "agy", "codex", "brand-new-cli"):
         s = base.model_copy(update={"provider": name})
         for factory in (get_provider, get_lowest_effort_provider):
             try:
                 prov = factory(s)
             except ProviderNotAllowed:
                 continue
-            assert not isinstance(prov, (AntigravityProvider, CodexProvider))
-    with pytest.raises(ProviderNotAllowed):
-        AntigravityProvider(base)
-    with pytest.raises(ProviderNotAllowed):
-        CodexProvider(base)
+            assert prov.name in ("gemini", "unavailable")
+    assert ADMIN_KEY not in fake_genai.created
 
 
-def test_member_without_key_never_borrows_admin_key(tmp_path, host_cli_present, fake_genai):
+def test_member_without_key_never_borrows_admin_key(tmp_path, fake_genai):
     from claire.extract.classifier import get_lowest_effort_provider
     from claire.extract.provider import get_provider
 
@@ -469,7 +447,7 @@ def test_member_without_key_never_borrows_admin_key(tmp_path, host_cli_present, 
     assert fake_genai.created == []
 
 
-def test_tier_none_is_not_configured(tmp_path, host_cli_present, fake_genai):
+def test_tier_none_is_not_configured(tmp_path, fake_genai):
     from claire.extract.classifier import get_lowest_effort_provider
     from claire.extract.provider import get_provider
     from claire.extract.transcript.factory import get_transcript_provider
@@ -722,46 +700,13 @@ def test_stt_member_never_uses_env_key(tmp_path, fake_genai, monkeypatch):
     assert fake_genai.created == []
 
 
-# --- host-cli 하위 프로세스 환경 ---------------------------------------------------
-
-
-def test_antigravity_subprocess_env_has_no_secrets(tmp_path, host_cli_present, monkeypatch):
-    import claire.extract.antigravity_provider as ap
-
-    monkeypatch.setenv("GEMINI_API_KEY", ADMIN_KEY)
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", "inject-token-secret")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-secret")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    seen: list[dict] = []
-
-    def fake_run(cmd, **kwargs):
-        seen.append(kwargs.get("env"))
-        return subprocess.CompletedProcess(cmd, 0, stdout='{"result": "ok"}', stderr="")
-
-    monkeypatch.setattr(ap.subprocess, "run", fake_run)
-    prov = ap.AntigravityProvider(_settings(tmp_path, provider="antigravity"))
-    try:
-        prov._run_cli("hello", output_format="text")
-    except Exception:  # noqa: BLE001 — 출력 해석은 이 테스트의 관심사가 아니다
-        pass
-    assert seen, "agy subprocess was not invoked"
-    env = seen[0]
-    assert env is not None
-    assert "GEMINI_API_KEY" not in env and "CLAIRE_INJECT_TOKEN" not in env and "TELEGRAM_BOT_TOKEN" not in env
-    assert ADMIN_KEY not in " ".join(env.values())
-    assert env.get("HOME") == str(tmp_path) and "PATH" in env
-
-
-def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys, monkeypatch):
+def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys):
     assert pp.supported_efforts_for("gemini", "gemini-4-argon") == ("low", "medium", "high")
     assert pp.supported_efforts_for("gemini", "gemini-3-pro-preview") == ("low", "high")
     assert pp.supported_efforts_for("gemini", "gemini-2.5-flash") == ("low", "medium", "high")
     assert pp.supported_efforts_for("gemini", "gemini-3.6-flash") == ("minimal", "low", "medium", "high")
-    assert pp.supported_efforts_for("antigravity", "gemini-3-flash") == ("low", "medium", "high", "xhigh", "max")
-    assert pp.supported_efforts_for("antigravity", "claude-opus-5-5-medium") == ()
-    assert pp.supported_efforts_for("antigravity", "gemini-4-hydrogen") == ()
-    assert pp.supported_efforts_for("codex", "gpt-5.4") == ("low", "medium", "high", "xhigh")
-    assert pp.supported_efforts_for("codex", "gpt-5") == ("minimal", "low", "medium", "high")
+    assert pp.supported_efforts_for("antigravity", "gemini-3-flash") == ()
+    assert pp.supported_efforts_for("codex", "gpt-5.4") == ()
     assert pp.supported_efforts_for("gemini", "gemini-2.5-flash", tier_max_effort="medium") == ("low", "medium")
 
     s_gem = _settings(tmp_path, provider="gemini", gemini_model="gemini-4-argon", gemini_effort="medium")
@@ -772,16 +717,6 @@ def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, ke
     assert pp.validate_ingest_effort(s_gem, "high") == "high"
     with pytest.raises(ValueError, match="Unsupported effort"):
         pp.validate_ingest_effort(s_gem, "max")
-
-    # The host does not need the agy binary: without it a development server uses mock.
-    monkeypatch.setattr("claire.config.find_agy_executable", lambda _bin="agy": "/usr/local/bin/agy")
-    s_agy_fixed = _settings(tmp_path, provider="antigravity", agy_model="claude-opus-5-5-medium")
-    desc_fixed = pp.describe_ingest_effort_options(s_agy_fixed)
-    assert desc_fixed["fixed"] is True
-    assert desc_fixed["fixed_effort"] == "medium"
-    assert desc_fixed["options"] == []
-    with pytest.raises(ValueError, match="fixed reasoning level"):
-        pp.validate_ingest_effort(s_agy_fixed, "high")
 
     s_tier = pp.settings_for_context(_settings(tmp_path), _ctx("tier", max_effort="low"))
     desc_tier = pp.describe_ingest_effort_options(s_tier)

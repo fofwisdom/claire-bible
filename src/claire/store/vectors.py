@@ -16,8 +16,6 @@ from typing import Any, NamedTuple
 LEGACY_EMBED_MODELS: tuple[str, ...] = ("claire",)
 # MockProvider 의 sha256 의사 임베딩. 실제 모델 공간과 섞이지 않도록 별도 이름을 쓴다.
 MOCK_EMBED_MODEL = "mock-sha256"
-# 임베딩만 Gemini 에 위임하는 프로바이더. 고정 프로바이더는 임베딩을 실제로 만든 쪽으로 기록한다.
-_EMBED_BACKEND_BY_PROVIDER = {"codex": "gemini", "antigravity": "gemini"}
 
 
 class EmbedPin(NamedTuple):
@@ -68,7 +66,7 @@ def resolve_embed_identity(provider: Any, settings: Any = None) -> EmbedPin:
             model = _str_attr(get_settings(), "gemini_embed_model")
         except Exception:  # noqa: BLE001
             model = ""
-    embed_provider = _str_attr(provider, "embed_provider") or _EMBED_BACKEND_BY_PROVIDER.get(name, name)
+    embed_provider = _str_attr(provider, "embed_provider") or name
     return EmbedPin(embed_provider, model)
 
 

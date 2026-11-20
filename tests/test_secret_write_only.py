@@ -456,10 +456,10 @@ def test_canary_key_not_in_subprocess_environment_and_representations() -> None:
     assert CANARY not in repr_ctx
     assert "gemini:7f3a9c1e" in repr_ctx
 
-    # Fail closed for host-cli
-    assert classify_provider("antigravity") == "host-cli"
-    assert classify_provider("codex") == "host-cli"
-    assert classify_provider("unknown_provider") == "host-cli"
+    # Fail closed for unregistered providers
+    assert classify_provider("antigravity") == "unregistered"
+    assert classify_provider("codex") == "unregistered"
+    assert classify_provider("unknown_provider") == "unregistered"
 
 
 def test_aad_cross_decryption_failure(tmp_path: Path) -> None:

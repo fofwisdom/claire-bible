@@ -60,5 +60,5 @@ def get_transcript_provider(settings: Any = None) -> TranscriptProvider:
 
         return GeminiTranscriptProvider(s)
 
-    # mock 또는 미지원 STT 프로바이더 (antigravity 등)는 MockTranscriptProvider 반환
+    # mock 또는 미지원 STT 프로바이더는 MockTranscriptProvider 반환
     return MockTranscriptProvider(s)

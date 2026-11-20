@@ -43,7 +43,7 @@ RUN if [ "$CLAIRE_BUILD_COMMIT" != "unknown" ] && [ -n "$CLAIRE_BUILD_COMMIT" ];
 
 # Runtime processes use the environment built above directly. uv remains a
 # build/development tool rather than an extra process wrapper for every service.
-# /host-bin allows optional host CLI tools (like Antigravity agy, Codex CLI) to be invoked seamlessly.
+# /host-bin gives optional host tools (for example ffmpeg) to the container, read-only.
 ENV CLAIRE_APP_ROOT=/app \
     HOME=/home/claire \
     PATH="/app/.venv/bin:/host-bin:$PATH" \

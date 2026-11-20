@@ -619,7 +619,7 @@ def raise_policy_error(error: Exception):
 def member_policy_unavailable(ctx, kind: str) -> Exception | None:
     """멤버 컨텍스트에서 kind(llm|stt|vlm)를 만들 수 없으면 그 정책 예외, 만들 수 있으면 None.
 
-    순서: 프로바이더 없음(``ProviderNotConfigured``) → 기능 꺼짐(``ProviderNotAllowed``) → host-cli 분류(``ProviderNotAllowed``).
+    순서: 프로바이더 없음(``ProviderNotConfigured``) → 기능 꺼짐(``ProviderNotAllowed``) → 미등록 프로바이더(``ProviderNotAllowed``).
     """
     from ..accounts.provider_policy import (
         ProviderNotAllowed,
@@ -660,10 +660,6 @@ def _provider_default_model(settings: Any, provider_name: str, slot: str) -> str
         if slot == "embed":
             return str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
         return str(getattr(settings, "gemini_model", "") or "")
-    if provider_name == "antigravity":
-        return str(getattr(settings, "agy_model", "") or getattr(settings, "antigravity_model", "") or "")
-    if provider_name == "codex":
-        return str(getattr(settings, "codex_model", "") or "")
     if provider_name == "mock":
         return "mock-embed-64d" if slot == "embed" else "mock"
     return ""
@@ -672,15 +668,11 @@ def _provider_default_model(settings: Any, provider_name: str, slot: str) -> str
 def _provider_default_effort(settings: Any, provider_name: str) -> str:
     if provider_name == "gemini":
         return str(getattr(settings, "gemini_effort", "") or "")
-    if provider_name == "antigravity":
-        return str(getattr(settings, "agy_effort", "") or getattr(settings, "antigravity_effort", "") or "")
-    if provider_name == "codex":
-        return str(getattr(settings, "codex_effort", "") or "")
     return ""
 
 
 def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
-    from ..accounts.provider_policy import HOST_CLI, classify_provider, context_of, split_gemini_model_and_effort
+    from ..accounts.provider_policy import UNREGISTERED, classify_provider, context_of, split_gemini_model_and_effort
 
     routes = getattr(settings, "feature_routing", None) or {}
     entry = dict(routes.get(slot) or {}) if isinstance(routes, dict) else {}
@@ -702,7 +694,7 @@ def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
         target_prov = raw_prov
     if ctx is not None and not ctx.is_admin and not member_explicit_provider:
         ctx_prov = str(getattr(ctx, "provider", "") or "").strip().lower()
-        if ctx_prov and ctx_prov != "none" and classify_provider(ctx_prov) != HOST_CLI and (classify_provider(target_prov) == HOST_CLI or target_prov == "mock"):
+        if ctx_prov and ctx_prov != "none" and classify_provider(ctx_prov) != UNREGISTERED and (classify_provider(target_prov) == UNREGISTERED or target_prov == "mock"):
             target_prov = ctx_prov
     target_model = str(entry.get("model") or "").strip() or _provider_default_model(settings, target_prov, slot)
     target_effort = str(entry.get("effort") or "").strip() or _provider_default_effort(settings, target_prov)
@@ -745,19 +737,9 @@ def _clone_settings_for_slot(settings: Any, *, slot: str, target_provider: str, 
                 updates["gemini_embed_model"] = target_model
             else:
                 updates["gemini_model"] = target_model
-        elif target_provider == "antigravity":
-            updates["agy_model"] = target_model
-            updates["antigravity_model"] = target_model
-        elif target_provider == "codex":
-            updates["codex_model"] = target_model
     if target_effort:
         if target_provider == "gemini":
             updates["gemini_effort"] = target_effort
-        elif target_provider == "antigravity":
-            updates["agy_effort"] = target_effort
-            updates["antigravity_effort"] = target_effort
-        elif target_provider == "codex":
-            updates["codex_effort"] = target_effort
     from ..accounts.provider_policy import context_of
 
     ctx = context_of(settings)
@@ -905,18 +887,13 @@ class FeatureRoutedProvider:
     @property
     def embed_provider(self) -> str:
         target_prov, _, _ = self.slot_spec("embed")
-        if target_prov in ("codex", "antigravity") and getattr(self.settings, "gemini_api_key", ""):
-            return "gemini"
         return target_prov
 
     def has_embed_capability(self) -> bool:
         prov = self.slot_provider("embed")
         if hasattr(prov, "has_embed_capability"):
             return bool(prov.has_embed_capability())
-        pname = getattr(prov, "name", "")
-        if pname == "unavailable":
-            return False
-        return pname not in ("codex", "antigravity") or bool(getattr(self.settings, "gemini_api_key", ""))
+        return getattr(prov, "name", "") != "unavailable"
 
     def _call_stage(self, stage: str, fn: Any, *, effort_override: str | None = None, result_model_attr: str | None = None) -> Any:
         req_prov, req_model, req_effort = self.slot_spec(stage)
@@ -1034,14 +1011,6 @@ def _build_direct_provider(settings) -> Provider:
     if member:
         require_provider_allowed(ctx, eff)
         require_provider_allowed(ctx, getattr(settings, "provider", ""))
-    if eff == "codex":
-        from .codex_provider import CodexProvider  # lazy import
-
-        return CodexProvider(settings)
-    if eff == "antigravity":
-        from .antigravity_provider import AntigravityProvider  # lazy import
-
-        return AntigravityProvider(settings)
     if eff == "gemini":
         from .gemini_provider import GeminiProvider  # lazy import
 

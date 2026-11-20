@@ -417,7 +417,6 @@
     }
     const payload = collectProviderFormPayload();
     if (opts.live) payload.live = true;
-    if (opts.refreshAgy) payload.refresh_agy = true;
     try {
       const url = resolveRootUrl(_provState.opts, 'providers/check');
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: _capAbortCtrl.signal });
@@ -503,15 +502,6 @@
       if (kEl && kEl.value) payload.config.api_key = kEl.value;
       const mEl = document.getElementById('prov-gemini-model');
       if (mEl && mEl.value) payload.config.model = mEl.value;
-    } else if (provName === 'antigravity') {
-      const bEl = document.getElementById('prov-agy-bin');
-      if (bEl && bEl.value) payload.config.bin = bEl.value;
-    } else if (provName === 'codex') {
-      const bEl = document.getElementById('prov-cdx-bin');
-      if (bEl && bEl.value) payload.config.bin = bEl.value;
-    } else if (provName === 'openai') {
-      const kEl = document.getElementById('prov-oai-key');
-      if (kEl && kEl.value) payload.config.api_key = kEl.value;
     }
     try {
       const url = resolveRootUrl(_provState.opts, 'providers/test');
@@ -535,21 +525,13 @@
             for (const sl of ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm']) {
               updateRouteSlotModelOptions(sl);
             }
-          } else if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
-            const sel = document.getElementById('prov-agy-model');
-            if (sel) {
-              const res = buildModelSelectResult(d.details.models, null, sel.value, 'gemini-3.8-flash-medium');
-              sel.innerHTML = res.optionsHtml;
-              sel.value = res.selected;
-              sel.disabled = Boolean(res.locked);
-            }
           }
         } else {
           resEl.style.color = 'var(--err,#cf222e)';
           resEl.textContent = '' + (d.error || trKey("console.js.panels.providers.test_failed"));
         }
       }
-      await runProviderCapabilityCheck({ live: provName === 'gemini', refreshAgy: provName === 'antigravity' });
+      await runProviderCapabilityCheck({ live: provName === 'gemini' });
     } catch (e) {
       if (resEl) {
         resEl.style.color = 'var(--err,#cf222e)';
@@ -608,18 +590,6 @@
       const list = normalizeModelOptions((provs.gemini || {}).available_models, fallbackGeminiVariants());
       return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
-    if (effProv === 'antigravity') {
-      const list = normalizeModelOptions((provs.antigravity || {}).available_models, []);
-      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
-    }
-    if (effProv === 'codex') {
-      const list = normalizeModelOptions((provs.codex || {}).available_models, ['gpt-5.4', 'gpt-5.3-codex', 'o3', 'o4-mini']);
-      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
-    }
-    if (effProv === 'openai') {
-      const list = normalizeModelOptions((provs.openai || {}).available_models, ['gpt-4o-mini', 'gpt-4o', 'gpt-5']);
-      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
-    }
     return [{ id: '', label: trKey("console.js.panels.routing.mock") }];
   }
 
@@ -661,14 +631,6 @@
       if (effProv === 'gemini') {
         baseModel = provs.gemini.model || '';
         baseEffort = splitGeminiModelEffort(baseModel).effort || provs.gemini.effort || '';
-      } else if (effProv === 'antigravity') {
-        baseModel = (provs.antigravity && provs.antigravity.model) || '';
-        baseEffort = (provs.antigravity && provs.antigravity.effort) || '';
-      } else if (effProv === 'codex') {
-        baseModel = (provs.codex && provs.codex.model) || 'codex-default';
-        baseEffort = (provs.codex && provs.codex.effort) || '';
-      } else if (effProv === 'openai') {
-        baseModel = (provs.openai && provs.openai.model) || '';
       } else if (effProv === 'mock') {
         baseModel = 'mock';
       }

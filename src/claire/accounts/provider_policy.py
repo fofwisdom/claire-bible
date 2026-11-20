@@ -1,7 +1,7 @@
 """LLM 프로바이더 정책 (설계 §10.1–§10.3, P4 계약 스텁).
 
-작업마다 테마 → 계정 → ``ProviderContext`` 순서로 프로바이더를 정한다. 멤버 컨텍스트는 어떤 경로로도 ``host-cli``에 닿지 않고,
-멤버 키가 거부되거나 예산이 소진되면 서버 등급·CLI로 폴백하지 않고 실패한다(C2).
+작업마다 테마 → 계정 → ``ProviderContext`` 순서로 프로바이더를 정한다. 멤버 컨텍스트는 어떤 경로로도 미등록 프로바이더에 닿지 않고,
+멤버 키가 거부되거나 예산이 소진되면 서버 등급으로 폴백하지 않고 실패한다(C2).
 
 레인 소유: L4-a1이 ``resolve_provider_context``·``settings_for_context``·``require_*``를 구현한다. 분류표와 데이터클래스는
 오케스트레이터가 확정한 계약이므로 바꾸려면 요청으로 보고한다.
@@ -18,25 +18,22 @@ if TYPE_CHECKING:
     from claire.config import Settings
     from claire.store.secrets import SecretService
 
-ProviderClass = Literal["host-cli", "api-key", "mock"]
+ProviderClass = Literal["api-key", "mock", "unregistered"]
 ContextSource = Literal["admin", "byok", "tier", "none"]
 Feature = Literal["expand", "stt", "vlm", "presentation", "synthesize"]
 
-HOST_CLI: Final = "host-cli"
 API_KEY: Final = "api-key"
 MOCK: Final = "mock"
+# The class of a name that is not in PROVIDER_CLASSES. Member contexts cannot use it (fail-closed).
+UNREGISTERED: Final = "unregistered"
 
-# §10.1 분류표. 여기에 없는 이름은 host-cli로 본다(fail-closed).
+# §10.1 분류표. 새 서버 프로바이더는 api-key 프로바이더로 여기에 등록한다. 여기에 없는 이름은 unregistered다(fail-closed).
 PROVIDER_CLASSES: Final[dict[str, ProviderClass]] = {
-    "antigravity": HOST_CLI,
-    "agy": HOST_CLI,
-    "codex": HOST_CLI,
     "gemini": API_KEY,
-    "openai": API_KEY,
     "mock": MOCK,
 }
 
-# 멤버가 자기 키로 등록할 수 있는 프로바이더. openai는 구현 전이라 내놓지 않는다(§10.1).
+# 멤버가 자기 키로 등록할 수 있는 프로바이더(§10.1).
 MEMBER_KEY_PROVIDERS: Final[tuple[str, ...]] = ("gemini",)
 # 서버 등급 프로바이더로 고를 수 있는 값. "none"은 LLM 단계 실패(D6).
 TIER_PROVIDERS: Final[tuple[str, ...]] = ("none", "gemini")
@@ -46,8 +43,6 @@ ADMIN_ONLY_FEATURES: Final[tuple[str, ...]] = ("research", "jev", "telegram")
 EFFORT_ORDER: Final[tuple[str, ...]] = ("none", "minimal", "low", "medium", "high")
 ALL_EFFORT_LEVELS: Final[tuple[str, ...]] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 EFFORT_RANKS: Final[dict[str, int]] = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5, "max": 6}
-_AGY_SUFFIX_ORDER: Final[tuple[str, ...]] = ("xhigh", "high", "medium", "low")
-_AGY_FIXED_PREFIXES: Final[tuple[str, ...]] = ("gemini-4-", "claude-", "gpt-oss-", "gemini-pro-orchestrator")
 _GEMINI_MODEL_EFFORTS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-3-pro-preview": ("low", "high"),
     "gemini-3.6-flash": ("minimal", "low", "medium", "high"),
@@ -63,15 +58,14 @@ _GEMINI_MODEL_EFFORTS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-3.1-pro": ("low", "medium", "high"),
     "gemini-2.5-pro": ("low", "medium", "high"),
 }
-_CODEX_XHIGH_MODELS: Final[frozenset[str]] = frozenset({"gpt-5.1-codex", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.4"})
 FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "render_detail", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
 
 SERVER_TIER_SETTING_KEY: Final = "server_tier"  # claire.db server_settings 키, 값은 ServerTier.to_dict() JSON
 
 
 def classify_provider(name: str | None) -> ProviderClass:
-    """§10.1 분류. 빈 값·미등록 이름은 ``host-cli``(fail-closed)."""
-    return PROVIDER_CLASSES.get((name or "").strip().lower(), HOST_CLI)
+    """§10.1 분류. 빈 값·미등록 이름은 ``unregistered``(fail-closed)."""
+    return PROVIDER_CLASSES.get((name or "").strip().lower(), UNREGISTERED)
 
 
 class ProviderPolicyError(RuntimeError):
@@ -94,7 +88,7 @@ class ProviderNotConfigured(ProviderPolicyError):
 
 
 class ProviderNotAllowed(ProviderPolicyError):
-    """멤버 컨텍스트가 host-cli·관리자 전용 기능·등급에서 끈 기능·상한 초과 effort를 요청했다."""
+    """멤버 컨텍스트가 미등록 프로바이더·관리자 전용 기능·등급에서 끈 기능·상한 초과 effort를 요청했다."""
 
     code = "provider_not_allowed"
 
@@ -202,7 +196,7 @@ class ProviderContext:
     """한 작업이 쓸 프로바이더와 자격. ``api_key``는 repr·비교·직렬화에서 빠진다(§11.3)."""
 
     account_id: int | None          # None = 호스트 운영자(CLI·시스템). 테마 작업은 반드시 테마 소유 계정을 넣는다
-    is_admin: bool                  # True = the server credentials (providers.json, host CLI). A personal key of the server administrator gives False here and True in server_admin
+    is_admin: bool                  # True = the server credentials (providers.json). A personal key of the server administrator gives False here and True in server_admin
     source: ContextSource
     provider: str                   # "none"이면 LLM 단계가 ProviderNotConfigured로 실패
     model: str
@@ -214,10 +208,6 @@ class ProviderContext:
     feature_models: dict[str, dict[str, str]] = field(default_factory=dict)
     # The account is the server administrator. With a personal key (source "byok", is_admin False) the account keeps all features and has no server tier limits, but the calls use only the personal key.
     server_admin: bool = False
-
-    @property
-    def allows_host_cli(self) -> bool:
-        return self.is_admin
 
     def feature_allowed(self, feature: str) -> bool:
         """관리자는 전부, 관리자 전용 기능은 멤버에게 항상 거부, BYOK는 등급 기능 전부, 서버 등급은 ``tier.features``만."""
@@ -245,10 +235,6 @@ class UsageHooks(Protocol):
 
 _ADMIN_MODEL_FIELDS: Final[dict[str, tuple[str, str]]] = {
     "gemini": ("gemini_model", "gemini_effort"),
-    "antigravity": ("agy_model", "agy_effort"),
-    "agy": ("agy_model", "agy_effort"),
-    "codex": ("codex_model", "codex_effort"),
-    "codex-cli": ("codex_model", "codex_effort"),
 }
 # 프로바이더를 쓸 수 있는 계정 상태. 정지·삭제 중·소각·모르는 상태는 fail-closed로 거부한다.
 _USABLE_ACCOUNT_STATUSES: Final = frozenset({"active", "setup_required"})
@@ -541,12 +527,12 @@ def context_of(settings: "Settings") -> ProviderContext | None:
 
 
 def require_provider_allowed(ctx: ProviderContext | None, provider_name: str) -> None:
-    """멤버 컨텍스트에서 host-cli 분류 프로바이더를 만들려 하면 ``ProviderNotAllowed``. 팩토리 전부가 부른다."""
-    if ctx is None or ctx.allows_host_cli:
+    """멤버 컨텍스트에서 미등록 프로바이더를 만들려 하면 ``ProviderNotAllowed``. 팩토리 전부가 부른다."""
+    if ctx is None or ctx.is_admin:
         return
-    if classify_provider(provider_name) == HOST_CLI:
+    if classify_provider(provider_name) == UNREGISTERED:
         raise ProviderNotAllowed(
-            f"provider {str(provider_name or '').strip().lower() or '(empty)'!r} is host-only and not available to member accounts",
+            f"provider {str(provider_name or '').strip().lower() or '(empty)'!r} is not registered and not available to member accounts",
             remedy="자기 API 키를 등록하거나 관리자에게 서버 등급을 요청한다.",
         )
 
@@ -628,21 +614,6 @@ def enumerate_gemini_model_variants(base_models: Iterable[str]) -> list[str]:
     return out
 
 
-def infer_model_effort_suffix(model: str | None) -> str | None:
-    """Return embedded effort suffix (-xhigh/-high/-medium/-low) from a model identifier if present."""
-    clean = str(model or "").strip().lower()
-    for suf in _AGY_SUFFIX_ORDER:
-        if clean.endswith(f"-{suf}"):
-            return suf
-    return None
-
-
-def is_agy_fixed_effort_model(model: str | None) -> bool:
-    """Return True when an Antigravity CLI model embeds or fixes effort without accepting --effort."""
-    clean = str(model or "").strip().lower()
-    return infer_model_effort_suffix(clean) is not None or clean.startswith(_AGY_FIXED_PREFIXES)
-
-
 def supported_efforts_for(provider: str | None, model: str | None = None, *, tier_max_effort: str | None = None) -> tuple[str, ...]:
     """Return selectable reasoning effort levels supported by the given provider and model."""
     prov = str(provider or "").strip().lower()
@@ -653,15 +624,6 @@ def supported_efforts_for(provider: str | None, model: str | None = None, *, tie
         if is_gemini_fixed_effort_model(mod):
             return ()
         base = _GEMINI_MODEL_EFFORTS.get(mod, ("low", "medium", "high"))
-    elif prov in ("antigravity", "agy"):
-        base = () if is_agy_fixed_effort_model(mod) else ("low", "medium", "high", "xhigh", "max")
-    elif prov == "codex":
-        if mod in _CODEX_XHIGH_MODELS or "-codex" in mod or mod.startswith("gpt-5.4"):
-            base = ("low", "medium", "high", "xhigh")
-        elif mod == "gpt-5":
-            base = ("minimal", "low", "medium", "high")
-        else:
-            base = ("low", "medium", "high")
     else:
         return ()
     if tier_max_effort is None:
@@ -691,9 +653,6 @@ def describe_ingest_effort_options(settings: Any, *, ctx: ProviderContext | None
     if prov == "gemini" and is_gemini_fixed_effort_model(model):
         _, fixed_eff = split_gemini_model_and_effort(model)
         return {"provider": "gemini", "model": model, "options": [], "default_effort": fixed_eff or "", "fixed": True, "fixed_effort": fixed_eff or "", "tier_max_effort": tier_cap or ""}
-    if prov in ("antigravity", "agy") and is_agy_fixed_effort_model(model):
-        fixed_eff = infer_model_effort_suffix(model) or ""
-        return {"provider": "antigravity", "model": model, "options": [], "default_effort": fixed_eff, "fixed": True, "fixed_effort": fixed_eff, "tier_max_effort": tier_cap or ""}
 
     clean_def = str(default_effort or "").strip().lower()
     if clean_def not in options:
@@ -702,7 +661,7 @@ def describe_ingest_effort_options(settings: Any, *, ctx: ProviderContext | None
             clean_def = clamped if clamped in options else ""
         else:
             clean_def = ""
-    return {"provider": "antigravity" if prov == "agy" else prov, "model": model, "options": options, "default_effort": clean_def, "fixed": len(options) == 0, "fixed_effort": "", "tier_max_effort": tier_cap or ""}
+    return {"provider": prov, "model": model, "options": options, "default_effort": clean_def, "fixed": len(options) == 0, "fixed_effort": "", "tier_max_effort": tier_cap or ""}
 
 
 def validate_ingest_effort(settings: Any, effort: str | None, *, ctx: ProviderContext | None = None, allow_mock_standard: bool = False) -> str | None:

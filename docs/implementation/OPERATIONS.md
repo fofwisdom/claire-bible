@@ -85,7 +85,7 @@ Backfill details (basis: commit d15ae8e0, 2026-11-16):
   * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재한다.
 * **`CLAIRE_STT_PROVIDER=gemini` (또는 `STT_PROVIDER=gemini`)**:
   * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`). 현재 프로덕션에 반영 가능한 유일한 외부 STT 프로바이더이다 (`GEMINI_API_KEY` 필요).
-  * *참고: Antigravity CLI(`agy`)는 오디오 바이너리 스트리밍/전사 인터페이스 부재로 STT 구현이 불가능하여 지원되지 않으며, 설정하면 개발 환경에서는 `mock`으로 대체되고 운영 환경에서는 전사 시 실패한다.*
+  * *참고: 다른 값(알 수 없는 프로바이더)을 설정하면 개발 환경에서는 `mock`으로 대체되고 운영 환경에서는 전사 시 실패한다.*
 * **STT 모델**: 환경 변수가 없다. Web UI의 프로바이더 설정(`providers.json`의 `stt.model`)에서 정한다. 비우면 `gemini-3.5-transcribe`를 쓴다.
 * **`CLAIRE_VIDEO_CHUNK_DURATION_SEC=240`**:
   * `gemini-3.5-transcribe`의 분당 10K 입력 토큰(TPM) 한도를 준수하기 위해 단일 청크를 240초(4분, 약 6,000 토큰)로 제한.

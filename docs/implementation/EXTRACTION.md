@@ -153,7 +153,7 @@ These checks exist now. There is no common guard component. [code]
 - **Empty summary.** When the summary is empty, the report has `summary_rendered = False` and `summary_error`. The ingest continues.
 - **Markup in a summary.** `is_corrupted_summary` (`src/claire/extract/prompts.py`) finds AsciiDoc or Markdown marks. `doctor` shows the count. `regenerate --corrupted` (`IngestService.regenerate_components`, `corrupted_summary=True`) makes those summaries again. `clean_plain_summary` removes marks from a new summary.
 - **Preface summary.** `is_preface_summary` finds a summary that only announces the document. The regenerate scan reports it.
-- **Summary verdict in telemetry.** `evaluate_summary_verdict` in `src/claire/store/telemetry.py` returns `EMPTY`, `MOCK_PREFIX`, `RAW_SLICE_200`, `TEMPLATE_FALLBACK`, `CORRUPTED_ADOC`, `PREFACE_META`, or `REAL_LLM`. Only `AntigravityProvider` calls it, and it only records the verdict in the separate telemetry database ([TELEMETRY.md](TELEMETRY.md)). No code acts on the verdict.
+- **Summary verdict in telemetry.** `evaluate_summary_verdict` in `src/claire/store/telemetry.py` returns `EMPTY`, `MOCK_PREFIX`, `RAW_SLICE_200`, `TEMPLATE_FALLBACK`, `CORRUPTED_ADOC`, `PREFACE_META`, or `REAL_LLM`. No code calls it: its only caller, the host-cli provider `AntigravityProvider`, was removed (`AE8`, 2026-11-21). Old verdicts stay in the separate telemetry database ([TELEMETRY.md](TELEMETRY.md)).
 
 ## 8. Known limits
 

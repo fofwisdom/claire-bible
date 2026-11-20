@@ -18,7 +18,7 @@ flowchart LR
 ```
 
 1. **Ingest (수집)**: 계정별 텔레그램 봇, Web UI, 피드 폴러(RSS/Atom/JSON Feed), REST API/MCP, CLI를 통해 URL·파일·텍스트를 통합 적재 파이프라인(`IngestService`)으로 수집한다. Pre-LLM Content Guard, 스텔스 Fetcher 에스컬레이션, PDF 적응형 추론, 비디오 STT 전사를 지원한다.
-2. **Extract (구조화 추출)**: 설정된 LLM 프로바이더(Gemini, Antigravity CLI, Codex CLI 등)를 호출하여 요약, 상세 본문, 닫힌 온톨로지 타입과 도메인/레인지 규칙 기반의 엔티티·관계를 추출하고 기존 노드로 해소·병합한다.
+2. **Extract (구조화 추출)**: 설정된 LLM 프로바이더(Gemini)를 호출하여 요약, 상세 본문, 닫힌 온톨로지 타입과 도메인/레인지 규칙 기반의 엔티티·관계를 추출하고 기존 노드로 해소·병합한다.
 3. **Store & Render (저장 및 렌더링)**: 모든 지식 문서는 단일 SQLite 정본(`data/claire.db`, `theme_id` 파티셔닝)에 FTS5 전문 색인·벡터 임베딩과 함께 저장되며, `detail_html`은 사전 컴파일(AOT)된다. 자격 비밀과 감사 로그는 `data/auth/auth.db`에, 계정 피드·연합 클라이언트 상태는 `data/client.db`에 분리 저장한다.
 4. **Retrieve & Interface (검색 및 활용)**: BM25 전문 검색·벡터 유사도·그래프 이웃 확장을 RRF로 결합한 하이브리드 검색을 제공하며, Web UI(개요 홈, 엔티티 마크 리더, 2D 지식 그래프, 명령 팔레트, `/admin/*`·`/settings/*` 콘솔), 텔레그램 봇, REST API/MCP, Fedify 사이드카 기반 ActivityPub 연합으로 조회·공유할 수 있다.
 
@@ -141,7 +141,7 @@ claire-bible/
 │   ├── accounts/        # USERNAME 정책, 초대 코드, 서버 등급, 프로바이더·연합 준비 검사
 │   ├── api/             # ASGI 웹 서비스, 계정·인증·OAuth/OIDC·MCP·연합 내부/외부 라우트
 │   ├── expand/          # 링크 확장 (자동 확장, 확장 제안, 확장 게이트)
-│   ├── extract/         # LLM(Gemini/Antigravity/Codex), STT/VLM, 엔티티 해소 및 분류기
+│   ├── extract/         # LLM(Gemini), STT/VLM, 엔티티 해소 및 분류기
 │   ├── feeds/           # RSS/Atom/JSON Feed 파서, 폴러 및 OPML 처리
 │   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그 및 미들웨어 지원
 │   ├── ingest/          # 통합 적재 파이프라인, Fetcher(웹/YouTube/X/PDF), 정규화

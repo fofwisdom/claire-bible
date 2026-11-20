@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..ontology.base import Document
     from .provider import Provider
 
-from ..config import find_agy_executable, find_codex_executable, get_settings
+from ..config import get_settings
 
 logger = logging.getLogger("claire.classifier")
 

@@ -175,19 +175,18 @@ def test_feature_routed_provider_decouples_extract_and_summarize_and_records_lin
             return _FakeStageProvider("gemini", "gemini-4-hydrogen")
         if slot_settings.provider == "mock":
             return _FakeStageProvider("mock", "mock-embed-64d")
-        return _FakeStageProvider(slot_settings.provider, getattr(slot_settings, "antigravity_model", slot_settings.gemini_model))
+        return _FakeStageProvider(slot_settings.provider, slot_settings.gemini_model)
 
     import claire.extract.provider as provider_mod
 
     monkeypatch.setattr(provider_mod, "_build_direct_provider", _fake_build)
     settings = Settings(
         _env_file=None,
-        CLAIRE_PROVIDER="antigravity",
+        CLAIRE_PROVIDER="gemini",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_AGY_MODEL="gemini-3.8-flash",
         GEMINI_API_KEY="test-key",
         feature_routing={
-            "extract_graph": {"provider": "antigravity", "model": "gemini-3.8-flash", "effort": "medium"},
+            "extract_graph": {"provider": "gemini", "model": "gemini-3.8-flash", "effort": "medium"},
             "summarize": {"provider": "gemini", "model": "gemini-4-hydrogen", "effort": "high"},
             "embed": {"provider": "gemini", "model": "gemini-embedding-001", "effort": ""},
         },
@@ -243,8 +242,8 @@ def test_jev_shadow_asks_about_invariant_rejects(monkeypatch: pytest.MonkeyPatch
     assert res.created is True
 
 
-def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path: Path) -> None:
-    """Verify query search fixes RETRIEVAL_QUERY, Gemini models discovery works, and server_scope blocks CLI."""
+def test_embedding_task_types_fixed_and_retired_cli_rejected_from_server_scope(tmp_path: Path) -> None:
+    """Verify query search fixes RETRIEVAL_QUERY, Gemini models discovery works, and server_scope rejects the retired host-cli providers."""
     from claire.retrieval.query import search
 
     embed_calls: list[tuple[str, str | None]] = []

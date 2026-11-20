@@ -1,6 +1,6 @@
 # Public Site: Robots, Sitemap, Page Metadata, and Analytics Tags
 
-Basis: commit d15ae8e0 (2026-11-16) · Readers: agents and operators that change what crawlers and analytics see · Design principles: [`PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md`](../design/PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md) · Settings: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) §2.13.1 · Theme boundary: [`THEMES.md`](THEMES.md)
+Basis: commit d15ae8e0 (2026-11-16) · Readers: agents and operators that change what crawlers and analytics see · Design principles: [`PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md`](../design/PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md) · Settings: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) §2.12.1 · Theme boundary: [`THEMES.md`](THEMES.md)
 
 This document tells what the code does now for anonymous visitors and crawlers: `/robots.txt`, `/sitemap.xml`, the metadata of the shared document page, and the Google Analytics 4 (GA4) tags. Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: [code], [measured], [decision], [unverified].
 
