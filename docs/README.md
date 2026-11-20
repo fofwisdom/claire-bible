@@ -44,7 +44,7 @@ docs/
 │   ├── I18N_DESIGN.md                     # ID1–ID6 → I18N.md
 │   ├── INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md  # → INGESTION.md
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md  # 원문 보존·관측성 원칙 → INGESTION.md
-│   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # → GRAPH_BUNDLE_REVIEW.md
+│   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # → GRAPH_BUNDLE_REVIEW.md, 평가 결과 JEV_EVALUATION.md
 │   ├── LLM_PRESENTATION_AUTHORING_AND_COMPOSITION_DESIGN.md  # → PRESENTATION.md
 │   ├── MARKDOWN_RETIREMENT_DESIGN.md      # RD22–RD25 → DOCUMENT_FORMAT.md
 │   ├── MCP_SUPPORT.md                     # → API_AND_MCP_GUIDE.md, 미구현 제안 MP1–MP4
@@ -74,6 +74,7 @@ docs/
 │   ├── GRAPH_BUNDLE_REVIEW.md  # 그래프 번들, 해소 판정 기록·히트맵·판단 기록 스트림, 검토 증거, Jev 평가
 │   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라)과 페이지 조립·정적 자산
 │   ├── I18N.md                 # 인터페이스 언어: 카탈로그, 언어 결정 순서, 번역 범위, 검색 토크나이저
+│   ├── JEV_EVALUATION.md       # Jev 평가 절차의 실행 결과 (라벨, 정밀도·재현율, 관문, 역할)
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
 │   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0): 어휘, JSON-LD 컨텍스트, 와이어 계약 빌더·검증기, 계약 픽스처

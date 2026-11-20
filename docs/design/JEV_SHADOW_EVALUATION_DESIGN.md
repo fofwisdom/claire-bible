@@ -1,6 +1,6 @@
 # TypeSafe AI Jev Shadow Evaluation
 
-- **Status**: Shadow evaluation implemented; design principles only. Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow, filter and hybrid modes), §6.2 (shadow evidence in bundles). The filter and hybrid modes (2026-11-15) were added after this design and give Jev a decision role when an administrator selects them (owner decision, implemented). The Go / No-Go evaluation (Section "Evaluation") is a planned process, not code.
+- **Status**: Shadow evaluation implemented; design principles only. Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow, filter and hybrid modes), §6.2 (shadow evidence in bundles). The filter and hybrid modes (2026-11-15) were added after this design and give Jev a decision role when an administrator selects them (owner decision, implemented). The Go / No-Go evaluation (Section "Evaluation") is a process, not code. Results of each run: [`JEV_EVALUATION.md`](../implementation/JEV_EVALUATION.md) (first run 2026-11-20).
 - **Date**: 2026-10-31 · condensed 2026-11-16
 - **Related**: [GOALS.md](../GOALS.md) track 2 (extraction and linking quality), [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
 
