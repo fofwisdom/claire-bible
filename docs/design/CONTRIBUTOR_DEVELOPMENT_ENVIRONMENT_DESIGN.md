@@ -66,9 +66,9 @@ The same day the owner decided the order of the remaining checks of the knowledg
 | No. | Where | What | Effect for a contributor | Change (proposal) |
 | :--- | :--- | :--- | :--- | :--- |
 | F1 | `.env.dev` of the owner (not in Git), lines 14 and 23 to 25 | `CB_API_BIND`, `CLAIRE_FQDN`, and `CLAIRE_USERCONTENT_FQDN` with the LAN IPv4 address of the owner's host | None: the template has `127.0.0.1` (`.env.dev.example:24`, `:38`) | No change. The development network writes its own env files (Section 6.6). |
-| F2 | `docker-compose.yml:31-33`, `docker-compose.dev.yml:17-19` | Mounts of `~/.gemini` and `~/.codex` (credentials of host CLI providers) and `~/.local/bin` (as `/host-bin`) | Docker makes a host folder that does not exist (as root on Linux); on macOS a host binary cannot run in a Linux container; the credentials of the contributor go into the containers | The overlay of the development network sets the volume list with `!override`: no such mount. A contributor who works on a CLI provider adds an own overlay. `tests/test_container_mounts.py` examines only the two files above and does not change. |
+| F2 | `docker-compose.yml:31-33`, `docker-compose.dev.yml:17-19` | Mounts of host credential directories and `~/.local/bin` (as `/host-bin`; legacy host-CLI provider support retired per `AED8`, compose cleanup in `AE8`) | Docker makes a host folder that does not exist (as root on Linux); on macOS a host binary cannot run in a Linux container; personal credentials go into the containers | The overlay of the development network sets the volume list with `!override`: no such mount. `tests/test_container_mounts.py` examines only the two files above and does not change. |
 | F3 | `Dockerfile:45` | `PATH="/app/.venv/bin:/host-bin:$PATH"`: `/host-bin` is before the system folders | A program in `~/.local/bin` of the host with the name of a tool of the image (for example `ffmpeg`, `python3`, or a script with a host interpreter line) hides that tool | DQ7 (a change of the production image) |
-| F4 | `ops/cb_manuscript.py:293-330` and `:3660-3700`; `src/claire/config.py:261-384`; `src/claire/presentation/converter.py:36` | Lists of host folders (`/home/*/.local/bin`, `/root/.local/bin`, `/home/linuxbrew/.linuxbrew/bin`) for `agy`, `codex`, and `asciidoctor`; the preflight needs the host binary of a CLI provider | No effect with the mock provider | No change for the common environment |
+| F4 | `ops/cb_manuscript.py:293-330` and `:3660-3700`; `src/claire/config.py:261-384`; `src/claire/presentation/converter.py:36` | Lists of host folders (`/home/*/.local/bin`, `/root/.local/bin`, `/home/linuxbrew/.linuxbrew/bin`) for `asciidoctor` (plus legacy `agy`/`codex` preflight entries awaiting removal in `AE8` per `AED8`) | No effect with the mock provider | No change for the common environment |
 | F5 | `scripts/e2e.sh:73-74`, `:99`, `:162-170`, `:194`, `:291` | The systemd user manager (`systemctl --user`, `systemd-run --user`, `MemoryMax`, `ManagedOOMMemoryPressure`) and GNU tools (`timeout` at line 131, `readlink -f` at line 79, `xargs -r` at line 186) | The script does not work on macOS, on WSL2 without systemd, or in a container | Runner back ends (Section 8.3) |
 | F6 | `scripts/e2e.sh:13` | Memory limit 2400M, for the memory of the owner's host (about 11 GB) | — | Keep it as the limit of each back end |
 | F7 | `scripts/e2e.sh:9`, `e2e/playwright.config.js:7`, `.env.dev.example:25` | The port of the E2E server, 8766, is the port of the development stack | An E2E run and a development stack on the host collide | The Docker back end runs the server of the run in its container (Section 8.3) |
@@ -275,7 +275,7 @@ The two stacks stay. Their tests run in the toolbox on the network of the stack,
 3. **No personal data in test fixtures.** Fixtures use invented names and the domains of RFC 2606 and RFC 6761 (`example.com`, names below `test`). A test examines `tests/fixtures/` and `e2e/` for e-mail addresses of other domains **[proposal]**. The fixture texts of the development network are invented.
 4. **Support bundles in Git.** `scratch/` has 160 files of support bundles of a server (F17): DQ4.
 5. **Secrets.** Each start makes new secrets in `.dev/devnet/` (mode 0700 for the folder, 0600 for the files; Git ignores `.dev/`) and in the volumes. `devnet down` deletes them. `.env` and `.env.dev` stay out of Git **[code]** (`.gitignore`).
-6. **Provider credentials.** The credentials of the owner (`~/.gemini`, `~/.codex`) never go into the common environment (F2).
+6. **Provider credentials.** Host credential folders (such as `~/.gemini`; host-CLI provider support including `~/.codex` is retired under `AED8`) never go into the common environment (F2).
 7. **Isolation of tests.** The tests do not read the `.env` of the checkout (F9).
 
 ---
@@ -407,7 +407,7 @@ Rules that exist now and that the contributor documents state:
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
-| A (proposal) | `/host-bin` goes to the end of `PATH` in `Dockerfile` | A host program can no longer hide a tool of the image; `agy` and `codex` are still found, because the image has no program with these names **[unverified]**. A change of the production image. |
+| A (proposal) | `/host-bin` goes to the end of `PATH` in `Dockerfile` | A host program can no longer hide a tool of the image (host-CLI binaries `agy` and `codex` are retired under `AED8` and scheduled for cleanup in `AE8`). A change of the production image. |
 | B | No change | A program in `~/.local/bin` of a host can hide `ffmpeg`, `python3`, or another tool of the image |
 
 **Recommendation:** A.

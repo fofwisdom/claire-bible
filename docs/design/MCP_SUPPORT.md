@@ -6,12 +6,12 @@
 
 ## Goal
 
-External AI clients (for example Claude Code, Claude Desktop, Gemini connected apps, Cursor, Antigravity) can read the knowledge graph and the documents of Claire through one standard endpoint. A user connects a client without a copy and paste of a token when the client supports OAuth.
+External AI agent clients (explicitly Antigravity / `agy` via [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)) can read the knowledge graph and the documents of Claire through one standard endpoint (and participate in explicit client-driven extraction when authorized with `write`). Non-Google clients (ChatGPT, Codex, Claude Code, Claude Desktop, Cursor) are retired from Claire Bible principles and design scope (`AED8`, 2026-11-20). A user connects a client without copying and pasting manual persistent tokens over OAuth 2.1 (`AED5`).
 
 ## Decisions in Force
 
 1. **In the api process.** The MCP endpoint is a part of the existing API process, not a separate container. It has the same security gate as the REST routes and the same database access. Reason: one security boundary for probes without credentials.
-2. **Read-only tools.** All tools only read. A credential that an external AI client gets by OAuth has the `readonly` scope only. Reason: an external agent must not change, ingest, or delete knowledge. A write tool needs a separate scope model first.
+2. **Scoped OAuth 2.1 tokens (`readonly` and `write`, updated 2026-11-20 `AED5`).** Original baseline tools only read under `readonly`. Under [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) (`AED4`, `AED5`, `AED9`), write/extraction actions use the separate explicit `write` scope with step-up confirmation, `S256`-only PKCE, refresh token rotation, RFC 7009 `/oauth/revoke`, and a Telegram-free `/login?tx=` OAuth flow (with optional RFC 8628 device grant). Manual persistent tokens are deprecated.
 3. **No LLM call in a tool.** The tools use database queries and full-text search only. They do not call an embedding or summary API, also when a REST function with the same purpose does. Reason: an agent loop calls the tools many times; it must not use the LLM quota of the server.
 4. **No side effect of a read.** A tool that shows a document does not mark it as seen. Reason: an agent read is not a user read.
 5. **Small answers, agent-led exploration.** The server does not return a large subgraph at one time. Tools cap their lists, show when a list is cut, and have a compact mode. The agent extends the frontier step by step: orientation, entry point, neighbors, narrowing, and a final context call. Reason: the context window of the agent is small, and the agent decides what is important.

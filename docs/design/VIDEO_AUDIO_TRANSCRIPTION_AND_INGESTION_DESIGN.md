@@ -22,7 +22,6 @@ Conference and seminar video pages have almost no text: a title and a short desc
 
 ## Rejected alternatives
 
-- **STT through the Antigravity CLI.** The CLI has no audio input. It cannot do STT.
 - **STT for every video.** It costs quota where publisher captions exist.
 - **A registry of separate stream resolvers per platform.** The first design had one. The code uses one resolver function and `yt-dlp`, which covers the platforms in use.
 

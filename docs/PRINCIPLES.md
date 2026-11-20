@@ -45,7 +45,8 @@
 - 집행(테마 조회): `tests/test_theme_strict_lookup.py`
 
 **C2. 숨은 폴백을 두지 않는다.** 외부 서비스 연동이 실패하면 빈 데이터나 mock 결과로 파이프라인을 채우지 않고 실패로 처리한다.
-- 운영 환경(`CLAIRE_ENVIRONMENT=production`)에서는 설정한 LLM·STT·VLM 프로바이더를 쓸 수 없을 때 mock으로 대체하지 않는다. 키나 실행 파일이 없거나 값이 알 수 없는 경우가 여기에 해당한다. 서비스 기동과 상태 조회는 계속되고(상태 표시는 `unavailable`), 실제 호출은 `ProviderUnavailableError`로 실패한다. 개발 환경의 mock 대체는 허용한다. 명시적으로 `mock`을 지정한 것은 폴백이 아니다. (결정 2026-11-02)
+- 운영 환경(`CLAIRE_ENVIRONMENT=production`)에서는 설정한 LLM·STT·VLM·임베딩 프로바이더를 쓸 수 없을 때 mock이나 의사 벡터로 대체하지 않는다. 키·자격이 없거나 모델이 EOS로 만료되었거나 값이 알 수 없는 경우가 여기에 해당한다. 서비스 기동과 상태 조회는 계속되고(상태 표시는 `unavailable`), 실제 호출은 `ProviderUnavailableError`로 실패한다. 개발 환경의 mock 대체는 허용한다. 명시적으로 `mock`을 지정한 것은 폴백이 아니다. (결정 2026-11-02)
+- Google 전용 서버 프로바이더 및 호스트 CLI 폐기 (결정 2026-11-20 `AED6`·`AED8`): 운영 서버 프로바이더는 Google Gemini API(`gemini`)만 사용하며 서버 호스트 CLI 실행(`AntigravityProvider`, `CodexProvider`) 및 비-Google 백엔드·클라이언트(ChatGPT, Codex, OpenAI, Claude)는 원칙·설계·구현에서 모두 폐기한다(레거시 코드 제거는 [`design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) `AE8`).
 - 집행: `Settings.provider_unavailable_reason`, `extract/provider.py`·`transcript/factory.py`·`vision/factory.py`의 `Unavailable*Provider`, `tests/test_provider_unavailable.py`
 
 **C3. 에이전트용 CLI 계약을 지킨다.** `--json` 모드에서는 다음이 성립한다.
@@ -115,7 +116,6 @@
 - 2026-11-02 mock 폴백과 C1·C2: 운영 환경에서는 실패하도록 고쳤다 (C2 참고).
 - 2026-11-02 `theme delete`/`theme reset`이 기본으로 실행되던 문제: dry-run 기본, `--apply`로 실행하도록 고쳤다 (D2·D3).
 - 2026-11-02 테마 공용 작업 기록이 `/stats`·`/ingest/active`로 비공개 테마 밖에 노출되던 문제: 테마 접근 권한으로 거르도록 고쳤다 (B1).
-- 2026-11-02 Antigravity가 운영 환경에서 의사 임베딩 벡터를 저장하던 문제: 실패하도록 고쳤다 (C2).
 - 2026-11-02 CLI `--theme`에 없는 테마를 주면 테마 0으로 진행하던 문제: 종료 코드 2로 실패하도록 고쳤다 (C1).
 - 2026-11-02 위반 2(존재하지 않는 테마를 지정하면 테마 0에서 처리): `get_theme`의 대체 분기를 없앴다. 이제 HTTP·MCP·서비스 풀·텔레그램 모두 거부한다. 레이블 부분 일치는 CLI와 텔레그램의 사람 입력에만 남겼다 (C1, 결정 D7). [`implementation/THEMES.md`](implementation/THEMES.md) §3 참고.
 

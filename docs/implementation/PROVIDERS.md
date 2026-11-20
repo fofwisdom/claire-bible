@@ -1,6 +1,6 @@
 # LLM·STT·VLM 프로바이더 구현 정본
 
-기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
+기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md), [AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
 
 이 문서는 **지금 코드가 어떤 프로바이더를 어떻게 분류·선택·격리하고 호출하는지**를 적는다. 줄 번호 대신 파일 경로와 함수·상수 이름을 기준점으로 삼는다.
 
@@ -15,8 +15,8 @@
 
 1. **[결정] 운영 환경에서는 mock으로 대체하지 않는다.** `CLAIRE_ENVIRONMENT=production`에서 설정한 프로바이더를 쓸 수 없으면 호출이 `ProviderUnavailableError`로 실패한다(§3). 개발 환경의 mock 대체는 허용한다.
 2. **[코드] 프로바이더 전역 설정의 실제 출처는 `data/providers.json`이다.** 이 파일의 값은 export된 환경변수보다도 우선한다(§2).
-3. **[코드] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 멤버는 어떤 경로로도 `host-cli`에 닿지 않는다. A server administrator account with a personal key also gets `byok` (§3.2).
-4. **[코드] 폴백은 없다 (C2).** 멤버 키가 거부되거나 예산이 소진되어도 서버 등급이나 관리자 CLI로 전환하지 않고 fail-closed로 실패한다(§3.3).
+3. **[코드/결정] 계정별 프로바이더는 `ProviderContext`가 결정한다.** 작업마다 테마 소유 계정에 맞춰 관리자(`admin`), 멤버 BYOK(`byok`), 서버 등급(`tier`), 미설정(`none`) 중 하나로 확정된다(§3.2). 운영 서버 프로바이더는 Google Gemini(`gemini`)만 쓰며 `host-cli`는 2026-11-20 소유자 결정(`AED8`)으로 폐기되었다(코드 제거 `AE8`). A server administrator account with a personal key also gets `byok` (§3.2).
+4. **[코드] 폴백은 없다 (C2).** 멤버 키가 거부되거나 예산이 소진되어도 서버 등급이나 다른 경로로 자동 전환하지 않고 fail-closed로 실패한다(§3.3).
 5. **[코드] `Settings`를 만들면 디스크가 바뀐다.** `_ProvidersJsonSettingsSource`가 `ProviderManager(auto_migrate=True)`를 만든다. 이때 `providers.json`이 없으면 환경변수로부터 새로 만들고, 저장소 루트의 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`에 속한 줄을 주석 처리한다.
 6. **[코드] 테스트는 개발자의 실제 `.env`를 읽는다.** conftest가 없다. 로컬 `.env`가 `production`이면 테스트도 운영 동작을 본다. mock 대체를 검증하는 테스트는 `Settings(environment="development")`로 환경을 고정한다.
 
@@ -33,12 +33,10 @@
 | `src/claire/secret_scrub.py` | API 키 등 비밀 누출 방지 및 로그/예외 마스킹 | `register_secret`, `scrub_text`, `scrub_exception`, `SecretScrubFilter`, `install_log_scrubber` |
 | `src/claire/store/vectors.py` | 테마별 임베딩 모델 고정 및 검색 필터링 | `EmbedPin`, `EmbeddingModelMismatch`, `read_embed_pin`, `replace_theme_embeddings`, `VectorStore.search` |
 | `src/claire/store/knowledge_base.py` | 테마 메타데이터 및 임베딩 고정 필드 보존 | `KnowledgeBaseInfo`, `embed_provider`, `embed_model` |
-| `src/claire/config.py` | 전역 프로바이더 설정 및 사용 가능 판정 | `Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`, `provider_unavailable_reason`, `is_production`, `ProviderUnavailableError`, `PROVIDER_UNAVAILABLE`, `find_agy_executable`, `find_codex_executable` |
+| `src/claire/config.py` | 전역 프로바이더 설정 및 사용 가능 판정 | `Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`, `provider_unavailable_reason`, `is_production`, `ProviderUnavailableError`, `PROVIDER_UNAVAILABLE` |
 | `src/claire/provider_manager.py` | data/providers.json 읽기·쓰기, 환경변수 마이그레이션, WebUI 연결 검증 | `ProviderManager`, `DEFAULT_PROVIDERS_CONFIG`, `MIGRATED_ENV_VARS`, `SUPPORTED_ACTIVE_PROVIDERS`, `get_settings_dict`, `migrate_from_env_if_needed`, `test_connection` |
 | `src/claire/extract/provider.py` | LLM 프로토콜과 팩토리 | `Provider`(Protocol), `MockProvider`, `UnavailableProvider`, `get_provider` |
 | `src/claire/extract/gemini_provider.py` | Gemini API, 자격 지문별 호출 락, 키 거부 판정 | `GeminiProvider`, `_call`, `_call_state`, `_CALL_LOCK`, `_LAST_CALL`, `_is_key_rejection`, `_is_retryable`, `_is_daily_quota` |
-| `src/claire/extract/antigravity_provider.py` | agy CLI 서브프로세스 (관리자 전용) | `AntigravityProvider`, `_run_cli`, `EMBED_DIM` |
-| `src/claire/extract/codex_provider.py` | codex CLI 서브프로세스 (관리자 전용) | `CodexProvider`, `_shared_semaphore` |
 | `src/claire/extract/classifier.py` | 저비용 분류용 프로바이더 선택 | `get_lowest_effort_provider`, `parse_effort_score` |
 | `src/claire/extract/transcript/factory.py` | STT 팩토리 | `get_transcript_provider`, `UnavailableTranscriptProvider` |
 | `src/claire/extract/vision/factory.py` | VLM 팩토리 | `get_vision_provider`, `UnavailableVisionProvider` |
@@ -51,7 +49,7 @@
 
 **[코드]** `Settings.settings_customise_sources`의 우선순위는 다음과 같다(앞이 이긴다).
 
-1. 생성자 인자 (`Settings(provider="codex")`)
+1. 생성자 인자 (`Settings(provider="gemini")`)
 2. `data/ingest_limits.json`
 3. `data/providers.json` (`ProviderManager.get_settings_dict`)
 4. 프로세스 환경변수
@@ -59,7 +57,7 @@
 
 `providers.json`이 없으면 `migrate_from_env_if_needed`가 환경변수와 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`를 모아 파일을 만든다. 그 뒤로는 파일 값이 이긴다. 기본값은 `DEFAULT_PROVIDERS_CONFIG` 값이 실제 기본값이다.
 
-- 모델(`gemini.model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. Google AI Studio(`gemini`) 생성 모델은 사고 수준(effort)을 접미사로 인코딩한 `<model>-<effort>` 형태(예: `gemini-3.8-flash-medium`, `gemini-4-argon-high`)로 열거해 선택하며 별도의 UI 추론 수준 선택지를 두지 않는다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
+- 모델(`gemini.model`, `jev.model`, `stt.model`)은 Web UI에서 정한다. Google AI Studio(`gemini`) 생성 모델은 사고 수준(effort)을 접미사로 인코딩한 `<model>-<effort>` 형태(예: `gemini-3.8-flash-medium`, `gemini-4-argon-high`)로 열거해 선택하며 별도의 UI 추론 수준 선택지를 두지 않는다. `gemini.embed_model`은 서버 공용 설정에서 `gemini-embedding-001`로 고정하며 Web UI 선택 요소를 제공하지 않는다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
 - VLM 설정(`CLAIRE_ENABLE_VLM_TRANSCRIPTION`, `CLAIRE_VLM_PROVIDER`, `CLAIRE_VLM_MODEL`)은 `providers.json`에 없고 환경변수로만 정한다.
 
 ### 2.2 작업별 `ProviderContext`
@@ -78,17 +76,17 @@
 
 ### 3.1 프로바이더 분류 (Provider Classification)
 
-**[코드]** `classify_provider`(`src/claire/accounts/provider_policy.py`)가 이름에 따라 3개 부류로 나눈다(설계 §10.1).
+**[코드/결정]** `classify_provider`(`src/claire/accounts/provider_policy.py`)와 `2026-11-20` 소유자 결정(`AED6`, `AED8`). 운영 서버 프로바이더는 **Google 전용**(`gemini`)만 지원하며 개발·테스트에서만 `mock`을 허용한다.
 
 | 분류 | 프로바이더 | 실행 방식 | 쓸 수 있는 계정 |
 | :--- | :--- | :--- | :--- |
-| `host-cli` | `antigravity`(agy), `codex`(codex-cli) | 서버 호스트의 바이너리, 호스트 로그인 | 관리자만 |
-| `api-key` | `gemini` (`openai`는 구현 후) | HTTPS API와 키 | 서버 작업: `providers.json` / 관리자 계정: 개인 키, 없으면 `providers.json` / 멤버: 자기 키(BYOK) 또는 서버 등급 |
+| `api-key` | `gemini` | Google Gemini HTTPS API와 키 | 서버 작업: `providers.json` / 관리자 계정: 개인 키, 없으면 `providers.json` / 멤버: 자기 키(BYOK) 또는 서버 등급 |
 | `mock` | `mock` | 개발/테스트용 | 개발 환경 |
 
-- **미등록 프로바이더 fail-closed**: 분류표에 없는 이름이나 빈 문자열은 모두 `host-cli`로 간주한다(`classify_provider`).
-- **멤버 차단**: 멤버 컨텍스트에서 `host-cli` 프로바이더를 생성하거나 호출하려 하면 `ProviderNotAllowed` 예외가 발생한다(`require_provider_allowed`).
-- **저비용 분류**: `get_lowest_effort_provider`는 멤버 컨텍스트에서 `codex`·`antigravity` 후보를 아예 생성하지 않는다.
+- **[결정 2026-11-20 (`AED6`, `AED8`)] 비-Google 및 호스트 CLI 폐기**: `host-cli`(`AntigravityProvider`, `CodexProvider`, ChatGPT, Codex) 및 비-Google API(`openai`, Claude 등) 고려사항은 원칙·설계·구현에서 모두 폐기한다. 남아 있는 레거시 클래스·설정 잔여분 제거는 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)의 `AE8` 단위에서 수행한다.
+- **미등록·폐기 프로바이더 fail-closed**: 분류표에 없는 이름이나 빈 문자열은 운영 환경에서 사용할 수 없도록 거부한다(`classify_provider`, `require_provider_allowed`, `C2`).
+- **멤버 제한**: 멤버 컨텍스트는 Google Gemini API(`gemini`)만 허용하며 `ProviderNotAllowed`로 비허용 프로바이더를 차단한다.
+- **저비용 분류**: `get_lowest_effort_provider`는 Google Gemini(`gemini`)를 평가한다.
 
 ### 3.2 계정별 컨텍스트와 기능 게이트
 
@@ -100,7 +98,7 @@
 - **[decision] No administrator baseline for the model of a key (owner, 2026-11-19).** The old rule "at or above the administrator baseline" (a rank table of models) gave wrong results, thus it is removed with the rank table.
 - **[code] Model preferences of a key.** `PUT /api/me/keys` accepts an optional `model`, `effort`, and `feature_models` (`keys._validate_byok_prefs`). It checks only that the model is a known Google AI Studio model (an embedding model for `embed`) and that the effort is known and agrees with an effort in the model name. `resolve_provider_context` uses the stored preferences as they are. A value that is not set takes the value of the server providers (`gemini_model`, `gemini_effort`, `gemini_embed_model`, `feature_routing`); these values are only defaults. `GET /api/me/keys?include_policy=1` gives them as `model_policy.admin_defaults`.
 - **[code] Personal key of the server administrator** (owner decision 2026-11-19, [ACCOUNTS.md](ACCOUNTS.md) §5.8). `resolve_provider_context` gives the administrator account:
-  - With an active personal key: a context with `source="byok"`, `is_admin=False`, `server_admin=True`, the personal key, and `credential_key="byok:<fingerprint>"`. Thus the calls go through the same member key path as a member BYOK: only the context key, no `host-cli`, no host CLI feature routing (`settings_for_context`). The Jev settings stay, thus the Jev shadow runs also in this context (owner decision 2026-11-20); a member copy has `enable_jev=False`. The model rule is the member rule (§3.2, model preferences of a key).
+  - With an active personal key: a context with `source="byok"`, `is_admin=False`, `server_admin=True`, the personal key, and `credential_key="byok:<fingerprint>"`. Thus the calls go through the same member key path as a member BYOK: only the context key and Google Gemini API (`settings_for_context`). The Jev settings stay, thus the Jev shadow runs also in this context (owner decision 2026-11-20); a member copy has `enable_jev=False`. The model rule is the member rule (§3.2, model preferences of a key).
   - With `server_admin=True`: all features are allowed (`feature_allowed`, also `research`), and the server tier limits do not apply (`server_tier._limits_exempt`: daily ingests, documents, storage, concurrency). The ledger records the tokens (`usage_hooks_for`, `record_usage`).
   - With a registered key that is not active or cannot be decrypted: `ProviderKeyRejected`. The job does not change to `providers.json` (C2).
   - Without a registered key: `admin_context` (`providers.json`), as before.
@@ -109,7 +107,7 @@
 
 ### 3.3 폴백 없음 원칙 (No Fallbacks, Principle C2)
 
-- 멤버의 API 키가 인증 실패(401/403) 등으로 거부되면 `ProviderKeyRejected`가 발생한다. **서버 등급이나 호스트 CLI로 자동 폴백하지 않는다.**
+- 멤버의 API 키가 인증 실패(401/403) 등으로 거부되면 `ProviderKeyRejected`가 발생한다. **서버 등급 등 다른 경로로 자동 폴백하지 않는다.**
 - 멤버의 일 적재 한도나 월 토큰 예산이 소진되면 `ProviderBudgetExceeded`가 발생하며 실패한다.
 - 서버 등급이 `none`인 멤버가 LLM 작업을 시도하면 `ProviderNotConfigured`로 실패한다.
   - 원문 저장과 FTS 색인은 정상 동작하며(A1), `raw_inbox`에 오류로 남는다. 키를 등록한 뒤 `replay-failed`로 다시 적재할 수 있다.
@@ -120,7 +118,7 @@
 `enable_video_transcription`·`enable_vlm_transcription`이 꺼져 있으면 `mock`이다. 호출 측(`ingest/fetchers/*`)이 같은 플래그로 먼저 막으므로 이 mock은 실제로 호출되지 않는다. 켜져 있으면 다음과 같다.
 - `gemini`(`google`): 키가 있으면 `gemini`, 없으면 쓸 수 없음
 - `mock`: `mock`
-- 그 밖의 값: 쓸 수 없음. `antigravity` 같은 STT 미지원 프로바이더가 여기에 해당한다
+- 그 밖의 값: 쓸 수 없음. Google Gemini STT를 지원하지 않거나 설정되지 않은 경우가 여기에 해당한다
 
 ---
 
@@ -139,43 +137,22 @@
 - **[코드] 기능별 라우팅 슬롯 분리 (`FEATURE_SLOTS`)**: `summarize`(요약 및 프레젠테이션)와 `render_detail`(가독 상세 렌더링)은 별도 슬롯으로 분리되어 서로 다른 모델·추론 수준을 지정할 수 있다(`FeatureRoutedProvider.summarize_document` → `summarize`, `FeatureRoutedProvider.render_detail` → `render_detail`).
 - **[코드] 사용량 훅 (`UsageHooks`)**: 호출 직전 `before_call`로 예산 초과 여부를 점검하고, 호출 완료 후 `after_call`로 소비된 토큰(입력/출력)을 `account_usage` 원장에 가산한다.
 
-### 4.2 Antigravity CLI (`AntigravityProvider`)
+### 4.2 테마별 임베딩 모델 고정 (Theme Embedding Pinning)
 
-- **[코드] 관리자 전용**: 호스트 바이너리(`CLAIRE_AGY_BIN`)를 호스트 로그인 상태로 실행한다. 멤버 컨텍스트에서는 생성이 거부된다.
-- **[코드] 동시성**: 인스턴스마다 `threading.Semaphore(CLAIRE_AGY_MAX_CONCURRENCY)`를 둔다.
-- **[코드] 격리**: `allow_tools=False`(기본)이면 "도구 금지" 지시문을 붙이고 `tempfile.gettempdir()/claire_agy_clean`을 작업 디렉터리로 쓴다. `research`만 `allow_tools=True`로 호출한다.
-- **[코드] 임베딩**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩을 직접 호출한다. 키가 없으면 개발 환경은 결정론적 의사 벡터(`EMBED_DIM`)를 돌려주고 운영 환경은 `ProviderUnavailableError`를 던진다.
-- **[code] Effort by task**: `judge_same_entity`, `classify_watch`, and `select_followups` call `_run_cli` with `effort="low"`. `judge_relationship` and `judge_gate` call `_run_cli` with `effort="medium"`. Extraction and detail rendering use the configured effort.
-- **[code] Telemetry identity**: each call gives `call_type` and, where known, `document_id` to `_run_cli`, which writes a provider telemetry row ([TELEMETRY.md](TELEMETRY.md) §2).
-- **[code] Parallel relation judgement**: in `src/claire/ingest/pipeline.py` the cross-link relation judgement runs the candidates in a `ThreadPoolExecutor` with `min(candidates, provider.max_concurrency)` workers. Graph writes happen after all judgements, in the calling thread. Same-entity judgement is not parallel.
+**[코드]** `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py`. 설계 §10.4 (P4 L4-a3), Google 전용 정책(`AED6`).
 
-### 4.3 Codex CLI (`CodexProvider`)
-
-- **[코드] 관리자 전용**: 호스트 바이너리(`CLAIRE_CODEX_BIN`)를 호스트 로그인 상태로 실행한다. 멤버 컨텍스트에서는 생성이 거부된다.
-- **[코드] 동시성**: `(바이너리, 한도)` 단위의 프로세스 공유 `BoundedSemaphore`(`_shared_semaphore`)로 제한한다.
-- **[코드] 격리**: 호출마다 임시 디렉터리(`claire-codex-`)를 작업 디렉터리로 쓰고 프롬프트는 stdin/임시 파일로 전달한다.
-- **[code] Command flags** (basis: commit d15ae8e0): `--ask-for-approval never`, then `exec --strict-config --ephemeral --ignore-user-config --ignore-rules --skip-git-repo-check --sandbox read-only`. It disables the shell, plugin, multi-agent, browser, and similar features with `--disable`, and gives the output contract with `--output-last-message` and, for structured calls, `--output-schema`. Only `research` adds `--search`.
-- **[code] Native host only**: `cb-manuscript` refuses the Codex provider for the Docker profile (`_reject_native_only_provider` in `config_preflight`, `ops/cb_manuscript.py`). Use `uv run claire ...` on the host.
-- **[코드] 임베딩**: Codex에는 임베딩 기능이 없다. `GEMINI_API_KEY`가 있으면 `GeminiProvider`에 위임하고 없으면 `RuntimeError`를 던진다.
-
-### 4.4 테마별 임베딩 모델 고정 (Theme Embedding Pinning)
-
-**[코드]** `src/claire/store/vectors.py`, `src/claire/store/knowledge_base.py`. 설계 §10.4 (P4 L4-a3).
-
+- **Google 전용 임베딩 및 `gemini-embedding-2` 이관 계획**: 현재 구현된 서버 고정 임베딩 모델은 `gemini-embedding-001`(공식 종료일 2028-05-14 예정)이다. 최신 `gemini-embedding-2` 무중단 지원·이관 계획(`AE6a`–`AE6d`: `task_type` 프롬프트 접두사 전환, `space_id` 스키마 확장, Batch API Shadow Backfill + `AED7` Dual-Embed)은 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3 참고.
 - **테마별 공간 고정**: `knowledge_bases` 테이블에 `embed_provider`, `embed_model` 열을 두어 테마 단위로 임베딩 모델 공간을 고정한다.
 - **모델 혼합 거부**: 테마에 고정된 모델과 다른 모델로 생성된 벡터를 저장하려 하면 `EmbeddingModelMismatch` 예외를 내며 저장을 거부한다.
 - **검색 필터링**: `VectorStore.search`는 테마의 고정 모델(`themes.embed_model`)과 일치하는 `embeddings.model` 행만 조회한다.
   - 검색 질의 모델(`query_model`)이 테마의 고정 모델과 다르면 벡터 공간이 달라 유사도 비교가 불가능하므로 빈 결과를 반환한다.
 - **Mock 모델 격리**: `MockProvider`의 의사 임베딩 모델명은 `mock-sha256`으로 명시하여 실제 모델 공간과 격리한다.
-- **재임베딩 (re-embed)**: 프로바이더나 키 변경으로 모델이 바뀌면 `claire reembed -t <theme>`(`replace_theme_embeddings`)으로 해당 테마의 벡터를 새로운 고정 모델로 일괄 재구축해야 한다. `reset_kb` 시에는 테마 임베딩 고정이 해제된다.
+- **재임베딩 (re-embed)**: 모델이 바뀌면 `claire reembed -t <theme>`(`replace_theme_embeddings`)으로 해당 테마의 벡터를 새로운 고정 모델로 일괄 재구축해야 한다. `reset_kb` 시에는 테마 임베딩 고정이 해제된다.
 - **공개 테마 검색 격리**: 네임스페이스 소유자가 아닌 타 계정 또는 익명 사용자의 검색은 임베딩 비용 전가를 막기 위해 FTS 전용으로 동작한다.
 
-### 4.5 저비용 분류 (`get_lowest_effort_provider`)
+### 4.3 저비용 분류 (`get_lowest_effort_provider`)
 
-**[코드]** `classify_paper` 같은 1차 분류는 effort 점수가 가장 낮은 프로바이더를 고른다.
-- 후보: Codex(운영 프로바이더로 명시되고 바이너리가 있을 때), Antigravity(바이너리가 있거나 명시됐을 때), Gemini(키가 있거나 명시됐을 때).
-- **멤버 컨텍스트 제한**: 멤버 컨텍스트에서는 `codex`·`antigravity`를 후보에 올리지 않고 멤버의 사용 가능 프로바이더(`gemini`)만 평가한다.
-- 동점 우선순위: codex → antigravity → gemini.
+**[코드/개정]** `classify_paper` 같은 1차 분류는 Google Gemini(`gemini`) 중 가장 낮은 effort 구성을 우선 선택한다(`AED8`: 폐기된 `host-cli` 후보는 사용하지 않으며, 레거시 분기 제거는 `AE8`에서 완료한다).
 
 ---
 
@@ -221,17 +198,16 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 - **[code] HTTP routes**: `GET`/`HEAD /providers`, `PATCH`/`POST /providers`, `POST /providers/test`, and `POST /providers/check` in `src/claire/api/server.py`. The route table in `src/claire/api/security.py` allows them only for `admin`, and `POST /providers/test` and `POST /providers/check` additionally require an admin browser cookie session and same-origin request (Bearer API tokens are rejected with 403).
 - **[code] Secret masking**: `ProviderManager.get_settings_dict` returns an API key as `••••••••` when a key is set. `ProviderManager.update_config` keeps the stored key when the request sends the mask or an empty value. It clears the key only for an empty value with `clear_api_key`.
-- **[code] Connection test**: `ProviderManager.test_connection` checks a key, a model, or a CLI binary before or after a save. For Gemini, a masked key in the request means the stored key.
-- **[decision] Seal of the personal CLI clients (owner, 2026-11-19).** The personal CLI clients of the administrator (Antigravity CLI and Codex CLI for the jobs of the administrator account) are sealed. The web UI has no control for them.
-- **[code] Personal CLI seal.** The routes `/api/me/personal-cli` and `/api/me/personal-cli/test` are closed: they are not in the route table and give 404 to each account. `admin_context` and the feature routing (`_resolve_slot_spec`, `_has_feature_routing_override` in `src/claire/extract/provider.py`) do not read a personal CLI setting, and `Settings` has no `personal_cli` field. `ProviderManager.get_config` keeps a `personal_cli` block of `providers.json` as data without a change, and `save_config` writes it back; `get_settings_dict` and `get_sanitized_config` do not give it. A new `providers.json` has no such block. The `/settings/keys` page of the administrator has no personal CLI control. The `host-cli` provider classes (`AntigravityProvider`, `CodexProvider`) stay; the server scope still refuses them (`update_config(server_scope=True)`). Test: `tests/test_personal_cli_seal.py`.
+- **[code] Connection test**: `ProviderManager.test_connection` checks a Google API key and model before or after a save. For Gemini, a masked key in the request means the stored key.
+- **[decision] Retirement of host-CLI and non-Google providers (owner, 2026-11-19 seal -> 2026-11-20 `AED6` / `AED8` retirement).** Previously, the administrator's personal CLI routes (`/api/me/personal-cli`, `/api/me/personal-cli/test`) were sealed with 404. On 2026-11-20 (`AED6`, `AED8`), the owner formally retired all server-side `host-cli` execution and non-Google providers across principles, design, and implementation. Remaining legacy server CLI modules and `Settings` keys exist on disk solely until implementation unit `AE8` deletes them ([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)).
 - **[code] Storage**: `data/providers.json`, written by `ProviderManager.save_config`. The env migration (`migrate_from_env_if_needed`) and its effect on `.env` are in §0 and §2.1.
 - **[code] CLI**: `claire providers` (`list`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
 
 ## 6. 프로바이더를 추가할 때
 
 1. `extract/<name>_provider.py`에 `Provider` 프로토콜의 메서드를 모두 구현한다.
-2. `src/claire/accounts/provider_policy.py`의 `PROVIDER_CLASSES`에 분류(`host-cli` 또는 `api-key`)를 등록한다. 미등록 시 `host-cli`로 fail-closed 된다.
-3. 멤버 키로 지원하려면 `MEMBER_KEY_PROVIDERS`에 추가하고, 서버 등급으로 지원하려면 `TIER_PROVIDERS`에 추가한다.
+2. `src/claire/accounts/provider_policy.py`의 `PROVIDER_CLASSES`에 Google 계열 분류(`api-key`)를 등록한다(미등록 이름은 fail-closed).
+3. 멤버 키로 지원하려면 `MEMBER_KEY_PROVIDERS`에 추가하고, 서버 등급으로 지원하려면 `TIER_PROVIDERS`에 추가한다(Google 전용 정책 `AED6`).
 4. `get_provider` 및 `resolve_provider_context`에 분기를 추가하고, `Settings._llm_unavailable_reason`에 사용 가능 조건을 추가한다.
 5. WebUI에서 고를 수 있게 하려면 `SUPPORTED_ACTIVE_PROVIDERS`, `DEFAULT_PROVIDERS_CONFIG`, `get_settings_dict`, `migrate_from_env_if_needed`를 함께 고친다.
 6. 새 `Settings` 필드는 [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md)에 행을 추가한다. 빠뜨리면 `tests/test_docs_consistency.py`가 실패한다.
@@ -241,8 +217,7 @@ Basis: commit d15ae8e0 (2026-11-16).
 
 ## 7. 알려진 한계와 미검증
 
-- **[코드] `openai`**: WebUI 설정, 연결 검증(`ProviderManager.test_connection`), 마이그레이션 및 `api-key` 분류 매핑은 있지만 LLM 프로바이더 구현이 없다. 따라서 멤버 키 등록 목록(`MEMBER_KEY_PROVIDERS`) 및 서버 등급 선택지에서 제외되어 있다.
-- **[코드] 임베딩 모델 기본값 불일치**: §2 참고. 실제 기본값(`gemini-embedding-001`)과 `Settings` 필드 기본값(`text-embedding-004`)이 다르다. 모델을 바꾸면 기존 벡터와 공간이 달라지므로 `re-embed`가 필요하다.
+- **[코드] `gemini-embedding-2` 지원 차단 요소 (`AE6a`–`AE6d` 예정)**: `Settings.gemini_embed_model`(`src/claire/config.py`)과 `DEFAULT_PROVIDERS_CONFIG` 기본값은 모두 `gemini-embedding-001`이며, `DEFAULT_GEMINI_EMBED_MODELS`(`src/claire/provider_manager.py`)에는 `gemini-embedding-2`와 이미 종료된 `gemini-embedding-2-preview`(2026-08-10 종료)가 함께 들어 있다. 그러나 `ProviderManager.update_config(server_scope=True)`가 `gemini-embedding-001` 외 모델 변경을 차단하고, `GeminiProvider.embed`(`src/claire/extract/gemini_provider.py`)가 `gemini-embedding-2`에서 미지원인 `task_type` 매개변수를 항상 전달하며, `embeddings` 테이블(`src/claire/store/db.py`) 기본 키가 `(owner_id, kb_id)`여서 Shadow Backfill 중 `AE6a`–`AE6d` 완료 전까지 `gemini-embedding-2`를 직접 활성화할 수 없다. 모델을 바꿀 때는 공간 비호환으로 인해 전량 `re-embed`가 필요하다.
 - **[코드] BYOK 멤버 모델/effort 설정**: 현재 BYOK 멤버의 LLM 모델과 effort는 관리자 기본값을 상속받으며, 멤버별 세부 설정 UI는 후속 과제다.
 - **[코드] 서버 등급 `none` 멤버 테마의 recover 루프**: 서버 등급이 `none`인 멤버의 테마에 적재 실패 문서가 남아 있을 경우, recover 재시도가 최대 시도 횟수까지 소모된 뒤 영구 실패로 마킹된다.
 - **[미검증]** 텔레그램 봇과 백그라운드 루프가 운영 환경에서 `unavailable`일 때 사용자에게 어떤 메시지를 보여 주는지는 확인하지 않았다. `raw_inbox` 오류 기록까지만 확인했다.

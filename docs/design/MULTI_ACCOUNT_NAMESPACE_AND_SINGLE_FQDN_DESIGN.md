@@ -34,7 +34,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | R4 | 계정의 외부 공개 웹페이지는 `FQDN/@USERNAME`이다 | 접두 `/@{username}`을 미들웨어가 해석한다 | §6 |
 | R5 | 싱글 모드(관리자만, USERNAME 비노출)와 네트워크 모드(USERNAME 단위 경로) | 네트워크 모드에서는 관리자 홈도 `/@{admin}/`으로 옮긴다(D2 확정) | §4 |
 | R6 | OAuth로 IdP 연동 | OIDC 우선, GitHub은 OAuth 2.0 | §12 |
-| R7 | Antigravity·ChatGPT 등 CLI 클라이언트는 서버 관리자만 쓴다 | 서버 호스트에서 실행되는 LLM 프로바이더(`agy`, `codex`)를 관리자 전용으로 고정한다 | §10 |
+| R7 | 서버 호스트 CLI 실행은 폐기하고 외부 에이전트는 `agent_client`·OAuth 2.1로 분리한다 | (2026-11-20 `AED8` 개정) `AntigravityProvider`·`CodexProvider` 등 서버 호스트 CLI 실행과 비-Google 프로바이더(ChatGPT, Codex, Claude)는 폐기·제거한다. 서버 프로바이더는 Google Gemini API(`gemini`)만 두며 외부 에이전트는 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)의 `agent_client` 경계로 동작한다 | §10 |
 | R8 | 다른 계정은 고유 API 키를 기입할 수 있다. 기입 후에는 아무도 조회할 수 없다. 키가 없으면 서버 관리자가 정의한 수준만 쓴다 | 쓰기 전용 비밀 저장소와 관리자 정의 "서버 등급"(기본 `none`, D6) | §10.3, §11 |
 | R9 | 가입은 초대제다. `/invite` 경로에 8자리 토큰을 쓴다. 생성할 때 사용 횟수와 만기를 정한다. 관리자와 생성자는 언제든 비활성화할 수 있다. 가입 이용 횟수를 계측한다(D9) | Crockford Base32 8자 코드, 원자적 사용 계수, 가입 기록. 생성은 관리자만 한다(N1) | §8.8 |
 | R10 | 테마는 `/@USERNAME/themes`에서 계정 단위로 조회하고, `/themes/(숫자)`로 표기한다. 숫자는 참고 자료(Mastodon Collections)의 원리를 따른다 | 시간 정렬 64비트 번호, 2단계 컬렉션과 커서 페이지네이션 | §7 |
@@ -61,7 +61,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 2. **[코드] 인증.** 주체는 범위 문자열 하나(`owner`, `collaborator`, `readonly`, `anonymous`)다. 누가 요청했는지는 식별하지 않는다. 자격증명은 네 곳에 있다: `data/auth/api_tokens.json`(`TokenStore`), `auth_sessions`, `oauth_tokens`, 환경변수 토큰.
 3. **[코드] 라우트 정책.** `ROUTE_POLICY`는 `(method, 정확한 path)`를 키로 하는 평면 표다. 등록되지 않은 경로는 404다. 경로 매개변수는 이미지 경로에만 있고, 이마저도 접두 비교로 예외 처리한다.
 4. **[코드] 저장.** 단일 `data/claire.db`(v14)에 모든 테마가 있고 `theme_id`로 나뉜다. 테마 파티션 테이블은 16개다. `themes.id`는 0부터 늘어나는 일련번호다. `users`, `theme_members` 테이블은 스키마에만 있고 코드에서 쓰지 않는다. `users.email`이 `UNIQUE`다.
-5. **[코드] 프로바이더.** 설정은 전역 `data/providers.json`이다. `antigravity`·`codex`는 서버 호스트의 바이너리를 그 호스트의 로그인 상태로 실행한다. `IngestServicePool`은 테마별 서비스를 캐시하고 LLM 인스턴스를 공유한다.
+5. **[코드/개정] 프로바이더.** 설정은 전역 `data/providers.json`이다. (2026-11-20 `AED6`·`AED8` 개정) 운영 서버 LLM은 Google Gemini(`gemini`)만 사용하며 `antigravity`·`codex` 서버 호스트 CLI 실행은 폐기 확정되었다(코드 제거는 `AE8`). `IngestServicePool`은 테마별 서비스를 캐시하고 LLM 인스턴스를 공유한다.
 6. **[코드] WebUI 경로.** `src/claire/static/js/app.js`는 API를 상대 경로로 부른다(`fetch('graph')`, `fetch('themes')`). 그래서 UI를 `/@alice/`에서 열면 호출이 `/@alice/graph`로 간다. 절대 경로 리터럴은 `reader.js`, `syndication_app.js`, `share.html` 등에 남아 있다(**[실측]** grep 21곳).
 7. **[코드] WebUI 테마 ID.** `app.js`는 테마 ID를 `parseInt(themeId, 10)`으로 다룬다(376행 외 5곳). `localStorage`의 `claire_selected_theme`에 내부 ID를 저장한다.
 8. **[코드] 테마 목록 응답.** `GET /themes`는 `{"themes": [...], "default_theme_id": …, "multi_theme": …}`를 돌려준다. 페이지네이션은 없다. `/documents`는 `limit=300` 고정이고 커서가 없다.
@@ -670,39 +670,40 @@ class RouteRule:
 
 ### 10.1 분류
 
+> **2026-11-20 개정 (`AED6`, `AED8`)**: 서버 프로바이더는 **Google 전용**(`gemini` 및 개발용 `mock`)으로 한정한다. 이전 설계의 `host-cli`(`AntigravityProvider`, `CodexProvider`, ChatGPT, Codex), `openai`, Claude 고려사항은 원칙·설계·구현에서 모두 폐기되었으며 남아 있는 레거시 코드 제거는 `AE8`([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md))에서 수행한다.
+
 | 분류 | 프로바이더 | 실행 방식 | 쓸 수 있는 계정 |
 | :--- | :--- | :--- | :--- |
-| `host-cli` | `antigravity`(agy), `codex`(ChatGPT Codex CLI) | 서버 호스트의 바이너리, 호스트 로그인 | 관리자만 |
-| `api-key` | `gemini` (`openai`는 구현 후) | HTTPS API와 키 | 관리자: `providers.json`의 키 / 멤버: 자기 키 또는 서버 등급 |
+| `api-key` | `gemini` | Google Gemini HTTPS API와 키 | 관리자: `providers.json`의 키 또는 개인 키 / 멤버: 자기 키 또는 서버 등급 |
 | `mock` | `mock` | 개발용 | 개발 환경 |
 
-- 분류표에 없는 새 프로바이더는 `host-cli`로 본다(fail-closed).
-- `openai`는 아직 구현이 없다([`PROVIDERS.md`](../implementation/PROVIDERS.md) §6). 그래서 멤버 키 등록 화면에도 내놓지 않는다.
+- 분류표에 없는 새 프로바이더나 알 수 없는 이름은 사용 불가로 실패한다(fail-closed, `C2`).
 - `research`(`allow_tools=True`), Jev 평가는 관리자 전용이다. 텔레그램 봇은 2026-11-10 결정 PA1부터 계정별 봇이다([PER_ACCOUNT_FEATURES_DESIGN.md](PER_ACCOUNT_FEATURES_DESIGN.md)).
+- 외부 에이전트(Antigravity)를 통한 사용자 측 추출은 서버 프로바이더가 아니라 `agent_client` 플러그인과 OAuth 2.1(`write` 범위) 경계로 동작한다([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)).
 
 ### 10.2 ProviderContext
 
 작업마다 테마 → 계정 → 컨텍스트 순서로 프로바이더를 정한다.
 
 1. **관리자**: 지금과 같다(`providers.json`).
-2. **멤버, 자기 키 있음**: 그 키의 프로바이더를 쓴다. 모델과 effort는 멤버 설정이고, 상한은 서버 등급의 `byok_caps`다.
-3. **멤버, 자기 키 없음**: 서버 등급(§10.3)을 쓴다. 등급 프로바이더로는 `api-key` 분류만 고를 수 있다.
-4. **서버 등급이 `none`(D6 기본값)**: LLM 단계가 실패한다. 원문 저장과 FTS는 동작한다. 원문은 보존되고(A1) `raw_inbox`에 오류로 남으므로, 키를 등록한 뒤 다시 적재할 수 있다.
+2. **멤버, 자기 키 있음**: 그 키의 Google Gemini 프로바이더를 쓴다. 모델과 effort는 멤버 설정이고, 상한은 서버 등급의 `byok_caps`다.
+3. **멤버, 자기 키 없음**: 서버 등급(§10.3)을 쓴다. 등급 프로바이더로는 `api-key` 분류(`gemini`)만 고를 수 있다.
+4. **서버 등급이 `none`(D6 기본값)** 또는 계정이 `extraction_mode = "client"`인 경우: 서버 LLM 단계를 자동 호출하지 않는다. `client` 모드는 원문을 스테이징(`full_content=True`)해 에이전트 클라이언트에 맡기고(`AED4`, `AED9`), 키 없는 `provider` 모드는 원문 저장과 FTS를 유지한 채 키 등록 후 재적재할 수 있게 남긴다(A1).
 
-적용 지점은 다음과 같다. 하나라도 빠지면 멤버가 관리자의 구독을 쓰게 된다.
+적용 지점은 다음과 같다. 하나라도 빠지면 멤버가 관리자의 자격을 쓰게 된다.
 - `get_provider`, `get_transcript_provider`, `get_vision_provider`
-- `get_lowest_effort_provider`: 멤버 컨텍스트에서는 `codex`·`antigravity` 후보를 만들지 않는다
-- `GeminiProvider` 등 API 프로바이더의 호출 간격·재시도 직렬화 상태(`_CALL_LOCK`, `_LAST_CALL`): 프로세스 전역이 아니라 자격 지문(`credential_key`) 단위로 분리해 한 계정의 BYOK 호출·백오프가 관리자나 다른 계정의 호출을 막지 않게 한다(Rev. 2.3)
+- `get_lowest_effort_provider`: Google Gemini(`gemini`) 기준 저비용 모델을 고르며 폐기된 `host-cli` 후보는 사용하지 않는다(`AED8`)
+- `GeminiProvider` 호출 간격·재시도 직렬화 상태(`_CALL_LOCK`, `_LAST_CALL`): 프로세스 전역이 아니라 자격 지문(`credential_key`) 단위로 분리해 한 계정의 BYOK 호출·백오프가 관리자나 다른 계정의 호출을 막지 않게 한다(Rev. 2.3)
 - `IngestServicePool`: 테마별 서비스가 계정 컨텍스트의 프로바이더를 쓰도록 캐시 키를 바꾼다
 - recover·refresh·expand 루프: 테마를 소유한 계정의 컨텍스트로 실행한다. 정지·삭제 중인 계정의 테마는 건너뛴다
 
-**폴백 없음**: 멤버 키가 거부되거나 할당량이 소진되면 실패한다. 서버 등급이나 CLI로 바꾸지 않는다(C2). 화면에는 원인과 복구 방법을 보여 준다.
+**폴백 없음**: 멤버 키가 거부되거나 할당량이 소진되면 실패한다. 서버 등급 등으로 몰래 바꾸지 않는다(C2). 화면에는 원인과 복구 방법을 보여 준다.
 
 ### 10.3 서버 등급 (관리자가 정의하는 수준)
 
 | 항목 | 의미 | 기본값 |
 | :--- | :--- | :--- |
-| `provider`, `model` | 키 없는 멤버가 쓰는 프로바이더(`api-key` 분류만) 또는 `none` | `none` (D6) |
+| `provider`, `model` | 키 없는 멤버가 쓰는 프로바이더(`gemini`) 또는 `none` | `none` (D6) |
 | `monthly_tokens` | 월 LLM 토큰 상한 | 0 |
 | `daily_ingests` | 하루 적재 건수 | 20 |
 | `max_effort` | 허용하는 최대 effort | `low` |
@@ -715,8 +716,10 @@ class RouteRule:
 
 ### 10.4 임베딩
 
-- 임베딩 공간은 테마마다 고정한다. `themes` 테이블에 `embed_provider`·`embed_model` 열을 두고(§13.2), `VectorStore.search`가 테마의 고정 `embed_model`과 일치하는 `embeddings.model` 행만 조회해 다른 모델의 벡터를 절대 섞지 않게 한다(Rev. 2.3).
-- 키나 프로바이더를 바꾸면 화면에 re-embed가 필요하다고 표시한다.
+- **Google 전용 정책 (`AED6`)**: 운영 환경의 임베딩은 Google Gemini Embedding만 사용하며 잠정 선택지는 최신 Gemini Embedding 모델(`gemini-embedding-2`, MRL 차원 고정 및 `< 3072` 자동 정규화)이다. 기존 `gemini-embedding-001` 테마는 공식 종료일(2028-05-14) 이전에 Shadow Backfill + Dual-Embed(`AED7`)로 이관하며, 지원·이관 상세 계획(`AE6a`–`AE6d`)은 [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7.3을 따른다. OpenAI·로컬 모델·호스트 CLI 의사 임베딩 등 비-Google 고려사항은 모두 제외한다.
+- 임베딩 공간은 테마마다 고정한다. `themes` 테이블에 `embed_provider`·`embed_model`(장기 EOS 수명주기 도입 후 `active_space_id`·`target_space_id`) 열을 두고(§13.2), `VectorStore.search`가 테마의 활성 임베딩 공간과 일치하는 `embeddings.model` 행만 조회해 다른 모델의 벡터를 절대 섞지 않게 한다(Rev. 2.3).
+- **장기 모델 EOS(End-of-Support) 전환 (`AED7`)**: 새 Gemini Embedding 세대로 전환할 때는 비차단 Shadow Backfill을 수행하며, 유입되는 공유 KB 기여는 `active` 공간이 아직 EOS 상태가 아닐 때 `active`와 `target` 양쪽 공간에 Dual-Embed하고(`active`가 이미 EOS면 `target`에만 임베딩), 100% 완료 후 원자적으로 컷오버한다([`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §7).
+- Google 키가 없거나 모델이 EOS 되어 임베딩을 만들 수 없으면 의사 벡터로 폴백하지 않고 실패 처리·명시적 FTS 저하(`C2`)와 함께 화면에 re-embed 필요 상태를 표시한다.
 - 검색 질의 임베딩은 네임스페이스 소유자의 요청에서만 만든다. 그 밖의 요청은 FTS다(§9.2).
 
 ---
@@ -751,7 +754,7 @@ class RouteRule:
 | 백업 (`./cb-manuscript backup`) | `data/auth/auth.db`는 라이브 WAL 손상을 막기 위해 파일 단순 복사가 아니라 `claire.db`와 같이 SQLite 온라인 백업 API(`sqlite3.Connection.backup`)로 스냅샷해 담고, `data/auth/master.key`는 백업 아카이브에서 제외하며 별도 보관 지침을 출력한다(Rev. 2.3) |
 | 텔레메트리 | 키와 fingerprint 모두 넣지 않는다 |
 | CLI | `claire`에 키를 출력하는 명령을 두지 않는다 |
-| 하위 프로세스 | 멤버 키는 `host-cli`에 쓰이지 않으므로 환경변수로 넘길 일이 없다. 이 성질을 테스트로 고정한다 |
+| 하위 프로세스 | 서버는 `host-cli` 서브프로세스를 실행하지 않으므로(`AED8`) 어떤 계정 키도 외부 CLI 환경변수로 넘기지 않는다 |
 
 ### 11.4 위협 모델
 
@@ -1045,7 +1048,7 @@ CREATE TABLE admin_audit (
 | **P1** 계정 코어 (싱글 모드) | v15 스키마와 이관, `claire/ids.py`(시간 정렬 번호 생성기), `AccountStore`, USERNAME 정책, `auth.db`와 scrypt, `Principal`, 기존 자격증명의 관리자 매핑, `/setup`, `/login`·`/logout`, 단계 인증, `/admin/accounts`(싱글 화면), `/me` 최소판 | 업그레이드 뒤 기존 API·MCP·텔레그램 무중단. 설정 흐름 E2E. USERNAME 불변 트리거 테스트 |
 | **P2** URI 네임스페이스와 호스트 | `HostRouter`(`GateMiddleware` 제거 포함)와 역할 호스트 검증(`CLAIRE_SITE_DOMAIN`, 개발 포트 매핑), `__Host-` 쿠키(쿠키 토싱 방어·직접 쿠키 조회 일원화), 레거시 호스트 308(활성화 기산·연장 설정), CORS 테마 origin 제거, 2단계 Namespace 미들웨어(`PrefixParser` + `NamespaceResolver`), `RouteRule.surface`(`root` 포함)·`modes`·경로 매개변수 키, 경로 정규화(`b"?"` 분리), v16 테마 번호(하한 고정·`CLAIRE_MULTI_THEME=0` DB 일원화), `/themes` 컬렉션과 응답 형식 협상, `/themes/{번호}` 고정과 해석기, 링크 생성과 계정 홈 리다이렉트, WebUI `apiBase`/`rootBase`·문자열 ID·`localStorage` 분리, 모드 설정과 전환 화면 | 싱글 모드 동작이 현재와 같음. USERNAME 비노출 테스트(S9). 네임스페이스·번호·컬렉션 계약 테스트 |
 | **P3** 네트워크 모드 계정 | 비밀 서비스(`cryptography`, 마스터 키)와 백업 무결성(`auth.db` 온라인 스냅샷·`master.key` 제외). 초대(§8.8). 계정 수명주기·디스크 가비지 컬렉션·퇴역 정보 초기화(§8.9). 계정별 기본 테마(`theme.is_default` 일원화)와 테마 CRUD 범위. 권한 행렬과 번들 경계(`graph_bundle` 테마 범위·PK 충돌 방지, `support_bundle` 비관리자 본문 차단). 계정별 토큰(`/tokens` `any` 표면)·OAuth 2.1(`account_id` 바인딩·`same_origin`·`redirect_uri` 검증)·MCP(`ContextVar[Principal]`·`readonly`) 격리. 백그라운드 루프와 서비스 풀의 계정 컨텍스트. 공용 파일 상태 필터. `/explore/accounts`와 네트워크 모드 `/`(D4, 상단 진입점·빈 상태 화면). usercontent origin과 `static`·`deck` 프로필 및 1시간 열람 토큰(S1) | ROUTE_POLICY에서 생성한 계정 격리 행렬 테스트 통과. 초대 동시성 테스트 통과 |
-| **P4** 프로바이더 정책과 BYOK | 프로바이더 분류, `ProviderContext`, 적용 지점 전부(프로바이더 호출 락의 자격 지문별 분리 포함), 서버 등급 화면과 UTC 월·일별 원장(`daily_ingests`), `/me/keys`, 테마별 임베딩 모델 고정(`VectorStore.search` 필터 포함) | 멤버가 어떤 경로로도 `host-cli`에 닿지 않음. 카나리아 키가 응답·로그·번들 어디에도 없음 |
+| **P4** 프로바이더 정책과 BYOK | 프로바이더 분류, `ProviderContext`, 적용 지점 전부(프로바이더 호출 락의 자격 지문별 분리 포함), 서버 등급 화면과 UTC 월·일별 원장(`daily_ingests`), `/me/keys`, 테마별 임베딩 모델 고정(`VectorStore.search` 필터 포함) | 멤버 격리 경계 및 카나리아 키가 응답·로그·번들 어디에도 없음 (`host-cli` 자체는 2026-11-20 `AED8`로 폐기 확정, 코드 제거 `AE8`) |
 | **P5** 외부 IdP | OIDC 코어(discovery, JWKS, PKCE, ID 토큰 검증), 초대에 묶인 가입(최종 제출 시 원자적 차감), 인증된 계정 연결 시작 경로(`POST /api/me/identities/oidc/{id}/start`), `/admin/idp`, GitHub 어댑터 | 가짜 IdP로 로그인·연결·초대 가입 시나리오 통과 |
 | **P6** Syndication 병합 기반 | `/syndication` 네임스페이스화와 인증, dispatch 계정 귀속, 연결 계정 토큰 암호화, 본문의 usercontent 렌더링, 프로토타입 패널 교체 | Syndication 2단계 설계를 이 경계 위에서 시작할 수 있음 |
 | **P7** 미디어 딜리버리 (후속, 선택) | `MediaStore` S3 호환 구현, media 호스트, 1시간 열람 capability 서명 URL(`Range` 지원), 렌더 단계 미디어 URL 변환, `visibility_epoch`·CDN 무효화 훅 | 공개·비공개 미디어 캐시 규칙 테스트 통과(§5.4) |
@@ -1182,7 +1185,7 @@ P3·P4·P5에서 `api/accounts_routes/` 패키지를 여러 레인이 고친다.
 | `tests/test_account_isolation_matrix.py` | `ROUTE_POLICY`에서 생성한 경로 × 주체 행렬(§9.2), `/tokens`·`graph_bundle`·`support_bundle`·OAuth·MCP 계정 경계 포함 |
 | `tests/test_invite_flow.py` | 코드 형식·정규화, 상한(5회·30일), 관리자 비활성화, 관리자 외 생성·비활성화 404, `GET`·`HEAD` 무부작용·`noindex`, `client_ip` 지연, 동시 사용, 계측 수치, 404·410, 싱글 모드 404, 보정 절차 |
 | `tests/test_username_release.py` | 정보 초기화 전 재사용 거부, 미리보기 기본, 디스크 아티팩트 정리, 단계 인증, 새 `account_id`, 410 표식 제거 |
-| `tests/test_provider_policy.py` | 멤버 컨텍스트의 팩토리·분류기·research·루프 어디서도 `host-cli`가 나오지 않음, 자격별 호출 락 비간섭, 테마 임베딩 모델 필터, UTC 월·일별 한도, 폴백 없음 |
+| `tests/test_provider_policy.py` | P4 정책 검증: 멤버 격리, 자격별 호출 락 비간섭, 테마 임베딩 모델 필터, UTC 월·일별 한도, 폴백 없음 (`host-cli` 레거시 경로 제거는 `AE8`) |
 | `tests/test_secret_write_only.py` | 카나리아 키가 모든 응답·로그·번들·백업(`master.key` 제외, `auth.db` 온라인 백업)에 없음, AAD 교차 복호화 실패 |
 | `tests/test_oidc_flow.py` | 가짜 IdP로 state·nonce·PKCE·서명 검증, 인증 경로 계정 연결(`purpose='link'`), 최종 제출 시 초대 원자적 차감, 미연결 신원 안내 |
 
