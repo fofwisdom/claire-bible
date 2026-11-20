@@ -109,7 +109,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert "admin-personal-cli-host" not in admin_keys_html.text
         client.cookies.clear()
 
-        # 1. Admin configures Google AI Studio key, 3.8 baseline, separated summarize slot, ServerTier, and JEV filter mode.
+        # 1. Admin configures Google AI Studio key, 3.8 baseline, separated summarize slot, and ServerTier. The old Jev mode keys have no effect (Jev is shadow only, owner decision 2026-11-20).
         patch_resp = client.patch(
             "/providers",
             headers=owner_headers,
@@ -144,7 +144,8 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         )
         assert patch_resp.status_code == 200, patch_resp.text
         cfg = patch_resp.json()["config"]
-        assert cfg["providers"]["jev"]["mode"] == "filter"
+        assert not {"mode", "filter_threshold", "auto_merge_threshold"} & set(cfg["providers"]["jev"])
+        assert cfg["lineage_summary"]["jev"]["role"] == "shadow"
         assert cfg["feature_routing"]["summarize"]["model"] == "gemini-4-argon"
         assert cfg["server_tier"]["provider"] == "gemini"
         assert cfg["server_tier"]["model"] == "gemini-3.8-flash"

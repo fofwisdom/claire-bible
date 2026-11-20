@@ -1,10 +1,10 @@
 """Review evidence export for graph bundles.
 
-A System 1 decision engine (TypeSafe AI Jev) is still under adoption review, so Jev never decides.
-The review is verified against the current resolution pipeline instead: this module copies that
-pipeline's own decision evidence into review_* tables of graph_export.db so that a candidate engine
-can be replayed offline against it. When Jev shadow evaluation is enabled, its per-candidate
-probabilities recorded next to the pipeline's own outcomes are flattened into review_shadow_pairs.
+A System 1 decision engine (TypeSafe AI Jev) has only the shadow role: it never decides (owner decision 2026-11-20).
+From 2026-11-16 to 2026-11-18 a filter mode was in use; records of that time stay in the bundle with jev_role "filter".
+This module copies the decision evidence of the resolution pipeline into review_* tables of graph_export.db so that a
+candidate engine can be replayed offline against it. Jev probabilities recorded next to the pipeline's own outcomes are
+flattened into review_shadow_pairs.
 Raw embedding vectors and secrets stay out of the bundle.
 See docs/design/GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md and docs/design/JEV_SHADOW_EVALUATION_DESIGN.md.
 """
@@ -30,9 +30,11 @@ from .store.vectors import looks_like_hash_fallback, unpack_vector
 
 logger = logging.getLogger(__name__)
 
-REVIEW_SCHEMA_VERSION = 2
+REVIEW_SCHEMA_VERSION = 3
 SHADOW_AGREEMENT_THRESHOLDS = (0.5, 0.9)
 LLM_VERDICT_OUTCOMES = {"judge_same": True, "judge_different": False}
+# Candidate outcomes that only a filter-mode decision gave (2026-11-16 to 2026-11-18). A record without "role" and with one of these is a filter-mode record.
+FILTER_MODE_OUTCOMES = frozenset({"jev_filtered", "jev_hybrid_auto_merge"})
 # Heatmaps labelled "jev" before the shadow client existed came from a local difflib stub; no Jev call was made
 HEATMAP_GENERATOR_NOTES = {
     "jev": "legacy local stub (difflib + recorded decisions); no Jev API call was made, not Jev evidence",
@@ -113,6 +115,9 @@ CREATE TABLE review_shadow_pairs (
     final_stage TEXT,
     final_decision TEXT,
     merged INTEGER NOT NULL,
+    decided_at REAL,
+    jev_role TEXT,
+    jev_latency_ms REAL,
     PRIMARY KEY (document_id, seq, candidate_id)
 );
 CREATE INDEX idx_review_decisions_stage ON review_decisions(stage);
@@ -227,6 +232,7 @@ def _export_decisions_and_heatmaps(
     with_candidates = 0
     outcomes: Counter[str] = Counter()
     generators: Counter[str] = Counter()
+    judge_ms: list[float] = []
 
     cursor = source_conn.execute(
         "SELECT id, meta FROM documents "
@@ -253,6 +259,10 @@ def _export_decisions_and_heatmaps(
                     with_candidates += 1
                     outcomes.update(
                         str(c.get("outcome")) for c in candidates if isinstance(c, dict)
+                    )
+                    judge_ms.extend(
+                        float(c["judge_ms"]) for c in candidates
+                        if isinstance(c, dict) and c.get("outcome") in LLM_VERDICT_OUTCOMES and isinstance(c.get("judge_ms"), (int, float))
                     )
                 decision_rows.append((
                     row["id"],
@@ -296,7 +306,7 @@ def _export_decisions_and_heatmaps(
         decision_rows,
     )
     export_conn.executemany(
-        "INSERT OR IGNORE INTO review_shadow_pairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO review_shadow_pairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         shadow_rows,
     )
     export_conn.executemany(
@@ -309,6 +319,12 @@ def _export_decisions_and_heatmaps(
         "decisions": len(decision_rows),
         "decisions_with_candidates": with_candidates,
         "candidate_outcomes": dict(sorted(outcomes.items())),
+        # judge_ms of the candidate trace covers every provider; review_judge_calls has only the providers that write telemetry rows
+        "judge_latency_from_trace": {
+            "judged_candidates": len(judge_ms),
+            "ms_p50": _percentile(judge_ms, 0.50),
+            "ms_p95": _percentile(judge_ms, 0.95),
+        },
         "heatmaps": len(heatmap_rows),
         "heatmaps_by_generator": dict(sorted(generators.items())),
         "heatmap_generator_notes": {g: HEATMAP_GENERATOR_NOTES[g] for g in generators if g in HEATMAP_GENERATOR_NOTES},
@@ -326,6 +342,7 @@ def _shadow_pair_rows(
     """One row per traced candidate of a decision that carries a Jev shadow record."""
     snapshot = item.get("input_snapshot") if isinstance(item.get("input_snapshot"), dict) else {}
     merged_id = item.get("target_entity_id") if item.get("decision") == "MERGE" else None
+    role = _shadow_role(shadow, candidates)
     rows: list[tuple[Any, ...]] = []
     for cand in candidates:
         if not isinstance(cand, dict) or not cand.get("id"):
@@ -348,8 +365,21 @@ def _shadow_pair_rows(
             item.get("stage"),
             item.get("decision"),
             int(merged_id is not None and merged_id == cand["id"]),
+            _float_or_none(item.get("timestamp")),
+            role,
+            _float_or_none(shadow.get("latency_ms")),
         ))
     return rows
+
+
+def _shadow_role(shadow: dict[str, Any], candidates: list[Any]) -> str:
+    """The role of Jev in one decision: the recorded role, else "filter" for a filter-mode outcome, else "unrecorded"."""
+    recorded = shadow.get("role")
+    if isinstance(recorded, str) and recorded:
+        return recorded
+    if any(isinstance(c, dict) and c.get("outcome") in FILTER_MODE_OUTCOMES for c in candidates):
+        return "filter"
+    return "unrecorded"
 
 
 def _shadow_summary(metas: list[dict[str, Any]], rows: list[tuple[Any, ...]]) -> dict[str, Any]:
@@ -362,6 +392,12 @@ def _shadow_summary(metas: list[dict[str, Any]], rows: list[tuple[Any, ...]]) ->
     ]
     tokens = [m["input_tokens"] for m in metas if isinstance(m.get("input_tokens"), int)]
     scored = [(r[9], r[11]) for r in rows if r[11] is not None]
+    roles: Counter[str] = Counter()
+    seen_decisions: set[tuple[Any, Any]] = set()
+    for r in rows:
+        if (r[0], r[1]) not in seen_decisions:
+            seen_decisions.add((r[0], r[1]))
+            roles[str(r[18])] += 1
 
     agreement: dict[str, dict[str, int]] = {}
     for threshold in SHADOW_AGREEMENT_THRESHOLDS:
@@ -386,6 +422,7 @@ def _shadow_summary(metas: list[dict[str, Any]], rows: list[tuple[Any, ...]]) ->
         "engine": "jev",
         "role": "shadow (no decision authority)",
         "decisions_with_shadow": len(metas),
+        "decisions_by_role": dict(sorted(roles.items())),
         "by_status": dict(sorted(Counter(str(m.get("status")) for m in metas).items())),
         "models": dict(sorted(Counter(str(m.get("model")) for m in metas if m.get("model")).items())),
         "latency_ms_p50": _percentile(latencies, 0.50),
@@ -608,6 +645,7 @@ def _export_judge_calls(
             call_type: _latency_aggregate(samples) for call_type, samples in sorted(unattributed.items())
         },
         "retention_note": "telemetry.db keeps roughly 30 days",
+        "coverage_note": "only providers that write telemetry rows (host CLI providers) give rows; the judge latency of every provider is in coverage.judge_latency_from_trace",
     }
 
 

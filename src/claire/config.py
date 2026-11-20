@@ -513,7 +513,7 @@ class Settings(BaseSettings):
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")
 
-    # --- TypeSafe AI Jev (System 1 entity resolution filter / hybrid / shadow) ---
+    # --- TypeSafe AI Jev (System 1 entity resolution, shadow evaluation only) ---
     enable_jev: bool = Field(default=False, alias="CLAIRE_ENABLE_JEV")
     jev_api_key: str | None = Field(default=None, alias="CLAIRE_JEV_API_KEY")
     jev_base_url: str = Field(
@@ -521,9 +521,6 @@ class Settings(BaseSettings):
     )
     jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
     jev_model: str = Field(default="jev-latest")
-    jev_mode: str = Field(default="shadow")
-    jev_filter_threshold: float = Field(default=0.20)
-    jev_auto_merge_threshold: float = Field(default=0.90)
 
     # --- Antigravity CLI (agy) ---
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")

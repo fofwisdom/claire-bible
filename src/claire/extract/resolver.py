@@ -287,9 +287,6 @@ def resolve_or_create(
     kb_id: int = 0,
     embed_model: str | None = None,
     embed_provider: str | None = None,
-    jev_mode: str = "shadow",
-    jev_filter_threshold: float = 0.20,
-    jev_auto_merge_threshold: float = 0.90,
 ) -> ResolutionResult:
     """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
 
@@ -384,17 +381,16 @@ def resolve_or_create(
     # 병합이 후보를 변경하기 전 상태로 미리 읽는다: Jev shadow 입력이 병합 결과를 보지 않게 하기 위함
     loaded = {owner_id: dbm.get_entity(conn, owner_id, kb_id=kb_id) for owner_id, _ in ordered}
     shadow_call = None
-    if jev_mode == "shadow" and shadow is not None and any(loaded.values()):
+    if shadow is not None and any(loaded.values()):
         shadow_call = shadow.submit(
             entity_snapshot(name, etype, aliases, observations),
             [(oid, snapshot_of(c)) for oid, c in loaded.items() if c is not None],
         )
 
-    pre_shadow: dict[str, Any] | None = None
-    pre_noul: dict[str, float] = {}
 
     def _finish(dec: ResolutionDecision, rest: list[tuple[str, float]]) -> ResolutionDecision:
-        trace.extend(_trace_entry(oid, sc, oid in vector_ids, "not_reached") for oid, sc in rest)
+        # The pre-merge state keeps name and type, so that a review record names each candidate (loaded is read before the loop)
+        trace.extend(_trace_entry(oid, sc, oid in vector_ids, "not_reached", loaded.get(oid)) for oid, sc in rest)
         if trace:
             dec.candidates = trace
             dec.input_snapshot = {
@@ -419,14 +415,9 @@ def resolve_or_create(
             for entry in trace:
                 if entry["id"] in noul:
                     entry["jev_noul"] = noul[entry["id"]]
-        elif pre_shadow is not None:
-            dec.shadow = pre_shadow
-            for entry in trace:
-                if entry["id"] in pre_noul:
-                    entry["jev_noul"] = pre_noul[entry["id"]]
         return dec
 
-    # Evaluate Gate 2 (ontology invariants) and Gate 3 (tier_auto merge) before JEV in filter/hybrid modes.
+    # Gate 2 (ontology invariants) and Gate 3 (tier_auto merge) for all candidates, then Gate 4 for the borderline candidates.
     borderline_ordered: list[tuple[str, float]] = []
     for idx, (owner_id, score) in enumerate(ordered):
         cand = loaded.get(owner_id)
@@ -459,44 +450,11 @@ def resolve_or_create(
 
         borderline_ordered.append((owner_id, score))
 
-    hybrid_unambiguous_winner: str | None = None
-    if jev_mode in ("filter", "hybrid") and shadow is not None and borderline_ordered:
-        b_call = shadow.submit(
-            entity_snapshot(name, etype, aliases, observations),
-            [(oid, snapshot_of(loaded[oid])) for oid, _ in borderline_ordered if loaded.get(oid) is not None],
-        )
-        pre_shadow, pre_noul = shadow.collect(b_call)
-        if pre_shadow.get("status") == "ok" and pre_noul:
-            borderline_ordered = sorted(borderline_ordered, key=lambda kv: (-float(pre_noul.get(kv[0], -1.0)), -kv[1], kv[0]))
-            if jev_mode == "hybrid":
-                scored_b = sorted([(float(pre_noul[oid]), oid) for oid, _ in borderline_ordered if oid in pre_noul], reverse=True)
-                if scored_b and scored_b[0][0] >= jev_auto_merge_threshold:
-                    top_score, top_oid = scored_b[0]
-                    second_score = scored_b[1][0] if len(scored_b) > 1 else 0.0
-                    if second_score < 0.50 and (top_score - second_score) >= 0.40:
-                        hybrid_unambiguous_winner = top_oid
-                    else:
-                        pre_shadow["hybrid_ambiguous_to_llm"] = True
-
     for idx, (owner_id, score) in enumerate(borderline_ordered):
         cand = loaded.get(owner_id)
         if cand is None:
             continue
         from_vector = owner_id in vector_ids
-
-        # Gate 4: borderline -> apply JEV filter/hybrid rules before System 2 LLM judge.
-        jev_score = pre_noul.get(owner_id) if pre_shadow is not None and pre_shadow.get("status") == "ok" else None
-        if jev_mode == "hybrid" and owner_id == hybrid_unambiguous_winner and jev_score is not None:
-            trace.append(_trace_entry(owner_id, score, from_vector, "jev_hybrid_auto_merge", cand))
-            cand_m, dec = _execute_reversible_merge(conn, cand, name, aliases + [name], observations, document_id, new_type=etype, stage="jev_hybrid_auto_merge", score=jev_score, reason=f"JEV noul {jev_score:.4f} >= auto-merge threshold {jev_auto_merge_threshold} (unambiguous top winner)", kb_id=kb_id)
-            return ResolutionResult(cand_m, False, relational_candidates, multihop_candidates, decision=_finish(dec, borderline_ordered[idx + 1:]))
-        if jev_mode in ("filter", "hybrid") and jev_score is not None and jev_score < jev_filter_threshold:
-            trace.append(_trace_entry(owner_id, score, from_vector, "jev_filtered", cand))
-            if score >= tier_relational:
-                relational_candidates.append((owner_id, score))
-            elif score >= tier_multihop:
-                multihop_candidates.append((owner_id, score))
-            continue
 
         # Gate 4: 경계선(borderline) → System 2 LLM judge (게이팅)
         if judge_fn is not None and judged < MAX_JUDGE:

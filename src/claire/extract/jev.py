@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_JEV_MODEL = "jev-latest"
 SHADOW_ENGINE = "jev"
+# Jev has no decision role (owner decision 2026-11-20). Each record says so, so that a bundle can tell these records from the filter-mode records of 2026-11-16 to 2026-11-18.
+SHADOW_ROLE = "shadow"
 SHADOW_MAX_CANDIDATES = 24
 SNAPSHOT_MAX_ALIASES = 10
 SNAPSHOT_MAX_OBSERVATIONS = 6
@@ -224,6 +226,7 @@ class JevShadow:
         """(결정 단위 shadow 메타, {후보 ID: noul}). 어떤 실패도 예외로 올리지 않는다."""
         meta: dict[str, Any] = {
             "engine": SHADOW_ENGINE,
+            "role": SHADOW_ROLE,
             "requested_model": self.client.model,
             "questions": len(call.keys),
         }
@@ -273,14 +276,14 @@ def _shared_executor() -> concurrent.futures.ThreadPoolExecutor:
 
 
 def make_jev_shadow(settings: Any) -> JevShadow | None:
-    """enable_jev 와 API 키가 모두 있을 때만 shadow 평가기를 돌려준다. 회로 차단 상태 유지를 위해 설정별로 재사용.
+    """Return the shadow evaluator only when enable_jev and an API key are both set. One evaluator for each setting keeps the circuit state.
 
-    Jev 평가는 관리자 전용이다(설계 §10.1). 멤버 컨텍스트면 None.
+    Jev evaluation is for the server administrator account only (design decision 9): the server credentials context and the personal key context of the administrator (owner decision 2026-11-20). A member context gets None.
     """
     from ..accounts.provider_policy import context_of
 
     ctx = context_of(settings)
-    if ctx is not None and not ctx.is_admin:
+    if ctx is not None and not (ctx.is_admin or ctx.server_admin):
         return None
     if not bool(getattr(settings, "enable_jev", False)):
         return None

@@ -1046,7 +1046,7 @@ def extract_resolve_store(
 
     from ..extract.jev import make_jev_shadow
 
-    # Jev 는 도입 검토 단계: 판정 권한 없이 같은 후보를 동시 평가해 기록만 남긴다 (JEV_SHADOW_EVALUATION_DESIGN.md)
+    # Jev has no decision role: it scores the same candidates at the same time and only records the result (JEV_SHADOW_EVALUATION_DESIGN.md, owner decision 2026-11-20)
     jev_shadow = make_jev_shadow(settings)
     embed_pin = resolve_embed_identity(provider, settings)
     has_embed = provider.has_embed_capability() if hasattr(provider, "has_embed_capability") else (getattr(provider, "name", "") not in ("codex", "antigravity") or bool(getattr(getattr(provider, "settings", settings), "gemini_api_key", "")))
@@ -1085,9 +1085,6 @@ def extract_resolve_store(
             if on_progress:
                 on_progress("엔티티 LLM 동일체 판정", f"[{idx_e}/{total_entities}] '{name1}' ↔ '{name2}'")
 
-        jev_mode = str(getattr(settings, "jev_mode", "shadow") or "shadow").strip().lower()
-        jev_filter_th = float(getattr(settings, "jev_filter_threshold", 0.20) or 0.20)
-        jev_auto_th = float(getattr(settings, "jev_auto_merge_threshold", 0.90) or 0.90)
         res = resolve_or_create(
             conn, vstore,
             name=ee.name, etype=etype, aliases=ee.aliases,
@@ -1097,9 +1094,6 @@ def extract_resolve_store(
             kb_id=tid,
             embed_model=embed_pin.model,
             embed_provider=embed_pin.provider,
-            jev_mode=jev_mode,
-            jev_filter_threshold=jev_filter_th,
-            jev_auto_merge_threshold=jev_auto_th,
         )
         ent, created = res.entity, res.created
         resolution_results.append(res)
@@ -1330,19 +1324,12 @@ def extract_resolve_store(
             if judge_cands:
                 lineage.record_stage(stage="entity_judge", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=sum(float(c.get("judge_ms") or 0.0) for c in judge_cands))
     if decisions:
-        all_cands = [c for d in decisions for c in (getattr(d, "candidates", None) or [])]
-        filtered_cnt = sum(1 for c in all_cands if c.get("outcome") == "jev_filtered")
-        auto_cnt = sum(1 for c in all_cands if c.get("outcome") == "jev_hybrid_auto_merge")
         shadows = [getattr(d, "shadow", None) for d in decisions if getattr(d, "shadow", None)]
         last_shadow = shadows[-1] if shadows else {}
         lineage.set_jev({
             "enabled": bool(jev_shadow is not None),
-            "mode": str(getattr(settings, "jev_mode", "shadow") or "shadow"),
-            "filter_threshold": float(getattr(settings, "jev_filter_threshold", 0.20) or 0.20),
-            "auto_merge_threshold": float(getattr(settings, "jev_auto_merge_threshold", 0.90) or 0.90),
+            "role": "shadow",
             "evaluated": len(shadows),
-            "filtered_count": filtered_cnt,
-            "hybrid_auto_merged_count": auto_cnt,
             "status": last_shadow.get("status", "disabled" if jev_shadow is None else "idle"),
             "model": last_shadow.get("model", getattr(settings, "jev_model", "")),
         })

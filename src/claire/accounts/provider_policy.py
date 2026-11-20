@@ -486,7 +486,8 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
     """``settings`` 사본에 컨텍스트를 입힌다. 기존 팩토리(``get_provider`` 등)가 이 사본만 받아도 정책을 지키게 한다.
 
     멤버 컨텍스트 사본: ``provider``·``gemini_api_key``·``gemini_model``·``gemini_embed_model``·effort를 컨텍스트 값으로,
-    ``enable_jev=False``, STT·VLM 프로바이더는 해당 기능이 허용될 때만 ``gemini`` 아니면 사용 불가, ``provider_context=ctx``.
+    ``enable_jev=False`` (서버 관리자 계정의 개인 키 컨텍스트는 서버 Jev 설정을 유지한다: Jev shadow, owner decision 2026-11-20),
+    STT·VLM 프로바이더는 해당 기능이 허용될 때만 ``gemini`` 아니면 사용 불가, ``provider_context=ctx``.
     관리자 컨텍스트는 ``provider_context=ctx``만 붙인다.
     """
     if ctx.is_admin:
@@ -505,8 +506,6 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
         "gemini_model": ctx.model,
         "gemini_embed_model": ctx.embed_model,
         "gemini_effort": effort,
-        "enable_jev": False,
-        "jev_api_key": None,
         "telegram_bot_token": "",
         "stt_provider": "gemini" if stt_ok else "none",
         "vlm_provider": "gemini" if vlm_ok else "none",
@@ -515,6 +514,10 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
         "presentation_enabled": bool(getattr(settings, "presentation_enabled", False))
         and ctx.feature_allowed("presentation"),
     }
+    if not ctx.server_admin:
+        # Jev shadow is for the server administrator account only (design decision 9): member data never goes to Jev.
+        update["enable_jev"] = False
+        update["jev_api_key"] = None
     if ctx.source == "byok" and ctx.feature_models:
         update["feature_routing"] = {
             slot: dict(spec)

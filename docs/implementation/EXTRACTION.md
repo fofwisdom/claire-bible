@@ -117,7 +117,7 @@ A vector hit below the borderline limit goes to the relational or multi-hop list
 
 ### 4.6 Decision trace and Jev
 
-When there are candidates, the `ResolutionDecision` keeps a trace with one entry for each candidate (outcome, score, vector or FTS source, judge time), the input snapshot, and the gate parameters. The Jev client (`src/claire/extract/jev.py`) can score the same candidates. In `shadow` mode it only records. In `filter` and `hybrid` modes it can drop a borderline candidate below `jev_filter_threshold`, and `hybrid` can merge one clear winner at or above `jev_auto_merge_threshold`. [code]
+When there are candidates, the `ResolutionDecision` keeps a trace with one entry for each candidate (outcome, score, vector or FTS source, judge time), the input snapshot, and the gate parameters. The Jev client (`src/claire/extract/jev.py`) can score the same candidates. It only records (shadow role); it never changes a decision (owner decision 2026-11-20, [GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5). [code]
 
 ## 5. Embeddings and vector search
 

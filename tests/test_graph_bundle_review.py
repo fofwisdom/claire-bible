@@ -209,7 +209,7 @@ def test_manifest_v2_and_checksum_cover_review_tables(exported: dict[str, Any]) 
     manifest = exported["manifest"]
     assert manifest["bundle_version"] == 4
     review = manifest["review"]
-    assert review["schema_version"] == 2
+    assert review["schema_version"] == 3
     assert review["shadow_decisions"] == 1
     assert review["shadow_pairs_scored"] == 2
     assert review["decisions"] == 2
@@ -264,6 +264,11 @@ def test_shadow_pairs_flattened_with_agreement(exported: dict[str, Any]) -> None
     assert podman["jev_status"] == "ok" and podman["jev_model"] == "jev-1.14.0"
     assert podman["final_decision"] == "CREATE_NEW" and podman["merged"] == 0
     assert rows[ids["d"]]["vector_score"] is None
+    # Schema 3: decision time, the role of Jev in the decision, and the Jev latency on each row
+    assert podman["jev_latency_ms"] == pytest.approx(180.5)
+    assert podman["jev_role"] == "unrecorded"  # the fixture record is older than the "role" field
+    decided = conn.execute("SELECT timestamp FROM review_decisions WHERE document_id=? AND seq=?", (podman["document_id"], podman["seq"])).fetchone()
+    assert podman["decided_at"] == decided["timestamp"]
 
     shadow = _meta(conn, "shadow")
     assert shadow["status"] == "ok"
@@ -273,6 +278,9 @@ def test_shadow_pairs_flattened_with_agreement(exported: dict[str, Any]) -> None
     assert shadow["latency_ms_p50"] == 180.5
     assert shadow["input_tokens_total"] == 410
     assert shadow["pairs_scored"] == 2
+    assert shadow["decisions_by_role"] == {"unrecorded": 1}
+    # The judge latency comes from the candidate trace, so it covers providers without telemetry rows
+    assert _meta(conn, "coverage")["judge_latency_from_trace"] == {"judged_candidates": 1, "ms_p50": 1250.0, "ms_p95": 1250.0}
     # Only System 2 verdicts enter the agreement matrix; the threshold moves the cell
     assert shadow["agreement_with_llm_judge"] == {
         "0.5": {"jev_same_llm_different": 1},
@@ -428,3 +436,12 @@ def test_looks_like_hash_fallback() -> None:
     assert looks_like_hash_fallback(_unit([float(i % 7) - 3.0 for i in range(64)])) is False
     assert looks_like_hash_fallback([0.5] * 32) is False
     assert looks_like_hash_fallback(None) is False
+
+
+def test_shadow_role_of_a_decision() -> None:
+    """A recorded role wins; an old record with a filter-mode outcome is a filter record; else the role is unrecorded."""
+    from claire.graph_bundle_review import _shadow_role
+
+    assert _shadow_role({"role": "shadow"}, [{"outcome": "jev_filtered"}]) == "shadow"
+    assert _shadow_role({}, [{"outcome": "judge_different"}, {"outcome": "jev_filtered"}]) == "filter"
+    assert _shadow_role({}, [{"outcome": "judge_different"}]) == "unrecorded"

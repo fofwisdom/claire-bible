@@ -1,6 +1,6 @@
 # Graph Bundles, Resolution Decision Data, Review Evidence, and Jev Evaluation
 
-Basis: commit d15ae8e0 (2026-11-16) · Readers: agents that change entity resolution records, the graph bundle, the heatmap, the decision stream, or the TypeSafe AI Jev integration · Design principles: [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](../design/GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
+Basis: commit d15ae8e0 (2026-11-16); §5 and §6.2: the commit that makes Jev shadow only (2026-11-20) · Readers: agents that change entity resolution records, the graph bundle, the heatmap, the decision stream, or the TypeSafe AI Jev integration · Design principles: [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](../design/GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
 
 This document tells what the code does now. Anchors are file paths and symbol names, not line numbers. Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: [code], [measured], [decision], [unverified].
 
@@ -29,7 +29,7 @@ This document tells what the code does now. Anchors are file paths and symbol na
 
 - One `ResolutionDecision` for each resolved entity. `attach_resolution_meta` writes the list to `documents.meta["resolution_log"]` and sets `documents.meta["has_decision_stream"]`. There is no separate table.
 - Fields: `entity`, `stage`, `decision`, `candidate`, `score`, `reason`, `target_entity_id`, `source_entity_id`, `rollback_payload`, `timestamp`, and the optional review fields `candidates`, `input_snapshot`, `gate_params`, `shadow`.
-- `stage` values that the resolver writes: `exact_match`, `alias_match`, `acronym_match`, `high_confidence_vector`, `borderline_llm_judge`, `jev_hybrid_auto_merge`, `no_match`. `_merge` (old helper) writes `merge`.
+- `stage` values that the resolver writes: `exact_match`, `alias_match`, `acronym_match`, `high_confidence_vector`, `borderline_llm_judge`, `no_match`. `_merge` (old helper) writes `merge`. Old records can have `jev_hybrid_auto_merge` (removed mode, §5.4).
 - `decision` values: `MERGE`, `CREATE_NEW`. After a rollback, the route changes the stored item to `ROLLED_BACK` and adds `rolled_back: true`.
 
 ### 2.2 Gate order in `resolve_or_create` [code]
@@ -38,9 +38,8 @@ This document tells what the code does now. Anchors are file paths and symbol na
 2. Candidate collection: one embedding, vector search (limit 16) and FTS (limit 8). Vector hits at or above the borderline threshold are candidates. Lower hits go to the relational or multi-hop candidate lists. FTS hits have no cosine score.
 3. Gate 2: `passes_hard_invariants` rejects a candidate (outcome `invariant_reject`).
 4. Gate 3: score at or above the auto threshold merges (outcome `auto_merge`, stage `high_confidence_vector`).
-5. Optional Jev filter or hybrid step (Section 4.4).
-6. Gate 4: the System 2 judge, at most `MAX_JUDGE = 3` calls for each entity. `judge_same` merges (stage `borderline_llm_judge`). `judge_different` keeps the candidate as a relational candidate. Over the limit, the outcome is `judge_cap`. Without a judge function, the outcome is `no_judge`.
-7. No merge: a new entity, stage `no_match`, decision `CREATE_NEW`.
+5. Gate 4: the System 2 judge, at most `MAX_JUDGE = 3` calls for each entity. `judge_same` merges (stage `borderline_llm_judge`). `judge_different` keeps the candidate as a relational candidate. Over the limit, the outcome is `judge_cap`. Without a judge function, the outcome is `no_judge`.
+6. No merge: a new entity, stage `no_match`, decision `CREATE_NEW`.
 
 Thresholds come from settings `sim_tier_auto_merge` (0.93), `sim_tier_borderline` (0.72), `sim_tier_relational` (0.70), `sim_tier_multihop` (0.55), and `vector_adaptive_centering` (`_get_tier_thresholds`). Values in parentheses are the defaults in `src/claire/config.py`.
 
@@ -48,8 +47,8 @@ Thresholds come from settings `sim_tier_auto_merge` (0.93), `sim_tier_borderline
 
 When the candidate loop starts, `_finish` writes:
 
-- `candidates`: one entry for each candidate (at most 16 vector + 8 FTS). Keys: `id`, `origin` (`vector` or `fts`), `score` (`null` for FTS), `outcome`, `name`, `type`, `cand_obs_count`, `judge_ms` (judge calls only), `jev_noul` (when Jev answered). Candidates after the deciding one get `not_reached`.
-- Outcome values: `invariant_reject`, `auto_merge`, `jev_filtered`, `jev_hybrid_auto_merge`, `judge_same`, `judge_different`, `judge_cap`, `no_judge`, `not_reached`.
+- `candidates`: one entry for each candidate (at most 16 vector + 8 FTS). Keys: `id`, `origin` (`vector` or `fts`), `score` (`null` for FTS), `outcome`, `name`, `type`, `cand_obs_count`, `judge_ms` (judge calls only), `jev_noul` (when Jev answered). Candidates after the deciding one get `not_reached`; they keep `name` and `type` (before 2026-11-20 they had none).
+- Outcome values: `invariant_reject`, `auto_merge`, `judge_same`, `judge_different`, `judge_cap`, `no_judge`, `not_reached`. Old records can have `jev_filtered` and `jev_hybrid_auto_merge` (removed modes, §5.4).
 - `input_snapshot`: `name`, `type`, `aliases`, `observations`, `provisional` of the new entity.
 - `gate_params`: `auto`, `borderline`, `relational`, `max_judge`, `adaptive_center`, `embedding_dim`, `embedding_hash_fallback`.
 - A judge merge of an FTS-only candidate stores `score=None` and the reason "Judge confirmed SAME (FTS candidate, no vector score)".
@@ -89,7 +88,8 @@ When the candidate loop starts, `_finish` writes:
 
 ### 5.1 Activation [code]
 
-- `make_jev_shadow` returns an evaluator only when all are true: the provider context is an administrator (members get `None`), `enable_jev` is on, and `jev_api_key` is not empty. Settings: `CLAIRE_ENABLE_JEV`, `CLAIRE_JEV_API_KEY`, `CLAIRE_JEV_BASE_URL`, `CLAIRE_JEV_TIMEOUT` ([`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md)), and the `jev` block of `data/providers.json` (`enabled`, `api_key`, `base_url`, `timeout`, `model`, `mode`, `filter_threshold`, `auto_merge_threshold`; `ProviderManager`).
+- `make_jev_shadow` returns an evaluator only when all are true: the job is of the server administrator account (`is_admin` or `server_admin`: with the server credentials or with the personal key of the administrator; members get `None`), `enable_jev` is on, and `jev_api_key` is not empty. `settings_for_context` keeps the Jev settings only for a context with `server_admin=True`; a member copy has `enable_jev=False` and no Jev key. Settings: `CLAIRE_ENABLE_JEV`, `CLAIRE_JEV_API_KEY`, `CLAIRE_JEV_BASE_URL`, `CLAIRE_JEV_TIMEOUT` ([`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md)), and the `jev` block of `data/providers.json` (`enabled`, `api_key`, `base_url`, `timeout`, `model`; `ProviderManager`).
+- The old keys `mode`, `filter_threshold`, and `auto_merge_threshold` of the `jev` block (`RETIRED_JEV_KEYS`) have no effect: a stored value stays in the file, and a value in a `PATCH /providers` request is not stored. [decision] owner, 2026-11-20.
 - `jev_model` default `jev-latest`. The model is set only in the web UI ([`PROVIDERS.md`](PROVIDERS.md)).
 - One evaluator is kept for the current settings, thus the circuit state stays across documents.
 
@@ -103,21 +103,17 @@ When the candidate loop starts, `_finish` writes:
 - Calls run in a shared pool of 4 threads. The threads do HTTP only; they do not touch the database. `collect` waits at most `timeout + 1` s and never raises.
 - Jev calls are not written to `telemetry.db`. Latency and tokens are only in the decision record.
 
-### 5.3 Shadow mode (default, `jev_mode = "shadow"`) [code]
+### 5.3 Shadow role (the only role) [code]
 
 - The resolver reads all candidates before the loop, so that a merge does not change the Jev input.
-- It submits all candidates in one request before the loop, and collects the result in `_finish`. The call runs at the same time as the judge.
-- The result changes no decision. It goes to `decision.shadow` and `candidates[].jev_noul`.
+- It submits all candidates in one request before the loop (also the candidates that Gate 2 rejects later), and collects the result in `_finish`. The call runs at the same time as the judge.
+- The result changes no decision. It goes to `decision.shadow` (with `role: "shadow"`) and `candidates[].jev_noul`.
+- A candidate that the loop did not reach (`not_reached`) keeps its name and type in the trace (pre-merge state).
 
-### 5.4 Filter and hybrid modes [code]
+### 5.4 Removed filter and hybrid modes [decision]
 
-`ALLOWED_JEV_MODES = ("shadow", "filter", "hybrid")` (`src/claire/provider_manager.py`). The administrator console sets the mode.
-
-- The resolver calls Jev after Gate 2 and Gate 3, only for the borderline candidates, and waits for the answer before the judge.
-- With status `ok`, the borderline candidates are sorted by `noul` (high first).
-- Filter: a candidate with `noul < jev_filter_threshold` (default 0.20) gets outcome `jev_filtered` and no judge call.
-- Hybrid: the filter rule, plus an automatic merge (stage `jev_hybrid_auto_merge`, score = `noul`) when the top `noul` is at least `jev_auto_merge_threshold` (default 0.90), the second is below 0.50, and the gap is at least 0.40. Otherwise the record gets `hybrid_ambiguous_to_llm: true` and the judge decides.
-- In these modes, Jev does change decisions. The shadow-mode statement "Jev does not decide" is true only in shadow mode.
+- Owner decision 2026-11-20: Jev has no decision role, whatever the administrator selects. The filter and hybrid modes (2026-11-15) are removed from the code and from the console. Reason: the evaluation of 2026-11-20 ([`JEV_EVALUATION.md`](JEV_EVALUATION.md)) did not show the precision for a decision role.
+- [measured] The filter mode was used in production from 2026-11-16 to 2026-11-18. Records of that time keep the outcome `jev_filtered`; their `shadow` record has no `role`. The bundle gives them `jev_role = "filter"` (§6.2).
 
 ---
 
@@ -132,7 +128,7 @@ When the candidate loop starts, `_finish` writes:
 - The procedure that uses a bundle for graph checks in development mode: [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §11.2.
 - The review evidence has only the decisions and heatmaps of the exported documents (`_export_decisions_and_heatmaps`). The source database has the documents of all knowledge bases of the server, thus a document of another knowledge base never goes into the bundle.
 
-### 6.2 Review evidence tables (`REVIEW_SCHEMA_VERSION = 2`) [code]
+### 6.2 Review evidence tables (`REVIEW_SCHEMA_VERSION = 3`) [code]
 
 | Table | Content | Source |
 | :--- | :--- | :--- |
@@ -141,15 +137,16 @@ When the candidate loop starts, `_finish` writes:
 | `review_heatmaps` | `generated_by`, row and column counts, thresholds, `created_at` | `documents.meta["heatmap_matrix"]` |
 | `review_candidate_pairs` | `entity_a < entity_b`, `score`, `band` | Stored entity embeddings |
 | `review_judge_calls` | `judge_same_entity` and `judge_relationship` calls: time, document, provider, model, input size, duration, status | `telemetry.db` |
-| `review_shadow_pairs` | One row for each traced candidate of a decision with a `shadow` record: names, types, origin, vector score, outcome, `judge_ms`, `jev_noul`, Jev status and model, final stage and decision, `merged` | `documents.meta` |
+| `review_shadow_pairs` | One row for each traced candidate of a decision with a `shadow` record: names, types, origin, vector score, outcome, `judge_ms`, `jev_noul`, Jev status and model, final stage and decision, `merged`, and (schema 3) `decided_at`, `jev_role`, `jev_latency_ms` | `documents.meta` |
 
 Rules:
 
 - **Failure isolation.** `_guarded` runs each section (decisions, candidate pairs, judge calls). A failure writes `{"status": "error", "error": <exception type>}` and the bundle continues.
 - **Secrets.** `pipeline` has only presence flags for `jev_api_key` and `gemini_api_key`. `_safe_url` removes user information, query, and fragment from `jev_base_url`. `raw_text` and embedding vectors are not exported.
 - **Candidate pairs** (`_export_candidate_pairs`): only exported entities. Hash fallback vectors are removed (`looks_like_hash_fallback`) and counted. Only the most frequent dimension is used; the other dimensions are counted as `excluded_other_dim`. With adaptive centering, the group mean is removed. For each entity, the top 10 neighbours at or above the multi-hop threshold are kept, without duplicates. `band` is `auto_merge`, `borderline`, `relational`, or `multihop`. Back end: numpy in blocks of 256 rows; without numpy, pure Python up to 400 entities. More than 20,000 entities or a matrix over 128 MiB gives `status: "skipped"` with a reason.
-- **Judge calls** (`_export_judge_calls`): `telemetry.db` opens read-only. Only rows whose `document_id` is in the exported documents are copied (theme isolation). Columns such as `output_snippet` and `error_message` are not copied. Successful calls without `document_id` are only aggregated in `unattributed_success` (count, duration p50/p95/max, input size p50/p95).
-- **Shadow summary** (`_shadow_summary`): decisions with a shadow record, counts by status and model, latency p50/p95/max, total input tokens, agreement with the System 2 judge at thresholds 0.5 and 0.9 (cells `both_same`, `both_different`, `jev_same_llm_different`, `jev_different_llm_same`), and the Jev "same" rate for each outcome.
+- **Judge calls** (`_export_judge_calls`): `telemetry.db` opens read-only. Only rows whose `document_id` is in the exported documents are copied (theme isolation). Columns such as `output_snippet` and `error_message` are not copied. Successful calls without `document_id` are only aggregated in `unattributed_success` (count, duration p50/p95/max, input size p50/p95). Only the host CLI providers write telemetry rows; the Google AI Studio provider (also a personal key) writes none, thus its judge calls are not in this table (`judge_calls.coverage_note`). The judge latency of every provider is in `coverage.judge_latency_from_trace` (judged candidates, `judge_ms` p50 and p95 from the trace).
+- **Jev role of a decision** (`_shadow_role`): the recorded `role`; else `filter` when a candidate has a filter-mode outcome (`jev_filtered`, `jev_hybrid_auto_merge`); else `unrecorded`.
+- **Shadow summary** (`_shadow_summary`): decisions with a shadow record, decisions by role (`decisions_by_role`), counts by status and model, latency p50/p95/max, total input tokens, agreement with the System 2 judge at thresholds 0.5 and 0.9 (cells `both_same`, `both_different`, `jev_same_llm_different`, `jev_different_llm_same`), and the Jev "same" rate for each outcome.
 - `coverage.heatmap_generator_notes` marks old `jev` heatmaps as stub output.
 
 ### 6.3 Bundle of a shared knowledge base [code]
@@ -170,7 +167,7 @@ Design: [SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md](../design/SHARED_KNOWLEDGE
 - [code] Decisions before the trace code have no `candidates`; `coverage.decisions_with_candidates` shows the coverage. Decisions before 2026-10-31 have no `shadow` record.
 - [code] Candidate state in the bundle is the state at bundle time, not at decision time. `cand_obs_count` shows the observation count at decision time.
 - [code] Offline candidate pairs compare stored entity embeddings, not the query embedding of the ingest. They only approximate the Gate 3 distribution.
-- [code] A judge provider that fails returns `False`, so the trace cannot tell a failure from `judge_different`. Compare with `review_judge_calls.status`.
+- [code] A judge provider that fails returns `False`, so the trace cannot tell a failure from `judge_different`. Compare with `review_judge_calls.status`; for the Google AI Studio provider no such row exists.
 - [code] `review_judge_calls` covers only the retention period of `telemetry.db` (about 30 days).
 - [code] In one Jev request, all questions share one `state`. A single-candidate request (as in `scripts/verify_jev_system1.py`) can give different scores. [unverified] The size of this difference.
 - [decision] The System 2 judge is not ground truth. People label pairs from this pool.
@@ -181,9 +178,9 @@ Design: [SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md](../design/SHARED_KNOWLEDGE
 
 | Test | Scope |
 | :--- | :--- |
-| `tests/test_graph_bundle_review.py` | Review tables, hash fallback removal, dimension groups, pair bands, telemetry theme isolation and column list, secrets, import skips review tables, section failure isolation, shadow pairs and agreement cells, schema v2 manifest |
+| `tests/test_graph_bundle_review.py` | Review tables, hash fallback removal, dimension groups, pair bands, telemetry theme isolation and column list, secrets, import skips review tables, section failure isolation, shadow pairs and agreement cells, schema v3 manifest, `decided_at`, `jev_role`, `jev_latency_ms`, judge latency from the trace, role of a decision |
 | `tests/test_safe_gating_resolver.py` | Gate order and candidate trace outcomes, `input_snapshot`, `gate_params` |
-| `tests/test_jev_shadow.py` | Request contract, `noul` parsing, error status, circuit, settings gate, resolver integration (no decision change, pre-merge candidate state, Gate 1 makes no call, FTS merge `score=None`) |
-| `tests/test_feature_routing_and_lineage.py` | Filter and hybrid modes, gate order, hybrid single-winner guard |
+| `tests/test_jev_shadow.py` | Request contract, `noul` parsing, error status, circuit, settings gate, accounts that get Jev (administrator with server credentials and with a personal key; no member), resolver integration (no decision change, pre-merge candidate state, Gate 1 makes no call, FTS merge `score=None`) |
+| `tests/test_feature_routing_and_lineage.py` | Jev never changes a decision (low and high scores), Jev gets the candidates that Gate 2 rejects, `not_reached` keeps the name |
 | `tests/test_decision_stream_and_heatmap.py` | Decision record round trip, `fallback_vector` heatmap regardless of Jev settings, matrix purge from the document and the active ingest, purge route authorization |
 | `tests/test_resolution_benchmark.py`, `tests/eval_resolution_benchmark.py` | Resolution benchmark harness (`src/claire/extract/benchmark.py`) |

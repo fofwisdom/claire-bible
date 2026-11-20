@@ -58,7 +58,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
               ],
               available_embed_models: [{ id: 'gemini-embedding-001' }]
             },
-            jev: { enabled: true, has_api_key: true, api_key: '••••••••', base_url: 'https://api.typesafe.ai/v1', mode: 'filter', filter_threshold: 0.2, auto_merge_threshold: 0.9 },
+            jev: { enabled: true, has_api_key: true, api_key: '••••••••', base_url: 'https://api.typesafe.ai/v1' },
             stt: { enabled: false, provider: 'mock', language: 'ko' }
           },
           lineage_summary: {
@@ -69,7 +69,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
               entity_judge: { provider: 'gemini', model: 'gemini-3.8-flash', effort: 'medium' },
               relation_judge: { provider: 'gemini', model: 'gemini-3.8-flash', effort: 'medium' }
             },
-            jev: { enabled: true, mode: 'filter', filter_threshold: 0.2, auto_merge_threshold: 0.9, shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6, below_filter_threshold: 180 },
+            jev: { enabled: true, role: 'shadow', shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6 },
             architecture_specs: [
               { stage: '임베딩 Task Type (문서 색인)', fixed_value: 'RETRIEVAL_DOCUMENT', scope: 'extract/gemini_provider.py', rationale: '색인 고정' },
               { stage: '임베딩 Task Type (검색 질의)', fixed_value: 'RETRIEVAL_QUERY', scope: 'retrieval/query.py', rationale: '질의 고정' }
@@ -79,7 +79,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
               { id: 'F10', location: 'pdf_fetcher', status: 'OUT_OF_SCOPE', description: 'Non-LLM parser chain left unchanged.' }
             ],
             recent_documents: [
-              { id: 'doc1', title: 'Sample Doc', lineage: { final_output_models: { extract_graph: { provider: 'gemini', model: 'gemini-3.8-flash' }, summarize: { provider: 'gemini', model: 'gemini-4-argon' } }, jev: { enabled: true, mode: 'filter', filtered_count: 2, hybrid_auto_merged_count: 0 }, fallbacks_triggered: [] } }
+              { id: 'doc1', title: 'Sample Doc', lineage: { final_output_models: { extract_graph: { provider: 'gemini', model: 'gemini-3.8-flash' }, summarize: { provider: 'gemini', model: 'gemini-4-argon' } }, jev: { enabled: true, role: 'shadow', evaluated: 3 }, fallbacks_triggered: [] } }
             ]
           },
           capabilities: {
@@ -116,7 +116,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
             },
             lineage_summary: {
               effective_slots: { extract_graph: { provider: 'gemini', model: 'gemini-3.8-flash', effort: 'medium' }, summarize: { provider: 'gemini', model: 'gemini-4-argon', effort: 'high' }, embed: { provider: 'gemini', model: 'gemini-embedding-001', effort: '' } },
-              jev: { enabled: true, mode: patchedPayload.providers.jev.mode, filter_threshold: patchedPayload.providers.jev.filter_threshold, auto_merge_threshold: patchedPayload.providers.jev.auto_merge_threshold, shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6, below_filter_threshold: 180 },
+              jev: { enabled: true, role: 'shadow', shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6 },
               architecture_specs: [
                 { stage: '임베딩 Task Type (문서 색인)', fixed_value: 'RETRIEVAL_DOCUMENT', scope: 'extract/gemini_provider.py', rationale: '색인 고정' }
               ],
@@ -180,15 +180,19 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   await expect(page.locator('#prov-recent-lineage-table')).toContainText('Sample Doc');
 
   await page.locator('#prov-gemini-model').selectOption('gemini-3.8-flash-high');
-  await page.locator('#prov-jev-mode').selectOption('hybrid');
-  await expect(page.locator('#prov-lineage-svg')).toContainText('jev:hybrid');
+  // Jev has only the shadow role: no mode control, a fixed note, and the lineage shows shadow (owner decision 2026-11-20).
+  await expect(page.locator('#prov-jev-mode')).toHaveCount(0);
+  await expect(page.locator('#prov-jev-filter-threshold')).toHaveCount(0);
+  await expect(page.locator('#prov-jev-role')).toContainText('shadow');
+  await expect(page.locator('#prov-lineage-svg')).toContainText('jev:shadow');
+  await expect(page.locator('#prov-recent-lineage-table')).toContainText('shadow (3)');
   await page.locator('#prov-save-btn').click();
 
   await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
   expect(patchedPayload).not.toBeNull();
   expect(patchedPayload.providers.gemini.model).toBe('gemini-3.8-flash-high');
   expect(patchedPayload.providers.gemini.effort).toBe('high');
-  expect(patchedPayload.providers.jev.mode).toBe('hybrid');
+  expect(patchedPayload.providers.jev).toEqual({ enabled: true, base_url: 'https://api.typesafe.ai/v1' });
   expect(patchedPayload.feature_routing.summarize.model).toBe('gemini-4-argon-high');
   expect(patchedPayload.feature_routing.summarize.effort).toBe('high');
   expect(patchedPayload.feature_routing.render_detail.provider).toBe('gemini');

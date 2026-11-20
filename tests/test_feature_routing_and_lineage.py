@@ -86,55 +86,46 @@ def test_old_sealed_key_needs_the_seal_once_and_is_then_unsealed(tmp_path: Path,
         reset_secret_service()
 
 
-def test_jev_filter_and_hybrid_modes_control_llm_judge_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify JEV filter skips low-score LLM judge calls and hybrid auto-merges high-score matches."""
+def _judge_that_merges(name: str | None, calls: list[str]):
+    def judge(nm: str, et: str, obs: list[str], cand: Entity, aliases: list[str] | None = None) -> bool:
+        calls.append(cand.name)
+        return cand.name == name
+    return judge
+
+
+def test_jev_shadow_never_changes_the_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jev has only the shadow role (owner decision 2026-11-20): a low score skips no judge call, and a high score merges nothing without the judge."""
     import claire.extract.resolver as resolver_mod
 
     monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
-    conn = _memory_db()
-    vstore = VectorStore(conn, "brute")
-    e_alpha = Entity(type="Tool", name="AlphaCore", observations=["engine"], sources=["d0"])
-    e_beta = Entity(type="Tool", name="BetaTool", observations=["cli"], sources=["d0"])
-    dbm.upsert_entity(conn, e_alpha)
-    dbm.upsert_entity(conn, e_beta)
-    vstore.put(e_alpha.id, [0.82, 0.57, 0.0], "claire")
-    vstore.put(e_beta.id, [0.80, 0.60, 0.0], "claire")
-
-    # 1. filter mode: JEV score < 0.20 skips LLM judge_fn cleanly.
-    judge_calls: list[str] = []
-    client_low = _FakeJevClient({"AlphaCore": 0.12, "BetaTool": 0.15})
-    shadow_low = JevShadow(client_low, executor=_InlineExecutor())
-    res_filtered = resolve_or_create(
-        conn, vstore, name="GammaModule", etype="Tool", aliases=[], observations=["unrelated"], document_id="d1",
-        embed_fn=lambda: [1.0, 0.0, 0.0],
-        judge_fn=lambda nm, et, obs, cand: judge_calls.append(cand.name) or False,
-        shadow=shadow_low, jev_mode="filter", jev_filter_threshold=0.20, jev_auto_merge_threshold=0.90,
-    )
-    assert res_filtered.created is True
-    assert judge_calls == []
-    assert [c["outcome"] for c in res_filtered.decision.candidates] == ["jev_filtered", "jev_filtered"]
-
-    # 2. hybrid mode: JEV score >= 0.90 auto-merges without calling LLM judge_fn.
-    conn2 = _memory_db()
-    vstore2 = VectorStore(conn2, "brute")
-    e_alpha2 = Entity(type="Tool", name="AlphaCore", observations=["engine"], sources=["d0"])
-    e_beta2 = Entity(type="Tool", name="BetaTool", observations=["cli"], sources=["d0"])
-    dbm.upsert_entity(conn2, e_alpha2)
-    dbm.upsert_entity(conn2, e_beta2)
-    vstore2.put(e_alpha2.id, [0.82, 0.57, 0.0], "claire")
-    vstore2.put(e_beta2.id, [0.80, 0.60, 0.0], "claire")
-    client_high = _FakeJevClient({"AlphaCore": 0.94, "BetaTool": 0.10})
-    shadow_high = JevShadow(client_high, executor=_InlineExecutor())
-    res_hybrid = resolve_or_create(
-        conn2, vstore2, name="Alpha Engine", etype="Tool", aliases=[], observations=["updated"], document_id="d2",
-        embed_fn=lambda: [1.0, 0.0, 0.0],
-        judge_fn=lambda nm, et, obs, cand: judge_calls.append(cand.name) or False,
-        shadow=shadow_high, jev_mode="hybrid", jev_filter_threshold=0.20, jev_auto_merge_threshold=0.90,
-    )
-    assert res_hybrid.created is False
-    assert res_hybrid.entity.id == e_alpha2.id
-    assert res_hybrid.decision.stage == "jev_hybrid_auto_merge"
-    assert judge_calls == []
+    for scores, judge_says_same in (({"AlphaCore": 0.05, "BetaTool": 0.05}, "AlphaCore"), ({"AlphaCore": 0.99, "BetaTool": 0.99}, None)):
+        conn = _memory_db()
+        vstore = VectorStore(conn, "brute")
+        e_alpha = Entity(type="Tool", name="AlphaCore", observations=["engine"], sources=["d0"])
+        e_beta = Entity(type="Tool", name="BetaTool", observations=["cli"], sources=["d0"])
+        dbm.upsert_entity(conn, e_alpha)
+        dbm.upsert_entity(conn, e_beta)
+        vstore.put(e_alpha.id, [0.82, 0.57, 0.0], "claire")
+        vstore.put(e_beta.id, [0.80, 0.60, 0.0], "claire")
+        judge_calls: list[str] = []
+        shadow = JevShadow(_FakeJevClient(scores), executor=_InlineExecutor())
+        res = resolve_or_create(
+            conn, vstore, name="Alpha Engine", etype="Tool", aliases=[], observations=["engine"], document_id="d1",
+            embed_fn=lambda: [1.0, 0.0, 0.0],
+            judge_fn=_judge_that_merges(judge_says_same, judge_calls),
+            shadow=shadow,
+        )
+        assert judge_calls, "the judge decides every borderline candidate"
+        outcomes = {c["name"]: c["outcome"] for c in res.decision.candidates}
+        assert not {"jev_filtered", "jev_hybrid_auto_merge"} & set(outcomes.values())
+        assert res.decision.shadow["role"] == "shadow"
+        assert all("jev_noul" in c for c in res.decision.candidates)
+        if judge_says_same:
+            assert res.created is False and res.entity.id == e_alpha.id and res.decision.stage == "borderline_llm_judge"
+            # The candidate after the merge keeps its name in the record (not_reached)
+            assert outcomes == {"AlphaCore": "judge_same", "BetaTool": "not_reached"}
+        else:
+            assert res.created is True and res.decision.stage == "no_match"
 
 
 def test_feature_routed_provider_decouples_extract_and_summarize_and_records_lineage(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,40 +215,32 @@ def test_feature_routed_provider_decouples_extract_and_summarize_and_records_lin
     assert lineage["fallbacks_triggered"] == []
 
 
-def test_jev_gate_ordering_and_hybrid_single_winner_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify Gate 2/3 run before JEV in filter/hybrid modes and ambiguous hybrid candidates defer to LLM."""
+def test_jev_shadow_asks_about_invariant_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Design decision 3: Jev gets every candidate of the loop, also a candidate that the invariants reject before the judge."""
     import claire.extract.resolver as resolver_mod
 
     monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
     conn = _memory_db()
     vstore = VectorStore(conn, "brute")
     e_alpha = Entity(type="Tool", name="AlphaCore", observations=["engine"], sources=["d0"])
-    e_beta = Entity(type="Tool", name="BetaTool", observations=["cli"], sources=["d0"])
     e_wrong = Entity(type="Tool", name="Alpha Engine 3.11", observations=["older release"], sources=["d0"])
     dbm.upsert_entity(conn, e_alpha)
-    dbm.upsert_entity(conn, e_beta)
     dbm.upsert_entity(conn, e_wrong)
     vstore.put(e_alpha.id, [0.82, 0.57, 0.0], "claire")
-    vstore.put(e_beta.id, [0.80, 0.60, 0.0], "claire")
     vstore.put(e_wrong.id, [0.81, 0.58, 0.0], "claire")
-
-    # 1. Version collision fails Gate 2 before JEV, and two >=0.90 scores trigger ambiguous handoff to LLM judge_fn.
-    judge_calls: list[str] = []
-    client_ambig = _FakeJevClient({"AlphaCore": 0.94, "BetaTool": 0.91, "Alpha Engine 3.11": 0.99})
-    shadow_ambig = JevShadow(client_ambig, executor=_InlineExecutor())
-    res_ambig = resolve_or_create(
-        conn, vstore, name="Alpha Engine 3.12", etype="Tool", aliases=[], observations=["ambiguous"], document_id="d1",
+    client = _FakeJevClient({"AlphaCore": 0.20, "Alpha Engine 3.11": 0.99})
+    res = resolve_or_create(
+        conn, vstore, name="Alpha Engine 3.12", etype="Tool", aliases=[], observations=["new release"], document_id="d1",
         embed_fn=lambda: [1.0, 0.0, 0.0],
-        judge_fn=lambda nm, et, obs, cand: judge_calls.append(cand.name) or (cand.name == "AlphaCore"),
-        shadow=shadow_ambig, jev_mode="hybrid", jev_filter_threshold=0.20, jev_auto_merge_threshold=0.90,
+        judge_fn=lambda nm, et, obs, cand: False,
+        shadow=JevShadow(client, executor=_InlineExecutor()),
     )
-    assert len(client_ambig.requests) == 1
-    sent_names = {c["name"] for c in client_ambig.requests[0][0]["candidates"].values()}
-    assert "Alpha Engine 3.11" not in sent_names
-    assert sent_names == {"AlphaCore", "BetaTool"}
-    assert "AlphaCore" in judge_calls
-    assert res_ambig.decision.stage == "borderline_llm_judge"
-    assert res_ambig.entity.id == e_alpha.id
+    assert len(client.requests) == 1
+    sent_names = {c["name"] for c in client.requests[0][0]["candidates"].values()}
+    assert sent_names == {"AlphaCore", "Alpha Engine 3.11"}
+    by_name = {c["name"]: c for c in res.decision.candidates}
+    assert by_name["Alpha Engine 3.11"]["outcome"] == "invariant_reject" and by_name["Alpha Engine 3.11"]["jev_noul"] == 0.99
+    assert res.created is True
 
 
 def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path: Path) -> None:

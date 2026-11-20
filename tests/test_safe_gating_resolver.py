@@ -640,7 +640,8 @@ def test_candidate_trace_marks_not_reached_after_judge_merge(monkeypatch):
     assert [c["outcome"] for c in dec.candidates] == ["judge_same", "not_reached"]
     rest = dec.candidates[1]
     assert rest["id"] == other.id
-    assert "name" not in rest
+    # The pre-merge state names the candidate that the loop did not reach (2026-11-20)
+    assert rest["name"] == other.name and rest["type"] == other.type
     assert rest["score"] == pytest.approx(0.75, abs=1e-4)
 
 

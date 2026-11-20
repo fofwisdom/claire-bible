@@ -208,14 +208,6 @@
     const jevEnabled = document.getElementById('prov-jev-enabled').checked;
     const jevKey = document.getElementById('prov-jev-key');
     const jevUrl = document.getElementById('prov-jev-url').value.trim();
-    const jevModeEl = document.getElementById('prov-jev-mode');
-    const jevMode = jevModeEl ? jevModeEl.value : 'filter';
-    const jevFilterEl = document.getElementById('prov-jev-filter-threshold');
-    const jevFilterRaw = jevFilterEl ? parseFloat(jevFilterEl.value) : 0.20;
-    const jevFilterThr = Number.isFinite(jevFilterRaw) ? jevFilterRaw : 0.20;
-    const jevAutoEl = document.getElementById('prov-jev-auto-merge-threshold');
-    const jevAutoRaw = jevAutoEl ? parseFloat(jevAutoEl.value) : 0.90;
-    const jevAutoThr = Number.isFinite(jevAutoRaw) ? jevAutoRaw : 0.90;
 
     const sttEnabled = document.getElementById('prov-stt-enabled').checked;
     const sttProv = document.getElementById('prov-stt-prov').value;
@@ -243,7 +235,7 @@
       feature_routing: featureRouting,
       providers: {
         gemini: { model: gemModel, effort: gemEffort, min_interval: gemInterval, max_retries: gemRetries },
-        jev: { enabled: jevEnabled, base_url: jevUrl, mode: jevMode, filter_threshold: jevFilterThr, auto_merge_threshold: jevAutoThr },
+        jev: { enabled: jevEnabled, base_url: jevUrl },
         stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
       }
     };
@@ -455,9 +447,6 @@
       'prov-gemini-key',
       'prov-gemini-model',
       'prov-jev-enabled',
-      'prov-jev-mode',
-      'prov-jev-filter-threshold',
-      'prov-jev-auto-merge-threshold',
       'prov-stt-enabled',
       'prov-stt-prov',
       'prov-stt-lang'
@@ -709,8 +698,8 @@
     const rj = slotText('relation_judge');
     const smSub1 = dt.line1 && dt.line1 !== sm.line1 ? `${sm.line1} / ${dt.line1}` : sm.line1;
     const smSub2 = dt.line2 && dt.line2 !== sm.line2 ? `${sm.line2} · ${dt.line2}` : sm.line2;
-    const jevLabel = jevCfg && jevCfg.enabled ? `jev:${jevCfg.mode || 'filter'} (${trKey("console.js.panels.lineage.after_gates")})` : "jev:off (" + trKey("console.js.panels.lineage.llm_direct") + ")";
-    const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_thresholds", { filter: jevCfg.filter_threshold ?? 0.2, merge: jevCfg.auto_merge_threshold ?? 0.9 }) : trKey("console.js.panels.lineage.llm_judge");
+    const jevLabel = jevCfg && jevCfg.enabled ? "jev:shadow" : "jev:off";
+    const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_shadow") : trKey("console.js.panels.lineage.llm_judge");
     const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
     const arrow = (x1, y1, x2, y2, label) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6e7781" stroke-width="1.4" marker-end="url(#prov-lineage-arrow)"/>${label ? `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 6}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity="0.78">${esc(label)}</text>` : ''}`;
     let svg = '<svg id="prov-lineage-svg" viewBox="0 0 920 196" width="100%" style="max-width:920px;height:auto;display:block;border:1px solid var(--border);border-radius:6px;background:var(--card-bg,#fff);color:var(--fg,#1f2328);">';
@@ -738,14 +727,8 @@
     const host = document.getElementById('prov-lineage-svg-host');
     if (!cfg || !host) return;
     const jevEnabledEl = document.getElementById('prov-jev-enabled');
-    const jevModeEl = document.getElementById('prov-jev-mode');
-    const jevFilterEl = document.getElementById('prov-jev-filter-threshold');
-    const jevAutoEl = document.getElementById('prov-jev-auto-merge-threshold');
     const jevSnap = {
-      enabled: jevEnabledEl ? jevEnabledEl.checked : Boolean(((cfg.providers || {}).jev || {}).enabled),
-      mode: jevModeEl ? jevModeEl.value : (((cfg.providers || {}).jev || {}).mode || 'filter'),
-      filter_threshold: jevFilterEl ? jevFilterEl.value : (((cfg.providers || {}).jev || {}).filter_threshold ?? 0.20),
-      auto_merge_threshold: jevAutoEl ? jevAutoEl.value : (((cfg.providers || {}).jev || {}).auto_merge_threshold ?? 0.90)
+      enabled: jevEnabledEl ? jevEnabledEl.checked : Boolean(((cfg.providers || {}).jev || {}).enabled)
     };
     host.innerHTML = renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jevSnap);
   }
@@ -760,7 +743,7 @@
     h += `<div id="prov-lineage-svg-host" style="margin-bottom:10px;">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
 
     const jevStats = lineage.jev || {};
-    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b> · ${esc(trKey("console.js.panels.lineage.jev_below"))} <b>${Number(jevStats.below_filter_threshold || 0)}</b></div>`;
+    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b></div>`;
 
     const specs = Array.isArray(lineage.architecture_specs) ? lineage.architecture_specs : [];
     if (specs.length > 0) {
@@ -797,7 +780,7 @@
         const finals = lin.final_output_models || {};
         const modelTags = Object.entries(finals).map(([st, info]) => `${st}=${(info && info.provider) || '?'}:${(info && info.model) || '?'}`).join(', ');
         const jevD = lin.jev || {};
-        const jevSummary = jevD.enabled ? `${jevD.mode || 'filter'} (filtered:${Number(jevD.filtered_count || 0)}, auto:${Number(jevD.hybrid_auto_merged_count || 0)})` : 'off';
+        const jevSummary = jevD.enabled ? `shadow (${Number(jevD.evaluated || 0)})` : 'off';
         const fbCount = Array.isArray(lin.fallbacks_triggered) ? lin.fallbacks_triggered.length : 0;
         h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;">${esc(d.title || d.id)}</td><td style="padding:3px 5px;"><code>${esc(modelTags || '-')}</code></td><td style="padding:3px 5px;">${esc(jevSummary)}</td><td style="padding:3px 5px;">${fbCount}</td></tr>`;
       }
@@ -981,18 +964,7 @@
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="'+esc(trKey('console.js.panels.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.js.panels.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     h += '</div>';
     h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
-    const curJevMode = jev.mode || 'filter';
-    const curFilterThr = jev.filter_threshold != null ? jev.filter_threshold : 0.20;
-    const curAutoThr = jev.auto_merge_threshold != null ? jev.auto_merge_threshold : 0.90;
-    h += '<div style="display:flex;gap:8px;margin-top:6px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.jev_mode")) + '</label><select id="prov-jev-mode" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="filter" ${curJevMode==='filter'?'selected':''}>filter (${esc(trKey("console.js.panels.providers.jev_mode_filter"))})</option>`;
-    h += `<option value="hybrid" ${curJevMode==='hybrid'?'selected':''}>hybrid (${esc(trKey("console.js.panels.providers.jev_mode_hybrid"))})</option>`;
-    h += `<option value="shadow" ${curJevMode==='shadow'?'selected':''}>shadow (${esc(trKey("console.js.panels.providers.jev_mode_shadow"))})</option>`;
-    h += '</select></div>';
-    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.jev_filter_threshold"))}</label><input id="prov-jev-filter-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curFilterThr))}"/></div>`;
-    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.jev_merge_threshold"))}</label><input id="prov-jev-auto-merge-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curAutoThr))}"/></div>`;
-    h += '</div>';
+    h += `<div id="prov-jev-role" style="font-size:11px;opacity:0.8;margin-top:6px;">${esc(trKey("console.js.panels.providers.jev_role_shadow"))}</div>`;
     h += '</div>';
     h += '<div style="border-top:1px dashed var(--border);padding-top:8px;">';
     h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.providers.stt_label"))}</label>`;

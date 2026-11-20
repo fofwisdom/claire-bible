@@ -255,7 +255,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ### 2.10.3 TypeSafe AI Jev 엔티티 해소 shadow 평가 (도입 검토용 System 1 Engine)
 
-TypeSafe AI Jev는 관리자 컨텍스트에서 플래그와 API 키가 모두 있을 때만 호출된다. 기본 모드 `shadow`에서는 판정 권한이 없고 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 관리자가 콘솔에서 `jev.mode`를 `filter` 또는 `hybrid`로 바꾸면 Jev가 판정에 관여한다([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5). 히트맵은 모드와 무관하게 `fallback_vector`다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
+TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 관리자 개인 키든)에서 플래그와 API 키가 모두 있을 때만 호출된다. 판정 권한은 없고(shadow 전용, 소유자 결정 2026-11-20) 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 예전 `jev.mode`·`filter_threshold`·`auto_merge_threshold` 값은 효과가 없다([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5). 히트맵은 모드와 무관하게 `fallback_vector`다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |

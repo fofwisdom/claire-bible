@@ -185,7 +185,7 @@ def test_shadow_collect_ok():
     meta, scores = shadow.collect(call)
     assert scores == {"ent_1": 0.96}
     assert meta == {
-        "engine": "jev", "requested_model": "jev-latest", "questions": 1, "status": "ok",
+        "engine": "jev", "role": "shadow", "requested_model": "jev-latest", "questions": 1, "status": "ok",
         "model": "jev-1.14.0", "latency_ms": 42.0, "input_tokens": 321, "answered": 1,
     }
 
@@ -218,6 +218,30 @@ def test_make_jev_shadow_requires_flag_and_key():
     assert first is not None and first.client.model == "jev-1.14.0"
     assert make_jev_shadow(s) is first  # 회로 차단 상태가 문서 간에 유지되도록 재사용
 
+
+
+def test_make_jev_shadow_only_for_the_server_administrator_account():
+    """Design decision 9 and owner decision 2026-11-20: the administrator account gets Jev with the server credentials and with a personal key; a member never does."""
+    from claire.accounts import provider_policy as pp
+    from claire.accounts.server_tier import ServerTier
+
+    base = Settings(enable_jev=True, jev_api_key="jev-key-123456", jev_model="jev-1.14.0", gemini_api_key="AIzaServerKey0123456789")
+
+    def byok(server_admin: bool) -> "pp.ProviderContext":
+        return pp.ProviderContext(
+            account_id=1 if server_admin else 7, is_admin=False, source="byok", provider="gemini", model="gemini-test",
+            embed_model="embed-test", effort="medium", credential_key="byok:abcd1234", tier=ServerTier(),
+            api_key="AIzaPersonalKey0123456789", server_admin=server_admin,
+        )
+
+    admin = pp.settings_for_context(base, pp.admin_context(base))
+    admin_personal = pp.settings_for_context(base, byok(True))
+    member = pp.settings_for_context(base, byok(False))
+    assert make_jev_shadow(admin) is not None
+    assert admin_personal.enable_jev is True and make_jev_shadow(admin_personal) is not None
+    assert member.enable_jev is False and not member.jev_api_key and make_jev_shadow(member) is None
+    # A member context with Jev values put back still gets no evaluator.
+    assert make_jev_shadow(member.model_copy(update={"enable_jev": True, "jev_api_key": "jev-key-123456"})) is None
 
 # --- 5~6. resolver 통합 ---
 

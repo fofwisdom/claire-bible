@@ -236,7 +236,8 @@ ALLOWED_EMBED_TASK_TYPES: tuple[str, ...] = (
     "CLUSTERING",
 )
 
-ALLOWED_JEV_MODES: tuple[str, ...] = ("shadow", "filter", "hybrid")
+# Old keys of the jev block. Jev has only the shadow role (owner decision 2026-11-20): a stored or sent value of these keys has no effect.
+RETIRED_JEV_KEYS: frozenset[str] = frozenset({"mode", "filter_threshold", "auto_merge_threshold"})
 
 ALLOWED_ROUTE_PROVIDERS: tuple[str, ...] = ("inherit", "gemini", "antigravity", "codex", "mock")
 
@@ -299,9 +300,6 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "base_url": "https://api.typesafe.ai/v1",
             "timeout": 15.0,
             "model": "jev-latest",
-            "mode": "filter",
-            "filter_threshold": 0.20,
-            "auto_merge_threshold": 0.90,
         },
         "stt": {
             "enabled": True,
@@ -642,7 +640,6 @@ class ProviderManager:
         out["server_active_providers"] = list(SUPPORTED_SERVER_ACTIVE_PROVIDERS)
         out["server_route_providers"] = list(ALLOWED_SERVER_ROUTE_PROVIDERS)
         out["embed_task_types"] = list(ALLOWED_EMBED_TASK_TYPES)
-        out["jev_modes"] = list(ALLOWED_JEV_MODES)
         out["lineage_summary"] = self.get_lineage_summary(cfg)
         return out
 
@@ -712,14 +709,11 @@ class ProviderManager:
         decision_gates: list[dict[str, Any]] = []
         jev_stats: dict[str, Any] = {
             "enabled": bool(jev_cfg.get("enabled", False)),
-            "mode": str(jev_cfg.get("mode") or "filter"),
-            "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
-            "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+            "role": "shadow",
             "model": str(jev_cfg.get("model") or "jev-latest"),
             "shadow_pairs": 0,
             "ok_calls": 0,
             "avg_latency_ms": None,
-            "below_filter_threshold": 0,
         }
 
         db_candidates = []
@@ -758,14 +752,12 @@ class ProviderManager:
                             decision_gates.append({"gate": gr["gate"], "outcome": gr["outcome"], "count": int(gr["cnt"])})
                     if "review_shadow_pairs" in tbls:
                         jr = conn.execute(
-                            "SELECT COUNT(*) AS total, SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_cnt, AVG(CASE WHEN status='ok' THEN latency_ms END) AS avg_ms, SUM(CASE WHEN status='ok' AND jev_noul < ? THEN 1 ELSE 0 END) AS below_thr FROM review_shadow_pairs",
-                            (jev_stats["filter_threshold"],),
+                            "SELECT COUNT(*) AS total, SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_cnt, AVG(CASE WHEN status='ok' THEN latency_ms END) AS avg_ms FROM review_shadow_pairs",
                         ).fetchone()
                         if jr is not None:
                             jev_stats["shadow_pairs"] = int(jr["total"] or 0)
                             jev_stats["ok_calls"] = int(jr["ok_cnt"] or 0)
                             jev_stats["avg_latency_ms"] = round(float(jr["avg_ms"]), 1) if jr["avg_ms"] is not None else None
-                            jev_stats["below_filter_threshold"] = int(jr["below_thr"] or 0)
                 finally:
                     conn.close()
             except Exception as exc:
@@ -796,15 +788,9 @@ class ProviderManager:
                 },
                 {
                     "stage": "임베딩 -> JEV 데이터 전달",
-                    "fixed_value": "Gate 2·3 통과 후보만 자연어 JSON 스냅샷 전달 (Cosine >= 0.72)",
+                    "fixed_value": "후보 루프에 들어온 모든 후보의 자연어 JSON 스냅샷 (shadow, 판정 불관여)",
                     "scope": "extract/resolver.py, extract/jev.py",
-                    "rationale": "벡터 좌표를 직접 JEV에 넣지 않고 규칙/초고신뢰 자동 병합 후 남은 경계선 후보의 이름·타입·별칭·관찰만 전달합니다.",
-                },
-                {
-                    "stage": "JEV Hybrid 단독 1위 가드",
-                    "fixed_value": "1위 >= 0.90, 2위 < 0.50, 격차 >= 0.40",
-                    "scope": "extract/resolver.py",
-                    "rationale": "복수 후보가 동시에 고득점(noul)일 때 오병합을 막기 위해 System 2 LLM 판정으로 위임합니다.",
+                    "rationale": "벡터 좌표를 직접 JEV에 넣지 않고 병합 전 상태의 이름·타입·별칭·관찰만 전달합니다. 결과는 판정 기록에만 남습니다.",
                 },
             ],
             "recent_documents": recent_docs,
@@ -865,17 +851,11 @@ class ProviderManager:
                             _validate_provider_model("openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS))
                         if "embed_model" in inc_data:
                             _validate_provider_model("openai", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_OPENAI_EMBED_MODELS))
-                    elif name == "jev":
-                        if "mode" in inc_data:
-                            _validate_provider_model("jev", "판정 모드", str(inc_data["mode"]).strip().lower(), set(ALLOWED_JEV_MODES))
-                        for thr_key in ("filter_threshold", "auto_merge_threshold"):
-                            if thr_key in inc_data:
-                                thr_val = float(inc_data[thr_key])
-                                if not (0.0 <= thr_val <= 1.0):
-                                    raise ValueError(f"jev {thr_key} 값은 0.0~1.0 범위여야 합니다.")
 
                 for k, v in inc_data.items():
                     if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models", "available_embed_models", "models_source", "cli_version", "models_error"):
+                        continue
+                    if name == "jev" and k in RETIRED_JEV_KEYS:
                         continue
                     target[k] = v
 
@@ -1058,9 +1038,7 @@ class ProviderManager:
             "stt": {"enabled": stt_enabled, "provider": stt_prov, "ready": stt_ready},
             "jev": {
                 "enabled": bool(jev_cfg.get("enabled", False)),
-                "mode": str(jev_cfg.get("mode") or "filter"),
-                "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
-                "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+                "role": "shadow",
             },
             "providers": provider_caps,
         }
@@ -1170,12 +1148,6 @@ class ProviderManager:
             out["jev_timeout"] = float(jev["timeout"])
         if jev.get("model"):
             out["jev_model"] = jev["model"]
-        if jev.get("mode"):
-            out["jev_mode"] = str(jev["mode"]).strip().lower()
-        if jev.get("filter_threshold") is not None:
-            out["jev_filter_threshold"] = float(jev["filter_threshold"])
-        if jev.get("auto_merge_threshold") is not None:
-            out["jev_auto_merge_threshold"] = float(jev["auto_merge_threshold"])
 
         out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
 
