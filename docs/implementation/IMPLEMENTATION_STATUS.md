@@ -176,6 +176,6 @@ Limits:
 2. 텔레메트리 자동 정리는 없다. `claire telemetry --prune`만 지운다. 보관 기한 30일은 설정할 수 없다.
 3. 프로바이더 텔레메트리는 Antigravity만 기록한다.
 4. `cb-manuscript update`는 업데이트 전 백업을 자동으로 만들지 않는다. backup v1 manifest는 `claire.db` 하나만 검증한다.
-5. 컨테이너 경량화와 관계 판정 전 온톨로지 게이트(Antigravity Phase 3)는 구현되지 않았다.
+5. 관계 판정 전 온톨로지 게이트(Antigravity Phase 3)는 구현되지 않았다.
 6. 데이터 저장 배치 DS-3(계정별 관리자 적재 한도)은 구현되지 않았다.
 7. 연합 FP4 보류 항목: D1(계정별 차단·숨김·신고), D2(계정별 발신 속도 한도), D4/RD12(외부 연결 계정), 피드 자동 적재 규칙.

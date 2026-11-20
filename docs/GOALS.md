@@ -1,6 +1,6 @@
 # Claire Bible — 목표와 로드맵
 
-**기준 문서:** 본 문서는 Claire Bible의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/design/CLAIRE_ARCHITECTURE_ROADMAP.md`](design/CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
+**기준 문서:** 본 문서는 Claire Bible의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
 ---
 
