@@ -173,7 +173,6 @@ REVIEW_TABLES = (
     "review_pair_verdicts",
 )
 
-# Columns of pair_review_items that a bundle copies (all of them; the order is the order of review_pair_items)
 _PAIR_ITEM_COLUMNS = (
     "id", "kb_id", "document_id", "seq", "decided_at", "candidate_id", "reasons", "new_entity", "candidate", "snapshot_source",
     "outcome", "merged", "jev_noul", "jev_model", "jev_latency_ms", "prelabel_engine", "prelabel_model", "prelabel_noul",
@@ -782,10 +781,6 @@ def _export_pair_review(
     export_conn: sqlite3.Connection,
     document_ids: set[str],
 ) -> dict[str, Any]:
-    """Copy the entity pair review items of the exported documents and their verdicts, and add the report of these items.
-
-    Verdicts leave the server without the account and without the note: each account of the bundle gets a number (``contributor``, 1, 2, ...).
-    """
     from .store import pair_review
 
     tables = {r[0] for r in source_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -807,7 +802,6 @@ def _export_pair_review(
     export_conn.executemany(f"INSERT INTO review_pair_items ({cols}) VALUES ({marks})", items)
     export_conn.executemany("INSERT INTO review_pair_verdicts VALUES (?, ?, ?, ?, ?, ?, ?)", pseudonymous)
 
-    # The report of the exported items only: the same function on a copy in memory
     mem = sqlite3.connect(":memory:")
     mem.row_factory = sqlite3.Row
     try:

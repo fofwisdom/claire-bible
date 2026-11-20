@@ -1,20 +1,13 @@
-"""E2E: entity pair review by members through the API (schema v38, owner decision 2026-11-20).
-
-Old shadow records fill the queue at the start. Members get items of the knowledge bases they can read, with a pre-label
-(hidden for 3 of 10 until the verdict), give verdicts, and two agreeing verdicts make a consensus. The administrator reads
-the report, the CLI prints it, and a bundle carries the items and the verdicts without accounts.
-"""
-
 from __future__ import annotations
 
 import json
 import sqlite3
 import time
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from google.genai.decisions import CreateDecisionResponse, NoulAnswer
 from starlette.testclient import TestClient
 
 from claire import cli
@@ -47,7 +40,7 @@ def prelabel_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     def factory(api_key: str):
         def create(**kwargs: Any) -> Any:
             calls.append({"api_key": api_key, **kwargs})
-            return SimpleNamespace(answers={k: SimpleNamespace(noul=0.91, confidence=0.91) for k in kwargs["questions"]})
+            return CreateDecisionResponse(answers={k: NoulAnswer(type="noul", noul=0.91, confidence=0.91) for k in kwargs["questions"]})
 
         return create
 
@@ -85,7 +78,6 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Setti
         dbm.insert_document(conn, Document(title="Public doc", raw_text="x", meta={"resolution_log": public_log}), kb_id=0)
         private_log = [_log_item("Secret Tool", "ent_secret", "Secret Tool 2", "judge_different", 0.80, ts=4.0)]
         dbm.insert_document(conn, Document(title="Private doc", raw_text="y", meta={"resolution_log": private_log}), kb_id=77)
-        # The queue fills from old records at the start (schema step v38)
         conn.execute("DELETE FROM pair_review_items")
         conn.execute("DELETE FROM meta WHERE key=?", (dbm.PAIR_REVIEW_BACKFILL_KEY,))
         conn.commit()
@@ -110,7 +102,7 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
     db_file, settings, members = _setup(tmp_path, monkeypatch)
     app = server.create_app(settings=settings)
     with TestClient(app, base_url=PUBLIC_URL) as client:
-        assert client.get("/api/me/pair-review/items").status_code == 404  # anonymous
+        assert client.get("/api/me/pair-review/items").status_code == 404
 
         a = _headers(db_file, members["member_a"])
         got = client.get("/api/me/pair-review/items?limit=20", headers=a)
@@ -118,9 +110,8 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
         body = got.json()
         assert body["rule"]["version"] == "2026-11-20" and body["verdicts"] == ["same", "different", "unsure"]
         names = {it["candidate"]["name"]: it for it in body["items"]}
-        assert set(names) == {"Antrea", "Data Center", "Gemini 3.8 Flash"}  # not the private knowledge base of member C
+        assert set(names) == {"Antrea", "Data Center", "Gemini 3.8 Flash"}
         assert names["Antrea"]["reasons"] == ["invariant", "near_variant"]
-        # One pre-label request for each decision, with the server key; a blind item hides the answer
         assert len(prelabel_calls) == 3 and {c["api_key"] for c in prelabel_calls} == {SERVER_KEY}
         for it in body["items"]:
             assert (it["prelabel"] is None) == it["prelabel_hidden"]
@@ -128,7 +119,6 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
                 assert it["prelabel"] == {"status": "ok", "engine": "gemini-decisions", "model": "gemini-decision-1", "noul": 0.91, "confidence": 0.91}
         assert client.get("/api/me/pair-review/items?limit=21", headers=a).status_code == 400
 
-        # A second fetch asks no new pre-label
         client.get("/api/me/pair-review/items", headers=a)
         assert len(prelabel_calls) == 3
 
@@ -146,7 +136,7 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
 
         b = _headers(db_file, members["member_b"])
         waiting_b = [it["id"] for it in client.get("/api/me/pair-review/items", headers=b).json()["items"]]
-        assert waiting_b[0] == antrea  # one verdict short of a consensus comes first
+        assert waiting_b[0] == antrea
         done = client.put(f"/api/me/pair-review/items/{antrea}/verdict", headers=b, json={"verdict": "same"}).json()["item"]
         assert done["consensus"] == "same"
         for name, verdict in (("Data Center", "different"), ("Gemini 3.8 Flash", "same")):
@@ -154,15 +144,13 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
                 assert client.put(f"/api/me/pair-review/items/{names[name]['id']}/verdict", headers=h, json={"verdict": verdict}).status_code == 200
         stats = client.get("/api/me/pair-review/stats", headers=a).json()
         assert stats == {"verdicts": 3, "by_verdict": {"same": 2, "different": 1}, "waiting": 0}
-        # Member C sees the item of its own private knowledge base
         c = _headers(db_file, members["member_c"])
         assert [it["candidate"]["name"] for it in client.get("/api/me/pair-review/items?limit=20", headers=c).json()["items"]] == ["Secret Tool 2"]
-        # A removed verdict
         assert client.delete(f"/api/me/pair-review/items/{names['Data Center']['id']}/verdict", headers=b).status_code == 200
         assert client.delete(f"/api/me/pair-review/items/{names['Data Center']['id']}/verdict", headers=b).status_code == 404
         assert client.put(f"/api/me/pair-review/items/{names['Data Center']['id']}/verdict", headers=b, json={"verdict": "different"}).status_code == 200
 
-        assert client.get("/api/admin/pair-review/report", headers=a).status_code == 404  # members do not read the report
+        assert client.get("/api/admin/pair-review/report", headers=a).status_code == 404
         admin = _headers(db_file, 1)
         report = client.get("/api/admin/pair-review/report", headers=admin).json()
         assert report["items"]["total"] == 4 and report["items"]["with_consensus"] == 3 and report["items"]["positives"] == 2
@@ -170,13 +158,11 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
         assert report["jev_by_model"]["jev-1.14.0"]["thresholds"]["0.5"] == {**report["jev_by_model"]["jev-1.14.0"]["thresholds"]["0.5"], "tp": 2, "fp": 1}
         assert report["pipeline_merges"] == {"labeled": 1, "false_merges": 0}
 
-    # The CLI prints the same report, read only
     args = cli.build_parser().parse_args(["pair-review", "report", "--json"])
     assert args.func(args) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["items"]["with_consensus"] == 3
 
-    # A bundle of the public knowledge base carries its items and the verdicts without accounts
     from claire.graph_bundle_review import export_review_evidence
 
     source = dbm.connect_existing(db_file)

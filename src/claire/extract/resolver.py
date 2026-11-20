@@ -90,6 +90,7 @@ class ResolutionResult(tuple):
     relational_candidates: list[tuple[str, float]]
     multihop_candidates: list[tuple[str, float]]
     decision: ResolutionDecision | None
+    candidate_snapshots: dict[str, dict[str, Any]]
 
     def __new__(
         cls,
@@ -98,6 +99,7 @@ class ResolutionResult(tuple):
         relational_candidates: list[tuple[str, float]] | None = None,
         multihop_candidates: list[tuple[str, float]] | None = None,
         decision: ResolutionDecision | None = None,
+        candidate_snapshots: dict[str, dict[str, Any]] | None = None,
     ):
         instance = super().__new__(cls, (entity, created))
         instance.entity = entity
@@ -105,6 +107,7 @@ class ResolutionResult(tuple):
         instance.relational_candidates = relational_candidates or []
         instance.multihop_candidates = multihop_candidates or []
         instance.decision = decision
+        instance.candidate_snapshots = candidate_snapshots or {}
         return instance
 
 
@@ -414,7 +417,6 @@ def resolve_or_create(
         # Collect shadow scores at finish and attach them to candidate trace entries.
         if shadow is not None and shadow_call is not None:
             dec.shadow, noul = shadow.collect(shadow_call)
-            dec.candidate_snapshots = candidate_snapshots
             for entry in trace:
                 if entry["id"] in noul:
                     entry["jev_noul"] = noul[entry["id"]]
@@ -448,7 +450,7 @@ def resolve_or_create(
             )
             return ResolutionResult(
                 cand_m, False, relational_candidates, multihop_candidates,
-                decision=_finish(dec, ordered[idx + 1:]),
+                decision=_finish(dec, ordered[idx + 1:]), candidate_snapshots=candidate_snapshots,
             )
 
         borderline_ordered.append((owner_id, score))
@@ -491,7 +493,7 @@ def resolve_or_create(
                 )
                 return ResolutionResult(
                     cand_m, False, relational_candidates, multihop_candidates,
-                    decision=_finish(dec, borderline_ordered[idx + 1:]),
+                    decision=_finish(dec, borderline_ordered[idx + 1:]), candidate_snapshots=candidate_snapshots,
                 )
             else:
                 # DIFFERENT 판정된 후보: 버리지 않고 Tier 3 직접 관계 후보로 보존
@@ -527,7 +529,7 @@ def resolve_or_create(
         target_entity_id=ent.id,
         reason="No candidate satisfied safe gating criteria.",
     ), [])
-    return ResolutionResult(ent, True, relational_candidates, multihop_candidates, decision=new_dec)
+    return ResolutionResult(ent, True, relational_candidates, multihop_candidates, decision=new_dec, candidate_snapshots=candidate_snapshots)
 
 
 def _merge(

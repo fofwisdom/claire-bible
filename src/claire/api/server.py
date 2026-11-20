@@ -3040,9 +3040,6 @@ def create_app(
 
         return await asyncio.to_thread(_work)
 
-    # --- Entity pair review (schema v38, JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation") -------------------------
-    # Any account that can read the knowledge base of an item can give a verdict (owner decision 2026-11-20). The frontend comes later.
-
     def _pair_review_account(request: Request) -> int:
         principal = request_principal(request)
         if principal.account_id is None:
@@ -3059,7 +3056,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="pair_item_not_found") from None
 
     async def pair_review_items_route(request: Request) -> JSONResponse:
-        """``GET /api/me/pair-review/items?limit=N``: items that wait for a verdict of the account (default 5, at most 20), with the rule text. Items without a pre-label get one first (Gemini Decisions API, server key); a blind item hides it until the verdict."""
         account_id = _pair_review_account(request)
         try:
             limit = int(request.query_params.get("limit", "5"))
@@ -3096,7 +3092,6 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_work))
 
     async def pair_review_verdict_route(request: Request) -> JSONResponse:
-        """``PUT`` or ``DELETE /api/me/pair-review/items/{item_id}/verdict``: the account gives, changes, or removes its verdict. Body of PUT: ``{"verdict": "same" | "different" | "unsure", "note": "..."}``. Answer: the item with the pre-label (shown after the verdict) and the verdict counts; 404 ``pair_item_not_found``; 400 ``verdict_invalid``."""
         account_id = _pair_review_account(request)
         item_id = _pair_item_id(request)
         verdict, note = None, ""
@@ -3134,7 +3129,6 @@ def create_app(
         return await asyncio.to_thread(_work)
 
     async def pair_review_stats_route(request: Request) -> JSONResponse:
-        """``GET /api/me/pair-review/stats``: the verdicts of the account by value, and the count of items that wait for it."""
         account_id = _pair_review_account(request)
         kb_ids = _readable_kb_ids(request)
 
@@ -3150,8 +3144,6 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_work))
 
     async def admin_pair_review_report_route(request: Request) -> JSONResponse:
-        """``GET /api/admin/pair-review/report``: the server administrator reads the routine evaluation report of all knowledge bases (design R5). It shows the gate; it changes no role."""
-
         def _work() -> dict[str, Any]:
             from ..store import pair_review
 

@@ -1,10 +1,3 @@
-"""Entity pair review: a queue of Jev shadow pairs, pre-labels, and verdicts of people (schema v38).
-
-Design: docs/design/JEV_SHADOW_EVALUATION_DESIGN.md, section "Routine evaluation" (R2 queue, R3 pre-label, R4 verdicts, R5 report).
-Any account that can read the knowledge base of an item can give a verdict (owner decision 2026-11-20). The label of an item
-is the consensus of the verdicts of people; a pre-label is never a label.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -14,17 +7,21 @@ import re
 import sqlite3
 import time
 from collections import Counter
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple
 
 from ..extract.same_entity_rule import SAME_ENTITY_RULE_VERSION
+
+if TYPE_CHECKING:
+    from ..extract.decisions_prelabel import Prelabel
+    from ..extract.resolver import ResolutionResult
 
 REASONS = ("disagree", "invariant", "merged", "near_variant", "sample")
 VERDICTS = ("same", "different", "unsure")
 JUDGE_OUTCOMES = {"judge_same": True, "judge_different": False}
 JEV_SAME_AT = 0.5
-SAMPLE_PER_MILLE = 50          # 5% of the other scored pairs
-BLIND_PER_TEN = 3              # 3 of 10 verdicts without the pre-label first (owner decision 2026-11-20)
-CONSENSUS_MIN_VERDICTS = 2     # same or different verdicts; unsure does not count
+SAMPLE_PER_MILLE = 50
+BLIND_PER_TEN = 3
+CONSENSUS_MIN_DECISIVE_VERDICTS = 2
 CONSENSUS_SHARE = 2 / 3
 REPORT_THRESHOLDS = (0.5, 0.7, 0.9)
 GATE_PRECISION_LOW = 0.98
@@ -34,15 +31,11 @@ _VERSION_MARK = re.compile(r"\b(v?\d+(?:\.\d+)*[a-z]?|x\d+|pro|max|mini|lite|fla
 _NON_WORD = re.compile(r"[^0-9a-z가-힣]+")
 
 
-# --- Queue rules (R2) -----------------------------------------------------------------------------
-
-
 def _norm(name: str) -> str:
     return _NON_WORD.sub(" ", (name or "").lower()).strip()
 
 
 def is_near_variant(a: str, b: str) -> bool:
-    """Names whose words contain each other, that share most words, or that differ only in a version or edition mark."""
     na, nb = _norm(a), _norm(b)
     if not na or not nb or na == nb:
         return bool(na and na == nb)
@@ -58,7 +51,6 @@ def _in_sample(key: str) -> bool:
 
 
 def queue_reasons(*, outcome: str | None, merged: bool, jev_noul: float | None, new_name: str, cand_name: str, key: str) -> list[str]:
-    """The reasons of R2 for one candidate pair, in order of priority. An empty list: the pair does not go to the queue."""
     reasons: list[str] = []
     if jev_noul is not None and outcome in JUDGE_OUTCOMES and (jev_noul >= JEV_SAME_AT) != JUDGE_OUTCOMES[outcome]:
         reasons.append("disagree")
@@ -71,9 +63,6 @@ def queue_reasons(*, outcome: str | None, merged: bool, jev_noul: float | None, 
     if not reasons and jev_noul is not None and _in_sample(key):
         reasons.append("sample")
     return reasons
-
-
-# --- Making items ---------------------------------------------------------------------------------
 
 
 def _snapshot(name: Any, etype: Any, aliases: Any = None, observations: Any = None) -> dict[str, Any]:
@@ -146,13 +135,12 @@ _INSERT_ITEM = (
 )
 
 
-def enqueue_decisions(conn: sqlite3.Connection, *, kb_id: int, document_id: str, decisions: Iterable[Any]) -> int:
-    """Put the queued pairs of the decisions of one document into the queue. ``decisions`` are ResolutionDecision objects in log order."""
+def enqueue_results(conn: sqlite3.Connection, *, kb_id: int, document_id: str, results: Iterable[ResolutionResult]) -> int:
     rows: list[tuple[Any, ...]] = []
-    for seq, dec in enumerate(decisions):
+    for seq, res in enumerate(r for r in results if r.decision is not None):
         rows.extend(_items_of_decision(
-            conn, kb_id=kb_id, document_id=document_id, seq=seq, item=dec.to_dict(),
-            candidate_snapshots=getattr(dec, "candidate_snapshots", None),
+            conn, kb_id=kb_id, document_id=document_id, seq=seq, item=res.decision.to_dict(),
+            candidate_snapshots=res.candidate_snapshots,
         ))
     before = conn.total_changes
     conn.executemany(_INSERT_ITEM, rows)
@@ -160,7 +148,6 @@ def enqueue_decisions(conn: sqlite3.Connection, *, kb_id: int, document_id: str,
 
 
 def backfill_from_records(conn: sqlite3.Connection) -> int:
-    """Make items from the shadow records that exist in documents.meta (old records: candidate state of now)."""
     rows: list[tuple[Any, ...]] = []
     for doc in conn.execute("SELECT id, kb_id, meta FROM documents WHERE meta LIKE '%\"shadow\"%'").fetchall():
         try:
@@ -178,14 +165,10 @@ def backfill_from_records(conn: sqlite3.Connection) -> int:
     return conn.total_changes - before
 
 
-# --- Consensus ------------------------------------------------------------------------------------
-
-
 def consensus(counts: dict[str, int]) -> str | None:
-    """``same`` or ``different`` when at least 2 such verdicts exist and 2/3 of them agree; else None."""
     same, different = int(counts.get("same", 0)), int(counts.get("different", 0))
     total = same + different
-    if total < CONSENSUS_MIN_VERDICTS:
+    if total < CONSENSUS_MIN_DECISIVE_VERDICTS:
         return None
     if same / total >= CONSENSUS_SHARE:
         return "same"
@@ -208,11 +191,7 @@ def _verdict_counts(conn: sqlite3.Connection, item_ids: list[int] | None = None)
     return out
 
 
-# --- Items for one account (R4) -------------------------------------------------------------------
-
-
 def is_blind(item_id: int, account_id: int) -> bool:
-    """Deterministic: 3 of 10 (item, account) pairs see no pre-label before the verdict."""
     digest = hashlib.sha256(f"pair-review:{item_id}:{account_id}".encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % 10 < BLIND_PER_TEN
 
@@ -222,7 +201,6 @@ def _row_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def item_view(row: dict[str, Any], *, account_id: int, counts: dict[str, int] | None = None, own: dict[str, Any] | None = None) -> dict[str, Any]:
-    """The JSON of one item for one account. A blind item hides the pre-label until the account gave a verdict."""
     blind = is_blind(int(row["id"]), account_id)
     show_prelabel = own is not None or not blind
     prelabel: dict[str, Any] | None = None
@@ -251,10 +229,6 @@ def item_view(row: dict[str, Any], *, account_id: int, counts: dict[str, int] | 
 
 
 def pending_items_for(conn: sqlite3.Connection, *, account_id: int, readable_kb_ids: Iterable[int], limit: int) -> list[dict[str, Any]]:
-    """Items that the account has no verdict for, without consensus, in readable knowledge bases.
-
-    Order: items that are one verdict short of a consensus first, then the reason priority, then the oldest.
-    """
     kb_ids = sorted({int(k) for k in readable_kb_ids})
     if not kb_ids or limit <= 0:
         return []
@@ -299,7 +273,6 @@ def own_verdict(conn: sqlite3.Connection, item_id: int, account_id: int) -> dict
 
 
 def set_verdict(conn: sqlite3.Connection, *, item_id: int, account_id: int, verdict: str, note: str = "") -> None:
-    """Store or change the verdict of one account. ``ValueError`` for an unknown verdict or a long note."""
     if verdict not in VERDICTS:
         raise ValueError(f"verdict must be one of {', '.join(VERDICTS)}")
     note = str(note or "")
@@ -320,7 +293,6 @@ def delete_verdict(conn: sqlite3.Connection, *, item_id: int, account_id: int) -
 
 
 def account_stats(conn: sqlite3.Connection, *, account_id: int, readable_kb_ids: Iterable[int]) -> dict[str, Any]:
-    """Counts for one account: own verdicts by value, and the items that wait for it."""
     by_verdict = dict(conn.execute(
         "SELECT verdict, COUNT(*) FROM pair_review_verdicts WHERE account_id=? GROUP BY verdict", (int(account_id),)
     ).fetchall())
@@ -328,23 +300,16 @@ def account_stats(conn: sqlite3.Connection, *, account_id: int, readable_kb_ids:
     return {"verdicts": sum(by_verdict.values()), "by_verdict": by_verdict, "waiting": waiting}
 
 
-# --- Pre-labels (R3) ------------------------------------------------------------------------------
-
-
 def items_without_prelabel(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [it for it in items if not it.get("prelabel_status")]
 
 
-def store_prelabels(conn: sqlite3.Connection, results: dict[int, dict[str, Any]]) -> None:
-    """``results``: {item id: {engine, model, status, noul, confidence}}."""
+def store_prelabels(conn: sqlite3.Connection, results: dict[int, Prelabel]) -> None:
     now = time.time()
     conn.executemany(
         "UPDATE pair_review_items SET prelabel_engine=?, prelabel_model=?, prelabel_status=?, prelabel_noul=?, prelabel_confidence=?, prelabel_at=? WHERE id=?",
-        [(r.get("engine"), r.get("model"), r.get("status"), r.get("noul"), r.get("confidence"), now, int(item_id)) for item_id, r in results.items()],
+        [(r["engine"], r["model"], r["status"], r.get("noul"), r.get("confidence"), now, int(item_id)) for item_id, r in results.items()],
     )
-
-
-# --- Report (R5) ----------------------------------------------------------------------------------
 
 
 def wilson_low(k: int, n: int, z: float = 1.96) -> float | None:
@@ -355,8 +320,12 @@ def wilson_low(k: int, n: int, z: float = 1.96) -> float | None:
     return round((p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d, 4)
 
 
-def _confusion(pairs: list[tuple[bool, bool]]) -> dict[str, Any]:
-    """``pairs``: (predicted same, labeled same)."""
+class Outcome(NamedTuple):
+    predicted_same: bool
+    labeled_same: bool
+
+
+def _confusion(pairs: list[Outcome]) -> dict[str, Any]:
     tp = sum(1 for p, y in pairs if p and y)
     fp = sum(1 for p, y in pairs if p and not y)
     fn = sum(1 for p, y in pairs if not p and y)
@@ -378,7 +347,6 @@ def _percentile(values: list[float], q: float) -> float | None:
 
 
 def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> dict[str, Any]:
-    """The routine evaluation report. Only consensus labels count; a pre-label is compared, never counted as a label."""
     where, params = "", []
     if kb_ids is not None:
         ids = sorted({int(k) for k in kb_ids})
@@ -412,7 +380,7 @@ def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> 
             "positives": sum(1 for i in group if labels[int(i["id"])] == "same"),
             "latency_ms_p95": _percentile(latencies, 0.95),
             "thresholds": {
-                f"{t:g}": _confusion([(float(i["jev_noul"]) >= t, labels[int(i["id"])] == "same") for i in group])
+                f"{t:g}": _confusion([Outcome(float(i["jev_noul"]) >= t, labels[int(i["id"])] == "same") for i in group])
                 for t in REPORT_THRESHOLDS
             },
         }
@@ -422,7 +390,6 @@ def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> 
     prelabeled = [i for i in labeled if i.get("prelabel_status") == "ok" and i.get("prelabel_noul") is not None]
     pre_vs_judge = [i for i in items if i.get("prelabel_status") == "ok" and i.get("outcome") in JUDGE_OUTCOMES]
 
-    # Agreement of single verdicts with the pre-label, with and without the pre-label shown first (anchoring check)
     pre_by_item = {int(i["id"]): (float(i["prelabel_noul"]) >= 0.5) for i in items if i.get("prelabel_status") == "ok" and i.get("prelabel_noul") is not None}
     anchoring: dict[str, dict[str, Any]] = {}
     for blind_flag, name in ((1, "blind"), (0, "shown")):
@@ -433,7 +400,7 @@ def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> 
     positives = sum(1 for i in labeled if labels[int(i["id"])] == "same")
     return {
         "rule_version": SAME_ENTITY_RULE_VERSION,
-        "consensus_rule": {"min_verdicts": CONSENSUS_MIN_VERDICTS, "share": round(CONSENSUS_SHARE, 4), "unsure_counts": False},
+        "consensus_rule": {"min_verdicts": CONSENSUS_MIN_DECISIVE_VERDICTS, "share": round(CONSENSUS_SHARE, 4), "unsure_counts": False},
         "items": {
             "total": len(items),
             "by_reason": dict(sorted(by_reason.items())),
@@ -449,10 +416,10 @@ def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> 
             "blind": sum(1 for r in verdict_rows if int(r[3])),
         },
         "jev_by_model": jev_by_model,
-        "judge": _confusion([(i["outcome"] == "judge_same", labels[int(i["id"])] == "same") for i in judged]),
+        "judge": _confusion([Outcome(i["outcome"] == "judge_same", labels[int(i["id"])] == "same") for i in judged]),
         "pipeline_merges": {"labeled": len(merges), "false_merges": sum(1 for i in merges if labels[int(i["id"])] == "different")},
         "prelabel": {
-            "vs_consensus": _confusion([(float(i["prelabel_noul"]) >= 0.5, labels[int(i["id"])] == "same") for i in prelabeled]),
+            "vs_consensus": _confusion([Outcome(float(i["prelabel_noul"]) >= 0.5, labels[int(i["id"])] == "same") for i in prelabeled]),
             "agreement_with_judge": (
                 round(sum(1 for i in pre_vs_judge if (float(i["prelabel_noul"]) >= 0.5) == (i["outcome"] == "judge_same")) / len(pre_vs_judge), 4)
                 if pre_vs_judge else None
@@ -463,6 +430,5 @@ def report(conn: sqlite3.Connection, *, kb_ids: Iterable[int] | None = None) -> 
             "precision_low95_needed": GATE_PRECISION_LOW,
             "positives_needed_with_zero_errors": 150,
             "positives_now": positives,
-            "note": "the report shows the gate; it changes no role (owner decision 2026-11-20)",
         },
     }

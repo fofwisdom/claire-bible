@@ -327,20 +327,18 @@ CREATE TABLE IF NOT EXISTS same_subject_shadow (
 );
 CREATE INDEX IF NOT EXISTS idx_same_subject_shadow_kb ON same_subject_shadow(kb_id, created_at);
 
--- [Entity pair review, v38] Pairs of the Jev shadow that carry information for the evaluation (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation").
--- Each item keeps the entity snapshots, so that it stands alone after later merges. A person gives a verdict; the pre-label of a third engine is not a label.
 CREATE TABLE IF NOT EXISTS pair_review_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    seq INTEGER NOT NULL,           -- index in documents.meta.resolution_log
-    decided_at REAL NOT NULL,       -- timestamp of the decision
+    seq INTEGER NOT NULL,
+    decided_at REAL NOT NULL,
     candidate_id TEXT NOT NULL,
-    reasons TEXT NOT NULL,          -- JSON list: disagree | invariant | merged | near_variant | sample
-    new_entity TEXT NOT NULL,       -- JSON {name, type, aliases, observations}
-    candidate TEXT NOT NULL,        -- JSON {name, type, aliases, observations}
-    snapshot_source TEXT NOT NULL,  -- decision (pre-merge state) | current (state when the item was made from an old record)
-    outcome TEXT,                   -- candidate outcome of the pipeline (judge_same, judge_different, invariant_reject, ...)
+    reasons TEXT NOT NULL,
+    new_entity TEXT NOT NULL,
+    candidate TEXT NOT NULL,
+    snapshot_source TEXT NOT NULL,
+    outcome TEXT,
     merged INTEGER NOT NULL DEFAULT 0,
     jev_noul REAL,
     jev_model TEXT,
@@ -349,7 +347,7 @@ CREATE TABLE IF NOT EXISTS pair_review_items (
     prelabel_model TEXT,
     prelabel_noul REAL,
     prelabel_confidence REAL,
-    prelabel_status TEXT,           -- NULL = not asked | ok | no_key | error:<type>
+    prelabel_status TEXT,
     prelabel_at REAL,
     rule_version TEXT NOT NULL,
     created_at REAL NOT NULL,
@@ -358,10 +356,10 @@ CREATE TABLE IF NOT EXISTS pair_review_items (
 CREATE INDEX IF NOT EXISTS idx_pair_review_items_kb ON pair_review_items(kb_id, created_at);
 CREATE TABLE IF NOT EXISTS pair_review_verdicts (
     item_id INTEGER NOT NULL REFERENCES pair_review_items(id) ON DELETE CASCADE,
-    account_id INTEGER NOT NULL,    -- the account that gave the verdict (auth.db)
+    account_id INTEGER NOT NULL,
     verdict TEXT NOT NULL CHECK (verdict IN ('same', 'different', 'unsure')),
     note TEXT,
-    blind INTEGER NOT NULL,         -- 1 = the pre-label was hidden until the verdict
+    blind INTEGER NOT NULL,
     rule_version TEXT NOT NULL,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
@@ -1672,7 +1670,6 @@ def _migrate_v35_expansion_source_names(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v38_pair_review_backfill(conn: sqlite3.Connection) -> None:
-    """v38 schema (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation"): the tables ``pair_review_items`` and ``pair_review_verdicts`` come from the schema script. This step fills the queue once from the Jev shadow records that exist in ``documents.meta`` (candidate state of now, ``snapshot_source='current'``), and marks the work in ``meta``. Idempotent (A3): it runs at each start and does nothing after the first fill; a repeated insert is ignored."""
     if not _table_exists(conn, "pair_review_items") or not _table_exists(conn, "documents"):
         return
     if conn.execute("SELECT 1 FROM meta WHERE key=?", (PAIR_REVIEW_BACKFILL_KEY,)).fetchone():

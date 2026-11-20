@@ -971,7 +971,6 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
         "   - Official full organization/institution names and their common short names or localized names (e.g., 'Laplace Scientific Computing Center' and '라플라스' / '라플라스 연구 센터' / '라플라스 연구소') are SAME when they refer to the same organization in the domain context.\n"
         "2. DIFFERENT: The entries are distinct subjects, even if they belong to the same category, "
         "group, domain, or ecosystem (e.g., Docker vs Podman, Kafka vs Silver Wolf, Claude vs GPT-4).\n"
-        # One rule with Jev and the shadow review (owner decision 2026-11-20, same_entity_rule.py)
         f"3. SAME also means: {SAME_ENTITY_TRUE}\n"
         f"4. DIFFERENT also means: {SAME_ENTITY_FALSE} "
         "(e.g., 'Windows 11' vs 'Windows', 'Gemini 3.5 Flash-Lite' vs 'Gemini 3.5 Flash', 'NIST AI RMF' vs 'NIST').\n\n"

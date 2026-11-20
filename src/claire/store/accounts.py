@@ -241,7 +241,6 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
         conn.execute("DELETE FROM public_directory_counters WHERE account_id=?", (account_id,))
     except sqlite3.OperationalError:
         pass
-    # The verdicts of the account in the entity pair review (schema v38) go with the account.
     try:
         conn.execute("DELETE FROM pair_review_verdicts WHERE account_id=?", (account_id,))
     except sqlite3.OperationalError:

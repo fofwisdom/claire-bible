@@ -2023,7 +2023,6 @@ def cmd_expand_run(args) -> int:
 
 
 def cmd_pair_review(args) -> int:
-    """The entity pair review (schema v38): list the items, or print the routine evaluation report. Read only."""
     import json as _json
 
     from .store import pair_review

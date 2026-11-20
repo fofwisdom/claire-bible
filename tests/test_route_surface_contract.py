@@ -87,7 +87,6 @@ SYSTEM = {
     # Automatic contribution and mutual collaboration (Sections 9.9, 9.10)
     "/api/kb/similar", "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
     "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
-    # Entity pair review: verdicts of people on Jev shadow pairs (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation", schema v38)
     "/api/me/pair-review/items", "/api/me/pair-review/items/{item_id}/verdict", "/api/me/pair-review/stats",
 }
 # The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2), and reviews the shadow records of the same-subject source merge (EXPANSION.md §3.1).

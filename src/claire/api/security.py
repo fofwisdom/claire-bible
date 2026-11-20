@@ -483,7 +483,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/expansion/shadow"): _system("admin", "none"),
     ("HEAD", "/api/admin/expansion/shadow"): _system("admin", "none"),
     ("PUT", "/api/admin/expansion/shadow/{record_id}/verdict"): _system("admin", "none"),
-    # Entity pair review (schema v38): any account that can read the knowledge base of an item; a verdict is a decision of the person (owner scope).
     ("GET", "/api/me/pair-review/items"): _system("read", "none"),
     ("HEAD", "/api/me/pair-review/items"): _system("read", "none"),
     ("PUT", "/api/me/pair-review/items/{item_id}/verdict"): _system("owner", "none"),

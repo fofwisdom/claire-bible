@@ -1,10 +1,3 @@
-"""One rule for "same entity" (owner decision 2026-11-20).
-
-The LLM judge, the Jev shadow, the pre-label engine of the shadow review, and the people who give verdicts read the same text.
-Each review verdict keeps SAME_ENTITY_RULE_VERSION. A change of the text needs a new version.
-See docs/design/JEV_SHADOW_EVALUATION_DESIGN.md (R6).
-"""
-
 from __future__ import annotations
 
 SAME_ENTITY_RULE_VERSION = "2026-11-20"

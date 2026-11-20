@@ -1,13 +1,14 @@
-"""Pre-labels from the Gemini Decisions API (external library calls): request shape, answers, and failures."""
-
 from __future__ import annotations
 
+import hashlib
 import json
-from types import SimpleNamespace
 from typing import Any
 
+import httpx
+from google.genai.decisions import CreateDecisionResponse, NoulAnswer
+
 from claire.extract import decisions_prelabel as dp
-from claire.extract.same_entity_rule import SAME_ENTITY_FALSE, SAME_ENTITY_TRUE
+from claire.extract.same_entity_rule import SAME_ENTITY_FALSE, SAME_ENTITY_RULE_VERSION, SAME_ENTITY_TRUE
 
 
 def _item(item_id: int, cand: str, *, seq: int = 0, doc: str = "doc_1") -> dict[str, Any]:
@@ -23,13 +24,12 @@ def test_one_request_for_each_decision_with_the_one_rule() -> None:
 
     def create(**kwargs: Any) -> Any:
         calls.append(kwargs)
-        # The SDK returns objects; a dict answer also works
-        answers = {key: SimpleNamespace(noul=0.93 if i == 0 else 0.04, confidence=0.93 if i == 0 else 0.96) for i, key in enumerate(kwargs["questions"])}
-        return SimpleNamespace(answers=answers)
+        answers = {key: NoulAnswer(type="noul", noul=0.93 if i == 0 else 0.04, confidence=0.93 if i == 0 else 0.96) for i, key in enumerate(kwargs["questions"])}
+        return CreateDecisionResponse(answers=answers)
 
     items = [_item(1, "Antrea"), _item(2, "Calico"), _item(3, "Cilium", seq=4)]
     results = dp.prelabel(items, api_key="AIzaTestKey", create=create)
-    assert len(calls) == 2  # two decisions
+    assert len(calls) == 2
     first = calls[0]
     assert first["model"] == "gemini-decision-1"
     state = json.loads(first["input"])
@@ -46,18 +46,22 @@ def test_failures_give_a_status_and_never_raise() -> None:
     assert {r["status"] for r in dp.prelabel(items, api_key="  ").values()} == {"no_key"}
 
     def broken(**_kwargs: Any) -> Any:
-        raise TimeoutError("slow")
+        raise httpx.ReadTimeout("slow")
 
-    assert {r["status"] for r in dp.prelabel(items, api_key="k", create=broken).values()} == {"error:TimeoutError"}
+    assert {r["status"] for r in dp.prelabel(items, api_key="k", create=broken).values()} == {"error:ReadTimeout"}
 
     def partial(**kwargs: Any) -> Any:
-        return {"answers": {}}
+        return CreateDecisionResponse(answers={})
 
     assert dp.prelabel(items[:1], api_key="k", create=partial)[1]["status"] == "error:no_answer"
     assert dp.prelabel([], api_key="k") == {}
 
 
 def test_sdk_client_has_the_decisions_resource() -> None:
-    """The installed google-genai gives client.decisions.create (no network call)."""
     create = dp._client_create("AIzaTestKeyWithoutNetwork")
     assert callable(create)
+
+
+def test_rule_text_change_needs_a_new_version() -> None:
+    pinned = {"2026-11-20": "791d882837aa4b46788a4277d83f7dbc97883d3428f1b8a980ff9b14f2e20f65"}
+    assert pinned[SAME_ENTITY_RULE_VERSION] == hashlib.sha256(f"{SAME_ENTITY_TRUE}\n{SAME_ENTITY_FALSE}".encode()).hexdigest()

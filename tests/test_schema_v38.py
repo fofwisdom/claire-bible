@@ -1,8 +1,3 @@
-"""Schema v38: the entity pair review queue and verdicts (JEV_SHADOW_EVALUATION_DESIGN.md "Routine evaluation").
-
-Database I/O: the tables, the one-time fill from old shadow records, the queue rules, verdicts, consensus, the report, and the deletion with an account.
-"""
-
 from __future__ import annotations
 
 import json
@@ -51,7 +46,6 @@ def test_queue_reasons() -> None:
     assert pair_review.is_near_variant("PowerShell 7", "PowerShell")
     assert pair_review.is_near_variant("Gemini 3.5 Flash", "Gemini 3.6 Flash")
     assert not pair_review.is_near_variant("Docker", "Podman")
-    # About 5% of the other scored pairs go to the queue as a sample; pairs without a Jev score never do
     picked = sum(bool(reasons(outcome="judge_different", merged=False, jev_noul=0.01, new_name="A", cand_name="Zeta", key=f"k{i}")) for i in range(4000))
     assert 120 <= picked <= 280
     assert reasons(outcome="judge_cap", merged=False, jev_noul=None, new_name="A", cand_name="Zeta", key="k") in ([], ["sample"]) and not any(
@@ -68,7 +62,6 @@ def test_a_v37_database_gets_the_tables_and_one_fill_from_old_records(tmp_path: 
         _log_item("Docker", [{"id": "ent_gone", "name": "Podman", "type": "Tool", "outcome": "judge_different", "jev_noul": 0.01}]),
     ]
     doc_id = _seed_document(conn, log)
-    # Make the database look like v37: no tables, no fill mark
     conn.execute("DROP TABLE pair_review_verdicts")
     conn.execute("DROP TABLE pair_review_items")
     conn.execute("DELETE FROM meta WHERE key=?", (dbm.PAIR_REVIEW_BACKFILL_KEY,))
@@ -79,11 +72,10 @@ def test_a_v37_database_gets_the_tables_and_one_fill_from_old_records(tmp_path: 
     conn = _db(tmp_path)
     assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(dbm.SCHEMA_VERSION) == "38"
     rows = conn.execute("SELECT document_id, seq, candidate_id, reasons, candidate, snapshot_source, jev_model FROM pair_review_items").fetchall()
-    assert len(rows) == 1  # Docker/Podman has no reason (not near, low score, not in the sample), the Antrea pair has two
+    assert len(rows) == 1
     row = rows[0]
     assert row[0] == doc_id and row[1] == 0 and row[2] == cand.id and json.loads(row[3]) == ["invariant", "near_variant"]
     assert json.loads(row[4])["aliases"] == ["Antrea CNI plugin"] and row[5] == "current" and row[6] == "jev-1.14.0"
-    # The fill runs once: a removed item does not come back at the next start
     conn.execute("DELETE FROM pair_review_items")
     conn.commit()
     conn.close()
@@ -93,7 +85,6 @@ def test_a_v37_database_gets_the_tables_and_one_fill_from_old_records(tmp_path: 
 
 
 def test_resolver_snapshots_go_to_the_queue_with_the_pre_merge_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Interface: resolve_or_create gives the pre-merge snapshots in memory; enqueue_decisions stores them; the resolution log does not have them."""
     import claire.extract.resolver as resolver_mod
 
     monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
@@ -123,13 +114,12 @@ def test_resolver_snapshots_go_to_the_queue_with_the_pre_merge_state(tmp_path: P
         shadow=JevShadow(_Client(), executor=_Inline()),
     )
     assert res.decision.decision == "MERGE"
-    assert "candidate_snapshots" not in res.decision.to_dict()
+    assert "candidate_snapshots" not in res.decision.to_dict() and res.candidate_snapshots
     doc = Document(title="Doc", raw_text="text")
     dbm.insert_document(conn, doc, kb_id=0)
-    assert pair_review.enqueue_decisions(conn, kb_id=0, document_id=doc.id, decisions=[res.decision]) == 1
+    assert pair_review.enqueue_results(conn, kb_id=0, document_id=doc.id, results=[res]) == 1
     row = conn.execute("SELECT reasons, candidate, snapshot_source, merged, outcome FROM pair_review_items").fetchone()
     assert json.loads(row[0]) == ["merged", "near_variant"]
-    # The merge added the observation of the new entity to the target; the item keeps the state before the merge
     assert json.loads(row[1])["observations"] == ["a model"] and row[2] == "decision" and row[3] == 1 and row[4] == "judge_same"
 
 
@@ -155,7 +145,6 @@ def test_verdicts_consensus_report_and_account_deletion(tmp_path: Path) -> None:
         pair_review.set_verdict(conn, item_id=ids["Data Center"], account_id=account, verdict="different")
         pair_review.set_verdict(conn, item_id=ids["Gemini 3.8 Flash"], account_id=account, verdict="same")
     pair_review.set_verdict(conn, item_id=ids["Gemini 3.8 Flash"], account_id=7, verdict="unsure")
-    # A changed verdict replaces the old one
     pair_review.set_verdict(conn, item_id=ids["Data Center"], account_id=6, verdict="same")
     pair_review.set_verdict(conn, item_id=ids["Data Center"], account_id=6, verdict="different", note="a broad and a narrow concept")
     assert pair_review.item_counts(conn, ids["Data Center"]) == {"different": 2}
@@ -173,7 +162,6 @@ def test_verdicts_consensus_report_and_account_deletion(tmp_path: Path) -> None:
     assert rep["pipeline_merges"] == {"labeled": 1, "false_merges": 0}
     assert pair_review.report(conn, kb_ids=[99])["items"]["total"] == 0
 
-    # An item with a consensus does not wait for more verdicts; an account sees only items without its verdict
     assert pair_review.pending_items_for(conn, account_id=8, readable_kb_ids=[0], limit=10) == []
     pair_review.delete_verdict(conn, item_id=ids["Antrea"], account_id=6)
     waiting = pair_review.pending_items_for(conn, account_id=8, readable_kb_ids=[0], limit=10)
@@ -183,7 +171,6 @@ def test_verdicts_consensus_report_and_account_deletion(tmp_path: Path) -> None:
     stats = pair_review.account_stats(conn, account_id=5, readable_kb_ids=[0])
     assert stats["verdicts"] == 3 and stats["by_verdict"] == {"same": 2, "different": 1}
 
-    # The verdicts of an account go with the account (the data cleanup of a removed account)
     from claire.store import accounts as accounts_store
 
     accounts_store._gc_account_disk_artifacts(conn, 5, data_dir=tmp_path)
