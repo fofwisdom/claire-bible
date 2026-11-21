@@ -3500,8 +3500,8 @@ paths:
       summary: Admin console entry redirect
       description: >-
         Redirects the server admin to /admin/server. Every non-admin request
-        gets 404 before any redirect. An optional theme query that is not one of the
-        admin's own themes also gets 404.
+        gets 404 before any redirect. An optional kb query that is not one of the
+        admin's own knowledge bases also gets 404.
       operationId: getAdminConsoleIndex
       x-claire-access: admin
       security:
@@ -3519,7 +3519,7 @@ paths:
                 type: string
                 const: /admin/server
         '404':
-          description: Not the server admin with owner scope, or invalid theme reference.
+          description: Not the server admin with owner scope, or invalid kb reference.
 
   /admin/{section}:
     get:
@@ -3527,9 +3527,9 @@ paths:
       description: >-
         Root-only admin console pages rendered in console_shell.html. Prefixed
         paths (/@{username}/admin/...) return 404. Non-admin callers always get 404,
-        never 403. /admin/themes is the console of the theme judgement: the themes,
-        the last run, the thresholds, the reputation numbers, and the admin
-        adjustments (data from /api/admin/themes and /api/admin/reputations).
+        never 403. Shared KB oversight (/moderation/oversight) and theme judgement
+        (/moderation/themes) live under /moderation/*; /admin/kb and /admin/themes
+        are legacy 308 redirects.
       operationId: getAdminConsoleSection
       x-claire-access: admin
       security:
@@ -3542,7 +3542,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [server, accounts, idp, providers, limits, themes, tokens, mcp]
+            enum: [server, federation, accounts, idp, providers, limits, plugins, tokens, mcp, backups, storage]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '200':
@@ -3552,7 +3552,193 @@ paths:
               schema:
                 type: string
         '404':
-          description: Not the server admin with owner scope, or invalid theme reference.
+          description: Not the server admin with owner scope, or invalid kb reference.
+
+  /admin/kb:
+    get:
+      summary: Legacy admin shared KB oversight redirect
+      description: >-
+        Redirects the server admin (308) to /moderation/oversight, preserving a
+        validated ?kb= query. Every non-admin request gets 404 before any redirect.
+      operationId: redirectLegacyAdminKb
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '308':
+          description: Permanent redirect to /moderation/oversight (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /moderation/oversight
+        '404':
+          description: Not the server admin with owner scope, or invalid kb reference.
+
+  /admin/themes:
+    get:
+      summary: Legacy admin theme judgement redirect
+      description: >-
+        Redirects the server admin (308) to /moderation/themes, preserving a
+        validated ?kb= query. Every non-admin request gets 404 before any redirect.
+      operationId: redirectLegacyAdminThemes
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '308':
+          description: Permanent redirect to /moderation/themes (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /moderation/themes
+        '404':
+          description: Not the server admin with owner scope, or invalid kb reference.
+
+  /moderation:
+    get:
+      summary: Moderation console entry redirect
+      description: >-
+        Redirects an owner-scope credential to /moderation/kb, keeping a validated
+        ?kb= query. Prefixed paths return 404.
+      operationId: getModerationConsoleIndex
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '302':
+          description: Redirect to /moderation/kb (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /moderation/kb
+        '404':
+          description: Not an owner-scope account credential, or invalid kb reference.
+
+  /moderation/kb:
+    get:
+      summary: Shared KB moderation and curation console
+      description: >-
+        Root-only owner console page rendered in console_shell.html (area
+        moderation, section kb_manage, #settings-kb-manage-host). Non-admin
+        responses contain no /admin/*, /moderation/oversight, or /moderation/themes
+        links, no admin markup, no console_admin.js, and no console.js.admin.*
+        catalog keys.
+      operationId: getModerationKbPage
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '200':
+          description: Shared KB moderation console page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not an owner-scope account credential, or invalid kb reference.
+
+  /moderation/kb/{kb_number}:
+    get:
+      summary: Shared KB review and moderation console for one shared KB
+      description: >-
+        Root-only owner console page rendered in console_shell.html (area
+        moderation, section kb_manage, #settings-kb-manage-host) scoped to a
+        specific shared knowledge base. A personal KB number or unknown number
+        returns 404.
+      operationId: getModerationKbDetailPage
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: kb_number
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '200':
+          description: Shared KB moderation console page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not an owner-scope credential, personal or unknown KB number, or invalid kb reference.
+
+  /moderation/oversight:
+    get:
+      summary: Admin shared KB oversight console
+      description: >-
+        Root-only administrator console page rendered in console_shell.html
+        (area moderation, section kb, #admin-kb-host, loads console_admin.js and
+        the console_admin catalog). Non-admin callers always get 404, never 403.
+      operationId: getModerationOversightPage
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '200':
+          description: Admin shared KB oversight console page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not the server admin with owner scope, or invalid kb reference.
+
+  /moderation/themes:
+    get:
+      summary: Admin theme judgement and reputation console
+      description: >-
+        Root-only administrator console page rendered in console_shell.html
+        (area moderation, section themes, #admin-themes-host, loads console_admin.js
+        and the console_admin catalog). Displays themes, the last judgement run,
+        thresholds, reputation numbers, decision agreement, and admin adjustments
+        (data from /api/admin/themes and /api/admin/reputations). Non-admin callers
+        always get 404, never 403.
+      operationId: getModerationThemesPage
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '200':
+          description: Admin theme judgement console page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not the server admin with owner scope, or invalid kb reference.
 
   /api/admin/server:
     get:
@@ -3751,7 +3937,7 @@ paths:
       summary: User settings console entry redirect
       description: >-
         Redirects to /settings/account, or to /settings/reader when from=syndication.
-        A valid theme query is kept on the redirect target.
+        A valid kb query is kept on the redirect target.
       operationId: getSettingsConsoleIndex
       x-claire-access: owner
       security:
@@ -3770,7 +3956,7 @@ paths:
         '302':
           description: Redirect to /settings/account or /settings/reader (Cache-Control no-store, Referrer-Policy same-origin).
         '404':
-          description: Not an owner-scope account credential, or invalid theme reference.
+          description: Not an owner-scope account credential, or invalid kb reference.
 
   /settings/{section}:
     get:
@@ -3778,11 +3964,15 @@ paths:
       description: >-
         Root-only owner pages rendered in console_shell.html in both server modes.
         Prefixed paths (/@{username}/settings/..., /themes/{n}/settings/...) return
-        404. For the server admin, /settings/tokens redirects (302) to /admin/tokens.
-        /settings/themes is a retired page: it redirects (308) to /admin/themes for
-        the server admin and to /settings/kb for each other account. Responses to non-admin callers
-        contain no /admin links or admin markup. Sections reader through webmcp are
-        theme-scoped; the others are account-wide.
+        404. /settings/kb stays under /settings for the personal KB, submissions,
+        automatic contribution rule, own reputation, memberships, and mutual
+        collaborations. For the server admin, /settings/tokens redirects (302) to
+        /admin/tokens. /settings/themes is a retired page: it redirects (308) to
+        /moderation/themes for the server admin and to /settings/kb for each other
+        account. Responses to non-admin callers contain no /admin/*,
+        /moderation/oversight, or /moderation/themes links, no admin markup, and no
+        console_admin.js. Sections reader through webmcp are theme-scoped; the
+        others are account-wide.
       operationId: getSettingsConsoleSection
       x-claire-access: owner
       security:
@@ -3795,7 +3985,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [account, keys, themes, tokens, reader, connections, feeds, tags, rules, outbound, opml, mcp, webmcp]
+            enum: [account, federation, keys, kb, themes, tokens, telegram, bundles, backups, reader, connections, feeds, tags, rules, outbound, opml, mcp, webmcp]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
         - name: notice
           in: query
@@ -3814,15 +4004,66 @@ paths:
         '302':
           description: Admin caller on /settings/tokens; Location is /admin/tokens.
         '308':
-          description: The retired page /settings/themes; Location is /admin/themes (admin caller, with the validated theme query) or /settings/kb.
+          description: The retired page /settings/themes; Location is /moderation/themes (admin caller, with the validated kb query) or /settings/kb.
         '404':
-          description: Not an owner-scope account credential, or invalid theme reference.
+          description: Not an owner-scope account credential, or invalid kb reference.
+
+  /settings/kb/manage:
+    get:
+      summary: Legacy shared KB moderation redirect
+      description: >-
+        Compatibility redirect (308) to /moderation/kb for owner-scope credentials,
+        preserving a validated ?kb= query.
+      operationId: redirectLegacySettingsKbManage
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '308':
+          description: Permanent redirect to /moderation/kb (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /moderation/kb
+        '404':
+          description: Not an owner-scope account credential, or invalid kb reference.
+
+  /settings/kb/{kb_number}:
+    get:
+      summary: Legacy shared KB review redirect
+      description: >-
+        Compatibility redirect (308) to /moderation/kb/{kb_number} for owner-scope
+        credentials, preserving a validated ?kb= query. A personal KB number or
+        unknown number returns 404.
+      operationId: redirectLegacySettingsKbNumber
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: kb_number
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '308':
+          description: Permanent redirect to /moderation/kb/{kb_number} (Cache-Control no-store, Referrer-Policy same-origin).
+        '404':
+          description: Not an owner-scope credential, personal or unknown KB number, or invalid kb reference.
 
   /syndication/preferences:
     get:
       summary: Legacy syndication preferences redirect
       description: >-
-        Compatibility redirect. The theme query is validated first (404 when it is
+        Compatibility redirect. The kb query is validated first (404 when it is
         missing or not accessible). The tab query maps reader (or omitted) to
         /settings/reader, accounts to /settings/connections, and feeds, tags, rules,
         outbound, opml, mcp, webmcp to /settings/ with the same name, keeping the
@@ -3843,7 +4084,7 @@ paths:
           schema:
             type: string
             enum: [reader, accounts, feeds, tags, rules, outbound, opml, mcp, webmcp, idp, userdb]
-        - name: theme
+        - name: kb
           in: query
           required: false
           schema:
@@ -3852,7 +4093,7 @@ paths:
         '302':
           description: Redirect to the mapped /settings/* or /admin/* page (Cache-Control no-store, Referrer-Policy same-origin).
         '404':
-          description: Not an owner-scope credential, invalid theme reference, or empty or unknown tab.
+          description: Not an owner-scope credential, invalid kb reference, or empty or unknown tab.
 
   /api/me:
     get:
@@ -5251,13 +5492,13 @@ paths:
 components:
   parameters:
     ConsoleThemeQuery:
-      name: theme
+      name: kb
       in: query
       required: false
       description: >-
-        Public theme reference that must belong to the caller's account. An empty,
-        unknown, or foreign reference returns 404; it never falls back to a default
-        theme. When omitted, the caller's default theme is used.
+        Public personal knowledge base number (`kb`) that must belong to the caller's
+        account. An empty, unknown, or foreign reference returns 404; it never falls
+        back to a default KB. When omitted, the caller's personal KB is used.
       schema:
         type: string
 

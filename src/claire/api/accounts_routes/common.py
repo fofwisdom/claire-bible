@@ -311,10 +311,10 @@ def render_template(
     source = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)).replace("$", "$$"), raw_source)
     template = string.Template(source)
     return_path = LOCALE_FORM_RETURN_PATHS.get(name)
-    # The console shell gets the keys of the console scripts; only a page of the administrator area gets the keys of the administrator scripts.
+    # Only an administrator area page or an administrator moderation page gets the administrator script keys.
     scope: BrowserCatalogScope = "page"
     if name == "console_shell.html":
-        scope = "console_admin" if tx.get("active_area") == "admin" else "console"
+        scope = "console_admin" if (tx.get("active_area") == "admin" or bool(mk.get("admin_scripts_html"))) else "console"
     values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
     values.update({k: escape(v) for k, v in tx.items()})
     values.update(mk)

@@ -17,7 +17,7 @@ This document tells how the web workspace works now. The design principles are i
 | File | Content |
 | :--- | :--- |
 | `src/claire/ui_chrome.py` | Single-source builder for the shared application bar (`render_appbar_html()`), command palette (`render_cmdpalette_html()`), and ingestion modals (`render_ingest_modals_html()`). Future routes (`themes`, `kb`, etc.) must use this module instead of duplicating chrome HTML. |
-| `src/claire/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/admin/*`). |
+| `src/claire/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/moderation/*`, `/admin/*`). |
 | `src/claire/templates/partials/common_cmdpalette.html` | Shared `<dialog id="cmdpalette" closedby="any">` markup rendered on every page. |
 | `src/claire/templates/partials/common_ingest_modals.html` | Shared centered modal dialogs `#modal-ingest`, `#modal-reingest`, and `#modal-regen`. |
 | `src/claire/templates/index.html` | Markup of the workspace: expandable common chrome markers, list pane, center views, context panel, `#modal-dedup` / `#modal-purge`, bottom bar. |
@@ -36,7 +36,7 @@ This document tells how the web workspace works now. The design principles are i
 
 ## 2. Application Bar
 
-**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*` and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/claire/ui_chrome.py` (`src/claire/templates/partials/common_appbar.html`) styled by `src/claire/static/css/appbar.css` and controlled by `src/claire/static/js/appbar.js`. It has three parts:
+**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*`, `/moderation/*`, and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/claire/ui_chrome.py` (`src/claire/templates/partials/common_appbar.html`) styled by `src/claire/static/css/appbar.css` and controlled by `src/claire/static/js/appbar.js`. It has three parts:
 
 1. Start (`.bar-brand-group`): brand link (`Claire Bible`), page-specific theme picker, workspace list toggle (`#listtoggle`).
 2. Center (`.appbar-center`): always includes the unified command palette trigger button (`#palettetrigger`, keyboard shortcut `/`) inside `.appbar-palette-slot`, followed by page-specific center content (workspace view tabs `#centertabs` and `#streamtabs`, or syndication stream title, or console title/badge). The bar has no text `<input>`.

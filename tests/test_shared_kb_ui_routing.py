@@ -85,35 +85,85 @@ def ui_env(tmp_path: Path):
 def test_shared_kb_console_routes_and_admin_isolation(ui_env):
     client, admin_hdr, alice_hdr, numbers = ui_env
 
-    # Settings KB routes work for active owners and isolate admin bundles/links.
-    for path, marker in (
-        ("/settings/kb", 'id="settings-kb-host"'),
-        ("/settings/kb/manage", 'id="settings-kb-manage-host"'),
-        (f"/settings/kb/{numbers.kb}", 'id="settings-kb-manage-host"'),
+    # Settings KB and moderation KB routes work for active owners and isolate admin bundles, scripts, catalog keys, and links.
+    for path, marker, area, section in (
+        ("/settings/kb", 'id="settings-kb-host"', "settings", "kb"),
+        ("/moderation/kb", 'id="settings-kb-manage-host"', "moderation", "kb_manage"),
+        (f"/moderation/kb/{numbers.kb}", 'id="settings-kb-manage-host"', "moderation", "kb_manage"),
     ):
         resp = client.get(path, headers=alice_hdr)
         assert resp.status_code == 200, path
         assert marker in resp.text
+        assert f'data-active-area="{area}"' in resp.text
+        assert f'data-active-section="{section}"' in resp.text
         assert "console_kb.js" in resp.text
         assert "console_admin.js" not in resp.text
         assert "/admin/" not in resp.text
+        assert "console.js.admin." not in resp.text
+        assert 'href="/moderation/oversight"' not in resp.text
+        assert 'href="/moderation/themes"' not in resp.text
         assert client.get(path).status_code == 404
 
+    # /moderation redirects owners to /moderation/kb (preserving valid ?kb=), and returns 404 to non-owners.
+    mod_index = client.get("/moderation", headers=alice_hdr)
+    assert (mod_index.status_code, mod_index.headers["location"]) == (302, "/moderation/kb")
+    mod_index_kb = client.get(f"/moderation?kb={numbers.personal}", headers=alice_hdr)
+    assert (mod_index_kb.status_code, mod_index_kb.headers["location"]) == (302, f"/moderation/kb?kb={numbers.personal}")
+    assert client.get("/moderation?kb=nonexistent", headers=alice_hdr).status_code == 404
+    assert client.get("/moderation").status_code == 404
+
     # The page of a reviewer is for a shared knowledge base only: an unknown number and the number of a personal knowledge base get 404.
+    assert client.get("/moderation/kb/42", headers=alice_hdr).status_code == 404
+    assert client.get(f"/moderation/kb/{numbers.personal}", headers=alice_hdr).status_code == 404
     assert client.get("/settings/kb/42", headers=alice_hdr).status_code == 404
     assert client.get(f"/settings/kb/{numbers.personal}", headers=alice_hdr).status_code == 404
 
     # Prefixed bypasses must stay 404.
-    assert client.get("/@alice/settings/kb", headers=alice_hdr).status_code == 404
-    assert client.get("/@alice/admin/kb", headers=admin_hdr).status_code == 404
+    for path in (
+        "/@alice/settings/kb",
+        "/@alice/admin/kb",
+        "/@alice/moderation",
+        "/@alice/moderation/kb",
+        "/@alice/moderation/oversight",
+        "/@alice/moderation/themes",
+        f"/kb/{numbers.kb}/moderation/oversight",
+    ):
+        assert client.get(path, headers=admin_hdr).status_code == 404, path
+        assert client.get(path, headers=alice_hdr).status_code == 404, path
 
-    # /admin/kb is admin-only.
-    assert client.get("/admin/kb", headers=alice_hdr).status_code == 404
-    assert client.get("/admin/kb").status_code == 404
-    adm = client.get("/admin/kb", headers=admin_hdr)
-    assert adm.status_code == 200
-    assert 'id="admin-kb-host"' in adm.text
-    assert "console_admin.js" in adm.text
+    # /moderation/oversight and /moderation/themes are admin-only.
+    for path, host_marker, section in (
+        ("/moderation/oversight", 'id="admin-kb-host"', "kb"),
+        ("/moderation/themes", 'id="admin-themes-host"', "themes"),
+    ):
+        assert client.get(path, headers=alice_hdr).status_code == 404, path
+        assert client.get(path).status_code == 404, path
+        adm = client.get(path, headers=admin_hdr)
+        assert adm.status_code == 200, path
+        assert 'data-active-area="moderation"' in adm.text, path
+        assert f'data-active-section="{section}"' in adm.text, path
+        assert host_marker in adm.text, path
+        assert "console_admin.js" in adm.text, path
+
+    # Legacy 308 compatibility redirects preserve owner/admin gates before redirect.
+    for method in ("GET", "HEAD"):
+        legacy_manage = client.request(method, "/settings/kb/manage", headers=alice_hdr)
+        assert (legacy_manage.status_code, legacy_manage.headers["location"]) == (308, "/moderation/kb")
+        legacy_kb = client.request(method, f"/settings/kb/{numbers.kb}", headers=alice_hdr)
+        assert (legacy_kb.status_code, legacy_kb.headers["location"]) == (308, f"/moderation/kb/{numbers.kb}")
+        assert client.request(method, "/settings/kb/manage").status_code == 404
+        assert client.request(method, "/admin/kb", headers=alice_hdr).status_code == 404
+        assert client.request(method, "/admin/kb").status_code == 404
+        assert client.request(method, "/admin/themes", headers=alice_hdr).status_code == 404
+        assert client.request(method, "/admin/themes").status_code == 404
+        adm_kb = client.request(method, "/admin/kb", headers=admin_hdr)
+        assert (adm_kb.status_code, adm_kb.headers["location"]) == (308, "/moderation/oversight")
+        adm_themes = client.request(method, "/admin/themes", headers=admin_hdr)
+        assert (adm_themes.status_code, adm_themes.headers["location"]) == (308, "/moderation/themes")
+        set_themes_adm = client.request(method, "/settings/themes", headers=admin_hdr)
+        assert (set_themes_adm.status_code, set_themes_adm.headers["location"]) == (308, "/moderation/themes")
+        set_themes_mem = client.request(method, "/settings/themes", headers=alice_hdr)
+        assert (set_themes_mem.status_code, set_themes_mem.headers["location"]) == (308, "/settings/kb")
 
 
 def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_client(ui_env):

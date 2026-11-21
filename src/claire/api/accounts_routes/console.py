@@ -1,9 +1,10 @@
-"""통합 콘솔 라우트: ``/admin``, ``/admin/*``, ``/settings``, ``/settings/*``, ``/api/admin/mcp/telemetry`` (설계 D1–D3, P1).
+"""Unified console routes: ``/admin``, ``/admin/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/*``, and ``/api/admin/mcp/telemetry``.
 
-- ``/admin`` 및 ``/admin/*``는 관리자(``server_role == "admin"``, ``scope == "owner"``) 전용이며 비관리자 요청에는 404를 돌려준다(B1, N5).
-- ``/settings`` 및 ``/settings/*``는 계정 소유자(``scope == "owner"``) 전용 ``_system("owner")`` 표면이다(D1).
-- 관리자가 ``/settings/tokens``에 접근하면 ``/admin/tokens``로 302 리다이렉트하고, 통합 사이드바에서도 중복 노출하지 않는다(D3). 폐지된 ``/settings/themes``는 308로 응답한다(관리자는 ``/admin/themes``, 그 외 계정은 ``/settings/kb``).
-- 비관리자 응답 HTML에는 ``/admin/*`` 네비게이션 링크나 관리자 전용 마크업을 절대 포함하지 않는다.
+- ``/admin``, ``/admin/*``, ``/moderation/oversight``, and ``/moderation/themes`` are for administrators only (``server_role == "admin"``, ``scope == "owner"``); other callers get 404.
+- ``/settings``, ``/settings/*``, ``/moderation``, and ``/moderation/kb`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``).
+- An administrator who opens ``/settings/tokens`` gets a 302 redirect to ``/admin/tokens`` and does not see ``/settings/tokens`` in the sidebar.
+- Legacy routes (``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
+- Non-admin HTML responses never contain ``/admin/*`` links, ``/moderation/oversight``, ``/moderation/themes``, or administrator script bundles.
 """
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ def _tokens_deprecation_banner_html() -> str:
 
 ADMIN_INDEX_PATH = "/admin"
 SETTINGS_INDEX_PATH = "/settings"
+MODERATION_INDEX_PATH = "/moderation"
 ADMIN_MCP_TELEMETRY_API_PATH = "/api/admin/mcp/telemetry"
 
 
@@ -76,7 +78,7 @@ class ConsoleSectionSpec:
 
     slug: str
     path: str
-    area: str  # "settings" | "admin"
+    area: str  # "settings" | "admin" | "moderation"
     group_id: str
     theme_scoped: bool = False
     # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
@@ -166,14 +168,40 @@ SETTINGS_KB_SPECS: tuple[ConsoleSectionSpec, ...] = (
         group_id="kb",
         icon="folder",
     ),
-    ConsoleSectionSpec(
-        slug="kb_manage",
-        path="/settings/kb/manage",
-        area="settings",
-        group_id="kb",
-        icon="check-circle",
-    ),
 )
+
+MODERATION_KB_MANAGE_SPEC = ConsoleSectionSpec(
+    slug="kb_manage",
+    path="/moderation/kb",
+    area="moderation",
+    group_id="moderation",
+    icon="check-circle",
+)
+
+MODERATION_ADMIN_KB_SPEC = ConsoleSectionSpec(
+    slug="kb",
+    path="/moderation/oversight",
+    area="moderation",
+    group_id="moderation",
+    icon="folder",
+)
+
+MODERATION_ADMIN_THEMES_SPEC = ConsoleSectionSpec(
+    slug="themes",
+    path="/moderation/themes",
+    area="moderation",
+    group_id="moderation",
+    icon="folder",
+)
+
+MODERATION_OWNER_SPECS: tuple[ConsoleSectionSpec, ...] = (MODERATION_KB_MANAGE_SPEC,)
+MODERATION_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    MODERATION_ADMIN_KB_SPEC,
+    MODERATION_ADMIN_THEMES_SPEC,
+)
+MODERATION_BY_PATH: dict[str, ConsoleSectionSpec] = {
+    spec.path: spec for spec in (*MODERATION_OWNER_SPECS, *MODERATION_ADMIN_SPECS)
+}
 
 SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
@@ -253,14 +281,6 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ),
 )
 
-ADMIN_KB_SPEC = ConsoleSectionSpec(
-    slug="kb",
-    path="/admin/kb",
-    area="admin",
-    group_id="admin_server",
-    icon="folder",
-)
-
 ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
         slug="server",
@@ -283,7 +303,6 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         group_id="admin_server",
         icon="users",
     ),
-    ADMIN_KB_SPEC,
     ConsoleSectionSpec(
         slug="idp",
         path="/admin/idp",
@@ -314,13 +333,6 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         icon="puzzle",
-    ),
-    ConsoleSectionSpec(
-        slug="themes",
-        path="/admin/themes",
-        area="admin",
-        group_id="admin_system",
-        icon="folder",
     ),
     ConsoleSectionSpec(
         slug="tokens",
@@ -364,8 +376,7 @@ ALL_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
 )
 SETTINGS_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ALL_SETTINGS_SPECS}
 ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {
-    **{spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS},
-    ADMIN_KB_SPEC.path: ADMIN_KB_SPEC,
+    spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS
 }
 ADMIN_SPEC_BY_SLUG: dict[str, ConsoleSectionSpec] = {spec.slug: spec for spec in ALL_ADMIN_SPECS}
 
@@ -443,12 +454,22 @@ def _account_context_info(ctx: AccountsContext, account_id: int) -> tuple[accoun
         conn.close()
 
 
+def _is_active_sidebar_spec(spec: ConsoleSectionSpec, active_path: str) -> bool:
+    """Return True when the sidebar item matches the active path or a shared KB review subpage."""
+    return spec.path == active_path or (spec.slug == "kb_manage" and active_path.startswith("/moderation/kb/"))
+
+
 def _build_sidebar_html(
     *,
     active_path: str,
     admin_viewer: bool,
     theme_query: str | None,
 ) -> str:
+    moderation_specs = (
+        [*MODERATION_OWNER_SPECS, *MODERATION_ADMIN_SPECS]
+        if admin_viewer
+        else list(MODERATION_OWNER_SPECS)
+    )
     groups: list[tuple[str, str, list[ConsoleSectionSpec]]] = [
         (
             "workspace",
@@ -461,6 +482,7 @@ def _build_sidebar_html(
             ],
         ),
         ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
+        ("moderation", t("console.group.moderation"), moderation_specs),
         ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
         ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
     ]
@@ -470,10 +492,7 @@ def _build_sidebar_html(
 
     parts: list[str] = []
     for group_id, group_label, specs in groups:
-        has_active = any(
-            spec.path == active_path or (spec.slug == "kb_manage" and active_path.startswith("/settings/kb/"))
-            for spec in specs
-        )
+        has_active = any(_is_active_sidebar_spec(spec, active_path) for spec in specs)
         group_cls = "console-nav-group has-active" if has_active else "console-nav-group"
         list_id = f"console-grp-{group_id}"
         parts.append(f'<div class="{group_cls}" data-nav-group="{escape(group_id)}">')
@@ -481,7 +500,7 @@ def _build_sidebar_html(
         parts.append(f'  <ul id="{escape(list_id)}" class="console-nav-list" role="list">')
         for spec in specs:
             href = _append_theme_query(spec.path, theme_query) if spec.theme_scoped else spec.path
-            is_cur = spec.path == active_path or (spec.slug == "kb_manage" and active_path.startswith("/settings/kb/"))
+            is_cur = _is_active_sidebar_spec(spec, active_path)
             current = ' aria-current="page"' if is_cur else ""
             parts.append(f'    <li><a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}<span>{escape(spec.nav_label)}</span></a></li>')
         parts.append("  </ul>")
@@ -547,7 +566,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     if slug == "kb":
         body = (
-            f'<section class="card" id="admin-kb-card" aria-label="{escape(t("console.section.admin.kb.title"))}">'
+            f'<section class="card" id="admin-kb-card" aria-label="{escape(t("console.section.moderation.kb.title"))}">'
             '<div id="admin-kb-host"></div>'
             "</section>"
         )
@@ -570,9 +589,9 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         return body, {}
 
     if slug == "themes":
-        # The console of the theme judgement (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3 rule 4). console_admin.js fills the host from GET /api/admin/themes and GET /api/admin/reputations.
+        # Theme judgement console (/moderation/themes): console_admin.js loads data from GET /api/admin/themes and GET /api/admin/reputations.
         body = (
-            f'<section class="card" id="admin-themes-card" aria-label="{escape(t("console.section.admin.themes.title"))}">'
+            f'<section class="card" id="admin-themes-card" aria-label="{escape(t("console.section.moderation.themes.title"))}">'
             '<div id="admin-themes-host" data-admin-panel-host="themes">'
             f'<p class="hint">{escape(t("console.common.loading"))}</p>'
             "</div>"
@@ -1373,10 +1392,13 @@ def _render_console_section(
         owned_themes=owned_themes,
         selected_theme=selected_theme,
     )
+    is_admin_section = spec.area == "admin" or spec in MODERATION_ADMIN_SPECS
+    if is_admin_section and not admin_viewer:
+        raise RuntimeError("admin section requires an administrator principal")
     built_extra: dict[str, Any] = {}
     if custom_body_html is not None:
         section_body_html = custom_body_html
-    elif spec.area == "admin":
+    elif is_admin_section:
         section_body_html, built_extra = _build_admin_section_body_and_extra(ctx, spec.slug, principal)
         if spec.slug == "backups":
             extra_scripts_html = '<script src="/static/js/console_features.js" defer></script>' + extra_scripts_html
@@ -1395,7 +1417,7 @@ def _render_console_section(
                 settings=settings,
             )
         else:
-            # P3-a: Group 1 본문(account, keys, themes, tokens).
+            # P3-a: Group 1 and KB/moderation owner sections.
             rendered = _build_settings_account_section(
                 ctx,
                 spec=spec,
@@ -1464,38 +1486,55 @@ def _render_console_section(
             # <script type="application/json"> 탈출을 막도록 <, >, & 를 유니코드 이스케이프한다.
             "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
             "extra_scripts_html": extra_scripts_html,
-            # 비관리자 /settings/* 응답에는 관리자 JS 번들을 싣지 않는다(불변식 3).
-            "admin_scripts_html": '<script src="/static/js/console_admin.js" defer></script>' if spec.area == "admin" else "",
+            # Non-admin /settings/* and /moderation/kb responses never include the administrator script bundle.
+            "admin_scripts_html": '<script src="/static/js/console_admin.js" defer></script>' if is_admin_section else "",
         },
     )
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
+    def _validated_theme_query(request: Request, principal: Principal) -> tuple[bool, str | None]:
+        """Validate an optional ``?kb=`` query parameter for the caller account."""
+        if "kb" not in request.query_params:
+            return True, None
+        assert principal.account_id is not None
+        resolved = _resolve_caller_theme_and_list(
+            ctx,
+            account_id=principal.account_id,
+            raw_theme=request.query_params.get("kb"),
+        )
+        if resolved is None:
+            return False, None
+        return True, resolved[2]
+
     async def admin_index(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
-        if raw_theme is not None:
-            assert principal.account_id is not None
-            if _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme) is None:
-                return not_found()
+        ok, _ = await asyncio.to_thread(_validated_theme_query, request, principal)
+        if not ok:
+            return not_found()
         return _redirect("/admin/server")
 
     async def settings_index(request: Request) -> Response:
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
-        assert principal.account_id is not None
-        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
-        validated_theme: str | None = None
-        if raw_theme is not None:
-            resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
-            if resolved is None:
-                return not_found()
-            validated_theme = resolved[2]
+        ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+        if not ok:
+            return not_found()
         target = "/settings/reader" if request.query_params.get("from") == "syndication" else "/settings/account"
         return _redirect(_append_theme_query(target, validated_theme))
+
+    async def moderation_index(request: Request) -> Response:
+        """Redirect an owner from ``/moderation`` to ``/moderation/kb`` and keep a valid ``?kb=`` query."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+        if not ok:
+            return not_found()
+        return _redirect(_append_theme_query(MODERATION_KB_MANAGE_SPEC.path, validated_theme))
 
     async def admin_section_page(request: Request) -> Response:
         principal = request_principal(request)
@@ -1513,38 +1552,99 @@ def routes(ctx: AccountsContext) -> list[Route]:
             raw_theme=raw_theme,
         )
 
-    async def settings_old_themes_page(request: Request) -> Response:
-        """``/settings/themes`` (old web link of a retired page): 308 to ``/settings/kb``, which has its function (design Section 10.3). The admin gets 308 to ``/admin/themes``."""
+    async def moderation_section_page(request: Request) -> Response:
+        """Render an owner or administrator moderation section."""
         principal = request_principal(request)
-        if not _is_owner(principal):
+        spec = MODERATION_BY_PATH.get(request.url.path)
+        if spec is None:
             return not_found()
-        assert principal.account_id is not None
-        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
-        validated_theme: str | None = None
-        if raw_theme is not None:
-            resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
-            if resolved is None:
+        if spec in MODERATION_ADMIN_SPECS:
+            if not is_admin(principal):
                 return not_found()
-            validated_theme = resolved[2]
-        if is_admin(principal):
-            return _redirect(_append_theme_query("/admin/themes", validated_theme), status_code=308)
-        return _redirect("/settings/kb", status_code=308)
+        elif not _is_owner(principal):
+            return not_found()
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
+        return await asyncio.to_thread(
+            _render_console_section,
+            ctx,
+            spec=spec,
+            principal=principal,
+            raw_theme=raw_theme,
+            settings=getattr(request.app.state, "settings", None),
+        )
 
-    async def settings_kb_manage_page(request: Request) -> Response:
-        """``/settings/kb/{number}``: the page of a reviewer for one shared knowledge base (design Section 10.3). The number of a personal knowledge base, or an unknown number, gets 404."""
+    async def moderation_kb_manage_page(request: Request) -> Response:
+        """Render the reviewer page for one shared knowledge base at ``/moderation/kb/{kb_number}``."""
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
-        spec = SETTINGS_BY_PATH["/settings/kb/manage"]
         raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         kb_number = int(request.path_params["kb_number"])
 
         def _render() -> Response:
             if not _is_shared_kb_number(ctx, kb_number):
                 return not_found()
-            return _render_console_section(ctx, spec=spec, principal=principal, raw_theme=raw_theme, extra_bootstrap={"kb_number": ids.format_public_id(kb_number)})
+            return _render_console_section(
+                ctx,
+                spec=MODERATION_KB_MANAGE_SPEC,
+                principal=principal,
+                raw_theme=raw_theme,
+                extra_bootstrap={"kb_number": ids.format_public_id(kb_number)},
+            )
 
         return await asyncio.to_thread(_render)
+
+    async def settings_old_themes_page(request: Request) -> Response:
+        """Redirect legacy ``/settings/themes`` to ``/moderation/themes`` for administrators or ``/settings/kb`` for owners with status 308."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+        if not ok:
+            return not_found()
+        if is_admin(principal):
+            return _redirect(_append_theme_query(MODERATION_ADMIN_THEMES_SPEC.path, validated_theme), status_code=308)
+        return _redirect("/settings/kb", status_code=308)
+
+    async def legacy_settings_kb_manage_redirect(request: Request) -> Response:
+        """Redirect legacy ``/settings/kb/manage`` to ``/moderation/kb`` for owners with status 308."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+        if not ok:
+            return not_found()
+        return _redirect(_append_theme_query(MODERATION_KB_MANAGE_SPEC.path, validated_theme), status_code=308)
+
+    async def legacy_settings_kb_number_redirect(request: Request) -> Response:
+        """Redirect legacy ``/settings/kb/{kb_number}`` to ``/moderation/kb/{kb_number}`` for owners with status 308."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        kb_number = int(request.path_params["kb_number"])
+
+        def _resolve() -> Response:
+            if not _is_shared_kb_number(ctx, kb_number):
+                return not_found()
+            ok, validated_theme = _validated_theme_query(request, principal)
+            if not ok:
+                return not_found()
+            target = f"{MODERATION_KB_MANAGE_SPEC.path}/{ids.format_public_id(kb_number)}"
+            return _redirect(_append_theme_query(target, validated_theme), status_code=308)
+
+        return await asyncio.to_thread(_resolve)
+
+    def _legacy_admin_redirect(target_path: str):
+        async def _handler(request: Request) -> Response:
+            principal = request_principal(request)
+            if not is_admin(principal):
+                return not_found()
+            ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+            if not ok:
+                return not_found()
+            return _redirect(_append_theme_query(target_path, validated_theme), status_code=308)
+
+        return _handler
 
     async def settings_section_page(request: Request) -> Response:
         principal = request_principal(request)
@@ -1553,16 +1653,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         spec = SETTINGS_BY_PATH.get(request.url.path)
         if spec is None:
             return not_found()
-        assert principal.account_id is not None
         raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         # D3: admin accessing /settings/tokens redirects 302 to /admin/tokens.
         if is_admin(principal) and spec.slug == "tokens":
-            validated_theme: str | None = None
-            if raw_theme is not None:
-                resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
-                if resolved is None:
-                    return not_found()
-                validated_theme = resolved[2]
+            ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
+            if not ok:
+                return not_found()
             return _redirect(_append_theme_query("/admin/tokens", validated_theme))
         return await asyncio.to_thread(
             _render_console_section,
@@ -1608,11 +1704,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
     mounted: list[Route] = [
         Route(ADMIN_INDEX_PATH, admin_index, methods=["GET", "HEAD"]),
         Route(SETTINGS_INDEX_PATH, settings_index, methods=["GET", "HEAD"]),
+        Route(MODERATION_INDEX_PATH, moderation_index, methods=["GET", "HEAD"]),
         Route(ADMIN_MCP_TELEMETRY_API_PATH, admin_mcp_telemetry_api, methods=["GET", "HEAD"]),
-        Route(ADMIN_KB_SPEC.path, admin_section_page, methods=["GET", "HEAD"]),
         Route("/settings/themes", settings_old_themes_page, methods=["GET", "HEAD"]),
-        Route("/settings/kb/{kb_number:int}", settings_kb_manage_page, methods=["GET", "HEAD"]),
+        Route("/settings/kb/manage", legacy_settings_kb_manage_redirect, methods=["GET", "HEAD"]),
+        Route("/settings/kb/{kb_number:int}", legacy_settings_kb_number_redirect, methods=["GET", "HEAD"]),
+        Route("/admin/kb", _legacy_admin_redirect(MODERATION_ADMIN_KB_SPEC.path), methods=["GET", "HEAD"]),
+        Route("/admin/themes", _legacy_admin_redirect(MODERATION_ADMIN_THEMES_SPEC.path), methods=["GET", "HEAD"]),
     ]
+    for spec in (*MODERATION_OWNER_SPECS, *MODERATION_ADMIN_SPECS):
+        mounted.append(Route(spec.path, moderation_section_page, methods=["GET", "HEAD"]))
+    mounted.append(Route("/moderation/kb/{kb_number:int}", moderation_kb_manage_page, methods=["GET", "HEAD"]))
     for spec in ADMIN_CONSOLE_GROUP_5_SPECS:
         mounted.append(Route(spec.path, admin_section_page, methods=["GET", "HEAD"]))
     for spec in ALL_SETTINGS_SPECS:

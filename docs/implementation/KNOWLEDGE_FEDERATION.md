@@ -346,7 +346,7 @@ Unit KF3 added the knowledge base actors, the outbound activities, and the read 
 
 ### 10.8 Single Mode Root (design Section 15)
 
-- `/` gives 302 (`Cache-Control: no-store`) to `/@{username}/` of the admin, with the same query. Each other root path of the personal knowledge base gives 308 to `/@{username}/…` for `GET` and `HEAD`; a write at a root path is not redirected and acts on the namespace of the admin. System routes (for example `/health`, `/settings/*`, `/kb/{number}/…`) keep their paths.
+- `/` gives 302 (`Cache-Control: no-store`) to `/@{username}/` of the admin, with the same query. Each other root path of the personal knowledge base gives 308 to `/@{username}/…` for `GET` and `HEAD`; a write at a root path is not redirected and acts on the namespace of the admin. System routes (for example `/health`, `/settings/*`, `/moderation/*`, `/kb/{number}/…`) keep their paths.
 - In single mode `/@{username}/…` of the admin is the namespace of the admin, for each reader (single mode has no profile rule). Each other name gets 404.
 - The redirects need an `active` admin with a USERNAME. Before the first setup there is no redirect: `/` with the admin session gives 302 to `/setup`; each other request to `/` gets the page "setup not complete" (503, `Cache-Control: no-store`, `Retry-After: 3600`, `data-setup-state="setup_required"`). On a server without anonymous read, an anonymous request gets the 404 of the route policy first.
 - Rule S9 of the namespace design is withdrawn. The server setting `admin_username_published` (O15) has no effect; a stored row stays. `POST /api/admin/server/mode` to `single` does not write it and its answer is `{"mode": "single", "changed": true}`.
@@ -705,7 +705,7 @@ Grants:
 
 Purge of a local account: its received grants are deleted, and its outbound offers lose the account (or are deleted with the option of the purge confirmation that deletes the records).
 
-Limits (admin settings, `server_settings`, `PUT /api/admin/themes/settings`, the fields in `/admin/themes`):
+Limits (admin settings, `server_settings`, `PUT /api/admin/themes/settings`, the fields in `/moderation/themes`):
 
 | Key | Default | Meaning |
 | :--- | :--- | :--- |
@@ -733,8 +733,8 @@ WebUI:
 
 - `/settings/kb`, tab "Submissions": a remote target shows its label with a link to its page on the other server, the tag of the server, "As a collaborator" for an offer with a grant, the state (`kb.state.accepted` is new), the reason, and the delivery state when the `Offer` is not delivered. A remote target has no withdrawal. Tab "Memberships": the card "Collaborator on other servers" lists the received grants (only when there is one).
 - Dialog "Contribute directly" (`kb_dialogs.js`, `openNoThemePicker`): below the local list, the shared knowledge bases of other servers with a grant in effect and a record on this server; a pick sends `POST /submissions` with `remote_knowledge_base` and shows the result table in the dialog. The dialog "Contribute to a theme" needs no change: the result table shows the remote targets with their server.
-- `/settings/kb/{number}`, tab "Review queue": a remote contributor is the actor IRI, with the tag of its server; the detail has "Server" and "Grant of the role collaborator" (in effect when the offer came, not in effect, or none), and for a moderator the button "Give the role collaborator". Tab "Members and roles" (a moderator or the admin): the card "Collaborators of other servers" with the field for the actor address, the list of grants with state and end time, and the actions "Renew" (or "Give the role collaborator" for a grant that ended) and "Revoke". The moderation log has the actions `remote_collaborator_grant` and `remote_collaborator_revoke`.
-- `/admin/themes`: a number field for each key of `contributions.LIMITS`, the limits of Sections 13.4 and 14 included.
+- `/moderation/kb/{number}`, tab "Review queue": a remote contributor is the actor IRI, with the tag of its server; the detail has "Server" and "Grant of the role collaborator" (in effect when the offer came, not in effect, or none), and for a moderator the button "Give the role collaborator". Tab "Members and roles" (a moderator or the admin): the card "Collaborators of other servers" with the field for the actor address, the list of grants with state and end time, and the actions "Renew" (or "Give the role collaborator" for a grant that ended) and "Revoke". The moderation log has the actions `remote_collaborator_grant` and `remote_collaborator_revoke`.
+- `/moderation/themes`: a number field for each key of `contributions.LIMITS`, the limits of Sections 13.4 and 14 included.
 
 ### 13.6 Internal Contract and Sidecar
 

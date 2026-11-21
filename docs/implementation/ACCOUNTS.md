@@ -1,8 +1,8 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.9는 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), §5.5의 연합 조건·§8의 버전·§13은 Fedify 사이드카 연합 FP1-1~FP1-6 커밋(`56d40c9`~`75d79e18`, 2026-11-11), §5.9의 경로 표와 §14는 기준 커밋 `d15ae8e0` (2026-11-16) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5), [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md) (PA1–PA4)
+확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.9는 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), §5.5의 연합 조건·§8의 버전·§13은 Fedify 사이드카 연합 FP1-1~FP1-6 커밋(`56d40c9`~`75d79e18`, 2026-11-11), §5.9의 경로 표와 §14는 기준 커밋 `d15ae8e0` (2026-11-16), §3·§5.9의 `/moderation/*` 경로 분리는 2026-11-21 작업 트리 기준 · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정/중재 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5), [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md) (PA1–PA4)
 
-이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9), 계정별 기능(텔레그램 봇, 번들, 백업, §14)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인·중재 화면을 `/admin/*`·`/settings/*`·`/moderation/*`로 나눈 통합 콘솔(§5.9), 계정별 기능(텔레그램 봇, 번들, 백업, §14)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 기준 작업 트리의 소스에서 직접 확인한 사실
 - **[결정]** 저장소 소유자가 정한 방침. 바꾸기 전에 소유자에게 묻는다
@@ -33,11 +33,12 @@
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
 | `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `server.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
-| `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
+| `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*`·`/moderation/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·프로필 공개 스위치·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
-| `src/claire/static/js/console_admin.js` | `/admin/*` 화면 컨트롤러와 단계 인증 모달. `/admin/*` 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
+| `src/claire/static/js/console_admin.js` | `/admin/*` 및 `/moderation/{oversight,themes}` 화면 컨트롤러와 단계 인증 모달. 관리자 섹션 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
+| `src/claire/static/js/console_kb.js` | `/settings/kb` 및 `/moderation/kb`·`/moderation/kb/{kb_number}` 화면 컨트롤러 | `/kb*`, `/submissions*`, `/api/auto-rule*`, `/api/reputation`, `/api/mutual-collaborations*` 호출 |
 | `src/claire/static/js/console_syndication.js` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
-| `src/claire/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/settings/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`, `renderTokenManager`) |
+| `src/claire/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/settings/*`, `/moderation/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`, `renderTokenManager`) |
 
 ## 2. 계정 모델과 상태
 
@@ -60,7 +61,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로·클라이언트 번들 호스트용 `settings`, `syndication`, `prototype`, `clients`와 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`, `clients`는 루트 고유 기능 경로(`/settings/*`, `/syndication`, 옛 `/prototype/syndication`, `/clients/*` 및 `clients.<registrable_domain>`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1, `AE1b`). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로·클라이언트 번들 호스트용 `settings`, `moderation`, `syndication`, `prototype`, `clients`와 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `moderation`, `syndication`, `prototype`, `clients`는 루트 고유 기능 경로(`/settings/*`, `/moderation/*`, `/syndication`, 옛 `/prototype/syndication`, `/clients/*` 및 `clients.<registrable_domain>`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1, `AE1b`). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **서버 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.server_hosts`). 포트는 뗀다.
 
@@ -91,7 +92,7 @@
 
 접근 규칙은 `src/claire/api/security.py`의 `ROUTE_POLICY`에 있다. `owner` 규칙을 통과하지 못한 요청은 기존 거부 규칙대로 404다([API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md) §1.5). 쿠키 채널의 `POST`·`PUT`·`PATCH`·`DELETE`는 미들웨어가 동일 origin(`Origin` 헤더)을 요구하고 아니면 403이다(`_STATE_CHANGING_METHODS`). HEAD는 GET 경로에 함께 등록된다.
 
-- **[코드] 양식 화면의 `Referrer-Policy`**: `common.render_template`로 만든 화면(`/setup`, `/login`, `console_shell.html`로 그리는 `/admin/*`·`/settings/*`)은 `Referrer-Policy: same-origin`과 `Cache-Control: no-store`이다(`FORM_PAGE_REFERRER_POLICY`). 다른 응답은 전역 `no-referrer` 그대로다. 전역 값이면 Chromium이 양식 제출(navigate 모드 POST)에 `Origin: null`을 싣고 `CORSPolicyMiddleware`가 403으로 막는다. `Origin: null` 거부는 그대로다. `fetch()`(cors 모드)는 정책과 관계없이 실제 origin을 싣는다.
+- **[코드] 양식 화면의 `Referrer-Policy`**: `common.render_template`로 만든 화면(`/setup`, `/login`, `console_shell.html`로 그리는 `/admin/*`·`/settings/*`·`/moderation/*`)은 `Referrer-Policy: same-origin`과 `Cache-Control: no-store`이다(`FORM_PAGE_REFERRER_POLICY`). 다른 응답은 전역 `no-referrer` 그대로다. 전역 값이면 Chromium이 양식 제출(navigate 모드 POST)에 `Origin: null`을 싣고 `CORSPolicyMiddleware`가 403으로 막는다. `Origin: null` 거부는 그대로다. `fetch()`(cors 모드)는 정책과 관계없이 실제 origin을 싣는다.
 - **[코드] 세션 쿠키는 응답마다 하나**: 미들웨어는 쿠키 채널 응답에 세션 쿠키를 다시 붙여 만료를 늘리지만, 핸들러가 이미 `claire_session`을 설정하거나 지웠으면(`/setup` 확정) 붙이지 않는다(`_sets_session_cookie`).
 
 ### 5.1 `/setup` (최초 관리자 설정)
@@ -287,12 +288,12 @@
   - 네트워크 모드 멤버 계정으로 `/settings/keys`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
   - [code] The server administrator gets, in the two modes, a card with the link to `/admin/providers` (`data-keys-server-providers`), the same key forms (`data-keys-mode="byok"`), and a usage card of the account (documents, storage, tokens of the personal key this month) in place of the server tier card. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다. 두 모드 모든 계정의 `/settings/keys`에는 현재 `extraction_mode` 안내와 `/settings/account#settings-extraction-mode` · `/settings/mcp#pref-mcp-agent-guide` 이동 링크가 담긴 `#settings-keys-extraction-guide` 카드(관리자 링크 없음)를 함께 그린다.
 
-### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`)
+### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`, `/moderation/*`)
 
 **[코드]** `src/claire/api/accounts_routes/console.py`(라우트·섹션 정의·셸 렌더링), `admin.py`·`server.py`·`idp.py`(`/admin/accounts`·`/admin/server`·`/admin/idp`), `console_syndication_panels.py`(Group 2–3 본문). 설계: [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md).
 
-- **경로 분리는 권한 경계다.** 관리자 화면은 `/admin/*`, 본인 설정은 `/settings/*`이고, 둘 다 같은 셸 `console_shell.html`로 그린다. 모든 경로는 `ROUTE_POLICY`에 `GET`·`HEAD` 정확 항목으로 있고 모든 모드(`ALL_MODES`)에서 열린다.
-- **`/admin`, `/admin/*`**: 규칙 `_system("admin")`. 관리자(`scope=owner`, `server_role=admin`)가 아니면 미들웨어와 핸들러 모두 404다. 403을 내지 않고, 비관리자에게는 302도 내지 않는다(B1, N5).
+- **경로 분리는 권한 경계다.** 관리자 화면은 `/admin/*`, 지식 활동 중재·판정 화면은 `/moderation/*`, 본인 설정은 `/settings/*`이고, 모두 같은 셸 `console_shell.html`로 그린다. 모든 경로는 `ROUTE_POLICY`에 `GET`·`HEAD` 항목으로 있고 모든 모드(`ALL_MODES`)에서 열린다.
+- **`/admin`, `/admin/*`**: 규칙 `_system("admin")`. 관리자(`scope=owner`, `server_role=admin`)가 아니면 미들웨어와 핸들러 모두 404다. 403을 내지 않고, 비관리자에게는 302·308도 내지 않는다(B1, N5).
 
 | 경로 | 동작 |
 | :--- | :--- |
@@ -303,19 +304,30 @@
 | `/admin/providers` | 서버 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
 | `/admin/limits` | 서버 적재 제한·슬라이싱 예산(`/limits`) |
 | `/admin/plugins` | 플러그인 폴더·프로젝트 플러그인 폴더의 플러그인, 상태, 버전, 겹침 그룹, 켜기(단계 인증, 권한·다이제스트 대화상자)·끄기 (`plugins.py`, `GET`·`PUT`·`DELETE /api/admin/plugins`, [INGESTION.md](INGESTION.md) §2.2) |
-| `/admin/themes` | 관리자 계정(`ADMIN_ACCOUNT_ID = 1`)의 테마 관리와, 서버 집계 숫자(`total_accounts` = `status != 'purged'` 계정 수, `total_themes`, `admin_themes`)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다(D5, K5) |
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
 | `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, WebMCP 헤더 정책, `POST /support/bundle` |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
 | `/admin/federation` | 서버 연합 스위치, 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |
 | `/admin/storage` | 새 미디어의 저장소(로컬 또는 S3 호환), 연결 시험, 마지막 이관 결과([FEDERATION.md](FEDERATION.md) §20, [OPERATIONS.md](OPERATIONS.md)) |
+| `/admin/kb` | 호환 308 → `/moderation/oversight` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
+| `/admin/themes` | 호환 308 → `/moderation/themes` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
 
 - **`GET`·`HEAD /api/admin/mcp/telemetry`**: 규칙 `_system("admin")`, 비관리자 404. 쿼리 `limit`(기본 50, 1–200 정수. 밖이거나 정수가 아니면 400 `invalid_limit`), `status`, `tool_name`, `since`(ISO 8601 시각. 비었거나 해석하지 못하면 400 `invalid_since`, C1). `store.telemetry.query_mcp_telemetry`로 `data/telemetry.db`를 최근 것부터 읽고 `{"records": [{id, timestamp, client_id, call_type, tool_name, duration_ms, status, error_code, error_message, response_bytes}], "count": n}`을 돌려준다. DB 파일이 없으면 빈 목록이다.
-- **프로토타입 표식**: `/admin/*` 안에서 실제 서버 설정에 닿지 않는 요소는 서버가 표식 `<span class="proto-badge" data-prototype="…" data-prototype-kind="…">`(`common.prototype_badge`)과 무엇을 하지 않는지 적은 안내문 `.proto-note`(`common.prototype_note`)를 그린다. 종류는 `prototype`(프로토타입), `simulation`(시뮬레이션), `client_only`(브라우저에만 저장), `static`(정적 안내)이다. `/settings/*` 응답에는 표식이 없다.
+- **프로토타입 표식**: `/admin/*` 안에서 실제 서버 설정에 닿지 않는 요소는 서버가 표식 `<span class="proto-badge" data-prototype="…" data-prototype-kind="…">`(`common.prototype_badge`)과 무엇을 하지 않는지 적은 안내문 `.proto-note`(`common.prototype_note`)를 그린다. 종류는 `prototype`(프로토타입), `simulation`(시뮬레이션), `client_only`(브라우저에만 저장), `static`(정적 안내)이다. `/settings/*`와 `/moderation/kb` 응답에는 표식이 없다.
   - `/admin/accounts`: `admin-accounts-byok-switch`(prototype, '멤버 BYOK 외부 키 허용' 스위치는 켜짐 고정이고 서버 등급에 해당 설정이 없다), `admin-accounts-isolation-table`(static, 격리 구조 설명표). 같은 카드의 통계 숫자와 한도 값은 실제 값이다.
   - `/admin/idp`: `admin-idp-login-policy`(prototype, 로그인 방식·가입 처리·허용 도메인·`email_verified`·Back-Channel Logout 칸은 저장 API가 없는 고정 예시), `admin-idp-login-simulator`(simulation, 실행 결과는 선택값을 문장으로 보여 줄 뿐이다. 미리보기의 공급자 버튼은 실제 `/auth/oidc/{id}/start` 링크).
   - `/admin/tokens`: `admin-token-policy-summary`(static, 코드 기본값을 옮겨 적은 안내문).
   - `/admin/mcp`: `admin-mcp-rbac-table`(static, 판정 칸까지 고정 문구), `admin-webmcp-global-switch`(client_only, `localStorage["claire_admin_webmcp_enabled"]`에만 기억하고 `Permissions-Policy` 헤더나 서버 설정을 바꾸지 않는다).
+- **`/moderation`, `/moderation/*`**: 사이드바 그룹 `moderation`("지식 활동 중재", `kb` 그룹 바로 뒤). 공유 지식 베이스 중재 콘솔은 모든 `owner`에게 열리고, 서버 감독·테마 판정 섹션은 관리자 전용이다. 접두 경로(`/@{username}/moderation/*`, `/kb/{n}/moderation/*`)는 404다.
+
+| 경로 | 규칙 | 사이드바 그룹 | 동작 |
+| :--- | :--- | :--- | :--- |
+| `/moderation` | `_system("owner")` | — | `?kb=`를 검증하고(유효하지 않으면 404) 302 `/moderation/kb`(검증한 `?kb=` 유지). owner가 아니면 404 |
+| `/moderation/kb` | `_system("owner")` | `moderation` (지식 활동 중재) | 공유 지식 베이스 검토·큐레이션·중재 콘솔(`#settings-kb-manage-host`, `area="moderation"`, `section="kb_manage"`, `console_kb.js`). 비관리자 응답에는 관리자 마크업·`/admin/*`·`/moderation/{oversight,themes}` 링크와 `console_admin.js`·`console.js.admin.*` 카탈로그 키가 없다 |
+| `/moderation/kb/{kb_number}` | `_system("owner")` | `moderation` (지식 활동 중재) | 특정 공유 지식 베이스의 검토·큐레이션·중재 콘솔(`#settings-kb-manage-host`, `area="moderation"`, `section="kb_manage"`, 부트스트랩 `kb_number`). 개인 KB 번호이거나 없는 번호면 404 |
+| `/moderation/oversight` | `_system("admin")` | `moderation` (관리자만 표시) | 관리자 공유 지식 베이스 감독 콘솔(`#admin-kb-host`, `area="moderation"`, `section="kb"`, `console_admin.js`, `console_admin` 카탈로그). 비관리자와 익명은 404 |
+| `/moderation/themes` | `_system("admin")` | `moderation` (관리자만 표시) | 관리자 테마 판정·조정·결정 일치도·평판 콘솔(`#admin-themes-host`, `area="moderation"`, `section="themes"`, `console_admin.js`, `console_admin` 카탈로그; `/api/admin/themes`·`/api/admin/reputations` 조회). 비관리자와 익명은 404 |
+
 - **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 `write`·`readonly`·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
 
 | 경로 | 사이드바 그룹 | 동작 |
@@ -327,19 +339,22 @@
 | `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
 | `/settings/federation` | 1 | 내 핸들, 액터 ID와 상태, 팔로워 목록과 제거, 계정의 읽기 보존 설정([FEDERATION.md](FEDERATION.md)) |
 | `/settings/keys` | 1 | §5.8 WebUI |
-| `/settings/themes` | 1 | 본인 지식 베이스 관리(목록 `GET /kb?joined=true`, 변경 `POST /kb`·`PATCH /kb/{number}/`). 슬롯 수 표시는 없다(서버 등급의 `max_themes`는 폐지, CT-3) |
 | `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`, 지원 중단 예정 안내·`Deprecation` 헤더)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
+| `/settings/kb` | `kb` 지식 베이스 | 개인 지식 베이스, 제출, 자동 기여 규칙, 본인 평판, 멤버십, 상호 협업(`#settings-kb-host`, `console_kb.js`). 슬롯 수 표시는 없다(서버 등급의 `max_themes`는 폐지, CT-3) |
+| `/settings/kb/manage` | — (호환 308) | 호환 308 → `/moderation/kb` (검증한 `?kb=` 유지) |
+| `/settings/kb/{kb_number}` | — (호환 308) | 호환 308 → `/moderation/kb/{kb_number}` (공유 KB 번호만 허용, 개인 KB·없는 번호는 404, 검증한 `?kb=` 유지) |
+| `/settings/themes` | — (호환 308) | 폐지된 경로. 관리자는 308 `/moderation/themes`(검증한 `?kb=` 유지), 그 외 owner 계정은 308 `/settings/kb` |
 | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
 | `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | `/settings/mcp` 상단의 에이전트 주도 추출 빠른 시작 4단계 가이드(`#pref-mcp-agent-guide`, 현재 `extraction_mode` 배지 및 `#pref-mcp-client-bundles` 바로가기), OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 활성 `agent_client` 번들 배포 링크(`/clients/<client_id>/...` 및 60초 HMAC `?t=`), 수동 토큰 지원 중단 안내, `/settings/webmcp` 설정 |
 
-- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
-- **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)와 계정 검사`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
+- **D3 관리자 리디렉트**: 관리자가 `/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 항목을 `/admin/*` 그룹에만 한 번 보인다(멤버는 `/settings/tokens`를 그대로 받는다). 폐지된 `/settings/themes`는 308로 응답하며 관리자는 `/moderation/themes`(검증한 `?kb=` 유지), 그 외 owner 계정은 `/settings/kb`로 간다.
+- **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*`·`/moderation/*` 화면과 세 색인 경로(`/admin`, `/settings`, `/moderation`) 및 308 호환 리디렉트는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)`와 계정 검사로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
 - **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
-- **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
+- **관리자 마크업 제거**: 비관리자 응답 HTML(`/settings/*`, `/moderation/kb`)에는 `/admin/*`·`/moderation/oversight`·`/moderation/themes` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`와 `console_admin` 인라인 i18n 카탈로그(`console.js.admin.*`)는 `/admin/*`과 관리자 전용 중재 섹션(`/moderation/oversight`, `/moderation/themes`) 응답에만 싣는다(`common.render_template`이 `active_area == "admin" or bool(admin_scripts_html)`로 판정).
 - **콘솔 셸 레이아웃과 내비게이션 (`console_shell.html`, `console_shell.js`, `command_palette.js`)**:
   - 문서 본체(`html`, `body`)가 자연 스크롤을 쓰며(`overflow: visible`), 데스크톱(`> 860px`) 사이드바 `.console-sidebar`는 상단바 아래에 `position: sticky`로 고정한다.
   - `_build_sidebar_html`은 각 그룹을 접이식 아코디언(`.console-nav-group`, `button[data-nav-group-toggle]`, `ul.console-nav-list`)으로 렌더링한다. `console_shell.js`는 접힘 상태를 계정별 `sessionStorage`에 저장하되 현재 섹션(`a[aria-current="page"]`)을 포함한 그룹은 항상 펼쳐 둔다.
-  - 공통 상단바(`src/claire/ui_chrome.py`, `src/claire/templates/partials/common_appbar.html`, `appbar.js`)의 `.appbar-center` 버튼 `#palettetrigger`와 단축키 `/`는 `ClaireCommandPalette`(`command_palette.js`, `<dialog id="cmdpalette" closedby="any">`)를 연다. 팔레트는 서버가 사이드바에 내려준 섹션 링크와 현재 페이지 제목(`#console-section-body h2, h3`)만 색인하므로 비관리자 HTML에 `/admin/*` 항목이 절대 노출되지 않는다.
+  - 공통 상단바(`src/claire/ui_chrome.py`, `src/claire/templates/partials/common_appbar.html`, `appbar.js`)의 `.appbar-center` 버튼 `#palettetrigger`와 단축키 `/`는 `ClaireCommandPalette`(`command_palette.js`, `<dialog id="cmdpalette" closedby="any">`)를 연다. 팔레트는 서버가 사이드바에 내려준 섹션 링크와 현재 페이지 제목(`#console-section-body h2, h3`)만 색인하므로 비관리자 HTML에 `/admin/*`·`/moderation/oversight`·`/moderation/themes` 항목이 절대 노출되지 않는다.
   - 좁은 화면(`<= 860px`)에서는 `.console-mob-bar`를 통해 `<dialog id="console-nav-drawer" closedby="any">` 오프캔버스 드로어를 연다. `console_shell.js`는 `#console-sidebar-inner` 단일 노드를 뷰포트에 맞춰 사이드바와 드로어 사이로 이동해 중복 ID/링크를 만들지 않는다.
   - 본문 `#console-section-body`는 `@container cmain` 기반 Split Setting Row(`.is-split`, 왼쪽 제목·설명 / 오른쪽 조작부), 우측 Sticky 목차(`#console-toc`, 제목 3개 이상일 때 표시), Subgrid KPI 카드(`.pref-stat-row`), `@container` 반응형 스택 테이블(`td[data-label]`), 크로스브라우저 토글 스위치(`input[type="checkbox"][switch]`), 크로스 문서 `@view-transition { navigation: auto; }`를 점진적으로 적용한다. 설계: [CONSOLE_LAYOUT_DESIGN.md](../design/CONSOLE_LAYOUT_DESIGN.md).
 - **셸 링크**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이다. `/` gives 302 to `/@{username}/` of the admin (rule S9 is withdrawn, KNOWLEDGE_FEDERATION_DESIGN.md Section 15). 네트워크 모드이고 USERNAME이 있으면 그래프 링크만 `/@{username}/`이고 고유 기능 경로인 신디케이션 링크는 항상 `/syndication`이다. 상단바 오른쪽 끝 공통 아이콘 순서는 오른쪽부터 햄버거(`#hamburger-btn`), 신디케이션(`#syndlink`), 유저 홈(`#homelinkbtn`)이며 콘솔 링크(`#consolelinkbtn`)와 로그아웃(`/logout`)은 `#pop-hamburger-menu` 안에 둔다.

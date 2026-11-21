@@ -132,7 +132,7 @@ test('ingest dialog: no focus input, no knowledge base selector, the standing fi
   await expect(dlg).toBeVisible();
 });
 
-test('/settings/kb: five tabs, the dry run before the rule turns on, reputation, mutual collaboration; /admin/kb and /admin/themes', async ({ page }) => {
+test('/settings/kb: five tabs, the dry run before the rule turns on, reputation, mutual collaboration; /moderation/oversight and /moderation/themes', async ({ page }) => {
   await authenticateOwner(page, 2);
   const calls = await installApi(page);
 
@@ -140,7 +140,7 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   const tabs = page.locator('#settings-kb-tabs [role="tab"]');
   await expect(tabs).toHaveCount(5);
   await expect(page.locator('#settings-kb-host')).toContainText('Personal Research');
-  await expect(page.locator('#settings-kb-host a[href="/settings/kb/101"]')).toBeVisible();
+  await expect(page.locator('#settings-kb-host a[href="/moderation/kb/101"]')).toBeVisible();
 
   // Submissions: the theme and the state of each target.
   await tabs.nth(1).click();
@@ -194,8 +194,8 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   await expect(page.locator('#settings-kb-host [data-leave-kb="102"]')).toBeVisible();
   await expect(page.locator('#settings-kb-host [data-mut-accept="5550001"]')).toBeVisible();
 
-  // /admin/kb: the filter "failures and warnings" keeps the knowledge base without an active moderator and the one with a failed merge.
-  await page.goto('/admin/kb', { waitUntil: 'domcontentloaded' });
+  // /moderation/oversight: the filter "failures and warnings" keeps the knowledge base without an active moderator and the one with a failed merge.
+  await page.goto('/moderation/oversight', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#admin-kb-host')).toContainText('Fantasy Lore');
   await page.locator('#admin-kb-host input[name="admin-kb-filter"][value="warn"]').locator('..').click();
   await expect(page.locator('#admin-kb-host tbody tr')).toHaveCount(2);
@@ -207,8 +207,8 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   expect(calls.some((c) => c.method === 'DELETE' && c.path.includes('apply=true'))).toBe(false);
   await page.keyboard.press('Escape');
 
-  // /admin/themes: thresholds, adjustments, agreement of decisions, reputations.
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  // /moderation/themes: thresholds, adjustments, agreement of decisions, reputations.
+  await page.goto('/moderation/themes', { waitUntil: 'domcontentloaded' });
   const adminTabs = page.locator('#admin-themes-tabs [role="tab"]');
   await expect(adminTabs).toHaveCount(4);
   await expect(page.locator('#th-tm')).toHaveValue('0.25');
@@ -227,11 +227,11 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   await expect(page.locator('#admin-themes-host')).toContainText('75%');
 });
 
-test('/settings/kb/{number}: the data of one knowledge base, the titles of the contributions, and the moderation log for a moderator', async ({ page }) => {
+test('/moderation/kb/{number}: the data of one knowledge base, the titles of the contributions, and the moderation log for a moderator', async ({ page }) => {
   await authenticateOwner(page, 3);
   const calls = await installApi(page);
 
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
   const tabs = page.locator('#kb-manage-tabs [role="tab"]');
   // Queue, contributions, curation; for a moderator also members and roles, settings, moderation log.
   await expect(tabs).toHaveCount(6);

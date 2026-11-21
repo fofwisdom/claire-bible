@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-// The text of the console (/settings/*, /admin/*) comes from the catalogs (static/locales/{en,ko}.json): the server renders the section text, and the console scripts read the keys console.js.*. The label of the default theme is data of the account, thus the test reads only the controls.
+// The text of the console (/settings/*, /moderation/*, /admin/*) comes from the catalogs (static/locales/{en,ko}.json): the server renders the section text, and the console scripts read the keys console.js.*. The label of the default theme is data of the account, thus the test reads only the controls.
 test.use({ locale: 'en-US' });
 
 test('the console shows English text for an English browser, in the server text and in the script text', async ({ page }) => {
@@ -10,9 +10,9 @@ test('the console shows English text for an English browser, in the server text 
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 
   // Server text of a section, and the 3-tab judgement console that console_admin.js renders.
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  // The old summary of the theme slots is gone: /admin/themes is the console of the theme judgement (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3 rule 4).
+  // The old summary of the theme slots is gone: /moderation/themes is the console of the theme judgement (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3 rule 4).
   await expect(page.locator('#admin-themes-summary')).toHaveCount(0);
   const themes = page.locator('#admin-themes-host');
   await expect(themes.getByRole('tab', { name: /Judgement/ })).toBeVisible();
@@ -32,11 +32,17 @@ test('the console shows English text for an English browser, in the server text 
   expect(keys.filter((key) => key.startsWith('console.') && !key.startsWith('console.js.'))).toEqual([]);
   expect(keys.filter((key) => key.startsWith('console.js.admin.'))).toEqual([]);
 
+  // /moderation/kb also uses scope="console" without console.js.admin.* keys.
+  await page.goto('/moderation/kb', { waitUntil: 'domcontentloaded' });
+  const modKbKeys = await page.evaluate(() => Object.keys(JSON.parse(document.getElementById('claire-i18n-catalog').textContent)));
+  expect(modKbKeys.filter((key) => key.startsWith('console.js.admin.'))).toEqual([]);
+
   // The language selector changes the console to Korean.
+  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
   await page.locator('#pref-account-locale').selectOption('ko');
   await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   await expect(page.locator('#settings-account-info h2')).toContainText('계정 정보');
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정과 임계값/ })).toBeVisible();
 
   // The stored language is a setting of the seed account, which other tests share: set it back to automatic.

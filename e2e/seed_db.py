@@ -242,7 +242,7 @@ def seed(db_path: Path) -> None:
         for i in range(2, 9):
             dbm.upsert_relation(conn, Relation(id=f"rel-list-{i:02d}", type="relates_to", source_id=f"ent-list-{i:02d}", target_id="ent-list-01", sources=["doc-page-40"]))
 
-        # A shared knowledge base with the number 101 (shared knowledge base design Section 4). The page /settings/kb/{number} needs a shared knowledge base in the database; e2e/shared_kb_ui.spec.js gives the JSON answers of its routes as fixed data with the same number. The admin is its moderator.
+        # A shared knowledge base with the number 101 (shared knowledge base design Section 4). The page /moderation/kb/{number} needs a shared knowledge base in the database; e2e/shared_kb_ui.spec.js gives the JSON answers of its routes as fixed data with the same number. The admin is its moderator.
         now = 1700000000.0
         conn.execute(
             "INSERT INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at, account_id, number, created_by_account_id, join_policy, state, knowledge_type, seed_entities) "

@@ -1,4 +1,4 @@
-/* Console pages /settings/kb and /settings/kb/{number} (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3). Each request goes to a route of docs/implementation/API_HTTP_CONTRACT.md. */
+/* Console pages /settings/kb, /moderation/kb, and /moderation/kb/{number} (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3). Each request goes to a route of docs/implementation/API_HTTP_CONTRACT.md. */
 (function (root) {
   "use strict";
 
@@ -115,7 +115,7 @@
           { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '"><strong>' + esc(r.label) + "</strong></a> " + dlgs().knowledgeTypeTag(r.knowledge_type) + (r.state === "archived" ? " " + stateTag("archived") : ""); } },
           { label: t("kb.pub.col_role"), render: function (r) { return '<span class="claire-tag ok">' + esc(roleLabel(r.role)) + "</span>"; } },
           { label: t("kb.dlg.col_docs"), render: function (r) { return esc((r.stats && r.stats.documents) || 0); } },
-          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<a class="claire-btn claire-btn-sm" href="/settings/kb/' + esc(r.number) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>"; } }
+          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<a class="claire-btn claire-btn-sm" href="/moderation/kb/' + esc(r.number) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>"; } }
         ],
         rows: reviewed
       });
@@ -963,7 +963,7 @@
         currentNum = switcher.value;
         selectedPending = null;
         selectedSource = "";
-        if (window.history && window.history.replaceState) window.history.replaceState(null, "", "/settings/kb/" + encodeURIComponent(currentNum));
+        if (window.history && window.history.replaceState) window.history.replaceState(null, "", "/moderation/kb/" + encodeURIComponent(currentNum));
         load();
       });
       host.querySelectorAll("[data-pick-pending]").forEach(function (btn) {
@@ -1021,7 +1021,7 @@
       });
       var deleteBtn = host.querySelector("#kb-delete-btn");
       if (deleteBtn) deleteBtn.addEventListener("click", function () {
-        dlgs().openDeleteKbDialog({ kbNumber: currentNum, kbLabel: view.kb.label, onDeleted: function () { window.location.assign("/admin/kb"); } });
+        dlgs().openDeleteKbDialog({ kbNumber: currentNum, kbLabel: view.kb.label, onDeleted: function () { window.location.assign("/moderation/oversight"); } });
       });
       var bundleBtn = host.querySelector("#kb-bundle-btn");
       if (bundleBtn) bundleBtn.addEventListener("click", function () {

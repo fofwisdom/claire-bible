@@ -42,10 +42,11 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "kb", "idp", "providers", "limits", "themes", "tokens", "mcp")
-SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "kb", "kb/manage", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
-MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "kb", "kb/manage", "tokens", *SETTINGS_SECTIONS[4:])
-ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/api/admin/mcp/telemetry")
+ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "tokens", "mcp")
+MODERATION_ADMIN_SECTIONS: tuple[tuple[str, str], ...] = (("kb", "/moderation/oversight"), ("themes", "/moderation/themes"))
+SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
+MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "kb", "tokens", *SETTINGS_SECTIONS[3:])
+ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
 
 
 @pytest.fixture(autouse=True)
@@ -169,11 +170,17 @@ def _assert_console_page(resp, path: str) -> str:
 
 
 def _assert_admin_sidebar(body: str, path: str) -> None:
-    # 통합 사이드바: 사용자 그룹 1–3과 관리자 그룹 4–5가 모두 있고, D3 중복(/settings/themes·/settings/tokens)은 없다.
+    # 통합 사이드바: 사용자 그룹 1–3, 중재 그룹(/moderation/*), 관리자 그룹 4–5가 모두 있고, 중복·구경로(/settings/themes·/settings/tokens·/settings/kb/manage·/admin/kb·/admin/themes)는 없다.
     for slug in SETTINGS_SECTIONS:
         assert f'href="/settings/{slug}"' in body, (path, slug)
     for slug in ADMIN_SECTIONS:
         assert f'href="/admin/{slug}"' in body, (path, slug)
+    assert 'href="/moderation/kb"' in body, path
+    assert 'href="/moderation/oversight"' in body, path
+    assert 'href="/moderation/themes"' in body, path
+    assert 'href="/admin/kb"' not in body, path
+    assert 'href="/admin/themes"' not in body, path
+    assert 'href="/settings/kb/manage"' not in body, path
     assert 'href="/settings/themes"' not in body, path
     assert 'href="/settings/tokens"' not in body, path
 
@@ -247,19 +254,48 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
         assert "Alice Console Garden" not in body, path
         assert "Bob Console Secret" not in body, path
 
-    for slug in SETTINGS_SECTIONS:
-        path = f"/settings/{slug}"
-        expected_sec = "kb_manage" if slug == "kb/manage" else slug
+    for slug, path in MODERATION_ADMIN_SECTIONS:
+        assert f'href="{path}"' in landing
         body = _assert_console_page(_get(env, path, env.admin), path)
         _assert_admin_sidebar(body, path)
-        assert f'data-active-section="{expected_sec}"' in body, path
+        assert 'data-active-area="moderation"' in body, path
+        assert f'data-active-section="{slug}"' in body, path
+        assert '<script src="/static/js/console_admin.js" defer></script>' in body, path
+        assert "Alice Console Garden" not in body, path
+        assert "Bob Console Secret" not in body, path
 
-    # D3: the admin gets 302 from /settings/tokens to /admin/tokens. The retired /settings/themes answers 308 to /admin/themes.
-    for slug, status in (("themes", 308), ("tokens", 302)):
-        resp = _get(env, f"/settings/{slug}", env.admin)
-        assert resp.status_code == status, slug
-        assert resp.headers["location"] == f"/admin/{slug}"
-        _assert_console_page(_get(env, resp.headers["location"], env.admin), f"/admin/{slug}")
+    assert 'href="/moderation/kb"' in landing
+    mod_kb_body = _assert_console_page(_get(env, "/moderation/kb", env.admin), "/moderation/kb")
+    _assert_admin_sidebar(mod_kb_body, "/moderation/kb")
+    assert 'data-active-area="moderation"' in mod_kb_body
+    assert 'data-active-section="kb_manage"' in mod_kb_body
+    assert 'id="settings-kb-manage-host"' in mod_kb_body
+    assert "console_admin.js" not in mod_kb_body
+    assert "console.js.admin." not in mod_kb_body
+
+    _assert_console_page(_get(env, f"/moderation/kb/{env.admin_theme.number}", env.admin), f"/moderation/kb/{env.admin_theme.number}")
+    assert _get(env, f"/moderation/kb/{env.alice_theme.number}", env.admin).status_code == 404
+
+    for slug in SETTINGS_SECTIONS:
+        path = f"/settings/{slug}"
+        body = _assert_console_page(_get(env, path, env.admin), path)
+        _assert_admin_sidebar(body, path)
+        assert f'data-active-section="{slug}"' in body, path
+
+    # D3 & legacy compatibility redirects: /settings/tokens -> 302 /admin/tokens; /moderation -> 302 /moderation/kb; legacy /settings/themes, /settings/kb/manage, /settings/kb/{n}, /admin/kb, /admin/themes -> 308.
+    for path, status, target in (
+        ("/moderation", 302, "/moderation/kb"),
+        ("/settings/tokens", 302, "/admin/tokens"),
+        ("/settings/themes", 308, "/moderation/themes"),
+        ("/settings/kb/manage", 308, "/moderation/kb"),
+        (f"/settings/kb/{env.admin_theme.number}", 308, f"/moderation/kb/{env.admin_theme.number}"),
+        ("/admin/kb", 308, "/moderation/oversight"),
+        ("/admin/themes", 308, "/moderation/themes"),
+    ):
+        resp = _get(env, path, env.admin)
+        assert resp.status_code == status, path
+        assert resp.headers["location"] == target, path
+        _assert_console_page(_get(env, resp.headers["location"], env.admin), target)
 
     telemetry = _get(env, "/api/admin/mcp/telemetry", env.admin)
     assert telemetry.status_code == 200
@@ -291,23 +327,40 @@ def test_member_isolation_in_network_mode(console_e2e):
     assert entry.status_code == 302
     assert entry.headers["location"] == "/settings/account"
 
-    for slug in MEMBER_SETTINGS_SECTIONS:
-        path = f"/settings/{slug}"
+    for path in (*(f"/settings/{slug}" for slug in MEMBER_SETTINGS_SECTIONS), "/moderation/kb"):
         body = _assert_console_page(_get(env, path, env.alice), path)
         # 불변식 3: 서버 측에서 관리자 링크·섹션·번들을 제거한다.
         assert "/admin" not in body, path
         assert "console_admin.js" not in body, path
+        assert "console.js.admin." not in body, path
         assert 'data-active-area="admin"' not in body, path
         assert "data-admin-panel-host" not in body, path
         assert "admin-themes-summary" not in body, path
         assert "pref-mcp-audit-tbody" not in body, path
         assert "pref-idp-tbody" not in body, path
+        assert 'href="/moderation/oversight"' not in body, path
+        assert 'href="/moderation/themes"' not in body, path
+        assert 'href="/moderation/kb"' in body, path
         assert "System administration and settings (administrator)" not in body, path
         assert "Server · Accounts · Authentication (administrator)" not in body, path
         for slug2 in MEMBER_SETTINGS_SECTIONS:
             assert f'href="/settings/{slug2}"' in body, (path, slug2)
         assert "Bob Console Secret" not in body, path
         assert "Admin Console Vault" not in body, path
+
+    for path, status, target in (
+        ("/moderation", 302, "/moderation/kb"),
+        ("/settings/kb/manage", 308, "/moderation/kb"),
+        (f"/settings/kb/{env.admin_theme.number}", 308, f"/moderation/kb/{env.admin_theme.number}"),
+        ("/settings/themes", 308, "/settings/kb"),
+    ):
+        redir = _get(env, path, env.alice)
+        assert (redir.status_code, redir.headers["location"]) == (status, target), path
+    assert _get(env, f"/settings/kb/{env.alice_theme.number}", env.alice).status_code == 404
+
+    for prefixed in (f"/@{MEMBER_USERNAME}/moderation", f"/@{MEMBER_USERNAME}/moderation/kb", f"/kb/{env.admin_theme.number}/moderation/oversight"):
+        assert _get(env, prefixed, env.alice).status_code == 404, prefixed
+        assert _get(env, prefixed, env.admin).status_code == 404, prefixed
 
     # B1/N5: 모든 /admin*과 텔레메트리 API는 404(403도 302도 아님).
     for headers in (env.alice, env.alice_collab, {}):
@@ -378,13 +431,17 @@ def test_single_mode_whoami_has_no_username_and_the_account_page_shows_it(consol
     assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
 
-    for path, status in (("/admin", 302), ("/settings", 302), ("/settings/themes", 308), ("/settings/tokens", 302)):
+    for path, status in (("/admin", 302), ("/settings", 302), ("/moderation", 302), ("/settings/themes", 308), ("/settings/tokens", 302), ("/settings/kb/manage", 308), ("/admin/kb", 308), ("/admin/themes", 308)):
         resp = _get(env, path, env.admin)
         assert resp.status_code == status, path
 
     for slug in ADMIN_SECTIONS:
         path = f"/admin/{slug}"
         _assert_console_page(_get(env, path, env.admin), path)
+
+    for _slug, path in MODERATION_ADMIN_SECTIONS:
+        _assert_console_page(_get(env, path, env.admin), path)
+    _assert_console_page(_get(env, "/moderation/kb", env.admin), "/moderation/kb")
 
     for slug in ("keys", *SETTINGS_SECTIONS):
         path = f"/settings/{slug}"

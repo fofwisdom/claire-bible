@@ -108,18 +108,22 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
         assert '<button id="palettetrigger"' in body
         assert 'id="hamburger-btn"' in body and 'action="/logout"' in body
         assert 'id="authstate"' not in body
-        # 통합 사이드바에 /admin/* 8개 경로가 모두 포함된다.
+        # The unified sidebar contains all /admin/* and /moderation/* links for the admin.
         for path in (
             "/admin/server",
             "/admin/accounts",
             "/admin/idp",
             "/admin/providers",
             "/admin/limits",
-            "/admin/themes",
             "/admin/tokens",
             "/admin/mcp",
+            "/moderation/kb",
+            "/moderation/oversight",
+            "/moderation/themes",
         ):
             assert f'href="{path}"' in body
+        assert 'href="/admin/kb"' not in body
+        assert 'href="/admin/themes"' not in body
 
 
 def test_admin_server_denies_non_admin_and_anonymous(settings: Settings) -> None:

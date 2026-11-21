@@ -3,7 +3,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys, kbItem, contribution, i
 
 test.use({ serviceWorkers: 'block' });
 
-// /admin/themes and /admin/kb against answers in the shapes of api/server.py: "_admin_themes_payload" ("_theme_view" with "admin"), "admin_reputations_route" (the keys of reputation.SETTINGS), "admin_themes_judge_route" (the fields of theme_judgement.RunReport), "admin_auto_contribution_route", and "_kb_collection_item".
+// /moderation/themes and /moderation/oversight against answers in the shapes of api/server.py: "_admin_themes_payload" ("_theme_view" with "admin"), "admin_reputations_route" (the keys of reputation.SETTINGS), "admin_themes_judge_route" (the fields of theme_judgement.RunReport), "admin_auto_contribution_route", and "_kb_collection_item".
 
 const REP_SETTINGS = { reputation_fiction_share_limited: 0.2, reputation_fiction_share_low: 0.5, reputation_approval_rate_limited: 0.5, reputation_approval_rate_low: 0.2, reputation_window_days: 180, reputation_min_decisions: 10, pending_limit_good: 100, pending_limit_limited: 20, pending_limit_low: 5, auto_contribution_limited_documents: 10 };
 
@@ -18,7 +18,7 @@ function member(over) {
   return { number: null, label: '', is_personal: false, knowledge_type: 'real', url: null, remote: false, server: null, pinned: false, excluded: false, source: 'computed', score: 0.5, ...over };
 }
 
-test('/admin/themes: the reputation settings form with its labels, the labels of the run report, and a merged theme without the membership menu', async ({ page }) => {
+test('/moderation/themes: the reputation settings form with its labels, the labels of the run report, and a merged theme without the membership menu', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'admthemes1');
@@ -55,7 +55,7 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
     if (/^\/api\/admin\/themes\/201\/(remote-)?knowledge-bases\/\d+$/.test(path) && method === 'PUT') return [{ ok: true, theme: themes[0] }];
     return null;
   });
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/themes', { waitUntil: 'domcontentloaded' });
   const host = page.locator('#admin-themes-host');
   const tabs = page.locator('#admin-themes-tabs [role="tab"]');
   await expect(tabs).toHaveText(['판정과 임계값', '조정', '결정 일치도', '평판']);
@@ -174,7 +174,7 @@ test('/admin/themes: the reputation settings form with its labels, the labels of
   expect(errors).toEqual([]);
 });
 
-test('/admin/kb: a knowledge base without an active moderator is first; the warnings, the filter, the retry of failed merges, the moderator assignment, and the correction of the knowledge type', async ({ page }) => {
+test('/moderation/oversight: a knowledge base without an active moderator is first; the warnings, the filter, the retry of failed merges, the moderator assignment, and the correction of the knowledge type', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'admthemes2');
@@ -208,7 +208,7 @@ test('/admin/kb: a knowledge base without an active moderator is first; the warn
     }
     return null;
   });
-  await page.goto('/admin/kb', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/oversight', { waitUntil: 'domcontentloaded' });
   const host = page.locator('#admin-kb-host');
   const rows = host.locator('tbody tr');
   await expect(rows).toHaveCount(4);

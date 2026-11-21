@@ -3,7 +3,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys, kbItem, contribution, i
 
 test.use({ serviceWorkers: 'block' });
 
-// /settings/kb/101 (the review and manage page of one shared knowledge base) against answers in the shapes of api/server.py: "_kb_collection_item", "_contribution_view", "_member_view", "_theme_view", "kb_remote_sources_route", "_remote_read_view", "kb_curations_route", "_curate_remote", and "kb_moderation_log_route". The seed database has the shared knowledge base 101 with the admin as its moderator; the page itself comes from the E2E server.
+// /moderation/kb/101 (the review and manage page of one shared knowledge base) against answers in the shapes of api/server.py: "_kb_collection_item", "_contribution_view", "_member_view", "_theme_view", "kb_remote_sources_route", "_remote_read_view", "kb_curations_route", "_curate_remote", and "kb_moderation_log_route". The seed database has the shared knowledge base 101 with the admin as its moderator; the page itself comes from the E2E server.
 
 const REMOTE_DOC_1 = 'https://b.example/kb/901/documents/rail-map';
 const REMOTE_DOC_2 = 'https://b.example/kb/901/documents/station-list';
@@ -91,13 +91,13 @@ function tab(page, id) {
   return page.locator('#kb-manage-tabs [role="tab"][data-tab="' + id + '"]');
 }
 
-test('/settings/kb/101 curation: a source of this server and a source of another server, the copy requests and their results', async ({ page }) => {
+test('/moderation/kb/101 curation: a source of this server and a source of another server, the copy requests and their results', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage1');
   const state = makeState();
   const { calls, unknown } = await installApi(page, state);
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#kb-manage-tabs [role="tab"]')).toHaveText([/심사 대기열/, '기여', '선별', '구성원과 역할', '설정', '모더레이션 기록']);
   await tab(page, 'curate').click();
   const host = page.locator('#kb-curate-host');
@@ -171,13 +171,13 @@ test('/settings/kb/101 curation: a source of this server and a source of another
   expect(errors).toEqual([]);
 });
 
-test('/settings/kb/101 curation: a list that the server reads, and a read that failed', async ({ page }) => {
+test('/moderation/kb/101 curation: a list that the server reads, and a read that failed', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage4');
   const state = makeState({ listing: { state: 'reading', error: null, read_at: null }, remoteReads: [] });
   await installApi(page, state);
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
   await tab(page, 'curate').click();
   const host = page.locator('#kb-curate-host');
   await host.locator('[data-curate-src="remote:5"]').click();
@@ -193,7 +193,7 @@ test('/settings/kb/101 curation: a list that the server reads, and a read that f
   expect(errors).toEqual([]);
 });
 
-test('/settings/kb/101 review queue: a copy whose origin was removed has two decisions; the moderation log shows a role name and the reason of the mutual collaboration as text', async ({ page }) => {
+test('/moderation/kb/101 review queue: a copy whose origin was removed has two decisions; the moderation log shows a role name and the reason of the mutual collaboration as text', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage2');
@@ -213,7 +213,7 @@ test('/settings/kb/101 review queue: a copy whose origin was removed has two dec
     ]
   });
   const { calls, unknown } = await installApi(page, state);
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
 
   // The queue: the pending contribution, then the two copies that wait for a decision. The badge of the tab counts the three.
   const queue = page.locator('#kb-manage-tabs [role="tabpanel"][data-tabpanel="queue"]');
@@ -303,7 +303,7 @@ test('/settings/kb/101 review queue: a copy whose origin was removed has two dec
   expect(errors).toEqual([]);
 });
 
-test('/settings/kb/101 archived: no approve, reject, hide, or remove control, no decision on a removed origin, and no curation tab', async ({ page }) => {
+test('/moderation/kb/101 archived: no approve, reject, hide, or remove control, no decision on a removed origin, and no curation tab', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage3');
@@ -318,7 +318,7 @@ test('/settings/kb/101 archived: no approve, reject, hide, or remove control, no
   });
   state.kb.state = 'archived';
   const { calls, unknown } = await installApi(page, state);
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
   const host = page.locator('#settings-kb-manage-host');
   // The head tells that the knowledge base is archived and read-only.
   await expect(host.locator('.claire-card').first()).toContainText('보관됨');
@@ -367,13 +367,13 @@ test('/settings/kb/101 archived: no approve, reject, hide, or remove control, no
   expect(errors).toEqual([]);
 });
 
-test('/settings/kb/101 settings: a moderator makes the data bundle of the knowledge base and gets the download link, and corrects the knowledge type', async ({ page }) => {
+test('/moderation/kb/101 settings: a moderator makes the data bundle of the knowledge base and gets the download link, and corrects the knowledge type', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbmanage5');
   const state = makeState();
   const { calls, unknown } = await installApi(page, state);
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
+  await page.goto('/moderation/kb/101', { waitUntil: 'domcontentloaded' });
   await tab(page, 'settings').click();
   const card = page.locator('#kb-bundle-card');
   await expect(card).toBeVisible();

@@ -153,7 +153,7 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(root.locator('[data-kb-act="leave"]')).toHaveText('탈퇴');
   await expect(root.locator('[data-kb-act="fork"]')).toBeVisible();
   await expect(root.locator('[data-kb-act="join"]')).toHaveCount(0);
-  await expect(root.locator('a[href="/settings/kb/101"]')).toHaveText('심사와 관리');
+  await expect(root.locator('a[href="/moderation/kb/101"]')).toHaveText('심사와 관리');
   await expect(root).toContainText('공유 지식 베이스에는 기여로만 문서를 넣습니다.');
   // The members: the role of an active member, the state of a join request.
   const members = root.locator('.claire-list-col .claire-list-item-row');

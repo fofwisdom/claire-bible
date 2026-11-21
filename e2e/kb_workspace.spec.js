@@ -67,7 +67,7 @@ test('the shared knowledge base bar of the workspace: join request, withdraw, jo
   await expect(bar.locator('[data-kb-act]')).toHaveCount(2);
   await expect(bar.locator('[data-kb-act="join"]')).toHaveText('가입 요청');
   await expect(bar.locator('[data-kb-act="fork"]')).toContainText('포크');
-  await expect(bar.locator('a[href="/settings/kb/101"]')).toHaveText('심사와 관리');
+  await expect(bar.locator('a[href="/moderation/kb/101"]')).toHaveText('심사와 관리');
   // Each control of the bar is inside the screen and can get a click.
   for (const el of await bar.locator('[data-kb-act], a.claire-btn').all()) {
     const box = await el.boundingBox();

@@ -776,7 +776,7 @@
       h += '<button type="button" class="claire-btn pri' + small + '" data-kb-act="join">' + esc(t(kb.join_policy === "open" ? "kb.pub.kb_join" : "kb.pub.kb_join_request")) + "</button>";
     }
     h += '<button type="button" class="claire-btn' + small + '" data-kb-act="fork">' + ui().icon("fork") + " " + esc(t("kb.dlg.fork_confirm")) + "</button>";
-    if ((opts && opts.isAdmin) || membership.role === "moderator" || membership.role === "collaborator") h += '<a class="claire-btn sec' + small + '" href="/settings/kb/' + esc(encodeURIComponent(kb.number)) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>";
+    if ((opts && opts.isAdmin) || membership.role === "moderator" || membership.role === "collaborator") h += '<a class="claire-btn sec' + small + '" href="/moderation/kb/' + esc(encodeURIComponent(kb.number)) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>";
     return h;
   }
 

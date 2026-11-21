@@ -1,4 +1,4 @@
-/* Claire Admin Console controller (/admin/*). */
+/* Claire Admin Console controller (/admin/*, /moderation/oversight, /moderation/themes). */
 (function () {
   "use strict";
 
@@ -1518,7 +1518,7 @@
     });
   }
 
-  // /admin/kb (design Section 10.3): all shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs. There is no admin list route: the list is GET /kb as the admin, which has "active_moderators" and "reembed_required".
+  // /moderation/oversight (design Section 10.3): all shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs. There is no admin list route: the list is GET /kb as the admin, which has "active_moderators" and "reembed_required".
   function initAdminKbSection() {
     var host = document.getElementById("admin-kb-host");
     var ui = window.ClaireUi;
@@ -1578,7 +1578,7 @@
             } },
             { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
               var menu = [
-                { href: "/settings/kb/" + encodeURIComponent(k.number), label: ui.t("kb.pub.kb_review_manage"), icon: "inbox" },
+                { href: "/moderation/kb/" + encodeURIComponent(k.number), label: ui.t("kb.pub.kb_review_manage"), icon: "inbox" },
                 { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod"), icon: "user" },
                 { action: "change_type", value: k.number, label: tr("kb.knowledge_type.change"), icon: "edit" }
               ];
@@ -1636,7 +1636,6 @@
     load();
   }
 
-  // /admin/themes (design Section 10.3): the themes, the last judgement run, the thresholds, the reputation numbers, the adjustments of Section 8.3, and the agreement of decisions.
   // The review of the shadow records of the same-subject source merge (docs/implementation/EXPANSION.md §3.1): a person gives each record a verdict, and the report compares the model with the verdicts. Only this WebUI gives verdicts; the CLI of the agents reads only.
   function initExpansionReview(host) {
     var ui = window.ClaireUi;
@@ -1720,6 +1719,7 @@
     load();
   }
 
+  // /moderation/themes (design Section 10.3): the themes, the last judgement run, the thresholds, the reputation numbers, the adjustments of Section 8.3, and the agreement of decisions.
   function initAdminThemesV2(host) {
     var ui = window.ClaireUi;
     var dlgs = window.ClaireKbDialogs;
@@ -2039,7 +2039,7 @@
     bindThemeSelector();
     bindReauthModal();
     var bootstrap = parseBootstrap();
-    if (!bootstrap || bootstrap.area !== "admin") return;
+    if (!bootstrap || (bootstrap.area !== "admin" && bootstrap.area !== "moderation")) return;
     initAdminSection(bootstrap);
   }
 

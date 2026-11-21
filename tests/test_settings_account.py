@@ -306,6 +306,9 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
     # No slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1).
     assert "My themes:" not in html and "settings-themes-quota" not in html
     assert "/admin/" not in html
+    assert 'href="/moderation/oversight"' not in html
+    assert 'href="/moderation/themes"' not in html
+    assert 'href="/moderation/kb"' in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html
     bootstrap = _bootstrap(html)
@@ -314,11 +317,54 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
 
 def test_admin_theme_and_token_settings_still_redirect(env):
     _set_mode(env.db_file, "network")
-    # The retired page ``/settings/themes`` is an old web link: 308. ``/settings/tokens`` is a section that the admin has in ``/admin``: 302.
-    for slug, status in (("themes", 308), ("tokens", 302)):
+    # The retired page ``/settings/themes`` is an old web link: 308 to ``/moderation/themes``. ``/settings/tokens`` is a section that the admin has in ``/admin``: 302.
+    for slug, status, target in (("themes", 308, "/moderation/themes"), ("tokens", 302, "/admin/tokens")):
         resp = env.client.get(f"/settings/{slug}", headers=env.admin, follow_redirects=False)
         assert resp.status_code == status
-        assert resp.headers["location"] == f"/admin/{slug}"
+        assert resp.headers["location"] == target
+
+
+def test_moderation_routes_and_legacy_redirects(env):
+    _set_mode(env.db_file, "network")
+    mod_index = env.client.get("/moderation", headers=env.alice, follow_redirects=False)
+    assert (mod_index.status_code, mod_index.headers["location"]) == (302, "/moderation/kb")
+    mod_index_kb = env.client.get(f"/moderation?kb={env.alice_theme.number}", headers=env.alice, follow_redirects=False)
+    assert (mod_index_kb.status_code, mod_index_kb.headers["location"]) == (302, f"/moderation/kb?kb={env.alice_theme.number}")
+    assert env.client.get("/moderation?kb=nonexistent", headers=env.alice, follow_redirects=False).status_code == 404
+    assert env.client.get("/moderation", follow_redirects=False).status_code == 404
+
+    for path in ("/moderation/kb", f"/moderation/kb/{env.admin_theme.number}"):
+        html = _get(env, path, env.alice).text
+        assert 'id="settings-kb-manage-host"' in html
+        assert 'data-active-area="moderation"' in html
+        assert 'data-active-section="kb_manage"' in html
+        assert "/admin/" not in html
+        assert "console_admin.js" not in html
+        assert "console.js.admin." not in html
+        assert 'href="/moderation/oversight"' not in html
+        assert 'href="/moderation/themes"' not in html
+
+    assert env.client.get(f"/moderation/kb/{env.alice_theme.number}", headers=env.alice, follow_redirects=False).status_code == 404
+    assert env.client.get("/moderation/kb/999999", headers=env.alice, follow_redirects=False).status_code == 404
+
+    for path, marker, section in (("/moderation/oversight", 'id="admin-kb-host"', "kb"), ("/moderation/themes", 'id="admin-themes-host"', "themes")):
+        assert env.client.get(path, headers=env.alice, follow_redirects=False).status_code == 404
+        assert env.client.get(path, follow_redirects=False).status_code == 404
+        adm_html = _get(env, path, env.admin).text
+        assert marker in adm_html
+        assert 'data-active-area="moderation"' in adm_html
+        assert f'data-active-section="{section}"' in adm_html
+        assert "console_admin.js" in adm_html
+
+    for legacy_path, target in (("/settings/kb/manage", "/moderation/kb"), (f"/settings/kb/{env.admin_theme.number}", f"/moderation/kb/{env.admin_theme.number}")):
+        redir = env.client.get(legacy_path, headers=env.alice, follow_redirects=False)
+        assert (redir.status_code, redir.headers["location"]) == (308, target)
+    assert env.client.get(f"/settings/kb/{env.alice_theme.number}", headers=env.alice, follow_redirects=False).status_code == 404
+
+    for legacy_path, target in (("/admin/kb", "/moderation/oversight"), ("/admin/themes", "/moderation/themes")):
+        assert env.client.get(legacy_path, headers=env.alice, follow_redirects=False).status_code == 404
+        redir = env.client.get(legacy_path, headers=env.admin, follow_redirects=False)
+        assert (redir.status_code, redir.headers["location"]) == (308, target)
 
 
 def test_account_and_keys_pages_render_extraction_mode_controls_and_guides(env):
