@@ -244,9 +244,31 @@
       var form = document.getElementById("menu-logout-form");
       if (form) form.hidden = !visible;
     },
+    setModerationLink: function (opts) {
+      var el = document.getElementById("moderationlinkbtn");
+      if (!el || !opts) return;
+      if (typeof opts.visible === "boolean") el.hidden = !opts.visible;
+      if (opts.href) el.setAttribute("href", opts.href);
+      if (opts.label) {
+        el.title = opts.label;
+        el.setAttribute("aria-label", opts.label);
+        var lbl = el.querySelector(".btn-label");
+        if (lbl) lbl.textContent = opts.label;
+      }
+      if (opts.icon) {
+        var ic = el.querySelector("[data-icon]");
+        if (ic) ic.setAttribute("data-icon", opts.icon);
+      }
+    },
+    setModerationVisible: function (visible) {
+      var el = document.getElementById("moderationlinkbtn");
+      if (el) el.hidden = !visible;
+    },
     setSyndicationVisible: function (visible) {
       var link = document.getElementById("syndlink");
       if (link) link.hidden = !visible;
+      var menuLink = document.getElementById("menusyndlink");
+      if (menuLink) menuLink.hidden = !visible;
     }
   };
 

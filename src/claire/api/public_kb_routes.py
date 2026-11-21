@@ -79,6 +79,8 @@ def render_public_kb_page(
         home_href=caller["home_href"],
         synd_href="/syndication" if caller["is_authenticated"] else "",
         synd_hidden=not caller["is_authenticated"],
+        moderation_href="/moderation" if caller["is_authenticated"] else "",
+        moderation_hidden=not caller["is_authenticated"],
         console_href=caller["console_href"] if caller["is_authenticated"] else "/settings",
         console_icon="wrench" if caller["is_admin"] else "settings",
         console_hidden=not caller["is_authenticated"],

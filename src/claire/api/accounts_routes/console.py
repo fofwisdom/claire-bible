@@ -412,6 +412,7 @@ def _resolve_caller_theme_and_list(
     *,
     account_id: int,
     raw_theme: str | None,
+    allow_shared_fallback: bool = False,
 ) -> tuple[KnowledgeBaseInfo | None, list[KnowledgeBaseInfo], str | None] | None:
     """``?kb=``(번호)가 주어졌으면 호출자 계정의 지식 베이스인지 엄격히 검증한다(C1, CT23). 없으면 콘솔의 주인인 계정의 개인 지식 베이스다: ``/settings/*``는 그 계정의 콘솔이다.
 
@@ -419,6 +420,7 @@ def _resolve_caller_theme_and_list(
     """
     tm = _kb_manager(ctx)
     owned = tm.list_account_kbs(account_id)
+    default_theme = next((t_item for t_item in owned if t_item.is_personal), owned[0] if owned else None)
     if raw_theme is not None:
         cleaned = raw_theme.strip()
         if not cleaned:
@@ -428,13 +430,10 @@ def _resolve_caller_theme_and_list(
         except KnowledgeBaseNotFound:
             return None
         if resolved.account_id != account_id:
+            if allow_shared_fallback and resolved.is_shared:
+                return default_theme, owned, None
             return None
         return resolved, owned, cleaned
-    default_theme = owned[0] if owned else None
-    for t in owned:
-        if t.is_personal:
-            default_theme = t
-            break
     return default_theme, owned, None
 
 
@@ -464,31 +463,36 @@ def _build_sidebar_html(
     active_path: str,
     admin_viewer: bool,
     theme_query: str | None,
+    area: str = "settings",
 ) -> str:
-    moderation_specs = (
-        [*MODERATION_OWNER_SPECS, *MODERATION_ADMIN_SPECS]
-        if admin_viewer
-        else list(MODERATION_OWNER_SPECS)
-    )
-    groups: list[tuple[str, str, list[ConsoleSectionSpec]]] = [
-        (
-            "workspace",
-            t("console.group.workspace"),
-            [
-                spec
-                for spec in SETTINGS_GROUP_1_SPECS
-                # D3: admin manages tokens in /admin/tokens.
-                if not (admin_viewer and spec.slug == "tokens")
-            ],
-        ),
-        ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
-        ("moderation", t("console.group.moderation"), moderation_specs),
-        ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
-        ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
-    ]
-    if admin_viewer:
-        groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
-        groups.append(("admin_system", t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
+    if area == "moderation":
+        moderation_specs = (
+            [*MODERATION_OWNER_SPECS, *MODERATION_ADMIN_SPECS]
+            if admin_viewer
+            else list(MODERATION_OWNER_SPECS)
+        )
+        groups: list[tuple[str, str, list[ConsoleSectionSpec]]] = [
+            ("moderation", t("console.group.moderation"), moderation_specs),
+        ]
+    else:
+        groups = [
+            (
+                "workspace",
+                t("console.group.workspace"),
+                [
+                    spec
+                    for spec in SETTINGS_GROUP_1_SPECS
+                    # D3: admin manages tokens in /admin/tokens.
+                    if not (admin_viewer and spec.slug == "tokens")
+                ],
+            ),
+            ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
+            ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
+            ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
+        ]
+        if admin_viewer:
+            groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
+            groups.append(("admin_system", t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
 
     parts: list[str] = []
     for group_id, group_label, specs in groups:
@@ -1368,10 +1372,24 @@ def _render_console_section(
     settings: Any = None,
 ) -> Response:
     assert principal.account_id is not None
-    theme_lookup = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
+    theme_lookup = _resolve_caller_theme_and_list(
+        ctx,
+        account_id=principal.account_id,
+        raw_theme=raw_theme,
+        allow_shared_fallback=(spec.area == "moderation"),
+    )
     if theme_lookup is None:
         return not_found()
     selected_theme, owned_themes, validated_theme_query = theme_lookup
+    if spec == MODERATION_KB_MANAGE_SPEC and extra_bootstrap is None and raw_theme is not None:
+        cleaned_raw = raw_theme.strip()
+        if cleaned_raw:
+            try:
+                resolved_shared = _kb_manager(ctx).get_kb_by_reference(cleaned_raw)
+            except KnowledgeBaseNotFound:
+                resolved_shared = None
+            if resolved_shared is not None and resolved_shared.is_shared and resolved_shared.number is not None:
+                extra_bootstrap = {"kb_number": ids.format_public_id(resolved_shared.number)}
     mode, account = _account_context_info(ctx, principal.account_id)
     admin_viewer = is_admin(principal)
 
@@ -1386,6 +1404,7 @@ def _render_console_section(
         active_path=spec.path,
         admin_viewer=admin_viewer,
         theme_query=validated_theme_query,
+        area=spec.area,
     )
     theme_selector_html = _build_theme_selector_html(
         spec=spec,
@@ -1447,20 +1466,25 @@ def _render_console_section(
         **built_extra,
         **(extra_bootstrap or {}),
     }
+    is_moderation_area = spec.area == "moderation"
+    brand_icon = "shield" if is_moderation_area else "settings"
+    brand_title_key = "nav.topbar.moderation" if is_moderation_area else "nav.topbar.console"
     common_appbar_html = ui_chrome.render_appbar_html(
         bar_id="console-bar",
         brand_id="console-back-graph",
         brand_href=graph_href,
         brand_extra_html=theme_selector_html,
         center_id="console-bar-center",
-        center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="settings"></span> ${{t:nav.topbar.console}}</span><span class="console-badge" id="console-scope-badge">{escape(scope_badge)}</span>',
+        center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="{brand_icon}"></span> ${{t:{brand_title_key}}}</span><span class="console-badge" id="console-scope-badge">{escape(scope_badge)}</span>',
         end_id="console-bar-end",
         ingest_enabled=False,
         home_href=graph_href,
         synd_href=syndication_href,
+        moderation_href="/moderation",
+        moderation_current=is_moderation_area,
         console_href="/admin" if admin_viewer else "/settings",
         console_icon="wrench" if admin_viewer else "settings",
-        console_current=True,
+        console_current=not is_moderation_area,
         show_logout=True,
     )
     return render_template(
@@ -1479,6 +1503,7 @@ def _render_console_section(
         },
         markup={
             "common_appbar_html": common_appbar_html,
+            "drawer_title_html": f'<span data-icon="{brand_icon}"></span> {escape(t(brand_title_key))}',
             "section_icon_html": icon_html(spec.icon),
             "theme_selector_html": theme_selector_html,
             "sidebar_nav_html": sidebar_html,
@@ -1531,10 +1556,34 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
-        ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
-        if not ok:
-            return not_found()
-        return _redirect(_append_theme_query(MODERATION_KB_MANAGE_SPEC.path, validated_theme))
+        if "kb" in request.query_params:
+            raw_kb = request.query_params.get("kb") or ""
+
+            def _resolve_mod_target() -> str | None:
+                assert principal.account_id is not None
+                resolved_personal = _resolve_caller_theme_and_list(
+                    ctx,
+                    account_id=principal.account_id,
+                    raw_theme=raw_kb,
+                )
+                if resolved_personal is not None:
+                    return _append_theme_query(MODERATION_KB_MANAGE_SPEC.path, resolved_personal[2])
+                cleaned = raw_kb.strip()
+                if not cleaned:
+                    return None
+                try:
+                    kb_info = _kb_manager(ctx).get_kb_by_reference(cleaned)
+                except KnowledgeBaseNotFound:
+                    return None
+                if kb_info.is_shared and kb_info.number is not None:
+                    return f"{MODERATION_KB_MANAGE_SPEC.path}/{ids.format_public_id(kb_info.number)}"
+                return None
+
+            target = await asyncio.to_thread(_resolve_mod_target)
+            if target is None:
+                return not_found()
+            return _redirect(target)
+        return _redirect(MODERATION_KB_MANAGE_SPEC.path)
 
     async def admin_section_page(request: Request) -> Response:
         principal = request_principal(request)

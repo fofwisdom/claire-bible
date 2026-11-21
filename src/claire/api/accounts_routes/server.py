@@ -3,6 +3,7 @@
 - ``GET /admin/server``: 관리자 전용 HTML 페이지 (모드, G1-G9 준비 검사, 일몰 시계 상태)
 - ``GET /api/admin/server``: JSON API (현재 모드, readiness 검사 결과, network_mode_available, legacy_host_policy)
 - ``POST /api/admin/server/mode``: 모드 전환 API (단계 인증 필수)
+- ``POST /api/admin/server/invites``: 비관리자 초대 코드 발급 허용 설정 API (단계 인증 필수)
 - ``POST /api/admin/server/legacy-hosts/sunset``: 일몰 시계 관리 API (단계 인증 필수)
 - ``GET/HEAD/PUT /api/admin/server-tier``: 서버 등급 조회·저장 (설계 §10.3, P4 L4-c). PUT은 단계 인증, 검증 실패는 422, ``admin_audit`` 기록
 """
@@ -47,6 +48,7 @@ ADMIN_SERVER_PATH = "/admin/server"
 ADMIN_SERVER_API_PATH = "/api/admin/server"
 ADMIN_SERVER_MODE_PATH = "/api/admin/server/mode"
 ADMIN_SERVER_CLIENT_DELIVERY_PATH = "/api/admin/server/client-delivery"
+ADMIN_SERVER_INVITES_PATH = "/api/admin/server/invites"
 ADMIN_SERVER_SUNSET_PATH = "/api/admin/server/legacy-hosts/sunset"
 ADMIN_SERVER_TIER_PATH = "/api/admin/server-tier"
 
@@ -425,6 +427,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     "legacy_hosts": [_legacy_host_to_dict(h) for h in hosts],
                     "agent_client_delivery_mode": client_delivery["mode"],
                     "agent_client_delivery": client_delivery,
+                    "member_invites_enabled": store.member_invites_enabled(),
                 }
             finally:
                 conn.close()
@@ -698,6 +701,54 @@ def routes(ctx: AccountsContext) -> list[Route]:
         status_code, resp_data = await asyncio.to_thread(_apply_client_delivery_update, principal, settings, body)
         return JSONResponse(resp_data, status_code=status_code, headers={"Cache-Control": "no-store"})
 
+    async def admin_server_invites_api(request: Request) -> Response:
+        principal = request_principal(request)
+        if not is_admin(principal):
+            return not_found()
+        if not same_origin(request):
+            return json_error(403, "forbidden")
+        denied = require_recent_auth(principal)
+        if denied is not None:
+            return denied
+
+        body = await read_json_body(request)
+        unknown = sorted(set(body) - {"member_invites_enabled"})
+        if unknown:
+            return JSONResponse(
+                {"error": "invalid_request", "detail": f"Unsupported fields: {', '.join(unknown)}"},
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
+        enabled = body.get("member_invites_enabled")
+        if not isinstance(enabled, bool):
+            return JSONResponse(
+                {"error": "invalid_member_invites_enabled", "detail": "member_invites_enabled must be a boolean"},
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
+
+        def _save_invites_policy() -> dict[str, Any]:
+            conn = open_db(ctx)
+            try:
+                store = accounts_store.AccountStore(conn)
+                store.set_member_invites_enabled(enabled, updated_by=principal.account_id)
+                auth_conn = open_auth_db(ctx)
+                try:
+                    auth_db.record_admin_audit(
+                        auth_conn,
+                        actor_account_id=principal.account_id,
+                        action="server.invites.update",
+                        detail={"member_invites_enabled": enabled},
+                    )
+                finally:
+                    auth_conn.close()
+                return {"member_invites_enabled": store.member_invites_enabled()}
+            finally:
+                conn.close()
+
+        resp_data = await asyncio.to_thread(_save_invites_policy)
+        return JSONResponse(resp_data, status_code=200, headers={"Cache-Control": "no-store"})
+
     async def admin_server_page_post(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
@@ -724,5 +775,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ADMIN_SERVER_API_PATH, admin_server_api, methods=["GET"]),
         Route(ADMIN_SERVER_MODE_PATH, admin_server_mode_api, methods=["POST"]),
         Route(ADMIN_SERVER_CLIENT_DELIVERY_PATH, admin_server_client_delivery_api, methods=["POST"]),
+        Route(ADMIN_SERVER_INVITES_PATH, admin_server_invites_api, methods=["POST"]),
         Route(ADMIN_SERVER_SUNSET_PATH, admin_server_sunset_api, methods=["POST"]),
     ]

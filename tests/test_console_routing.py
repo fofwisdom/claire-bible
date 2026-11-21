@@ -233,6 +233,8 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert (r_moderation.status_code, r_moderation.headers["location"]) == (302, "/moderation/kb")
     r_moderation_kb = client.get(f"/moderation?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert (r_moderation_kb.status_code, r_moderation_kb.headers["location"]) == (302, f"/moderation/kb?kb={console_env.alice_def.number}")
+    r_moderation_shared = client.get(f"/moderation?kb={console_env.admin_extra.number}", headers=console_env.alice_owner, follow_redirects=False)
+    assert (r_moderation_shared.status_code, r_moderation_shared.headers["location"]) == (302, f"/moderation/kb/{console_env.admin_extra.number}")
     assert client.head("/moderation", headers=console_env.alice_owner, follow_redirects=False).status_code == 302
 
     r_from_synd = client.get(f"/settings?from=syndication&kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
@@ -298,23 +300,34 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     _set_mode(console_env.db_file, "network")
     client = console_env.client
 
-    # Member response on /settings/reader and /moderation/kb must never contain /admin/* links, admin moderation links, or admin JS/catalog keys
-    for path in ("/settings/reader", "/moderation/kb"):
-        member_resp = client.get(path, headers=console_env.alice_owner)
-        assert member_resp.status_code == 200, path
-        assert 'href="/settings/account"' in member_resp.text
-        assert 'href="/settings/kb"' in member_resp.text
-        assert 'href="/moderation/kb"' in member_resp.text
-        assert 'href="/settings/tokens"' in member_resp.text
-        assert 'href="/settings/feeds"' in member_resp.text
-        assert "/admin/" not in member_resp.text
-        assert 'href="/moderation/oversight"' not in member_resp.text
-        assert 'href="/moderation/themes"' not in member_resp.text
-        assert 'href="/settings/kb/manage"' not in member_resp.text
-        assert "console_admin.js" not in member_resp.text
-        assert "console.js.admin." not in member_resp.text
-        assert "System administration and settings (administrator)" not in member_resp.text
-        assert "Server · Accounts · Authentication (administrator)" not in member_resp.text
+    # Member response on /settings/reader keeps settings sidebar without /moderation/* links; /moderation/kb keeps only moderation sidebar.
+    member_settings = client.get("/settings/reader", headers=console_env.alice_owner)
+    assert member_settings.status_code == 200
+    assert 'href="/settings/account"' in member_settings.text
+    assert 'href="/settings/kb"' in member_settings.text
+    assert 'href="/settings/tokens"' in member_settings.text
+    assert 'href="/settings/feeds"' in member_settings.text
+    assert 'href="/moderation/kb"' not in member_settings.text
+    assert 'href="/moderation/oversight"' not in member_settings.text
+    assert 'href="/moderation/themes"' not in member_settings.text
+    assert "/admin/" not in member_settings.text
+    assert "console_admin.js" not in member_settings.text
+    assert "console.js.admin." not in member_settings.text
+
+    member_mod = client.get("/moderation/kb", headers=console_env.alice_owner)
+    assert member_mod.status_code == 200
+    mod_sidebar = member_mod.text.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
+    assert 'href="/moderation/kb"' in mod_sidebar
+    assert 'href="/settings/account"' not in mod_sidebar
+    assert 'href="/settings/kb"' not in mod_sidebar
+    assert "/admin/" not in member_mod.text
+    assert 'href="/moderation/oversight"' not in member_mod.text
+    assert 'href="/moderation/themes"' not in member_mod.text
+    assert 'href="/settings/kb/manage"' not in member_mod.text
+    assert "console_admin.js" not in member_mod.text
+    assert "console.js.admin." not in member_mod.text
+    assert "System administration and settings (administrator)" not in member_mod.text
+    assert "Server · Accounts · Authentication (administrator)" not in member_mod.text
 
     # Active highlighting for /moderation/kb and /moderation/kb/{kb_number}
     for active_mod_path in ("/moderation/kb", f"/moderation/kb/{console_env.admin_extra.number}"):
@@ -324,30 +337,52 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'id="settings-kb-manage-host"' in mod_html
         assert 'data-nav-section="kb_manage" aria-current="page"' in mod_html
 
-    # Admin response on /settings/*, /admin/*, and /moderation/* has unified sidebar without legacy or duplicate links
-    for path in ("/settings/reader", "/admin/providers", "/admin/limits", "/admin/mcp", "/moderation/kb", "/moderation/oversight", "/moderation/themes"):
+    # Common bottom hamburger section order across workspace, syndication, settings, admin, and moderation.
+    for path in ("/settings/reader", "/admin/providers", "/moderation/kb", "/moderation/oversight"):
+        resp = client.get(path, headers=console_env.admin_owner)
+        assert resp.status_code == 200, path
+        html = resp.text
+        pos_synd = html.index('id="menusyndlink"')
+        pos_mod = html.index('id="moderationlinkbtn"')
+        pos_con = html.index('id="consolelinkbtn"')
+        pos_out = html.index('id="menu-logout-form"')
+        assert pos_synd < pos_mod < pos_con < pos_out, path
+
+    # Admin response separates /settings/* & /admin/* console sidebar from /moderation/* moderation sidebar.
+    for path in ("/settings/reader", "/admin/providers", "/admin/limits", "/admin/mcp"):
         admin_resp = client.get(path, headers=console_env.admin_owner)
         assert admin_resp.status_code == 200, path
-        assert 'href="/settings/account"' in admin_resp.text
-        assert 'href="/settings/feeds"' in admin_resp.text
-        assert 'href="/moderation/kb"' in admin_resp.text
-        assert 'href="/moderation/oversight"' in admin_resp.text
-        assert 'href="/moderation/themes"' in admin_resp.text
-        assert 'href="/admin/server"' in admin_resp.text
-        assert 'href="/admin/accounts"' in admin_resp.text
-        assert 'href="/admin/idp"' in admin_resp.text
-        assert 'href="/admin/providers"' in admin_resp.text
-        assert 'href="/admin/limits"' in admin_resp.text
-        assert 'href="/admin/tokens"' in admin_resp.text
-        assert 'href="/admin/mcp"' in admin_resp.text
+        sidebar = admin_resp.text.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/settings/account"' in sidebar
+        assert 'href="/settings/feeds"' in sidebar
+        assert 'href="/admin/server"' in sidebar
+        assert 'href="/admin/accounts"' in sidebar
+        assert 'href="/admin/idp"' in sidebar
+        assert 'href="/admin/providers"' in sidebar
+        assert 'href="/admin/limits"' in sidebar
+        assert 'href="/admin/tokens"' in sidebar
+        assert 'href="/admin/mcp"' in sidebar
+        assert 'href="/moderation/kb"' not in sidebar
+        assert 'href="/moderation/oversight"' not in sidebar
+        assert 'href="/moderation/themes"' not in sidebar
         assert 'href="/admin/kb"' not in admin_resp.text
         assert 'href="/admin/themes"' not in admin_resp.text
         assert 'href="/settings/kb/manage"' not in admin_resp.text
         assert 'href="/settings/themes"' not in admin_resp.text
         assert 'href="/settings/tokens"' not in admin_resp.text
+
+    for path in ("/moderation/kb", "/moderation/oversight", "/moderation/themes"):
+        admin_mod = client.get(path, headers=console_env.admin_owner)
+        assert admin_mod.status_code == 200, path
+        mod_sb = admin_mod.text.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/moderation/kb"' in mod_sb
+        assert 'href="/moderation/oversight"' in mod_sb
+        assert 'href="/moderation/themes"' in mod_sb
+        assert 'href="/settings/account"' not in mod_sb
+        assert 'href="/admin/server"' not in mod_sb
         if path == "/moderation/kb":
-            assert "console_admin.js" not in admin_resp.text
-            assert "console.js.admin." not in admin_resp.text
+            assert "console_admin.js" not in admin_mod.text
+            assert "console.js.admin." not in admin_mod.text
 
 
 def test_single_mode_shows_the_admin_username_only_on_the_account_page_and_not_in_whoami(console_env):

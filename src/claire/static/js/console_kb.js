@@ -963,7 +963,7 @@
         currentNum = switcher.value;
         selectedPending = null;
         selectedSource = "";
-        if (window.history && window.history.replaceState) window.history.replaceState(null, "", "/moderation/kb/" + encodeURIComponent(currentNum));
+        if (window.history && window.history.replaceState) window.history.replaceState(null, "", currentNum ? "/moderation/kb/" + encodeURIComponent(currentNum) : "/moderation/kb");
         load();
       });
       host.querySelectorAll("[data-pick-pending]").forEach(function (btn) {

@@ -765,11 +765,10 @@ def create_invitation(
 
     salt = id_salt if id_salt is not None else sec.derive_hmac_key("invitation_id_salt")
     unix_ms = int(ts * 1000)
-    public_id = ids.timestamp_id("invitations", salt=salt, unix_ms=unix_ms)
+    holder: dict[str, int] = {}
 
-    enc = sec.encrypt(norm_code, aad=f"invitation|{public_id}")
-
-    with conn:
+    def _insert(candidate_public_id: int) -> None:
+        enc = sec.encrypt(norm_code, aad=f"invitation|{candidate_public_id}")
         cur = conn.execute(
             """
             INSERT INTO invitations (
@@ -779,7 +778,7 @@ def create_invitation(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
             (
-                public_id,
+                candidate_public_id,
                 code_hmac,
                 enc.ciphertext,
                 enc.nonce,
@@ -792,7 +791,18 @@ def create_invitation(
                 note.strip(),
             ),
         )
-        row_id = int(cur.lastrowid)
+        holder["row_id"] = int(cur.lastrowid)
+
+    with conn:
+        public_id = ids.insert_with_timestamp_id(
+            conn,
+            table="invitations",
+            column="public_id",
+            salt=salt,
+            insert=_insert,
+            now_ms=lambda: unix_ms,
+        )
+    row_id = holder["row_id"]
 
     return InvitationInfo(
         id=row_id,
@@ -1039,6 +1049,7 @@ def list_invitations(
     conn: sqlite3.Connection,
     query: Any = None,
     *,
+    created_by: int | None = None,
     max_id: int | None = None,
     min_id: int | None = None,
     since_id: int | None = None,
@@ -1052,30 +1063,57 @@ def list_invitations(
     q_limit = getattr(query, "limit", limit) if query is not None else limit
 
     sec = secret_service or get_secret_service()
-    total_row = conn.execute("SELECT COUNT(*) FROM invitations").fetchone()
+    if created_by is not None:
+        total_row = conn.execute("SELECT COUNT(*) FROM invitations WHERE created_by = ?", (created_by,)).fetchone()
+    else:
+        total_row = conn.execute("SELECT COUNT(*) FROM invitations").fetchone()
     total_count = int(total_row[0]) if total_row is not None else 0
 
     if q_max_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM invitations WHERE public_id < ? ORDER BY public_id DESC LIMIT ?",
-            (q_max_id, q_limit),
-        ).fetchall()
+        if created_by is not None:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE created_by = ? AND public_id < ? ORDER BY public_id DESC LIMIT ?",
+                (created_by, q_max_id, q_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE public_id < ? ORDER BY public_id DESC LIMIT ?",
+                (q_max_id, q_limit),
+            ).fetchall()
     elif q_min_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id ASC LIMIT ?",
-            (q_min_id, q_limit),
-        ).fetchall()
+        if created_by is not None:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE created_by = ? AND public_id > ? ORDER BY public_id ASC LIMIT ?",
+                (created_by, q_min_id, q_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id ASC LIMIT ?",
+                (q_min_id, q_limit),
+            ).fetchall()
         rows = list(reversed(rows))
     elif q_since_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id DESC LIMIT ?",
-            (q_since_id, q_limit),
-        ).fetchall()
+        if created_by is not None:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE created_by = ? AND public_id > ? ORDER BY public_id DESC LIMIT ?",
+                (created_by, q_since_id, q_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id DESC LIMIT ?",
+                (q_since_id, q_limit),
+            ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM invitations ORDER BY public_id DESC LIMIT ?",
-            (q_limit,),
-        ).fetchall()
+        if created_by is not None:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE created_by = ? ORDER BY public_id DESC LIMIT ?",
+                (created_by, q_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM invitations ORDER BY public_id DESC LIMIT ?",
+                (q_limit,),
+            ).fetchall()
 
     items: list[dict[str, Any]] = []
     now_ts = time.time()

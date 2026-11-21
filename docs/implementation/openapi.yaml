@@ -3742,7 +3742,7 @@ paths:
 
   /api/admin/server:
     get:
-      summary: Read server mode, readiness checks, legacy host policy, and agent_client delivery state
+      summary: Read server mode, readiness checks, legacy host policy, agent_client delivery state, and member invite policy
       operationId: getAdminServer
       x-claire-access: admin
       security:
@@ -3751,12 +3751,12 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: Server administration summary including `agent_client_delivery_mode` and `agent_client_delivery`.
+          description: Server administration summary including `agent_client_delivery_mode`, `agent_client_delivery`, and `member_invites_enabled`.
           content:
             application/json:
               schema:
                 type: object
-                required: [mode, readiness, network_mode_available, legacy_host_policy, legacy_hosts, agent_client_delivery_mode, agent_client_delivery]
+                required: [mode, readiness, network_mode_available, legacy_host_policy, legacy_hosts, agent_client_delivery_mode, agent_client_delivery, member_invites_enabled]
                 properties:
                   mode:
                     type: string
@@ -3775,6 +3775,8 @@ paths:
                     enum: [uri_path, fqdn]
                   agent_client_delivery:
                     type: object
+                  member_invites_enabled:
+                    type: boolean
         '404':
           description: Not the server admin.
 
@@ -3819,6 +3821,58 @@ paths:
           description: '`reauth_required`.'
         '403':
           description: '`step_up_requires_session` or `forbidden`.'
+        '404':
+          description: Not the server admin.
+
+  /api/admin/server/invites:
+    post:
+      summary: Enable or disable invite code issuance for non-admin members
+      description: Requires admin scope, same-origin check, and recent step-up authentication. Records `admin_audit` `server.invites.update`.
+      operationId: setAdminServerInvites
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [member_invites_enabled]
+              properties:
+                member_invites_enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: 'Member invite issuance policy updated (`Cache-Control: no-store`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member_invites_enabled]
+                properties:
+                  member_invites_enabled:
+                    type: boolean
+        '400':
+          description: '`invalid_request` or `invalid_member_invites_enabled`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '401':
+          description: '`reauth_required`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`step_up_requires_session` or `forbidden`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
         '404':
           description: Not the server admin.
 
@@ -3907,6 +3961,319 @@ paths:
                       $ref: '#/components/schemas/AccountSummary'
         '404':
           description: Not the server admin with owner scope.
+
+  /api/invites:
+    get:
+      summary: List invite codes (network mode only; admin sees all, member sees own)
+      description: "Requires owner scope in network mode (`_any(\"owner\", \"none\", modes=NETWORK_ONLY)`). Returns `OrderedCollection` by default or `OrderedCollectionPage` when `page=true` (`Cache-Control: no-store`)."
+      operationId: listInvites
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 80
+            default: 20
+        - name: max_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: min_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: since_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Invite collection root or page (`Cache-Control: no-store`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InviteCollectionRoot'
+                  - $ref: '#/components/schemas/InviteCollectionPage'
+        '400':
+          description: Invalid pagination cursor or limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner credential or server is in single mode.
+    post:
+      summary: Create an invite code (network mode only)
+      description: Requires owner scope in network mode. Non-admin members require `server_settings.member_invites_enabled` to be enabled (`403 invite_issuance_disabled` otherwise). Cookie channel requires same-origin. Records `admin_audit` `create_invitation`.
+      operationId: createInvite
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_uses:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  default: 1
+                expires_in:
+                  type: number
+                  minimum: 1800
+                  maximum: 2592000
+                expires_at:
+                  type: number
+                reserved_username:
+                  type: ['string', 'null']
+                note:
+                  type: ['string', 'null']
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                max_uses:
+                  type: integer
+                expires_in:
+                  type: number
+                expires_at:
+                  type: number
+                reserved_username:
+                  type: string
+                note:
+                  type: string
+      responses:
+        '201':
+          description: "Invite code created (`Cache-Control: no-store`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteCreateResponse'
+        '400':
+          description: Invalid JSON body or invite parameters (`invalid_json_body`, `invalid_max_uses`, `invalid_expires_in`, `invalid_expires_at`, `invalid_invite_params`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`invite_issuance_disabled` for non-admin members when disabled, or `forbidden` on cross-origin cookie request.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner credential or server is in single mode.
+    patch:
+      summary: Revoke an active invite code (network mode only)
+      description: Requires owner scope in network mode. Revokes active codes even when remaining uses exist (`uses_count < max_uses`). Admins may revoke any invite; non-admin members may revoke only their own (`created_by == account_id`; foreign or missing invites return `404 invitation_not_found`). Records `admin_audit` `revoke_invitation`.
+      operationId: revokeInvite
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                public_id:
+                  type: string
+                id:
+                  type: [string, integer]
+                action:
+                  type: string
+                  enum: [revoke]
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                public_id:
+                  type: string
+                id:
+                  type: string
+                action:
+                  type: string
+      responses:
+        '200':
+          description: "Invite revoked (`Cache-Control: no-store`)."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked, id, public_id, status]
+                properties:
+                  revoked:
+                    type: boolean
+                    const: true
+                  id:
+                    type: string
+                  public_id:
+                    type: string
+                  status:
+                    type: string
+                    const: revoked
+        '400':
+          description: Invalid JSON body, invalid `action`, invalid identifier, or missing identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: Cross-origin cookie request forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: '`invitation_not_found` (missing, already revoked, or foreign invite for non-admin), not an owner credential, or server is in single mode.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /invite/{code}:
+    get:
+      summary: View invite signup page or status (network mode only)
+      description: "Side-effect-free lookup (`GET`/`HEAD`). Returns HTML signup form (`Referrer-Policy: same-origin`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: no-store`) or JSON when `json=1` or `Accept: application/json`."
+      operationId: getInviteSignup
+      x-claire-access: public
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: json
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['1']
+      responses:
+        '200':
+          description: Active invitation form (HTML) or status summary (JSON).
+          content:
+            text/html:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+                required: [code, status, expires_at, reserved_username, max_uses, uses_count]
+                properties:
+                  code:
+                    type: string
+                  status:
+                    type: string
+                    const: active
+                  expires_at:
+                    type: number
+                  reserved_username:
+                    type: ['string', 'null']
+                  max_uses:
+                    type: integer
+                  uses_count:
+                    type: integer
+        '404':
+          description: Invite not found, invalid syntax, or server is in single mode.
+        '410':
+          description: Invitation is expired, exhausted, or revoked (`invitation_expired`, `invitation_exhausted`, `invitation_revoked`).
+        '429':
+          description: Per-IP invalid code rate limit exceeded.
+    post:
+      summary: Redeem an invite code and create a member account (network mode only)
+      description: "Public route with mandatory same-origin check. Atomically redeems the invite (`redeem_invitation_atomic`), creates the member account and default personal KB, sets password and owner session cookie (`Cache-Control: no-store`). Browser HTML submissions render localized error HTML (`400`/`410`) instead of raw JSON."
+      operationId: redeemInviteSignup
+      x-claire-access: public
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, display_name, password]
+              properties:
+                username:
+                  type: string
+                display_name:
+                  type: string
+                password:
+                  type: string
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, display_name, password]
+              properties:
+                username:
+                  type: string
+                display_name:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Account created (JSON callers).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [account_id, username, home]
+                properties:
+                  account_id:
+                    type: integer
+                  username:
+                    type: string
+                  home:
+                    type: string
+        '303':
+          description: Account created and browser redirected to `/@{username}/`.
+        '400':
+          description: Validation error (JSON error or re-rendered HTML signup form with `.errors`).
+        '403':
+          description: Same-origin check failed.
+        '404':
+          description: Invite not found, invalid syntax, or server is in single mode.
+        '410':
+          description: Invitation inactive (`invitation_expired`, `invitation_exhausted`, `invitation_revoked`), including concurrent revocation/exhaustion race.
+        '429':
+          description: Per-IP invalid code rate limit exceeded.
 
   /me:
     get:
@@ -6053,6 +6420,126 @@ components:
           type: ['number', 'null']
         theme_count:
           type: integer
+
+    InviteItem:
+      type: object
+      required: [id, public_id, code, code_masked, url, status, uses_count, max_uses, created_by, issuer_username, created_at, expires_at, revoked_at, revoked_by, reserved_username, note, redeemed_account_ids, is_mine, can_revoke]
+      properties:
+        id:
+          type: integer
+        public_id:
+          type: string
+        code:
+          type: string
+        code_masked:
+          type: string
+        url:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked, expired, exhausted]
+        uses_count:
+          type: integer
+        max_uses:
+          type: integer
+        created_by:
+          type: integer
+        issuer_username:
+          type: ['string', 'null']
+        created_at:
+          type: number
+        expires_at:
+          type: number
+        revoked_at:
+          type: ['number', 'null']
+        revoked_by:
+          type: ['integer', 'null']
+        reserved_username:
+          type: ['string', 'null']
+        note:
+          type: string
+        redeemed_account_ids:
+          type: array
+          items:
+            type: integer
+        is_mine:
+          type: boolean
+        can_revoke:
+          type: boolean
+
+    InviteCollectionRoot:
+      type: object
+      required: [id, type, totalItems, first, member_invites_enabled, can_issue]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          const: OrderedCollection
+        totalItems:
+          type: integer
+        first:
+          type: string
+        member_invites_enabled:
+          type: boolean
+        can_issue:
+          type: boolean
+
+    InviteCollectionPage:
+      type: object
+      required: [id, type, partOf, orderedItems, member_invites_enabled, can_issue]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          const: OrderedCollectionPage
+        partOf:
+          type: string
+        orderedItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/InviteItem'
+        next:
+          type: string
+        prev:
+          type: string
+        member_invites_enabled:
+          type: boolean
+        can_issue:
+          type: boolean
+
+    InviteCreateResponse:
+      type: object
+      required: [public_id, code, url, max_uses, uses_count, expires_at, created_at, reserved_username, note, status, created_by, is_mine, can_revoke]
+      properties:
+        public_id:
+          type: string
+        code:
+          type: string
+        url:
+          type: string
+        max_uses:
+          type: integer
+        uses_count:
+          type: integer
+        expires_at:
+          type: number
+        created_at:
+          type: number
+        reserved_username:
+          type: ['string', 'null']
+        note:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked, expired, exhausted]
+        created_by:
+          type: integer
+        is_mine:
+          type: boolean
+        can_revoke:
+          type: boolean
 
     ThemeCollectionRoot:
       type: object

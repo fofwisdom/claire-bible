@@ -67,7 +67,7 @@ SYSTEM = {
     "/invite/{code}",
     # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2)
     "/accounts",
-    "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/client-delivery", "/api/admin/server/legacy-hosts/sunset",
+    "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/client-delivery", "/api/admin/server/invites", "/api/admin/server/legacy-hosts/sunset",
     "/clients/.claude-plugin/marketplace.json", "/clients/marketplace.json", "/clients/{client_id}/manifest.json", "/clients/{client_id}/bundle.tar.gz", "/clients/{client_id}/bundle.zip", "/clients/{client_id}/files/{relpath:path}",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
@@ -108,9 +108,9 @@ ADMIN_KEYS = {
     ("GET", "/api/admin/usernames/retired"),
     ("HEAD", "/api/admin/usernames/retired"),
     ("POST", "/api/admin/usernames/release"),
-    *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/api/admin/server/mode"),
     ("POST", "/api/admin/server/client-delivery"),
+    ("POST", "/api/admin/server/invites"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"),
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),

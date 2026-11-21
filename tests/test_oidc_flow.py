@@ -518,6 +518,105 @@ def test_simultaneous_invite_completion_atomic_protection(test_env):
     auth_conn.close()
 
 
+def test_oidc_revoked_invite_rejected_at_all_stages(test_env):
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        inv_stage1 = auth_db.create_invitation(auth_conn, code="REVSTG1A", max_uses=2, expires_in=3600, created_by=1)
+        assert auth_db.revoke_invitation(auth_conn, inv_stage1.id, revoked_by=1) is True
+        inv_stage2 = auth_db.create_invitation(auth_conn, code="REVSTG2B", max_uses=2, expires_in=3600, created_by=1)
+        inv_stage3 = auth_db.create_invitation(auth_conn, code="REVSTG3C", max_uses=2, expires_in=3600, created_by=1)
+    finally:
+        auth_conn.close()
+
+    with patch.object(OidcClient, "create_authorization_url", new_callable=AsyncMock) as mock_auth_url, \
+         patch.object(OidcClient, "exchange_code", new_callable=AsyncMock) as mock_exchange, \
+         patch.object(OidcClient, "verify_id_token", new_callable=AsyncMock) as mock_verify:
+
+        mock_auth_url.return_value = "https://accounts.google.com/o/oauth2/v2/auth?state=mock_state"
+        mock_exchange.return_value = {"id_token": "mock.jwt.token"}
+
+        # Stage 1: revoked invite rejected at /start
+        resp_start_revoked = test_env.client.get("/auth/oidc/google/start?invite=REVSTG1A", follow_redirects=False)
+        assert resp_start_revoked.status_code == 410
+        assert resp_start_revoked.json()["error"] == "invitation_revoked"
+
+        # Stage 2: start active invite, revoke before /callback
+        resp_start_2 = test_env.client.get("/auth/oidc/google/start?invite=REVSTG2B", follow_redirects=False)
+        assert resp_start_2.status_code == 302
+        cookie_2 = test_env.client.cookies.get("claire_oidc_state")
+        assert cookie_2 is not None
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+        try:
+            row_2 = auth_conn.execute("SELECT state FROM oidc_states WHERE key = ?", (cookie_2,)).fetchone()
+            assert row_2 is not None
+            saved_state_2 = row_2["state"]
+            assert auth_db.revoke_invitation(auth_conn, inv_stage2.id, revoked_by=1) is True
+        finally:
+            auth_conn.close()
+
+        mock_verify.return_value = ExternalIdentity(
+            iss="https://accounts.google.com",
+            sub="revoked_sub_stage2",
+            email="revoked2@example.com",
+            email_verified=True,
+            display_name="Revoked Two",
+        )
+        resp_cb_2 = test_env.client.get(f"/auth/oidc/google/callback?state={saved_state_2}&code=mock_code", follow_redirects=False)
+        assert resp_cb_2.status_code == 410
+        assert resp_cb_2.json()["error"] == "invitation_revoked"
+        assert any("claire_oidc_state=" in h for h in resp_cb_2.headers.get_list("set-cookie"))
+
+        # Stage 3: complete /callback while active, revoke before POST /invite/complete
+        resp_start_3 = test_env.client.get("/auth/oidc/google/start?invite=REVSTG3C", follow_redirects=False)
+        assert resp_start_3.status_code == 302
+        cookie_3 = test_env.client.cookies.get("claire_oidc_state")
+        assert cookie_3 is not None
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+        try:
+            row_3 = auth_conn.execute("SELECT state FROM oidc_states WHERE key = ?", (cookie_3,)).fetchone()
+            assert row_3 is not None
+            saved_state_3 = row_3["state"]
+        finally:
+            auth_conn.close()
+
+        mock_verify.return_value = ExternalIdentity(
+            iss="https://accounts.google.com",
+            sub="revoked_sub_stage3",
+            email="revoked3@example.com",
+            email_verified=True,
+            display_name="Revoked Three",
+        )
+        resp_cb_3 = test_env.client.get(f"/auth/oidc/google/callback?state={saved_state_3}&code=mock_code", follow_redirects=False)
+        assert resp_cb_3.status_code == 302
+        signup_token = resp_cb_3.headers["location"].split("token=")[1]
+
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+        try:
+            assert auth_db.revoke_invitation(auth_conn, inv_stage3.id, revoked_by=1) is True
+        finally:
+            auth_conn.close()
+
+        resp_complete = test_env.client.post(
+            "/invite/complete",
+            json={"token": signup_token, "username": "revokeduser3", "display_name": "Revoked Three"},
+            headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin"},
+            follow_redirects=False,
+        )
+        assert resp_complete.status_code == 410
+        assert resp_complete.json()["error"] == "invitation_revoked"
+
+        conn = dbm.connect_existing(test_env.settings.db_file)
+        try:
+            assert accounts_store.AccountStore(conn).find_by_username("revokeduser3") is None
+        finally:
+            conn.close()
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+        try:
+            assert auth_db.find_account_identity(auth_conn, iss="https://accounts.google.com", sub="revoked_sub_stage3") is None
+        finally:
+            auth_conn.close()
+
+
 # 7. Admin IdP management --------------------------------------------------------
 
 

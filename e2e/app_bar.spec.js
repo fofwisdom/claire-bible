@@ -78,11 +78,17 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     await page.keyboard.press('Escape');
     await expect(page.locator('#cmdpalette')).toBeHidden();
 
-    // Hamburger menu exposes console link and sign-out action.
+    // Hamburger menu exposes the common bottom section from top to bottom: syndication -> moderation -> console -> sign-out.
     await page.locator('#hamburger-btn').click();
     await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+    await expect(page.locator('#menusyndlink')).toBeVisible();
+    await expect(page.locator('#moderationlinkbtn')).toBeVisible();
     await expect(page.locator('#consolelinkbtn')).toBeVisible();
     await expect(page.locator('#menu-logout-form')).toBeVisible();
+    const menuBottomOrder = await page.evaluate(() => ['#menusyndlink', '#moderationlinkbtn', '#consolelinkbtn', '#menu-logout-form'].map((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().top)));
+    for (let i = 1; i < menuBottomOrder.length; i += 1) {
+      expect(menuBottomOrder[i], `${target.name} menu order`).toBeGreaterThan(menuBottomOrder[i - 1]);
+    }
     await page.keyboard.press('Escape');
     await expect(page.locator('#pop-hamburger-menu')).toBeHidden();
 

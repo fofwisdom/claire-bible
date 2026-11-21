@@ -5638,6 +5638,9 @@ function setAccessScope(scope, reason){
       label: IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings"),
       icon: IS_ADMIN ? 'wrench' : 'settings'
     });
+    if(typeof window.ClaireAppBar.setModerationVisible === 'function'){
+      window.ClaireAppBar.setModerationVisible(canWrite());
+    }
     window.ClaireAppBar.setLogoutVisible(AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'write' || AUTH_SCOPE === 'readonly');
     window.ClaireAppBar.setSyndicationVisible(canWrite());
   }

@@ -316,30 +316,41 @@ def render_template(
     if name == "console_shell.html":
         scope = "console_admin" if (tx.get("active_area") == "admin" or bool(mk.get("admin_scripts_html"))) else "console"
     values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
+    if name == "console_shell.html" and "drawer_title_html" not in mk:
+        is_mod = tx.get("active_area") == "moderation"
+        d_icon = "shield" if is_mod else "settings"
+        d_key = "nav.topbar.moderation" if is_mod else "nav.topbar.console"
+        values["drawer_title_html"] = f'<span data-icon="{d_icon}"></span> {escape(t(d_key, **tx))}'
     values.update({k: escape(v) for k, v in tx.items()})
     values.update(mk)
     body = template.substitute(values)
     if "<!-- __COMMON_APPBAR__ -->" in body:
         appbar_raw = mk.get("common_appbar_html")
         if appbar_raw is None:
-            is_admin_area = tx.get("active_area") == "admin"
+            active_area = tx.get("active_area")
+            is_admin_area = active_area == "admin"
+            is_moderation_area = active_area == "moderation"
             graph_href = str(tx.get("graph_href", "/"))
             synd_href = str(tx.get("syndication_href", "/syndication"))
             scope_badge_escaped = escape(tx.get("scope_badge", ""))
+            brand_icon = "shield" if is_moderation_area else "settings"
+            brand_key = "nav.topbar.moderation" if is_moderation_area else "nav.topbar.console"
             appbar_raw = ui_chrome.render_appbar_html(
                 bar_id="console-bar",
                 brand_id="console-back-graph",
                 brand_href=graph_href,
                 brand_extra_html=mk.get("theme_selector_html", ""),
                 center_id="console-bar-center",
-                center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="settings"></span> ${{t:nav.topbar.console}}</span><span class="console-badge" id="console-scope-badge">{scope_badge_escaped}</span>',
+                center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="{brand_icon}"></span> ${{t:{brand_key}}}</span><span class="console-badge" id="console-scope-badge">{scope_badge_escaped}</span>',
                 end_id="console-bar-end",
                 ingest_enabled=False,
                 home_href=graph_href,
                 synd_href=synd_href,
+                moderation_href="/moderation",
+                moderation_current=is_moderation_area,
                 console_href="/admin" if is_admin_area else "/settings",
                 console_icon="wrench" if is_admin_area else "settings",
-                console_current=True,
+                console_current=not is_moderation_area,
                 show_logout=True,
             )
         appbar_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), appbar_raw)

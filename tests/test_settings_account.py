@@ -308,7 +308,8 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
     assert "/admin/" not in html
     assert 'href="/moderation/oversight"' not in html
     assert 'href="/moderation/themes"' not in html
-    assert 'href="/moderation/kb"' in html
+    assert 'href="/moderation/kb"' not in html
+    assert 'href="/moderation"' in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html
     bootstrap = _bootstrap(html)

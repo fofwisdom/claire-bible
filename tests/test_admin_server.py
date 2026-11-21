@@ -14,7 +14,7 @@ from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db, db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
+from claire.store.token_store import get_token_store, reset_token_stores
 
 ADMIN_USERNAME = "instadmin"
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -108,7 +108,8 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
         assert '<button id="palettetrigger"' in body
         assert 'id="hamburger-btn"' in body and 'action="/logout"' in body
         assert 'id="authstate"' not in body
-        # The unified sidebar contains all /admin/* and /moderation/* links for the admin.
+        # The console sidebar contains /admin/* links; moderation links are separated into /moderation/* via #moderationlinkbtn.
+        sidebar = body.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
         for path in (
             "/admin/server",
             "/admin/accounts",
@@ -117,11 +118,11 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
             "/admin/limits",
             "/admin/tokens",
             "/admin/mcp",
-            "/moderation/kb",
-            "/moderation/oversight",
-            "/moderation/themes",
         ):
-            assert f'href="{path}"' in body
+            assert f'href="{path}"' in sidebar
+        for mod_path in ("/moderation/kb", "/moderation/oversight", "/moderation/themes"):
+            assert f'href="{mod_path}"' not in sidebar
+        assert 'id="moderationlinkbtn"' in body and 'href="/moderation"' in body
         assert 'href="/admin/kb"' not in body
         assert 'href="/admin/themes"' not in body
 
@@ -150,3 +151,76 @@ def test_admin_server_client_delivery_panel_is_localized(settings: Settings) -> 
         assert ko_resp.status_code == 200
         assert "에이전트 클라이언트 번들 배포" in ko_resp.text
         assert "배포 모드 저장" in ko_resp.text
+
+
+def test_admin_server_api_exposes_member_invites_enabled_default_false(settings: Settings) -> None:
+    token = _create_admin_session(settings, mode="network")
+    app = server.create_app(settings)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as tc:
+        resp = tc.get("/api/admin/server", headers={"Cookie": f"claire_session={token}"})
+        assert resp.status_code == 200
+        assert resp.json()["member_invites_enabled"] is False
+
+
+def test_admin_server_invites_policy_guards_validation_and_audit(settings: Settings) -> None:
+    token = _create_admin_session(settings, mode="network")
+    member_token = _create_member_session(settings, "bobmember2")
+    conn = dbm.connect_existing(Path(settings.db_file))
+    try:
+        stale_token = accounts_store.create_account_session(conn, account_id=1, scope="owner", now=time.time() - 3600)
+    finally:
+        conn.close()
+
+    origin = "http://127.0.0.1:8765"
+    app = server.create_app(settings)
+    with TestClient(app, base_url=origin) as tc:
+        # Anonymous and non-admin member -> 404
+        assert tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Origin": origin}).status_code == 404
+        assert tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Cookie": f"claire_session={member_token}", "Origin": origin}).status_code == 404
+
+        # Cross-origin -> 403
+        assert tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Cookie": f"claire_session={token}", "Origin": "https://evil.example"}).status_code == 403
+
+        # Stale session -> 401 reauth_required
+        reauth_resp = tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Cookie": f"claire_session={stale_token}", "Origin": origin})
+        assert reauth_resp.status_code == 401
+        assert reauth_resp.json()["error"] == "reauth_required"
+
+        # Bearer owner token with same-origin Origin -> 403 step_up_requires_session
+        tc.cookies.clear()
+        bearer_owner = get_token_store(data_dir=Path(settings.data_dir)).create_token(name="admin-bearer", scope="owner", account_id=1)["token"]
+        bearer_resp = tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Authorization": f"Bearer {bearer_owner}", "Origin": origin})
+        assert bearer_resp.status_code == 403
+        assert bearer_resp.json()["error"] == "step_up_requires_session"
+
+        # Invalid values & unknown keys -> 400
+        for bad_body in ({"member_invites_enabled": "true"}, {"member_invites_enabled": 1}, {"member_invites_enabled": None}, {}, {"member_invites_enabled": True, "extra": 1}):
+            bad_resp = tc.post("/api/admin/server/invites", json=bad_body, headers={"Cookie": f"claire_session={token}", "Origin": origin})
+            assert bad_resp.status_code == 400
+
+        # Valid enable -> 200, Cache-Control: no-store, persisted, reflected in GET, audited
+        ok_enable = tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Cookie": f"claire_session={token}", "Origin": origin})
+        assert ok_enable.status_code == 200
+        assert ok_enable.headers.get("cache-control") == "no-store"
+        assert ok_enable.json() == {"member_invites_enabled": True}
+
+        get_after = tc.get("/api/admin/server", headers={"Cookie": f"claire_session={token}"})
+        assert get_after.status_code == 200
+        assert get_after.json()["member_invites_enabled"] is True
+
+        # Disable again -> 200
+        ok_disable = tc.post("/api/admin/server/invites", json={"member_invites_enabled": False}, headers={"Cookie": f"claire_session={token}", "Origin": origin})
+        assert ok_disable.status_code == 200
+        assert ok_disable.json() == {"member_invites_enabled": False}
+
+    conn = dbm.connect_existing(Path(settings.db_file))
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(Path(settings.data_dir)))
+    try:
+        assert accounts_store.AccountStore(conn).member_invites_enabled() is False
+        audits = [a for a in auth_db.list_admin_audit(auth) if a["action"] == "server.invites.update"]
+        assert len(audits) == 2
+        assert audits[0]["detail"]["member_invites_enabled"] is False
+        assert audits[1]["detail"]["member_invites_enabled"] is True
+    finally:
+        auth.close()
+        conn.close()

@@ -35,6 +35,11 @@ def render_appbar_html(
     synd_hidden: bool = False,
     synd_extra_attrs: str = "",
     hamburger_extra_html: str = "",
+    moderation_href: str = "/moderation",
+    moderation_label_key: str = "nav.topbar.moderation",
+    moderation_icon: str = "shield",
+    moderation_current: bool = False,
+    moderation_hidden: bool = False,
     console_href: str = "/settings",
     console_label_key: str = "nav.topbar.console",
     console_icon: str = "settings",
@@ -77,12 +82,34 @@ def render_appbar_html(
     if hamburger_extra_html.strip():
         account_items.append('<hr class="app-menu-sep" id="menu-account-sep"/>')
 
+    menu_synd_hid = " hidden" if synd_hidden else ""
+    menu_synd_cur = ' aria-current="page"' if synd_current else ""
+    account_items.append(
+        f'<a id="menusyndlink" class="app-menu-item" href="{escape(synd_href, quote=True)}"'
+        ' data-i18n-title="nav.syndication" title="${t:nav.syndication}"'
+        f"{menu_synd_hid}{menu_synd_cur}>"
+        '<span class="btn-icon" data-icon="inbox"></span>'
+        '<span class="btn-label" data-i18n="nav.topbar.syndication">${t:nav.topbar.syndication}</span>'
+        "</a>"
+    )
+
+    mod_hid = " hidden" if moderation_hidden else ""
+    mod_cur = ' aria-current="page"' if moderation_current else ""
+    account_items.append(
+        f'<a id="moderationlinkbtn" class="app-menu-item" href="{escape(moderation_href, quote=True)}"'
+        f' data-i18n-title="{escape(moderation_label_key, quote=True)}" title="${{t:{moderation_label_key}}}"'
+        f"{mod_hid}{mod_cur}>"
+        f'<span class="btn-icon" data-icon="{escape(moderation_icon, quote=True)}"></span>'
+        f'<span class="btn-label" data-i18n="{escape(moderation_label_key, quote=True)}">${{t:{moderation_label_key}}}</span>'
+        "</a>"
+    )
+
     con_hid = " hidden" if console_hidden else ""
     con_cur = ' aria-current="page"' if console_current else ""
     account_items.append(
         f'<a id="consolelinkbtn" class="app-menu-item" href="{escape(console_href, quote=True)}"'
         f' data-i18n-title="{escape(console_label_key, quote=True)}" title="${{t:{console_label_key}}}"'
-        f'{con_hid}{con_cur}>'
+        f"{con_hid}{con_cur}>"
         f'<span class="btn-icon" data-icon="{escape(console_icon, quote=True)}"></span>'
         f'<span class="btn-label" data-i18n="{escape(console_label_key, quote=True)}">${{t:{console_label_key}}}</span>'
         "</a>"

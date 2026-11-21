@@ -169,20 +169,41 @@ def _assert_console_page(resp, path: str) -> str:
     return resp.text
 
 
+def _sidebar_html(body: str) -> str:
+    return body.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
+
+
 def _assert_admin_sidebar(body: str, path: str) -> None:
-    # 통합 사이드바: 사용자 그룹 1–3, 중재 그룹(/moderation/*), 관리자 그룹 4–5가 모두 있고, 중복·구경로(/settings/themes·/settings/tokens·/settings/kb/manage·/admin/kb·/admin/themes)는 없다.
+    # 설정·관리 콘솔 사이드바: 사용자 그룹 1–3, 관리자 그룹 4–5만 있고 중재 경로(/moderation/*)와 중복·구경로는 없다.
+    sidebar = _sidebar_html(body)
     for slug in SETTINGS_SECTIONS:
-        assert f'href="/settings/{slug}"' in body, (path, slug)
+        assert f'href="/settings/{slug}"' in sidebar, (path, slug)
     for slug in ADMIN_SECTIONS:
-        assert f'href="/admin/{slug}"' in body, (path, slug)
-    assert 'href="/moderation/kb"' in body, path
-    assert 'href="/moderation/oversight"' in body, path
-    assert 'href="/moderation/themes"' in body, path
+        assert f'href="/admin/{slug}"' in sidebar, (path, slug)
+    assert 'href="/moderation/kb"' not in sidebar, path
+    assert 'href="/moderation/oversight"' not in sidebar, path
+    assert 'href="/moderation/themes"' not in sidebar, path
+    assert 'id="moderationlinkbtn"' in body and 'href="/moderation"' in body, path
     assert 'href="/admin/kb"' not in body, path
     assert 'href="/admin/themes"' not in body, path
     assert 'href="/settings/kb/manage"' not in body, path
     assert 'href="/settings/themes"' not in body, path
     assert 'href="/settings/tokens"' not in body, path
+
+
+def _assert_moderation_sidebar(body: str, path: str, *, is_admin: bool) -> None:
+    sidebar = _sidebar_html(body)
+    assert 'href="/moderation/kb"' in sidebar, path
+    if is_admin:
+        assert 'href="/moderation/oversight"' in sidebar, path
+        assert 'href="/moderation/themes"' in sidebar, path
+    else:
+        assert 'href="/moderation/oversight"' not in sidebar, path
+        assert 'href="/moderation/themes"' not in sidebar, path
+    for slug in SETTINGS_SECTIONS:
+        assert f'href="/settings/{slug}"' not in sidebar, (path, slug)
+    for slug in ADMIN_SECTIONS:
+        assert f'href="/admin/{slug}"' not in sidebar, (path, slug)
 
 
 def _assert_no_username_leak(resp, label: str) -> None:
@@ -254,19 +275,20 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
         assert "Alice Console Garden" not in body, path
         assert "Bob Console Secret" not in body, path
 
+    assert 'href="/moderation"' in landing
     for slug, path in MODERATION_ADMIN_SECTIONS:
-        assert f'href="{path}"' in landing
         body = _assert_console_page(_get(env, path, env.admin), path)
-        _assert_admin_sidebar(body, path)
+        _assert_moderation_sidebar(body, path, is_admin=True)
         assert 'data-active-area="moderation"' in body, path
         assert f'data-active-section="{slug}"' in body, path
         assert '<script src="/static/js/console_admin.js" defer></script>' in body, path
         assert "Alice Console Garden" not in body, path
         assert "Bob Console Secret" not in body, path
 
-    assert 'href="/moderation/kb"' in landing
     mod_kb_body = _assert_console_page(_get(env, "/moderation/kb", env.admin), "/moderation/kb")
-    _assert_admin_sidebar(mod_kb_body, "/moderation/kb")
+    _assert_moderation_sidebar(mod_kb_body, "/moderation/kb", is_admin=True)
+    assert 'href="/moderation/oversight"' in mod_kb_body
+    assert 'href="/moderation/themes"' in mod_kb_body
     assert 'data-active-area="moderation"' in mod_kb_body
     assert 'data-active-section="kb_manage"' in mod_kb_body
     assert 'id="settings-kb-manage-host"' in mod_kb_body
@@ -340,11 +362,16 @@ def test_member_isolation_in_network_mode(console_e2e):
         assert "pref-idp-tbody" not in body, path
         assert 'href="/moderation/oversight"' not in body, path
         assert 'href="/moderation/themes"' not in body, path
-        assert 'href="/moderation/kb"' in body, path
         assert "System administration and settings (administrator)" not in body, path
         assert "Server · Accounts · Authentication (administrator)" not in body, path
-        for slug2 in MEMBER_SETTINGS_SECTIONS:
-            assert f'href="/settings/{slug2}"' in body, (path, slug2)
+        if path == "/moderation/kb":
+            _assert_moderation_sidebar(body, path, is_admin=False)
+        else:
+            sidebar = _sidebar_html(body)
+            assert 'href="/moderation/kb"' not in sidebar, path
+            assert 'id="moderationlinkbtn"' in body and 'href="/moderation"' in body, path
+            for slug2 in MEMBER_SETTINGS_SECTIONS:
+                assert f'href="/settings/{slug2}"' in sidebar, (path, slug2)
         assert "Bob Console Secret" not in body, path
         assert "Admin Console Vault" not in body, path
 

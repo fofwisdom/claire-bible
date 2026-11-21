@@ -298,7 +298,10 @@ def _assert_workspace_syndication_rule(html: str) -> None:
     bar_links = [tag for tag in links if 'id="syndlink"' in tag]
     assert len(bar_links) == 1
     assert " hidden" in bar_links[0]
-    assert all('id="syndlink"' in tag or 'class="home-flow-stage"' in tag for tag in links)
+    menu_links = [tag for tag in links if 'id="menusyndlink"' in tag]
+    assert len(menu_links) == 1
+    assert " hidden" in menu_links[0]
+    assert all('id="syndlink"' in tag or 'id="menusyndlink"' in tag or 'class="home-flow-stage"' in tag for tag in links)
     assert 'id="centertab-syndication"' not in html
     assert 'id="syndication-tab"' not in html
     assert 'class="syndication"' not in html

@@ -9,6 +9,7 @@
   "nav.topbar.graph": "← 지식 그래프",
   "nav.topbar.syndication": "신디케이션",
   "nav.topbar.console": "설정 및 관리 콘솔",
+  "nav.topbar.moderation": "지식 활동 중재",
   "console.account.title": "계정 · 프로필 · 보안",
   "console.account.locale_label": "인터페이스 언어",
   "console.account.locale_auto": "자동 (브라우저 / 시스템)",

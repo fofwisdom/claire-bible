@@ -9,6 +9,7 @@
   "nav.topbar.graph": "← Knowledge Graph",
   "nav.topbar.syndication": "Syndication",
   "nav.topbar.console": "Settings & Admin Console",
+  "nav.topbar.moderation": "Knowledge Moderation",
   "console.account.title": "Account · Profile · Security",
   "console.account.locale_label": "Interface language",
   "console.account.locale_auto": "Automatic (browser / system)",

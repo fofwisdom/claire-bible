@@ -464,6 +464,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("HEAD", "/api/me/identities"),
         ("DELETE", "/api/me/identities/oidc/{id}"),
         *((method, "/api/me/oauth/grants") for method in ("GET", "HEAD", "DELETE")),
+        *((method, "/api/invites") for method in ("GET", "HEAD", "POST", "PATCH")),
         # 통합 콘솔 settings/ 영역 (D1–D3)
         *(
             (method, path)
@@ -582,6 +583,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/admin/federation/journal/{entry_id}/replay"),
         ("POST", "/api/admin/server/mode"),
         ("POST", "/api/admin/server/client-delivery"),
+        ("POST", "/api/admin/server/invites"),
         ("POST", "/api/admin/server/legacy-hosts/sunset"),
         ("POST", "/admin/server"),
         ("POST", "/api/admin/federation"),
@@ -589,10 +591,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/api/admin/usernames/retired"),
         ("HEAD", "/api/admin/usernames/retired"),
         ("POST", "/api/admin/usernames/release"),
-        *(
-            (method, "/api/invites")
-            for method in ("GET", "HEAD", "POST", "PATCH")
-        ),
         *((method, "/api/admin/server-tier") for method in ("GET", "HEAD", "PUT")),
         ("PUT", "/api/admin/idp"),
         # 통합 콘솔 admin/ 영역 (D1–D3)

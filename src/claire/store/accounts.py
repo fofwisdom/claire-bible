@@ -34,6 +34,7 @@ __all__ = [
     "AccountStatus",
     "AccountStore",
     "CredentialBinding",
+    "MEMBER_INVITES_SETTING_KEY",
     "SERVER_MODES",
     "ServerMode",
     "UsernameRejected",
@@ -56,6 +57,9 @@ SERVER_MODES: frozenset[str] = frozenset({"single", "network"})
 FederationState = Literal["off", "on"]
 FEDERATION_STATES: frozenset[str] = frozenset({"off", "on"})
 FEDERATION_SETTING_KEY = "federation"
+MEMBER_INVITES_SETTING_KEY = "member_invites_enabled"
+_MEMBER_INVITES_TRUE_VALUES: frozenset[str] = frozenset({"1", "true", "on"})
+_MEMBER_INVITES_FALSE_VALUES: frozenset[str] = frozenset({"0", "false", "off"})
 ExtractionMode = Literal["provider", "client"]
 EXTRACTION_MODES: frozenset[str] = dbm.EXTRACTION_MODES
 
@@ -296,6 +300,15 @@ class AccountStore:
         ).fetchone()
         return None if row is None else _row_to_account(row)
 
+    def usernames_by_ids(self, account_ids: list[int] | set[int] | tuple[int, ...]) -> dict[int, str | None]:
+        """Batch-resolve ``account_id -> username`` for existing accounts without raising on missing IDs."""
+        unique_ids = sorted({int(aid) for aid in account_ids})
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = self.conn.execute(f"SELECT id, username FROM accounts WHERE id IN ({placeholders})", unique_ids).fetchall()
+        return {int(r[0]): (None if r[1] is None else str(r[1])) for r in rows}
+
     def is_username_retired(self, username: str) -> bool:
         """``username_tombstones``에 있고 ``released_at``이 NULL이면 True."""
         row = self.conn.execute(
@@ -340,6 +353,24 @@ class AccountStore:
         if state not in FEDERATION_STATES:
             raise ValueError(f"unknown federation state: {state!r}")
         self.set_setting(FEDERATION_SETTING_KEY, state, updated_by=updated_by)
+
+    def member_invites_enabled(self) -> bool:
+        """Return whether non-admin members may issue invite codes. Defaults to False when absent; unknown stored values raise RuntimeError (C1)."""
+        raw = self.get_setting(MEMBER_INVITES_SETTING_KEY)
+        if raw is None:
+            return False
+        norm = raw.strip().lower()
+        if norm in _MEMBER_INVITES_TRUE_VALUES:
+            return True
+        if norm in _MEMBER_INVITES_FALSE_VALUES:
+            return False
+        raise RuntimeError(f"server_settings.{MEMBER_INVITES_SETTING_KEY} has an unknown value: {raw!r}")
+
+    def set_member_invites_enabled(self, enabled: bool, *, updated_by: int) -> None:
+        """Record whether non-admin members may issue invite codes."""
+        if not isinstance(enabled, bool):
+            raise ValueError("member_invites_enabled must be a bool")
+        self.set_setting(MEMBER_INVITES_SETTING_KEY, "1" if enabled else "0", updated_by=updated_by)
 
     def set_server_mode(self, mode: ServerMode, *, updated_by: int) -> None:
         """모드를 기록한다. 전환 조건(§4.2 준비 검사·멤버 없음)은 호출자(``accounts_routes``)가 먼저 판정한다."""

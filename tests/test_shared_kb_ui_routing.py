@@ -104,11 +104,16 @@ def test_shared_kb_console_routes_and_admin_isolation(ui_env):
         assert 'href="/moderation/themes"' not in resp.text
         assert client.get(path).status_code == 404
 
-    # /moderation redirects owners to /moderation/kb (preserving valid ?kb=), and returns 404 to non-owners.
+    # /moderation redirects owners to /moderation/kb (preserving valid personal ?kb=), and maps shared ?kb= to /moderation/kb/{number}.
     mod_index = client.get("/moderation", headers=alice_hdr)
     assert (mod_index.status_code, mod_index.headers["location"]) == (302, "/moderation/kb")
     mod_index_kb = client.get(f"/moderation?kb={numbers.personal}", headers=alice_hdr)
     assert (mod_index_kb.status_code, mod_index_kb.headers["location"]) == (302, f"/moderation/kb?kb={numbers.personal}")
+    mod_index_shared = client.get(f"/moderation?kb={numbers.kb}", headers=alice_hdr)
+    assert (mod_index_shared.status_code, mod_index_shared.headers["location"]) == (302, f"/moderation/kb/{numbers.kb}")
+    mod_kb_shared = client.get(f"/moderation/kb?kb={numbers.kb}", headers=alice_hdr)
+    assert mod_kb_shared.status_code == 200
+    assert f'"kb_number": "{numbers.kb}"' in mod_kb_shared.text or f'"kb_number":"{numbers.kb}"' in mod_kb_shared.text.replace(" ", "")
     assert client.get("/moderation?kb=nonexistent", headers=alice_hdr).status_code == 404
     assert client.get("/moderation").status_code == 404
 
