@@ -2,13 +2,14 @@
 # Claire Bible CI — 배포/커밋 전 자동 검증. deploy.sh 가 배포 전 게이트로 호출하고,
 # 수동으로도 `bash ./scripts/ci.sh` 로 돌린다.
 #
-# 네 가지를 본다:
+# 다섯 가지를 본다:
 #  1) 운영 셸/Python 진입점의 기본 구문
 #  2) 운영·개발 Compose 모델
 #  3) uv.lock 이 pyproject 와 동기인가 — 컨테이너는 `uv sync --frozen` 으로 lock 기준
 #     설치하므로, deps 를 pyproject 에만 추가하고 lock 을 안 하면 "로컬은 통과인데
 #     컨테이너는 무한재시작" 사고가 난다(실제 겪음). 이 검사가 그걸 미리 잡는다.
-#  4) 전체 테스트.
+#  4) 타입 검사(ty) — ty-baseline.json 에 없는 새 진단이 있으면 실패한다.
+#  5) 전체 테스트.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 pytest_skip=()
@@ -19,7 +20,7 @@ ci_tmp="$(mktemp -d /var/tmp/cbci.XXXXXX)"
 trap 'rm -rf "${ci_tmp:?}"' EXIT
 export TMPDIR="$ci_tmp"
 
-echo "[ci] 1/4 진입점 구문 검사"
+echo "[ci] 1/5 진입점 구문 검사"
 bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
 # The Dockerfile gives the Python version of the container image (FROM python:X.Y.Z-slim). The syntax check and the tests below use exactly this version, not the Python of the host: a different Python can accept syntax that the image rejects, and the api container then restarts without end.
@@ -38,7 +39,7 @@ for root in ("src", "ops", "scripts"):
 sys.exit(1 if errors else 0)
 '
 
-echo "[ci] 2/4 Compose 운영·개발 설정 및 볼륨 무결성 검사"
+echo "[ci] 2/5 Compose 운영·개발 설정 및 볼륨 무결성 검사"
 CB_ENV_FILE=.env.example \
   docker compose --env-file .env.example -f docker-compose.yml config --quiet
 CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
@@ -79,20 +80,26 @@ fi
 
 # Sidecar tests run only when deno is installed. tests/test_fedify_sidecar.py has the same condition.
 if command -v deno >/dev/null 2>&1; then
-  echo "[ci] 2/4 Fedify sidecar tests (deno task test)"
+  echo "[ci] 2/5 Fedify sidecar tests (deno task test)"
   (cd sidecar/fedify && deno task test)
   # pytest runs the same Deno tests in this test. They passed above, so pytest does not run them again.
   pytest_skip=(--deselect tests/test_fedify_sidecar.py::test_sidecar_deno_tests_pass)
 else
-  echo "[ci] 2/4 Fedify sidecar tests skipped: deno is not installed"
+  echo "[ci] 2/5 Fedify sidecar tests skipped: deno is not installed"
 fi
 
-echo "[ci] 3/4 uv.lock 일관성 검사 (pyproject 와 동기인지)"
+echo "[ci] 3/5 uv.lock 일관성 검사 (pyproject 와 동기인지)"
 uv lock --check
 
-echo "[ci] 4/4 테스트"
-# The tests use the Python version and the extras of the container image (Dockerfile: FROM python:X.Y.Z-slim, uv sync --extra stealth --extra audio --extra ko). Some modules exist only with these extras (scrapling, numpy from kiwipiepy). --exact removes packages that the lock file does not have, so a package that was installed by hand cannot make a test pass. A local .venv with a different Python hides errors that only the Python of the image has.
+# The type check and the tests use the Python version and the extras of the container image (Dockerfile: FROM python:X.Y.Z-slim, uv sync --extra stealth --extra audio --extra ko). Some modules exist only with these extras (scrapling, numpy from kiwipiepy). --exact removes packages that the lock file does not have, so a package that was installed by hand cannot make a test pass. A local .venv with a different Python hides errors that only the Python of the image has.
+ci_env=(uv run --exact --python "$image_python" --extra dev --extra stealth --extra audio --extra ko)
+
+echo "[ci] 4/5 타입 검사 (ty)"
+# ty reads its configuration from pyproject.toml ([tool.ty]). ty-baseline.json records the diagnostics that existed when the check started; a diagnostic that is not in the file fails this step. The result depends on the installed packages, so write the file again only in this environment: "${ci_env[@]}" ty check --update-baseline
+"${ci_env[@]}" ty check --output-format concise
+
+echo "[ci] 5/5 테스트"
 # Fast feedback: the tests run in parallel on all CPUs (pytest-xdist), the tests that failed in the last run go first (--ff), and the run stops after 10 failures (--maxfail). A test that runs longer than 180 seconds fails with its stack (--timeout), so a test that hangs cannot stop the run without end. One cause (for example a full disk) often fails many tests, and a full run then only adds time. --basetemp keeps the directory path short (see TMPDIR above). The 10 slowest tests are shown at the end.
-PYTHONPATH=. uv run --exact --python "$image_python" --extra dev --extra stealth --extra audio --extra ko pytest -q -n auto --ff --maxfail=10 --timeout=180 --basetemp="$ci_tmp/p" --durations=10 "${pytest_skip[@]}"
+PYTHONPATH=. "${ci_env[@]}" pytest -q -n auto --ff --maxfail=10 --timeout=180 --basetemp="$ci_tmp/p" --durations=10 "${pytest_skip[@]}"
 
 echo "[ci] ✅ 통과"

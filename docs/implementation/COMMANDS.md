@@ -76,6 +76,7 @@
    ./cb-manuscript dev init    # .env·.env.dev가 없을 때 한 번(§2.1 init)
    ```
    - Python 버전은 3.15.2다. `Dockerfile`의 `FROM python:3.15.2-slim`이 기준이고, `pyproject.toml`은 `requires-python = ">=3.15"`이며, `scripts/ci.sh`와 GitHub 워크플로도 같은 버전을 쓴다. 호스트에 이 버전이 없으면 uv가 내려받는다(uv 0.13.9에서 확인. 0.12.20은 3.15.2를 모른다). `cb-manuscript`만 호스트의 `python3`(표준 라이브러리만)로 돈다.
+   - 타입 검사는 ty다(`dev` extra, `pyproject.toml`의 `[tool.ty]`). `uv run ty check`로 돌리고, `scripts/ci.sh`의 4단계가 같은 검사를 한다. `ty-baseline.json`은 검사를 도입한 시점(2026-11-22, ty 0.0.107)의 진단 2,414건을 기록한 파일이며, 이 파일에 없는 진단이 하나라도 나오면 검사가 실패한다. 진단을 고쳤거나 ty를 올려 결과가 달라졌으면 이미지와 같은 extra를 설치한 환경에서 `uv run ty check --update-baseline`으로 파일을 다시 쓴다. 기준선 기능은 ty의 미리보기 기능이라 파일 형식이 릴리스마다 바뀔 수 있다.
    - `uv sync`는 지정하지 않은 extra를 지운다. 이미지와 같은 extra(`stealth`·`audio`·`ko`)를 함께 주어야 전체 테스트(`PYTHONPATH=. uv run --extra dev pytest -q`)가 scrapling·kiwipiepy·numpy를 찾는다. `--extra dev`만 주면 그 테스트들이 `ModuleNotFoundError`로 실패한다.
 2. 개발 서버 (`.env.dev`의 `CB_API_BIND`·`CB_API_PORT`·`CB_DATA_DIR`과 같은 값을 준다)
    ```bash

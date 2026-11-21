@@ -99,7 +99,7 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 
 ## 6. 검증 전략
 
-- `scripts/ci.sh`: 셸/Python 구문, 운영·개발 Compose, lock 파일, 전체 pytest 검사
+- `scripts/ci.sh`: 셸/Python 구문, 운영·개발 Compose, lock 파일, 타입 검사(ty), 전체 pytest 검사
 - 단위 테스트: 라우팅, canonicalization, 스키마 마이그레이션, 인증과 큐 상태 전이
 - 통합 테스트: 같은 `IngestService`를 통한 적재·갱신·복구
 - 합성 replay: `sample.md`의 공개 입력을 로컬 API에 순차 전송
