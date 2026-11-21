@@ -153,7 +153,7 @@ Read on 2026-11-16 from license files, READMEs, and documentation footers only.
 
 ### 4.4 Fedify Baseline
 
-The sidecar uses Fedify 2.4.5 (`deno.json` pins `~2.4.5`), the latest release on JSR on 2026-11-16 **[code]** FEDERATION.md §9.3. Work for this design uses the latest Fedify release at the time of the work. A fact about an older Fedify version in a tutorial or a report does not apply.
+The sidecar uses Fedify 2.4.6 (`deno.json` pins `~2.4.6`), the latest release on JSR on 2026-11-22 **[code]** FEDERATION.md §9.3. Work for this design uses the latest Fedify release at the time of the work. A fact about an older Fedify version in a tutorial or a report does not apply.
 
 ---
 

@@ -1,9 +1,9 @@
 {
   "nodeModulesDir": "none",
   "imports": {
-    "@fedify/fedify": "jsr:@fedify/fedify@~2.4.5",
-    "@fedify/backfill": "jsr:@fedify/backfill@~2.4.5",
-    "@fedify/sqlite": "jsr:@fedify/sqlite@~2.4.5"
+    "@fedify/fedify": "jsr:@fedify/fedify@~2.4.6",
+    "@fedify/backfill": "jsr:@fedify/backfill@~2.4.6",
+    "@fedify/sqlite": "jsr:@fedify/sqlite@~2.4.6"
   },
   "tasks": {
     "test": "deno test --frozen --allow-read=.,../../tests/fixtures tests/",

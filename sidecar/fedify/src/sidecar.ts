@@ -26,7 +26,7 @@
 
 import { type Context, createFederation, type Federation, generateCryptoKeyPair, importJwk, type InboxContext, type KvStore, type MessageQueue, signRequest, verifyRequest } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, CryptographicKey, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.5";
+import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.6";
 import { type ActorRecord, type ClientTask, type HeartbeatLoops, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, type KnowledgeSelfCheck, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type SignedSelfCheckCode, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
 // Federation of shared knowledge (units KF1 to KF3).

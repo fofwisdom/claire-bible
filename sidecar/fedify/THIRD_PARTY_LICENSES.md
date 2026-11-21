@@ -15,13 +15,13 @@ The source of the license is the field `license` in the `deno.json` file of the 
 
 | Package | Version | License |
 | :--- | :--- | :--- |
-| `@fedify/backfill` | 2.4.5 | MIT |
-| `@fedify/fedify` | 2.4.5 | MIT |
-| `@fedify/sqlite` | 2.4.5 | MIT |
-| `@fedify/uri-template` | 2.4.5 | MIT |
-| `@fedify/vocab-runtime` | 2.4.5 | MIT |
-| `@fedify/vocab` | 2.4.5 | MIT |
-| `@fedify/webfinger` | 2.4.5 | MIT |
+| `@fedify/backfill` | 2.4.6 | MIT |
+| `@fedify/fedify` | 2.4.6 | MIT |
+| `@fedify/sqlite` | 2.4.6 | MIT |
+| `@fedify/uri-template` | 2.4.6 | MIT |
+| `@fedify/vocab-runtime` | 2.4.6 | MIT |
+| `@fedify/vocab` | 2.4.6 | MIT |
+| `@fedify/webfinger` | 2.4.6 | MIT |
 | `@logtape/logtape` | 2.4.2 | MIT |
 | `@standard-schema/spec` | 1.1.0 | MIT |
 

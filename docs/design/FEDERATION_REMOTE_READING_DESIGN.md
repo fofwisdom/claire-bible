@@ -79,7 +79,7 @@ Rules:
 8. **[code] Private networks.** Fedify refuses private and loopback addresses (FT4). Claire has the setting `allow_private_networks` for its own fetchers.
 9. **[code] Published objects.** `federation_objects` has `theme_id` and `document_id` as `NOT NULL` (`store/db.py`, v18). Each published object is one document. A reply or another short note of the account has no row type now.
 10. **[code] Prototype client.** The tab "🌐 연합 클라이언트" exists only in `/prototype/syndication` (`syndication_client.js`, mock data). The live `/syndication` (`syndication.html`, `syndication_live.js`) has the knowledge base view only.
-11. **[code] Quote vocabulary.** The sidecar lock file resolves `@fedify/vocab` 2.4.5. That version has the classes `QuoteRequest` and `QuoteAuthorization`, the `quoteAuthorization` property, and the interaction policy `canQuote`. The sidecar uses none of them at the base commit.
+11. **[code] Quote vocabulary.** The sidecar lock file resolves `@fedify/vocab` 2.4.6. That version has the classes `QuoteRequest` and `QuoteAuthorization`, the `quoteAuthorization` property, and the interaction policy `canQuote`. The sidecar uses none of them at the base commit.
 
 ---
 

@@ -6,7 +6,7 @@
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { isValidPublicIPv4Address, isValidPublicIPv6Address } from "jsr:@fedify/vocab-runtime@^2.4.5";
+import { isValidPublicIPv4Address, isValidPublicIPv6Address } from "jsr:@fedify/vocab-runtime@^2.4.6";
 
 // A connection: Deno.Conn and Deno.TlsConn have these functions.
 export interface ByteConn {

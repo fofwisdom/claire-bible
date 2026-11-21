@@ -649,7 +649,7 @@ Mounts of the `fedify` container (no other mount is permitted: `scripts/ci.sh` a
 
 ### 9.3 Image and Deno Permission Flags
 
-- Base image `denoland/deno:2.9.8`. The build caches the dependencies with the frozen lock file `deno.lock`. `deno.json` pins the Fedify minor version (`~2.4.5`).
+- Base image `denoland/deno:2.9.8`. The build caches the dependencies with the frozen lock file `deno.lock`. `deno.json` pins the Fedify minor version (`~2.4.6`, the latest release on JSR on 2026-11-22; `deno.lock` resolves all `@fedify` packages to 2.4.6).
 - The image keeps the license files of the npm dependencies in `/app/licenses/` and the file `/app/THIRD_PARTY_LICENSES.md`.
 - Command of the image:
 
@@ -1241,7 +1241,7 @@ Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, s
 
 ## 24. Thread Fetch (Unit FP4-6)
 
-Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 (`fetch_context`), 6.5 rules 4 to 6, 10, and 12.1 (RT6). Data: no schema change (`client.db` stays at its version; the task is a row of `federation_client_outbox`). Contract: 1.5. New sidecar dependency: `@fedify/backfill` 2.4.5 (MIT), in `deno.json`, `deno.lock`, and `THIRD_PARTY_LICENSES.md`.
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 (`fetch_context`), 6.5 rules 4 to 6, 10, and 12.1 (RT6). Data: no schema change (`client.db` stays at its version; the task is a row of `federation_client_outbox`). Contract: 1.5. New sidecar dependency: `@fedify/backfill` (MIT; version in Section 9.3), in `deno.json`, `deno.lock`, and `THIRD_PARTY_LICENSES.md`.
 
 ### 24.1 Routes
 

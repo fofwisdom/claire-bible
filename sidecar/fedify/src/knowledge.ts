@@ -10,7 +10,7 @@
 // - No other server can stop the work of this module (KS2): each request has a timeout, and each delivery and each read has a time limit. A task that is over its time limit ends with a result that Claire can give again later, and the loop takes the next task.
 
 import type { DocumentLoader } from "@fedify/fedify";
-import { preloadedContexts, validatePublicUrl } from "jsr:@fedify/vocab-runtime@^2.4.5";
+import { preloadedContexts, validatePublicUrl } from "jsr:@fedify/vocab-runtime@^2.4.6";
 import claireContext from "./claire_context_v1.json" with { type: "json" };
 import { PrivateAddressError } from "./pinned_fetch.ts";
 import type { InternalApi, KbRead, KnowledgeOutboxTask, RemoteRead, ServerReadResult } from "./internal_api.ts";
