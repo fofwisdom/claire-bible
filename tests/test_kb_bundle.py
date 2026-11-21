@@ -17,7 +17,7 @@ from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_store
 
 from claire.collaboration import contributions
 from claire.core import ids
-from claire.graph_bundle import GRAPH_BUNDLE_FORMAT_VERSION, list_account_graph_bundles
+from claire.ops.graph_bundle import GRAPH_BUNDLE_FORMAT_VERSION, list_account_graph_bundles
 from claire.store import db as dbm
 from claire.store import kb_collab
 

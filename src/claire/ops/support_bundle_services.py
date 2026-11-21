@@ -25,7 +25,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
 
-from .store import db as dbm
+from ..store import db as dbm
 
 __all__ = [
     "collect_auth_db",
@@ -163,7 +163,7 @@ def collect_services(settings: Any, *, now: float) -> tuple[dict[str, Any], list
     _guard(report, "worker_loops", warnings, "SERVICES_COLLECTOR_FAILED", lambda: read_loop_states(data_dir, now=now))
 
     def _sidecar() -> dict[str, Any]:
-        from .api.federation_routes import read_heartbeat
+        from ..api.federation_routes import read_heartbeat
 
         heartbeat = read_heartbeat(data_dir)
         received = heartbeat.get("received_at") if isinstance(heartbeat, dict) else None
@@ -396,7 +396,7 @@ def collect_worker_queues(
 
 def collect_client_db(settings: Any, *, now: float, since: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """The communication data of the accounts (client.db): versions, queues, follows, timelines, media cache, and feeds."""
-    from .store.client_db import client_db_path
+    from ..store.client_db import client_db_path
 
     warnings: list[dict[str, Any]] = []
     report: dict[str, Any] = {}
@@ -476,7 +476,7 @@ def _feeds(conn: sqlite3.Connection, now: float, since: float) -> Any:
 
 def collect_auth_db(settings: Any, *, now: float, since: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """The account database (auth.db): version, integrity, row counts, the Telegram bots and the backup policies of the accounts, invitations, and the login throttle. No password hash, key, ciphertext, invitation code, or bot token."""
-    from .store.auth_db import auth_db_path
+    from ..store.auth_db import auth_db_path
 
     warnings: list[dict[str, Any]] = []
     report: dict[str, Any] = {}
@@ -535,7 +535,7 @@ def _admin_audit(conn: sqlite3.Connection, since: float) -> Any:
 
 def collect_plugins(settings: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """``diagnostics/plugins.json`` (docs/implementation/INGESTION.md §2.2): states, versions, digests, process reports, and load error texts. No plugin files."""
-    from .plugin_host.service import list_plugins
+    from ..plugin_host.service import list_plugins
 
     data = list_plugins(settings)
     keep = ("id", "origin", "type", "state", "reason", "revision", "core_commit", "api", "maturity", "digest", "overlap_group", "record")

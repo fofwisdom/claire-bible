@@ -12,7 +12,7 @@
    - 파일 기반 상태: `data/jobs/*.json` 작업 기록, `providers.json`, `ingest_limits.json`, 텔레메트리
    - 이런 상태를 응답에 내보낼 때는 테마 권한으로 걸러야 한다. 예: `server.py`의 `_visible_active_jobs`(§4.3)
 2. **[코드] 새 쿼리는 반드시 `kb_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `kb_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
-   - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `extract/presentation_service.py`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
+   - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram/bot.py`, `ingest/`, `expand/`, `retrieval/`, `extract/presentation_service.py`, `src/claire/ops/graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
 3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `KnowledgeBaseManager.get_kb(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `KnowledgeBaseNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_personal=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
 4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_kb`·`update_kb`·`delete_kb`는 `RuntimeError`, HTTP `POST /kb`, `PATCH /`, `DELETE /`는 403)를 잠근다. `reset_kb`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `knowledge_bases` 테이블에서 읽어 일관된 코드 경로로 동작한다.
@@ -35,7 +35,7 @@
 | `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_theme_accessible`, `_get_theme_ctx`, `_get_personal_kb_ctx`, `_visible_active_jobs`, `_job_kb_id` |
 | `src/claire/ingest/service.py` | 테마별 적재 서비스 | `IngestService.kb_id`, `IngestServicePool` |
 | `src/claire/cli.py` | CLI의 테마 결정 | `get_effective_settings`, `cmd_theme`, `cmd_migrate` |
-| `src/claire/telegram_bot.py` | 텔레그램의 테마 선택 | `on_theme`, `parse_message_theme` |
+| `src/claire/telegram/bot.py` | 텔레그램의 테마 선택 | `on_theme`, `parse_message_theme` |
 | `src/claire/ingest/active.py` | 진행 중 작업 기록(전 테마 공용 디렉터리) | `get_active_jobs`, `get_primary_active_job` |
 
 ---

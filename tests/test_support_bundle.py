@@ -25,7 +25,7 @@ from claire.store.telemetry import (
     connect_telemetry,
     record_telemetry,
 )
-from claire.support_bundle import (
+from claire.ops.support_bundle import (
     DEFAULT_SUPPORT_BUNDLE_DAYS,
     SUPPORT_BUNDLE_TTL_SECONDS,
     SupportBundleInfo,
@@ -390,7 +390,7 @@ def test_support_bundle_remains_downloadable_when_db_registration_fails(
         raise sqlite3.OperationalError("telemetry registry unavailable")
 
     monkeypatch.setattr(
-        "claire.support_bundle.register_support_bundle", fail_registration
+        "claire.ops.support_bundle.register_support_bundle", fail_registration
     )
     info = create_support_bundle(s)
 
@@ -405,7 +405,7 @@ def test_support_bundle_does_not_return_unverified_download(
 ):
     s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     _seed_db(s.db_file)
-    monkeypatch.setattr("claire.support_bundle.get_support_bundle", lambda *_a, **_k: None)
+    monkeypatch.setattr("claire.ops.support_bundle.get_support_bundle", lambda *_a, **_k: None)
 
     with pytest.raises(RuntimeError, match="failed verification"):
         create_support_bundle(s)
@@ -837,7 +837,7 @@ def test_support_bundle_uses_embedded_build_commit_file(tmp_path: Path, monkeypa
     # ROOT에 .git_commit 파일 임베딩
     commit_hash = "c0ffee1234567890abcdef1234567890abcdef12"
     (tmp_path / ".git_commit").write_text(commit_hash + "\n", encoding="utf-8")
-    monkeypatch.setattr("claire.support_bundle.ROOT", tmp_path)
+    monkeypatch.setattr("claire.ops.support_bundle.ROOT", tmp_path)
 
     info = create_support_bundle(s)
     dctx = zstd.ZstdDecompressor()

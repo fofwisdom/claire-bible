@@ -60,7 +60,7 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
 - **[code]** The vision prompts (`src/claire/extract/vision/gemini_vision.py`) ask for a transcript in AsciiDoc.
 - **[code]** `src/claire/extract/table_budget.py` finds AsciiDoc, Markdown, and HTML tables. The Markdown pattern stays for old raw text and for Markdown source files.
 - **[code] [decision]** MX4: the text file fetcher (`textfile.py`) reads `.md` and `.markdown` files as plain text. Claire does not interpret the Markdown of a source.
-- **[code]** The Telegram bot sends messages with `parse_mode="HTML"` and escaped values (`src/claire/telegram_bot.py`).
+- **[code]** The Telegram bot sends messages with `parse_mode="HTML"` and escaped values (`src/claire/telegram/bot.py`).
 
 ## 5. Markdown Export
 

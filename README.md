@@ -155,11 +155,15 @@ claire-bible/
 │   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그(locales/) 및 미들웨어 지원
 │   ├── ingest/          # 통합 적재 파이프라인, Fetcher(웹/YouTube/X/PDF), 정규화
 │   ├── ontology/        # 온톨로지 스키마, 엔티티/관계 타입 및 레지스트리
+│   ├── ops/             # 계정·그래프 번들, 계정 백업, 건강 진단(health.py), 상태, 알림(notify.py), 루프 런타임, 서포트 번들
+│   ├── plugin_host/     # 플러그인 발견·상태·검증·잠금·런타임 서비스
+│   ├── plugin_sdk/      # 플러그인용 공개 SDK (routing, session, testing)
 │   ├── retrieval/       # FTS5(kiwipiepy 토크나이저 포함) + 벡터 하이브리드 검색 엔진 및 맥락 조사(research.py)
 │   ├── store/           # SQLite 저장소(claire.db, auth.db, client.db), 테마, 벡터, 비밀 관리
-│   ├── cli.py           # CLI 파서 및 명령 구현
-│   └── telegram_bot.py  # 계정별 텔레그램 봇 인터페이스 및 슈퍼바이저
+│   ├── telegram/        # 계정별 텔레그램 봇(bot.py), 슈퍼바이저(supervisor.py), 봇 토큰 검증(api.py)
+│   └── cli.py           # CLI 파서 및 명령 구현 (`src/claire_bible/cli.py`가 포트 연결 후 위임)
 ├── src/claire_bible/    # 조합 루트 (bootstrap, CLI·웹 진입점, 요청·DB 페이지 하이드레이션)
+├── plugins/             # 프로젝트 플러그인 (ingest_adapter/, agent_client/)
 ├── sidecar/fedify/      # Deno 기반 Fedify ActivityPub 연합 사이드카
 ├── ops/                 # 호스트 오케스트레이션 도구 구현 (cb_manuscript.py)
 ├── docs/                # 원칙(PRINCIPLES.md), 목표(GOALS.md), 구현 정본(implementation/), 설계 기록(design/)

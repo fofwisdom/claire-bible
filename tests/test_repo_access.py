@@ -8,7 +8,7 @@ import pytest
 
 from claire.cli import cmd_preflight, cmd_repo
 from claire.core.config import Settings, get_settings
-from claire.status import build_status_text
+from claire.ops.status import build_status_text
 
 
 def test_status_output_contains_repo_info():

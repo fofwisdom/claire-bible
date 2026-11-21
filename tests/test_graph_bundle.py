@@ -15,7 +15,7 @@ import pytest
 import zstandard as zstd
 
 from claire.cli import build_parser
-from claire.graph_bundle import (
+from claire.ops.graph_bundle import (
     GRAPH_BUNDLE_TTL_SECONDS,
     _GRAPH_BUNDLE_TOKEN_PREFIX,
     create_graph_bundle,

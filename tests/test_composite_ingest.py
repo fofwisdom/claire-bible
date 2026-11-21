@@ -16,7 +16,7 @@ from claire.ingest.composite import (
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.telegram_bot import build_app, parse_caption_composite
+from claire.telegram.bot import build_app, parse_caption_composite
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")

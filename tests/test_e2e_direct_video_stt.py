@@ -13,7 +13,7 @@ from claire.ingest.fetchers.video import VideoFetcher, is_video_or_audio_url, re
 from claire.ingest.router import classify, fetch
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
-from claire.telegram_bot import classify_input
+from claire.telegram.bot import classify_input
 
 
 MINIO_VIDEO_URL = (

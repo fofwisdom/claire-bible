@@ -11,13 +11,13 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 | File | Role |
 | :--- | :--- |
 | `src/claire/store/telemetry.py` | Telemetry database, provider and MCP records, the database registry of Support Bundles |
-| `src/claire/support_bundle.py` | Server-wide Support Bundle: collection, archive, sidecar registry, expiry |
-| `src/claire/support_bundle_services.py` | Collectors of the server-wide Support Bundle for the services, the runtime configuration, the federation, `client.db`, `auth.db`, the worker queues, and the shared knowledge bases (§3.6) |
-| `src/claire/loop_runtime.py` | Log file and state file of the worker loops `refresh-loop`, `recover-loop`, `expand-loop` (§3.6) |
-| `src/claire/account_support_bundle.py` | Account-scope Support Bundle (data of one account only) |
+| `src/claire/ops/support_bundle.py` | Server-wide Support Bundle: collection, archive, sidecar registry, expiry |
+| `src/claire/ops/support_bundle_services.py` | Collectors of the server-wide Support Bundle for the services, the runtime configuration, the federation, `client.db`, `auth.db`, the worker queues, and the shared knowledge bases (§3.6) |
+| `src/claire/ops/loop_runtime.py` | Log file and state file of the worker loops `refresh-loop`, `recover-loop`, `expand-loop` (§3.6) |
+| `src/claire/ops/account_support_bundle.py` | Account-scope Support Bundle (data of one account only) |
 | `src/claire/api/mcp_tools.py`, `src/claire/api/security.py`, `src/claire/api/server.py` | Write MCP telemetry |
 | `src/claire/cli.py` (`telemetry`, `support-bundle`) | CLI surface |
-| `src/claire/telegram_bot.py` | `/support bundle` command of the bot |
+| `src/claire/telegram/bot.py` | `/support bundle` command of the bot |
 
 ## 2. Telemetry database
 
@@ -85,7 +85,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 ### 3.6 Members of the subsystems after the first format 3 members
 
 - **[code] Reason.** The federation, the knowledge federation, `client.db`, `auth.db`, the shared knowledge bases, the runtime settings files, and the worker services came after the first members of format 3. The bundle had no data of them. The members below add them. They are new members of format 3; `BUNDLE_FORMAT_VERSION` stays 3 (a reader that does not know a member ignores it).
-- **[code] Read-only.** `support_bundle_services.py` opens each database with `connect_existing(readonly=True)` (`mode=ro`, `query_only`). It does not make an absent file: an absent database or table is `{"state": "absent"}`. A failure of one part is the value `{"state": "error"}` of that part and a warning `*_COLLECTOR_FAILED` or `*_UNREADABLE` in `collector_warnings.json`. Each member also goes through `sanitize_sensitive_data`.
+- **[code] Read-only.** `src/claire/ops/support_bundle_services.py` opens each database with `connect_existing(readonly=True)` (`mode=ro`, `query_only`). It does not make an absent file: an absent database or table is `{"state": "absent"}`. A failure of one part is the value `{"state": "error"}` of that part and a warning `*_COLLECTOR_FAILED` or `*_UNREADABLE` in `collector_warnings.json`. Each member also goes through `sanitize_sensitive_data`.
 - **[code] Members.**
 
 | Member | Content |
@@ -99,7 +99,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 | `pipeline/shared_kb.json` | From `claire.db`: `kb_contributions`, `kb_contribution_revisions`, `kb_mutual_collaborations`, `kb_auto_rules`, `kb_memberships` by state, and the count of `kb_submissions` |
 
 - **[code] Error texts.** `_short_text` cuts a text at 300 characters, replaces a Telegram bot token with `***REDACTED***`, and replaces each URL with `[URL]` (except the error samples of admin knowledge bases).
-- **[code] Worker loops.** The Compose services `refresh`, `recover`, and `expand` write only to the standard output, which the bundle cannot read. `loop_runtime.start_loop` copies each output line with the UTC time to `data/logs/<name>-loop.log` (rotation at 10 MB, 3 old files) and writes `data/run/loop_<name>.json` after each cycle (start time, time and result of the last cycle, last error, counts of the cycle, interval). A failure to write a record does not stop the loop.
+- **[code] Worker loops.** The Compose services `refresh`, `recover`, and `expand` write only to the standard output, which the bundle cannot read. `ops.loop_runtime.start_loop` copies each output line with the UTC time to `data/logs/<name>-loop.log` (rotation at 10 MB, 3 old files) and writes `data/run/loop_<name>.json` after each cycle (start time, time and result of the last cycle, last error, counts of the cycle, interval). A failure to write a record does not stop the loop.
 - **[code] Not in the bundle.** The standard output of the Fedify sidecar and the content of `fedify.db` (the data of the sidecar), password hashes, keys, ciphertexts, invitation codes, the keys of the login throttle, feed and post addresses, and the payloads of the queues.
 
 ## 4. Account-scope Support Bundle

@@ -18,7 +18,7 @@ import pytest
 from tests.kb_paths import kb_number
 from starlette.testclient import TestClient
 
-from claire import telegram_api
+from claire.telegram import api as telegram_api
 from claire.core import secret_scrub
 from claire.api import server
 from claire.core.config import Settings
@@ -28,7 +28,7 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.telegram_supervisor import BotSupervisor
+from claire.telegram.supervisor import BotSupervisor
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL

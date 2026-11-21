@@ -181,6 +181,152 @@ def test_plugin_importcheck_blocks_bible_and_claire_bible() -> None:
     assert all(f.kind == "core_import" for f in findings)
 
 
+def _claire_module_name(py_file: Path) -> str:
+    rel = py_file.relative_to(_SRC_ROOT).with_suffix("")
+    parts = rel.parts[:-1] if rel.parts[-1] == "__init__" else rel.parts
+    return ".".join(parts)
+
+
+def _claire_subpackage(py_file: Path) -> str:
+    mod_parts = _claire_module_name(py_file).split(".")
+    return mod_parts[1] if len(mod_parts) >= 2 else ""
+
+
+def _iter_claire_internal_edges() -> Iterator[tuple[Path, int, str, str]]:
+    claire_dir = _SRC_ROOT / "claire"
+    for py_file in sorted(claire_dir.rglob("*.py")):
+        rel_parent_parts = py_file.relative_to(_SRC_ROOT).parent.parts
+        src_mod = _claire_module_name(py_file)
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "claire" or alias.name.startswith("claire."):
+                        yield (py_file, node.lineno, src_mod, alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level == 0:
+                    base_mod = node.module or ""
+                else:
+                    target_pkg, base_mod = _resolve_relative_package(rel_parent_parts, node.level, node.module)
+                    if target_pkg == "<relative-escape>":
+                        yield (py_file, node.lineno, src_mod, base_mod)
+                        continue
+                if base_mod == "claire":
+                    for alias in node.names:
+                        yield (py_file, node.lineno, src_mod, f"claire.{alias.name}")
+                elif base_mod.startswith("claire."):
+                    yield (py_file, node.lineno, src_mod, base_mod)
+                    for alias in node.names:
+                        yield (py_file, node.lineno, src_mod, f"{base_mod}.{alias.name}")
+            elif isinstance(node, ast.Call):
+                is_import_call = (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module") or (isinstance(node.func, ast.Name) and node.func.id in {"import_module", "__import__"})
+                if not is_import_call:
+                    continue
+                mod_arg = _string_literal(node.args[0]) if node.args else _kw_literal(node, "name")
+                if not mod_arg:
+                    continue
+                if mod_arg.startswith("."):
+                    dots = len(mod_arg) - len(mod_arg.lstrip("."))
+                    stripped = mod_arg.lstrip(".") or None
+                    base_pkg_str = (_string_literal(node.args[1]) if len(node.args) > 1 else None) or _kw_literal(node, "package")
+                    base_parts = tuple(base_pkg_str.split(".")) if base_pkg_str else rel_parent_parts
+                    target_pkg, full_mod = _resolve_relative_package(base_parts, dots, stripped)
+                    if target_pkg == "<relative-escape>" or full_mod.startswith("claire."):
+                        yield (py_file, node.lineno, src_mod, full_mod)
+                elif mod_arg == "claire" or mod_arg.startswith("claire."):
+                    yield (py_file, node.lineno, src_mod, mod_arg)
+
+
+def test_claire_root_contains_only_init_and_cli() -> None:
+    """Verify src/claire root contains only __init__.py and cli.py as Python modules."""
+    claire_dir = _SRC_ROOT / "claire"
+    root_py_files = sorted(p.name for p in claire_dir.glob("*.py"))
+    assert root_py_files == ["__init__.py", "cli.py"]
+    assert (claire_dir / "plugin_sdk").is_dir()
+
+
+def test_claire_ontology_and_i18n_have_zero_sibling_package_imports() -> None:
+    """Verify claire.ontology and claire.i18n do not import other claire packages."""
+    ontology_violations: list[tuple[Path, int, str]] = []
+    i18n_violations: list[tuple[Path, int, str]] = []
+    for py_file, lineno, _src_mod, target_mod in _iter_claire_internal_edges():
+        src_subpkg = _claire_subpackage(py_file)
+        if src_subpkg not in {"ontology", "i18n"}:
+            continue
+        target_parts = target_mod.split(".")
+        target_subpkg = target_parts[1] if len(target_parts) >= 2 and target_parts[0] == "claire" else "<escape>"
+        if target_subpkg != src_subpkg:
+            entry = (py_file, lineno, target_mod)
+            if src_subpkg == "ontology":
+                ontology_violations.append(entry)
+            else:
+                i18n_violations.append(entry)
+    assert ontology_violations == [], f"Forbidden imports in claire.ontology: {ontology_violations}"
+    assert i18n_violations == [], f"Forbidden imports in claire.i18n: {i18n_violations}"
+
+
+def test_claire_core_boundary_excludes_surface_and_pipeline_packages() -> None:
+    """Verify claire.core never imports api, telegram, cli, ingest, or extract."""
+    forbidden = {"api", "telegram", "cli", "ingest", "extract"}
+    violations: list[tuple[Path, int, str]] = []
+    for py_file, lineno, _src_mod, target_mod in _iter_claire_internal_edges():
+        if _claire_subpackage(py_file) != "core":
+            continue
+        target_parts = target_mod.split(".")
+        target_subpkg = target_parts[1] if len(target_parts) >= 2 and target_parts[0] == "claire" else None
+        if target_subpkg in forbidden or target_mod.startswith("."):
+            violations.append((py_file, lineno, target_mod))
+    assert violations == [], f"Forbidden imports in claire.core: {violations}"
+
+
+def test_claire_telegram_has_zero_internal_sccs() -> None:
+    """Verify claire.telegram module dependency graph has no cycles or internal SCCs."""
+    telegram_dir = _SRC_ROOT / "claire" / "telegram"
+    nodes = {_claire_module_name(p) for p in telegram_dir.rglob("*.py")}
+    adj: dict[str, set[str]] = {mod: set() for mod in nodes}
+    for py_file, _lineno, src_mod, target_mod in _iter_claire_internal_edges():
+        if src_mod in nodes and target_mod in nodes and target_mod != src_mod:
+            adj[src_mod].add(target_mod)
+
+    # Compute strongly connected components with Tarjan algorithm.
+    index = 0
+    indices: dict[str, int] = {}
+    lowlink: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    sccs: list[list[str]] = []
+
+    def strongconnect(node_id: str) -> None:
+        nonlocal index
+        indices[node_id] = index
+        lowlink[node_id] = index
+        index += 1
+        stack.append(node_id)
+        on_stack.add(node_id)
+        for nbr in sorted(adj[node_id]):
+            if nbr not in indices:
+                strongconnect(nbr)
+                lowlink[node_id] = min(lowlink[node_id], lowlink[nbr])
+            elif nbr in on_stack:
+                lowlink[node_id] = min(lowlink[node_id], indices[nbr])
+        if lowlink[node_id] == indices[node_id]:
+            comp: list[str] = []
+            while True:
+                member = stack.pop()
+                on_stack.remove(member)
+                comp.append(member)
+                if member == node_id:
+                    break
+            sccs.append(comp)
+
+    for node_id in sorted(nodes):
+        if node_id not in indices:
+            strongconnect(node_id)
+
+    cycles = [comp for comp in sccs if len(comp) > 1]
+    assert cycles == [], f"Cycle detected in claire.telegram: {cycles}"
+
+
 @dataclass
 class _E2ESettings:
     db_file: Path

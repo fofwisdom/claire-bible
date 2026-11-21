@@ -38,7 +38,7 @@ REQUEST_PATH_GLOBS = (
     "claire/api/server.py",
     "claire/api/mcp_tools.py",
     "claire/api/oauth.py",
-    "claire/telegram_bot.py",
+    "claire/telegram/bot.py",
     "claire/ingest/service.py",
     "claire/ingest/pipeline.py",
     "claire/ingest/composite.py",
@@ -46,7 +46,7 @@ REQUEST_PATH_GLOBS = (
     "claire/expand/*.py",
     "claire/retrieval/*.py",
     "claire/extract/presentation_service.py",
-    "claire/graph_bundle.py",
+    "claire/ops/graph_bundle.py",
     # Fedify 사이드카 설계 §10.1: federation_objects 질의도 kb_id를 명시한다.
     "claire/api/accounts_routes/federation.py",
     "claire/api/federation_routes.py",

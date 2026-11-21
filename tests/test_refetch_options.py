@@ -16,7 +16,7 @@ from claire.ingest.router import fetch as router_fetch
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.telegram_bot import build_app, parse_regenerate_flags
+from claire.telegram.bot import build_app, parse_regenerate_flags
 
 
 @pytest.fixture
@@ -384,7 +384,7 @@ async def test_telegram_bot_handlers(clean_db, monkeypatch: pytest.MonkeyPatch):
     fake_update_flags.update_id = 2
 
     with patch.object(IngestService, "regenerate_components", return_value={"count": 1, "targets": [{"title": "Telegram Flow Doc", "new_len": 600, "refetched_full": True}]}) as mock_regen:
-        with patch("claire.telegram_bot._react", new=AsyncMock()):
+        with patch("claire.telegram.bot._react", new=AsyncMock()):
             await msg_handler.callback(fake_update_flags, fake_ctx)
             mock_regen.assert_called_once()
             _, regen_kwargs = mock_regen.call_args

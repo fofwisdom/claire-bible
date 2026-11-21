@@ -163,7 +163,7 @@ def test_e2e_members_give_verdicts_and_the_admin_reads_the_report(tmp_path: Path
     printed = json.loads(capsys.readouterr().out)
     assert printed["items"]["with_consensus"] == 3
 
-    from claire.graph_bundle_review import export_review_evidence
+    from claire.ops.graph_bundle_review import export_review_evidence
 
     source = dbm.connect_existing(db_file)
     source.row_factory = sqlite3.Row

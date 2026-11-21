@@ -14,7 +14,7 @@ from claire.ontology.registry import (
 )
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore, pack_vector, unpack_vector
-from claire.telegram_bot import classify_input
+from claire.telegram.bot import classify_input
 
 # --- ontology / registry ---
 

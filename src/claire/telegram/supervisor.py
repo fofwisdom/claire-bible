@@ -19,11 +19,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .core.config import Settings, get_settings
-from .core.secret_scrub import scrub_text
-from .store import auth_db
-from .store import db as dbm
-from .store import telegram_bots
+from ..core.config import Settings, get_settings
+from ..core.secret_scrub import scrub_text
+from ..store import auth_db
+from ..store import db as dbm
+from ..store import telegram_bots
 
 log = logging.getLogger("claire.telegram.supervisor")
 
@@ -53,7 +53,7 @@ class BotSupervisor:
     ) -> None:
         self.s = settings or get_settings()
         if app_factory is None:
-            from .telegram_bot import build_app
+            from .bot import build_app
 
             app_factory = build_app
         self._factory = app_factory
@@ -71,7 +71,7 @@ class BotSupervisor:
             conn.close()
 
     def desired(self) -> dict[BotKey, telegram_bots.TelegramBotProfile]:
-        from .telegram_bot import server_bot_profile
+        from .bot import server_bot_profile
 
         out: dict[BotKey, telegram_bots.TelegramBotProfile] = {}
         server = server_bot_profile(self.s)
@@ -199,7 +199,7 @@ class BotSupervisor:
 
 def run_supervisor(settings: Settings | None = None) -> int:
     s = settings or get_settings()
-    from .telegram_bot import setup_telegram_logging
+    from .bot import setup_telegram_logging
 
     setup_telegram_logging(s.data_dir)
     logging.basicConfig(level=logging.INFO)
@@ -217,3 +217,13 @@ def run_supervisor(settings: Settings | None = None) -> int:
     print("claire telegram bot runner 시작 (서버 봇 + 계정 봇, long-polling). Ctrl+C 로 종료.")
     asyncio.run(_main())
     return 0
+
+
+def run_bot() -> int:
+    """Run server and account Telegram bots under the supervisor."""
+    try:
+        import telegram  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        print(f"python-telegram-bot is not installed: {e}")
+        return 2
+    return run_supervisor(get_settings())

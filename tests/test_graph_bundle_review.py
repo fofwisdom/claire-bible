@@ -18,9 +18,9 @@ from typing import Any
 import pytest
 import zstandard as zstd
 
-import claire.graph_bundle_review as review_mod
+import claire.ops.graph_bundle_review as review_mod
 from claire.extract.provider import MockProvider
-from claire.graph_bundle import create_graph_bundle, import_graph_bundle
+from claire.ops.graph_bundle import create_graph_bundle, import_graph_bundle
 from claire.ontology.base import Entity
 from claire.store import db as dbm
 from claire.store.telemetry import connect_telemetry, get_telemetry_db_path
@@ -440,7 +440,7 @@ def test_looks_like_hash_fallback() -> None:
 
 def test_shadow_role_of_a_decision() -> None:
     """A recorded role wins; an old record with a filter-mode outcome is a filter record; else the role is unrecorded."""
-    from claire.graph_bundle_review import _shadow_role
+    from claire.ops.graph_bundle_review import _shadow_role
 
     assert _shadow_role({"role": "shadow"}, [{"outcome": "jev_filtered"}]) == "shadow"
     assert _shadow_role({}, [{"outcome": "judge_different"}, {"outcome": "jev_filtered"}]) == "filter"

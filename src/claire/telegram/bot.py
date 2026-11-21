@@ -23,10 +23,10 @@ def _plain(html_text: str) -> str:
 
     return _html.unescape(_re.sub(r"<[^>]+>", "", html_text))
 
-from .core.config import get_settings
-from .i18n import SUPPORTED_LOCALES, resolve_bot_locale, use_locale
-from .i18n import t as _t
-from .store import db as dbm
+from ..core.config import get_settings
+from ..i18n import SUPPORTED_LOCALES, resolve_bot_locale, use_locale
+from ..i18n import t as _t
+from ..store import db as dbm
 
 log = logging.getLogger("claire.telegram")
 
@@ -49,7 +49,7 @@ class AccountThemeScope:
         return getattr(theme, "account_id", dbm.ADMIN_ACCOUNT_ID) == self.account_id
 
     def get_kb(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
-        from .store.knowledge_base import KnowledgeBaseNotFound
+        from ..store.knowledge_base import KnowledgeBaseNotFound
 
         if theme_ref is None or str(theme_ref).strip() == "":
             return self._inner.personal_kb_for(self.account_id)
@@ -63,7 +63,7 @@ class AccountThemeScope:
 
     # Search and read (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4): ``/kb`` selects the personal knowledge base or a shared knowledge base. Ingest goes to the personal knowledge base only, so ``get_kb`` and ``list_kbs`` stay with the knowledge base of the account.
     def get_readable_kb(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
-        from .store.knowledge_base import KnowledgeBaseNotFound
+        from ..store.knowledge_base import KnowledgeBaseNotFound
 
         if theme_ref is None or str(theme_ref).strip() == "":
             return self._inner.personal_kb_for(self.account_id)
@@ -79,7 +79,7 @@ class AccountThemeScope:
         return self._inner.personal_kb_for(self.account_id)
 
     def _kb_id_owned(self, kb_id: Any) -> bool:
-        from .store.knowledge_base import KnowledgeBaseNotFound
+        from ..store.knowledge_base import KnowledgeBaseNotFound
 
         if kb_id is None:
             return False
@@ -127,7 +127,7 @@ def server_bot_profile(settings: Any) -> Any:
 
     허용 목록은 ``TELEGRAM_ALLOWED_USERS``이다. 비어 있으면 예전처럼 모두 허용한다(서버 봇 호환).
     """
-    from .store.telegram_bots import TelegramBotProfile, bot_id_from_token
+    from ..store.telegram_bots import TelegramBotProfile, bot_id_from_token
 
     token = str(getattr(settings, "telegram_bot_token", "") or "").strip()
     if not token:
@@ -148,12 +148,12 @@ def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
     최대 5MB 크기의 회전 로그 3개를 유지하며 claire.telegram 로거에 부착한다.
     프로바이더 오류 문자열에 섞인 키가 기록되지 않도록 로그 스크러버를 먼저 설치한다(설계 §11.3).
     """
-    from .core.secret_scrub import install_log_scrubber
+    from ..core.secret_scrub import install_log_scrubber
 
     install_log_scrubber()
     try:
         if data_dir is None:
-            from .core.config import get_settings
+            from ..core.config import get_settings
             data_dir = get_settings().data_dir
         log_dir = Path(data_dir) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -224,7 +224,7 @@ async def _run_with_ticker(status, label: str, work, interval: float = 5.0):
             current_stage = str(msg).strip()
 
     def _worker():
-        from .extract.provider import set_progress_callback
+        from ..extract.provider import set_progress_callback
 
         set_progress_callback(on_progress)
         try:
@@ -437,7 +437,7 @@ async def _settle_status(
                 from pathlib import Path
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-                from .core.config import get_settings
+                from ..core.config import get_settings
 
                 cfg = (
                     kwargs.get("settings")
@@ -449,7 +449,7 @@ async def _settle_status(
 
                 if theme_mgr is None:
                     try:
-                        from .store.knowledge_base import get_kb_manager
+                        from ..store.knowledge_base import get_kb_manager
 
                         theme_mgr = get_kb_manager(cfg)
                     except Exception:
@@ -493,7 +493,7 @@ def classify_input(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return "empty"
-    from .ingest.registry import registry
+    from ..ingest.registry import registry
     return registry.classify(t)
 
 
@@ -566,7 +566,7 @@ def parse_message_focus(text: str) -> tuple[str, str | None]:
 
     # 4. URL 뒤에 두 번 이상의 줄바꿈(빈 줄)을 사이에 두고 평문 텍스트가 오는 경우
     # (줄바꿈 1번은 단순 오타/오입력 사고일 수 있으므로 빈 줄이 있는 2번째 줄바꿈에서만 분리)
-    from .ingest.router import _URL_RE
+    from ..ingest.router import _URL_RE
     blocks = [b.strip() for b in re.split(r"\n\s*\n", t) if b.strip()]
     if len(blocks) >= 2:
         first_block = blocks[0]
@@ -663,7 +663,7 @@ def parse_caption_composite(
     clean_text, explicit_kb_id = parse_message_theme(c, theme_mgr)
     text_no_flags, _, has_refetch_full, has_effort = parse_regenerate_flags(clean_text)
 
-    from .ingest.router import _URL_RE
+    from ..ingest.router import _URL_RE
 
     m = _URL_RE.search(text_no_flags)
     if not m:
@@ -703,7 +703,7 @@ def parse_message_theme(
     t = (text or "").strip()
     if not t:
         return "", None
-    from .store.knowledge_base import get_kb_manager
+    from ..store.knowledge_base import get_kb_manager
     tm = theme_mgr or get_kb_manager()
     if hasattr(tm, "settings") and not getattr(tm.settings, "multi_theme", False):
         return t, None
@@ -733,7 +733,7 @@ def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: 
 
     ``for_read`` (search and read): the selection can be a shared knowledge base. Else (ingest and the work on ingested items) a selected shared knowledge base gives the personal knowledge base of the account: ingest goes to the personal knowledge base only (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.4).
     """
-    from .store.knowledge_base import KnowledgeBaseNotFound
+    from ..store.knowledge_base import KnowledgeBaseNotFound
 
     scoped = hasattr(theme_mgr, "get_readable_kb")
 
@@ -770,7 +770,7 @@ async def _create_support_bundle_for_delivery(
     transport=None,
 ):
     """Create through the API service that also serves the public download."""
-    from .support_bundle import SupportBundleInfo, create_support_bundle
+    from ..ops.support_bundle import SupportBundleInfo, create_support_bundle
 
     api_url = str(getattr(settings, "support_bundle_api_url", "") or "").rstrip("/")
     if not api_url:
@@ -830,7 +830,7 @@ async def _create_graph_bundle_for_delivery(
     transport=None,
 ):
     """Create graph bundle through the internal API service or local thread."""
-    from .graph_bundle import GraphBundleInfo, create_graph_bundle
+    from ..ops.graph_bundle import GraphBundleInfo, create_graph_bundle
 
     api_url = str(
         getattr(settings, "graph_bundle_api_url", "")
@@ -923,8 +923,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     import tempfile
     from pathlib import Path
 
-    from .ingest.service import IngestService, IngestServicePool
-    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
+    from ..ingest.service import IngestService, IngestServicePool
+    from ..store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
     logging.basicConfig(level=logging.INFO)
     # 텔레그램 봇은 관리자 전용이다(설계 §10.1). 서비스·풀은 관리자 컨텍스트(전역 settings = providers.json)로 만들고,
@@ -941,7 +941,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     async def _deliver_support_bundle(*, days: int, target: str | None, channel: str):
         if is_admin_bot:
             return await _create_support_bundle_for_delivery(s, days=days, target=target, channel=channel)
-        from .account_support_bundle import create_account_support_bundle
+        from ..ops.account_support_bundle import create_account_support_bundle
 
         return await asyncio.to_thread(
             create_account_support_bundle,
@@ -955,7 +955,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     async def _deliver_graph_bundle(*, kb_id: int, channel: str):
         if is_admin_bot:
             return await _create_graph_bundle_for_delivery(s, kb_id=kb_id, channel=channel)
-        from .graph_bundle import create_graph_bundle
+        from ..ops.graph_bundle import create_graph_bundle
 
         return await asyncio.to_thread(
             create_graph_bundle,
@@ -968,7 +968,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     def _owner_locale() -> str | None:
         """The ``accounts.locale`` of the bot owner account. ``None`` when the value is not set or when the database is not readable."""
         try:
-            from .store.accounts import AccountStore
+            from ..store.accounts import AccountStore
 
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
@@ -1066,11 +1066,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
     def _contribute_to_theme(theme_ref: str, document_id: str) -> str:
         """Contribute one document of the personal knowledge base of the bot account to one theme, run the merge jobs, and return the reply text with the state of each target (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.7 rule 2 and 9.2). The caller runs it in a worker thread, in the locale of the update."""
-        from .collaboration import contributions
-        from .core import ids
-        from .ingest.service import run_waiting_merge_jobs
-        from .store import kb_collab
-        from .store import themes as themes_store
+        from ..collaboration import contributions
+        from ..core import ids
+        from ..ingest.service import run_waiting_merge_jobs
+        from ..store import kb_collab
+        from ..store import themes as themes_store
 
         def _code_text(code: str) -> str:
             text = _t(f"kb.err.{code}")
@@ -1367,7 +1367,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if not raw_text:
             return
 
-        from .core.config import extract_own_share_token
+        from ..core.config import extract_own_share_token
 
         is_multi = bool(getattr(s, "multi_theme", False))
         explicit_kb_id = None
@@ -2259,7 +2259,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         subcmd = args[0].lower() if args else "list"
 
         def _token_action():
-            from .store.token_store import get_token_store
+            from ..store.token_store import get_token_store
 
             store = get_token_store(data_dir=svc.s.data_dir)
             if subcmd in ("list", "ls"):
@@ -2347,7 +2347,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         msg = update.effective_message
         if not msg:
             return
-        from .status import build_status_text
+        from ..ops.status import build_status_text
 
         try:
             text = await asyncio.to_thread(build_status_text, s, full=False)
@@ -2379,7 +2379,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
 
         sub_args = args[1:]
-        from .support_bundle import (
+        from ..ops.support_bundle import (
             DEFAULT_SUPPORT_BUNDLE_DAYS,
             list_active_support_bundles,
             purge_expired_bundles,
@@ -2503,7 +2503,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
 
         sub_args = args[1:]
-        from .graph_bundle import (
+        from ..ops.graph_bundle import (
             graph_bundle_download_url,
             list_active_graph_bundles,
             purge_expired_graph_bundles,
@@ -2514,7 +2514,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if is_admin_bot:
                 bundles = await asyncio.to_thread(list_active_graph_bundles, s.data_dir)
             else:
-                from .graph_bundle import list_account_graph_bundles
+                from ..ops.graph_bundle import list_account_graph_bundles
 
                 bundles = await asyncio.to_thread(lambda: list_account_graph_bundles(s.data_dir, bot_account_id, public_url=pub_url))
             if not bundles:
@@ -2782,17 +2782,3 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     app.post_init = _post_init
     return app
 
-
-def run_bot() -> int:
-    """``claire bot``: 서버 봇과 계정 봇을 함께 돌린다(``telegram_supervisor``).
-
-    ``TELEGRAM_BOT_TOKEN``이 없어도 멈추지 않는다. 계정이 WebUI에서 봇을 등록하면 다음 주기에 시작한다.
-    """
-    try:
-        import telegram  # noqa: F401
-    except Exception as e:  # noqa: BLE001
-        print(f"python-telegram-bot is not installed: {e}")
-        return 2
-    from .telegram_supervisor import run_supervisor
-
-    return run_supervisor(get_settings())

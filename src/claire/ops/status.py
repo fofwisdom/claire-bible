@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import time
 
-from .core.config import Settings
-from .store import db as dbm
-from .store.raw import raw_disk_usage
+from ..core.config import Settings
+from ..store import db as dbm
+from ..store.raw import raw_disk_usage
 
 
 def _mb(b: int) -> str:

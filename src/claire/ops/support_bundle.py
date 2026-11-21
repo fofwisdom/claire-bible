@@ -27,9 +27,9 @@ from typing import Any
 
 import zstandard as zstd
 
-from .core.config import ROOT, Settings, get_settings
-from .store import db as dbm
-from .store.telemetry import (
+from ..core.config import ROOT, Settings, get_settings
+from ..store import db as dbm
+from ..store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
     clean_expired_support_bundles,
     connect_telemetry,
@@ -719,7 +719,7 @@ def _collect_mcp_diagnostics(settings: Settings | Any) -> dict[str, Any]:
 
     tools_meta = []
     try:
-        from .api.mcp_tools import get_mcp_tools_metadata
+        from ..api.mcp_tools import get_mcp_tools_metadata
 
         tools_meta = get_mcp_tools_metadata()
     except Exception:
@@ -886,7 +886,7 @@ class _FallbackThemeManager:
 def _support_theme_inventory(
     settings: Settings | Any,
 ) -> tuple[Any, list[Any], list[dict[str, str]]]:
-    from .store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
+    from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
     try:
         manager = KnowledgeBaseManager(settings, writable=False)
@@ -938,7 +938,7 @@ def _get_git_commit_and_source() -> tuple[str | None, str]:
         ROOT / ".git_commit",
         ROOT / "BUILD_COMMIT",
         ROOT / "src" / "claire" / "BUILD_COMMIT",
-        Path(__file__).parent / "BUILD_COMMIT",
+        Path(__file__).resolve().parents[1] / "BUILD_COMMIT",
     )
     for candidate in candidate_files:
         try:
@@ -1020,7 +1020,7 @@ def _collect_active_ingest_snapshot(data_dir: Path | str | None) -> dict[str, An
 
 
 def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
-    from .store.knowledge_base import KnowledgeBaseManager
+    from ..store.knowledge_base import KnowledgeBaseManager
 
     tm = KnowledgeBaseManager(settings)
     themes = (
@@ -1036,7 +1036,7 @@ def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
 
 def _find_exact_inbox_matches(settings: Settings, target: str) -> list[dict[str, Any]]:
     """문서 생성 전 실패한 URL도 찾을 수 있도록 raw_inbox를 정확 일치로 역추적한다."""
-    from .ingest.normalize import canonicalize_url
+    from ..ingest.normalize import canonicalize_url
 
     raw_target = target.strip()
     is_url = raw_target.startswith(("http://", "https://"))
@@ -1082,7 +1082,7 @@ def _resolve_support_target(
     settings: Settings, target: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
     """진단용 strict resolver: 모호하거나 미적재인 대상을 임의 문서로 치환하지 않는다."""
-    from .store.knowledge_base import KnowledgeBaseManager
+    from ..store.knowledge_base import KnowledgeBaseManager
 
     tm = KnowledgeBaseManager(settings)
     candidates = tm.resolve_document_targets(target=target)

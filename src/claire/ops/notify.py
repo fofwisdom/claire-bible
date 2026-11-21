@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from .i18n import LocaleCode, resolve_bot_locale
+from ..i18n import LocaleCode, resolve_bot_locale
 
 
 def push_locale(account_locale: str | None, settings: Any = None) -> LocaleCode:

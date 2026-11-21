@@ -147,7 +147,7 @@ def test_public_health_exposes_only_minimal_liveness(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from claire import health
+    from claire.ops import health
 
     monkeypatch.setattr(
         health,

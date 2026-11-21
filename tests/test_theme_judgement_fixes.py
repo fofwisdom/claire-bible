@@ -289,7 +289,7 @@ def test_theme_with_only_personal_knowledge_bases_is_empty(env) -> None:  # noqa
 async def test_member_bot_ingests_to_the_personal_knowledge_base_of_its_account(tmp_path: Path, monkeypatch) -> None:
     from claire.ingest.pipeline import IngestReport
     from claire.store.telegram_bots import TelegramBotProfile
-    from claire.telegram_bot import AccountThemeScope, build_app, resolve_selected_theme
+    from claire.telegram.bot import AccountThemeScope, build_app, resolve_selected_theme
 
     (tmp_path / "data").mkdir()
     settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", CLAIRE_MULTI_THEME=True, telegram_bot_token="")

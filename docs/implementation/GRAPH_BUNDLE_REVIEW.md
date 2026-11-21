@@ -17,8 +17,8 @@ This document tells what the code does now. Anchors are file paths and symbol na
 | `src/claire/extract/decisions_prelabel.py` | `prelabel`, `build_request`: pre-labels from the Gemini Decisions API |
 | `src/claire/store/pair_review.py` | Entity pair review: `queue_reasons`, `enqueue_results`, `backfill_from_records`, `pending_items_for`, `set_verdict`, `consensus`, `report` |
 | `src/claire/ingest/pipeline.py` | Calls the resolver with the Jev settings, writes `resolution_log` and `heatmap_matrix` into `documents.meta`, sends the `heatmap_matrix` progress event |
-| `src/claire/graph_bundle.py` | `create_graph_bundle`, `import_graph_bundle`, `GRAPH_BUNDLE_FORMAT_VERSION`, `GRAPH_BUNDLE_TTL_SECONDS` |
-| `src/claire/graph_bundle_review.py` | `export_review_evidence`, `count_review_tables`, `REVIEW_SCHEMA_VERSION`, `REVIEW_TABLES` |
+| `src/claire/ops/graph_bundle.py` | `create_graph_bundle`, `import_graph_bundle`, `GRAPH_BUNDLE_FORMAT_VERSION`, `GRAPH_BUNDLE_TTL_SECONDS` |
+| `src/claire/ops/graph_bundle_review.py` | `export_review_evidence`, `count_review_tables`, `REVIEW_SCHEMA_VERSION`, `REVIEW_TABLES` |
 | `src/claire/api/server.py` | `rollback_resolution_route`, `resolution_decisions_route`, `create_graph_bundle_route`, `download_graph_bundle_route`, `pair_review_items_route`, `pair_review_verdict_route`, `pair_review_stats_route`, `admin_pair_review_report_route` |
 | `src/bible/static/js/app.js` | `renderHeatmapMatrix`, `renderMiniMatrixBannerHtml`, `renderDecisionStreamCenter`, `triggerRollback`, `isDecisionStreamEnabledForActiveTheme` |
 | `src/bible/static/js/reader.js` | `renderReader`: heatmap banner on top of a document |
@@ -69,7 +69,7 @@ When the candidate loop starts, `_finish` writes:
 ## 3. Heatmap matrix [code]
 
 - After resolution, the pipeline calls `evaluate_decision_matrix`. It always returns `build_fallback_matrix`: rows are the extracted entity names; columns are at most 30 candidates (decision candidates first, then relational and multi-hop candidates, then other entities). Cell values come from the recorded decision scores, then name equality, containment, token overlap, and `difflib` ratio. `generated_by` is always `fallback_vector`.
-- Jev never makes the heatmap. Old documents can have `generated_by: "jev"`; those came from a removed local stub, not from Jev (`HEATMAP_GENERATOR_NOTES` in `src/claire/graph_bundle_review.py`).
+- Jev never makes the heatmap. Old documents can have `generated_by: "jev"`; those came from a removed local stub, not from Jev (`HEATMAP_GENERATOR_NOTES` in `src/claire/ops/graph_bundle_review.py`).
 - Storage: the pipeline writes the matrix to `documents.meta["heatmap_matrix"]` and sends a progress event with `stage: "heatmap_matrix"`.
 - Active ingest: the active ingest record (`src/claire/ingest/active.py`) also holds the matrix while the ingest runs.
 - Browser: `app.js` keeps the matrix in `sessionStorage` key `doc_matrix_<id>` and shows it during ingest (`renderHeatmapMatrix`). `reader.js` shows a banner above the document until the user confirms it. The banner also reads the matrix from the document data when the session key is absent.

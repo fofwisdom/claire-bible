@@ -654,7 +654,7 @@ def create_app(
         return await asyncio.shield(task)
 
     async def health(_request: Request) -> JSONResponse:
-        from ..health import liveness_report
+        from ..ops.health import liveness_report
 
         report = await asyncio.to_thread(liveness_report, s)
         ok = bool(report.get("ok"))
@@ -3595,7 +3595,7 @@ def create_app(
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
         # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
-        from ..telegram_bot import parse_message_focus
+        from ..telegram.bot import parse_message_focus
 
         payload, _sealed_focus = parse_message_focus(payload)
 
@@ -5468,7 +5468,7 @@ def create_app(
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
         # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
-        from ..telegram_bot import parse_message_focus
+        from ..telegram.bot import parse_message_focus
 
         payload, _sealed_focus = parse_message_focus(payload)
 
@@ -6880,7 +6880,7 @@ def create_app(
         return resp
 
     async def create_support_bundle_route(request: Request) -> JSONResponse:
-        from ..support_bundle import (
+        from ..ops.support_bundle import (
             DEFAULT_SUPPORT_BUNDLE_DAYS,
             create_support_bundle,
             validate_bundle_days,
@@ -6927,7 +6927,7 @@ def create_app(
         return JSONResponse(bundle_dict)
 
     async def download_support_bundle_route(request: Request) -> Response:
-        from ..support_bundle import get_support_bundle, lookup_support_bundle_by_token
+        from ..ops.support_bundle import get_support_bundle, lookup_support_bundle_by_token
 
         token = request.query_params.get("token", "").strip()
         if not token or len(token) < 16:
@@ -6959,7 +6959,7 @@ def create_app(
         )
 
     async def create_graph_bundle_route(request: Request) -> JSONResponse:
-        from ..graph_bundle import create_graph_bundle
+        from ..ops.graph_bundle import create_graph_bundle
 
         scope = request_auth_scope(request)
         if scope != "owner":
@@ -6998,7 +6998,7 @@ def create_app(
         return JSONResponse(bundle_dict)
 
     async def download_graph_bundle_route(request: Request) -> Response:
-        from ..graph_bundle import get_graph_bundle, lookup_graph_bundle_by_token
+        from ..ops.graph_bundle import get_graph_bundle, lookup_graph_bundle_by_token
 
         token = request.query_params.get("token", "").strip()
         if not token or len(token) < 16:
@@ -7031,8 +7031,8 @@ def create_app(
 
     @asynccontextmanager
     async def app_lifespan(_app: Starlette):
-        from ..support_bundle import purge_expired_bundles
-        from ..graph_bundle import purge_expired_graph_bundles
+        from ..ops.support_bundle import purge_expired_bundles
+        from ..ops.graph_bundle import purge_expired_graph_bundles
 
         await asyncio.to_thread(purge_expired_bundles, s.data_dir)
         await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
@@ -7056,7 +7056,7 @@ def create_app(
 
     async def _account_backup_scheduler() -> None:
         """계정 자동 백업(``account_backup.run_due_backups``)을 주기적으로 실행한다. 첫 실행은 기동 1분 뒤다."""
-        from ..account_backup import run_due_backups
+        from ..ops.account_backup import run_due_backups
 
         await asyncio.sleep(ACCOUNT_BACKUP_SCHEDULER_START_DELAY)
         while True:

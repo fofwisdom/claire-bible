@@ -1395,7 +1395,7 @@ def cmd_stats(args) -> int:
 
 def cmd_status(_args) -> int:
     """현황 한눈에: 운영(설정/벡터/모델) · DB(그래프 규모/소스/타입) · 진행(inbox/연결)."""
-    from .status import build_status_text
+    from .ops.status import build_status_text
 
     print(build_status_text(get_settings(), full=True))
     return 0
@@ -1404,7 +1404,7 @@ def cmd_status(_args) -> int:
 def cmd_queue(args) -> int:
     """비동기 큐 (inbox / refresh / expand) 상태 및 대기/실패 항목 조회."""
     import json
-    from .status import build_queue_dashboard
+    from .ops.status import build_queue_dashboard
 
     s = get_settings()
     action = getattr(args, "action", "status")
@@ -1453,7 +1453,7 @@ def _set_plugin_process(name: str) -> None:
 
 def cmd_bot(_args) -> int:
     _set_plugin_process("bot")
-    from .telegram_bot import run_bot
+    from .telegram.supervisor import run_bot
 
     return run_bot()
 
@@ -1522,7 +1522,7 @@ def cmd_recover_run(args) -> int:
 
 def _alert_permanent_failures(failed_items: list[dict]) -> None:
     """영구실패 inbox 를 소유자에게 텔레그램으로 알림(미설정/실패해도 루프는 계속)."""
-    from .notify import notify_owner
+    from .ops.notify import notify_owner
 
     s = get_settings()
     lines = [f"⛔ claire automatic recovery: {len(failed_items)} permanent failures (retry limit reached)"]
@@ -1779,7 +1779,7 @@ def cmd_recover_loop(args) -> int:
 
     from .ingest.service import IngestService
 
-    from .loop_runtime import start_loop
+    from .ops.loop_runtime import start_loop
 
     s = get_settings()
     state = _ThemeLoopState()
@@ -1880,7 +1880,7 @@ def cmd_refresh_loop(args) -> int:
 
     from .ingest.service import IngestService
 
-    from .loop_runtime import start_loop
+    from .ops.loop_runtime import start_loop
 
     s = get_settings()
     state = _ThemeLoopState()
@@ -1920,7 +1920,7 @@ def cmd_refresh_loop(args) -> int:
 
 def _notify_expansion(results: list[dict]) -> None:
     """자동 확장으로 새 지식이 쌓였으면 소유자에게 텔레그램 알림(실패해도 루프 계속)."""
-    from .notify import notify_owner
+    from .ops.notify import notify_owner
 
     stored = [r for r in results if r.get("stored")]
     if not stored:
@@ -2159,7 +2159,7 @@ def cmd_expand_loop(args) -> int:
 
     from .ingest.service import IngestService
 
-    from .loop_runtime import start_loop
+    from .ops.loop_runtime import start_loop
 
     s = get_settings()
     state = _ThemeLoopState()
@@ -4633,7 +4633,7 @@ def cmd_support_bundle(args) -> int:
     import datetime
     import json
     import sys
-    from .support_bundle import (
+    from .ops.support_bundle import (
         DEFAULT_SUPPORT_BUNDLE_DAYS,
         create_support_bundle,
         list_active_support_bundles,
@@ -4718,7 +4718,7 @@ def cmd_health(args) -> int:
     import json
 
     from .extract.provider import get_provider
-    from .health import health_report
+    from .ops.health import health_report
 
     s = get_settings()
     rep = health_report(s, get_provider(s).name)
@@ -4730,7 +4730,7 @@ def cmd_liveness(_args) -> int:
     """DB 접근과 현재 스키마만 확인하는 경량 상태를 출력한다."""
     import json
 
-    from .health import liveness_report
+    from .ops.health import liveness_report
 
     s = get_settings()
     rep = liveness_report(s)
@@ -4754,7 +4754,7 @@ def _migrate_plugin_store(s) -> int:
 
 def cmd_migrate(_args) -> int:
     """DB 스키마를 명시적으로 초기화/업그레이드하고 버전을 검증한다."""
-    from .health import require_current_schema
+    from .ops.health import require_current_schema
 
     s = get_settings()
     # auth.db(설계 §13.3)는 테마와 무관하게 서버에 하나다. 새 서비스가 요청을 받기 전에 만든다(E3).
@@ -5320,7 +5320,7 @@ def cmd_providers(args) -> int:
 
 def cmd_export_graph(args: Any) -> int:
     """Export knowledge graph topology to a compressed bundle."""
-    from .graph_bundle import create_graph_bundle
+    from .ops.graph_bundle import create_graph_bundle
 
     s = get_settings()
     theme_ref = getattr(args, "theme", 0)
@@ -5368,7 +5368,7 @@ def cmd_export_graph(args: Any) -> int:
 
 def cmd_import_graph(args: Any) -> int:
     """Import knowledge graph topology from a bundle archive."""
-    from .graph_bundle import import_graph_bundle
+    from .ops.graph_bundle import import_graph_bundle
 
     s = get_settings()
     bundle_path = getattr(args, "bundle_path", "")

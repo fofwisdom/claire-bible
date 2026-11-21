@@ -426,7 +426,7 @@ def test_reembed_required_only_for_owner(env):
 
 
 def test_telegram_theme_selection_limited_to_admin_themes(env):
-    from claire.telegram_bot import AdminThemeScope, parse_message_theme
+    from claire.telegram.bot import AdminThemeScope, parse_message_theme
 
     scoped = AdminThemeScope(env.tm)
     assert parse_message_theme("hello #Alice", scoped) == ("hello #Alice", None)

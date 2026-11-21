@@ -36,9 +36,9 @@ from typing import Any, Iterator
 
 import zstandard as zstd
 
-from .core import ids
-from .core.config import Settings, get_settings
-from .store import db as dbm
+from ..core import ids
+from ..core.config import Settings, get_settings
+from ..store import db as dbm
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +345,7 @@ def _snapshot_theme(src: sqlite3.Connection, kb_id: int, dest_path: Path) -> dic
 
 
 def _account_identity(conn: sqlite3.Connection, account_id: int) -> dict[str, Any]:
-    from .store import accounts as accounts_store
+    from ..store import accounts as accounts_store
 
     account = accounts_store.AccountStore(conn).get(account_id)
     return {
@@ -464,7 +464,7 @@ def create_account_backup(
 
 
 def _auth_conn(settings: Settings) -> sqlite3.Connection:
-    from .store import auth_db
+    from ..store import auth_db
 
     return auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
 
@@ -699,7 +699,7 @@ def restore_account_backup(
                 conn.close()
 
     try:
-        from .store.knowledge_base import get_kb_manager
+        from ..store.knowledge_base import get_kb_manager
 
         get_kb_manager(s).reload()
     except Exception:  # noqa: BLE001
@@ -796,7 +796,7 @@ def _restore_theme(conn: sqlite3.Connection, bk: str, *, kb_id: int, account_id:
 
 
 def _audit_restore(settings: Settings, *, actor_account_id: int, account_id: int, backup_id: str, themes: list[dict[str, Any]]) -> None:
-    from .store import auth_db
+    from ..store import auth_db
 
     conn = _auth_conn(settings)
     try:
@@ -813,7 +813,7 @@ def _audit_restore(settings: Settings, *, actor_account_id: int, account_id: int
 
 def list_backups_for_admin(settings: Settings) -> list[dict[str, Any]]:
     """운영자 복원 화면용. 계정별 백업 목록. 백업 내용은 읽지 않는다."""
-    from .store import accounts as accounts_store
+    from ..store import accounts as accounts_store
 
     root = backups_root(settings.data_dir)
     conn = dbm.connect_existing(settings.db_file, readonly=True)

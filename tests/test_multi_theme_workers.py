@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from claire import cli
-from claire import notify
+from claire.ops import notify
 from claire.store import knowledge_base as theme_module
 
 

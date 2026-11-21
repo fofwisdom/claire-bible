@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from claire import notify
+from claire.ops import notify
 from claire.core.config import Settings
 
 

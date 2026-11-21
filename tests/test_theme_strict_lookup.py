@@ -274,7 +274,7 @@ def test_ingest_service_for_deleted_theme_refuses_before_writing(tmp_path, monke
 
 
 def test_telegram_resolve_selected_theme_clears_stale_selection(tmp_path):
-    from claire.telegram_bot import resolve_selected_theme
+    from claire.telegram.bot import resolve_selected_theme
 
     tm = KnowledgeBaseManager(_settings(tmp_path))
     t1 = tm.define_kb("Alpha Research", knowledge_type="real")

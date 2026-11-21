@@ -16,13 +16,13 @@ import pytest
 import telegram
 from starlette.testclient import TestClient
 
-from claire import notify, telegram_bot
+from claire.ops import notify
+from claire.telegram import bot as telegram_bot
 from claire.core.config import Settings
 from claire.i18n import get_locale, t
 from claire.store import db as dbm
 from claire.store.accounts import AccountStore
 
-SRC = Path(telegram_bot.__file__).resolve().parent
 _HANGUL = re.compile(r"[ᄀ-ᇿ㄰-㆏가-힣]")
 
 
@@ -44,10 +44,10 @@ def _hangul_outside_comments(path: Path) -> list[tuple[int, str]]:
     return found
 
 
-@pytest.mark.parametrize("name", ["telegram_bot.py", "notify.py"])
-def test_bot_sources_have_no_hangul_outside_comments(name: str) -> None:
+@pytest.mark.parametrize("module", [telegram_bot, notify], ids=["telegram/bot.py", "ops/notify.py"])
+def test_bot_sources_have_no_hangul_outside_comments(module) -> None:
     # Interface text is in the catalogs. New Korean text in the code fails here.
-    assert _hangul_outside_comments(SRC / name) == []
+    assert _hangul_outside_comments(Path(module.__file__).resolve()) == []
 
 
 def test_hangul_check_finds_text_in_code(tmp_path: Path) -> None:

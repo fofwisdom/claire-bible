@@ -59,7 +59,7 @@ def snapshot(settings: Any = None, *, fresh: bool = True) -> Snapshot:
 
 def running_core_commit() -> str | None:
     """The commit of the running core, as the support bundle finds it (§10.1)."""
-    from ..support_bundle import _get_git_commit_and_source
+    from ..ops.support_bundle import _get_git_commit_and_source
 
     commit, _source = _get_git_commit_and_source()
     return commit

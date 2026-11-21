@@ -21,7 +21,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.core.config import Settings
-from claire.graph_bundle import (
+from claire.ops.graph_bundle import (
     GRAPH_BUNDLE_TTL_SECONDS,
     get_graph_bundles_dir,
     lookup_graph_bundle_by_token,

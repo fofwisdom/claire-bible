@@ -302,4 +302,4 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 참고문헌
 
-[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/ops/health.py`](../../src/claire/ops/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

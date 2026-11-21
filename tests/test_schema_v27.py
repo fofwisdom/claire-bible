@@ -123,7 +123,7 @@ def test_client_db_v7_renames_linked_theme_id(tmp_path: Path) -> None:
 
 
 def test_account_backup_format_1_snapshot_is_upgraded(tmp_path: Path) -> None:
-    from claire import account_backup
+    from claire.ops import account_backup
 
     snap = tmp_path / "5.db"
     conn = sqlite3.connect(snap)

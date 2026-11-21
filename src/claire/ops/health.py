@@ -8,9 +8,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .core.config import Settings
-from .store import db as dbm
-from .store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
+from ..core.config import Settings
+from ..store import db as dbm
+from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
 RECOVER_MAX_ATTEMPTS = 5  # recover-loop 기본값과 동일(due 계산용)
 

@@ -27,12 +27,12 @@ from typing import Any
 
 import zstandard as zstd
 
-from .core.config import ROOT, Settings, get_settings
+from ..core.config import ROOT, Settings, get_settings
 from .graph_bundle_review import count_review_tables, export_review_evidence
-from .core import ids
-from .store import accounts as accounts_store
-from .store import db as dbm
-from .store import kb_collab
+from ..core import ids
+from ..store import accounts as accounts_store
+from ..store import db as dbm
+from ..store import kb_collab
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +583,7 @@ def create_graph_bundle(
     db_file: Path | None = None
     if getattr(s, "multi_theme", False) or resolved_kb_id != 0:
         try:
-            from .store.knowledge_base import get_kb_manager
+            from ..store.knowledge_base import get_kb_manager
             tm = get_kb_manager(s)
             theme_info = tm.get_kb(resolved_kb_id)
             db_file = Path(theme_info.db_path)

@@ -112,7 +112,7 @@ def purge_account_features(auth_conn: sqlite3.Connection, account_id: int, *, da
         auth_conn.execute("DELETE FROM account_backup_policies WHERE account_id=?", (account_id,))
     if data_dir is None:
         return stats
-    from ...account_backup import delete_all_account_backups
+    from ...ops.account_backup import delete_all_account_backups
     from ...store.telemetry import delete_support_bundle, list_active_support_bundles
 
     stats["backups"] = delete_all_account_backups(data_dir, account_id)
@@ -272,7 +272,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "invalid_allowed_user_ids", max=telegram_bots.MAX_ALLOWED_USERS)
         if bot_id == _server_bot_id(ctx):
             return json_error(409, "bot_in_use")
-        from ...telegram_api import TelegramVerifyRejected, TelegramVerifyUnavailable, verify_bot_token
+        from ...telegram.api import TelegramVerifyRejected, TelegramVerifyUnavailable, verify_bot_token
 
         try:
             identity = await asyncio.to_thread(verify_bot_token, token)
@@ -331,7 +331,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES, list_account_support_bundles
+        from ...ops.account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES, list_account_support_bundles
 
         items = await asyncio.to_thread(list_account_support_bundles, _settings(ctx), account_id=principal.account_id)
         return JSONResponse({"bundles": items, "max_active": MAX_ACTIVE_ACCOUNT_BUNDLES}, headers=NO_STORE)
@@ -349,7 +349,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         target = body.get("target")
         if target is not None and (not isinstance(target, str) or len(target) > 2048):
             return json_error(400, "invalid_target")
-        from ...account_support_bundle import AccountSupportBundleError, create_account_support_bundle
+        from ...ops.account_support_bundle import AccountSupportBundleError, create_account_support_bundle
 
         def _create() -> dict[str, Any]:
             info = create_account_support_bundle(
@@ -380,7 +380,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         bundle_id = request.query_params.get("bundle_id", "")
-        from ...account_support_bundle import delete_account_support_bundle
+        from ...ops.account_support_bundle import delete_account_support_bundle
 
         ok = await asyncio.to_thread(delete_account_support_bundle, _settings(ctx), account_id=principal.account_id, bundle_id=bundle_id)
         if not ok:
@@ -391,7 +391,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...account_support_bundle import find_account_support_bundle
+        from ...ops.account_support_bundle import find_account_support_bundle
 
         record = await asyncio.to_thread(
             find_account_support_bundle, _settings(ctx), account_id=principal.account_id, bundle_id=request.query_params.get("bundle_id", "")
@@ -405,7 +405,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...graph_bundle import list_account_graph_bundles
+        from ...ops.graph_bundle import list_account_graph_bundles
 
         s = _settings(ctx)
         items = await asyncio.to_thread(lambda: list_account_graph_bundles(s.data_dir, principal.account_id, public_url=str(s.public_url or "")))
@@ -437,7 +437,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         theme = await asyncio.to_thread(_owned_theme, ctx, principal.account_id, body.get("kb"))
         if theme is None:
             return json_error(404, "theme_not_found")
-        from ...graph_bundle import create_graph_bundle
+        from ...ops.graph_bundle import create_graph_bundle
 
         def _create() -> dict[str, Any]:
             info = create_graph_bundle(
@@ -465,7 +465,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...graph_bundle import delete_account_graph_bundle
+        from ...ops.graph_bundle import delete_account_graph_bundle
 
         ok = await asyncio.to_thread(
             delete_account_graph_bundle, _settings(ctx).data_dir, principal.account_id, request.query_params.get("bundle_id", "")
@@ -478,7 +478,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...graph_bundle import find_account_graph_bundle
+        from ...ops.graph_bundle import find_account_graph_bundle
 
         record = await asyncio.to_thread(
             find_account_graph_bundle, _settings(ctx).data_dir, principal.account_id, request.query_params.get("bundle_id", "")
@@ -492,7 +492,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...account_backup import list_account_backups, load_policy
+        from ...ops.account_backup import list_account_backups, load_policy
 
         s = _settings(ctx)
         items = await asyncio.to_thread(list_account_backups, s, account_id=principal.account_id)
@@ -506,7 +506,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         body = await read_json_body(request)
         if body:
             return json_error(400, "invalid_request", fields=[])
-        from ...account_backup import AccountBackupError, create_account_backup
+        from ...ops.account_backup import AccountBackupError, create_account_backup
 
         try:
             record = await asyncio.to_thread(create_account_backup, _settings(ctx), account_id=principal.account_id, reason="manual")
@@ -521,7 +521,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         step_up = require_recent_auth(principal)
         if step_up is not None:
             return step_up
-        from ...account_backup import delete_account_backup
+        from ...ops.account_backup import delete_account_backup
 
         ok = await asyncio.to_thread(
             delete_account_backup, _settings(ctx), account_id=principal.account_id, backup_id=request.query_params.get("backup_id", "")
@@ -534,7 +534,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...account_backup import find_account_backup
+        from ...ops.account_backup import find_account_backup
 
         record = await asyncio.to_thread(
             find_account_backup, _settings(ctx), account_id=principal.account_id, backup_id=request.query_params.get("backup_id", "")
@@ -550,7 +550,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         body = await read_json_body(request)
         if set(body) != {"schedule", "keep"}:
             return json_error(400, "invalid_request", fields=["schedule", "keep"])
-        from ...account_backup import save_policy
+        from ...ops.account_backup import save_policy
 
         try:
             policy = await asyncio.to_thread(
@@ -565,7 +565,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not _is_admin(principal):
             return not_found()
-        from ...account_backup import list_backups_for_admin
+        from ...ops.account_backup import list_backups_for_admin
 
         items = await asyncio.to_thread(list_backups_for_admin, _settings(ctx))
         for item in items:
@@ -599,7 +599,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         account_id = await asyncio.to_thread(_resolve)
         if account_id is None:
             return json_error(404, "account_not_found")
-        from ...account_backup import AccountBackupConflict, AccountBackupError, restore_account_backup
+        from ...ops.account_backup import AccountBackupConflict, AccountBackupError, restore_account_backup
 
         try:
             result = await asyncio.to_thread(
@@ -720,7 +720,7 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
 
 
 def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Account, owned_themes: list[Any]) -> str:
-    from ...account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES
+    from ...ops.account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES
 
     options = "".join(
         f'<option value="{escape(_theme_ref(t))}">{escape(t.icon)} {escape(t.label)}</option>' for t in owned_themes
@@ -758,7 +758,7 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
 
 
 def settings_backups_body(ctx: AccountsContext, *, account: accounts_store.Account) -> str:
-    from ...account_backup import MAX_KEEP, MIN_KEEP, load_policy
+    from ...ops.account_backup import MAX_KEEP, MIN_KEEP, load_policy
 
     policy = load_policy(_settings(ctx), account_id=account.id)
     schedule_options = "".join(

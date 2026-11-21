@@ -171,7 +171,7 @@
   - **인증 화면**: `login.html`, `setup.html`은 `<html lang="$html_lang">`과 `auth.*` 카탈로그 키를 쓴다. 로그인 실패·제한 문구와 `/setup` 거부 문구(`setup.USERNAME_REASON_KEYS` 등), `POST /api/me/password`의 400 `password_rejected` `message`(`setup.password_reason_text`)도 적용된 언어로 낸다. 사유 코드(`reason`)는 바뀌지 않는다.
   - **콘솔**: `console_shell.html`이 `<html lang="$html_lang">`, 인라인 카탈로그, `i18n.js`(defer 아님, 콘솔 스크립트보다 먼저)를 싣는다. `console-bootstrap` JSON에 `locale`(저장값)과 `effective_locale`이 있다. `/settings/account`의 카드 `#settings-locale`이 선택기 `#pref-account-locale`(자동 `""`, `en`, `ko`)을 그리고, `console_account.js`의 `bindLocaleSelect`가 바꾸면 `PATCH /api/me`에 `{locale}`을 보낸 뒤 화면을 다시 읽는다.
   - **브라우저 런타임**(`src/bible/static/js/i18n.js`): `window.ClaireI18n`의 `t(key, params)`, `tn(baseKey, count, params)`, `applyDom(root)`(`data-i18n`, `data-i18n-title`, `data-i18n-placeholder`, `data-i18n-aria-label`), `setLocale(locale)`(`POST /api/locale`), `reload()`, `getLocale()`. 치환 규칙은 파이썬과 같다(`{name}`, 없는 키는 키 그대로).
-  - **Telegram bot and push notifications** (unit IP3-1, design §7, 2026-11-15): `telegram_bot.build_app` registers each handler through a locale wrapper. For each update, `resolve_update_locale` selects the locale in this order: the `accounts.locale` of the bot owner account (the administrator account for the server bot, the member account for an account bot), the `language_code` of the Telegram user when it is a supported locale, `CLAIRE_LANG`, then `en`. The handler runs in `use_locale(...)`, thus replies, button labels, callback notices and progress labels come from the catalog keys `bot.*`. The command menu (`set_my_commands`) is set for the default scope and for each supported Telegram language. `notify.push_locale` gives the locale of a push: the `accounts.locale` of the target account, `CLAIRE_LANG`, then `en`. The OAuth client approval push (`POST /oauth/authorize/telegram-push`, target: the administrator account) and the approval button of `notify.py` use the keys `notify.*`. Text that other modules make is not localized in this unit: the ingest report summary (`telegram_summary`), the search result (`telegram_text`), `/status` (`build_status_text`), the pipeline progress steps, and the OAuth consent page.
+  - **Telegram bot and push notifications** (unit IP3-1, design §7, 2026-11-15): `telegram.bot.build_app` registers each handler through a locale wrapper. For each update, `resolve_update_locale` selects the locale in this order: the `accounts.locale` of the bot owner account (the administrator account for the server bot, the member account for an account bot), the `language_code` of the Telegram user when it is a supported locale, `CLAIRE_LANG`, then `en`. The handler runs in `use_locale(...)`, thus replies, button labels, callback notices and progress labels come from the catalog keys `bot.*`. The command menu (`set_my_commands`) is set for the default scope and for each supported Telegram language. `ops.notify.push_locale` gives the locale of a push: the `accounts.locale` of the target account, `CLAIRE_LANG`, then `en`. The OAuth client approval push (`POST /oauth/authorize/telegram-push`, target: the administrator account) and the approval button of `src/claire/ops/notify.py` use the keys `notify.*`. Text that other modules make is not localized in this unit: the ingest report summary (`telegram_summary`), the search result (`telegram_text`), `/status` (`build_status_text`), the pipeline progress steps, and the OAuth consent page.
   - **[테스트]** `tests/test_i18n_api.py`, `tests/test_i18n_resolver.py`, `tests/test_i18n_catalog.py`, `tests/test_i18n_browser.py`(실제 Chromium), `tests/test_i18n_bot.py`.
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
@@ -274,7 +274,7 @@
     - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다(관리자 계정은 서버 프로바이더로 돌아간다). 응답: `{"ok": true, "deleted": n}`.
 - **[decision] Keys in the Telegram bot (owner, 2026-11-19).** A personal key must work in the Telegram bot process. Thus a key has no browser seal.
 - **[code] Encryption of a key** (`provider_keys.put_key`, `src/claire/store/secrets.py`):
-  - Each key (member and server administrator) is encrypted with the server master key only (AES-256-GCM, `key_version` 1, AAD `account_id|provider|key_id`). Each process with the master key can decrypt it: the API, the Telegram bot process (`telegram_bot.py` runs `IngestService` in its own process), and a restarted server. `PUT` sets no seal cookie.
+  - Each key (member and server administrator) is encrypted with the server master key only (AES-256-GCM, `key_version` 1, AAD `account_id|provider|key_id`). Each process with the master key can decrypt it: the API, the Telegram bot process (`src/claire/telegram/bot.py` runs `IngestService` in its own process), and a restarted server. `PUT` sets no seal cookie.
   - A key stored with the old split-key seal (`key_version` 201) is encrypted again with the master key only at its first decryption with the seal (`_decrypt_and_unseal`: a job after a web request with the seal cookie, `POST /api/me/keys/verify`, or `GET /api/me/keys` with the cookie, `unseal_keys`). Before that, it fails with `ProviderKeyRejected` in a process without the seal.
 - **[decision] Key decryption audit (owner, 2026-11-19).** Each decryption of a personal key is recorded. The records are kept 31 days.
 - **[code] Key decryption audit** (`provider_keys.record_decryption`, auth.db table `provider_key_decryptions`):
@@ -491,10 +491,10 @@ Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
 | :--- | :--- |
 | `src/claire/api/accounts_routes/features.py` | JSON routes, console section bodies, `purge_account_features` |
 | `src/claire/store/telegram_bots.py` | Store of account bots in auth.db |
-| `src/claire/telegram_supervisor.py` | `BotSupervisor`: one process (`claire bot`) runs all bots |
-| `src/claire/telegram_bot.py` | `build_app(settings, profile=...)` builds one bot |
-| `src/claire/account_support_bundle.py` | `create_account_support_bundle` |
-| `src/claire/account_backup.py` | Account backup, schedule (`run_due_backups`), restore |
+| `src/claire/telegram/supervisor.py` | `BotSupervisor`, `run_supervisor`, `run_bot`: one process (`claire bot`) runs all bots |
+| `src/claire/telegram/bot.py` | `build_app(settings, profile=...)` builds one bot |
+| `src/claire/ops/account_support_bundle.py` | `create_account_support_bundle` |
+| `src/claire/ops/account_backup.py` | Account backup, schedule (`run_due_backups`), restore |
 
 ### 14.2 Storage
 
@@ -502,7 +502,7 @@ Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
   - `account_telegram_bots`: one row for each account (`account_id` primary key). `bot_id` is `UNIQUE`, thus two accounts cannot register the same bot. The token is encrypted with AES-256-GCM. The AAD is `telegram|account_id|key_id`, thus a ciphertext moved to another row does not decrypt. `status` is `pending`, `running`, `error`, or `disabled`, and `last_error` holds the last runner error.
   - `account_backup_policies`: `schedule` (`off`, `daily`, `weekly`, default `off`), `keep` (1 to 10, default 3), and the result of the last scheduled run (`last_run_at`, `last_status`, `last_error`).
 - **[코드]** `data/telemetry.db` `support_bundles` has the column `account_id` (`_migrate_support_bundles_account_id` in `src/claire/store/telemetry.py`). NULL is a server bundle of the administrator.
-- **[코드]** The graph bundle registry records `account_id`, the owner of the theme (`src/claire/graph_bundle.py`). For a shared knowledge base it records the moderator or the admin that made the bundle ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) Section 6.3).
+- **[코드]** The graph bundle registry records `account_id`, the owner of the theme (`src/claire/ops/graph_bundle.py`). For a shared knowledge base it records the moderator or the admin that made the bundle ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) Section 6.3).
 - **[코드]** Account backups are files in `data/account_backups/<account_id>/` (`<backup_id>.tar.zst` and a JSON record). The server backup (`./cb-manuscript backup`) includes this directory in the `data` component ([OPERATIONS.md](OPERATIONS.md)).
 
 ### 14.3 Telegram bot
@@ -518,7 +518,7 @@ Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
 
 - **[코드]** `create_account_support_bundle` puts in: an account summary without secrets, the owned themes and counts, the ingest queue summary and failed items of owned themes, provider telemetry of owned documents, an optional tracked document (only inside an owned theme), and the build identity.
 - **[코드]** It does not put in: host, mount, or storage diagnostics, configuration values, log files, OAuth or MCP records, data of other accounts, document bodies, or secrets.
-- **[코드]** An account can have 5 active bundles (`MAX_ACTIVE_ACCOUNT_BUNDLES`). A bundle expires after 6 hours (`SUPPORT_BUNDLE_TTL_SECONDS` in `src/claire/support_bundle.py`). The administrator server bundle (`POST /support/bundle`) stays as it is.
+- **[코드]** An account can have 5 active bundles (`MAX_ACTIVE_ACCOUNT_BUNDLES`). A bundle expires after 6 hours (`SUPPORT_BUNDLE_TTL_SECONDS` in `src/claire/ops/support_bundle.py`). The administrator server bundle (`POST /support/bundle`) stays as it is.
 
 ### 14.5 Account backup and restore
 

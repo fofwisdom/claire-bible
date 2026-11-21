@@ -9,7 +9,7 @@ import pytest
 
 from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
 
-from claire import telegram_bot
+from claire.telegram import bot as telegram_bot
 from claire.core import ids
 from claire.i18n import t
 from claire.ingest.service import IngestReport

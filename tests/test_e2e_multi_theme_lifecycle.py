@@ -17,7 +17,7 @@ from claire.ingest.service import IngestService, IngestServicePool
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager
-from claire.telegram_bot import _settle_status
+from claire.telegram.bot import _settle_status
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")

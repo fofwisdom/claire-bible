@@ -30,13 +30,13 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.core.config import Settings
-from claire.graph_bundle import (
+from claire.ops.graph_bundle import (
     GraphBundleInfo,
     get_graph_bundle,
     lookup_graph_bundle_by_token,
 )
 from claire.store import db as dbm
-from claire.telegram_bot import build_app
+from claire.telegram.bot import build_app
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
@@ -388,7 +388,7 @@ async def test_e2e_telegram_bot_large_bundle_fallback_to_url(tmp_path: Path, mon
     )
 
     monkeypatch.setattr(
-        "claire.telegram_bot._create_graph_bundle_for_delivery",
+        "claire.telegram.bot._create_graph_bundle_for_delivery",
         AsyncMock(return_value=huge_bundle_info),
     )
 

@@ -41,7 +41,7 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
 
 - An entry (`RegisteredEntry` in `src/claire/plugin_host/context.py`) has a kind (`fetcher` or `web_adapter`), a name, a priority, host patterns, a class, and a plugin id (`None` for a core entry). The entries come from `_core_entries()` and from the enabled plugins (`plugin_host.runtime`). Order: priority (higher first), then plugin id, then name.
 - Host rules use exact patterns from `src/claire/ingest/hosts.py`: `example.com` matches only that host, `*.example.com` matches only its subdomains, `*` matches every host, and there is no substring match (`dropbox.com` is not an x.com host). The registry calls `can_handle` only for a URL whose host matches the entry. An exception from `can_handle` is "no match" and is logged with the entry.
-- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram_bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), else `web` for a URL, then local file rules, else `text`. A share link gives `share_link` (project plugin `claire.share_link`).
+- `classify(payload)` is the single classifier. The router and `classify_input` in `src/claire/telegram/bot.py` both call it. It returns the name of the first fetcher entry that takes the payload (the Naver Clip fetcher gives `naver_clip`), else `web` for a URL, then local file rules, else `text`. A share link gives `share_link` (project plugin `claire.share_link`).
 - `web_adapter_entries(url, domain_only)` returns web adapter entries whose hosts match. An entry with `*` is general and comes only when `domain_only` is false.
 - The old drop-in loader (`load_plugins_from_dir`, `load_entrypoints`, `plugins/fetchers/`) and the decorators `register_fetcher` and `register_web_adapter` are removed.
 
@@ -160,7 +160,7 @@ Tests: `tests/test_http_security.py` (also the redirect hop checks). Tests that 
 
 `detect_pdf_encoding_flaws(text, page_count, image_count)` runs after each successful extraction. It reports: empty text layer or image-only scan, low text density with images (`scanned_low_density`, less than 25 characters per page), replacement characters, private-use code points, `(cid:N)` tokens, control characters, mojibake, and separated Hangul jamo. The PDF fetchers copy the result to `meta`: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned`, `pdf_metadata`. [code] The setting `pdf_detect_encoding_flaws` is not read by `pdf.py`; detection always runs. [code]
 
-These keys go to `IngestReport` (CLI and Telegram summary), to the Telegram completion text in `src/claire/telegram_bot.py`, and to the reader badges. [code]
+These keys go to `IngestReport` (CLI and Telegram summary), to the Telegram completion text in `src/claire/telegram/bot.py`, and to the reader badges. [code]
 
 ### 5.3 Appendix and references cut
 
@@ -326,7 +326,7 @@ The project plugin `claire.vmware_explore` (`plugins/ingest_adapter/claire.vmwar
 
 ### 11.1 Caption parsing
 
-`on_document` in `src/claire/telegram_bot.py` takes documents, native videos, and audio (`filters.Document.ALL | filters.VIDEO | filters.AUDIO`). `parse_caption_composite(caption, theme_mgr)` removes the theme tag (`parse_message_theme`) and the flags (`parse_regenerate_flags`), then takes the first URL (`router._URL_RE`) as the composite URL. The bot ignores the text before and after the URL, because the ingest focus is sealed ([`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4). With no URL, the file is a single ingest. [code]
+`on_document` in `src/claire/telegram/bot.py` takes documents, native videos, and audio (`filters.Document.ALL | filters.VIDEO | filters.AUDIO`). `parse_caption_composite(caption, theme_mgr)` removes the theme tag (`parse_message_theme`) and the flags (`parse_regenerate_flags`), then takes the first URL (`router._URL_RE`) as the composite URL. The bot ignores the text before and after the URL, because the ingest focus is sealed ([`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4). With no URL, the file is a single ingest. [code]
 
 ### 11.2 Service and composer
 

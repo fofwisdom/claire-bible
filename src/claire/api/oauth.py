@@ -30,7 +30,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from ..core.config import get_settings
 from ..core.ports import get_web_ui_renderer
 from ..i18n import get_locale, t
-from ..notify import push_locale
+from ..ops.notify import push_locale
 from ..store import accounts as accounts_store
 from ..store import auth_db
 from ..store import db as dbm

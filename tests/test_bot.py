@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
+from claire.telegram.bot import _run_with_ticker, _settle_status, _status_emoji
 from claire.i18n import t as _t
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
@@ -16,7 +16,7 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
 
     import httpx
     from claire.core.config import Settings
-    from claire.telegram_bot import _create_support_bundle_for_delivery
+    from claire.telegram.bot import _create_support_bundle_for_delivery
 
     archive = tmp_path / "support_bundle_api.tar.zst"
     archive.write_bytes(b"bundle")
@@ -133,7 +133,7 @@ async def test_run_with_ticker_displays_progress_stage():
 
 
 def test_parse_message_focus():
-    from claire.telegram_bot import parse_message_focus
+    from claire.telegram.bot import parse_message_focus
 
     # 1. Flag style (ASCII, em-dash, en-dash, aliases)
     p, d = parse_message_focus("https://example.com/a --focus 시스템 아키텍처 중심")
@@ -235,7 +235,7 @@ def test_parse_message_focus():
 
 
 def test_parse_caption_focus():
-    from claire.telegram_bot import parse_caption_focus
+    from claire.telegram.bot import parse_caption_focus
 
     assert parse_caption_focus(None) is None
     assert parse_caption_focus("") is None
@@ -568,7 +568,7 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
     from claire.ingest.service import IngestReport
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
@@ -620,7 +620,7 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
     from claire.ingest.service import IngestReport
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
@@ -670,7 +670,7 @@ async def test_on_support_help():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
     app = build_app(settings)
@@ -699,7 +699,7 @@ async def test_on_support_unknown_subcommand():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
     app = build_app(settings)
@@ -723,8 +723,8 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.support_bundle import SupportBundleInfo
-    from claire.telegram_bot import build_app
+    from claire.ops.support_bundle import SupportBundleInfo
+    from claire.telegram.bot import build_app
 
     dummy_archive = tmp_path / "support_bundle_fake.tar.zst"
     dummy_archive.write_bytes(b"dummy zstd archive")
@@ -748,7 +748,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
         created_kwargs["request_context"] = request_context
         return fake_info
 
-    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+    monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
@@ -788,8 +788,8 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.support_bundle import SupportBundleInfo
-    from claire.telegram_bot import build_app
+    from claire.ops.support_bundle import SupportBundleInfo
+    from claire.telegram.bot import build_app
 
     dummy_archive = tmp_path / "support_bundle_targeted.tar.zst"
     dummy_archive.write_bytes(b"dummy target")
@@ -815,7 +815,7 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
         created_kwargs["request_context"] = request_context
         return fake_info
 
-    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+    monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
     app = build_app(settings)
@@ -847,7 +847,7 @@ async def test_on_support_bundle_validation_error(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
@@ -877,10 +877,10 @@ async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     monkeypatch.setattr(
-        "claire.support_bundle.list_active_support_bundles",
+        "claire.ops.support_bundle.list_active_support_bundles",
         lambda data_dir: [
             {
                 "bundle_id": "sb_active_1",
@@ -893,7 +893,7 @@ async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr("claire.support_bundle.purge_expired_bundles", lambda data_dir: 3)
+    monkeypatch.setattr("claire.ops.support_bundle.purge_expired_bundles", lambda data_dir: 3)
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
     app = build_app(settings)
@@ -929,8 +929,8 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.support_bundle import SupportBundleInfo
-    from claire.telegram_bot import build_app
+    from claire.ops.support_bundle import SupportBundleInfo
+    from claire.telegram.bot import build_app
 
     dummy_archive = tmp_path / "support_bundle_cb.tar.zst"
     dummy_archive.write_bytes(b"dummy cb archive")
@@ -954,7 +954,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
         created_target = target
         return fake_info
 
-    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+    monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
     app = build_app(settings)
@@ -990,7 +990,7 @@ async def test_on_support_unallowed_user(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
@@ -1017,7 +1017,7 @@ async def test_on_support_unallowed_user(tmp_path):
 def test_setup_telegram_logging(tmp_path: Path):
     """setup_telegram_logging 이 data/logs/telegram.log 를 생성하고 로깅을 파일에 기록하는지 검증."""
     import logging
-    from claire.telegram_bot import log, setup_telegram_logging
+    from claire.telegram.bot import log, setup_telegram_logging
 
     log_file = setup_telegram_logging(tmp_path)
     assert log_file is not None
@@ -1043,7 +1043,7 @@ async def test_telegram_app_error_handler(tmp_path: Path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
-    from claire.telegram_bot import build_app, log, setup_telegram_logging
+    from claire.telegram.bot import build_app, log, setup_telegram_logging
 
     log_file = setup_telegram_logging(tmp_path)
     assert log_file is not None
@@ -1090,7 +1090,7 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
     from unittest.mock import MagicMock
     from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import parse_message_theme
+    from claire.telegram.bot import parse_message_theme
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1134,7 +1134,7 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
     from types import SimpleNamespace
     from claire.core.config import Settings
     from claire.ingest.service import IngestService
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     s = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
@@ -1170,7 +1170,7 @@ async def test_ingest_cancellation(tmp_path: Path):
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1232,7 +1232,7 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
     from claire.core.config import Settings
     from claire.ingest.service import IngestReport
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1383,7 +1383,7 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1448,7 +1448,7 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1515,7 +1515,7 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1579,7 +1579,7 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
     from claire.core.config import Settings
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1645,7 +1645,7 @@ async def test_on_callback_oauth_approve_and_deny(tmp_path: Path):
 
     from claire.core.config import Settings
     from claire.store import db as dbm
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     db_path = tmp_path / "claire.db"
     settings = Settings(
@@ -1733,9 +1733,9 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     from claire.store import db as dbm
     from claire.store.telegram_bots import TelegramBotProfile
     from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire import telegram_bot
+    from claire.telegram import bot as telegram_bot
     from claire.i18n import t
-    from claire.telegram_bot import build_app
+    from claire.telegram.bot import build_app
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True)
@@ -1801,7 +1801,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
         created.append(kwargs)
         raise RuntimeError("stop after capture")
 
-    monkeypatch.setattr("claire.graph_bundle.create_graph_bundle", _fake_create)
+    monkeypatch.setattr("claire.ops.graph_bundle.create_graph_bundle", _fake_create)
     update, msg = _update(42)
     ctx.args = ["graph", str(other.id)]
     await handlers["on_export"](update, ctx)

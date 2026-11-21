@@ -26,7 +26,7 @@ SQLite 정본 + FTS + vector + detail HTML
 
 ### 입력과 수집
 
-- `src/claire/telegram_bot.py`: 텔레그램 long-polling 진입점
+- `src/claire/telegram/`: 텔레그램 long-polling 슈퍼바이저(`supervisor.py`), 봇 핸들러(`bot.py`), 토큰 검증(`api.py`)
 - `src/claire/cli.py`: 적재·검색·운영 명령 (`src/claire_bible/cli.py`가 포트 연결 후 위임)
 - `src/claire/api/server.py`: 루프백 기본 로컬 API와 웹 UI (`src/claire_bible/web/app.py`가 포트 연결 후 `create_app` 위임)
 - `src/claire/ingest/router.py`: URL·공유 텍스트·파일·메모 분류

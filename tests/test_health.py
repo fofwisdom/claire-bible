@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from claire.core.config import Settings
-from claire.health import health_report, liveness_report
+from claire.ops.health import health_report, liveness_report
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 

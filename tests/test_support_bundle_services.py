@@ -16,10 +16,10 @@ from typing import Any
 
 import zstandard as zstd
 
-from claire import loop_runtime
+from claire.ops import loop_runtime
 from claire.store import auth_db, client_db
 from claire.store import db as dbm
-from claire.support_bundle import create_support_bundle
+from claire.ops.support_bundle import create_support_bundle
 
 TELEGRAM_TOKEN = "123456789:AAEexampleexampleexampleexample-_xyz"
 FEED_URL = "https://private.example/feeds/secret-list.xml"

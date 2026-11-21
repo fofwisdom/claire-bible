@@ -16,7 +16,7 @@ from claire.core.config import Settings
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.support_bundle import create_support_bundle
+from claire.ops.support_bundle import create_support_bundle
 
 
 def _seed_doc(

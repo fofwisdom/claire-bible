@@ -11,13 +11,14 @@ import pytest
 
 from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _graph, _personal_document, world  # noqa: F401 (fixtures)
 
-from claire import account_backup, cli
+from claire import cli
+from claire.ops import account_backup
 from claire.core import ids
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store import themes as themes_store
-from claire.telegram_bot import AccountThemeScope, resolve_selected_theme
+from claire.telegram.bot import AccountThemeScope, resolve_selected_theme
 
 ANN, BEN, CHO = 2, 3, 4
 

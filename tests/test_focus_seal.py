@@ -141,7 +141,7 @@ def test_cli_has_no_focus_option():
 
 
 def test_telegram_parser_keeps_the_url_and_returns_the_text():
-    from claire.telegram_bot import parse_message_focus
+    from claire.telegram.bot import parse_message_focus
 
     payload, rest = parse_message_focus("https://example.com/doc | system architecture")
     assert payload == "https://example.com/doc"

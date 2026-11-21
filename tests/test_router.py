@@ -54,7 +54,7 @@ def test_fetch_routes_shared_text_to_url(monkeypatch):
 
 
 def test_youtube_shared_text_with_hyphen_title(monkeypatch):
-    from claire.telegram_bot import parse_message_focus
+    from claire.telegram.bot import parse_message_focus
 
     msg = "AI Assistant for VMware vDefend - Firewall\nhttps://www.youtube.com/watch?v=ti9FHqP1i-w"
     payload, focus = parse_message_focus(msg)

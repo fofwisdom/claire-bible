@@ -18,7 +18,7 @@ from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-from claire.telegram_bot import parse_message_focus, parse_regenerate_flags
+from claire.telegram.bot import parse_message_focus, parse_regenerate_flags
 
 
 def test_cli_ingest_argument_parser():

@@ -22,10 +22,10 @@ from typing import Any
 
 import zstandard as zstd
 
-from .core import ids
-from .core.config import Settings, get_settings
-from .store import db as dbm
-from .store.telemetry import (
+from ..core import ids
+from ..core.config import Settings, get_settings
+from ..store import db as dbm
+from ..store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
     delete_support_bundle,
     get_telemetry_db_path,
@@ -75,7 +75,7 @@ def _iso(ts: float | None) -> str | None:
 
 
 def _owned_themes(settings: Settings, account_id: int) -> list[Any]:
-    from .store.knowledge_base import get_kb_manager
+    from ..store.knowledge_base import get_kb_manager
 
     return list(get_kb_manager(settings).list_account_kbs(account_id))
 
@@ -86,9 +86,9 @@ def _theme_ref(theme: Any) -> str:
 
 
 def _account_summary(settings: Settings, account_id: int) -> dict[str, Any]:
-    from .store import accounts as accounts_store
-    from .store import auth_db, provider_keys
-    from .store import telegram_bots
+    from ..store import accounts as accounts_store
+    from ..store import auth_db, provider_keys
+    from ..store import telegram_bots
 
     summary: dict[str, Any] = {"account_id_public": None}
     conn = dbm.connect_existing(settings.db_file, readonly=True)
@@ -141,7 +141,7 @@ def _account_summary(settings: Settings, account_id: int) -> dict[str, Any]:
 
 
 def _theme_inventory(settings: Settings, themes: list[Any]) -> list[dict[str, Any]]:
-    from .store.knowledge_base import get_kb_manager
+    from ..store.knowledge_base import get_kb_manager
 
     manager = get_kb_manager(settings)
     out = []

@@ -39,7 +39,7 @@ from starlette.testclient import TestClient
 from claire.core import secret_scrub
 from claire.accounts.provider_policy import ProviderContext, ProviderNotAllowed, ProviderNotConfigured, classify_provider
 from claire.api import server
-from claire.graph_bundle import create_graph_bundle
+from claire.ops.graph_bundle import create_graph_bundle
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
@@ -47,7 +47,7 @@ from claire.store import db as dbm
 from claire.store import provider_keys
 from claire.store.secrets import SecretDecryptionError, SecretService, reset_secret_service
 from claire.store.telemetry import connect_telemetry, get_telemetry_db_path, query_telemetry, record_telemetry
-from claire.support_bundle import create_support_bundle
+from claire.ops.support_bundle import create_support_bundle
 from ops import cb_manuscript as cb
 
 PUBLIC_URL = "http://127.0.0.1:8765"

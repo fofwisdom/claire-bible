@@ -41,7 +41,7 @@ from claire.core import ids
 from tests.kb_paths import seed
 from claire.api import server
 from claire.core.config import Settings
-from claire.graph_bundle import create_graph_bundle, import_graph_bundle
+from claire.ops.graph_bundle import create_graph_bundle, import_graph_bundle
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
@@ -49,7 +49,7 @@ from claire.store import kb_collab
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
-from claire.support_bundle import create_support_bundle
+from claire.ops.support_bundle import create_support_bundle
 
 
 PUBLIC_URL = "http://127.0.0.1:8765"

@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .extract.resolver import ACRONYM_MIN, AUTO_MERGE, CANDIDATE_FLOOR, MAX_JUDGE
-from .store import db as dbm
-from .store.telemetry import get_telemetry_db_path
-from .store.vectors import looks_like_hash_fallback, unpack_vector
+from ..extract.resolver import ACRONYM_MIN, AUTO_MERGE, CANDIDATE_FLOOR, MAX_JUDGE
+from ..store import db as dbm
+from ..store.telemetry import get_telemetry_db_path
+from ..store.vectors import looks_like_hash_fallback, unpack_vector
 
 logger = logging.getLogger(__name__)
 
@@ -781,7 +781,7 @@ def _export_pair_review(
     export_conn: sqlite3.Connection,
     document_ids: set[str],
 ) -> dict[str, Any]:
-    from .store import pair_review
+    from ..store import pair_review
 
     tables = {r[0] for r in source_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "pair_review_items" not in tables:

@@ -30,7 +30,7 @@ from claire.store.raw import load_artifact
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import get_token_store, reset_token_stores
 from claire.store.vectors import make_vector_store
-from claire.telegram_bot import _settle_status, build_app, parse_force_provider_flag
+from claire.telegram.bot import _settle_status, build_app, parse_force_provider_flag
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 

@@ -27,7 +27,8 @@ from tests.kb_paths import kb_number
 import zstandard as zstd
 from starlette.testclient import TestClient
 
-from claire import account_backup, telegram_api
+from claire.ops import account_backup
+from claire.telegram import api as telegram_api
 from claire.core import secret_scrub
 from claire.api import server
 from claire.ontology.base import Document, Entity
@@ -476,7 +477,7 @@ class _FakeApp:
 
 
 def test_supervisor_follows_webui_configuration(env, fake_telegram):
-    from claire.telegram_supervisor import BotSupervisor
+    from claire.telegram.supervisor import BotSupervisor
 
     c = env.client
     apps: list[_FakeApp] = []
