@@ -119,7 +119,8 @@ async function assertRouteUiConsistency(page, routePath, baseline, opts) {
   await waitForConsoleSettled(page);
 
   if (isMobile) {
-    await expect(page.locator('#console-mob-bar')).toBeVisible();
+    await expect(page.locator('.console-mob-bar')).toBeVisible();
+    await expect(page.locator('#console-mob-menu')).toBeVisible();
     await expect(page.locator('#console-sidebar')).toBeAttached();
     await expect(page.locator('#console-sidebar')).toBeHidden();
   } else {

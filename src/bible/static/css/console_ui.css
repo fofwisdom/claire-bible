@@ -97,7 +97,7 @@ body { height: auto; min-height: 100dvh; margin: 0; padding: 0; display: flex; f
 .console-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78125rem; font-weight: 600; min-width: 0; }
 .console-field-hint { font-weight: 400; font-size: 0.75rem; color: var(--muted); line-height: 1.45; }
 .console-form-row { display: flex; gap: 0.625rem; align-items: flex-end; flex-wrap: wrap; }
-.console-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.625rem; align-items: end; }
+.console-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); gap: 0.625rem; align-items: end; }
 .console-form-grid .pref-input, .console-form-grid .pref-select, .console-form-grid .console-textarea { width: 100%; }
 .console-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .console-actions-end { justify-content: flex-end; }
