@@ -245,15 +245,15 @@ def test_graphview_detail_format_and_html():
 
     # shared_html 렌더링 검증
     s_html = shared_html(dd)
-    assert "convertAsciidocToHtml" in s_html
-    assert "renderContent" in s_html
+    assert "convertAsciidocToHtml" not in s_html
+    assert "renderPlainText" in s_html
     assert ".admonitionblock" in s_html
     # unpkg asciidoctor CDN 스크립트 제거 확인 (Zero-eval)
     assert "unpkg.com/@asciidoctor/core" not in s_html
 
     # GRAPH_HTML 검증
-    assert "convertAsciidocToHtml" in GRAPH_HTML
-    assert "renderContent" in GRAPH_HTML
+    assert "convertAsciidocToHtml" not in GRAPH_HTML
+    assert "renderPlainText" in GRAPH_HTML
     assert ".admonitionblock" in GRAPH_HTML
     assert ".quoteblock" in GRAPH_HTML
     assert "format-warn-banner" in GRAPH_HTML
@@ -731,23 +731,8 @@ def test_aot_render_adoc_table_with_embedded_lists():
     assert "<strong>설정 오류 최소화</strong>" not in html_out
 
 
-def test_client_js_convert_asciidoc_to_html_runtime():
-    """클라이언트 사이드 JavaScript convertAsciidocToHtml 런타임 결과가 Python AOT 결과와 일치하는지 Node.js 로 검증."""
-    import json
-    import shutil
-    import subprocess
-
-    if shutil.which("node") is None:
-        import os
-        nvm_node = Path(os.path.expanduser("~/.nvm/versions/node/v26.7.0/bin/node"))
-        if nvm_node.is_file():
-            os.environ["PATH"] = f"{nvm_node.parent}:{os.environ.get('PATH', '')}"
-        else:
-            pytest.skip("Node.js is not installed on the system")
-
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
-    assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
-
+def test_aot_render_adoc_xref_anchor_and_list_continuation():
+    """A cross reference, a section anchor, and list continuation lines (+) give the expected HTML."""
     sample = """
 상세 내용은 <<자격-검증-가치, 자격 검증 가치 섹션>> 을 참조하라.
 
@@ -766,38 +751,14 @@ def test_client_js_convert_asciidoc_to_html_runtime():
 
 표준 가상 머신과 Kubernetes 오케스트레이션을 단일하고 일관된 프라이빗 클라우드 환경으로 결합한다.
 """
-    runner_code = f"""
-const fs = require('fs');
-global.window = {{}};
-global.document = {{}};
-const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
-eval(scriptContent);
+    html_out = render_adoc_to_html(sample)
 
-const input = {json.dumps(sample)};
-const result = convertAsciidocToHtml(input);
-console.log(JSON.stringify({{ html: result }}));
-process.exit(0);
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
-        f_runner.write(runner_code)
-        runner_file = f_runner.name
-
-    try:
-        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
-        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
-        res_data = json.loads(proc.stdout)
-        js_html = res_data["html"]
-
-        # JS 런타임 결과 검증
-        assert '<h2 id="자격-검증-가치">프라이빗 클라우드 자격 검증의 전략적 가치</h2>' in js_html
-        assert '<a href="#자격-검증-가치" class="xref">자격 검증 가치 섹션</a>' in js_html
-        assert "<p>[#" not in js_html
-        assert "<p>+</p>" not in js_html
-        assert ">+<" not in js_html
-        assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
-    finally:
-        Path(runner_file).unlink(missing_ok=True)
-
+    assert '<h2 id="자격-검증-가치">프라이빗 클라우드 자격 검증의 전략적 가치</h2>' in html_out
+    assert '<a href="#자격-검증-가치" class="xref">자격 검증 가치 섹션</a>' in html_out
+    assert "<p>[#" not in html_out
+    assert "<p>+</p>" not in html_out
+    assert ">+<" not in html_out
+    assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in html_out
 
 
 def test_aot_render_adoc_math():
@@ -1057,60 +1018,8 @@ def test_aot_render_adoc_quote_with_ellipsis_hardbreak():
     assert f"<p>{expected_content}</p>" in html_out
 
 
-def test_aot_render_adoc_js_runtime_quote_with_ellipsis_hardbreak():
-    """클라이언트 사이드 JS adoc_parser.js 에서도 '... +'가 리스트로 오인식되지 않고 일치하게 렌더링되는지 Node.js 로 검증."""
-    import json
-    import shutil
-    import subprocess
-
-    if shutil.which("node") is None:
-        pytest.skip("node binary not available")
-
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
-    assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
-
-    sample = """[quote, Author, Source]
-Line 1 +
-... +
-Line 2"""
-
-    py_result = render_adoc_to_html(sample)
-
-    runner_code = f"""
-const fs = require('fs');
-global.window = {{}};
-global.document = {{}};
-const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
-eval(scriptContent);
-
-const input = {json.dumps(sample)};
-const result = convertAsciidocToHtml(input);
-console.log(JSON.stringify({{ html: result }}));
-process.exit(0);
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
-        f_runner.write(runner_code)
-        runner_file = f_runner.name
-
-    try:
-        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
-        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
-        res_data = json.loads(proc.stdout)
-        js_result = res_data["html"]
-
-        assert "<ol>" not in js_result
-        assert "<li>+" not in js_result
-        assert js_result == py_result
-    finally:
-        Path(runner_file).unlink(missing_ok=True)
-
-
 def test_adoc_quotes_and_entities_not_corrupted_into_mark_tags():
-    """따옴표('Difficult advice') 및 엔티티(&#39;)가 #형광펜# 마크업으로 오인되어 &39; 깨짐이 발생하지 않는지 Python 및 JS 런타임에서 동시 검증."""
-    import json
-    import shutil
-    import subprocess
-
+    """따옴표('Difficult advice') 및 엔티티(&#39;)가 #형광펜# 마크업으로 오인되어 &39; 깨짐이 발생하지 않는지 검증."""
     sample = "사용자 딜레마에 조언하는 분포 밖 'Difficult advice' 데이터셋 훈련 및 #3%까지 급감# 확인. 엔티티 &#39;test&#39; 유지."
     py_result = render_adoc_to_html(sample)
 
@@ -1120,51 +1029,9 @@ def test_adoc_quotes_and_entities_not_corrupted_into_mark_tags():
     assert "&lt;mark&gt;39;" not in py_result
     assert "&amp;<mark>39;" not in py_result
 
-    if shutil.which("node") is None:
-        pytest.skip("node binary not available")
-
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
-    assert adoc_js_path.is_file()
-
-    runner_code = f"""
-const fs = require('fs');
-global.window = {{}};
-global.document = {{}};
-const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
-eval(scriptContent);
-
-const input = {json.dumps(sample)};
-const result = convertAsciidocToHtml(input);
-console.log(JSON.stringify({{ html: result }}));
-process.exit(0);
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
-        f_runner.write(runner_code)
-        runner_file = f_runner.name
-
-    try:
-        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
-        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
-        res_data = json.loads(proc.stdout)
-        js_result = res_data["html"]
-
-        assert "'Difficult advice'" in js_result
-        assert "<mark>3%까지 급감</mark>" in js_result
-        assert "<mark>39;" not in js_result
-        assert "&39;" not in js_result
-        assert js_result == py_result
-    finally:
-        Path(runner_file).unlink(missing_ok=True)
-
-
-
 
 def test_adoc_tilde_range_is_not_subscript():
-    """A tilde range (15~29세, 2014~19년) is text, not a subscript mark; ~x~ without whitespace stays a subscript. Python and JS give the same HTML."""
-    import json
-    import shutil
-    import subprocess
-
+    """A tilde range (15~29세, 2014~19년) is text, not a subscript mark; ~x~ without whitespace stays a subscript."""
     sample = "청년층(15~29세)의 고용 부진은 과거 부진기(2014~19년)와 다르다. 2014~19년·2023~24년 비교. H~2~O 와 E=mc^2^ 표기. 물결 ~한다~ 표현과 a ~b c~ d."
     py_result = render_adoc_to_html(sample)
 
@@ -1175,27 +1042,6 @@ def test_adoc_tilde_range_is_not_subscript():
     assert "mc<sup>2</sup>" in py_result
     assert "a ~b c~ d" in py_result
     assert py_result.count("<sub>") == 2  # H~2~O and ~한다~
-
-    if shutil.which("node") is None:
-        pytest.skip("node binary not available")
-
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
-    runner_code = f"""
-const fs = require('fs');
-global.window = {{}};
-global.document = {{}};
-eval(fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8'));
-console.log(JSON.stringify({{ html: convertAsciidocToHtml({json.dumps(sample)}) }}));
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
-        f_runner.write(runner_code)
-        runner_file = f_runner.name
-    try:
-        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
-        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
-        assert json.loads(proc.stdout)["html"] == py_result
-    finally:
-        Path(runner_file).unlink(missing_ok=True)
 
 
 def test_init_db_renders_stored_bodies_again_after_renderer_revision_change(tmp_path):
@@ -1232,3 +1078,26 @@ def test_detail_prompt_limits_quote_blocks_to_direct_quotes():
     assert "인용 표기를 출처로 옮기지 말고" in prompt
     assert "출처에는 쉼표를 쓰지 마라" in prompt
     assert "[quote, 발언자 또는 핵심 개념]" not in prompt
+
+
+def test_browser_has_no_asciidoc_converter_and_shows_summary_as_plain_text():
+    """The server renderer is the only AsciiDoc converter. The browser file has display helpers only, and renderPlainText escapes a summary and keeps paragraphs and line breaks."""
+    import json
+    import shutil
+    import subprocess
+
+    static_js = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js"
+    doc_content_js = static_js / "renderers" / "doc_content.js"
+    assert not (static_js / "renderers" / "adoc_parser.js").exists()
+    source = doc_content_js.read_text(encoding="utf-8")
+    for name in ("convertAsciidocToHtml", "inlineAdocFormat", "renderTableHtml", "renderAsciidoc", "renderContent"):
+        assert name not in source
+        assert name not in (static_js / "reader.js").read_text(encoding="utf-8")
+        assert name not in GRAPH_HTML
+
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available")
+    runner = f"global.window = {{}}; const P = require({json.dumps(str(doc_content_js))}); console.log(JSON.stringify([P.renderPlainText('*a* <b> & \\'q\\''), P.renderPlainText('one\\ntwo\\n\\nthree'), P.renderPlainText('')]));"
+    proc = subprocess.run(["node", "-e", runner], capture_output=True, text=True, timeout=10)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == ["<p>*a* &lt;b&gt; &amp; &#39;q&#39;</p>", "<p>one<br>two</p><p>three</p>", ""]

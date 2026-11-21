@@ -771,8 +771,8 @@ function renderReader(dc){
   }
   h+=extraSourcesHtml(dc);
   if(dc.summary){
-    h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
-  }else if(dc.detail || dc.detail_html){
+    h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderPlainText(dc.summary)+'</div>';
+  }else if(dc.detail_html){
     h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_summary', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>' })+
       ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_summary") + '</button></div>' : '')+'</div>';
   }
@@ -780,13 +780,11 @@ function renderReader(dc){
     const purifier=window.DOMPurify;
     const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
     h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+cleanHtml+'</div>';
-  }else if(dc.detail){
-    h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }else if(dc.summary){
     h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_detail', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>' })+
       ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_detail") + '</button></div>' : '')+'</div>';
   }
-  if(!dc.summary && !dc.detail && !dc.detail_html){
+  if(!dc.summary && !dc.detail_html){
     h+='<div class=rsection>' + rtr("reader.section.summary_detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_both', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>' })+
       ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'all\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_all") + '</button></div>' : '')+'</div>';
   }

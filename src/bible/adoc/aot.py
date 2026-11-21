@@ -157,18 +157,6 @@ def _format_paragraph_lines(lines: list[str]) -> str:
     return res
 
 
-def _split_table_cells(line: str) -> list[str]:
-    """한 줄에서 unescaped '|' 구분자로 셀 목록 추출."""
-    raw = line.strip()
-    if not raw.startswith("|"):
-        return [raw]
-    raw = raw[1:]
-    if raw.endswith("|") and not raw.endswith(r"\|"):
-        raw = raw[:-1]
-    parts = re.split(r"(?<!\\)\|", raw)
-    return [p.replace(r"\|", "|").strip() for p in parts]
-
-
 def _parse_cell_spec(spec_str: str) -> tuple[int, int, str | None, str | None]:
     """AsciiDoc 셀 접두사(spec)에서 (colspan, rowspan, align, style) 파싱."""
     colspan = 1

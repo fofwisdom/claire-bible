@@ -34,7 +34,7 @@ html.shared-page::-webkit-scrollbar, body.shared-page::-webkit-scrollbar{display
 body.shared-page.stt-modal-open{overflow:hidden}
 #srail{position:fixed}
 </style>
-<script src=/static/js/renderers/adoc_parser.js></script>
+<script src=/static/js/renderers/doc_content.js></script>
 </head>
 <body class="shared-page"><!-- __SEMANTIC_FALLBACK__ --><div class="wrap" id="wrap"></div>
 <aside class="cb-heading-rail" id="srail" aria-label="${t:ws.reader.rail}">
@@ -291,20 +291,18 @@ if((dc.extra_sources||[]).length){
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
 if(dc.summary){
-  h+='<div class=sec>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
-}else if(dc.detail || dc.detail_html){
+  h+='<div class=sec>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderPlainText(dc.summary)+'</div>';
+}else if(dc.detail_html){
   h+='<div class=sec>' + rtr("reader.section.summary") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_summary', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>' })+'</div>';
 }
 if(dc.detail_html){
   const purifier=window.DOMPurify;
   const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
   h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+cleanHtml+'</div>';
-}else if(dc.detail){
-  h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
 }else if(dc.summary){
   h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_detail', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>' })+'</div>';
 }
-if(!dc.summary && !dc.detail && !dc.detail_html){
+if(!dc.summary && !dc.detail_html){
   h+='<div class=sec>' + rtr("reader.section.summary_detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_both', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>' })+'</div>';
 }
 h+='<div class=foot>' + rtr("share.foot") + '</div>';

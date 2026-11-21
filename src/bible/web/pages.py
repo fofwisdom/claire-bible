@@ -41,7 +41,7 @@ def _build_standalone_graph_html() -> str:
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
 
     graph_js = "\n".join((_STATIC_DIR / "js" / "graph" / name).read_text(encoding="utf-8") for name in _GRAPH_ENGINE_FILES)
-    adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
+    doc_content_js = (_STATIC_DIR / "js" / "renderers" / "doc_content.js").read_text(encoding="utf-8")
     reader_js = (_STATIC_DIR / "js" / "reader.js").read_text(encoding="utf-8")
     appbar_js = (_STATIC_DIR / "js" / "appbar.js").read_text(encoding="utf-8")
     shared_ui_js = (_STATIC_DIR / "js" / "shared_ui.js").read_text(encoding="utf-8")
@@ -142,7 +142,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{graph_js}\n{doc_content_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 
@@ -151,7 +151,7 @@ def _build_standalone_shared_html() -> str:
     """Combine static CSS/JS assets and templates/share.html into standalone _SHARED_HTML."""
     theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
-    adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
+    doc_content_js = (_STATIC_DIR / "js" / "renderers" / "doc_content.js").read_text(encoding="utf-8")
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     share_tmpl = (_TEMPLATES_DIR / "share.html").read_text(encoding="utf-8")
 
@@ -159,10 +159,10 @@ def _build_standalone_shared_html() -> str:
     html = re.sub(r"<link rel=stylesheet href=/static/css/[^>]+>\s*", "", share_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>")
 
-    html = html.replace("<script src=/static/js/renderers/adoc_parser.js></script>\n", "")
+    html = html.replace("<script src=/static/js/renderers/doc_content.js></script>\n", "")
     idx = html.find("<script>", html.find('id="docdata"'))
     if idx != -1:
-        html = html[: idx + 8] + f"\n{icons_js}\n{adoc_js}\n" + html[idx + 8 :]
+        html = html[: idx + 8] + f"\n{icons_js}\n{doc_content_js}\n" + html[idx + 8 :]
     return html
 
 

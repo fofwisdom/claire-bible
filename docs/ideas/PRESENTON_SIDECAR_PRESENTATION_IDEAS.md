@@ -39,7 +39,7 @@ Claire Bible can replace its internal AsciiDoc reveal.js presentation stack with
 ### 2.2 Measured Code and Container Footprint
 
 - **Code and static assets**: `src/claire/presentation/*.py` and `src/claire/static/css/reveal-claire.css` total `2,308` lines; vendored `src/claire/static/vendor/reveal.js` occupies `1.3 MB`; `compose_presentation()` is implemented across four provider classes plus `src/claire/extract/prompts.py`.
-- **Container dependency (`Dockerfile`)**: `ruby`, `asciidoctor ~> 2.0.26`, and `asciidoctor-revealjs ~> 5.2.0` are used **only** for presentation compilation. Standard document body rendering uses pure-Python `src/claire/render/aot.py` and browser `adoc_parser.js` ([`DOCUMENT_FORMAT.md`](../implementation/DOCUMENT_FORMAT.md) §3). Removing presentations from the core image eliminates the entire Ruby runtime.
+- **Container dependency (`Dockerfile`)**: `ruby`, `asciidoctor ~> 2.0.26`, and `asciidoctor-revealjs ~> 5.2.0` are used **only** for presentation compilation. Standard document body rendering uses pure-Python `src/bible/adoc/aot.py` only ([`DOCUMENT_FORMAT.md`](../implementation/DOCUMENT_FORMAT.md) §3). Removing presentations from the core image eliminates the entire Ruby runtime.
 - **Shared path collision in current storage**: Current code stores files under `<data_dir>/presentations/<document_id>.{adoc,html}` across all themes in the same folder ([`PRESENTATION.md`](../implementation/PRESENTATION.md) §2). The replacement should namespace outputs by knowledge base (`data/presentations/<kb_id>/<document_id>/`).
 
 ---

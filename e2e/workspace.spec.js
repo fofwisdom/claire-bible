@@ -3067,6 +3067,33 @@ test.describe('document context panel (HW-3)', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('the reader shows the summary as plain text and the body from the server HTML, and the page has no AsciiDoc converter', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // The server is the only AsciiDoc converter: the page has the display helpers and no converter function.
+    expect(await page.evaluate(() => ['convertAsciidocToHtml', 'renderContent', 'renderAsciidoc', 'inlineAdocFormat'].filter(name => typeof window[name] !== 'undefined'))).toEqual([]);
+    expect(await page.evaluate(() => typeof window.renderPlainText + ' ' + typeof window.applyMathRendering)).toBe('function function');
+
+    // doc-page-1 has a summary and a body: the summary is one paragraph of plain text, the body is the HTML of the server.
+    await page.locator('#doclist .docitem').filter({ hasText: '페이징 자료 01' }).click();
+    await expect(page.locator('#reader')).toHaveAttribute('aria-busy', 'false');
+    const blocks = page.locator('#rbody .doc-content');
+    await expect(blocks).toHaveCount(2);
+    await expect(blocks.nth(0).locator('p')).toHaveCount(1);
+    await expect(blocks.nth(0)).toContainText('출처 문서 요약 문단입니다.');
+    await expect(blocks.nth(1).locator('p')).toHaveText('페이징 자료 01의 본문입니다.');
+
+    // doc-1 has nine "==" sections: the headings are in the HTML that the server made.
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await expect(page.locator('#rbody .doc-content h2')).toHaveCount(9);
+    await expect(page.locator('#rbody .doc-content h2').first()).toHaveText('섹션 1');
+
+    expect(pageErrors).toEqual([]);
+  });
+
   test('HW-6: verify graph view insight lists, cross-view entity detail, backlink, and escape key deselect', async ({ page }) => {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));

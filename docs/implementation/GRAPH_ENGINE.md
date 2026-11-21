@@ -416,7 +416,7 @@ Basis: commit d15ae8e0 (2026-11-16); updated for the `bible` / `claire` / `clair
 | :--- | :--- | :--- |
 | Data queries | `src/claire/store/queries.py` | `graph_json`, `documents_list`, `documents_page`, `node_detail`, `document_detail`, `dedup_clusters`, `synthesis_context`, `synthesize`, `theme_summary`. The API server, the MCP tools (`src/claire/api/mcp_tools.py`), and the CLI import them from here. |
 | Templates | `src/bible/templates/`, `src/claire/api/templates/` | `src/bible/templates/` holds `index.html` (workspace), `share.html` (shared document), `syndication.html`, and `partials/common_*.html`. `src/claire/api/templates/` holds `console_shell.html`, `login.html`, `setup.html`, `docs.html`, `public_kb.html`, `public_directory.html`, `partials/settings_syndication/`, and `prototype/federation_client_prototype.html`. |
-| Static assets | `src/bible/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `vendor/`, `docs/`, `ns/` |
+| Static assets | `src/bible/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/doc_content.js`, console and syndication scripts), `fonts/`, `icons/`, `vendor/`, `docs/`, `ns/` |
 | Pure bundle assembly | `src/bible/web/pages.py` | Builds standalone inline bundles and fills DTO slots (`render_graph_page`, `render_shared_page`, `render_syndication_page`) with zero imports from `claire`. |
 | Request page assembly and ports | `src/claire_bible/web/pages.py`, `src/claire_bible/bootstrap.py`, `src/claire/core/ports.py` | Loads database, settings, and locale data (`render_graph_html`, `render_syndication_html`, `shared_html`) and binds them to `WebUIRendererPort`. |
 
@@ -426,8 +426,8 @@ Callers import the query functions directly from `src/claire/store/queries.py` [
 
 - At import time, `src/bible/web/pages.py` builds three strings: `GRAPH_HTML` (`_build_standalone_graph_html`), `_SHARED_HTML` (`_build_standalone_shared_html`), and `SYNDICATION_HTML` (`_build_standalone_syndication_html`).
 - Each builder reads a template, removes its `<link … href=/static/css/…>` and `<script src=/static/js/…>` tags, and puts the CSS and JS file contents inline in the page.
-- `GRAPH_HTML` script order: config, `i18n.js`, `icons.js`, the four engine files (`_GRAPH_ENGINE_FILES`), `adoc_parser.js`, `reader.js`, `command_palette.js`, `app.js`.
-- The shared page and the workspace use the same AsciiDoc parser file `src/bible/static/js/renderers/adoc_parser.js`. There is no copy of the parser in Python strings.
+- `GRAPH_HTML` script order: config, `i18n.js`, `icons.js`, the four engine files (`_GRAPH_ENGINE_FILES`), `doc_content.js`, `reader.js`, `command_palette.js`, `app.js`.
+- The shared page and the workspace use the same file of display helpers `src/bible/static/js/renderers/doc_content.js` (plain text, sanitizer options, math). It has no AsciiDoc converter: see [`DOCUMENT_FORMAT.md`](DOCUMENT_FORMAT.md) §3.2.
 - `localize_page` in `src/claire_bible/web/pages.py` calls `src/bible/web/pages.py` to resolve translation slots (`${html_lang}`, `${t:key}`, `${tj:key}`) once for each locale (`lru_cache` on `_graph_html_for`, `_syndication_html_for`, `_shared_html_for`).
 - `render_graph_html`, `render_syndication_html`, and `shared_html` in `src/claire_bible/web/pages.py` load request and database values and fill the request slots (for example `__SOURCE_BASE_URL__`, `__THEMES_JSON__`, `__CLAIRE_API_BASE__`, `<!-- __GA_TAG__ -->`, `<!-- __I18N_CATALOG__ -->`).
 - A change in a template, CSS, or JS file of these three pages shows only after a server restart, because the bundles are built at import time.

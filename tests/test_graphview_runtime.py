@@ -1,7 +1,7 @@
 """Graphview runtime & JavaScript validation tests.
 
 These tests verify:
-1. Pure static JavaScript files (adoc_parser.js, reader.js, app.js) have valid syntax via `node --check`.
+1. Pure static JavaScript files (doc_content.js, reader.js, app.js) have valid syntax via `node --check`.
 2. Standalone bundled HTML pages (GRAPH_HTML, _SHARED_HTML) have valid JavaScript syntax.
 3. HTML templates and bundles maintain matching structural tags (<head>, <body>, <style>).
 
@@ -54,7 +54,7 @@ def test_static_js_files_syntax(node_available: bool) -> None:
         pytest.skip("Node.js is not installed on the system")
 
     js_files = [
-        _STATIC_JS_DIR / "renderers" / "adoc_parser.js",
+        _STATIC_JS_DIR / "renderers" / "doc_content.js",
         _STATIC_JS_DIR / "reader.js",
         _STATIC_JS_DIR / "app.js",
     ]
