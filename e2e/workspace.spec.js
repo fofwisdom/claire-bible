@@ -770,7 +770,7 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(detailPane).toBeVisible();
 
   // 5. Verify provider manager UI components render (Lineage at top, Google AI Studio, Feature Routing, ServerTier)
-  await expect(detailPane.locator('h2')).toContainText('LLM & 프로바이더 관리');
+  await expect(detailPane.getByRole('heading', { level: 2, name: /LLM & 프로바이더 관리/ })).toBeVisible();
   await expect(page.locator('#prov-lineage-visualizer-card')).toBeVisible();
   const lineageTop = await page.locator('#prov-lineage-visualizer-card').evaluate(el => el.getBoundingClientRect().top);
   const activeTop = await page.locator('#prov-active-select').evaluate(el => el.getBoundingClientRect().top);

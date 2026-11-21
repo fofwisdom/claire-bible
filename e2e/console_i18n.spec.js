@@ -21,7 +21,7 @@ test('the console shows English text for an English browser, in the server text 
   // The provider panel (administrator area): script text with parameters.
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
   const providers = page.locator('#admin-providers-host');
-  await expect(providers.locator('h2')).toHaveText(/LLM and provider management/);
+  await expect(providers.getByRole('heading', { level: 2, name: /LLM and provider management/ })).toBeVisible();
   await expect(providers.getByRole('button', { name: 'Save the settings' })).toBeVisible();
 
   // The inline catalog of a console page has the script keys only; a page that is not in the administrator area has no keys of the administrator scripts.

@@ -30,6 +30,10 @@ This document tells how the web workspace works now. The design principles are i
 | `src/bible/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
 | `src/bible/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
 | `src/bible/static/js/icons.js` | `ClaireIcons`: line icons (Section 9). |
+| `src/bible/static/css/console_ui.css` | Canonical Console UI stylesheet for `/settings/*`, `/admin/*`, and `/moderation/*`, plus `.console-shell` / `body[data-active-area]` scoped overrides for `.claire-*` classes (Section 11). |
+| `src/bible/static/js/console_ui.js` | `ClaireConsoleUI`: client HTML builder helpers for console sections (Section 11). |
+| `src/claire/api/accounts_routes/console_ui.py` | Typed Python HTML builders for server-rendered console sections (Section 11). |
+| `src/claire/api/templates/console_shell.html` | Shared shell template for `/settings/*`, `/admin/*`, and `/moderation/*` (Section 11). |
 | `src/bible/web/pages.py` | Builds the workspace and `/syndication` standalone bundles with `src/bible/web/chrome.py` and gives pure slot-filling helpers (`localize_page`, `render_graph_page`, `render_syndication_page`, `render_shared_page`). |
 | `src/claire_bible/web/pages.py` | Loads settings, themes, and locale data ([`I18N.md`](I18N.md) §4) into `render_graph_html`, `render_syndication_html`, and `shared_html`. |
 
@@ -232,8 +236,50 @@ Each row calls a function that exists. `/syndication` loads the same module with
 
 | Kind | Test |
 | :--- | :--- |
-| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js` |
+| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js`, `e2e/console_ui_consistency.spec.js` (unified console card/button/heading styles, switch controls, sticky TOC, and responsive layout across `/settings/*`, `/admin/*`, and `/moderation/*`) |
 | Markers and runtime | `tests/test_graphview.py`, `tests/test_graphview_runtime.py` |
+| Console UI contract | `tests/test_console_ui_contract.py` (Python builder unit tests, route-level shell and non-nested card contract checks, non-admin CL11 isolation, static JS and partial guardrails) |
 | Active jobs | `tests/test_active_job_slots.py`, `tests/test_active_jobs_theme_isolation.py` |
 
 Tests that fail before a change: [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) §3.
+
+---
+
+## 11. Console UI System
+
+**[code]** All routes under `/settings/*`, `/admin/*`, and `/moderation/*` render inside `src/claire/api/templates/console_shell.html`. The shell loads `src/bible/static/css/console_ui.css`, `src/bible/static/js/console_shell.js`, and `src/bible/static/js/console_ui.js` in that order (with `console_ui.js` before `manage_panels.js`).
+
+### 11.1 Stylesheet (`src/bible/static/css/console_ui.css`)
+
+- **Shell and responsive navigation**: `.console-shell`, `.console-body`, `.console-sidebar`, `.console-main`, `.console-layout` (`.has-toc` when `#console-section-body` contains 3 or more visible `h2` headings), `.console-toc`, `.console-mob-bar`, and `.console-drawer`.
+- **Unboxed host and cards**: `.console-host` provides a gap-spaced flex column without card borders. Top-level cards (`.console-subcard`, `.card`, `.pref-card`) share identical background, border, border-radius (`0.625rem`), padding (`1rem 1.125rem`), and heading typography (`0.9375rem`, weight `700`).
+- **Controls and data blocks**: `.console-card-head`, `.is-split` (`.console-split-meta`, `.console-split-ctrl`), `.console-field`, `.console-form-row`, `.console-form-grid`, `.console-actions`, `.console-kv`, `.pref-input`, `.pref-select`, `.console-textarea`, `.pref-btn` (`.pref-btn-accent`, `.pref-btn-pri`, `.pref-btn-danger`, `.pref-btn-sm`), native checkbox switches (`input[type="checkbox"][switch]`), `.pref-table-wrap` / `.pref-table`, `.pref-notice`, `.result`, `.pref-stat-row` / `.pref-stat`, `.pref-pill`, and `.proto-badge`.
+- **Console-scoped `.claire-*` overrides**: Rules prefixed with `.console-shell` (and `body[data-active-area] dialog.claire-dlg`) align `.claire-card`, `.claire-btn`, `.claire-input`, `.claire-select`, `.claire-textarea`, `.claire-note`, `.claire-tag`, `.claire-srow`, `.claire-kpis`, `.claire-tw`, and `.claire-table` with the console design system while keeping public pages and workspace pages unchanged. Error states use `var(--danger)` and never `var(--error)`.
+
+### 11.2 Python Builders (`src/claire/api/accounts_routes/console_ui.py`)
+
+`console_ui.py` exports 12 typed HTML builder functions that escape untrusted text and validate card tags (`section`, `div`, `form`, `article`) and attribute names:
+
+| Function | Output |
+| :--- | :--- |
+| `console_card` | `<section class="console-subcard">` (or `div`, `form`, `article`) with optional icon, badge, hint, and `.console-card-head` actions |
+| `console_form_card` | `<form class="console-subcard">` wrapper around `console_card` with `action` and `method` attributes |
+| `console_host` | Unboxed `<div class="console-host">` container with optional `outer_id` and `data-*-panel-host` / `data-console-host` attributes |
+| `console_field` | `<label class="console-field">` with escaped label text, control HTML, and optional `.console-field-hint` |
+| `console_toggle_row` | `.pref-row` row with `<input type="checkbox" switch>` |
+| `console_table` | `<div class="pref-table-wrap"><table class="pref-table">` with escaped header cells |
+| `console_notice` | `<div class="pref-notice" data-tone="...">` notice banner |
+| `console_kv` | `<dl class="console-kv">` key-value list supporting plain tuples or row mappings |
+| `console_result` | `<p class="result" role="status" aria-live="polite">` feedback line |
+| `console_stat_row` | `<div class="pref-stat-row">` KPI grid container |
+| `console_actions` | `<div class="console-actions">` button and link row |
+| `console_pill` | `<span class="pref-pill" data-tone="...">` status pill |
+
+### 11.3 Client Builders (`src/bible/static/js/console_ui.js`)
+
+`window.ClaireConsoleUI` exposes client-side equivalents for dynamic panels (`manage_panels.js`, `console_admin.js`, `console_kb.js`, and sibling console scripts):
+
+- `esc(v)` and `icon(name)`
+- `card(opts)`, `field(opts)`, `toggleRow(opts)`, `notice(html, tone, extraClass, attrs)`, `pill(text, tone, extraClass, attrs)`, `table(opts)`, `statRow(items, attrs)`, `kv(rows, attrs)`, `result(id, attrs)`, `btn(label, opts)`, and `actions(html, extraClass)`
+
+`window.ClaireConsoleShell` (`console_shell.js`) runs `enhance(targetRoot)` on load, on tab changes (`[role="tab"]` clicks and `claire:tabchange`), and on DOM mutations inside `#console-section-body` to enhance split cards, inject `td[data-label]`, update `#console-toc`, and hydrate line icons.

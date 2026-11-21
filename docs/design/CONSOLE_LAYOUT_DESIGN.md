@@ -74,4 +74,34 @@
 
 1. `1440×900`, `1280×620`, `390×800` 모든 뷰포트에서 가로 오버플로(`scrollWidth > clientWidth`) 0건, 문서 끝까지 세로 스크롤 가능.
 2. 비관리자 `/settings/*` HTML 및 `/` Command Palette에 `/admin/*`·`console_admin.js` 미포함.
-3. 상단바(`header.appbar`) 높이 및 요소 수 동등성(`e2e/app_bar.spec.js`), 라인 아이콘·무이모지 규칙(`tests/test_ui_line_icons.py`), i18n 카탈로그 분리 규칙(`tests/test_i18n_console.py`, `e2e/console_i18n.spec.js`) 모두 통과.
+3. 상단바(`header.appbar`) 높이 및 요소 수 동등성(`e2e/app_bar.spec.js`), 라인 아이콘·무이모지 규칙(`tests/test_ui_line_icons.py`), i18n 카탈로그 분리 규칙(`tests/test_i18n_console.py`, `e2e/console_i18n.spec.js`), 통합 콘솔 UI 계약 및 일관성 검증(`tests/test_console_ui_contract.py`, `e2e/console_ui_consistency.spec.js`) 모두 통과.
+
+---
+
+## 5. Unified Console UI System and Invariant
+
+Every console route under `/settings/*`, `/admin/*`, and `/moderation/*` uses one shared Console UI System based on the `/settings/account` visual design.
+
+### 5.1 System Layers
+
+1. **Shell template (`src/claire/api/templates/console_shell.html`)**: Renders the shared application bar (`header.appbar`), the collapsible sidebar (`#console-sidebar`), the section header (`.console-sec-head`), `#console-section-body`, and the sticky table of contents (`#console-toc`). It loads `console_ui.css`, `console_ui.js`, and `console_shell.js`.
+2. **Stylesheet (`src/bible/static/css/console_ui.css`)**: Defines the console grid layout, design tokens, card rules (`.console-subcard`, `.card`, `.pref-card`), form primitives (`.console-field`, `.console-form-row`, `.console-form-grid`, `.console-actions`, `.console-kv`, `.pref-input`, `.pref-select`, `.pref-btn`, `.pref-btn-accent`, `.pref-btn-danger`, `.pref-btn-sm`), native checkbox switches (`input[type="checkbox"][switch]`), responsive tables (`.pref-table-wrap` and `.pref-table`), notices (`.pref-notice`), KPI grids (`.pref-stat-row`), and pills (`.pref-pill`). It uses `var(--danger)` for error states and never uses `var(--error)`.
+3. **Server HTML builders (`src/claire/api/accounts_routes/console_ui.py`)**: Provides typed Python HTML builder functions (`console_card`, `console_form_card`, `console_host`, `console_field`, `console_toggle_row`, `console_table`, `console_notice`, `console_kv`, `console_result`, `console_stat_row`, `console_actions`, `console_pill`).
+4. **Client HTML builders (`src/bible/static/js/console_ui.js`)**: Exposes `window.ClaireConsoleUI` (`esc`, `icon`, `card`, `field`, `toggleRow`, `notice`, `pill`, `table`, `statRow`, `kv`, `result`, `btn`, `actions`) for client-rendered sections.
+
+### 5.2 Host Containers and Flat Cards
+
+- Script-mounted areas use `.console-host` (`console_host(...)`), an unboxed container without card borders.
+- Top-level sections inside `#console-section-body` or `.console-host` render as direct sibling `.console-subcard` elements.
+- Do not nest a card (`.card`, `.console-subcard`, `.pref-card`, or `.claire-card`) inside another card.
+
+### 5.3 Scoped `.claire-*` Unification
+
+- `console_ui.css` overrides `.claire-card`, `.claire-card-head`, `.claire-btn`, `.claire-input`, `.claire-select`, `.claire-textarea`, `.claire-note`, `.claire-tag`, `.claire-srow`, `.claire-kpis`, `.claire-kpi`, `.claire-tw`, and `.claire-table` strictly under `.console-shell` (and `dialog.claire-dlg` under `body[data-active-area]`).
+- This scoping aligns shared knowledge base, moderation, and federation console views with `/settings/account` while leaving public `/kb`, `/themes`, `/accounts`, and workspace views unchanged.
+- Console markup and scripts must use `input[type="checkbox"][switch]` and must not emit `.claire-switch`.
+
+### 5.4 Architectural Invariant and Guardrails
+
+- **Invariant**: All current and future features under `/settings/*`, `/admin/*`, and `/moderation/*` must render inside `console_shell.html` and build UI elements through `console_ui.py` (server) and `ClaireConsoleUI` (`console_ui.js`) with `console_ui.css`. Do not add ad-hoc card, switch, button, or inline fake-card styles.
+- **Verification**: `tests/test_console_ui_contract.py` checks builder outputs, all-route shell structure, zero nested cards, zero `var(--error)`, non-admin CL11 isolation, and static JS/partial guardrails. `e2e/console_ui_consistency.spec.js` checks computed card borders, primary button color, heading typography, switch controls, sticky TOC visibility, zero horizontal overflow, zero JS errors, and zero raw i18n keys across desktop and mobile viewports.
