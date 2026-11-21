@@ -13,7 +13,6 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import security
-from claire.api.clients_host import DEV_CLIENTS_PORT
 from claire.api.dev_listeners import dev_listeners
 from claire.api.host_router import HostRoles
 from claire.api.prototype_host import DEV_PROTOTYPE_PORT, PROTOTYPE_PAGE, prototype_authority, registrable_domain
@@ -118,8 +117,6 @@ def test_host_roles_compute_prototype_host():
 def test_dev_listeners_open_the_prototype_port():
     settings = SimpleNamespace(environment="development", inject_host="127.0.0.1", inject_port=8765)
     assert dev_listeners(settings, prototype=PROTO_HOST) == (("127.0.0.1", 8765), ("127.0.0.1", DEV_PROTOTYPE_PORT))
-    clients_host = f"127.0.0.1:{DEV_CLIENTS_PORT}"
-    assert dev_listeners(settings, prototype=PROTO_HOST, clients=clients_host) == (("127.0.0.1", 8765), ("127.0.0.1", DEV_PROTOTYPE_PORT), ("127.0.0.1", DEV_CLIENTS_PORT))
     assert dev_listeners(settings) == (("127.0.0.1", 8765),)
 
 
@@ -174,13 +171,11 @@ def test_e2e_prototype_host_serves_static_page_only(tmp_path):
 
 
 def test_e2e_other_hosts_are_refused(tmp_path):
-    """Only the computed prototype host has the role. Unallocated ports or names return 421, and clients port 8770 returns 404 in uri_path mode."""
+    """Only the computed prototype host has the role. Unallocated ports or names return 421."""
     app = _create_app(tmp_path)
     with TestClient(app, base_url=f"http://{PROTO_HOST}") as client:
-        for host in ("127.0.0.1:8771", "localhost:8769", "prototype.netspheres.org", "prototype.localhost"):
+        for host in ("127.0.0.1:8770", "localhost:8769", "prototype.netspheres.org", "prototype.localhost"):
             res = client.get(f"http://{host}/")
             assert res.status_code == 421, host
             assert "content-security-policy" not in res.headers or "connect-src 'none'" not in res.headers["content-security-policy"], host
-        clients_res = client.get(f"http://127.0.0.1:{DEV_CLIENTS_PORT}/")
-        assert clients_res.status_code == 404
     assert security.lookup_route_rule("GET", "/prototype/syndication") is None

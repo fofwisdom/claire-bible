@@ -19,13 +19,13 @@
 
 ## 1. 개요 및 연결 기본 원칙
 
-Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이션, 개발자 스크립트, 그리고 외부 AI 에이전트(Google Gemini, Google Antigravity, Cursor 등 OAuth 2.1/Streamable HTTP 및 `agent_client` 번들 지원 클라이언트)에서 안전하게 활용할 수 있도록 **표준 REST API**와 **Model Context Protocol (MCP)** 엔드포인트를 단일 ASGI 프로세스(`claire_api`) 내에 통합 제공한다.
+Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이션, 개발자 스크립트, 그리고 외부 AI 에이전트(Claude, Google Antigravity, Cursor 등 OAuth 2.1/Streamable HTTP 및 공식 마켓플레이스 `fofwisdom/claire-agents` 지원 클라이언트)에서 안전하게 활용할 수 있도록 **표준 REST API**와 **Model Context Protocol (MCP)** 엔드포인트를 단일 ASGI 프로세스(`claire_api`) 내에 통합 제공한다.
 
 ### 1.1 접속 주소 (Base URL) 및 Host Authority
 - **개발 환경 (`development`)**: `http://<CB_API_BIND>:<CB_API_PORT>` (예: `http://127.0.0.1:8765` 또는 `http://192.168.10.25:8766`)
 - **프로덕션 환경 (`production`)**: `https://<CLAIRE_FQDN>` (예: `https://claire.example.com` 또는 `https://cb.netspheres.org`)
 - **Host roles** [code] (`HostRouter` in `src/claire/api/host_router.py`):
-  - The `Host` header (with the port) selects the role: `app` (the API and `/mcp`), `usercontent`, `media`, `prototype`, `clients` (`AE1b`: cookieless `agent_client` bundle delivery host `clients.<registrable_domain>` / dev `:8770`, `CSP: default-src 'none'; sandbox`, when `agent_client_delivery_mode="fqdn"`), and `legacy` (old theme FQDNs: before the sunset `GET` and `HEAD` get 308 to the canonical path, other methods get 421; after the sunset 410).
+  - The `Host` header (with the port) selects the role: `app` (the API and `/mcp`), `usercontent`, `media`, `prototype`, and `legacy` (old theme FQDNs: before the sunset `GET` and `HEAD` get 308 to the canonical path, other methods get 421; after the sunset 410).
   - A host name or IP address that has no role gets HTTP `421 Misdirected Request`.
   - 역방향 프록시(Nginx, Cloudflare 등) 구성 시 클라이언트가 요청한 `Host` 헤더를 백엔드로 변조 없이 전달해야 한다. (상세 네트워크 구성은 [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) 참조)
 
@@ -529,10 +529,12 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 
 ### 3.4 클라이언트별 연결 설정
 
-#### 1) Google Antigravity (`claire.antigravity` `agent_client` 번들 + OAuth 2.1, 권장)
-1. 콘솔 `/settings/mcp`에서 `claire.antigravity` 번들을 내려받는다(`uri_path` 모드는 `/clients/antigravity/bundle.tar.gz`, `fqdn` 모드는 `clients.<registrable_domain>/antigravity/bundle.tar.gz`; 60초 HMAC `?t=` 또는 Bearer 인증, `CSP: default-src 'none'; sandbox` 격리 전달).
-2. 번들(`plugins/agent_client/claire.antigravity/client_bundle/`)에는 `mcp_config.json.tmpl`, `rules/AGENTS.md`, `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`가 들어 있다.
-3. `~/.gemini/antigravity/mcp_config.json` (또는 클라이언트 MCP 설정 파일)에 `url` 형식으로 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
+#### 1) Claude · Google Antigravity 공식 마켓플레이스 (`fofwisdom/claire-agents` + OAuth 2.1, 권장)
+1. 콘솔 `/settings/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스 저장소(`fofwisdom/claire-agents`, 정본 소스 `agent_clients/`, GitHub Actions 자동 동기화)를 이용한다:
+   - **Claude**: 마켓플레이스 관리에 `fofwisdom/claire-agents`를 붙여넣어 동기화(`.claude-plugin/marketplace.json`)한 뒤 `claire-claude`를 설치한다.
+   - **Antigravity**: GitHub Releases에서 `claire-antigravity-v*.tar.gz` (또는 `.zip`)와 `SHA256SUMS`를 내려받아 무결성을 검증한 뒤 `~/.gemini/config/plugins/`에 설치한다.
+2. 번들에는 `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다.
+3. `~/.gemini/antigravity/mcp_config.json` 또는 Claude MCP 설정에 `url` 형식으로 본인의 Claire Bible 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
 ```json
 {
   "mcpServers": {

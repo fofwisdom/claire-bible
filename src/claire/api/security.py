@@ -639,35 +639,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/admin/usernames/release"): _system("admin", "none"),
     ("GET", "/admin/server"): _system("admin", "none"),
     ("HEAD", "/admin/server"): _system("admin", "none"),
-    ("POST", "/admin/server"): _system("admin", "none"),
     ("GET", "/api/admin/server"): _system("admin", "none"),
     ("HEAD", "/api/admin/server"): _system("admin", "none"),
     ("POST", "/api/admin/server/mode"): _system("admin", "none"),
-    ("POST", "/api/admin/server/client-delivery"): _system("admin", "none"),
     ("POST", "/api/admin/server/invites"): _system("admin", "none"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin", "none"),
-    ("GET", "/clients"): _system("public", "none"),
-    ("HEAD", "/clients"): _system("public", "none"),
-    ("GET", "/clients/index.json"): _system("public", "none"),
-    ("HEAD", "/clients/index.json"): _system("public", "none"),
-    ("GET", "/clients/info/refs"): _system("public", "none"),
-    ("HEAD", "/clients/info/refs"): _system("public", "none"),
-    ("GET", "/clients.git/info/refs"): _system("public", "none"),
-    ("HEAD", "/clients.git/info/refs"): _system("public", "none"),
-    ("POST", "/clients/git-upload-pack"): _system("public", "none"),
-    ("POST", "/clients.git/git-upload-pack"): _system("public", "none"),
-    ("GET", "/clients/.claude-plugin/marketplace.json"): _system("public", "none"),
-    ("HEAD", "/clients/.claude-plugin/marketplace.json"): _system("public", "none"),
-    ("GET", "/clients/marketplace.json"): _system("public", "none"),
-    ("HEAD", "/clients/marketplace.json"): _system("public", "none"),
-    ("GET", "/clients/{client_id}/manifest.json"): _system("public", "none"),
-    ("HEAD", "/clients/{client_id}/manifest.json"): _system("public", "none"),
-    ("GET", "/clients/{client_id}/bundle.tar.gz"): _system("public", "none"),
-    ("HEAD", "/clients/{client_id}/bundle.tar.gz"): _system("public", "none"),
-    ("GET", "/clients/{client_id}/bundle.zip"): _system("public", "none"),
-    ("HEAD", "/clients/{client_id}/bundle.zip"): _system("public", "none"),
-    ("GET", "/clients/{client_id}/files/{relpath:path}"): _system("public", "none"),
-    ("HEAD", "/clients/{client_id}/files/{relpath:path}"): _system("public", "none"),
     ("GET", "/api/admin/federation"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation"): _system("admin", "none"),
     ("POST", "/api/admin/federation"): _system("admin", "none"),
@@ -2622,15 +2598,6 @@ def _prototype_app(roles: HostRoles) -> ASGIApp | None:
     return create_prototype_app()
 
 
-def _clients_app(settings: Any, config: WebRuntimeConfig, roles: HostRoles, *, secret_service: Any = None) -> ASGIApp | None:
-    """Return the isolated agent client bundle delivery sub-application when configured."""
-    if roles.clients is None:
-        return None
-    from .clients_host import create_clients_app
-
-    return create_clients_app(settings, config=config, secret_service=secret_service)
-
-
 def wrap_web_app(
     app: ASGIApp,
     settings: Any,
@@ -2704,7 +2671,6 @@ def wrap_web_app(
         usercontent=usercontent_app,
         media=media_app,
         prototype=_prototype_app(roles),
-        clients=_clients_app(settings, config, roles, secret_service=sec_svc),
     )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)

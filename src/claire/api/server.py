@@ -73,7 +73,6 @@ from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, Know
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .accounts_routes.common import same_origin
-from .clients_host import clients_app_routes
 from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
@@ -7260,7 +7259,6 @@ def create_app(
         Route("/api/client-extraction/sources/{document_id}/submit", client_extraction_submit_route, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
-        *clients_app_routes(s, config=runtime_cfg),
         Mount("/static/locales", StaticFiles(directory=str(LOCALES_DIR), check_dir=False), name="static-locales"),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
@@ -7379,8 +7377,7 @@ def run_api() -> int:
     from .dev_listeners import dev_listeners
 
     prototype_authority_value = runtime.host_roles.prototype if runtime.host_roles is not None else None
-    clients_authority_value = runtime.host_roles.clients if runtime.host_roles is not None else None
-    listeners = dev_listeners(s, prototype=prototype_authority_value, clients=clients_authority_value)
+    listeners = dev_listeners(s, prototype=prototype_authority_value)
     # The prototype listener (RD20) is a tool of the maintainer on a fixed port. When another process has that port (a second development server, parallel tests), the server starts without it.
     optional_listeners = set(listeners[1:]) - set(dev_listeners(s))
     listen = ", ".join(f"{host}:{port}" for host, port in listeners)

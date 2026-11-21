@@ -1,0 +1,9 @@
+id = "claire-antigravity"
+client_id = "antigravity"
+target = "antigravity"
+name = "Claire Bible (Antigravity)"
+agent_name = "Antigravity"
+version = "0.1.0"
+license = "MIT"
+required_scopes = ["readonly", "write"]
+description = "Antigravity plugin bundle for OAuth 2.1 MCP connection, isolated source extraction, and knowledge graph queries."

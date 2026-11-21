@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import ORIGIN_PROJECT, STATE_ENABLED, STATE_FAILED, STATE_INVALID, TYPE_AGENT_CLIENT, TYPE_INGEST_ADAPTER
+from . import ORIGIN_PROJECT, STATE_ENABLED, STATE_FAILED, STATE_INVALID, TYPE_INGEST_ADAPTER
 from .context import PluginCommand, PluginContext, RegisteredEntry
 from .discovery import PluginStatus, compute_states, discover
 from .manifest import python_name
@@ -76,19 +76,6 @@ class Snapshot:
     def status(self, plugin_id: str) -> PluginStatus | None:
         for status in self.statuses:
             if status.id == plugin_id:
-                return status
-        return None
-
-    def agent_clients(self) -> list[PluginStatus]:
-        return [
-            status
-            for status in self.statuses
-            if status.state == STATE_ENABLED and status.manifest is not None and status.manifest.type == TYPE_AGENT_CLIENT
-        ]
-
-    def agent_client(self, client_id: str) -> PluginStatus | None:
-        for status in self.agent_clients():
-            if status.manifest is not None and status.manifest.client_id == client_id:
                 return status
         return None
 
@@ -201,12 +188,6 @@ class PluginRuntime:
             snapshot = self._refresh(project, folder, db_file)
             self._snapshot, self._snapshot_key, self._taken_at = snapshot, key, time.monotonic()
             return snapshot
-
-    def agent_clients(self, *, settings: Any = None) -> list[PluginStatus]:
-        return self.current(settings=settings).agent_clients()
-
-    def agent_client(self, client_id: str, *, settings: Any = None) -> PluginStatus | None:
-        return self.current(settings=settings).agent_client(client_id)
 
     def _read_records(self, db_file: Path, discovery: Any) -> tuple[Any, bool]:
         from ..store import plugins as store

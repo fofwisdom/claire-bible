@@ -1,0 +1,36 @@
+name: Agent Marketplace Check
+
+on:
+  pull_request:
+    paths:
+      - "agent_clients/**"
+      - "scripts/build_agent_marketplace.py"
+      - "src/claire/api/mcp_tools.py"
+      - "src/claire/ingest/client_extraction.py"
+      - "tests/test_agent_marketplace_build.py"
+      - ".github/workflows/agent-marketplace-check.yml"
+      - ".github/workflows/publish-agent-marketplace.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python 3.11
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Validate agent sources and dry-run marketplace build
+        run: uv run --no-sync python scripts/build_agent_marketplace.py --check --out /tmp/claire-agents-dryrun
+
+      - name: Run agent marketplace build and contract tests
+        run: PYTHONPATH=. uv run --no-sync pytest tests/test_agent_marketplace_build.py

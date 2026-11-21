@@ -572,6 +572,10 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = Field(
         default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"
     )
+    # Public GitHub owner/repo hosting agent marketplace bundles synced from agent_clients/.
+    agent_marketplace_repo: str = Field(
+        default="fofwisdom/claire-agents", alias="CLAIRE_AGENT_MARKETPLACE_REPO"
+    )
     # Google Analytics 4 측정 ID (예: G-XXXXXXXXXX, GTM-XXXXXXX). 미설정 시 GA 비활성화.
     ga_measurement_id: str = Field(
         default="", alias="CLAIRE_GA_MEASUREMENT_ID"

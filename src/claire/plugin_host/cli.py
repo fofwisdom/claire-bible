@@ -274,7 +274,7 @@ def add_parser(sub: Any) -> None:
     """Add ``plugin`` and its subcommands to the ``claire`` parser."""
     p = sub.add_parser(
         "plugin",
-        help="list, check, and switch plugins (ingest adapters and agent clients); run plugin commands",
+        help="list, check, and switch plugins; run plugin commands",
         description="Plugins of this server: the project plugin folder <app root>/plugins and the plugin folder CLAIRE_PLUGINS_DIR. See docs/implementation/INGESTION.md section 2.",
     )
     ps = p.add_subparsers(dest="plugin_action", required=True)

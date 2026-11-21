@@ -97,11 +97,6 @@ def get_status(plugin_id: str, settings: Any = None) -> PluginStatus:
     return status
 
 
-def get_agent_client(client_id: str, settings: Any = None, *, fresh: bool = False) -> PluginStatus | None:
-    """Return the enabled ``agent_client`` plugin for ``client_id``, or ``None``."""
-    return snapshot(settings, fresh=fresh).agent_client(client_id)
-
-
 def _audit(settings: Any, *, actor: int | None, action: str, detail: dict[str, Any]) -> None:
     from ..store import auth_db
     from ..store import db as dbm
@@ -237,7 +232,6 @@ __all__ = [
     "STATE_ENABLED",
     "SwitchResult",
     "delete_record",
-    "get_agent_client",
     "get_status",
     "list_plugins",
     "running_core_commit",

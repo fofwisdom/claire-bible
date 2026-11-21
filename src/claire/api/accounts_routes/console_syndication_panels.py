@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 import string
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any
 
 from ...core import ids
@@ -21,10 +20,11 @@ from ...i18n import interpolate, t
 from ...store import accounts as accounts_store
 from ...store import db as dbm
 from ...store.knowledge_base import KnowledgeBaseInfo
-from .. import clients_host
-from ..host_router import HostRoles
 from .common import TEMPLATES_DIR, AccountsContext, escape, format_ts, open_db
 from .console_ui import console_card, console_notice, console_pill
+
+DEFAULT_AGENT_MARKETPLACE_REPO = "fofwisdom/claire-agents"
+_MARKETPLACE_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
     {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
@@ -89,21 +89,15 @@ def _no_theme_body(slug: str, *, themes_href: str) -> str:
     )
 
 
-def _resolve_delivery_settings_and_roles(ctx: AccountsContext, settings: Any) -> tuple[Any, HostRoles | None, bool]:
+def _resolve_agent_marketplace_repo(ctx: AccountsContext, settings: Any) -> str:
     cfg = getattr(ctx, "config", None)
-    settings_obj = settings or cfg or SimpleNamespace(db_file=getattr(ctx, "db_file", None), data_dir=getattr(ctx, "data_dir", None))
-    roles = getattr(cfg, "host_roles", None)
-    if roles is None and cfg is not None and hasattr(cfg, "environment") and hasattr(cfg, "expected_authority"):
-        try:
-            roles = HostRoles.from_settings(settings_obj, environment=cfg.environment, app_authority=cfg.expected_authority)
-        except Exception:
-            roles = None
-    anon_ro = bool(getattr(cfg, "anonymous_readonly", getattr(settings_obj, "anonymous_readonly", False)))
-    return settings_obj, roles, anon_ro
+    raw = str(getattr(settings, "agent_marketplace_repo", None) or getattr(cfg, "agent_marketplace_repo", None) or "").strip()
+    if _MARKETPLACE_REPO_RE.fullmatch(raw):
+        return raw
+    return DEFAULT_AGENT_MARKETPLACE_REPO
 
 
-def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account, oauth_grants: list[dict[str, Any]], client_delivery: dict[str, Any] | None) -> dict[str, Any]:
-    bundle_downloaded = clients_host.has_agent_bundle_downloaded(conn, account.id)
+def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account, oauth_grants: list[dict[str, Any]]) -> dict[str, Any]:
     pending_row = conn.execute(
         "SELECT COUNT(*) FROM documents d JOIN knowledge_bases k ON k.id = d.kb_id WHERE k.account_id = ? AND d.extraction_status = 'pending'",
         (int(account.id),),
@@ -115,16 +109,13 @@ def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account,
     pending_docs = int(pending_row[0]) if pending_row else 0
     agent_extractions = int(extracted_row[0]) if extracted_row else 0
     has_write_oauth = any({"write", "owner"} & set(str(g.get("scope") or "").replace(",", " ").split()) for g in oauth_grants)
-    has_clients = bool(client_delivery and client_delivery.get("clients"))
     step1_ok = account.extraction_mode == "client"
-    step2_ok = has_clients and (bundle_downloaded or len(oauth_grants) > 0 or agent_extractions > 0)
-    step3_ok = has_write_oauth
-    step4_ok = agent_extractions > 0
+    step2_ok = has_write_oauth
+    step3_ok = agent_extractions > 0
     return {
         "step1_ok": step1_ok,
         "step2_ok": step2_ok,
         "step3_ok": step3_ok,
-        "step4_ok": step4_ok,
         "pending_docs": pending_docs,
         "agent_extractions": agent_extractions,
     }
@@ -137,21 +128,19 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
     step1_ok = bool(progress.get("step1_ok"))
     step2_ok = bool(progress.get("step2_ok"))
     step3_ok = bool(progress.get("step3_ok"))
-    step4_ok = bool(progress.get("step4_ok"))
     pending_docs = int(progress.get("pending_docs") or 0)
     agent_extractions = int(progress.get("agent_extractions") or 0)
     done_text = t("console.synd.mcp.guide_status_done")
     pending_text = t("console.synd.mcp.guide_status_pending")
-    step4_badge = (
-        t("console.synd.mcp.guide_step_4_counts_done", extracted=agent_extractions, pending=pending_docs)
-        if step4_ok
-        else t("console.synd.mcp.guide_step_4_counts_pending", extracted=agent_extractions, pending=pending_docs)
+    step3_badge = (
+        t("console.synd.mcp.guide_step_3_counts_done", extracted=agent_extractions, pending=pending_docs)
+        if step3_ok
+        else t("console.synd.mcp.guide_step_3_counts_pending", extracted=agent_extractions, pending=pending_docs)
     )
     steps_spec = (
         (1, step1_ok, done_text if step1_ok else pending_text),
         (2, step2_ok, done_text if step2_ok else pending_text),
-        (3, step3_ok, done_text if step3_ok else pending_text),
-        (4, step4_ok, step4_badge),
+        (3, step3_ok, step3_badge),
     )
     done_count = sum(1 for _i, ok, _badge in steps_spec if ok)
     steps_html = "".join(
@@ -164,8 +153,8 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
     )
     mode_pill = console_pill(mode_text, tone="ok" if step1_ok else "danger")
     progress_pill = console_pill(
-        t("console.synd.mcp.guide_progress_badge", done=done_count, total=4),
-        tone="ok" if done_count == 4 else ("warn" if done_count > 0 else "danger"),
+        t("console.synd.mcp.guide_progress_badge", done=done_count, total=3),
+        tone="ok" if done_count == 3 else ("warn" if done_count > 0 else "danger"),
     )
     body_html = (
         f'<p class="pref-desc">{escape(t("console.synd.mcp.guide_desc"))}</p>'
@@ -192,74 +181,41 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
     )
 
 
-def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
-    mode = str(summary.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
-    active_base = str(summary.get("active_base_url") or "/clients")
-    marketplace_url = str(summary.get("marketplace_url") or active_base)
-    clients = summary.get("clients") or []
-    rows = []
-    for client in clients:
-        cid = str(client.get("client_id") or "")
-        pid = str(client.get("plugin_id") or "")
-        manifest_url = str(client.get("manifest_url") or "")
-        bundle_url = str(client.get("bundle_url") or "")
-        bundle_zip_url = str(client.get("bundle_zip_url") or "")
-        file_links = []
-        for entry in client.get("files") or []:
-            fpath = str(entry.get("path") or "")
-            furl = str(entry.get("url") or "")
-            fsha = str(entry.get("sha256") or "")
-            short_sha = fsha[:12] if fsha else "-"
-            file_links.append(
-                f'<div><a href="{escape(furl)}"><code class="pref-mono">{escape(fpath)}</code></a> '
-                f'<code class="pref-mono" data-sha256="{escape(fsha)}" title="{escape(fsha)}">{escape(short_sha)}</code></div>'
-            )
-        files_html = "".join(file_links) or "-"
-        bundle_links = f'<div><a href="{escape(bundle_url)}">bundle.tar.gz</a></div>' + (f'<div><a href="{escape(bundle_zip_url)}">bundle.zip</a></div>' if bundle_zip_url else "")
-        rows.append(
-            f'<tr data-agent-client-row="{escape(cid)}">'
-            f'<td><strong>{escape(cid)}</strong><br/><code class="pref-mono">{escape(pid)}</code></td>'
-            f'<td><a href="{escape(manifest_url)}">manifest.json</a></td>'
-            f"<td>{bundle_links}</td>"
-            f"<td>{files_html}</td></tr>"
-        )
-    tbody = "".join(rows) or f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.synd.mcp.bundles_empty"))}</td></tr>'
-    auth_note = (
-        f'<p class="pref-desc">{escape(t("console.synd.mcp.bundles_auth_note", ttl=clients_host.BUNDLE_TOKEN_TTL))}</p>'
-        if summary.get("requires_auth")
-        else f'<p class="pref-desc">{escape(t("console.synd.mcp.bundles_public_note"))}</p>'
-    )
+def _render_agent_marketplace_block(repo: str) -> str:
+    git_url = f"https://github.com/{repo}.git"
+    releases_url = f"https://github.com/{repo}/releases"
     agent_guidance = console_notice(
         f'<ul style="margin:0;padding-left:1.1rem;display:grid;gap:4px">'
-        f'<li>{escape(t("console.synd.mcp.bundles_agent_guide_claude"))}</li>'
-        f'<li>{escape(t("console.synd.mcp.bundles_agent_guide_antigravity"))}</li>'
+        f'<li>{escape(t("console.synd.mcp.marketplace_guide_claude", repo=repo))}</li>'
+        f'<li>{escape(t("console.synd.mcp.marketplace_guide_antigravity"))}</li>'
         "</ul>"
     )
     body_html = (
-        f"{auth_note}"
+        f'<p class="pref-desc">{escape(t("console.synd.mcp.marketplace_desc"))}</p>'
         '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_mode"))}</strong><span>{escape(t("console.synd.mcp.bundles_mode_desc"))}</span></div>'
-        f'<code id="pref-mcp-client-delivery-mode" class="pref-mono">{escape(mode)}</code>'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_repo_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_repo_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-repo" class="pref-mono">{escape(repo)}</code>'
+        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-marketplace-repo">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
         '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_endpoint_shared"))}</strong><span>{escape(t("console.synd.mcp.bundles_endpoint_shared_desc"))}</span></div>'
-        f'<div class="pref-endpoint"><code id="pref-mcp-client-delivery-base" data-marketplace-root class="pref-mono">{escape(marketplace_url)}</code>'
-        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-delivery-base">{escape(t("console.common.copy"))}</button></div>'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_git_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_git_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-git" class="pref-mono">{escape(git_url)}</code>'
+        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-marketplace-git">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
-        f'<div style="margin:8px 0 12px">{agent_guidance}</div>'
-        '<div class="pref-table-wrap"><table class="pref-table">'
-        f'<thead><tr><th>{escape(t("console.synd.mcp.bundles_col_client"))}</th><th>{escape(t("console.synd.mcp.bundles_col_manifest"))}</th><th>{escape(t("console.synd.mcp.bundles_col_bundle"))}</th><th>{escape(t("console.synd.mcp.bundles_col_files"))}</th></tr></thead>'
-        f'<tbody id="pref-mcp-client-bundles-tbody">{tbody}</tbody>'
-        "</table></div>"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_releases_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_releases_desc"))}</span></div>'
+        f'<a id="pref-mcp-marketplace-releases" class="pref-btn" href="{escape(releases_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_releases_link"))}</a>'
+        "</div>"
+        f'<div style="margin:8px 0 4px">{agent_guidance}</div>'
     )
     return console_card(
-        escape(t("console.synd.mcp.bundles_title_shared")),
+        escape(t("console.synd.mcp.marketplace_title")),
         body_html,
         id="pref-mcp-client-bundles",
         icon="puzzle",
         split=False,
         extra_class="pref-card",
-        attrs={"data-delivery-mode": mode},
+        attrs={"data-marketplace-repo": repo},
     )
 
 
@@ -297,21 +253,14 @@ def build_syndication_section(
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     oauth_grants: list[dict[str, Any]] = []
-    client_delivery: dict[str, Any] | None = None
+    marketplace_repo: str | None = None
     onboarding_progress: dict[str, Any] = {}
     if slug == "mcp":
-        settings_obj, roles, anon_ro = _resolve_delivery_settings_and_roles(ctx, settings)
+        marketplace_repo = _resolve_agent_marketplace_repo(ctx, settings)
         conn = open_db(ctx)
         try:
             oauth_grants = dbm.list_account_oauth_grants(conn, account.id)
-            client_delivery = clients_host.delivery_summary(
-                conn,
-                settings_obj,
-                roles,
-                account_id=account.id,
-                anonymous_readonly=anon_ro,
-            )
-            onboarding_progress = _query_agent_onboarding_progress(conn, account, oauth_grants, client_delivery)
+            onboarding_progress = _query_agent_onboarding_progress(conn, account, oauth_grants)
         finally:
             conn.close()
     grant_rows = "".join(
@@ -331,7 +280,7 @@ def build_syndication_section(
         "oauth_grants_rows": grant_rows,
         "deprecation_notice_html": deprecation_notice_html,
         "agent_extraction_guide_html": _render_agent_extraction_guide_block(account, onboarding_progress) if slug == "mcp" else "",
-        "agent_clients_delivery_html": _render_agent_clients_delivery_block(client_delivery) if client_delivery is not None else "",
+        "agent_clients_delivery_html": _render_agent_marketplace_block(marketplace_repo) if marketplace_repo is not None else "",
     }
     panel_html = _render_partial(slug, values)
     root_attrs = {
@@ -352,8 +301,12 @@ def build_syndication_section(
         "owned_theme_refs": owned_refs,
         "nav_slugs": list(THEME_SCOPED_NAV_SLUGS),
     }
-    if client_delivery is not None:
-        syndication_bootstrap["agent_client_delivery"] = client_delivery
+    if marketplace_repo is not None:
+        syndication_bootstrap["agent_marketplace"] = {
+            "repo": marketplace_repo,
+            "git_url": f"https://github.com/{marketplace_repo}.git",
+            "releases_url": f"https://github.com/{marketplace_repo}/releases",
+        }
     return SettingsSectionRender(
         body_html=body_html,
         extra_bootstrap={"syndication": syndication_bootstrap},

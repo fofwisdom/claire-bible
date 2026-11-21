@@ -296,27 +296,46 @@ def test_js_bundle_scopes_storage_and_excludes_operator_data():
         assert re.search(rf"\b{slug}: init\w+", src), slug
 
 
-def test_settings_mcp_client_bundles_panel_is_localized(env):
+def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest.MonkeyPatch):
     en_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"})
     assert en_resp.status_code == 200
-    assert "Agent Client Bundles · Shared Marketplace" in en_resp.text
-    assert "Shared marketplace &amp; bundle root path" in en_resp.text
-    root_match = re.search(r'id="pref-mcp-client-delivery-base"[^>]*>([^<]+)<', en_resp.text)
-    assert root_match is not None
-    assert root_match.group(1).endswith("/clients")
-    assert ".claude-plugin/marketplace.json" not in root_match.group(1)
+    assert "Official Agent Marketplace (GitHub)" in en_resp.text
+    assert 'id="pref-mcp-marketplace-repo" class="pref-mono">fofwisdom/claire-agents<' in en_resp.text
+    assert 'id="pref-mcp-marketplace-git" class="pref-mono">https://github.com/fofwisdom/claire-agents.git<' in en_resp.text
+    assert 'href="https://github.com/fofwisdom/claire-agents/releases"' in en_resp.text
+    en_boot = _bootstrap(en_resp.text)
+    assert en_boot["syndication"]["agent_marketplace"] == {
+        "repo": "fofwisdom/claire-agents",
+        "git_url": "https://github.com/fofwisdom/claire-agents.git",
+        "releases_url": "https://github.com/fofwisdom/claire-agents/releases",
+    }
     assert "Antigravity · Cursor · MCP Clients" in en_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in en_resp.text, retired
 
     ko_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
     assert ko_resp.status_code == 200
-    assert "에이전트 클라이언트 번들 · 공통 마켓플레이스" in ko_resp.text
-    assert "공통 마켓플레이스 · 번들 최상단 경로" in ko_resp.text
-    ko_root_match = re.search(r'id="pref-mcp-client-delivery-base"[^>]*>([^<]+)<', ko_resp.text)
-    assert ko_root_match is not None and ".claude-plugin/marketplace.json" not in ko_root_match.group(1)
+    assert "공식 에이전트 마켓플레이스 (GitHub)" in ko_resp.text
+    assert 'id="pref-mcp-marketplace-repo" class="pref-mono">fofwisdom/claire-agents<' in ko_resp.text
+    assert 'href="https://github.com/fofwisdom/claire-agents/releases"' in ko_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in ko_resp.text, retired
+
+    # CLAIRE_AGENT_MARKETPLACE_REPO overrides the displayed repository safely, while invalid values fall back to default.
+    monkeypatch.setenv("CLAIRE_AGENT_MARKETPLACE_REPO", "fork-owner/fork-claire-agents")
+    override_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(env.db_file), CLAIRE_VAULT_PATH=str(env.db_file.parent))
+    assert override_settings.agent_marketplace_repo == "fork-owner/fork-claire-agents"
+    ctx = SimpleNamespace(db_file=env.db_file, data_dir=env.db_file.parent, config=override_settings)
+    alice_acc = accounts_store.Account(
+        id=2, public_id=(1 << 57) + 202, username=MEMBER_USERNAME, role="member", status="active",
+        display_name="Alice", profile_public=True, created_at=0.0, activated_at=0.0, delete_after=None, updated_at=0.0,
+    )
+    rendered_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=override_settings)
+    assert "fork-owner/fork-claire-agents" in rendered_override.body_html
+    assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fork-owner/fork-claire-agents"
+
+    invalid_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=SimpleNamespace(agent_marketplace_repo="javascript:alert(1)"))
+    assert invalid_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fofwisdom/claire-agents"
 
 
 def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
@@ -339,63 +358,55 @@ def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
 
 
 def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
-    # Initially: all 4 steps are pending (red: data-ok="false").
+    # Initially: all 3 steps are pending (red: data-ok="false").
     initial_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "0 / 4 completed" in initial_html
-    for step_idx in range(1, 5):
+    assert "0 / 3 completed" in initial_html
+    for step_idx in range(1, 4):
         assert f'data-step="{step_idx}" data-ok="false"' in initial_html
 
     # Step 1: Switch account extraction_mode to client.
     assert env.client.patch("/api/me", headers=env.alice_owner, json={"extraction_mode": "client"}).status_code == 200
     s1_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "1 / 4 completed" in s1_html
+    assert "1 / 3 completed" in s1_html
     assert 'data-step="1" data-ok="true"' in s1_html
     assert 'data-step="2" data-ok="false"' in s1_html
+    assert 'data-step="3" data-ok="false"' in s1_html
 
-    # Step 2: Download a signed bundle URL from /settings/mcp -> marks Step 2 green!
-    bundle_match = re.search(r'href="([^"]+/antigravity/bundle\.zip\?t=[^"]+)"', s1_html)
-    assert bundle_match is not None
-    dl_resp = env.client.get(bundle_match.group(1).replace("&amp;", "&"))
-    assert dl_resp.status_code == 200
-    s2_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "2 / 4 completed" in s2_html
-    assert 'data-step="2" data-ok="true"' in s2_html
-
-    # Step 3: Issue an OAuth 2.1 token with write scope -> marks Step 3 green!
+    # Step 2: Issue an OAuth 2.1 token with write scope -> marks Step 2 green!
     now = time.time()
     conn = dbm.connect_existing(env.db_file)
     try:
         conn.execute(
             "INSERT INTO oauth_clients (client_id, client_secret, client_name, redirect_uris, created_at) VALUES (?, NULL, ?, ?, ?)",
-            ("cli-test-step3", "Test Step 3 Client", json.dumps(["http://127.0.0.1:9999/cb"]), now),
+            ("cli-test-step2", "Test Step 2 Client", json.dumps(["http://127.0.0.1:9999/cb"]), now),
         )
         conn.execute(
-            "INSERT INTO oauth_tokens (token, refresh_token, client_id, scope, granted_scope, created_at, expires_at, account_id) VALUES (?, ?, 'cli-test-step3', 'write', 'write', ?, ?, ?)",
-            ("tok-step3-" + "x" * 24, "ref-step3-" + "y" * 24, now, now + 3600, 2),
+            "INSERT INTO oauth_tokens (token, refresh_token, client_id, scope, granted_scope, created_at, expires_at, account_id) VALUES (?, ?, 'cli-test-step2', 'write', 'write', ?, ?, ?)",
+            ("tok-step2-" + "x" * 24, "ref-step2-" + "y" * 24, now, now + 3600, 2),
         )
         conn.commit()
     finally:
         conn.close()
-    s3_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "3 / 4 completed" in s3_html
-    assert 'data-step="3" data-ok="true"' in s3_html
-    assert 'data-step="4" data-ok="false"' in s3_html
+    s2_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "2 / 3 completed" in s2_html
+    assert 'data-step="2" data-ok="true"' in s2_html
+    assert 'data-step="3" data-ok="false"' in s2_html
 
-    # Step 4: Record an agent_client extraction in the user's personal KB -> all 4 steps green!
+    # Step 3: Record an agent_client extraction in the user's personal KB -> all 3 steps green!
     conn = dbm.connect_existing(env.db_file)
     try:
         conn.execute(
             "INSERT INTO documents (id, kb_id, url, title, extraction_status, fetched_at) VALUES (?, ?, ?, ?, 'extracted', ?)",
-            ("doc-step4", int(env.alice_def.id), "https://example.test/1", "Doc Step 4", now),
+            ("doc-step3", int(env.alice_def.id), "https://example.test/1", "Doc Step 3", now),
         )
         conn.execute(
             "INSERT INTO extractions (document_id, kb_id, provider, model, prompt_version, raw_response, created_at) VALUES (?, ?, 'agent_client', 'antigravity', 'agent-extract-v1', '{}', ?)",
-            ("doc-step4", int(env.alice_def.id), now),
+            ("doc-step3", int(env.alice_def.id), now),
         )
         conn.commit()
     finally:
         conn.close()
-    s4_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
-    assert "4 / 4 완료" in s4_html
-    for step_idx in range(1, 5):
-        assert f'data-step="{step_idx}" data-ok="true"' in s4_html
+    s3_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
+    assert "3 / 3 완료" in s3_html
+    for step_idx in range(1, 4):
+        assert f'data-step="{step_idx}" data-ok="true"' in s3_html

@@ -38,12 +38,12 @@ def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers for Track C and Track D E2E tiers."""
     markers = [
         "track_c: Track C unified OAuth 2.1, Telegram-free login, and manual token deprecation tests",
-        "track_d: Track D agent_client plugin, delivery isolation, staging, and client extraction tests",
-        "ae1a: AE1a agent_client plugin manifest and zero-network/zero-subprocess lock tests",
-        "ae1b: AE1b fixed bundle delivery (uri_path vs fqdn) and clients host isolation tests",
+        "track_d: Track D agent marketplace, staging, and client extraction tests",
+        "ae1a: AE1a agent marketplace source validation and contract tests",
+        "ae1b: AE1b marketplace metadata and settings UI guidance tests",
         "ae4: AE4 per-account extraction_mode, full-content staging, and pending isolation tests",
         "ae5: AE5 client extraction MCP/HTTP contract, validation gates, and atomic commit tests",
-        "ae7: AE7 reference claire.antigravity bundle discovery and end-to-end extraction tests",
+        "ae7: AE7 reference agent plugin extraction flow and documentation tests",
         "tier1: Tier 1 isolated happy-path E2E tests",
         "tier2: Tier 2 boundary, negative, and security-invariant E2E tests",
         "tier3: Tier 3 pairwise cross-feature combination E2E tests",

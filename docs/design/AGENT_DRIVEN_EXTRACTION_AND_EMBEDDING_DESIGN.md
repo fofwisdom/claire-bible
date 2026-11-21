@@ -1,7 +1,7 @@
 # Agent-Driven Extraction, `agent_client` Plugins, Unified OAuth 2.1, and Embedding EOS Lifecycle
 
-- **Status**: Implemented (Tracks A–D: `AE8`, `AE6a`–`AE6d`, `AE2a`–`AE2b`, `AE3`, `AE1a`–`AE1b`, `AE4`, `AE5`, `AE7`; `AED1`–`AED10` + `AED11` Stage 1) → [`PROVIDERS.md`](../implementation/PROVIDERS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`INGESTION.md`](../implementation/INGESTION.md), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md), [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md), [`COMMANDS.md`](../implementation/COMMANDS.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md); `AED11` Stage 2 multimodal vector extension remains future design scope
-- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 `AED1`–`AED9` locked; Rev. 2.1 `gemini-embedding-2` plan added; Rev. 2.2 `AED10`–`AED11` locked; Rev. 2.3 `AED6` baseline and `AED8` scope clarified; Rev. 2.4 staging schema/`document_id` unified and 4-layer `AED9` prompt-injection defense restored; Rev. 2.5 4-track parallel implementation split)
+- **Status**: Implemented (Tracks A–D: `AE8`, `AE6a`–`AE6d`, `AE2a`–`AE2b`, `AE3`, `AE4`, `AE5`, plus `AED3-rev` GitHub Actions-managed marketplace pipeline superseding self-hosted `clients_host` / `plugin_host` `agent_client` runtime; `AED1`–`AED11` Stage 1) → [`PROVIDERS.md`](../implementation/PROVIDERS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`INGESTION.md`](../implementation/INGESTION.md), [`ACCOUNTS.md`](../implementation/ACCOUNTS.md), [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md), [`COMMANDS.md`](../implementation/COMMANDS.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md); `AED11` Stage 2 multimodal vector extension remains future design scope
+- **Date**: 2026-11-20 (Rev. 1 proposal; Rev. 2 `AED1`–`AED9` locked; Rev. 2.1 `gemini-embedding-2` plan added; Rev. 2.2 `AED10`–`AED11` locked; Rev. 2.3 `AED6` baseline and `AED8` scope clarified; Rev. 2.4 staging schema/`document_id` unified and 4-layer `AED9` prompt-injection defense restored; Rev. 2.5 4-track parallel implementation split; **Rev. 2.6 (2026-11-22): `AED3` superseded by `AED3-rev` — retire self-hosted bundle delivery in favor of GitHub Actions-managed `fofwisdom/claire-agents`**)
 - **Principles**: [`PRINCIPLES.md`](../PRINCIPLES.md) A1–A4, B1–B4, C1–C5, D1–D3, E1–E4, G1
 - **Related docs**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md), [`KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md`](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`PROVIDERS.md`](../implementation/PROVIDERS.md)
 
@@ -26,8 +26,8 @@ Claire Bible inverts control:
 
 ```
 +-------------------------------------------------------------------+
-| User Workstation (Antigravity IDE / agy CLI / Antigravity 2.0)    |
-|  - Installs agent_client bundle from fixed Claire server URL/FQDN |
+| User Workstation (Claude / Antigravity IDE / agy CLI)              |
+|  - Installs plugin from fofwisdom/claire-agents (GitHub Actions)  |
 |  - Authenticates via OAuth 2.1 (PKCE S256; readonly / write)      |
 |  - Claims staged full raw source, extracts structured JSON locally |
 +---------------------------------+---------------------------------+
@@ -35,7 +35,7 @@ Claire Bible inverts control:
                                   v
 +-------------------------------------------------------------------+
 | Claire Bible Server                                               |
-|  - Serves agent_client bundle (uri_path OR clients.<domain> FQDN) |
+|  - Points /settings/mcp to official GitHub marketplace repo       |
 |  - OAuth 2.1 provider (/login?tx= Telegram-free + optional RFC8628|
 |  - Staging store (full_content=True), schema/ontology validation  |
 |  - Option B Embedding (gemini-embedding-2 baseline + EOS backfill)  |
@@ -53,7 +53,7 @@ All eleven design questions (`AEQ1`–`AEQ11`) are resolved:
 | :--- | :--- | :--- |
 | `AED1` | New plugin type name | Name the new plugin type **`agent_client`**. Keep **`ingest_adapter`** as the existing server-side adapter type. |
 | `AED2` | Plugin API version | Keep `PLUGIN_API_LEVEL = 1` across experimental changes. Do not increment the integer for `agent_client` API additions during the experimental phase. |
-| `AED3` | Client bundle delivery | Deliver `agent_client` bundles from the Claire Bible server using a WebUI server-settings switch between a fixed derived **FQDN** and a fixed **URI path**. The server administrator selects only the delivery method and cannot customize hostnames or paths. |
+| `AED3-rev` *(Supersedes `AED3`, 2026-11-22)* | Agent marketplace distribution | Retire self-hosted `clients_host` / `/clients*` delivery, `agent_client_delivery_mode`, and the `plugin_host` `agent_client` runtime type (`plugin_host` remains `ingest_adapter`-only). Maintain static agent plugin sources under `agent_clients/` in `fofwisdom/claire-bible`, validate and deterministically build outputs with `scripts/build_agent_marketplace.py`, and publish to the dedicated public repository `fofwisdom/claire-agents` via `.github/workflows/agent-marketplace-check.yml` and `.github/workflows/publish-agent-marketplace.yml` using short-lived GitHub App tokens. Support optional fork override via `CLAIRE_AGENT_MARKETPLACE_REPO`, keep `"clients"` in `RESERVED_USERNAMES`, and keep `provider = 'agent_client'` in extraction provenance. |
 | `AED4` | Extraction mode scope | `extraction_mode` (`provider` \| `client`) is configured **per account**. |
 | `AED5` | Token and OAuth unification | Deprecate manual persistent Bearer tokens (`api_tokens.json`, `/tokens`, `claire token`, Telegram `/token`) and unify authentication on **OAuth 2.1** (`readonly` and `write` scopes) following Modern Web Guidance. Ensure OAuth works cleanly when no Telegram bot is configured. |
 | `AED6` | Google baseline for current implementation & Option B embedding | Remove unimplemented `openai` placeholders from `PROVIDERS.md`, `MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md` §10.4, and `MULTI_PROVIDER_DESIGN.md`. Document Google (`gemini`, `gemini-embedding-2` pinned at `3072` dimensions per `AED10`, migrating `gemini-embedding-001` before May 14, 2028) as the current implementation and Option B embedding design baseline while keeping general `api-key` provider extensibility open. |
@@ -73,64 +73,39 @@ All eleven design questions (`AEQ1`–`AEQ11`) are resolved:
 - **Ingest Adapter Plugin (`ingest_adapter`)**: Existing server-side Python plugin (`PLUGIN_TYPES = ("ingest_adapter",)` in `src/claire/plugin_host/manifest.py`) that fetches external sources inside the server process.
 - **Agent Client Plugin (`agent_client`)**: A new plugin category (`AED1`) containing declarative, client-consumable artifacts that teach an external user agent (Antigravity) how to connect to the user's Claire Bible server, authenticate via OAuth 2.1, claim staged sources, extract knowledge matching Claire's ontology schema, and query the graph.
 
-### 3.2 Plugin Host Registry & Manifest Changes
+### 3.2 Build-Time Source Separation (`agent_clients/` vs `plugin_host/`)
 
-Update `src/claire/plugin_host/` and `src/claire/plugin_sdk/`:
+Following `AED3-rev` (2026-11-22):
 
-- Expand `PLUGIN_TYPES` in `src/claire/plugin_host/manifest.py` from `("ingest_adapter",)` to `("ingest_adapter", "agent_client")`.
-- Keep `PLUGIN_API_LEVELS = (1,)` and `PLUGIN_API_LEVEL = 1` in `src/claire/plugin_sdk/__init__.py` (`AED2`).
-- Unlike `ingest_adapter` (which imports Python entrypoints inside `src/claire/plugin_host/importcheck.py`), an `agent_client` manifest declares static bundle assets only:
-  - `type = "agent_client"`
-  - `client_id`: lowercase ASCII slug matching `[a-z0-9][a-z0-9-]{1,31}` (for example, `"antigravity"`)
-  - `api = 1`
-  - `required_scopes`: e.g. `["readonly", "write"]`
-  - `files`: validated relative asset paths inside the plugin's immutable bundle directory, rejecting `..`, symlinks, and executable server hooks.
-- **Structural Zero-Network / Zero-Subprocess Lock (`plugin_host`)**:
-  - `src/claire/plugin_host/manifest.py` rejects (`ManifestError`) any `agent_client` manifest requesting `permissions.network`, `permissions.network_modules`, `permissions.executables`, `permissions.providers`, or `permissions.private_network = true`.
-  - `src/claire/plugin_host/importcheck.py` blocks `socket`, `ssl`, `http`, `urllib`, `subprocess`, `os.system`, `os.popen`, `os.spawn*`, and `ctypes` in `agent_client` plugins so a bundle can never act as a hidden server-side subprocess wrapper.
-- **Reference Bundle Layout (`client_bundle/`)**:
-  - `mcp_config.json.tmpl` (Streamable HTTP client template targeting fixed `uri_path` or `fqdn` endpoint; zero embedded secrets per `PRINCIPLES.md` B4)
-  - `rules/AGENTS.md` (untrusted full-content framing rule, personal-KB `CT4` rule, mandatory isolated subagent delegation)
-  - `agents/claire-extractor.md` (isolated subagent definition granted **only Claire MCP tools**, with zero shell/file/browser tools)
-  - `skills/*/SKILL.md` (knowledge work, staged extraction, and query skills)
-- Server computes SHA-256 checksums for every bundle file at discovery time so agents and WebUI display exact integrity hashes.
+- Keep `src/claire/plugin_host/` strictly for server-executed `ingest_adapter` Python plugins (`PLUGIN_TYPES = ("ingest_adapter",)`). Do not load or serve static agent client bundles inside the Claire Bible API process.
+- Maintain static agent client plugin definitions as single-source inputs under `agent_clients/` (`marketplace.toml`, `common/{agents,skills,rules}`, and `clients/{antigravity,claude}`), never embedding server tokens, URLs, or secrets.
+- `scripts/build_agent_marketplace.py` enforces static security gates at PR/build time (no symlinks, no executable mode bits, no forbidden code/script extensions such as `.py`/`.sh`/`.js`/binaries, unresolved placeholder rejection outside `mcp_config.json.tmpl` `{{MCP_URL}}`, secret pattern scan, and AST contract verification against `src/claire/api/mcp_tools.py`).
+- Extraction provenance in `claire.db` (`extractions.provider = 'agent_client'` and `documents.meta.extraction_origin = 'agent_client'`) stays unchanged.
 
 ---
 
-## 4. Fixed Server Delivery of `agent_client` Bundles (`AED3`)
+## 4. GitHub Actions-Managed `fofwisdom/claire-agents` Marketplace (`AED3-rev`, Superseding `AED3`)
 
-The Claire Bible server hosts and serves registered `agent_client` bundles. To satisfy security isolation needs across deployments without introducing fragile URL configuration, the server offers exactly two fixed delivery modes configured by the server administrator.
+Self-hosted server delivery (`clients_host.py`, `/clients*`, `clients` `HostRole`, `:8770`, `/admin/server` delivery mode switch, and `plugin_host` `agent_client`) is retired (`AED3-rev`, 2026-11-22).
 
-### 4.1 Administrator Setting Constraint
+### 4.1 Dedicated Marketplace Repository Layout (`fofwisdom/claire-agents`)
 
-- In WebUI server settings (`/admin/server` or admin settings panel), the administrator sees one selector:
-  - `agent_client_delivery_mode`: `"uri_path"` (default) or `"fqdn"`.
-- **No path or hostname customization**: Input fields for custom paths, prefixes, subdomains, or domains are forbidden (`AED3`). The UI shows the resolved read-only URLs and copy buttons only.
+Because agent client plugins contain zero server secrets and zero user data, a single public GitHub repository (`fofwisdom/claire-agents`) serves every Claire Bible instance:
 
-### 4.2 Mode A: Fixed URI Path (`uri_path`)
+- `.claude-plugin/marketplace.json` — Registers only Claude target plugins (`./plugins/claire-claude`) so Claude GUI `owner/repo` shorthand (`fofwisdom/claire-agents`) or `/plugin marketplace add fofwisdom/claire-agents` syncs natively.
+- `plugins/claire-claude/` — `.claude-plugin/plugin.json`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`, and `README.md`.
+- `plugins/claire-antigravity/` — `plugin.json`, `mcp_config.json.tmpl` (`{{MCP_URL}}`), `rules/AGENTS.md`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, and `skills/claire-query/SKILL.md`.
+- `manifest.json` & `README.md` — Deterministic asset digests (`sort_keys=True`, without volatile source-commit metadata) and generated setup docs.
+- GitHub Releases — Deterministic `claire-antigravity-v<ver>.tar.gz`/`.zip`, `claire-claude-v<ver>.tar.gz`/`.zip` (fixed mtime/permissions), and `SHA256SUMS`.
 
-- **Fixed URL pattern**:
-  - `https://<app_authority>/clients` (and `/clients.git`, `/clients/index.json`) — Universal multi-agent delivery root serving read-only Git Smart HTTP (`info/refs`, `git-upload-pack` with `.claude-plugin/marketplace.json`, `.cursor-plugin/marketplace.json`, `index.json`, and `./plugins/<name>`) alongside the JSON root catalog across all enabled `agent_client` plugins
-  - `https://<app_authority>/clients/.claude-plugin/marketplace.json` (and `/clients/marketplace.json` alias) — Direct HTTP Claude-compatible marketplace catalog listing enabled Claude plugins (`marketplace.json` and `index.json` list all enabled `agent_client` plugins) with absolute `bundle.zip` archive sources and SHA-256 checksums
-  - `https://<app_authority>/clients/<client_id>/manifest.json`
-  - `https://<app_authority>/clients/<client_id>/bundle.tar.gz` and `https://<app_authority>/clients/<client_id>/bundle.zip` (or individual static files `/clients/<client_id>/files/<relpath>`)
-- **Namespace collision guard**: Add `"clients"` to `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py` so no member account can register username `clients` and shadow `/clients/...`.
-- **Headers**: Serve with `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, and `Cross-Origin-Resource-Policy: same-origin` (or explicit CORS for authenticated CLI download when needed).
+### 4.2 GitHub Actions Pipelines & Server WebUI
 
-### 4.3 Mode B: Fixed Derived FQDN (`fqdn`)
-
-- Model the isolated host role directly on `src/claire/api/prototype_host.py` and `src/claire/api/host_router.py`:
-  - Extend `HostRole` in `src/claire/api/host_router.py` to `Literal["app", "usercontent", "media", "prototype", "clients", "legacy"]`.
-  - **Derived authority (non-customizable)**:
-    - Production / public site: derive `clients.<registrable_domain>` from `site_domain` using `publicsuffixlist` (identical derivation rule to `prototype_authority` in `src/claire/api/prototype_host.py`).
-    - Development / IP mode: derive `<app_ipv4>:8770` (next to `DEV_PROTOTYPE_PORT = 8769`).
-  - **Origin and Cookie isolation**: `HostRouter` strips all `Cookie` request headers and `Set-Cookie` response headers on the `"clients"` host role so ambient browser session cookies are never sent to or set by the bundle origin.
-  - **Content security headers**: Enforce strict `Content-Security-Policy: default-src 'none'; sandbox`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer`.
-- **Authentication when `CLAIRE_ANONYMOUS_READONLY=0`**:
-  - Because `HostRouter` strips cookies on the `"clients"` FQDN:
-    - Browser downloads from `/settings/mcp` (on `"app"` origin) mint a short-lived (60-second), single-purpose HMAC-signed `?t=<bundle_token>` bound to `client_id` + `file` + `account_id` and link directly to `https://clients.<domain>/<client_id>/...`.
-    - Programmatic fetches (`agy`, install scripts) send `Authorization: Bearer <oauth_token>` with at least `readonly` scope; the `"clients"` router validates Bearer tokens independently of cookies.
-  - When wrong host role hits the `"app"` or `"clients"` path (e.g., `/clients/...` requested while server is in `fqdn` mode, or `clients.*` hit while server is in `uri_path` mode), fail closed with `404` / deterministic guidance (`C1`/`C2`) without silently redirecting across modes unless configured.
+- **PR Verification (`.github/workflows/agent-marketplace-check.yml`)**: Triggers on PRs touching `agent_clients/**`, `scripts/build_agent_marketplace.py`, `src/claire/api/mcp_tools.py`, `src/claire/ingest/client_extraction.py`, or workflow/test files; runs `--check --out` dry-run build and `pytest tests/test_agent_marketplace_build.py`.
+- **Automated Sync & Release (`.github/workflows/publish-agent-marketplace.yml`)**: On `push` to `main` or manual `workflow_dispatch`, builds deterministically, mints a short-lived GitHub App token (`MARKETPLACE_APP_ID`, `MARKETPLACE_APP_PRIVATE_KEY` scoped solely to `fofwisdom/claire-agents`), mirrors `/tmp/claire-agents-dist/repo/` via `rsync --delete`, pushes only when `git status --porcelain` has changes, and creates tag `v<version>` + GitHub Release when that tag is absent.
+- **Server Settings & WebUI**:
+  - `CLAIRE_AGENT_MARKETPLACE_REPO` (`Settings.agent_marketplace_repo`, default `fofwisdom/claire-agents`) lets fork operators point `/settings/mcp` (`#pref-mcp-client-bundles`) to a custom `owner/repo` (invalid patterns fall back to `fofwisdom/claire-agents`).
+  - `/settings/mcp` shows a 3-step green/red progress card (`#pref-mcp-agent-guide`: ① `extraction_mode == "client"` → ② OAuth 2.1 `write` grant authorized → ③ first `agent_client` extraction committed) alongside `#pref-mcp-client-bundles` copy controls and Releases link.
+  - Keep `"clients"` in `RESERVED_USERNAMES` (`src/claire/accounts/username_policy.py`) so member handles never collide with reserved root prefixes.
 
 ---
 
@@ -401,10 +376,10 @@ flowchart LR
         AE2a["AE2a: OAuth Core (S256, write, revoke)"] --> AE2b["AE2b: /login?tx=, /device & MCP UI"] --> AE3["AE3: Deprecate Manual Tokens"]
     end
 
-    subgraph TD["Track D: agent_client & Client Extraction"]
-        AE1a["AE1a: agent_client Manifest & Locks"] --> AE1b["AE1b: Fixed uri_path / fqdn Router"]
+    subgraph TD["Track D: Agent Marketplace & Client Extraction"]
+        AE1a["AE1a -> AED3-rev: agent_clients/ Source & Builder"] --> AE1b["AE1b -> AED3-rev: GitHub Actions fofwisdom/claire-agents"]
         AE4["AE4: Per-Account extraction_mode & stage_raw"] --> AE5["AE5: MCP Contract & Commit Gates"]
-        AE1b --> AE7["AE7: Reference claire.antigravity Bundle"]
+        AE1b --> AE7["AE7: Antigravity + Claude Plugins"]
         AE5 --> AE7
     end
 
@@ -428,11 +403,11 @@ flowchart LR
 | **`AE2a`** | Track C · None (**Implemented**) | `claire.db` v40 OAuth columns (`granted_scope`, `token_family_id`, `refresh_expires_at`, `rotated_at`, `revoked_at`, `last_used_at`, `oauth_device_codes`) | `src/claire/api/oauth.py`, `src/claire/store/db.py`, `src/claire/store/accounts.py`, `src/claire/api/mcp_tools.py` | `S256`-only PKCE, exact `readonly` + `write` scope persistence without upscoping, `write` step-up (`has_recent_auth` / inline password + passkey `allowCredentials`), refresh token rotation + family reuse revocation, `require_mcp_write_scope()`, and `POST /oauth/revoke` (RFC 7009). Verify: OAuth PKCE/scope/rotation/revocation E2E tests. |
 | **`AE2b`** | Track C · `AE2a` (**Implemented**) | `oauth_pending_requests` (`tx_id`, expiry) | `src/claire/api/oauth.py`, `src/claire/api/accounts_routes/login.py`, `src/claire/api/accounts_routes/idp.py`, `src/claire/templates/login.html`, `src/claire/api/security.py` | Telegram-free `/login?tx=` + `__Host-claire_oauth_tx` CSRF binding, IdP `?tx=` handoff, RFC 8628 `/oauth/device_authorization` + `/device`, `/api/me/oauth/grants` + `/settings/mcp` grant manager, zero-JS i18n/SVG templates (`PRINCIPLES.md` G1), `Sec-Fetch-Site` (`same-origin`/`none`), `Clear-Site-Data` on `/logout`, `autocomplete="current-password"`, and opaque `"null"` origin rejection. Verify: Telegram-free login, headless device & security header E2E tests. |
 | **`AE3`** | Track C · `AE2b` (**Implemented**) | None | `src/claire/store/token_store.py`, `src/claire/api/security.py`, `src/claire/api/server.py`, `src/claire/cli.py`, `src/claire/telegram_bot.py` | `Deprecation: true` + `Link: </settings/mcp>; rel="successor-version"` response headers on legacy manual tokens and `/tokens*`, WebUI/CLI/Telegram migration notices pointing to `/settings/mcp` OAuth 2.1, and `retired` toggle (`410 Gone` + token validation gate). Verify: deprecation header & retirement tests. |
-| **`AE1a`** | Track D · None (**Implemented**) | None | `src/claire/plugin_host/manifest.py`, `src/claire/plugin_host/discovery.py`, `src/claire/plugin_host/importcheck.py`, `src/claire/plugin_sdk/__init__.py` | Add `"agent_client"` to `PLUGIN_TYPES` (keeping `PLUGIN_API_LEVEL = 1`), SHA-256 bundle file hashing, `ManifestError` rejection on network/executable/provider permissions, and static importcheck blocking `socket`/`ssl`/`http`/`urllib`/`subprocess`/`ctypes`. Verify: plugin discovery & lock unit tests. |
-| **`AE1b`** | Track D · `AE1a` (**Implemented**) | `server_settings` key (`agent_client_delivery_mode`) | `src/claire/api/host_router.py`, `src/claire/api/prototype_host.py`, `src/claire/accounts/username_policy.py`, `src/claire/api/server.py` | Reserve `"clients"` in `RESERVED_USERNAMES`, add `"clients"` `HostRole` (`clients.<domain>` / `:8770`), enforce cookie stripping + `CSP: default-src 'none'; sandbox`, implement fixed `/clients/<client_id>/...` vs derived FQDN router, signed `?t=` handoff, and non-customizable `/admin/server` toggle. Verify: cross-origin isolation & routing E2E tests. |
+| **`AE1a`** | Track D · None (**Superseded by `AED3-rev`**) | None | `agent_clients/`, `scripts/build_agent_marketplace.py`, `src/claire/plugin_host/` (reverted to `ingest_adapter`-only) | Replaced `plugin_host` `agent_client` runtime type with build-time `agent_clients/` static checks (zero symlinks/exec bits/script files, placeholder & secret scans, and `mcp_tools.py` AST contract verification). Verify: `pytest tests/test_agent_marketplace_build.py tests/test_plugin_host.py`. |
+| **`AE1b`** | Track D · `AE1a` (**Superseded by `AED3-rev`**) | None (`agent_client_delivery_mode` removed) | `.github/workflows/{agent-marketplace-check,publish-agent-marketplace}.yml`, `src/claire/accounts/username_policy.py`, `src/claire/core/config.py`, `src/claire/api/accounts_routes/console_syndication_panels.py` | Retired `clients_host.py` and `"clients"` `HostRole`; kept `"clients"` in `RESERVED_USERNAMES`; added `CLAIRE_AGENT_MARKETPLACE_REPO` (`fofwisdom/claire-agents`), 3-step `/settings/mcp` progress card, and GitHub App-authenticated CI sync. |
 | **`AE4`** | Track D · None (**Implemented**) | `claire.db` / `auth.db` (`accounts.extraction_mode`; `documents.extraction_status`, `claim_token`, `lease_expires_at`, `claimed_by_client_id`; `raw_inbox.status = 'staged'`) | `src/claire/store/db.py`, `src/claire/ingest/pipeline.py`, Telegram/WebUI/feed ingest handlers | Per-account `extraction_mode` preference (`provider` \| `client`), extract `pipeline.stage_raw(...)`, `stage_source(..., full_content=True)` default, `pending` document visibility isolation, `recover-loop` skipping `'staged'`, and zero silent LLM fallback (`C2`). Verify: isolation, `full_content`, and 0-LLM staging tests. |
 | **`AE5`** | Track D · `AE4` + `AE2a` (**Implemented**) | None | `src/claire/api/mcp_tools.py`, `src/claire/ingest/pipeline.py`, `src/claire/ontology/registry.py`, `src/claire/contributions.py`, `src/claire/store/vectors.py` | Client extraction endpoints keyed by `document_id` (`list_staged_sources`, `claim_staged_source`, `get_staged_source` with nonce-bound `<untrusted_source_document>` escaping, `submit_client_extraction`), deterministic gates (concurrency lock, schema `extra="forbid"`, summary lint, AsciiDoc lint + `sanitize_rendered_detail`/`render_to_html`, ontology invariants, personal-KB `CT4`), provenance, and atomic commit. Verify: contract, framing-escape & E2E extraction tests. |
-| **`AE7`** | Track D · `AE1b` + `AE5` (**Implemented**) | None | New `plugins/agent_client/claire.antigravity/` (`plugin.toml`, `client_bundle/`), `docs/implementation/` sync | Package reference bundle (`agents/claire-extractor.md` MCP-only subagent, `rules/AGENTS.md` untrusted-data & `CT4` rules, `skills/`, `mcp_config.json.tmpl`) + sync `implementation/` docs (`GLOSSARY.md`, `PROVIDERS.md`, `API_AND_MCP_GUIDE.md`, `SCHEMA_VERSIONING.md`). Verify: `test_docs_consistency.py` + end-to-end Antigravity extraction flow. |
+| **`AE7`** | Track D · `AE1b` + `AE5` (**Updated by `AED3-rev`**) | None | `agent_clients/` (`marketplace.toml`, `common/`, `clients/{antigravity,claude}`), `docs/implementation/` sync | Package shared static extraction/query bundles (`claire-antigravity` + `claire-claude` + `.claude-plugin/marketplace.json`) built deterministically for `fofwisdom/claire-agents` + sync `implementation/` docs. Verify: `test_agent_marketplace_build.py`, `test_docs_consistency.py`, and E2E extraction flow. |
 
 ### 9.3 Recommended Execution Order (3 Safe Waves)
 

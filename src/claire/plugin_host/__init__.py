@@ -13,8 +13,7 @@ MANIFEST_VERSIONS: tuple[int, ...] = (1,)
 
 # Plugin types and their type folders. The type folder has the name of the type (PL-D3).
 TYPE_INGEST_ADAPTER = "ingest_adapter"
-TYPE_AGENT_CLIENT = "agent_client"
-PLUGIN_TYPES: tuple[str, ...] = (TYPE_INGEST_ADAPTER, TYPE_AGENT_CLIENT)
+PLUGIN_TYPES: tuple[str, ...] = (TYPE_INGEST_ADAPTER,)
 
 # The publisher of project plugins (§6.1 rule 1).
 PROJECT_PUBLISHER = "claire"
@@ -72,6 +71,5 @@ __all__ = [
     "STATE_REMOVED",
     "STATE_UNLOCKED",
     "STATES",
-    "TYPE_AGENT_CLIENT",
     "TYPE_INGEST_ADAPTER",
 ]

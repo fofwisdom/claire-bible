@@ -140,21 +140,6 @@ def test_admin_server_denies_non_admin_and_anonymous(settings: Settings) -> None
         assert tc.get("/api/admin/server", headers={"Cookie": f"claire_session={member_token}"}).status_code == 404
 
 
-def test_admin_server_client_delivery_panel_is_localized(settings: Settings) -> None:
-    token = _create_admin_session(settings, mode="single")
-    app = server.create_app(settings)
-    with TestClient(app, base_url="http://127.0.0.1:8765") as tc:
-        en_resp = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}", "Accept-Language": "en"})
-        assert en_resp.status_code == 200
-        assert "Agent Client Bundle Delivery" in en_resp.text
-        assert "Save delivery mode" in en_resp.text
-
-        ko_resp = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}", "Accept-Language": "ko"})
-        assert ko_resp.status_code == 200
-        assert "에이전트 클라이언트 번들 배포" in ko_resp.text
-        assert "배포 모드 저장" in ko_resp.text
-
-
 def test_admin_server_api_exposes_member_invites_enabled_default_false(settings: Settings) -> None:
     token = _create_admin_session(settings, mode="network")
     app = server.create_app(settings)

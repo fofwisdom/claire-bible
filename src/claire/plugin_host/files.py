@@ -8,13 +8,11 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 SKIP_DIRS = frozenset({"__pycache__"})
 SKIP_SUFFIXES = (".pyc",)
-_EXEC_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
 
 
 class PluginFileError(ValueError):
@@ -103,8 +101,8 @@ def compute_digest(listing: FileListing, digests: dict[str, str] | None = None) 
 _CACHE: dict[str, tuple[tuple[tuple[str, int, int, int, int], ...], str, dict[str, str]]] = {}
 
 
-def folder_digest_detail(folder: Path, *, check_owner: bool = False, read_only_mount: bool = False) -> tuple[str, dict[str, str]]:
-    """The digest of the folder of a plugin and per-file SHA-256 hex digests. Raise ``PluginFileError``.
+def folder_digest(folder: Path, *, check_owner: bool = False, read_only_mount: bool = False) -> str:
+    """The digest of the folder of a plugin. Raise ``PluginFileError``.
 
     A cache keyed on size, modification time, change time, and inode of each file avoids a new hash when no file changed. The change time changes at each write and a process cannot set it back. A file changed less than one second ago is always hashed again.
     """
@@ -117,62 +115,11 @@ def folder_digest_detail(folder: Path, *, check_owner: bool = False, read_only_m
     newest = max((max(sig[2], sig[3]) for sig in listing.signature), default=0)
     fresh = time.time_ns() - newest < 1_000_000_000
     if cached is not None and cached[0] == listing.signature and not fresh:
-        return cached[1], dict(cached[2])
+        return cached[1]
     hashes = file_digests(listing)
     digest = compute_digest(listing, digests=hashes)
     _CACHE[key] = (listing.signature, digest, hashes)
-    return digest, dict(hashes)
-
-
-def folder_digest(folder: Path, *, check_owner: bool = False, read_only_mount: bool = False) -> str:
-    """The digest of the folder of a plugin. Raise ``PluginFileError``."""
-    digest, _hashes = folder_digest_detail(folder, check_owner=check_owner, read_only_mount=read_only_mount)
     return digest
-
-
-def check_no_executable_files(folder: Path, relpaths: Iterable[str]) -> None:
-    """Raise ``PluginFileError`` if any declared file is missing, a symlink, non-regular, escapes ``folder``, or has any execute mode bit."""
-    try:
-        root_st = os.lstat(folder)
-    except OSError as exc:
-        raise PluginFileError(f"{folder}: {exc}") from exc
-    if stat.S_ISLNK(root_st.st_mode):
-        raise PluginFileError("the folder of the plugin is a symbolic link")
-    if not stat.S_ISDIR(root_st.st_mode):
-        raise PluginFileError("the folder of the plugin is not a directory")
-    root = folder.resolve()
-    for rel in relpaths:
-        rel_path = Path(rel)
-        if rel_path.is_absolute():
-            raise PluginFileError(f"{rel}: outside the folder of the plugin")
-        cur = folder
-        for part in rel_path.parts[:-1]:
-            if part == ".":
-                continue
-            if part == "..":
-                raise PluginFileError(f"{rel}: outside the folder of the plugin")
-            cur = cur / part
-            try:
-                dir_st = os.lstat(cur)
-            except OSError as exc:
-                raise PluginFileError(f"{rel}: {exc}") from exc
-            if stat.S_ISLNK(dir_st.st_mode):
-                raise PluginFileError(f"{cur.relative_to(folder).as_posix()}: symbolic link")
-            if not stat.S_ISDIR(dir_st.st_mode):
-                raise PluginFileError(f"{cur.relative_to(folder).as_posix()}: not a directory")
-        path = folder / rel
-        try:
-            st = os.lstat(path)
-        except OSError as exc:
-            raise PluginFileError(f"{rel}: {exc}") from exc
-        if stat.S_ISLNK(st.st_mode):
-            raise PluginFileError(f"{rel}: symbolic link")
-        if not stat.S_ISREG(st.st_mode):
-            raise PluginFileError(f"{rel}: not a regular file")
-        if not path.resolve().is_relative_to(root):
-            raise PluginFileError(f"{rel}: outside the folder of the plugin")
-        if st.st_mode & _EXEC_BITS:
-            raise PluginFileError(f"{rel}: executable mode bits are not allowed in agent_client")
 
 
 def is_read_only_mount(path: Path) -> bool:

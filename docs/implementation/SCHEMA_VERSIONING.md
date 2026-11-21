@@ -370,7 +370,7 @@ The retired v12 recovery is described above. Other stores have their own version
 
 ## v40 (OAuth 2.1 인증·Device Grant 및 클라이언트 주도 추출 스테이징, AE2a/AE2b/AE4)
 
-확인 기준: Track C (`AE2a`, `AE2b`, `AE3`) 및 Track D (`AE4`) 구현 (2026-11-21). 설계: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §5.2 (`AED3`), §6.3–§6.6 (`AED5`).
+확인 기준: Track C (`AE2a`, `AE2b`, `AE3`) 및 Track D (`AE4`) 구현 (2026-11-21). 설계: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §5.1 (`AED4`), §6.3–§6.6 (`AED5`).
 
 - **[코드] 버전 상수**: `SCHEMA_VERSION = 40`.
 - **[코드] 추가·변경 객체**(`_migrate_v40_oauth_v21`, 멱등):
