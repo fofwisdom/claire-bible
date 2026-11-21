@@ -3,8 +3,8 @@
 
 [[plugin]]
 id = "claire.antigravity"
-revision = 1
-digest = "sha256:b1aeb2c8ada8242cb0c8aa2088e53cc739ad67fa3f0ea648640f3a0ee500e776"
+revision = 2
+digest = "sha256:503561fd1584e4a00e2ae8c2f09fe1e44bc0e8a61c383239130ffdca2d315403"
 
 [[plugin]]
 id = "claire.discourse"

@@ -309,6 +309,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/auth/oidc/{id}/start",
         "/auth/oidc/{id}/callback",
         "/invite/complete",
+        "/clients",
+        "/clients/index.json",
+        "/clients/info/refs",
+        "/clients.git/info/refs",
         "/clients/.claude-plugin/marketplace.json",
         "/clients/marketplace.json",
         "/clients/{client_id}/manifest.json",
@@ -317,6 +321,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/clients/{client_id}/files/{relpath:path}",
     }
     public_post = {
+        "/clients/git-upload-pack",
+        "/clients.git/git-upload-pack",
         "/oauth/register",
         "/oauth/authorize",
         "/oauth/authorize/telegram-push",
@@ -425,6 +431,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/setup",
         "/api/auth/reauth",
         "/api/me/password",
+        "/api/me/username",
         "/api/me/oauth/grants",
     }
     owner_methods = {

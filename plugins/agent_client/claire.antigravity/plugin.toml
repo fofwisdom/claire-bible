@@ -2,8 +2,8 @@
 manifest = 1
 id = "claire.antigravity"
 type = "agent_client"
-revision = 1
-core_commit = "6b1113843fbf1adf1e39a928035f1b5575e1150d"
+revision = 2
+core_commit = "d1422abb63feb883ceae5d86aa733c34d7bee401"
 api = 1
 client_id = "antigravity"
 required_scopes = ["readonly", "write"]

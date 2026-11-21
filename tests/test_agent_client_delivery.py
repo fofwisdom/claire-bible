@@ -7,8 +7,11 @@ import io
 import json
 import os
 import re
+import socket
 import stat
+import subprocess
 import tarfile
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
@@ -531,13 +534,16 @@ def test_e2e_anonymous_readonly_allows_unauthenticated_bundle_read_only_in_activ
     env = _build_env(tmp_path, anonymous_readonly=True)
     assert env.client.get(f"{APP_ORIGIN}/clients/sample-client/manifest.json").status_code == 200
     assert env.client.get(f"{CLIENTS_ORIGIN}/sample-client/manifest.json").status_code == 404
+    root_idx = env.client.get(f"{APP_ORIGIN}/clients")
+    assert root_idx.status_code == 200
+    assert env.client.get(f"{APP_ORIGIN}/clients/index.json").status_code == 200
+    assert env.client.get(f"{APP_ORIGIN}/clients/marketplace.json").status_code == 200
     mp = env.client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json")
     assert mp.status_code == 200
-    assert env.client.get(f"{APP_ORIGIN}/clients/marketplace.json").status_code == 200
     assert env.client.get(f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json").status_code == 404
-    data = mp.json()
-    assert data["name"] == "claire-bible"
-    by_cid = {entry["claire"]["client_id"]: entry for entry in data["plugins"]}
+    root_data = root_idx.json()
+    assert root_data["name"] == "claire-bible"
+    by_cid = {entry["claire"]["client_id"]: entry for entry in root_data["plugins"]}
     assert {"antigravity", "sample-client"} <= set(by_cid)
     plugin_entry = by_cid["sample-client"]
     assert plugin_entry["source"]["source"] == "archive"
@@ -545,10 +551,12 @@ def test_e2e_anonymous_readonly_allows_unauthenticated_bundle_read_only_in_activ
     zip_resp = env.client.get(plugin_entry["source"]["url"])
     assert zip_resp.status_code == 200
     assert hashlib.sha256(zip_resp.content).hexdigest() == plugin_entry["source"]["sha256"]
+    # .claude-plugin/marketplace.json includes Claude-compatible plugins only (empty list when only Antigravity/generic client plugins are enabled).
+    assert mp.json()["plugins"] == []
 
 
 def test_e2e_claude_marketplace_and_multi_agent_client_delivery(tmp_path):
-    """Verify multiple enabled agent_client plugins (antigravity + claude + sample-client) coexist and serve via Claude marketplace.json and bundle.zip in both uri_path and fqdn modes."""
+    """Verify multiple enabled agent_client plugins (antigravity + claude + sample-client) coexist and serve via /clients root, marketplace.json, and bundle.zip in both uri_path and fqdn modes."""
     env = _build_env(tmp_path, anonymous_readonly=False)
     claude_files = {
         ".claude-plugin/plugin.json": json.dumps({"name": "claire-claude", "version": "1.0.0", "description": "Claire Bible plugin for Claude"}),
@@ -587,71 +595,164 @@ def test_e2e_claude_marketplace_and_multi_agent_client_delivery(tmp_path):
     admin_client = TestClient(env.app, base_url=APP_ORIGIN)
     member_client = TestClient(env.app, base_url=APP_ORIGIN)
 
-    # 1. Private server rejects unauthenticated marketplace requests with 401 and strict headers.
-    unauth_mp = anon_client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json")
+    # 1. Private server rejects unauthenticated requests with 401 and strict headers.
+    unauth_mp = anon_client.get(f"{APP_ORIGIN}/clients")
     assert unauth_mp.status_code == 401
     _assert_clients_security_headers(unauth_mp.headers)
 
-    # 2. /settings/mcp renders the copyable signed Claude Marketplace URL and all enabled client rows with bundle.zip links.
+    # 2. /settings/mcp renders the unified path-only root URL (no .json) and all enabled client rows with bundle.zip links.
     mcp_resp = member_client.get("/settings/mcp", headers=member_headers)
     assert mcp_resp.status_code == 200
     mcp_html = mcp_resp.text
     assert 'data-agent-client-row="antigravity"' in mcp_html
     assert 'data-agent-client-row="claude"' in mcp_html
     assert 'data-agent-client-row="sample-client"' in mcp_html
-    assert 'id="pref-mcp-client-marketplace-url"' in mcp_html
-    mp_url_match = re.search(r'id="pref-mcp-client-marketplace-url"[^>]*>([^<]+)<', mcp_html)
-    assert mp_url_match is not None
-    signed_mp_url = mp_url_match.group(1).replace("&amp;", "&")
-    assert "/clients/.claude-plugin/marketplace.json?t=" in signed_mp_url
+    base_match = re.search(r'id="pref-mcp-client-delivery-base"[^>]*>([^<]+)<', mcp_html)
+    assert base_match is not None and base_match.group(1) == f"{APP_ORIGIN}/clients"
 
-    # 3. Fetching the signed Claude Marketplace URL returns all 3 plugins sorted by client_id with signed bundle.zip URLs and verified SHA-256 digests.
-    mp_resp = anon_client.get(signed_mp_url)
+    # 3. Fetching /clients index lists all 3 plugins; /.claude-plugin/marketplace.json lists Claude plugins cleanly.
+    root_resp = anon_client.get(f"{APP_ORIGIN}/clients", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+    assert root_resp.status_code == 200
+    root_data = root_resp.json()
+    assert [p["claire"]["client_id"] for p in root_data["plugins"]] == ["antigravity", "claude", "sample-client"]
+
+    # Direct Claude marketplace lists thirdparty.claude with archive ZIP URL and verified SHA-256 digest.
+    mp_resp = anon_client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json", headers=member_headers)
     assert mp_resp.status_code == 200
     _assert_clients_security_headers(mp_resp.headers)
     mp_json = mp_resp.json()
     assert mp_json["$schema"] == "https://anthropic.com/claude-code/marketplace.schema.json"
-    assert mp_json["metadata"] == {"delivery_mode": "uri_path", "plugin_count": 3}
-    assert [p["claire"]["client_id"] for p in mp_json["plugins"]] == ["antigravity", "claude", "sample-client"]
-    assert [p["name"] for p in mp_json["plugins"]] == ["claire-antigravity", "thirdparty-claude", "thirdparty-sample-client"]
+    assert mp_json["metadata"] == {"delivery_mode": "uri_path", "plugin_count": 1}
+    assert [p["claire"]["client_id"] for p in mp_json["plugins"]] == ["claude"]
+    assert [p["name"] for p in mp_json["plugins"]] == ["thirdparty-claude"]
 
-    by_cid = {p["claire"]["client_id"]: p for p in mp_json["plugins"]}
-    for cid, expected_files in (("claude", claude_files), ("sample-client", SAMPLE_FILES)):
-        entry = by_cid[cid]
-        assert entry["source"]["source"] == "archive"
-        zip_url = entry["source"]["url"]
-        assert "?t=" in zip_url
-        zip_resp = anon_client.get(zip_url)
-        assert zip_resp.status_code == 200
-        _assert_clients_security_headers(zip_resp.headers)
-        assert hashlib.sha256(zip_resp.content).hexdigest() == entry["source"]["sha256"]
-        with zipfile.ZipFile(io.BytesIO(zip_resp.content), mode="r") as zf:
-            assert sorted(zf.namelist()) == sorted(expected_files)
-            for rel, expected_text in expected_files.items():
-                assert zf.read(rel).decode("utf-8") == expected_text
+    zip_url = mp_json["plugins"][0]["source"]["url"]
+    assert "?t=" in zip_url
+    zip_resp = anon_client.get(zip_url)
+    assert zip_resp.status_code == 200
+    _assert_clients_security_headers(zip_resp.headers)
+    assert hashlib.sha256(zip_resp.content).hexdigest() == mp_json["plugins"][0]["source"]["sha256"]
+    with zipfile.ZipFile(io.BytesIO(zip_resp.content), mode="r") as zf:
+        assert sorted(zf.namelist()) == sorted(claude_files)
+        for rel, expected_text in claude_files.items():
+            assert zf.read(rel).decode("utf-8") == expected_text
 
-    # HEAD on marketplace.json and bundle.zip works cleanly.
+    # HEAD on marketplace.json, /clients, and bundle.zip works cleanly.
     head_mp = anon_client.head(f"{APP_ORIGIN}/clients/marketplace.json", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
     assert head_mp.status_code == 200 and head_mp.content == b"" and int(head_mp.headers["content-length"]) > 0
     head_zip = anon_client.head(f"{APP_ORIGIN}/clients/claude/bundle.zip", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
     assert head_zip.status_code == 200 and head_zip.content == b"" and int(head_zip.headers["content-length"]) > 0
 
-    # 4. Switch to fqdn mode: /clients/.claude-plugin/marketplace.json returns 404 on app host, while CLIENTS_ORIGIN serves all 3 clients cleanly.
+    # 4. Switch to fqdn mode: /clients* returns 404 on app host, while CLIENTS_ORIGIN serves both root and Claude marketplace cleanly.
     switch_ok = admin_client.post("/api/admin/server/client-delivery", headers=admin_headers, json={"agent_client_delivery_mode": "fqdn"})
     assert switch_ok.status_code == 200
-    assert switch_ok.json()["agent_client_delivery"]["fqdn_marketplace_url"] == f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json"
+    assert switch_ok.json()["agent_client_delivery"]["fqdn_marketplace_url"] == CLIENTS_ORIGIN
 
+    assert anon_client.get(f"{APP_ORIGIN}/clients", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}).status_code == 404
     assert anon_client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}).status_code == 404
     assert anon_client.get(f"{APP_ORIGIN}/clients/claude/bundle.zip", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}).status_code == 404
+
+    fqdn_root = anon_client.get(f"{CLIENTS_ORIGIN}/", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+    assert fqdn_root.status_code == 200
+    assert [p["claire"]["client_id"] for p in fqdn_root.json()["plugins"]] == ["antigravity", "claude", "sample-client"]
 
     fqdn_mp = anon_client.get(f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
     assert fqdn_mp.status_code == 200
     _assert_clients_security_headers(fqdn_mp.headers)
     fqdn_data = fqdn_mp.json()
-    assert fqdn_data["metadata"] == {"delivery_mode": "fqdn", "plugin_count": 3}
-    assert [p["source"]["url"] for p in fqdn_data["plugins"]] == [
-        f"{CLIENTS_ORIGIN}/antigravity/bundle.zip",
-        f"{CLIENTS_ORIGIN}/claude/bundle.zip",
-        f"{CLIENTS_ORIGIN}/sample-client/bundle.zip",
-    ]
+    assert fqdn_data["metadata"] == {"delivery_mode": "fqdn", "plugin_count": 1}
+    assert fqdn_data["plugins"][0]["source"]["url"] == f"{CLIENTS_ORIGIN}/claude/bundle.zip"
     assert anon_client.get(f"{CLIENTS_ORIGIN}/claude/bundle.zip", headers={"Authorization": f"Bearer {READONLY_TOKEN}"}).status_code == 200
+
+
+def _free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def test_e2e_git_smart_http_marketplace_clone_and_sync(tmp_path):
+    """Run real `git clone` and `git fetch` against /clients (path-only) and /clients.git on a private Uvicorn server."""
+    import uvicorn
+
+    port = _free_tcp_port()
+    origin = f"http://127.0.0.1:{port}"
+    env = _build_env(tmp_path, anonymous_readonly=False, public_url=origin)
+    claude_files = {
+        ".claude-plugin/plugin.json": json.dumps({"name": "claire-claude", "version": "1.0.0", "description": "Claire Bible Claude plugin"}),
+        "skills/extract/SKILL.md": "# Claude Extract\n",
+    }
+    _install_sample_client_plugin(
+        env.settings.plugins_dir,
+        env.db_file,
+        env.settings,
+        plugin_id="thirdparty.claude",
+        client_id="claude",
+        files=claude_files,
+        enable=True,
+    )
+    cursor_files = {
+        ".cursor-plugin/plugin.json": json.dumps({"name": "claire-cursor", "version": "1.0.0"}),
+        "rules/claire.mdc": "# Cursor rule\n",
+    }
+    _install_sample_client_plugin(
+        env.settings.plugins_dir,
+        env.db_file,
+        env.settings,
+        plugin_id="thirdparty.cursor",
+        client_id="cursor",
+        files=cursor_files,
+        enable=True,
+    )
+    plugin_rt.runtime().invalidate()
+
+    config = uvicorn.Config(env.app, host="127.0.0.1", port=port, log_level="error")
+    uv_server = uvicorn.Server(config)
+    thread = threading.Thread(target=uv_server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10.0
+        while not uv_server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert uv_server.started
+
+        git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+
+        # Unauthenticated git clone fails closed (401).
+        fail_clone = subprocess.run(["git", "clone", f"{origin}/clients", str(tmp_path / "fail")], env=git_env, capture_output=True, text=True)
+        assert fail_clone.returncode != 0
+
+        # Clone via clean path-only /clients with HTTP Basic token (as Claude / Git credentials send).
+        auth_url = f"http://oauth2:{READONLY_TOKEN}@127.0.0.1:{port}/clients"
+        clone_dir = tmp_path / "cloned_clients"
+        subprocess.run(["git", "clone", "-q", auth_url, str(clone_dir)], env=git_env, check=True)
+
+        claude_mp = json.loads((clone_dir / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        assert [p["name"] for p in claude_mp["plugins"]] == ["thirdparty-claude"]
+        assert claude_mp["plugins"][0]["source"] == "./plugins/thirdparty-claude"
+        assert (clone_dir / "plugins" / "thirdparty-claude" / ".claude-plugin" / "plugin.json").is_file()
+
+        cursor_mp = json.loads((clone_dir / ".cursor-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        assert [p["name"] for p in cursor_mp["plugins"]] == ["thirdparty-cursor"]
+        assert cursor_mp["plugins"][0]["source"] == "./plugins/thirdparty-cursor"
+
+        index_data = json.loads((clone_dir / "index.json").read_text(encoding="utf-8"))
+        assert [p["claire"]["client_id"] for p in index_data["plugins"]] == ["antigravity", "claude", "cursor", "sample-client"]
+        assert (clone_dir / "plugins" / "claire-antigravity" / "AGENTS.md").exists() or (clone_dir / "plugins" / "claire-antigravity" / "rules" / "AGENTS.md").is_file()
+
+        # Fetch unchanged -> clean exit 0; then disable cursor plugin and sync -> commit updates cleanly!
+        subprocess.run(["git", "-C", str(clone_dir), "fetch", "-q", "origin"], env=git_env, check=True)
+        switch_plugin("thirdparty.cursor", enabled=False, actor=1, via="test", settings=env.settings)
+        plugin_rt.runtime().invalidate()
+        subprocess.run(["git", "-C", str(clone_dir), "fetch", "-q", "origin"], env=git_env, check=True)
+        subprocess.run(["git", "-C", str(clone_dir), "reset", "-q", "--hard", "origin/main"], env=git_env, check=True)
+        updated_index = json.loads((clone_dir / "index.json").read_text(encoding="utf-8"))
+        assert [p["claire"]["client_id"] for p in updated_index["plugins"]] == ["antigravity", "claude", "sample-client"]
+
+        # .git suffix alias also clones cleanly.
+        clone_dotgit = tmp_path / "cloned_dotgit"
+        subprocess.run(["git", "clone", "-q", f"http://oauth2:{READONLY_TOKEN}@127.0.0.1:{port}/clients.git", str(clone_dotgit)], env=git_env, check=True)
+        assert (clone_dotgit / ".claude-plugin" / "marketplace.json").is_file()
+    finally:
+        uv_server.should_exit = True
+        thread.join(timeout=5)

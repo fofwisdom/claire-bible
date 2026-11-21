@@ -299,36 +299,103 @@ def test_js_bundle_scopes_storage_and_excludes_operator_data():
 def test_settings_mcp_client_bundles_panel_is_localized(env):
     en_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"})
     assert en_resp.status_code == 200
-    assert "Agent Client Bundles" in en_resp.text
-    assert "Bundle endpoint" in en_resp.text
-    assert "Claude Marketplace URL" in en_resp.text
-    assert 'id="pref-mcp-client-marketplace-url"' in en_resp.text
+    assert "Agent Client Bundles · Shared Marketplace" in en_resp.text
+    assert "Shared marketplace &amp; bundle root path" in en_resp.text
+    root_match = re.search(r'id="pref-mcp-client-delivery-base"[^>]*>([^<]+)<', en_resp.text)
+    assert root_match is not None
+    assert root_match.group(1).endswith("/clients")
+    assert ".claude-plugin/marketplace.json" not in root_match.group(1)
     assert "Antigravity · Cursor · MCP Clients" in en_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in en_resp.text, retired
 
     ko_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
     assert ko_resp.status_code == 200
-    assert "에이전트 클라이언트 번들" in ko_resp.text
-    assert "번들 엔드포인트" in ko_resp.text
-    assert "Claude 마켓플레이스 URL" in ko_resp.text
+    assert "에이전트 클라이언트 번들 · 공통 마켓플레이스" in ko_resp.text
+    assert "공통 마켓플레이스 · 번들 최상단 경로" in ko_resp.text
+    ko_root_match = re.search(r'id="pref-mcp-client-delivery-base"[^>]*>([^<]+)<', ko_resp.text)
+    assert ko_root_match is not None and ".claude-plugin/marketplace.json" not in ko_root_match.group(1)
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in ko_resp.text, retired
 
 
 def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
-    for lang, expected_title, expected_step in (
-        ("en", "Agent-Driven Extraction Quick Start", "Switch Extraction mode to client in Account Settings"),
-        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "계정 설정에서 추출 모드를 client로 전환하세요"),
+    for lang, expected_title, expected_steps_heading, expected_step in (
+        ("en", "Agent-Driven Extraction Quick Start", "Setup Progress Steps", "Switch Extraction mode to client in Account Settings"),
+        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "설정 진행 절차", "계정 설정에서 추출 모드를 client로 전환하세요"),
     ):
         resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": lang})
         assert resp.status_code == 200
         html = resp.text
         assert 'id="pref-mcp-agent-guide"' in html
         assert expected_title in html
+        assert expected_steps_heading in html
         assert expected_step in html
         assert '<ol class="pref-flow"' in html
         assert 'href="/settings/account#settings-extraction-mode"' in html
         assert 'href="#pref-mcp-client-bundles"' in html
         assert html.index('id="pref-mcp-agent-guide"') < html.index('id="pref-mcp-endpoint"')
         assert html.index('id="pref-mcp-client-bundles"') < html.index('id="pref-mcp-tools-tbody"')
+
+
+def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
+    # Initially: all 4 steps are pending (red: data-ok="false").
+    initial_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "0 / 4 completed" in initial_html
+    for step_idx in range(1, 5):
+        assert f'data-step="{step_idx}" data-ok="false"' in initial_html
+
+    # Step 1: Switch account extraction_mode to client.
+    assert env.client.patch("/api/me", headers=env.alice_owner, json={"extraction_mode": "client"}).status_code == 200
+    s1_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "1 / 4 completed" in s1_html
+    assert 'data-step="1" data-ok="true"' in s1_html
+    assert 'data-step="2" data-ok="false"' in s1_html
+
+    # Step 2: Download a signed bundle URL from /settings/mcp -> marks Step 2 green!
+    bundle_match = re.search(r'href="([^"]+/antigravity/bundle\.zip\?t=[^"]+)"', s1_html)
+    assert bundle_match is not None
+    dl_resp = env.client.get(bundle_match.group(1).replace("&amp;", "&"))
+    assert dl_resp.status_code == 200
+    s2_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "2 / 4 completed" in s2_html
+    assert 'data-step="2" data-ok="true"' in s2_html
+
+    # Step 3: Issue an OAuth 2.1 token with write scope -> marks Step 3 green!
+    now = time.time()
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO oauth_clients (client_id, client_secret, client_name, redirect_uris, created_at) VALUES (?, NULL, ?, ?, ?)",
+            ("cli-test-step3", "Test Step 3 Client", json.dumps(["http://127.0.0.1:9999/cb"]), now),
+        )
+        conn.execute(
+            "INSERT INTO oauth_tokens (token, refresh_token, client_id, scope, granted_scope, created_at, expires_at, account_id) VALUES (?, ?, 'cli-test-step3', 'write', 'write', ?, ?, ?)",
+            ("tok-step3-" + "x" * 24, "ref-step3-" + "y" * 24, now, now + 3600, 2),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    s3_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "3 / 4 completed" in s3_html
+    assert 'data-step="3" data-ok="true"' in s3_html
+    assert 'data-step="4" data-ok="false"' in s3_html
+
+    # Step 4: Record an agent_client extraction in the user's personal KB -> all 4 steps green!
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO documents (id, kb_id, url, title, extraction_status, fetched_at) VALUES (?, ?, ?, ?, 'extracted', ?)",
+            ("doc-step4", int(env.alice_def.id), "https://example.test/1", "Doc Step 4", now),
+        )
+        conn.execute(
+            "INSERT INTO extractions (document_id, kb_id, provider, model, prompt_version, raw_response, created_at) VALUES (?, ?, 'agent_client', 'antigravity', 'agent-extract-v1', '{}', ?)",
+            ("doc-step4", int(env.alice_def.id), now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    s4_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
+    assert "4 / 4 완료" in s4_html
+    for step_idx in range(1, 5):
+        assert f'data-step="{step_idx}" data-ok="true"' in s4_html

@@ -110,7 +110,8 @@ The Claire Bible server hosts and serves registered `agent_client` bundles. To s
 ### 4.2 Mode A: Fixed URI Path (`uri_path`)
 
 - **Fixed URL pattern**:
-  - `https://<app_authority>/clients/.claude-plugin/marketplace.json` (and `/clients/marketplace.json` alias) — Claude-compatible marketplace catalog listing all enabled `agent_client` plugins with absolute `bundle.zip` archive sources and SHA-256 checksums
+  - `https://<app_authority>/clients` (and `/clients.git`, `/clients/index.json`) — Universal multi-agent delivery root serving read-only Git Smart HTTP (`info/refs`, `git-upload-pack` with `.claude-plugin/marketplace.json`, `.cursor-plugin/marketplace.json`, `index.json`, and `./plugins/<name>`) alongside the JSON root catalog across all enabled `agent_client` plugins
+  - `https://<app_authority>/clients/.claude-plugin/marketplace.json` (and `/clients/marketplace.json` alias) — Direct HTTP Claude-compatible marketplace catalog listing enabled Claude plugins (`marketplace.json` and `index.json` list all enabled `agent_client` plugins) with absolute `bundle.zip` archive sources and SHA-256 checksums
   - `https://<app_authority>/clients/<client_id>/manifest.json`
   - `https://<app_authority>/clients/<client_id>/bundle.tar.gz` and `https://<app_authority>/clients/<client_id>/bundle.zip` (or individual static files `/clients/<client_id>/files/<relpath>`)
 - **Namespace collision guard**: Add `"clients"` to `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py` so no member account can register username `clients` and shadow `/clients/...`.

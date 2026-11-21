@@ -3973,7 +3973,7 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: Full signup origin and multi-hop invitation lineage tree (`Cache-Control: no-store`).
+          description: 'Full signup origin and multi-hop invitation lineage tree (`Cache-Control: no-store`).'
           content:
             application/json:
               schema:
@@ -5609,6 +5609,130 @@ paths:
                         subscribed: {type: boolean}
         '400':
           description: '`invalid_request` or `invalid_url`.'
+
+  /clients:
+    get:
+      summary: Universal multi-agent client catalog and bundle delivery root (AE1b)
+      description: >-
+        Serves the multi-agent root index JSON listing all enabled `agent_client` plugins (and also functions as
+        a read-only Git Smart HTTP repository URL for Claude / Cursor marketplaces without `.json` or `.git` suffixes).
+      operationId: getAgentClientRootIndex
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Universal multi-agent index catalog JSON.
+          content:
+            application/json:
+              schema: {type: object}
+        '401':
+          description: Missing or invalid credentials.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients/index.json:
+    get:
+      summary: Multi-agent client catalog index JSON alias (AE1b)
+      operationId: getAgentClientIndexJson
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: Universal multi-agent index catalog JSON.
+          content:
+            application/json:
+              schema: {type: object}
+        '401':
+          description: Missing or invalid credentials.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients/info/refs:
+    get:
+      summary: Git Smart HTTP ref advertisement for /clients marketplace (AE1b)
+      operationId: getAgentClientGitInfoRefs
+      x-claire-access: public
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema: {type: string, enum: [git-upload-pack]}
+      responses:
+        '200':
+          description: Git upload-pack advertisement packet stream.
+          content:
+            application/x-git-upload-pack-advertisement:
+              schema: {type: string, format: binary}
+        '401':
+          description: 'Unauthorized (`WWW-Authenticate: Basic realm="Claire Bible", Bearer`).'
+        '403':
+          description: Unsupported Git service parameter.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients.git/info/refs:
+    get:
+      summary: Git Smart HTTP ref advertisement alias with .git suffix (AE1b)
+      operationId: getAgentClientGitDotInfoRefs
+      x-claire-access: public
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema: {type: string, enum: [git-upload-pack]}
+      responses:
+        '200':
+          description: Git upload-pack advertisement packet stream.
+          content:
+            application/x-git-upload-pack-advertisement:
+              schema: {type: string, format: binary}
+        '401':
+          description: Unauthorized.
+        '403':
+          description: Unsupported Git service parameter.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients/git-upload-pack:
+    post:
+      summary: Git Smart HTTP upload-pack stream for /clients marketplace (AE1b)
+      operationId: postAgentClientGitUploadPack
+      x-claire-access: public
+      responses:
+        '200':
+          description: Git upload-pack side-band PACKv2 stream.
+          content:
+            application/x-git-upload-pack-result:
+              schema: {type: string, format: binary}
+        '401':
+          description: Unauthorized.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients.git/git-upload-pack:
+    post:
+      summary: Git Smart HTTP upload-pack alias with .git suffix (AE1b)
+      operationId: postAgentClientGitDotUploadPack
+      x-claire-access: public
+      responses:
+        '200':
+          description: Git upload-pack side-band PACKv2 stream.
+          content:
+            application/x-git-upload-pack-result:
+              schema: {type: string, format: binary}
+        '401':
+          description: Unauthorized.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
 
   /clients/.claude-plugin/marketplace.json:
     get:

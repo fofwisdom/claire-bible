@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import gzip
 import hashlib
 import hmac
@@ -11,9 +12,11 @@ import ipaddress
 import json
 import mimetypes
 import sqlite3
+import struct
 import tarfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs
@@ -43,10 +46,13 @@ __all__ = [
     "BUNDLE_TOKEN_TTL",
     "DEFAULT_AGENT_CLIENT_DELIVERY_MODE",
     "DEV_CLIENTS_PORT",
+    "GIT_CLIENT_ID",
     "MARKETPLACE_CLIENT_ID",
     "MARKETPLACE_PATHS",
     "build_bundle_tar_gz",
     "build_bundle_zip",
+    "build_clients_index_bytes",
+    "build_git_pack_and_refs",
     "build_manifest_bytes",
     "build_marketplace_bytes",
     "bundle_query_url",
@@ -56,6 +62,8 @@ __all__ = [
     "create_bundle_token",
     "create_clients_app",
     "delivery_summary",
+    "has_agent_bundle_downloaded",
+    "mark_agent_bundle_downloaded",
     "read_delivery_mode",
     "read_delivery_mode_from_settings",
     "verify_bundle_token",
@@ -69,8 +77,11 @@ AGENT_CLIENT_DELIVERY_MODES: tuple[str, str] = ("uri_path", "fqdn")
 DEFAULT_AGENT_CLIENT_DELIVERY_MODE = "uri_path"
 AGENT_CLIENT_SETTING_KEY = "agent_client_delivery_mode"
 BUNDLE_TOKEN_TTL = 60
+GIT_CLIENT_ID = "_git"
 MARKETPLACE_CLIENT_ID = "_marketplace"
 MARKETPLACE_PATHS: tuple[str, str] = (".claude-plugin/marketplace.json", "marketplace.json")
+_BUNDLE_DOWNLOADED_KEY_PREFIX = "agent_bundle_downloaded:"
+_PLUGIN_BUNDLE_DIR_PREFIX = "client_bundle/"
 
 _BUNDLE_TOKEN_PURPOSE = "client_bundle_token"
 _CLIENT_CSP = "default-src 'none'; sandbox"
@@ -165,6 +176,32 @@ def write_delivery_mode(
         raise ValueError("clients host is unavailable in this environment")
     accounts_store.AccountStore(conn).set_setting(AGENT_CLIENT_SETTING_KEY, mode, updated_by=updated_by)
     return mode
+
+
+def has_agent_bundle_downloaded(conn: sqlite3.Connection, account_id: int) -> bool:
+    """Return True when the account has downloaded or fetched an agent client bundle."""
+    key = f"{_BUNDLE_DOWNLOADED_KEY_PREFIX}{int(account_id)}"
+    return bool(accounts_store.AccountStore(conn).get_setting(key))
+
+
+def mark_agent_bundle_downloaded(settings: Any, account_id: int) -> None:
+    """Record best-effort in ``server_settings`` that ``account_id`` downloaded an agent bundle."""
+    db_file = _db_file_from_settings(settings)
+    if db_file is None or not db_file.is_file():
+        return
+    key = f"{_BUNDLE_DOWNLOADED_KEY_PREFIX}{int(account_id)}"
+    try:
+        conn = dbm.connect_existing(db_file)
+    except Exception:
+        return
+    try:
+        store = accounts_store.AccountStore(conn)
+        if not store.get_setting(key):
+            store.set_setting(key, str(int(time.time())), updated_by=int(account_id))
+    except Exception:
+        return
+    finally:
+        conn.close()
 
 
 def _resolve_secret_service(settings: Any = None, secret_service: SecretService | None = None) -> SecretService:
@@ -361,7 +398,88 @@ def _plugin_en_description(status: PluginStatus) -> str:
     return manifest.id
 
 
-def build_marketplace_bytes(
+def _plugin_kebab_name(plugin_id: str) -> str:
+    return plugin_id.replace(".", "-").replace("_", "-")
+
+
+def _strip_bundle_prefix(rel: str) -> str:
+    return rel[len(_PLUGIN_BUNDLE_DIR_PREFIX) :] if rel.startswith(_PLUGIN_BUNDLE_DIR_PREFIX) else rel
+
+
+def _is_claude_plugin(status: PluginStatus) -> bool:
+    manifest = status.manifest
+    if manifest is None:
+        return False
+    if manifest.client_id == "claude":
+        return True
+    return any(_strip_bundle_prefix(rel).startswith(".claude-plugin/") for rel in manifest.files)
+
+
+def _is_cursor_plugin(status: PluginStatus) -> bool:
+    manifest = status.manifest
+    if manifest is None:
+        return False
+    if manifest.client_id == "cursor":
+        return True
+    return any(_strip_bundle_prefix(rel).startswith(".cursor-plugin/") for rel in manifest.files)
+
+
+def _sorted_agent_statuses(statuses: list[PluginStatus]) -> list[PluginStatus]:
+    return sorted(
+        (s for s in statuses if s.manifest is not None and s.manifest.client_id and s.path is not None),
+        key=lambda s: (str(s.manifest.client_id), str(s.manifest.id)),
+    )
+
+
+def _client_catalog_entries(
+    ordered: list[PluginStatus],
+    *,
+    base_url: str,
+    account_id: int | None = None,
+    settings: Any = None,
+    secret_service: SecretService | None = None,
+    now: float | None = None,
+) -> list[dict[str, Any]]:
+    clean_base = base_url.rstrip("/")
+    entries: list[dict[str, Any]] = []
+    for status in ordered:
+        manifest = status.manifest
+        assert manifest is not None and manifest.client_id is not None
+        cid = manifest.client_id
+        kebab_name = _plugin_kebab_name(manifest.id)
+        client_base = f"{clean_base}/{cid}"
+        zip_bytes = build_bundle_zip(status)
+        zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
+        zip_url = _client_url(client_base, "bundle.zip", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        manifest_url = _client_url(client_base, "manifest.json", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        tar_gz_url = _client_url(client_base, "bundle.tar.gz", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        entries.append(
+            {
+                "name": kebab_name,
+                "description": _plugin_en_description(status),
+                "version": f"{manifest.revision}.0.0",
+                "author": {"name": "Claire Bible"},
+                "category": "productivity",
+                "license": manifest.license,
+                "source": {"source": "archive", "url": zip_url, "sha256": zip_sha256},
+                "claire": {
+                    "plugin_id": manifest.id,
+                    "client_id": cid,
+                    "revision": manifest.revision,
+                    "required_scopes": list(manifest.required_scopes),
+                    "digest": status.digest,
+                    "git_path": f"./plugins/{kebab_name}",
+                    "manifest_url": manifest_url,
+                    "tar_gz_url": tar_gz_url,
+                    "zip_url": zip_url,
+                    "zip_sha256": zip_sha256,
+                },
+            }
+        )
+    return entries
+
+
+def build_clients_index_bytes(
     statuses: list[PluginStatus],
     *,
     base_url: str,
@@ -371,47 +489,40 @@ def build_marketplace_bytes(
     secret_service: SecretService | None = None,
     now: float | None = None,
 ) -> bytes:
-    """Build deterministic Claude-compatible ``marketplace.json`` listing all enabled ``agent_client`` plugins."""
-    ordered = sorted(
-        (s for s in statuses if s.manifest is not None and s.manifest.client_id and s.path is not None),
-        key=lambda s: (str(s.manifest.client_id), str(s.manifest.id)),
-    )
-    plugins: list[dict[str, Any]] = []
+    """Build universal multi-agent root catalog JSON listing all enabled ``agent_client`` plugins."""
+    ordered = _sorted_agent_statuses(statuses)
+    plugins = _client_catalog_entries(ordered, base_url=base_url, account_id=account_id, settings=settings, secret_service=secret_service, now=now)
     clean_base = base_url.rstrip("/")
-    for status in ordered:
-        manifest = status.manifest
-        assert manifest is not None and manifest.client_id is not None
-        cid = manifest.client_id
-        client_base = f"{clean_base}/{cid}"
-        zip_bytes = build_bundle_zip(status)
-        zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
-        zip_url = _client_url(client_base, "bundle.zip", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
-        manifest_url = _client_url(client_base, "manifest.json", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
-        tar_gz_url = _client_url(client_base, "bundle.tar.gz", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
-        plugins.append(
-            {
-                "name": manifest.id.replace(".", "-").replace("_", "-"),
-                "description": _plugin_en_description(status),
-                "version": f"{manifest.revision}.0.0",
-                "author": {"name": "Claire Bible"},
-                "category": "productivity",
-                "license": manifest.license,
-                "source": {
-                    "source": "archive",
-                    "url": zip_url,
-                    "sha256": zip_sha256,
-                },
-                "claire": {
-                    "plugin_id": manifest.id,
-                    "client_id": cid,
-                    "revision": manifest.revision,
-                    "required_scopes": list(manifest.required_scopes),
-                    "digest": status.digest,
-                    "manifest_url": manifest_url,
-                    "tar_gz_url": tar_gz_url,
-                },
-            }
-        )
+    payload = {
+        "name": "claire-bible",
+        "description": "Claire Bible universal agent client marketplace and bundle delivery root.",
+        "delivery_mode": delivery_mode,
+        "git_marketplace_url": clean_base,
+        "claude_marketplace_url": f"{clean_base}/.claude-plugin/marketplace.json",
+        "cursor_marketplace_url": f"{clean_base}/.cursor-plugin/marketplace.json",
+        "plugin_count": len(plugins),
+        "clients": [entry["claire"] | {"name": entry["name"], "description": entry["description"]} for entry in plugins],
+        "plugins": plugins,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+
+def build_marketplace_bytes(
+    statuses: list[PluginStatus],
+    *,
+    base_url: str,
+    delivery_mode: str = DEFAULT_AGENT_CLIENT_DELIVERY_MODE,
+    account_id: int | None = None,
+    settings: Any = None,
+    secret_service: SecretService | None = None,
+    now: float | None = None,
+    claude_only: bool = True,
+) -> bytes:
+    """Build deterministic Claude-compatible ``marketplace.json``."""
+    ordered = _sorted_agent_statuses(statuses)
+    if claude_only:
+        ordered = [s for s in ordered if _is_claude_plugin(s)]
+    plugins = _client_catalog_entries(ordered, base_url=base_url, account_id=account_id, settings=settings, secret_service=secret_service, now=now)
     payload = {
         "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
         "name": "claire-bible",
@@ -424,6 +535,177 @@ def build_marketplace_bytes(
         "plugins": plugins,
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+
+def _git_object(kind: bytes, body: bytes) -> tuple[bytes, bytes]:
+    raw = kind + b" " + str(len(body)).encode("ascii") + b"\x00" + body
+    return hashlib.sha1(raw).digest(), raw
+
+
+def _collect_git_tree_files(statuses: list[PluginStatus]) -> dict[str, bytes]:
+    """Assemble deterministic Git repository files across all enabled ``agent_client`` plugins."""
+    ordered = _sorted_agent_statuses(statuses)
+    tree_files: dict[str, bytes] = {}
+    claude_entries: list[dict[str, Any]] = []
+    cursor_entries: list[dict[str, Any]] = []
+    index_entries: list[dict[str, Any]] = []
+
+    for status in ordered:
+        manifest = status.manifest
+        assert manifest is not None and manifest.client_id is not None
+        kebab_name = _plugin_kebab_name(manifest.id)
+        plugin_root = f"plugins/{kebab_name}"
+        contents = _read_verified_bundle_files(status)
+        normalized_paths: set[str] = set()
+        for rel, data in contents.items():
+            norm_rel = _strip_bundle_prefix(rel)
+            normalized_paths.add(norm_rel)
+            tree_files[f"{plugin_root}/{norm_rel}"] = data
+        if manifest.client_id == "claude" and ".claude-plugin/plugin.json" not in normalized_paths:
+            synth_plugin = {
+                "name": kebab_name,
+                "version": f"{manifest.revision}.0.0",
+                "description": _plugin_en_description(status),
+            }
+            tree_files[f"{plugin_root}/.claude-plugin/plugin.json"] = json.dumps(synth_plugin, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+        meta_entry = {
+            "name": kebab_name,
+            "description": _plugin_en_description(status),
+            "version": f"{manifest.revision}.0.0",
+            "author": {"name": "Claire Bible"},
+            "category": "productivity",
+            "license": manifest.license,
+            "source": f"./{plugin_root}",
+            "claire": {
+                "plugin_id": manifest.id,
+                "client_id": manifest.client_id,
+                "revision": manifest.revision,
+                "required_scopes": list(manifest.required_scopes),
+                "digest": status.digest,
+            },
+        }
+        index_entries.append(meta_entry)
+        if _is_claude_plugin(status):
+            claude_entries.append(meta_entry)
+        if _is_cursor_plugin(status):
+            cursor_entries.append(meta_entry)
+
+    claude_marketplace = {
+        "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+        "name": "claire-bible",
+        "description": "Claire Bible agent client plugins for OAuth 2.1 MCP connection, staged source extraction, and knowledge graph queries.",
+        "owner": {"name": "Claire Bible"},
+        "plugins": claude_entries,
+    }
+    cursor_marketplace = {
+        "name": "claire-bible",
+        "owner": {"name": "Claire Bible"},
+        "metadata": {"description": "Claire Bible Cursor plugins"},
+        "plugins": cursor_entries,
+    }
+    root_index = {
+        "name": "claire-bible",
+        "description": "Claire Bible multi-agent plugin repository.",
+        "plugin_count": len(index_entries),
+        "plugins": index_entries,
+    }
+    tree_files[".claude-plugin/marketplace.json"] = json.dumps(claude_marketplace, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    tree_files[".cursor-plugin/marketplace.json"] = json.dumps(cursor_marketplace, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    tree_files["index.json"] = json.dumps(root_index, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    client_lines = "\n".join(f"- `{e['claire']['client_id']}` (`{e['claire']['plugin_id']}`): `./plugins/{e['name']}`" for e in index_entries) or "- (none)"
+    tree_files["README.md"] = f"# Claire Bible Agent Clients\n\nEnabled `agent_client` plugins served by this Claire Bible instance:\n\n{client_lines}\n".encode("utf-8")
+    return tree_files
+
+
+def build_git_pack_and_refs(statuses: list[PluginStatus]) -> tuple[str, bytes]:
+    """Build deterministic single-commit Git HEAD SHA-1 hex and PACKv2 bytes with zero subprocesses."""
+    tree_files = _collect_git_tree_files(statuses)
+    objects: list[tuple[int, bytes]] = []
+
+    root: dict[str, Any] = {}
+    for path in sorted(tree_files):
+        cur = root
+        parts = path.split("/")
+        for part in parts[:-1]:
+            cur = cur.setdefault(part, {})
+        cur[parts[-1]] = tree_files[path]
+
+    def _build_tree(node: dict[str, Any]) -> bytes:
+        entries: list[tuple[str, bytes, bytes]] = []
+        for name in sorted(node):
+            val = node[name]
+            if isinstance(val, bytes):
+                sha, _ = _git_object(b"blob", val)
+                objects.append((3, val))
+                entries.append((name, b"100644", sha))
+            else:
+                sub_sha = _build_tree(val)
+                entries.append((name, b"40000", sub_sha))
+        # Git sorts directory entries as if their names ended with "/".
+        entries.sort(key=lambda item: (item[0] + "/" if item[1] == b"40000" else item[0]).encode("utf-8"))
+        body = b"".join(mode + b" " + name.encode("utf-8") + b"\x00" + sha for name, mode, sha in entries)
+        tree_sha, _ = _git_object(b"tree", body)
+        objects.append((2, body))
+        return tree_sha
+
+    tree_sha = _build_tree(root)
+    commit_body = (
+        f"tree {tree_sha.hex()}\n"
+        "author Claire Bible <noreply@claire.bible> 0 +0000\n"
+        "committer Claire Bible <noreply@claire.bible> 0 +0000\n\n"
+        "Claire Bible agent client marketplace\n"
+    ).encode("utf-8")
+    commit_sha, _ = _git_object(b"commit", commit_body)
+    objects.append((1, commit_body))
+
+    type_names = {1: b"commit", 2: b"tree", 3: b"blob"}
+    seen: set[bytes] = set()
+    unique_objects: list[tuple[int, bytes]] = []
+    for obj_type, body in objects:
+        sha, _ = _git_object(type_names[obj_type], body)
+        if sha not in seen:
+            seen.add(sha)
+            unique_objects.append((obj_type, body))
+
+    out = bytearray(b"PACK\x00\x00\x00\x02" + struct.pack(">I", len(unique_objects)))
+    for obj_type, body in unique_objects:
+        size = len(body)
+        header_byte = (obj_type << 4) | (size & 0x0F)
+        size >>= 4
+        while size:
+            out.append(header_byte | 0x80)
+            header_byte = size & 0x7F
+            size >>= 7
+        out.append(header_byte)
+        out.extend(zlib.compress(body, level=9))
+    out.extend(hashlib.sha1(bytes(out)).digest())
+    return commit_sha.hex(), bytes(out)
+
+
+def _pkt_line(data: bytes) -> bytes:
+    return f"{len(data) + 4:04x}".encode("ascii") + data
+
+
+def _git_info_refs_bytes(head_hex: str) -> bytes:
+    caps = b"symref=HEAD:refs/heads/main multi_ack_detailed side-band-64k ofs-delta agent=claire/1.0"
+    return (
+        _pkt_line(b"# service=git-upload-pack\n")
+        + b"0000"
+        + _pkt_line(head_hex.encode("ascii") + b" HEAD\x00" + caps + b"\n")
+        + _pkt_line(head_hex.encode("ascii") + b" refs/heads/main\n")
+        + b"0000"
+    )
+
+
+def _git_upload_pack_bytes(pack_bytes: bytes, *, done: bool) -> bytes:
+    out = bytearray(_pkt_line(b"NAK\n"))
+    if done:
+        mv = memoryview(pack_bytes)
+        for offset in range(0, len(mv), 65500):
+            out.extend(_pkt_line(b"\x01" + bytes(mv[offset : offset + 65500])))
+        out.extend(b"0000")
+    return bytes(out)
 
 
 def _media_type_for(relpath: str) -> str:
@@ -454,14 +736,26 @@ def _has_unsafe_raw_path(raw_path: bytes) -> bool:
 
 
 def _parse_target(prefix: str, path: str, raw_path: bytes) -> tuple[str, str] | None:
-    """Return ``(client_id, target_file)`` when path matches a bundle endpoint, else None."""
+    """Return ``(client_id, target_file)`` when path matches a bundle or Git marketplace endpoint, else None."""
     if _has_unsafe_raw_path(raw_path):
         return None
     if prefix:
+        if path in {prefix, f"{prefix}/", f"{prefix}/index.json"}:
+            return MARKETPLACE_CLIENT_ID, "index.json"
+        if path in {f"{prefix}/info/refs", f"{prefix}.git/info/refs"}:
+            return GIT_CLIENT_ID, "info/refs"
+        if path in {f"{prefix}/git-upload-pack", f"{prefix}.git/git-upload-pack"}:
+            return GIT_CLIENT_ID, "git-upload-pack"
         if not path.startswith(prefix):
             return None
         rest = path[len(prefix) :]
     else:
+        if path in {"", "/", "/index.json"}:
+            return MARKETPLACE_CLIENT_ID, "index.json"
+        if path in {"/info/refs", "/clients.git/info/refs"}:
+            return GIT_CLIENT_ID, "info/refs"
+        if path in {"/git-upload-pack", "/clients.git/git-upload-pack"}:
+            return GIT_CLIENT_ID, "git-upload-pack"
         rest = path
     if not rest.startswith("/") or len(rest) < 2:
         return None
@@ -600,6 +894,29 @@ def _validate_signed_token_sync(
         conn.close()
 
 
+def _parse_basic_token(scope: Scope) -> tuple[bool, str | None]:
+    from .security import _raw_headers
+
+    auth_headers = _raw_headers(scope, b"authorization")
+    if not auth_headers:
+        return False, None
+    raw = auth_headers[0].decode("latin-1").strip()
+    if not raw.lower().startswith("basic "):
+        return False, None
+    b64 = raw[6:].strip()
+    if not b64:
+        return True, None
+    try:
+        decoded = base64.b64decode(b64.encode("ascii"), validate=True).decode("utf-8")
+    except Exception:
+        return True, None
+    if ":" not in decoded:
+        return True, None
+    user, password = decoded.split(":", 1)
+    token = password or user
+    return True, (token.strip() or None)
+
+
 async def _authorize_request(
     scope: Scope,
     *,
@@ -611,8 +928,22 @@ async def _authorize_request(
     secret_service: SecretService | None,
     now: float | None,
 ) -> tuple[bool, int, int | None]:
+    query = parse_qs((scope.get("query_string") or b"").decode("latin-1"), keep_blank_values=True)
+    t_values = query.get("t")
     if config.anonymous_readonly:
-        return True, 200, None
+        signed_account: int | None = None
+        if t_values and len(t_values) == 1 and t_values[0]:
+            signed_account = await asyncio.to_thread(
+                _validate_signed_token_sync,
+                config,
+                t_values[0],
+                client_id=client_id,
+                target_file=target_file,
+                settings=settings,
+                secret_service=secret_service,
+                now=now,
+            )
+        return True, 200, signed_account
 
     from .security import _parse_bearer, _raw_headers, read_session_cookie
 
@@ -620,18 +951,25 @@ async def _authorize_request(
     cross_origin = state.get("_claire_origin_kind") == "cross"
     authorization_present, bearer = _parse_bearer(scope)
     if authorization_present:
-        if bearer is None:
-            return False, 401, None
-        return await asyncio.to_thread(
-            _validate_bearer_sync,
-            config,
-            bearer,
-            allow_session=allow_session,
-            cross_origin=cross_origin,
-        )
+        if bearer is not None:
+            return await asyncio.to_thread(
+                _validate_bearer_sync,
+                config,
+                bearer,
+                allow_session=allow_session,
+                cross_origin=cross_origin,
+            )
+        basic_present, basic_token = _parse_basic_token(scope)
+        if basic_present and basic_token is not None:
+            return await asyncio.to_thread(
+                _validate_bearer_sync,
+                config,
+                basic_token,
+                allow_session=False,
+                cross_origin=cross_origin,
+            )
+        return False, 401, None
 
-    query = parse_qs((scope.get("query_string") or b"").decode("latin-1"), keep_blank_values=True)
-    t_values = query.get("t")
     if t_values is not None:
         if len(t_values) != 1 or not t_values[0]:
             return False, 401, None
@@ -691,9 +1029,38 @@ def _resolve_delivery_base_url(scope: Scope, *, config: WebRuntimeConfig, expect
     return f"{scheme}://{host}{prefix}"
 
 
+async def _read_raw_body(receive: Receive | None, scope: Scope) -> bytes:
+    if receive is None:
+        return b""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        msg = await receive()
+        if msg["type"] == "http.disconnect":
+            break
+        if msg["type"] != "http.request":
+            continue
+        chunk = bytes(msg.get("body") or b"")
+        total += len(chunk)
+        if total > 1024 * 1024:
+            return b""
+        chunks.append(chunk)
+        if not msg.get("more_body", False):
+            break
+    raw = b"".join(chunks)
+    for k, v in scope.get("headers") or ():
+        if k.lower() == b"content-encoding" and v.decode("latin-1").strip().lower() == "gzip":
+            try:
+                return zlib.decompress(raw, 16 + zlib.MAX_WBITS)
+            except zlib.error:
+                return raw
+    return raw
+
+
 async def _handle_delivery(
     scope: Scope,
     *,
+    receive: Receive | None = None,
     settings: Any,
     config: WebRuntimeConfig,
     expected_mode: str,
@@ -702,10 +1069,6 @@ async def _handle_delivery(
     secret_service: SecretService | None,
     now: float | None,
 ) -> Response:
-    method = str(scope.get("method", "")).upper()
-    if method not in {"GET", "HEAD"}:
-        return _security_plain_response(404, "Not Found")
-
     try:
         active_mode = await asyncio.to_thread(read_delivery_mode_from_settings, settings)
     except ValueError:
@@ -719,28 +1082,67 @@ async def _handle_delivery(
         return _security_plain_response(404, "Not Found")
     client_id, target_file = parsed
 
+    method = str(scope.get("method", "")).upper()
+    is_git_upload = client_id == GIT_CLIENT_ID and target_file == "git-upload-pack"
+    if is_git_upload:
+        if method != "POST":
+            return _security_plain_response(404, "Not Found")
+    elif method not in {"GET", "HEAD"}:
+        return _security_plain_response(404, "Not Found")
+
+    if client_id == GIT_CLIENT_ID and target_file == "info/refs":
+        query = parse_qs((scope.get("query_string") or b"").decode("latin-1"), keep_blank_values=True)
+        svc = query.get("service", [])
+        if svc != ["git-upload-pack"]:
+            return _security_plain_response(403, "Forbidden")
+
     allowed, denial_status, caller_account_id = await _authorize_request(
         scope,
         config=config,
         settings=settings,
         client_id=client_id,
         target_file=target_file,
-        allow_session=allow_session,
+        allow_session=False if is_git_upload else allow_session,
         secret_service=secret_service,
         now=now,
     )
     if not allowed:
         if denial_status == 403:
             return _security_plain_response(403, "Forbidden")
-        return _security_plain_response(401, "Unauthorized", extra_headers={"WWW-Authenticate": "Bearer"})
+        www_auth = 'Basic realm="Claire Bible", Bearer' if client_id == GIT_CLIENT_ID else "Bearer"
+        return _security_plain_response(401, "Unauthorized", extra_headers={"WWW-Authenticate": www_auth})
 
+    upload_pack_body = await _read_raw_body(receive, scope) if is_git_upload else b""
     base_url = _resolve_delivery_base_url(scope, config=config, expected_mode=expected_mode, prefix=prefix)
     mint_account = None if config.anonymous_readonly else caller_account_id
 
     def _build_payload() -> tuple[bytes, str] | None:
+        if client_id == GIT_CLIENT_ID:
+            try:
+                snap = plugin_snapshot(settings, fresh=True)
+                head_hex, pack_bytes = build_git_pack_and_refs(snap.agent_clients())
+                if target_file == "info/refs":
+                    return _git_info_refs_bytes(head_hex), "application/x-git-upload-pack-advertisement"
+                done = b"done" in upload_pack_body or b"want " not in upload_pack_body
+                return _git_upload_pack_bytes(pack_bytes, done=done), "application/x-git-upload-pack-result"
+            except (PluginFileError, OSError):
+                return None
         if client_id == MARKETPLACE_CLIENT_ID:
             try:
                 snap = plugin_snapshot(settings, fresh=True)
+                if target_file == "index.json":
+                    return (
+                        build_clients_index_bytes(
+                            snap.agent_clients(),
+                            base_url=base_url,
+                            delivery_mode=active_mode,
+                            account_id=mint_account,
+                            settings=settings,
+                            secret_service=secret_service,
+                            now=now,
+                        ),
+                        "application/json; charset=utf-8",
+                    )
                 return (
                     build_marketplace_bytes(
                         snap.agent_clients(),
@@ -750,6 +1152,7 @@ async def _handle_delivery(
                         settings=settings,
                         secret_service=secret_service,
                         now=now,
+                        claude_only=(target_file == ".claude-plugin/marketplace.json"),
                     ),
                     "application/json; charset=utf-8",
                 )
@@ -779,6 +1182,8 @@ async def _handle_delivery(
     built = await asyncio.to_thread(_build_payload)
     if built is None:
         return _security_plain_response(404, "Not Found")
+    if caller_account_id is not None and (client_id != MARKETPLACE_CLIENT_ID or target_file != "index.json"):
+        await asyncio.to_thread(mark_agent_bundle_downloaded, settings, caller_account_id)
     payload, media_type = built
     headers = clients_security_headers()
     headers["Content-Length"] = str(len(payload))
@@ -802,6 +1207,7 @@ def create_clients_app(
             return
         response = await _handle_delivery(
             scope,
+            receive=receive,
             settings=settings,
             config=runtime_cfg,
             expected_mode="fqdn",
@@ -822,7 +1228,7 @@ def clients_app_routes(
     secret_service: SecretService | None = None,
     now: float | None = None,
 ) -> list[Route]:
-    """Return app-host ``/clients/{client_id}/...`` routes active only in ``uri_path`` mode."""
+    """Return app-host ``/clients`` routes active only in ``uri_path`` mode."""
     from .security import WebRuntimeConfig
 
     runtime_cfg = config or WebRuntimeConfig.from_settings(settings)
@@ -830,6 +1236,7 @@ def clients_app_routes(
     async def serve_client_bundle(request: Request) -> Response:
         return await _handle_delivery(
             request.scope,
+            receive=request.receive,
             settings=settings,
             config=runtime_cfg,
             expected_mode="uri_path",
@@ -840,6 +1247,12 @@ def clients_app_routes(
         )
 
     return [
+        Route("/clients", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients/index.json", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients/info/refs", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients.git/info/refs", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients/git-upload-pack", serve_client_bundle, methods=["POST"]),
+        Route("/clients.git/git-upload-pack", serve_client_bundle, methods=["POST"]),
         Route("/clients/.claude-plugin/marketplace.json", serve_client_bundle, methods=["GET", "HEAD"]),
         Route("/clients/marketplace.json", serve_client_bundle, methods=["GET", "HEAD"]),
         Route("/clients/{client_id}/manifest.json", serve_client_bundle, methods=["GET", "HEAD"]),
@@ -882,13 +1295,15 @@ def delivery_summary(
     uri_base_url = f"{app_origin}/clients" if app_origin else "/clients"
     fqdn_base_url = fqdn_origin
     active_base_url = fqdn_base_url if mode == "fqdn" else uri_base_url
-    uri_marketplace_url = f"{uri_base_url.rstrip('/')}/.claude-plugin/marketplace.json"
-    fqdn_marketplace_url = f"{fqdn_base_url.rstrip('/')}/.claude-plugin/marketplace.json" if fqdn_base_url else None
+    uri_marketplace_url = uri_base_url
+    fqdn_marketplace_url = fqdn_base_url
 
     if anonymous_readonly is None:
         anonymous_readonly = bool(getattr(settings, "anonymous_readonly", False))
+    track_account_id = None if account_id is None else int(account_id)
     mint_account_id = None if (anonymous_readonly or account_id is None) else int(account_id)
-    marketplace_url = (
+    file_sign_account_id = track_account_id
+    marketplace_json_url = (
         _client_url(
             active_base_url,
             ".claude-plugin/marketplace.json",
@@ -922,7 +1337,7 @@ def delivery_summary(
             _client_url(
                 client_base,
                 "manifest.json",
-                account_id=mint_account_id,
+                account_id=file_sign_account_id,
                 client_id=cid,
                 settings=settings,
                 secret_service=secret_service,
@@ -935,7 +1350,7 @@ def delivery_summary(
             _client_url(
                 client_base,
                 "bundle.tar.gz",
-                account_id=mint_account_id,
+                account_id=file_sign_account_id,
                 client_id=cid,
                 settings=settings,
                 secret_service=secret_service,
@@ -948,7 +1363,7 @@ def delivery_summary(
             _client_url(
                 client_base,
                 "bundle.zip",
-                account_id=mint_account_id,
+                account_id=file_sign_account_id,
                 client_id=cid,
                 settings=settings,
                 secret_service=secret_service,
@@ -964,7 +1379,7 @@ def delivery_summary(
                 _client_url(
                     client_base,
                     target_rel,
-                    account_id=mint_account_id,
+                    account_id=file_sign_account_id,
                     client_id=cid,
                     settings=settings,
                     secret_service=secret_service,
@@ -1004,7 +1419,9 @@ def delivery_summary(
         "active_base_url": active_base_url,
         "uri_path_marketplace_url": uri_marketplace_url,
         "fqdn_marketplace_url": fqdn_marketplace_url,
-        "marketplace_url": marketplace_url,
+        "git_marketplace_url": active_base_url,
+        "marketplace_url": active_base_url,
+        "marketplace_json_url": marketplace_json_url,
         "signed_token_ttl_seconds": BUNDLE_TOKEN_TTL,
         "requires_auth": not anonymous_readonly,
         "clients": clients_payload,

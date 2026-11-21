@@ -24,6 +24,7 @@ from ...store.knowledge_base import KnowledgeBaseInfo
 from .. import clients_host
 from ..host_router import HostRoles
 from .common import TEMPLATES_DIR, AccountsContext, escape, format_ts, open_db
+from .console_ui import console_card, console_notice, console_pill
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
     {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
@@ -101,33 +102,100 @@ def _resolve_delivery_settings_and_roles(ctx: AccountsContext, settings: Any) ->
     return settings_obj, roles, anon_ro
 
 
-def _render_agent_extraction_guide_block(account: accounts_store.Account) -> str:
+def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account, oauth_grants: list[dict[str, Any]], client_delivery: dict[str, Any] | None) -> dict[str, Any]:
+    bundle_downloaded = clients_host.has_agent_bundle_downloaded(conn, account.id)
+    pending_row = conn.execute(
+        "SELECT COUNT(*) FROM documents d JOIN knowledge_bases k ON k.id = d.kb_id WHERE k.account_id = ? AND d.extraction_status = 'pending'",
+        (int(account.id),),
+    ).fetchone()
+    extracted_row = conn.execute(
+        "SELECT COUNT(*) FROM extractions e JOIN knowledge_bases k ON k.id = e.kb_id WHERE k.account_id = ? AND e.provider = 'agent_client'",
+        (int(account.id),),
+    ).fetchone()
+    pending_docs = int(pending_row[0]) if pending_row else 0
+    agent_extractions = int(extracted_row[0]) if extracted_row else 0
+    has_write_oauth = any({"write", "owner"} & set(str(g.get("scope") or "").replace(",", " ").split()) for g in oauth_grants)
+    has_clients = bool(client_delivery and client_delivery.get("clients"))
+    step1_ok = account.extraction_mode == "client"
+    step2_ok = has_clients and (bundle_downloaded or len(oauth_grants) > 0 or agent_extractions > 0)
+    step3_ok = has_write_oauth
+    step4_ok = agent_extractions > 0
+    return {
+        "step1_ok": step1_ok,
+        "step2_ok": step2_ok,
+        "step3_ok": step3_ok,
+        "step4_ok": step4_ok,
+        "pending_docs": pending_docs,
+        "agent_extractions": agent_extractions,
+    }
+
+
+def _render_agent_extraction_guide_block(account: accounts_store.Account, progress: dict[str, Any]) -> str:
     """Render the Agent-Driven Extraction quick start guide at the top of /settings/mcp."""
     mode = "client" if account.extraction_mode == "client" else "provider"
     mode_text = t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
-    pill_class = "pref-pill pref-pill-mcp" if mode == "client" else "pref-pill"
-    steps = "".join(f"<li>{escape(t(f'console.synd.mcp.guide_step_{i}'))}</li>" for i in range(1, 5))
-    return (
-        f'<div class="pref-card" id="pref-mcp-agent-guide" data-extraction-mode="{escape(mode)}">'
-        f'<h2><span data-icon="bolt"></span> {escape(t("console.synd.mcp.guide_title"))} <span class="{pill_class}">{escape(mode_text)}</span></h2>'
+    step1_ok = bool(progress.get("step1_ok"))
+    step2_ok = bool(progress.get("step2_ok"))
+    step3_ok = bool(progress.get("step3_ok"))
+    step4_ok = bool(progress.get("step4_ok"))
+    pending_docs = int(progress.get("pending_docs") or 0)
+    agent_extractions = int(progress.get("agent_extractions") or 0)
+    done_text = t("console.synd.mcp.guide_status_done")
+    pending_text = t("console.synd.mcp.guide_status_pending")
+    step4_badge = (
+        t("console.synd.mcp.guide_step_4_counts_done", extracted=agent_extractions, pending=pending_docs)
+        if step4_ok
+        else t("console.synd.mcp.guide_step_4_counts_pending", extracted=agent_extractions, pending=pending_docs)
+    )
+    steps_spec = (
+        (1, step1_ok, done_text if step1_ok else pending_text),
+        (2, step2_ok, done_text if step2_ok else pending_text),
+        (3, step3_ok, done_text if step3_ok else pending_text),
+        (4, step4_ok, step4_badge),
+    )
+    done_count = sum(1 for _i, ok, _badge in steps_spec if ok)
+    steps_html = "".join(
+        f'<li data-step="{idx}" data-ok="{"true" if ok else "false"}">'
+        f'<div class="pref-flow-head"><span>{escape(t(f"console.synd.mcp.guide_step_{idx}_title"))}</span>'
+        f'{console_pill(badge_text, tone="ok" if ok else "danger")}</div>'
+        f'<div>{escape(t(f"console.synd.mcp.guide_step_{idx}"))}</div>'
+        "</li>"
+        for idx, ok, badge_text in steps_spec
+    )
+    mode_pill = console_pill(mode_text, tone="ok" if step1_ok else "danger")
+    progress_pill = console_pill(
+        t("console.synd.mcp.guide_progress_badge", done=done_count, total=4),
+        tone="ok" if done_count == 4 else ("warn" if done_count > 0 else "danger"),
+    )
+    body_html = (
         f'<p class="pref-desc">{escape(t("console.synd.mcp.guide_desc"))}</p>'
         '<div class="pref-row">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.guide_mode_label"))}</strong></div>'
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-        f'<code id="pref-mcp-extraction-mode" class="pref-mono">{escape(mode)}</code>'
+        f'{mode_pill}<code id="pref-mcp-extraction-mode" class="pref-mono">{escape(mode)}</code>'
         f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.synd.mcp.guide_mode_change"))}</a>'
         "</div></div>"
-        f'<ol class="pref-flow" style="margin:8px 0 10px;list-style:decimal inside">{steps}</ol>'
+        f'<h3 style="margin:14px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">{escape(t("console.synd.mcp.guide_steps_title"))} {progress_pill}</h3>'
+        f'<ol class="pref-flow" style="margin:0 0 12px">{steps_html}</ol>'
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'
         f'<a class="pref-btn pref-btn-accent" href="#pref-mcp-client-bundles"><span data-icon="puzzle"></span> {escape(t("console.synd.mcp.guide_jump_bundles"))}</a>'
-        "</div></div>"
+        "</div>"
+    )
+    return console_card(
+        escape(t("console.synd.mcp.guide_title")),
+        body_html,
+        id="pref-mcp-agent-guide",
+        icon="bolt",
+        split=False,
+        extra_class="pref-card",
+        attrs={"data-extraction-mode": mode},
     )
 
 
 def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
     mode = str(summary.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
     active_base = str(summary.get("active_base_url") or "/clients")
-    marketplace_url = str(summary.get("marketplace_url") or f"{active_base.rstrip('/')}/.claude-plugin/marketplace.json")
+    marketplace_url = str(summary.get("marketplace_url") or active_base)
     clients = summary.get("clients") or []
     rows = []
     for client in clients:
@@ -161,28 +229,37 @@ def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
         if summary.get("requires_auth")
         else f'<p class="pref-desc">{escape(t("console.synd.mcp.bundles_public_note"))}</p>'
     )
-    return (
-        f'<div class="pref-card" id="pref-mcp-client-bundles" data-delivery-mode="{escape(mode)}">'
-        f'<h2><span data-icon="puzzle"></span> {escape(t("console.synd.mcp.bundles_title"))}</h2>'
+    agent_guidance = console_notice(
+        f'<ul style="margin:0;padding-left:1.1rem;display:grid;gap:4px">'
+        f'<li>{escape(t("console.synd.mcp.bundles_agent_guide_claude"))}</li>'
+        f'<li>{escape(t("console.synd.mcp.bundles_agent_guide_antigravity"))}</li>'
+        "</ul>"
+    )
+    body_html = (
         f"{auth_note}"
         '<div class="pref-row">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_mode"))}</strong><span>{escape(t("console.synd.mcp.bundles_mode_desc"))}</span></div>'
         f'<code id="pref-mcp-client-delivery-mode" class="pref-mono">{escape(mode)}</code>'
         "</div>"
         '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_endpoint"))}</strong><span>{escape(t("console.synd.mcp.bundles_endpoint_desc"))}</span></div>'
-        f'<div class="pref-endpoint"><code id="pref-mcp-client-delivery-base" class="pref-mono">{escape(active_base)}</code>'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_endpoint_shared"))}</strong><span>{escape(t("console.synd.mcp.bundles_endpoint_shared_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-client-delivery-base" data-marketplace-root class="pref-mono">{escape(marketplace_url)}</code>'
         f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-delivery-base">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
-        '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_marketplace"))}</strong><span>{escape(t("console.synd.mcp.bundles_marketplace_desc"))}</span></div>'
-        f'<div class="pref-endpoint"><code id="pref-mcp-client-marketplace-url" class="pref-mono">{escape(marketplace_url)}</code>'
-        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-marketplace-url">{escape(t("console.common.copy"))}</button></div>'
-        "</div>"
+        f'<div style="margin:8px 0 12px">{agent_guidance}</div>'
         '<div class="pref-table-wrap"><table class="pref-table">'
         f'<thead><tr><th>{escape(t("console.synd.mcp.bundles_col_client"))}</th><th>{escape(t("console.synd.mcp.bundles_col_manifest"))}</th><th>{escape(t("console.synd.mcp.bundles_col_bundle"))}</th><th>{escape(t("console.synd.mcp.bundles_col_files"))}</th></tr></thead>'
         f'<tbody id="pref-mcp-client-bundles-tbody">{tbody}</tbody>'
-        "</table></div></div>"
+        "</table></div>"
+    )
+    return console_card(
+        escape(t("console.synd.mcp.bundles_title_shared")),
+        body_html,
+        id="pref-mcp-client-bundles",
+        icon="puzzle",
+        split=False,
+        extra_class="pref-card",
+        attrs={"data-delivery-mode": mode},
     )
 
 
@@ -221,6 +298,7 @@ def build_syndication_section(
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     oauth_grants: list[dict[str, Any]] = []
     client_delivery: dict[str, Any] | None = None
+    onboarding_progress: dict[str, Any] = {}
     if slug == "mcp":
         settings_obj, roles, anon_ro = _resolve_delivery_settings_and_roles(ctx, settings)
         conn = open_db(ctx)
@@ -233,6 +311,7 @@ def build_syndication_section(
                 account_id=account.id,
                 anonymous_readonly=anon_ro,
             )
+            onboarding_progress = _query_agent_onboarding_progress(conn, account, oauth_grants, client_delivery)
         finally:
             conn.close()
     grant_rows = "".join(
@@ -251,7 +330,7 @@ def build_syndication_section(
         "tokens_label": escape(tokens_label),
         "oauth_grants_rows": grant_rows,
         "deprecation_notice_html": deprecation_notice_html,
-        "agent_extraction_guide_html": _render_agent_extraction_guide_block(account) if slug == "mcp" else "",
+        "agent_extraction_guide_html": _render_agent_extraction_guide_block(account, onboarding_progress) if slug == "mcp" else "",
         "agent_clients_delivery_html": _render_agent_clients_delivery_block(client_delivery) if client_delivery is not None else "",
     }
     panel_html = _render_partial(slug, values)
