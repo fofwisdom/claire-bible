@@ -44,8 +44,8 @@ MODES = ("single", "network")
 
 ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "tokens", "mcp")
 MODERATION_ADMIN_SECTIONS: tuple[tuple[str, str], ...] = (("kb", "/moderation/oversight"), ("themes", "/moderation/themes"))
-SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
-MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "kb", "tokens", *SETTINGS_SECTIONS[3:])
+SETTINGS_SECTIONS: tuple[str, ...] = ("account", "invites", "federation", "kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
+MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "invites", "federation", "keys", "kb", "tokens", *SETTINGS_SECTIONS[4:])
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
 
 

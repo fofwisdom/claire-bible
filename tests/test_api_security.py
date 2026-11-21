@@ -471,6 +471,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for path in (
                 "/settings",
                 "/settings/account",
+                "/settings/invites",
                 "/settings/keys",
                 "/settings/kb",
                 "/settings/kb/manage",

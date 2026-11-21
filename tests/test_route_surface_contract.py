@@ -79,7 +79,7 @@ SYSTEM = {
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
     "/admin/plugins", "/api/admin/plugins", "/api/admin/plugins/{id}",
     "/settings/telegram", "/settings/bundles", "/settings/backups", "/settings/federation",
-    "/settings", "/settings/account", "/settings/keys", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/settings/tokens",
+    "/settings", "/settings/account", "/settings/invites", "/settings/keys", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/settings/tokens",
     "/moderation", "/moderation/kb", "/moderation/kb/{kb_number:int}", "/moderation/oversight", "/moderation/themes",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",

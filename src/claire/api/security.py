@@ -840,6 +840,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/settings"): _system("owner", "none"),
     ("GET", "/settings/account"): _system("owner", "none"),
     ("HEAD", "/settings/account"): _system("owner", "none"),
+    ("GET", "/settings/invites"): _system("owner", "none"),
+    ("HEAD", "/settings/invites"): _system("owner", "none"),
     ("GET", "/settings/telegram"): _system("owner", "none"),
     ("HEAD", "/settings/telegram"): _system("owner", "none"),
     ("GET", "/settings/bundles"): _system("owner", "none"),

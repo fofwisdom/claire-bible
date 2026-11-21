@@ -220,6 +220,26 @@ def _render_client_delivery_section(delivery: dict[str, Any] | None) -> str:
       </section>"""
 
 
+def _render_invites_policy_section(*, member_invites_enabled: bool) -> str:
+    checked_attr = " checked" if member_invites_enabled else ""
+    title = escape(t("console.admin.server.invites.title"))
+    label = escape(t("console.admin.server.invites.label"))
+    return f"""
+      <section class="card" aria-label="{label}" id="server-invites-policy">
+        <h2><span data-icon="mail"></span> {title}</h2>
+        <p class="hint">{escape(t("console.admin.server.invites.hint"))}</p>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <label for="admin-member-invites-toggle"><strong>{escape(t("console.admin.server.invites.toggle_title"))}</strong></label>
+            <span>{escape(t("console.admin.server.invites.toggle_desc"))}</span>
+          </div>
+          <input id="admin-member-invites-toggle" type="checkbox" switch{checked_attr} aria-label="{escape(t("console.admin.server.invites.toggle_title"))}"/>
+        </div>
+        <p class="result" id="server-invites-policy-result" role="status" aria-live="polite"></p>
+        <a class="pref-btn" href="/settings/invites">{escape(t("console.admin.server.invites.manage_link"))}</a>
+      </section>"""
+
+
 def _render_server_html(
     *,
     mode: str,
@@ -229,9 +249,11 @@ def _render_server_html(
     hosts: list[LegacyHost],
     tier_state: dict[str, Any],
     client_delivery: dict[str, Any] | None = None,
+    member_invites_enabled: bool = False,
 ) -> str:
     tier_section = _render_server_tier_section(tier_state)
     client_delivery_section = _render_client_delivery_section(client_delivery)
+    invites_policy_section = _render_invites_policy_section(member_invites_enabled=member_invites_enabled)
     mode_text = t("console.admin.server.mode_single") if mode == "single" else t("console.admin.server.mode_network")
     target_mode = "network" if mode == "single" else "single"
 
@@ -349,6 +371,7 @@ def _render_server_html(
         </table>
       </section>
 {tier_section}
+{invites_policy_section}
 {client_delivery_section}"""
 
 
@@ -367,6 +390,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 store = accounts_store.AccountStore(conn)
                 mode = store.server_mode()
+                member_invites_enabled = store.member_invites_enabled()
                 report = readiness.check_readiness(conn, settings)
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
@@ -383,6 +407,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 hosts=hosts,
                 tier_state=tier_state,
                 client_delivery=client_delivery,
+                member_invites_enabled=member_invites_enabled,
             )
             extra_scripts = (
                 '<script src="/static/js/server_mode.js" defer></script>\n'

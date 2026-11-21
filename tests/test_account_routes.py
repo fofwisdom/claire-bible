@@ -166,6 +166,9 @@ def test_admin_accounts_api_and_single_mode_card(client, settings):
     assert 'id="admin-members-section"' in page.text
     assert 'id="admin-retired-usernames-section"' in page.text
     assert 'id="pref-userdb-admin"' in page.text
+    assert 'id="admin-invites-section"' in page.text
+    assert 'href="/settings/invites"' in page.text
+    assert page.text.index('id="pref-userdb-admin"') < page.text.index('id="admin-invites-section"')
     assert " onsubmit=" not in page.text and " onclick=" not in page.text
 
 

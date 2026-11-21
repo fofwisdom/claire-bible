@@ -117,6 +117,13 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="user",
     ),
     ConsoleSectionSpec(
+        slug="invites",
+        path="/settings/invites",
+        area="settings",
+        group_id="workspace",
+        icon="mail",
+    ),
+    ConsoleSectionSpec(
         slug="federation",
         path="/settings/federation",
         area="settings",
@@ -768,6 +775,97 @@ SETTINGS_ACCOUNT_NOTICE_TEXT = {
 }
 
 
+def _settings_invites_render(
+    ctx: AccountsContext,
+    *,
+    mode: accounts_store.ServerMode,
+    admin_viewer: bool,
+) -> SettingsSectionRender:
+    conn = open_db(ctx)
+    try:
+        member_invites_enabled = accounts_store.AccountStore(conn).member_invites_enabled()
+    finally:
+        conn.close()
+
+    can_issue_invites = mode == "network" and (admin_viewer or member_invites_enabled)
+    if mode != "network":
+        issue_inner = f'<div class="pref-notice">{escape(t("console.settings.invites.single_notice"))}</div>'
+    elif not can_issue_invites:
+        issue_inner = f'<div class="pref-notice">{escape(t("console.settings.invites.member_disabled_notice"))}</div>'
+    else:
+        issue_inner = (
+            '<form id="invites-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.max_uses"))}'
+            '<input type="number" name="max_uses" class="pref-input" min="1" max="5" value="1" style="width:90px" required/>'
+            "</label>"
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.reserved_username"))}'
+            f'<input type="text" name="reserved_username" class="pref-input" placeholder="{escape(t("console.settings.invites.reserved_placeholder"))}" style="width:150px"/>'
+            "</label>"
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.note"))}'
+            f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.settings.invites.note_placeholder"))}" style="width:180px"/>'
+            "</label>"
+            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.invites.submit"))}</button>'
+            "</form>"
+        )
+
+    issue_section = (
+        f'<section class="card" id="invites-issue-section" aria-label="{escape(t("console.settings.invites.issue_label"))}">'
+        f'<h2><span data-icon="mail"></span> {escape(t("console.settings.invites.issue_title"))}</h2>'
+        f'<p class="hint">{escape(t("console.settings.invites.issue_hint"))}</p>'
+        f"{issue_inner}"
+        '<p class="result" id="invites-result" data-invite-result role="status" aria-live="polite"></p>'
+        "</section>"
+    )
+
+    if admin_viewer:
+        header_cells = (
+            f'<th>{escape(t("console.settings.invites.col_code"))}</th>'
+            f'<th>{escape(t("console.common.status"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_issuer"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_reserved"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
+            f'<th>{escape(t("console.common.manage"))}</th>'
+        )
+        col_count = 7
+    else:
+        header_cells = (
+            f'<th>{escape(t("console.settings.invites.col_code"))}</th>'
+            f'<th>{escape(t("console.common.status"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_reserved"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
+            f'<th>{escape(t("console.common.manage"))}</th>'
+        )
+        col_count = 6
+
+    initial_msg = t("console.settings.invites.loading") if mode == "network" else t("console.settings.invites.single_list_empty")
+    list_section = (
+        f'<section class="card" id="invites-list-section" aria-label="{escape(t("console.settings.invites.list_label"))}">'
+        f'<h2><span data-icon="mail"></span> {escape(t("console.settings.invites.list_title"))}</h2>'
+        f'<p class="hint">{escape(t("console.settings.invites.list_hint"))}</p>'
+        '<div class="pref-table-wrap">'
+        '<table class="pref-table">'
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f'<tbody id="invites-tbody"><tr><td colspan="{col_count}" style="color:var(--muted);text-align:center;">{escape(initial_msg)}</td></tr></tbody>'
+        "</table>"
+        "</div>"
+        f'<div id="invites-pagination" style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px" hidden><button type="button" class="pref-btn" id="invites-load-more">{escape(t("console.settings.invites.load_more"))}</button></div>'
+        "</section>"
+    )
+
+    return SettingsSectionRender(
+        body_html=f"{issue_section}{list_section}",
+        extra_bootstrap={
+            "mode": mode,
+            "is_admin": admin_viewer,
+            "member_invites_enabled": member_invites_enabled,
+            "can_issue_invites": can_issue_invites,
+        },
+        extra_scripts_html='<script src="/static/js/console_invites.js" defer></script>',
+    )
+
+
 def _build_settings_account_section(
     ctx: AccountsContext,
     *,
@@ -778,9 +876,9 @@ def _build_settings_account_section(
     owned_themes: list[KnowledgeBaseInfo],
     notice: str | None = None,
 ) -> SettingsSectionRender:
-    """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
+    """Group 1 섹션(``account``, ``invites``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
 
-    - 기존 API만 쓴다(C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/keys*``, ``/themes``, ``/tokens``.
+    - 기존 API만 쓴다(C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
     - 비관리자 응답에는 ``/admin/*`` 링크를 넣지 않는다(불변식 3). ``/admin/providers`` 링크는 관리자 뷰어에게만 준다.
     """
     if principal.account_id is None or principal.account_id != account.id:
@@ -788,6 +886,8 @@ def _build_settings_account_section(
     admin_viewer = is_admin(principal)
     if spec.slug == "account":
         body, extra = _settings_account_body(ctx, principal=principal, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
+    elif spec.slug == "invites":
+        return _settings_invites_render(ctx, mode=mode, admin_viewer=admin_viewer)
     elif spec.slug == "federation":
         body, extra = settings_federation_body(ctx, account=account)
     elif spec.slug == "keys":

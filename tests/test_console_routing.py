@@ -46,6 +46,7 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
 
 ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/settings/account",
+    "/settings/invites",
     "/settings/federation",
     "/settings/keys",
     "/settings/kb",
@@ -596,3 +597,71 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert 'console_admin.js' in admin_html
     assert 'id="palettetrigger"' in admin_html
     assert admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="hamburger-btn"')
+
+
+def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
+    import json as _json
+    import re as _re
+
+    def _read_bootstrap(html_text: str) -> dict:
+        m = _re.search(r'<script id="console-bootstrap" type="application/json">(.*?)</script>', html_text, _re.S)
+        assert m is not None
+        return _json.loads(m.group(1))
+
+    client = console_env.client
+
+    # Single mode: 200 notice, no issuance form, no console_admin.js
+    _set_mode(console_env.db_file, "single")
+    single_resp = client.get("/settings/invites", headers=console_env.admin_owner)
+    assert single_resp.status_code == 200
+    assert 'id="invites-issue-section"' in single_resp.text
+    assert 'id="invites-create-form"' not in single_resp.text
+    assert 'id="invites-list-section"' in single_resp.text
+    assert 'src="/static/js/console_invites.js"' in single_resp.text
+    assert "console_admin.js" not in single_resp.text
+    single_boot = _read_bootstrap(single_resp.text)
+    assert single_boot["mode"] == "single"
+    assert single_boot["can_issue_invites"] is False
+    assert single_boot["member_invites_enabled"] is False
+
+    # Network mode, member_invites_enabled=False: member sees disabled notice + isolation; admin sees form
+    _set_mode(console_env.db_file, "network")
+    mem_off = client.get("/settings/invites", headers=console_env.alice_owner)
+    assert mem_off.status_code == 200
+    assert 'id="invites-create-form"' not in mem_off.text
+    assert 'class="pref-notice"' in mem_off.text
+    assert "/admin/" not in mem_off.text
+    assert "console_admin.js" not in mem_off.text
+    assert "console.js.admin." not in mem_off.text
+    assert "console.js.invites." in mem_off.text
+    assert mem_off.text.index('id="invites-result"') < mem_off.text.index('id="invites-list-section"')
+    mem_off_boot = _read_bootstrap(mem_off.text)
+    assert mem_off_boot["is_admin"] is False
+    assert mem_off_boot["member_invites_enabled"] is False
+    assert mem_off_boot["can_issue_invites"] is False
+
+    adm_on = client.get("/settings/invites", headers=console_env.admin_owner)
+    assert adm_on.status_code == 200
+    assert 'id="invites-create-form"' in adm_on.text
+    assert adm_on.text.index('id="invites-result"') < adm_on.text.index('id="invites-list-section"')
+    adm_boot = _read_bootstrap(adm_on.text)
+    assert adm_boot["is_admin"] is True
+    assert adm_boot["can_issue_invites"] is True
+
+    # Enable member_invites_enabled=True -> member sees issuance form while staying isolated from /admin
+    conn = dbm.connect_existing(console_env.db_file)
+    try:
+        accounts_store.AccountStore(conn).set_member_invites_enabled(True, updated_by=1)
+    finally:
+        conn.close()
+
+    mem_on = client.get("/settings/invites", headers=console_env.alice_owner)
+    assert mem_on.status_code == 200
+    assert 'id="invites-create-form"' in mem_on.text
+    assert "/admin/" not in mem_on.text
+    assert "console_admin.js" not in mem_on.text
+    assert "console.js.admin." not in mem_on.text
+    mem_on_boot = _read_bootstrap(mem_on.text)
+    assert mem_on_boot["member_invites_enabled"] is True
+    assert mem_on_boot["can_issue_invites"] is True
+

@@ -16,6 +16,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -780,3 +781,214 @@ def test_e2e_oidc_invite_signup_and_login_lifecycle(test_env):
             resp_me = user_client.get("/api/me")
             assert resp_me.status_code == 200
             assert resp_me.json()["username"] == "e2e_member"
+
+
+# 9. OIDC /invite/complete M2 robustness & concurrency regressions ----------------
+
+
+def test_invite_complete_rejects_non_dict_json_and_null_fields(test_env):
+    from claire.api.accounts_routes.idp import create_signup_token
+    from claire.api.accounts_routes.common import build_context
+    from claire.api.security import WebRuntimeConfig
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        inv = auth_db.create_invitation(auth_conn, code="NONDC78A", max_uses=2, expires_in=3600, created_by=1)
+    finally:
+        auth_conn.close()
+
+    ctx = build_context(test_env.settings, WebRuntimeConfig.from_settings(test_env.settings))
+    signup_token = create_signup_token(
+        ctx,
+        invitation_id=inv.id,
+        provider_id="google",
+        iss="https://accounts.google.com",
+        sub="nondict_sub",
+        email="nd@example.com",
+        display_name="ND",
+    )
+
+    for bad_payload in (["bad"], "bad", 123, None):
+        resp = test_env.client.post(
+            "/invite/complete",
+            content=json.dumps(bad_payload),
+            headers={"Content-Type": "application/json", "Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "invalid_json_body"
+
+    resp_null_fields = test_env.client.post(
+        "/invite/complete",
+        json={"token": signup_token, "username": None, "display_name": None},
+        headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin"},
+        follow_redirects=False,
+    )
+    assert resp_null_fields.status_code == 400
+    conn = dbm.connect_existing(test_env.settings.db_file)
+    try:
+        assert accounts_store.AccountStore(conn).find_by_username("None") is None
+    finally:
+        conn.close()
+
+
+def test_concurrent_multi_use_oidc_invite_completion_no_500(test_env):
+    from claire.api.accounts_routes.idp import create_signup_token
+    from claire.api.accounts_routes.common import build_context
+    from claire.api.security import WebRuntimeConfig
+
+    ctx = build_context(test_env.settings, WebRuntimeConfig.from_settings(test_env.settings))
+
+    # Seed a theme number matching the very next candidate so theme-number skip check is exercised too.
+    for round_idx in range(4):
+        workers = 5
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+        try:
+            inv = auth_db.create_invitation(auth_conn, max_uses=workers, expires_in=3600, created_by=1)
+        finally:
+            auth_conn.close()
+
+        tokens = [
+            create_signup_token(
+                ctx,
+                invitation_id=inv.id,
+                provider_id="google",
+                iss="https://accounts.google.com",
+                sub=f"multi_sub_{round_idx}_{w}",
+                email=f"m{round_idx}_{w}@example.com",
+                display_name=f"Multi {round_idx} {w}",
+            )
+            for w in range(workers)
+        ]
+
+        barrier = threading.Barrier(workers)
+
+        def _submit(w: int):
+            c = TestClient(test_env.app, base_url=PUBLIC_URL)
+            barrier.wait()
+            return c.post(
+                "/invite/complete",
+                json={"token": tokens[w], "username": f"alpha_{round_idx}_{w}", "display_name": f"Multi {round_idx} {w}"},
+                headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin", "Accept": "application/json"},
+                follow_redirects=False,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            results = list(ex.map(_submit, range(workers)))
+
+        assert all(r.status_code == 200 for r in results), [(r.status_code, r.text) for r in results]
+
+    conn = dbm.connect_existing(test_env.settings.db_file)
+    try:
+        acc_rows = conn.execute("SELECT public_id, username FROM accounts WHERE username LIKE 'alpha_%'").fetchall()
+        assert len(acc_rows) == 20
+        assert len({int(r["public_id"]) for r in acc_rows}) == 20
+        kb_rows = conn.execute("SELECT id, seq, number FROM knowledge_bases").fetchall()
+        assert len({int(r["id"]) for r in kb_rows}) == len(kb_rows)
+        assert len({int(r["seq"]) for r in kb_rows}) == len(kb_rows)
+        assert len({int(r["number"]) for r in kb_rows}) == len(kb_rows)
+    finally:
+        conn.close()
+
+
+def test_concurrent_oidc_invite_duplicate_username_returns_400_and_rolls_back(test_env):
+    from claire.api.accounts_routes.idp import create_signup_token
+    from claire.api.accounts_routes.common import build_context
+    from claire.api.security import WebRuntimeConfig
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        inv = auth_db.create_invitation(auth_conn, max_uses=2, expires_in=3600, created_by=1)
+    finally:
+        auth_conn.close()
+
+    ctx = build_context(test_env.settings, WebRuntimeConfig.from_settings(test_env.settings))
+    tok_a = create_signup_token(ctx, invitation_id=inv.id, provider_id="google", iss="https://accounts.google.com", sub="dup_u_sub_a", email="a@example.com", display_name="Dup A")
+    tok_b = create_signup_token(ctx, invitation_id=inv.id, provider_id="google", iss="https://accounts.google.com", sub="dup_u_sub_b", email="b@example.com", display_name="Dup B")
+
+    barrier = threading.Barrier(2)
+
+    def _submit(tok: str):
+        c = TestClient(test_env.app, base_url=PUBLIC_URL)
+        barrier.wait()
+        return c.post(
+            "/invite/complete",
+            json={"token": tok, "username": "same_member", "display_name": "Same User"},
+            headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin", "Accept": "application/json"},
+            follow_redirects=False,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        resps = list(ex.map(_submit, (tok_a, tok_b)))
+
+    statuses = sorted(r.status_code for r in resps)
+    assert statuses == [200, 400], [(r.status_code, r.text) for r in resps]
+    loser = next(r for r in resps if r.status_code == 400)
+    assert loser.json()["error"] == "username_taken"
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        check_inv = auth_db.get_invitation_by_id(auth_conn, inv.id)
+        assert check_inv.uses_count == 1
+        linked = [
+            auth_db.find_account_identity(auth_conn, iss="https://accounts.google.com", sub="dup_u_sub_a"),
+            auth_db.find_account_identity(auth_conn, iss="https://accounts.google.com", sub="dup_u_sub_b"),
+        ]
+        assert sum(1 for x in linked if x is not None) == 1
+    finally:
+        auth_conn.close()
+
+
+def test_concurrent_oidc_invite_duplicate_identity_returns_409_and_rolls_back_account(test_env):
+    from claire.api.accounts_routes.idp import create_signup_token
+    from claire.api.accounts_routes.common import build_context
+    from claire.api.security import WebRuntimeConfig
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        inv = auth_db.create_invitation(auth_conn, max_uses=2, expires_in=3600, created_by=1)
+    finally:
+        auth_conn.close()
+
+    ctx = build_context(test_env.settings, WebRuntimeConfig.from_settings(test_env.settings))
+    tok_a = create_signup_token(ctx, invitation_id=inv.id, provider_id="google", iss="https://accounts.google.com", sub="shared_dup_sub", email="a@example.com", display_name="Dup Id A")
+    tok_b = create_signup_token(ctx, invitation_id=inv.id, provider_id="google", iss="https://accounts.google.com", sub="shared_dup_sub", email="b@example.com", display_name="Dup Id B")
+
+    barrier = threading.Barrier(2)
+
+    def _submit(args: tuple[str, str]):
+        tok, uname = args
+        c = TestClient(test_env.app, base_url=PUBLIC_URL)
+        barrier.wait()
+        return c.post(
+            "/invite/complete",
+            json={"token": tok, "username": uname, "display_name": uname},
+            headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin", "Accept": "application/json"},
+            follow_redirects=False,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        resps = list(ex.map(_submit, ((tok_a, "dupid_a"), (tok_b, "dupid_b"))))
+
+    statuses = sorted(r.status_code for r in resps)
+    assert statuses == [200, 409], [(r.status_code, r.text) for r in resps]
+    loser = next(r for r in resps if r.status_code == 409)
+    assert loser.json()["error"] == "identity_already_linked"
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(test_env.settings.data_dir))
+    try:
+        assert auth_db.get_invitation_by_id(auth_conn, inv.id).uses_count == 1
+    finally:
+        auth_conn.close()
+
+    conn = dbm.connect_existing(test_env.settings.db_file)
+    try:
+        rows = conn.execute("SELECT id, username FROM accounts WHERE username IN ('dupid_a', 'dupid_b')").fetchall()
+        assert len(rows) == 1
+        kb_rows = conn.execute("SELECT id FROM knowledge_bases WHERE account_id = ?", (int(rows[0]["id"]),)).fetchall()
+        assert len(kb_rows) == 1
+        all_kbs = conn.execute("SELECT kb.id FROM knowledge_bases kb LEFT JOIN accounts a ON a.id = kb.account_id WHERE kb.account_id IS NOT NULL AND a.id IS NULL").fetchall()
+        assert len(all_kbs) == 0
+    finally:
+        conn.close()
+

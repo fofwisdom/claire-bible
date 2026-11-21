@@ -45,6 +45,7 @@ from ...api.principal import Principal, request_principal
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
+from ...store import themes as themes_store
 from ... import ids
 from ...i18n import get_locale, t
 from .common import (
@@ -341,26 +342,41 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _create_account_and_theme() -> int:
             c_conn = open_db(ctx)
             try:
-                salt = dbm.read_id_salt(c_conn)
-                now_ts = time.time()
-                account_pub_id = ids.timestamp_id("accounts", salt=salt, unix_ms=int(now_ts * 1000))
-                with c_conn:
-                    cur = c_conn.execute(
-                        "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
-                        "VALUES (?, ?, 'member', 'active', ?, 0, ?, ?, ?)",
-                        (account_pub_id, username, display_name, now_ts, now_ts, now_ts),
-                    )
-                    new_acc_id = int(cur.lastrowid)
+                c_conn.execute("BEGIN IMMEDIATE")
+                try:
+                    salt = dbm.read_id_salt(c_conn)
+                    now_ts = time.time()
+                    now_ms_val = int(now_ts * 1000)
+                    account_holder: dict[str, int] = {}
+
+                    def _insert_account(candidate_public_id: int) -> None:
+                        cur = c_conn.execute(
+                            "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
+                            "VALUES (?, ?, 'member', 'active', ?, 0, ?, ?, ?)",
+                            (candidate_public_id, username, display_name, now_ts, now_ts, now_ts),
+                        )
+                        account_holder["id"] = int(cur.lastrowid)
+
+                    ids.insert_with_timestamp_id(c_conn, table="accounts", column="public_id", salt=salt, insert=_insert_account, now_ms=lambda: now_ms_val)
+                    new_acc_id = account_holder["id"]
 
                     theme_seq_row = c_conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge_bases").fetchone()
                     kb_id = int(theme_seq_row[0])
-                    theme_num = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now_ts * 1000) + 1)
-                    c_conn.execute(
-                        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at, db_path) "
-                        "VALUES (?, ?, ?, 'General', ?, 1, 0, ?, ?, ?)",
-                        (kb_id, kb_id, theme_num, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
-                    )
-                return new_acc_id
+
+                    def _insert_kb(candidate_number: int) -> None:
+                        c_conn.execute(
+                            "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at, db_path) "
+                            "VALUES (?, ?, ?, 'General', ?, 1, 0, ?, ?, ?)",
+                            (kb_id, kb_id, candidate_number, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
+                        )
+
+                    ids.insert_with_timestamp_id(c_conn, table="knowledge_bases", column="number", salt=salt, insert=_insert_kb, now_ms=lambda: now_ms_val + 1, is_taken=lambda n: themes_store.number_is_theme_number(c_conn, n))
+                    c_conn.commit()
+                    return new_acc_id
+                except BaseException:
+                    if c_conn.in_transaction:
+                        c_conn.rollback()
+                    raise
             finally:
                 c_conn.close()
 

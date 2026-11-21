@@ -19,6 +19,7 @@ import hmac
 import json
 import logging
 import secrets
+import sqlite3
 import time
 from typing import Any
 from urllib.parse import quote
@@ -39,6 +40,7 @@ from ...api.security import read_json_body, read_oauth_tx_cookie
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
+from ...store import themes as themes_store
 from ...store.secrets import get_secret_service
 from ... import ids
 from ..namespace import account_home_path
@@ -750,10 +752,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         content_type = request.headers.get("content-type", "")
-        if "application/json" in content_type:
+        if "application/json" in content_type.lower():
             try:
                 body = await request.json()
             except Exception:
+                return json_error(400, "invalid_json_body")
+            if not isinstance(body, dict):
                 return json_error(400, "invalid_json_body")
         else:
             if not same_origin(request):
@@ -761,13 +765,16 @@ def routes(ctx: AccountsContext) -> list[Route]:
             form = await request.form()
             body = dict(form)
 
-        token = str(body.get("token", "")).strip()
+        raw_token = body.get("token")
+        token = ("" if raw_token is None else str(raw_token)).strip()
         payload = verify_signup_token(ctx, token)
         if payload is None:
             return json_error(400, "invalid_or_expired_signup_token")
 
-        username = str(body.get("username", "")).strip()
-        display_name = str(body.get("display_name", "")).strip()
+        raw_username = body.get("username")
+        raw_display_name = body.get("display_name")
+        username = ("" if raw_username is None else str(raw_username)).strip()
+        display_name = ("" if raw_display_name is None else str(raw_display_name)).strip()
         if not display_name and payload.get("display_name"):
             display_name = str(payload["display_name"])
 
@@ -794,39 +801,58 @@ def routes(ctx: AccountsContext) -> list[Route]:
         def _create_account_and_link() -> int:
             c_conn = open_db(ctx)
             try:
-                salt = dbm.read_id_salt(c_conn)
-                now_ts = time.time()
-                account_pub_id = ids.timestamp_id("accounts", salt=salt, unix_ms=int(now_ts * 1000))
-                with c_conn:
-                    cur = c_conn.execute(
-                        "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
-                        "VALUES (?, ?, 'member', 'active', ?, 0, ?, ?, ?)",
-                        (account_pub_id, username, display_name, now_ts, now_ts, now_ts),
-                    )
-                    new_acc_id = int(cur.lastrowid)
+                c_conn.execute("BEGIN IMMEDIATE")
+                try:
+                    salt = dbm.read_id_salt(c_conn)
+                    now_ts = time.time()
+                    now_ms_val = int(now_ts * 1000)
+                    account_holder: dict[str, int] = {}
+
+                    def _insert_account(candidate_public_id: int) -> None:
+                        cur = c_conn.execute(
+                            "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
+                            "VALUES (?, ?, 'member', 'active', ?, 0, ?, ?, ?)",
+                            (candidate_public_id, username, display_name, now_ts, now_ts, now_ts),
+                        )
+                        account_holder["id"] = int(cur.lastrowid)
+
+                    ids.insert_with_timestamp_id(c_conn, table="accounts", column="public_id", salt=salt, insert=_insert_account, now_ms=lambda: now_ms_val)
+                    new_acc_id = account_holder["id"]
 
                     theme_seq_row = c_conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge_bases").fetchone()
                     kb_id = int(theme_seq_row[0])
-                    theme_num = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now_ts * 1000) + 1)
-                    c_conn.execute(
-                        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at, db_path) "
-                        "VALUES (?, ?, ?, 'General', ?, 1, 0, ?, ?, ?)",
-                        (kb_id, kb_id, theme_num, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
+
+                    def _insert_kb(candidate_number: int) -> None:
+                        c_conn.execute(
+                            "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at, db_path) "
+                            "VALUES (?, ?, ?, 'General', ?, 1, 0, ?, ?, ?)",
+                            (kb_id, kb_id, candidate_number, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
+                        )
+
+                    ids.insert_with_timestamp_id(c_conn, table="knowledge_bases", column="number", salt=salt, insert=_insert_kb, now_ms=lambda: now_ms_val + 1, is_taken=lambda n: themes_store.number_is_theme_number(c_conn, n))
+                    auth_db.link_account_identity(
+                        auth_conn,
+                        iss=payload["iss"],
+                        sub=payload["sub"],
+                        account_id=new_acc_id,
+                        provider_id=payload["provider_id"],
                     )
+                    c_conn.commit()
+                    return new_acc_id
+                except BaseException:
+                    if c_conn.in_transaction:
+                        c_conn.rollback()
+                    raise
             finally:
                 c_conn.close()
 
-            auth_db.link_account_identity(
-                auth_conn,
-                iss=payload["iss"],
-                sub=payload["sub"],
-                account_id=new_acc_id,
-                provider_id=payload["provider_id"],
-            )
-            return new_acc_id
-
         auth_conn = open_auth_db(ctx)
         try:
+            inv = auth_db.get_invitation_by_id(auth_conn, payload["invitation_id"])
+            if inv is None:
+                return not_found()
+            if inv.reserved_username and username.lower() != inv.reserved_username.lower():
+                return json_error(400, "reserved_username_mismatch", detail=f"This invitation is reserved for username '{inv.reserved_username}'")
             try:
                 account_id = auth_db.redeem_invitation_atomic(
                     auth_conn,
@@ -840,6 +866,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return json_error(410, f"invitation_{exc.reason}", reason=exc.reason)
             except InviteNotFoundError:
                 return not_found()
+            except sqlite3.IntegrityError as exc:
+                if "accounts.username" in str(exc):
+                    return json_error(400, "username_taken", detail="Username is already taken")
+                raise
         finally:
             auth_conn.close()
 
@@ -859,6 +889,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             resp = JSONResponse({"ok": True, "account_id": account_id, "username": username, "redirect_url": redirect_url})
         else:
             resp = RedirectResponse(redirect_url, status_code=302)
+        resp.headers["Cache-Control"] = "no-store"
         set_session_cookie(resp, ctx, session_token)
         return resp
 

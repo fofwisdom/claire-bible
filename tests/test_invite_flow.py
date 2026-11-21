@@ -874,3 +874,104 @@ def test_e2e_invitation_signup_and_login_flow(settings: _Settings):
     assert login_res.headers.get("location") == "/@charlie/"
     new_token = _extract_session_token(login_res)
     assert new_token is not None
+
+
+def test_concurrent_multi_use_invite_signup_no_500(settings: _Settings):
+    admin_session = _setup_admin(settings)
+    _set_mode(settings, "network")
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
+    admin_client = _Client(TestClient(app, base_url=PUBLIC_URL))
+
+    rounds = 8
+    workers = 5
+    created_invites: list[tuple[str, str]] = []
+
+    for round_idx in range(rounds):
+        inv_res = admin_client.request("POST", "/api/invites", session=admin_session, json={"max_uses": workers, "note": f"concurrent-round-{round_idx}"})
+        assert inv_res.status_code == 201
+        inv_data = inv_res.json()
+        code = inv_data["code"]
+        pub_id = inv_data["public_id"]
+        created_invites.append((code, pub_id))
+
+        barrier = threading.Barrier(workers)
+
+        def _signup(worker_idx: int, invite_code: str = code, r_idx: int = round_idx) -> tuple[int, dict[str, Any]]:
+            tc = TestClient(app, base_url=PUBLIC_URL)
+            uname = f"mu_{r_idx}_{worker_idx}"
+            barrier.wait(timeout=10.0)
+            res = tc.post(f"/invite/{invite_code}", headers={"Origin": ORIGIN}, json={"username": uname, "display_name": f"Multi User {r_idx}-{worker_idx}", "password": MEMBER_PASSWORD})
+            return res.status_code, res.json()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_signup, i) for i in range(workers)]
+            results = [f.result(timeout=20.0) for f in futures]
+
+        statuses = [status for status, _ in results]
+        assert statuses == [201] * workers, f"round={round_idx} results={results}"
+
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        acc_rows = conn.execute("SELECT id, public_id, username FROM accounts WHERE username LIKE 'mu_%'").fetchall()
+        assert len(acc_rows) == rounds * workers
+        assert len({int(r["public_id"]) for r in acc_rows}) == rounds * workers
+
+        acc_ids = [int(r["id"]) for r in acc_rows]
+        placeholders = ",".join("?" for _ in acc_ids)
+        kb_rows = conn.execute(f"SELECT id, seq, number, label, account_id, is_personal FROM knowledge_bases WHERE account_id IN ({placeholders})", acc_ids).fetchall()
+        assert len(kb_rows) == rounds * workers
+        assert len({int(r["id"]) for r in kb_rows}) == rounds * workers
+        assert len({int(r["seq"]) for r in kb_rows}) == rounds * workers
+        assert len({int(r["number"]) for r in kb_rows}) == rounds * workers
+        assert all(r["label"] == "General" and int(r["is_personal"]) == 1 for r in kb_rows)
+    finally:
+        conn.close()
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
+    try:
+        for _, pub_id in created_invites:
+            inv_info = auth_db.get_invitation_by_id(auth_conn, int(pub_id))
+            assert inv_info is not None
+            assert inv_info.uses_count == workers
+            redemptions = auth_conn.execute("SELECT status, account_id FROM invitation_redemptions WHERE invitation_id=?", (inv_info.id,)).fetchall()
+            assert len(redemptions) == workers
+            assert all(r["status"] == "completed" and r["account_id"] is not None for r in redemptions)
+    finally:
+        auth_conn.close()
+
+
+def test_concurrent_invite_signup_duplicate_username_returns_400_and_rolls_back(settings: _Settings):
+    admin_session = _setup_admin(settings)
+    _set_mode(settings, "network")
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
+    admin_client = _Client(TestClient(app, base_url=PUBLIC_URL))
+
+    inv_res = admin_client.request("POST", "/api/invites", session=admin_session, json={"max_uses": 2, "note": "dup-race"})
+    assert inv_res.status_code == 201
+    code = inv_res.json()["code"]
+    pub_id = inv_res.json()["public_id"]
+
+    barrier = threading.Barrier(2)
+
+    def _signup_dup() -> tuple[int, dict[str, Any]]:
+        tc = TestClient(app, base_url=PUBLIC_URL)
+        barrier.wait(timeout=10.0)
+        res = tc.post(f"/invite/{code}", headers={"Origin": ORIGIN}, json={"username": "race_dup_alice", "display_name": "Race Dup", "password": MEMBER_PASSWORD})
+        return res.status_code, res.json()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_signup_dup) for _ in range(2)]
+        results = [f.result(timeout=20.0) for f in futures]
+
+    statuses = sorted(status for status, _ in results)
+    assert statuses == [201, 400], f"unexpected results={results}"
+    errors = [payload.get("error") for status, payload in results if status == 400]
+    assert errors == ["username_taken"]
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
+    try:
+        inv_info = auth_db.get_invitation_by_id(auth_conn, int(pub_id))
+        assert inv_info is not None
+        assert inv_info.uses_count == 1
+    finally:
+        auth_conn.close()

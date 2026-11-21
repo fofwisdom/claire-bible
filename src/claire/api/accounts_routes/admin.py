@@ -180,39 +180,16 @@ def _render_admin_accounts_html(
         else f'<tr><td colspan="8" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.members_empty"))}</td></tr>'
     )
 
-    if mode == "network":
-        invites_section = (
-            f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
-            f'<h2><span data-icon="mail"></span> {t_code("console.admin.accounts.invites.title_api", endpoint="/api/invites")}</h2>'
-            f'<p class="hint">{escape(t("console.admin.accounts.invites.hint"))}</p>'
-            '<form id="admin-invite-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.max_uses"))}'
-            '<input type="number" name="max_uses" class="pref-input" min="1" max="5" value="1" style="width:90px" required/>'
-            "</label>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.reserved_username"))}'
-            f'<input type="text" name="reserved_username" class="pref-input" placeholder="{escape(t("console.admin.accounts.invites.reserved_placeholder"))}" style="width:140px"/>'
-            "</label>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.note"))}'
-            f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.admin.accounts.invites.note_placeholder"))}" style="width:180px"/>'
-            "</label>"
-            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.accounts.invites.submit"))}</button>'
-            "</form>"
-            '<p class="result" id="admin-invite-result" data-invite-result role="status" aria-live="polite"></p>'
-            '<div class="pref-table-wrap">'
-            '<table class="pref-table">'
-            f'<thead><tr><th>{escape(t("console.admin.accounts.field.number"))}</th><th>{escape(t("console.admin.accounts.invites.col_code"))}</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.invites.col_usage"))}</th><th>{escape(t("console.admin.accounts.invites.col_reserved"))}</th><th>{escape(t("console.admin.accounts.invites.col_note"))}</th><th>{escape(t("console.common.manage"))}</th></tr></thead>'
-            f'<tbody id="admin-invites-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.invites.loading"))}</td></tr></tbody>'
-            "</table>"
-            "</div>"
-            "</section>"
-        )
-    else:
-        invites_section = (
-            f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
-            f'<h2><span data-icon="mail"></span> {escape(t("console.admin.accounts.invites.title"))}</h2>'
-            f'<div class="notice">{t_code("console.admin.accounts.invites.single_notice", endpoint="/api/invites")}</div>'
-            "</section>"
-        )
+    invites_link_section = (
+        f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
+        f'<h2><span data-icon="mail"></span> {escape(t("console.admin.accounts.invites.title"))}</h2>'
+        f'<p class="hint">{escape(t("console.admin.accounts.invites.moved_hint"))}</p>'
+        f'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        f'<a class="pref-btn pref-btn-accent" href="/settings/invites">{escape(t("console.admin.accounts.invites.open_settings"))}</a>'
+        f'<a class="pref-btn" href="/admin/server#server-invites-policy">{escape(t("console.admin.accounts.invites.open_server_policy"))}</a>'
+        f"</div>"
+        "</section>"
+    )
 
     retired_trs: list[str] = []
     for r in retired:
@@ -259,7 +236,6 @@ def _render_admin_accounts_html(
           </table>
         </div>
       </section>
-      {invites_section}
       <section class="card" id="admin-retired-usernames-section" aria-label="{escape(t("console.admin.accounts.retired.label"))}">
         <h2><span data-icon="restore"></span> {t_code("console.admin.accounts.retired.title", endpoint="/api/admin/usernames/*")}</h2>
         <p class="hint">{escape(t("console.admin.accounts.retired.hint"))}</p>
@@ -307,7 +283,8 @@ def _render_admin_accounts_html(
             </tbody>
           </table>
         </div>
-      </section>"""
+      </section>
+      {invites_link_section}"""
 
 
 def routes(ctx: AccountsContext) -> list[Route]:

@@ -97,6 +97,8 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
         assert "Readiness checks for network mode (G1–G9)" in body
         assert "Sunset clock of legacy hosts" in body
         assert 'id="server-tier"' in body
+        assert 'id="server-invites-policy"' in body
+        assert 'id="admin-member-invites-toggle"' in body
         assert "data-server-tier-form" in body
         assert '<script src="/static/js/server_mode.js" defer></script>' in body
         assert '<script src="/static/js/server_tier.js" defer></script>' in body
@@ -224,3 +226,29 @@ def test_admin_server_invites_policy_guards_validation_and_audit(settings: Setti
     finally:
         auth.close()
         conn.close()
+
+
+def test_admin_server_invites_policy_card_reflects_state_and_locale(settings: Settings) -> None:
+    token = _create_admin_session(settings, mode="network")
+    app = server.create_app(settings)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as tc:
+        en_off = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}", "Accept-Language": "en"})
+        assert en_off.status_code == 200
+        assert 'id="server-invites-policy"' in en_off.text
+        assert 'id="admin-member-invites-toggle" type="checkbox" switch aria-label=' in en_off.text
+        assert "Invitation issuance policy" in en_off.text
+
+        ko_off = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}", "Accept-Language": "ko"})
+        assert ko_off.status_code == 200
+        assert "초대 코드 발급 정책" in ko_off.text
+
+        conn = dbm.connect_existing(Path(settings.db_file))
+        try:
+            accounts_store.AccountStore(conn).set_member_invites_enabled(True, updated_by=1)
+        finally:
+            conn.close()
+
+        en_on = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}", "Accept-Language": "en"})
+        assert en_on.status_code == 200
+        assert 'id="admin-member-invites-toggle" type="checkbox" switch checked' in en_on.text
+

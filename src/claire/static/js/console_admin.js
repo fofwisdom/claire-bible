@@ -198,95 +198,6 @@
       });
     }
 
-    var invitesTbody = document.getElementById("admin-invites-tbody");
-    var inviteForm = document.getElementById("admin-invite-create-form");
-    var inviteStatusEl = document.getElementById("admin-invite-result") || document.getElementById("admin-invite-status");
-
-    function loadInvites() {
-      if (!invitesTbody || bootstrap.mode !== "network") return;
-      fetch("/api/invites?page=true", {
-        method: "GET",
-        credentials: "same-origin",
-        headers: { "Accept": "application/json" }
-      }).then(function (resp) {
-        return resp.json().catch(function () { return {}; }).then(function (body) {
-          return { status: resp.status, body: body };
-        });
-      }).then(function (res) {
-        if (res.status !== 200 || !res.body || !Array.isArray(res.body.items)) return;
-        if (res.body.items.length === 0) {
-          invitesTbody.innerHTML = '<tr><td colspan="7" class="empty">' + tr("console.js.admin.invites.empty") + '</td></tr>';
-          return;
-        }
-        invitesTbody.innerHTML = res.body.items.map(function (inv) {
-          var statusBadge = inv.status === "active" ? '<span class="badge badge-ok">active</span>' : '<span class="badge badge-muted">' + escHtml(inv.status) + "</span>";
-          var revokeBtn = inv.status === "active" ? '<button type="button" class="pref-btn pref-btn-danger" data-invite-revoke="' + escHtml(inv.code) + '">' + tr("console.js.admin.invites.revoke") + '</button>' : "—";
-          return '<tr data-invite-code="' + escHtml(inv.code) + '"><td><code>' + escHtml(inv.public_id || "—") + "</code></td><td><code>" + escHtml(inv.code) + "</code></td><td>" + statusBadge + "</td><td>" + escHtml(inv.uses_count) + " / " + escHtml(inv.max_uses) + "</td><td>" + escHtml(inv.reserved_username || "—") + "</td><td>" + escHtml(inv.note || "—") + "</td><td>" + revokeBtn + "</td></tr>";
-        }).join("");
-      }).catch(function () {});
-    }
-
-    if (invitesTbody && bootstrap.mode === "network") {
-      loadInvites();
-      invitesTbody.addEventListener("click", function (ev) {
-        var btn = ev.target.closest("[data-invite-revoke]");
-        if (!btn) return;
-        var code = btn.getAttribute("data-invite-revoke") || "";
-        if (!code) return;
-        fetch("/api/invites", {
-          method: "PATCH",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ code: code, action: "revoke" })
-        }).then(function (resp) {
-          return resp.json().catch(function () { return {}; }).then(function (body) {
-            return { status: resp.status, body: body };
-          });
-        }).then(function (res) {
-          if (res.status === 200) {
-            showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoked") + " " + code, false);
-            loadInvites();
-            return;
-          }
-          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoke_failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
-        }).catch(function () {
-          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoke_network_error"), true);
-        });
-      });
-    }
-
-    if (inviteForm) {
-      inviteForm.addEventListener("submit", function (ev) {
-        ev.preventDefault();
-        var fd = new FormData(inviteForm);
-        var maxUses = parseInt(String(fd.get("max_uses") || "1"), 10) || 1;
-        var reservedUsername = String(fd.get("reserved_username") || "").trim() || null;
-        var note = String(fd.get("note") || "").trim() || null;
-        var payload = { max_uses: maxUses, note: note };
-        if (reservedUsername) payload.reserved_username = reservedUsername;
-        fetch("/api/invites", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(payload)
-        }).then(function (resp) {
-          return resp.json().catch(function () { return {}; }).then(function (body) {
-            return { status: resp.status, body: body };
-          });
-        }).then(function (res) {
-          if ((res.status === 200 || res.status === 201) && res.body) {
-            showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issued") + " " + (res.body.code || ""), false);
-            inviteForm.reset();
-            loadInvites();
-            return;
-          }
-          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issue_failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
-        }).catch(function () {
-          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issue_network_error"), true);
-        });
-      });
-    }
-
     var previewBtn = document.getElementById("admin-retired-preview-btn");
     var releaseForm = document.getElementById("admin-retired-release-form");
     var retiredTbody = document.getElementById("admin-retired-tbody");
@@ -1995,10 +1906,39 @@
     load();
   }
 
+  function initServerSection() {
+    var toggle = document.getElementById("admin-member-invites-toggle");
+    var resultEl = document.getElementById("server-invites-policy-result");
+    if (!toggle || !window.ClaireUi) return;
+    toggle.addEventListener("change", function () {
+      var next = Boolean(toggle.checked);
+      toggle.disabled = true;
+      window.ClaireUi.request("/api/admin/server/invites", {
+        method: "POST",
+        body: { member_invites_enabled: next }
+      }).then(function (r) {
+        toggle.disabled = false;
+        if (!r.ok || !r.data) {
+          toggle.checked = !next;
+          var errMsg = r.error === "reauth_cancelled" ? tr("console.js.admin.server.invites_reauth_cancelled") : (window.ClaireUi.errorText(r) || tr("console.js.admin.server.invites_failed"));
+          showStatusBanner(resultEl, errMsg, true);
+          return;
+        }
+        var saved = Boolean(r.data.member_invites_enabled);
+        toggle.checked = saved;
+        var okMsg = tr(saved ? "console.js.admin.server.invites_enabled" : "console.js.admin.server.invites_disabled");
+        showStatusBanner(resultEl, okMsg, false);
+        window.ClaireUi.toast(okMsg, "ok");
+      });
+    });
+  }
+
   function initAdminSection(bootstrap) {
     var panels = window.ClaireManagePanels || {};
     var section = bootstrap.section;
-    if (section === "providers") {
+    if (section === "server") {
+      initServerSection();
+    } else if (section === "providers") {
       var provHost = document.getElementById("admin-providers-host");
       if (provHost && typeof panels.renderProviderManager === "function") {
         panels.renderProviderManager(provHost, { showClose: false, canWrite: true, isAdmin: true });

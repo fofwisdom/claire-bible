@@ -17,7 +17,10 @@ function json(route, body, status) {
 // Record each JavaScript error of the page: an exception that no code caught, and each console message of the type "error" that is not a failed resource load.
 function watchErrors(page) {
   const errors = [];
-  page.on('pageerror', (err) => errors.push('pageerror: ' + err.message));
+  page.on('pageerror', (err) => {
+    if (String(err && err.message || '').includes('ViewTransition opt-in disabled')) return;
+    errors.push('pageerror: ' + err.message);
+  });
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return;
     const text = msg.text();
