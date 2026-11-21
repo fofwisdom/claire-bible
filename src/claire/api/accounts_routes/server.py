@@ -188,6 +188,7 @@ def _render_client_delivery_section(delivery: dict[str, Any] | None) -> str:
     mode = str(delivery.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
     fqdn_available = bool(delivery.get("fqdn_available"))
     active_base = str(delivery.get("active_base_url") or "/clients")
+    marketplace_url = str(delivery.get("marketplace_url") or f"{active_base.rstrip('/')}/.claude-plugin/marketplace.json")
     uri_base = str(delivery.get("uri_path_base_url") or "/clients")
     fqdn_origin = delivery.get("fqdn_origin")
     fqdn_display = f"<code>{escape(str(fqdn_origin))}</code>" if fqdn_origin else f'<span class="hint">{escape(t("console.admin.server.client_delivery.unavailable"))}</span>'
@@ -202,6 +203,7 @@ def _render_client_delivery_section(delivery: dict[str, Any] | None) -> str:
         <dl>
           <dt>{escape(t("console.admin.server.client_delivery.active_mode"))}</dt><dd><span class="badge">{escape(mode)}</span></dd>
           <dt>{escape(t("console.admin.server.client_delivery.resolved_base"))}</dt><dd><code>{escape(active_base)}</code></dd>
+          <dt>{escape(t("console.admin.server.client_delivery.marketplace_url"))}</dt><dd><code>{escape(marketplace_url)}</code></dd>
           <dt>{escape(t("console.admin.server.client_delivery.uri_base"))}</dt><dd><code>{escape(uri_base)}</code></dd>
           <dt>{escape(t("console.admin.server.client_delivery.fqdn_origin"))}</dt><dd>{fqdn_display}</dd>
         </dl>

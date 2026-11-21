@@ -308,8 +308,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/auth/oidc/{id}/start",
         "/auth/oidc/{id}/callback",
         "/invite/complete",
+        "/clients/.claude-plugin/marketplace.json",
+        "/clients/marketplace.json",
         "/clients/{client_id}/manifest.json",
         "/clients/{client_id}/bundle.tar.gz",
+        "/clients/{client_id}/bundle.zip",
         "/clients/{client_id}/files/{relpath:path}",
     }
     public_post = {

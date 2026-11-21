@@ -31,7 +31,8 @@
 | `POST` | `/tokens/revoke` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
 | `DELETE` | `/tokens` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
 | `POST` | `/mcp` | `read` | Model Context Protocol Streamable / Stateless JSON-RPC 2.0 엔드포인트 (19종 도구; 쓰기 도구는 `write` 스코프 필요) |
-| `GET`/`HEAD` | `/clients/{client_id}/{manifest.json,bundle.tar.gz,files/{relpath:path}}` | `public` (핸들러 내 Bearer 또는 60초 HMAC `?t=` 검증) | `agent_client` 정적 번들 전달 (`AE1b`). `uri_path` 모드는 `app`에서, `fqdn` 모드는 무쿠키 `clients` 호스트(`clients.<registrable_domain>` / `:8770`)에서 `CSP: default-src 'none'; sandbox` 헤더와 함께 제공 |
+| `GET`/`HEAD` | `/clients/{.claude-plugin/marketplace.json,marketplace.json}` | `public` (핸들러 내 Bearer 또는 60초 HMAC `?t=` 검증) | 활성 `agent_client` 플러그인 전체를 노출하는 Claude 호환 마켓플레이스 카탈로그 (`source: archive`, `bundle.zip` 절대 URL + SHA-256). 비공개 서버에서는 인증 계정에 바인딩된 서명 `?t=` 링크를 자동 포함 |
+| `GET`/`HEAD` | `/clients/{client_id}/{manifest.json,bundle.tar.gz,bundle.zip,files/{relpath:path}}` | `public` (핸들러 내 Bearer 또는 60초 HMAC `?t=` 검증) | `agent_client` 정적 번들 전달 (`AE1b`). `uri_path` 모드는 `app`에서, `fqdn` 모드는 무쿠키 `clients` 호스트(`clients.<registrable_domain>` / `:8770`)에서 `CSP: default-src 'none'; sandbox` 헤더와 함께 제공 |
 | `POST` | `/api/client-extraction/stage` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 개인 KB에 원문 스테이징 (`full_content=True` 기본) |
 | `GET`/`HEAD` | `/api/client-extraction/sources` | `write` (`CT4` 개인 KB) | 스테이징된 문서 목록 조회 (`status=pending\|all`, `limit`) |
 | `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` (`CT4` 개인 KB) | 추출 임대 획득 (`lease_seconds` 기본 300초, 일회용 `claim_token` 발급) |

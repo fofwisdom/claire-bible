@@ -3951,5 +3951,8 @@
   "console.synd.mcp.guide_step_2": "Download and install an Agent Client bundle below (for example claire.antigravity) into your local agent workspace.",
   "console.synd.mcp.guide_step_3": "Connect to /mcp via OAuth 2.1 (PKCE S256 or headless /device approval) with readonly and write scopes instead of deprecated cb_… manual tokens.",
   "console.synd.mcp.guide_step_4": "Ingest URLs, files, or notes as usual: full raw content waits in pending state until your Agent Client claims, extracts, and commits it to your personal knowledge base.",
-  "console.synd.mcp.guide_jump_bundles": "Jump to Agent Client bundles"
+  "console.synd.mcp.guide_jump_bundles": "Jump to Agent Client bundles",
+  "console.admin.server.client_delivery.marketplace_url": "Claude Marketplace URL",
+  "console.synd.mcp.bundles_marketplace": "Claude Marketplace URL",
+  "console.synd.mcp.bundles_marketplace_desc": "Add this catalog in Claude with /plugin marketplace add <url>. Lists all enabled agent client plugins on this server."
 }

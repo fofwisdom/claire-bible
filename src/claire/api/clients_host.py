@@ -13,6 +13,7 @@ import mimetypes
 import sqlite3
 import tarfile
 import time
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs
@@ -42,8 +43,12 @@ __all__ = [
     "BUNDLE_TOKEN_TTL",
     "DEFAULT_AGENT_CLIENT_DELIVERY_MODE",
     "DEV_CLIENTS_PORT",
+    "MARKETPLACE_CLIENT_ID",
+    "MARKETPLACE_PATHS",
     "build_bundle_tar_gz",
+    "build_bundle_zip",
     "build_manifest_bytes",
+    "build_marketplace_bytes",
     "bundle_query_url",
     "clients_app_routes",
     "clients_authority",
@@ -64,6 +69,8 @@ AGENT_CLIENT_DELIVERY_MODES: tuple[str, str] = ("uri_path", "fqdn")
 DEFAULT_AGENT_CLIENT_DELIVERY_MODE = "uri_path"
 AGENT_CLIENT_SETTING_KEY = "agent_client_delivery_mode"
 BUNDLE_TOKEN_TTL = 60
+MARKETPLACE_CLIENT_ID = "_marketplace"
+MARKETPLACE_PATHS: tuple[str, str] = (".claude-plugin/marketplace.json", "marketplace.json")
 
 _BUNDLE_TOKEN_PURPOSE = "client_bundle_token"
 _CLIENT_CSP = "default-src 'none'; sandbox"
@@ -185,6 +192,10 @@ def _bundle_token_message(account_id: int, client_id: str, target_file: str, exp
     return payload.encode("utf-8")
 
 
+def _is_valid_token_client_id(client_id: str) -> bool:
+    return client_id == MARKETPLACE_CLIENT_ID or bool(CLIENT_ID_RE.fullmatch(client_id))
+
+
 def create_bundle_token(
     account_id: int,
     client_id: str,
@@ -196,7 +207,7 @@ def create_bundle_token(
     now: float | None = None,
 ) -> str:
     """Mint a 60s HMAC-signed token bound to ``(client_id, target_file, account_id)``."""
-    if not CLIENT_ID_RE.fullmatch(client_id):
+    if not _is_valid_token_client_id(client_id):
         raise ValueError(f"Invalid client_id: {client_id!r}")
     if not target_file:
         raise ValueError("target_file must be non-empty")
@@ -220,7 +231,7 @@ def verify_bundle_token(
     """Verify a signed bundle token against ``(client_id, target_file)`` and expiry; return ``account_id`` or None."""
     if not token or not isinstance(token, str):
         return None
-    if not CLIENT_ID_RE.fullmatch(client_id) or not target_file:
+    if not _is_valid_token_client_id(client_id) or not target_file:
         return None
     parts = token.split(".")
     if len(parts) != 3:
@@ -318,6 +329,103 @@ def build_bundle_tar_gz(status: PluginStatus) -> bytes:
     return buf.getvalue()
 
 
+def build_bundle_zip(status: PluginStatus) -> bytes:
+    """Build a deterministic ZIP archive for an enabled ``agent_client`` plugin."""
+    manifest = status.manifest
+    if manifest is None:
+        raise PluginFileError("agent_client plugin has no manifest")
+    contents = _read_verified_bundle_files(status)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for rel in sorted(contents):
+            info = zipfile.ZipInfo(filename=rel, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o644 << 16
+            zf.writestr(info, contents[rel])
+    return buf.getvalue()
+
+
+def _plugin_en_description(status: PluginStatus) -> str:
+    manifest = status.manifest
+    if manifest is None:
+        return ""
+    texts = getattr(manifest, "text", None) or {}
+    en = texts.get("en")
+    if en is not None and getattr(en, "description", ""):
+        return str(en.description)
+    for entry in texts.values():
+        desc = getattr(entry, "description", "")
+        if desc:
+            return str(desc)
+    return manifest.id
+
+
+def build_marketplace_bytes(
+    statuses: list[PluginStatus],
+    *,
+    base_url: str,
+    delivery_mode: str = DEFAULT_AGENT_CLIENT_DELIVERY_MODE,
+    account_id: int | None = None,
+    settings: Any = None,
+    secret_service: SecretService | None = None,
+    now: float | None = None,
+) -> bytes:
+    """Build deterministic Claude-compatible ``marketplace.json`` listing all enabled ``agent_client`` plugins."""
+    ordered = sorted(
+        (s for s in statuses if s.manifest is not None and s.manifest.client_id and s.path is not None),
+        key=lambda s: (str(s.manifest.client_id), str(s.manifest.id)),
+    )
+    plugins: list[dict[str, Any]] = []
+    clean_base = base_url.rstrip("/")
+    for status in ordered:
+        manifest = status.manifest
+        assert manifest is not None and manifest.client_id is not None
+        cid = manifest.client_id
+        client_base = f"{clean_base}/{cid}"
+        zip_bytes = build_bundle_zip(status)
+        zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
+        zip_url = _client_url(client_base, "bundle.zip", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        manifest_url = _client_url(client_base, "manifest.json", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        tar_gz_url = _client_url(client_base, "bundle.tar.gz", account_id=account_id, client_id=cid, settings=settings, secret_service=secret_service, now=now)
+        plugins.append(
+            {
+                "name": manifest.id.replace(".", "-").replace("_", "-"),
+                "description": _plugin_en_description(status),
+                "version": f"{manifest.revision}.0.0",
+                "author": {"name": "Claire Bible"},
+                "category": "productivity",
+                "license": manifest.license,
+                "source": {
+                    "source": "archive",
+                    "url": zip_url,
+                    "sha256": zip_sha256,
+                },
+                "claire": {
+                    "plugin_id": manifest.id,
+                    "client_id": cid,
+                    "revision": manifest.revision,
+                    "required_scopes": list(manifest.required_scopes),
+                    "digest": status.digest,
+                    "manifest_url": manifest_url,
+                    "tar_gz_url": tar_gz_url,
+                },
+            }
+        )
+    payload = {
+        "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+        "name": "claire-bible",
+        "description": "Claire Bible agent client plugins for OAuth 2.1 MCP connection, staged source extraction, and knowledge graph queries.",
+        "owner": {"name": "Claire Bible"},
+        "metadata": {
+            "delivery_mode": delivery_mode,
+            "plugin_count": len(plugins),
+        },
+        "plugins": plugins,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+
 def _media_type_for(relpath: str) -> str:
     suffix = Path(relpath).suffix.lower()
     if suffix in _EXTRA_MIME_TYPES:
@@ -358,10 +466,12 @@ def _parse_target(prefix: str, path: str, raw_path: bytes) -> tuple[str, str] | 
     if not rest.startswith("/") or len(rest) < 2:
         return None
     tail = rest[1:]
+    if tail in MARKETPLACE_PATHS:
+        return MARKETPLACE_CLIENT_ID, tail
     client_id, sep, sub = tail.partition("/")
     if not sep or not CLIENT_ID_RE.fullmatch(client_id):
         return None
-    if sub in {"manifest.json", "bundle.tar.gz"}:
+    if sub in {"manifest.json", "bundle.tar.gz", "bundle.zip"}:
         return client_id, sub
     if sub.startswith("files/"):
         relpath = sub[len("files/") :]
@@ -388,18 +498,18 @@ def _validate_bearer_sync(
     *,
     allow_session: bool,
     cross_origin: bool,
-) -> tuple[bool, int]:
-    """Validate Bearer token; return ``(allowed, denial_status)``."""
+) -> tuple[bool, int, int | None]:
+    """Validate Bearer token; return ``(allowed, denial_status, account_id)``."""
     from .security import _constant_equal
 
     if config.owner_token and _constant_equal(bearer, config.owner_token):
-        return True, 200
+        return True, 200, None
     if config.readonly_token and _constant_equal(bearer, config.readonly_token):
-        return True, 200
+        return True, 200, None
 
     db_file = _db_file_from_settings(config)
     if db_file is None or not Path(db_file).is_file():
-        return False, 401
+        return False, 401, None
 
     data_dir = config.data_dir or Path(db_file).parent
     scope: str | None = None
@@ -430,32 +540,32 @@ def _validate_bearer_sync(
                 account_id = session_binding.account_id
 
         if account_id is None or scope is None:
-            return False, 401
+            return False, 401, None
         if not _account_is_active(conn, account_id):
-            return False, 401
+            return False, 401, None
         if scope not in _READONLY_PLUS_SCOPES:
-            return False, 403
-        return True, 200
+            return False, 403, None
+        return True, 200, account_id
     finally:
         conn.close()
 
 
-def _validate_session_sync(config: WebRuntimeConfig, token: str) -> tuple[bool, int]:
+def _validate_session_sync(config: WebRuntimeConfig, token: str) -> tuple[bool, int, int | None]:
     if not dbm.plausible_session_token(token):
-        return False, 401
+        return False, 401, None
     db_file = _db_file_from_settings(config)
     if db_file is None or not Path(db_file).is_file():
-        return False, 401
+        return False, 401, None
     conn = dbm.connect_existing(db_file, readonly=True)
     try:
         binding = accounts_store.validate_session_binding(conn, token)
         if binding is None:
-            return False, 401
+            return False, 401, None
         if not _account_is_active(conn, binding.account_id):
-            return False, 401
+            return False, 401, None
         if binding.scope not in _READONLY_PLUS_SCOPES:
-            return False, 403
-        return True, 200
+            return False, 403, None
+        return True, 200, binding.account_id
     finally:
         conn.close()
 
@@ -469,7 +579,7 @@ def _validate_signed_token_sync(
     settings: Any,
     secret_service: SecretService | None,
     now: float | None,
-) -> bool:
+) -> int | None:
     account_id = verify_bundle_token(
         token,
         client_id=client_id,
@@ -479,13 +589,13 @@ def _validate_signed_token_sync(
         now=now,
     )
     if account_id is None:
-        return False
+        return None
     db_file = _db_file_from_settings(settings) or _db_file_from_settings(config)
     if db_file is None or not Path(db_file).is_file():
-        return False
+        return None
     conn = dbm.connect_existing(db_file, readonly=True)
     try:
-        return _account_is_active(conn, account_id)
+        return account_id if _account_is_active(conn, account_id) else None
     finally:
         conn.close()
 
@@ -500,9 +610,9 @@ async def _authorize_request(
     allow_session: bool,
     secret_service: SecretService | None,
     now: float | None,
-) -> tuple[bool, int]:
+) -> tuple[bool, int, int | None]:
     if config.anonymous_readonly:
-        return True, 200
+        return True, 200, None
 
     from .security import _parse_bearer, _raw_headers, read_session_cookie
 
@@ -511,7 +621,7 @@ async def _authorize_request(
     authorization_present, bearer = _parse_bearer(scope)
     if authorization_present:
         if bearer is None:
-            return False, 401
+            return False, 401, None
         return await asyncio.to_thread(
             _validate_bearer_sync,
             config,
@@ -524,8 +634,8 @@ async def _authorize_request(
     t_values = query.get("t")
     if t_values is not None:
         if len(t_values) != 1 or not t_values[0]:
-            return False, 401
-        valid_sig = await asyncio.to_thread(
+            return False, 401, None
+        signed_account_id = await asyncio.to_thread(
             _validate_signed_token_sync,
             config,
             t_values[0],
@@ -535,20 +645,20 @@ async def _authorize_request(
             secret_service=secret_service,
             now=now,
         )
-        return (True, 200) if valid_sig else (False, 401)
+        return (True, 200, signed_account_id) if signed_account_id is not None else (False, 401, None)
 
     if not allow_session or cross_origin:
-        return False, 401
+        return False, 401, None
 
     cookie_present, cookie_token = read_session_cookie(scope)
     x_session_headers = _raw_headers(scope, b"x-session")
     if cookie_present and x_session_headers:
-        return False, 401
+        return False, 401, None
     if len(x_session_headers) > 1:
-        return False, 401
+        return False, 401, None
     session_token = cookie_token if cookie_present else (x_session_headers[0].decode("latin-1").strip() if x_session_headers else None)
     if not session_token:
-        return False, 401
+        return False, 401, None
     return await asyncio.to_thread(_validate_session_sync, config, session_token)
 
 
@@ -557,6 +667,28 @@ def _security_plain_response(status_code: int, message: str, *, extra_headers: d
     if extra_headers:
         headers.update(extra_headers)
     return PlainTextResponse(message, status_code=status_code, headers=headers)
+
+
+def _resolve_delivery_base_url(scope: Scope, *, config: WebRuntimeConfig, expected_mode: str, prefix: str) -> str:
+    roles = getattr(config, "host_roles", None)
+    if roles is not None:
+        if expected_mode == "fqdn":
+            fqdn_origin = roles.origin("clients")
+            if fqdn_origin:
+                return fqdn_origin.rstrip("/")
+        else:
+            app_origin = roles.origin("app")
+            if app_origin:
+                return f"{app_origin.rstrip('/')}{prefix}"
+    scheme = str(scope.get("scheme") or "http")
+    host = ""
+    for k, v in scope.get("headers") or ():
+        if k.lower() == b"host":
+            host = v.decode("latin-1").strip()
+            break
+    if not host:
+        host = str(getattr(config, "expected_authority", "") or "127.0.0.1")
+    return f"{scheme}://{host}{prefix}"
 
 
 async def _handle_delivery(
@@ -587,7 +719,7 @@ async def _handle_delivery(
         return _security_plain_response(404, "Not Found")
     client_id, target_file = parsed
 
-    allowed, denial_status = await _authorize_request(
+    allowed, denial_status, caller_account_id = await _authorize_request(
         scope,
         config=config,
         settings=settings,
@@ -602,7 +734,27 @@ async def _handle_delivery(
             return _security_plain_response(403, "Forbidden")
         return _security_plain_response(401, "Unauthorized", extra_headers={"WWW-Authenticate": "Bearer"})
 
+    base_url = _resolve_delivery_base_url(scope, config=config, expected_mode=expected_mode, prefix=prefix)
+    mint_account = None if config.anonymous_readonly else caller_account_id
+
     def _build_payload() -> tuple[bytes, str] | None:
+        if client_id == MARKETPLACE_CLIENT_ID:
+            try:
+                snap = plugin_snapshot(settings, fresh=True)
+                return (
+                    build_marketplace_bytes(
+                        snap.agent_clients(),
+                        base_url=base_url,
+                        delivery_mode=active_mode,
+                        account_id=mint_account,
+                        settings=settings,
+                        secret_service=secret_service,
+                        now=now,
+                    ),
+                    "application/json; charset=utf-8",
+                )
+            except (PluginFileError, OSError):
+                return None
         status = get_agent_client(client_id, settings=settings, fresh=True)
         if status is None or status.manifest is None or status.path is None:
             return None
@@ -611,6 +763,8 @@ async def _handle_delivery(
                 return build_manifest_bytes(status, delivery_mode=active_mode), "application/json; charset=utf-8"
             if target_file == "bundle.tar.gz":
                 return build_bundle_tar_gz(status), "application/gzip"
+            if target_file == "bundle.zip":
+                return build_bundle_zip(status), "application/zip"
             relpath = target_file[len("files/") :]
             if relpath not in status.manifest.files:
                 return None
@@ -686,8 +840,11 @@ def clients_app_routes(
         )
 
     return [
+        Route("/clients/.claude-plugin/marketplace.json", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients/marketplace.json", serve_client_bundle, methods=["GET", "HEAD"]),
         Route("/clients/{client_id}/manifest.json", serve_client_bundle, methods=["GET", "HEAD"]),
         Route("/clients/{client_id}/bundle.tar.gz", serve_client_bundle, methods=["GET", "HEAD"]),
+        Route("/clients/{client_id}/bundle.zip", serve_client_bundle, methods=["GET", "HEAD"]),
         Route("/clients/{client_id}/files/{relpath:path}", serve_client_bundle, methods=["GET", "HEAD"]),
     ]
 
@@ -725,15 +882,33 @@ def delivery_summary(
     uri_base_url = f"{app_origin}/clients" if app_origin else "/clients"
     fqdn_base_url = fqdn_origin
     active_base_url = fqdn_base_url if mode == "fqdn" else uri_base_url
+    uri_marketplace_url = f"{uri_base_url.rstrip('/')}/.claude-plugin/marketplace.json"
+    fqdn_marketplace_url = f"{fqdn_base_url.rstrip('/')}/.claude-plugin/marketplace.json" if fqdn_base_url else None
 
     if anonymous_readonly is None:
         anonymous_readonly = bool(getattr(settings, "anonymous_readonly", False))
     mint_account_id = None if (anonymous_readonly or account_id is None) else int(account_id)
+    marketplace_url = (
+        _client_url(
+            active_base_url,
+            ".claude-plugin/marketplace.json",
+            account_id=mint_account_id,
+            client_id=MARKETPLACE_CLIENT_ID,
+            settings=settings,
+            secret_service=secret_service,
+            now=now,
+        )
+        if active_base_url
+        else None
+    )
 
     clients_payload: list[dict[str, Any]] = []
     try:
         snap = plugin_snapshot(settings, fresh=True)
-        agent_statuses = snap.agent_clients()
+        agent_statuses = sorted(
+            (s for s in snap.agent_clients() if s.manifest is not None and s.manifest.client_id),
+            key=lambda s: (str(s.manifest.client_id), str(s.manifest.id)),
+        )
     except Exception:
         agent_statuses = []
 
@@ -760,6 +935,19 @@ def delivery_summary(
             _client_url(
                 client_base,
                 "bundle.tar.gz",
+                account_id=mint_account_id,
+                client_id=cid,
+                settings=settings,
+                secret_service=secret_service,
+                now=now,
+            )
+            if client_base
+            else None
+        )
+        bundle_zip_url = (
+            _client_url(
+                client_base,
+                "bundle.zip",
                 account_id=mint_account_id,
                 client_id=cid,
                 settings=settings,
@@ -802,6 +990,7 @@ def delivery_summary(
                 "digest": status.digest,
                 "manifest_url": manifest_url,
                 "bundle_url": bundle_url,
+                "bundle_zip_url": bundle_zip_url,
                 "files": file_entries,
             }
         )
@@ -813,6 +1002,9 @@ def delivery_summary(
         "fqdn_origin": fqdn_origin,
         "uri_path_base_url": uri_base_url,
         "active_base_url": active_base_url,
+        "uri_path_marketplace_url": uri_marketplace_url,
+        "fqdn_marketplace_url": fqdn_marketplace_url,
+        "marketplace_url": marketplace_url,
         "signed_token_ttl_seconds": BUNDLE_TOKEN_TTL,
         "requires_auth": not anonymous_readonly,
         "clients": clients_payload,

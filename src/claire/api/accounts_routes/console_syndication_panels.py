@@ -127,6 +127,7 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account) -> str
 def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
     mode = str(summary.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
     active_base = str(summary.get("active_base_url") or "/clients")
+    marketplace_url = str(summary.get("marketplace_url") or f"{active_base.rstrip('/')}/.claude-plugin/marketplace.json")
     clients = summary.get("clients") or []
     rows = []
     for client in clients:
@@ -134,6 +135,7 @@ def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
         pid = str(client.get("plugin_id") or "")
         manifest_url = str(client.get("manifest_url") or "")
         bundle_url = str(client.get("bundle_url") or "")
+        bundle_zip_url = str(client.get("bundle_zip_url") or "")
         file_links = []
         for entry in client.get("files") or []:
             fpath = str(entry.get("path") or "")
@@ -145,11 +147,12 @@ def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
                 f'<code class="pref-mono" data-sha256="{escape(fsha)}" title="{escape(fsha)}">{escape(short_sha)}</code></div>'
             )
         files_html = "".join(file_links) or "-"
+        bundle_links = f'<div><a href="{escape(bundle_url)}">bundle.tar.gz</a></div>' + (f'<div><a href="{escape(bundle_zip_url)}">bundle.zip</a></div>' if bundle_zip_url else "")
         rows.append(
             f'<tr data-agent-client-row="{escape(cid)}">'
             f'<td><strong>{escape(cid)}</strong><br/><code class="pref-mono">{escape(pid)}</code></td>'
             f'<td><a href="{escape(manifest_url)}">manifest.json</a></td>'
-            f'<td><a href="{escape(bundle_url)}">bundle.tar.gz</a></td>'
+            f"<td>{bundle_links}</td>"
             f"<td>{files_html}</td></tr>"
         )
     tbody = "".join(rows) or f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.synd.mcp.bundles_empty"))}</td></tr>'
@@ -170,6 +173,11 @@ def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_endpoint"))}</strong><span>{escape(t("console.synd.mcp.bundles_endpoint_desc"))}</span></div>'
         f'<div class="pref-endpoint"><code id="pref-mcp-client-delivery-base" class="pref-mono">{escape(active_base)}</code>'
         f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-delivery-base">{escape(t("console.common.copy"))}</button></div>'
+        "</div>"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_marketplace"))}</strong><span>{escape(t("console.synd.mcp.bundles_marketplace_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-client-marketplace-url" class="pref-mono">{escape(marketplace_url)}</code>'
+        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-marketplace-url">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
         '<div class="pref-table-wrap"><table class="pref-table">'
         f'<thead><tr><th>{escape(t("console.synd.mcp.bundles_col_client"))}</th><th>{escape(t("console.synd.mcp.bundles_col_manifest"))}</th><th>{escape(t("console.synd.mcp.bundles_col_bundle"))}</th><th>{escape(t("console.synd.mcp.bundles_col_files"))}</th></tr></thead>'

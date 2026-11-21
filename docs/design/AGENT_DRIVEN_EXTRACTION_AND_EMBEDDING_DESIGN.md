@@ -58,7 +58,7 @@ All eleven design questions (`AEQ1`–`AEQ11`) are resolved:
 | `AED5` | Token and OAuth unification | Deprecate manual persistent Bearer tokens (`api_tokens.json`, `/tokens`, `claire token`, Telegram `/token`) and unify authentication on **OAuth 2.1** (`readonly` and `write` scopes) following Modern Web Guidance. Ensure OAuth works cleanly when no Telegram bot is configured. |
 | `AED6` | Google baseline for current implementation & Option B embedding | Remove unimplemented `openai` placeholders from `PROVIDERS.md`, `MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md` §10.4, and `MULTI_PROVIDER_DESIGN.md`. Document Google (`gemini`, `gemini-embedding-2` pinned at `3072` dimensions per `AED10`, migrating `gemini-embedding-001` before May 14, 2028) as the current implementation and Option B embedding design baseline while keeping general `api-key` provider extensibility open. |
 | `AED7` | Dual-embed during EOS backfill | While an embedding End-of-Support (EOS) shadow backfill is running (`target` space exists alongside `active` space), dual-embed incoming shared KB contributions into BOTH `active` and `target` spaces. If `active` is already retired/EOS, embed into `target` only. |
-| `AED8` | Retire `host-cli` providers and `ChatGPT` / `Codex` / `Claude` | Retire and remove strictly `AntigravityProvider`, `CodexProvider` (`host-cli`), `ChatGPT`, `Codex`, and `Claude` across principles, design, and implementation (code removal executes in work unit `AE8`). |
+| `AED8` | Retire `host-cli` providers and obsolete clients | Retire and remove `AntigravityProvider`, `CodexProvider` (`host-cli`), `ChatGPT`, `Codex`, and obsolete `Claude Desktop`/stdio instructions across principles, design, and implementation (code removal executes in work unit `AE8`). Claude remains supported as a lawful OAuth 2.1 `agent_client` plugin and marketplace consumer (`/.claude-plugin/marketplace.json`). |
 | `AED9` | Full content default on staging | `stage_source(url=...)` and client-mode staged documents default to `full_content = True`. Always retain full raw content without truncation for staged sources. |
 | **`AED10`** | Target MRL `output_dimensionality` for `gemini-embedding-2` | Lock `gemini-embedding-2` target `output_dimensionality` to **`3072`** (maximum full fidelity, matching `gemini-embedding-001` dimension size). |
 | **`AED11`** | Multimodal embedding scope | Execute **Stage 1 text-only parity first (`AE6a`–`AE6d`)** covering entity frames, search queries, and May 14, 2028 EOS migration; defer native multimodal (`image`, `PDF`, `audio`, `video`) embeddings to a separate Stage 2 design. |
@@ -110,8 +110,9 @@ The Claire Bible server hosts and serves registered `agent_client` bundles. To s
 ### 4.2 Mode A: Fixed URI Path (`uri_path`)
 
 - **Fixed URL pattern**:
+  - `https://<app_authority>/clients/.claude-plugin/marketplace.json` (and `/clients/marketplace.json` alias) — Claude-compatible marketplace catalog listing all enabled `agent_client` plugins with absolute `bundle.zip` archive sources and SHA-256 checksums
   - `https://<app_authority>/clients/<client_id>/manifest.json`
-  - `https://<app_authority>/clients/<client_id>/bundle.tar.gz` (or individual static files `/clients/<client_id>/files/<relpath>`)
+  - `https://<app_authority>/clients/<client_id>/bundle.tar.gz` and `https://<app_authority>/clients/<client_id>/bundle.zip` (or individual static files `/clients/<client_id>/files/<relpath>`)
 - **Namespace collision guard**: Add `"clients"` to `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py` so no member account can register username `clients` and shadow `/clients/...`.
 - **Headers**: Serve with `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, and `Cross-Origin-Resource-Policy: same-origin` (or explicit CORS for authenticated CLI download when needed).
 

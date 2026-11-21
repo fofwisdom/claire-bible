@@ -607,7 +607,7 @@ claire token revoke "cb_xX9vY..." --json
 ### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/settings/mcp`, `/settings/tokens`)
 
 - **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
-- **`/settings/mcp` (권장)**: OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 활성 `agent_client` 플러그인 번들(`claire.antigravity` 등)의 60초 `?t=` 다운로드 링크(`/clients/<client_id>/...`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
+- **`/settings/mcp` (권장)**: OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), Claude 호환 마켓플레이스 URL(`/clients/.claude-plugin/marketplace.json` 또는 `clients.<registrable_domain>/.claude-plugin/marketplace.json`), 활성 `agent_client` 플러그인 번들(`claire.antigravity` 및 추가 클라이언트)의 60초 `?t=` 다운로드 링크(`manifest.json`, `bundle.tar.gz`, `bundle.zip`, `files/...`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
 - **`/settings/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
 
 ### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)

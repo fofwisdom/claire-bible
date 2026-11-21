@@ -3951,5 +3951,8 @@
   "console.synd.mcp.guide_step_2": "아래 에이전트 클라이언트 번들(예: claire.antigravity)을 내려받아 로컬 에이전트 작업 공간에 설치하세요.",
   "console.synd.mcp.guide_step_3": "지원 중단 예정인 cb_… 수동 토큰 대신 OAuth 2.1(PKCE S256 또는 /device 기기 승인) readonly · write 스코프로 /mcp에 연결하세요.",
   "console.synd.mcp.guide_step_4": "평소처럼 URL, 파일, 노트를 수집하세요. 원문 전체가 pending 상태로 보관되며 에이전트 클라이언트가 claim·추출·제출을 거쳐 개인 지식베이스에 커밋합니다.",
-  "console.synd.mcp.guide_jump_bundles": "에이전트 클라이언트 번들로 이동"
+  "console.synd.mcp.guide_jump_bundles": "에이전트 클라이언트 번들로 이동",
+  "console.admin.server.client_delivery.marketplace_url": "Claude 마켓플레이스 URL",
+  "console.synd.mcp.bundles_marketplace": "Claude 마켓플레이스 URL",
+  "console.synd.mcp.bundles_marketplace_desc": "Claude에서 /plugin marketplace add <url> 명령으로 등록할 수 있는 마켓플레이스 주소입니다. 이 서버에서 활성화된 모든 에이전트 클라이언트 플러그인을 제공합니다."
 }

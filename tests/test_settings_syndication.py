@@ -301,6 +301,8 @@ def test_settings_mcp_client_bundles_panel_is_localized(env):
     assert en_resp.status_code == 200
     assert "Agent Client Bundles" in en_resp.text
     assert "Bundle endpoint" in en_resp.text
+    assert "Claude Marketplace URL" in en_resp.text
+    assert 'id="pref-mcp-client-marketplace-url"' in en_resp.text
     assert "Antigravity · Cursor · MCP Clients" in en_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in en_resp.text, retired
@@ -309,6 +311,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env):
     assert ko_resp.status_code == 200
     assert "에이전트 클라이언트 번들" in ko_resp.text
     assert "번들 엔드포인트" in ko_resp.text
+    assert "Claude 마켓플레이스 URL" in ko_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in ko_resp.text, retired
 

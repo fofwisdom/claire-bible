@@ -5134,6 +5134,68 @@ paths:
         '400':
           description: '`invalid_request` or `invalid_url`.'
 
+  /clients/.claude-plugin/marketplace.json:
+    get:
+      summary: Download Claude-compatible agent_client marketplace catalog JSON (AE1b)
+      description: >-
+        Delivers a Claude Code URL-based marketplace catalog listing all enabled `agent_client` plugins
+        with absolute `bundle.zip` archive URLs and SHA-256 digests (`CSP: default-src 'none'; sandbox`,
+        `Cache-Control: no-store`). In `fqdn` mode, served at `/.claude-plugin/marketplace.json` on the
+        cookieless `clients` host role. Accepts Bearer token or 60-second HMAC `?t=` token bound to
+        `(account_id, _marketplace, .claude-plugin/marketplace.json, exp)`.
+      operationId: getAgentClientClaudeMarketplace
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+          description: Short-TTL HMAC marketplace download token (60s).
+      responses:
+        '200':
+          description: Claude-compatible marketplace catalog JSON.
+          content:
+            application/json:
+              schema: {type: object}
+        '401':
+          description: 'Missing or invalid Bearer or `?t=` token (`WWW-Authenticate: Bearer`).'
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients/marketplace.json:
+    get:
+      summary: Download agent_client marketplace catalog JSON alias (AE1b)
+      description: >-
+        Alias for `/clients/.claude-plugin/marketplace.json` in `uri_path` mode (or `/marketplace.json`
+        in `fqdn` mode) listing all enabled `agent_client` plugins.
+      operationId: getAgentClientMarketplaceAlias
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Claude-compatible marketplace catalog JSON.
+          content:
+            application/json:
+              schema: {type: object}
+        '401':
+          description: 'Missing or invalid Bearer or `?t=` token (`WWW-Authenticate: Bearer`).'
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Delivery mode mismatch (`fqdn` vs `uri_path`).
+
   /clients/{client_id}/manifest.json:
     get:
       summary: Download agent_client bundle manifest JSON (AE1b)
@@ -5195,6 +5257,40 @@ paths:
           description: Gzip-compressed deterministic `.tar.gz` bundle archive.
           content:
             application/gzip:
+              schema: {type: string, format: binary}
+        '401':
+          description: Missing or invalid Bearer or `?t=` bundle token.
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Disabled/unknown `client_id` or delivery mode mismatch.
+
+  /clients/{client_id}/bundle.zip:
+    get:
+      summary: Download deterministic agent_client ZIP bundle archive (AE1b)
+      description: >-
+        Delivers the deterministic ZIP archive of verified static files for an enabled `agent_client` plugin
+        (referenced by `source.url` and `source.sha256` in `marketplace.json`) with
+        `CSP: default-src 'none'; sandbox` and `Cache-Control: no-store`. Accepts Bearer token or `?t=` HMAC token.
+      operationId: getAgentClientBundleZip
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,31}$'}
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Deterministic `.zip` bundle archive.
+          content:
+            application/zip:
               schema: {type: string, format: binary}
         '401':
           description: Missing or invalid Bearer or `?t=` bundle token.

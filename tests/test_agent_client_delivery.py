@@ -10,6 +10,7 @@ import re
 import stat
 import tarfile
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -530,3 +531,127 @@ def test_e2e_anonymous_readonly_allows_unauthenticated_bundle_read_only_in_activ
     env = _build_env(tmp_path, anonymous_readonly=True)
     assert env.client.get(f"{APP_ORIGIN}/clients/sample-client/manifest.json").status_code == 200
     assert env.client.get(f"{CLIENTS_ORIGIN}/sample-client/manifest.json").status_code == 404
+    mp = env.client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json")
+    assert mp.status_code == 200
+    assert env.client.get(f"{APP_ORIGIN}/clients/marketplace.json").status_code == 200
+    assert env.client.get(f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json").status_code == 404
+    data = mp.json()
+    assert data["name"] == "claire-bible"
+    by_cid = {entry["claire"]["client_id"]: entry for entry in data["plugins"]}
+    assert {"antigravity", "sample-client"} <= set(by_cid)
+    plugin_entry = by_cid["sample-client"]
+    assert plugin_entry["source"]["source"] == "archive"
+    assert plugin_entry["source"]["url"] == f"{APP_ORIGIN}/clients/sample-client/bundle.zip"
+    zip_resp = env.client.get(plugin_entry["source"]["url"])
+    assert zip_resp.status_code == 200
+    assert hashlib.sha256(zip_resp.content).hexdigest() == plugin_entry["source"]["sha256"]
+
+
+def test_e2e_claude_marketplace_and_multi_agent_client_delivery(tmp_path):
+    """Verify multiple enabled agent_client plugins (antigravity + claude + sample-client) coexist and serve via Claude marketplace.json and bundle.zip in both uri_path and fqdn modes."""
+    env = _build_env(tmp_path, anonymous_readonly=False)
+    claude_files = {
+        ".claude-plugin/plugin.json": json.dumps({"name": "claire-claude", "version": "1.0.0", "description": "Claire Bible plugin for Claude"}),
+        "skills/extract/SKILL.md": "# Claire Extract\nRun staged extraction via OAuth 2.1 MCP.\n",
+    }
+    _install_sample_client_plugin(
+        env.settings.plugins_dir,
+        env.db_file,
+        env.settings,
+        plugin_id="thirdparty.claude",
+        client_id="claude",
+        files=claude_files,
+        enable=True,
+    )
+    plugin_rt.runtime().invalidate()
+
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        admin_session = accounts_store.create_account_session(conn, account_id=1, scope="owner", now=time.time())
+        member = accounts_store.AccountStore(conn).create_member(username="membermp", display_name="Member MP")
+        conn.execute("UPDATE accounts SET status='active' WHERE id=?", (member.id,))
+        now = time.time()
+        conn.execute(
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'folder', 1, 1, ?, ?, '', ?, ?)",
+            (21, 21, (member.id << 56) | 21, "Member MP KB", "Member personal KB", member.id, str(env.db_file), now, now),
+        )
+        conn.commit()
+        member_session = accounts_store.create_account_session(conn, account_id=member.id, scope="owner", now=time.time())
+    finally:
+        conn.close()
+
+    admin_headers = {"Cookie": f"claire_session={admin_session}", "Origin": APP_ORIGIN}
+    member_headers = {"Cookie": f"claire_session={member_session}", "Origin": APP_ORIGIN}
+
+    anon_client = TestClient(env.app, base_url=APP_ORIGIN)
+    admin_client = TestClient(env.app, base_url=APP_ORIGIN)
+    member_client = TestClient(env.app, base_url=APP_ORIGIN)
+
+    # 1. Private server rejects unauthenticated marketplace requests with 401 and strict headers.
+    unauth_mp = anon_client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json")
+    assert unauth_mp.status_code == 401
+    _assert_clients_security_headers(unauth_mp.headers)
+
+    # 2. /settings/mcp renders the copyable signed Claude Marketplace URL and all enabled client rows with bundle.zip links.
+    mcp_resp = member_client.get("/settings/mcp", headers=member_headers)
+    assert mcp_resp.status_code == 200
+    mcp_html = mcp_resp.text
+    assert 'data-agent-client-row="antigravity"' in mcp_html
+    assert 'data-agent-client-row="claude"' in mcp_html
+    assert 'data-agent-client-row="sample-client"' in mcp_html
+    assert 'id="pref-mcp-client-marketplace-url"' in mcp_html
+    mp_url_match = re.search(r'id="pref-mcp-client-marketplace-url"[^>]*>([^<]+)<', mcp_html)
+    assert mp_url_match is not None
+    signed_mp_url = mp_url_match.group(1).replace("&amp;", "&")
+    assert "/clients/.claude-plugin/marketplace.json?t=" in signed_mp_url
+
+    # 3. Fetching the signed Claude Marketplace URL returns all 3 plugins sorted by client_id with signed bundle.zip URLs and verified SHA-256 digests.
+    mp_resp = anon_client.get(signed_mp_url)
+    assert mp_resp.status_code == 200
+    _assert_clients_security_headers(mp_resp.headers)
+    mp_json = mp_resp.json()
+    assert mp_json["$schema"] == "https://anthropic.com/claude-code/marketplace.schema.json"
+    assert mp_json["metadata"] == {"delivery_mode": "uri_path", "plugin_count": 3}
+    assert [p["claire"]["client_id"] for p in mp_json["plugins"]] == ["antigravity", "claude", "sample-client"]
+    assert [p["name"] for p in mp_json["plugins"]] == ["claire-antigravity", "thirdparty-claude", "thirdparty-sample-client"]
+
+    by_cid = {p["claire"]["client_id"]: p for p in mp_json["plugins"]}
+    for cid, expected_files in (("claude", claude_files), ("sample-client", SAMPLE_FILES)):
+        entry = by_cid[cid]
+        assert entry["source"]["source"] == "archive"
+        zip_url = entry["source"]["url"]
+        assert "?t=" in zip_url
+        zip_resp = anon_client.get(zip_url)
+        assert zip_resp.status_code == 200
+        _assert_clients_security_headers(zip_resp.headers)
+        assert hashlib.sha256(zip_resp.content).hexdigest() == entry["source"]["sha256"]
+        with zipfile.ZipFile(io.BytesIO(zip_resp.content), mode="r") as zf:
+            assert sorted(zf.namelist()) == sorted(expected_files)
+            for rel, expected_text in expected_files.items():
+                assert zf.read(rel).decode("utf-8") == expected_text
+
+    # HEAD on marketplace.json and bundle.zip works cleanly.
+    head_mp = anon_client.head(f"{APP_ORIGIN}/clients/marketplace.json", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+    assert head_mp.status_code == 200 and head_mp.content == b"" and int(head_mp.headers["content-length"]) > 0
+    head_zip = anon_client.head(f"{APP_ORIGIN}/clients/claude/bundle.zip", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+    assert head_zip.status_code == 200 and head_zip.content == b"" and int(head_zip.headers["content-length"]) > 0
+
+    # 4. Switch to fqdn mode: /clients/.claude-plugin/marketplace.json returns 404 on app host, while CLIENTS_ORIGIN serves all 3 clients cleanly.
+    switch_ok = admin_client.post("/api/admin/server/client-delivery", headers=admin_headers, json={"agent_client_delivery_mode": "fqdn"})
+    assert switch_ok.status_code == 200
+    assert switch_ok.json()["agent_client_delivery"]["fqdn_marketplace_url"] == f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json"
+
+    assert anon_client.get(f"{APP_ORIGIN}/clients/.claude-plugin/marketplace.json", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}).status_code == 404
+    assert anon_client.get(f"{APP_ORIGIN}/clients/claude/bundle.zip", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}).status_code == 404
+
+    fqdn_mp = anon_client.get(f"{CLIENTS_ORIGIN}/.claude-plugin/marketplace.json", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
+    assert fqdn_mp.status_code == 200
+    _assert_clients_security_headers(fqdn_mp.headers)
+    fqdn_data = fqdn_mp.json()
+    assert fqdn_data["metadata"] == {"delivery_mode": "fqdn", "plugin_count": 3}
+    assert [p["source"]["url"] for p in fqdn_data["plugins"]] == [
+        f"{CLIENTS_ORIGIN}/antigravity/bundle.zip",
+        f"{CLIENTS_ORIGIN}/claude/bundle.zip",
+        f"{CLIENTS_ORIGIN}/sample-client/bundle.zip",
+    ]
+    assert anon_client.get(f"{CLIENTS_ORIGIN}/claude/bundle.zip", headers={"Authorization": f"Bearer {READONLY_TOKEN}"}).status_code == 200
