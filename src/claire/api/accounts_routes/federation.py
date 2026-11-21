@@ -47,8 +47,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ...core import ids
-from ...knowledge_federation import actors as kf_actors
-from ...knowledge_federation import remote_documents, remote_kbs
+from ...federation.knowledge import actors as kf_actors
+from ...federation.knowledge import remote_documents, remote_kbs
 from ...accounts import federation_readiness
 from ...store import accounts as accounts_store
 from ...store import auth_db
@@ -908,7 +908,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
     def _media_proxy() -> Any:
         if not _proxy_holder:
-            from ...media_proxy import MediaProxy
+            from ...federation.media_proxy import MediaProxy
             from ...store.media import get_media_store
 
             _proxy_holder.append(MediaProxy(ctx.settings, get_media_store(ctx.settings)))
@@ -916,7 +916,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
     async def remote_media_fallback(request: Request) -> Response:
         """Remote media on the app origin (Section 9.1), only for a server without a media host. With a media host this path does not exist here. The caller is the owner of the account of the token."""
-        from ...media_proxy import proxy_response, verify_media_token
+        from ...federation.media_proxy import proxy_response, verify_media_token
 
         account_id = _owner_account_id(request)
         url_hash = request.path_params.get("url_hash", "")

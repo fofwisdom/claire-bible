@@ -25,14 +25,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .extract.decision import EXTRACTED_NAME_KEY, Provenance
-from .extract.provider import ExtractionResult
-from .extract.resolver import _call_provider_embed, resolve_or_create
-from .ontology.base import Relation, new_id
-from .ontology.registry import classify_entity_type, classify_relation_type, validate_relation
-from .store import db as dbm
-from .store import kb_collab
-from .store.vectors import EmbeddingModelMismatch, is_kb_active_space_eos, make_vector_store, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
+from ..extract.decision import EXTRACTED_NAME_KEY, Provenance
+from ..extract.provider import ExtractionResult
+from ..extract.resolver import _call_provider_embed, resolve_or_create
+from ..ontology.base import Relation, new_id
+from ..ontology.registry import classify_entity_type, classify_relation_type, validate_relation
+from ..store import db as dbm
+from ..store import kb_collab
+from ..store.vectors import EmbeddingModelMismatch, is_kb_active_space_eos, make_vector_store, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
 
 log = logging.getLogger("claire.contributions")
 
@@ -383,7 +383,7 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
             embed_fn = None
             if has_embed and not active_eos:
                 def _embed(extracted=extracted, _model=eff_model):
-                    from .extract.frame import format_entity_frame
+                    from ..extract.frame import format_entity_frame
 
                     return _call_provider_embed(provider, format_entity_frame(extracted), title=extracted.name, model=_model if _model and _model != pin.model else None)
 
@@ -411,7 +411,7 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     finally:
         # The log lets a later purge of this copy undo its merges (``rollback_document_graph_contributions``). It is written also on a failure: the merges that were made are committed. An old log (of a try before) is replaced, also by an empty one.
         if decisions or (doc.meta or {}).get("resolution_log"):
-            from .extract.decision import attach_resolution_meta
+            from ..extract.decision import attach_resolution_meta
 
             attach_resolution_meta(doc, decisions)
             dbm.update_document_meta(conn, document_id, doc.meta, kb_id=kb_id)
@@ -539,7 +539,7 @@ def _drop_copy(conn: sqlite3.Connection, data_dir: Path, *, document_id: str, de
 
     The copy is in the knowledge base of its document row; when the row is gone, the entities that have the document as a source tell the knowledge base. A copy that a contribution points to is not touched.
     """
-    from .extract.decision import rollback_resolution
+    from ..extract.decision import rollback_resolution
 
     provenance: dict[int, Provenance] = {}
     for decision in reversed(decisions):
@@ -905,7 +905,7 @@ def submit_to_themes(
     For each document: the theme is ``theme_id`` (the account selected it) or the theme match of the document (the server routes it). Without a theme the item has no target (the response gives ``no_theme``). The targets are the active shared knowledge bases of the theme where the account is not banned. In each target: a duplicate, a tombstone, and the pending limit skip the target with the reason; a reviewer of the target contributes without approval; each other account makes a pending contribution with a hidden copy and no graph.
     """
     from . import reputation, theme_judgement
-    from .store import themes as themes_store
+    from ..store import themes as themes_store
 
     ts = time.time() if now is None else now
     limits = read_limits(conn)
@@ -921,7 +921,7 @@ def submit_to_themes(
     remote_on = False
     direct_remote = None
     if origin is not None:
-        from .knowledge_federation import access, grants, offers, remote_kbs
+        from ..federation.knowledge import access, grants, offers, remote_kbs
 
         remote_on = access.federation_on(conn)
     if remote_kb_id is not None:
@@ -984,7 +984,7 @@ def submit_to_themes(
 
 def canonical_origin(settings: Any) -> str | None:
     """The canonical origin of this server from its settings, for a caller that is not an HTTP request (the CLI, the Telegram bot, an MCP tool). None when the settings give no valid public address: then the server has no actors, and no offer goes to another server."""
-    from .api.security import WebRuntimeConfig
+    from ..api.security import WebRuntimeConfig
 
     try:
         return WebRuntimeConfig.from_settings(settings).public_origin
@@ -1036,7 +1036,7 @@ def curation_source(conn: sqlite3.Connection, *, kb_id: int, source_kb_id: int) 
 
     A private personal knowledge base gets 404 ``source_not_found`` (the same answer as for no knowledge base). A knowledge base that shares no theme with K gets 409 ``source_not_in_theme``.
     """
-    from .store import themes as themes_store
+    from ..store import themes as themes_store
 
     row = conn.execute("SELECT id, is_personal, is_public, account_id FROM knowledge_bases WHERE id=?", (int(source_kb_id),)).fetchone()
     if row is None or (row["is_personal"] and not row["is_public"]):
@@ -1144,7 +1144,7 @@ def _entities_with_authority_ids(conn: sqlite3.Connection, kb_id: int) -> list[t
 
 def _entity_with_authority_id(conn: sqlite3.Connection, kb_id: int, identifiers: list[str], *, etype: str, names: list[str]) -> str | None:
     """The name of an entity of K that has one of the authority identifiers, the same type, and a name or an alias that agrees with one of ``names`` (the name and the aliases of the received entity), or None (the entity with the lowest ID when there is more than one). An identifier alone is no reason for a merge: the identifiers came from another server, and no merge decision is received (KS4)."""
-    from .ontology.base import normalize_name
+    from ..ontology.base import normalize_name
 
     wanted, keys = set(identifiers), {normalize_name(name) for name in names if name}
     for _id, name, entity_type, norm, aliases, found in sorted(_entities_with_authority_ids(conn, kb_id)):
@@ -1177,7 +1177,7 @@ def remote_article_refusal(article: dict[str, Any]) -> str | None:
 
     Codes: ``document_too_large`` (the content, or a ``url`` that is too long), ``title_too_long``, ``extraction_too_large`` (the counts of entities and relations, or a field of the extraction over its limit).
     """
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     if len(str(article["content"]).encode("utf-8")) > REMOTE_CONTENT_MAX_BYTES or len(str(article.get("url") or "")) > REMOTE_URL_MAX:
         return "document_too_large"
@@ -1204,34 +1204,34 @@ def remote_article_refusal(article: dict[str, Any]) -> str | None:
 
 def remote_html(article: dict[str, Any]) -> str:
     """The HTML of a document of another server as this server stores it: ``sanitize_remote_html`` without the media proxy (KS2). No element loads a resource, so a reader and a reviewer of the copy make no request to the other server."""
-    from .api.usercontent import sanitize_remote_html
+    from ..api.usercontent import sanitize_remote_html
 
     return sanitize_remote_html(str(article["content"]))
 
 
 def remote_content_hash(html: str, article: dict[str, Any]) -> str:
     """The content hash of a copy: the SHA-256 of the stored HTML (``remote_html``) and of the extraction that came, as one JSON array with sorted keys. This server computes it from the content that came; it does not use the hash that the other server declares (federation design Section 10.2). A new extraction with the same HTML is a new version: the graph comes from the extraction."""
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     return hashlib.sha256(json.dumps([html, article[vocabulary.EXTRACTION_OF]], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def remote_time(article: dict[str, Any]) -> float:
     """The time of the version of an ``Article`` at its origin: ``updated``, else ``published``, in seconds."""
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     return vocabulary.time_seconds(article.get("updated") or article["published"])
 
 
 def _same_origin(iri: Any, sender: str) -> bool:
-    from .knowledge_federation import access
+    from ..federation.knowledge import access
 
     return isinstance(iri, str) and access.iri_origin(iri) is not None and access.iri_origin(iri) == access.iri_origin(sender)
 
 
 def _credit_and_root(article: dict[str, Any], sender: str) -> tuple[str | None, str]:
     """The credit (``attributedTo``) and the root (``claire:root``) of a document of the actor ``sender``, as this server keeps them. A server is the authority for its own objects only (design Section 6.4): a credit on another server is not kept (None), and a root on another server becomes the document itself."""
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     credit = article.get("attributedTo")
     root = article[vocabulary.ROOT]
@@ -1243,7 +1243,7 @@ def copy_remote_document(conn: sqlite3.Connection, *, article: dict[str, Any], s
 
     The caller validated the ``Article`` (``vocabulary.validate_object`` gives ``document``, with the extraction) and its limits (``remote_article_refusal``). ``sanitized_html`` is ``remote_html(article)``; the content hash is ``remote_content_hash`` of it and of the extraction. ``canonical_url`` is the address of the copy: the ``url`` of the first copy, also for a revision. ``credit`` and ``root`` are those of ``_credit_and_root``. The stored extraction has the form of ``ExtractionResult``, so the merge job builds the graph without an LLM call; the authority identifiers of the entities (only the forms of ``AUTHORITY_ID_FORMS``) are in the key ``same_as``.
     """
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     ts = time.time() if now is None else now
     extraction = article[vocabulary.EXTRACTION_OF]
@@ -1307,7 +1307,7 @@ def contribute_remote(conn: sqlite3.Connection, *, kb_id: int, article: dict[str
     ``approved`` (the offer has a grant in effect, and the reputation of the account on this server is not ``low``; federation design Section 12.2 rule 2): no approval, the state is ``merging`` with a merge job, and the origin is ``direct``. No account approved it, so the approval is no decision for the reputation. Else the copy stays hidden, the state is ``pending`` with the origin ``bulk``, and no graph is built until a reviewer approves.
     ``automatic`` (the ``claire:Contribution`` has ``claire:automatic``; federation design Section 12.3, shared knowledge base design Section 9.9 rule 3): the origin is ``auto`` in the two cases, so that the review page shows it (Section 9.3 rule 2). The caller checked that this server accepts automatic contributions.
     """
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     ts = time.time() if now is None else now
     _known_remote_source(conn, kb_id, article)
@@ -1348,8 +1348,8 @@ def remote_revision_refusal(conn: sqlite3.Connection, *, source_kb_iri: str, art
 
     Codes: ``invalid_time`` (the time of the version is more than ``REMOTE_FUTURE_SECONDS`` after ``now``); ``revision_too_soon`` (a copy of the document got a revision less than ``remote_revision_min_seconds`` ago); ``revision_budget`` (the copies from the knowledge base actors of the registrable domain ``quota`` got ``remote_domain_daily_revisions`` revisions in 24 hours). A document that this server has no copy of is no reason for a refusal: the revision changes nothing.
     """
-    from .knowledge_federation import access
-    from .store import federation as federation_store
+    from ..federation.knowledge import access
+    from ..store import federation as federation_store
 
     if remote_time(article) > now + REMOTE_FUTURE_SECONDS:
         return "invalid_time"
@@ -1469,7 +1469,7 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
 
     The order: (1) all rows, in one transaction, then the commit; (2) the files of each copy, with one short transaction for each document (the image paths in its ``meta`` and its body). The write lock of the database is thus not held while files are copied. A failure in step 1 rolls back and leaves nothing. A failure in step 2 deletes the files that this call copied and raises: the rows of the fork are committed then, and the caller deletes the new knowledge base with its rows (a fork that did not complete does not stay). When the process stops in step 2, the documents without their own files still show the image files of their source documents.
     """
-    from .store import themes as themes_store
+    from ..store import themes as themes_store
 
     ts = time.time() if now is None else now
     source_kb_id, target_kb_id = int(source_kb_id), int(target_kb_id)
@@ -1596,7 +1596,7 @@ def _given_by_copies(provenance: Provenance, entity_id: str, raw_sources: Any, d
 
 def _fts_body(name: str, aliases: list[str], observations: list[str]) -> str:
     """The body of the FTS row of an entity: the same text as ``store.db.upsert_entity`` writes."""
-    from .retrieval.tokenizer import get_search_tokenizer
+    from ..retrieval.tokenizer import get_search_tokenizer
 
     tokenizer = get_search_tokenizer()
     tokenizer.add_user_words([name, *aliases])

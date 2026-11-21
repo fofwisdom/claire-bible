@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.ingest.normalize import content_hash
 from claire.ingest.service import run_waiting_merge_jobs
-from claire.knowledge_federation import handlers, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
+from claire.federation.knowledge import handlers, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import federation as federation_store

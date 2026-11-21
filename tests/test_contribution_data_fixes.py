@@ -14,7 +14,7 @@ import pytest
 from tests.test_auto_contribution import KOREA, SPACE, _document
 from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
 
-from claire import auto_contribution, contributions, theme_judgement
+from claire.collaboration import auto_contribution, contributions, theme_judgement
 from claire.extract.decision import ResolutionDecision
 from claire.extract.provider import get_provider
 from claire.extract.resolver import resolve_or_create as REAL_RESOLVE

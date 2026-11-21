@@ -30,7 +30,7 @@ from claire.accounts import federation_readiness
 from claire.api import federation_routes, server
 from claire.api.federation_internal import ensure_service_key, service_key_path
 from claire.api.federation_routes import HEARTBEAT_FILE
-from claire.knowledge_federation import vocabulary
+from claire.federation.knowledge import vocabulary
 from claire.store import accounts as accounts_store
 from claire.store import actor_keys, auth_db
 from claire.store import db as dbm

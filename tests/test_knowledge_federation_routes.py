@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.knowledge_federation import journal, vocabulary
+from claire.federation.knowledge import journal, vocabulary
 from claire.store import auth_db
 from claire.store import federation as federation_store
 from claire.store.secrets import reset_secret_service
@@ -136,7 +136,7 @@ def test_internal_collection_route_gives_404_while_the_switch_is_off(b) -> None:
 
 
 def test_internal_server_reads_lease_and_record(b) -> None:
-    from claire.knowledge_federation import known_servers
+    from claire.federation.knowledge import known_servers
 
     b.db(lambda conn: [known_servers.note_server(conn, d, source="admin", added_by=1, now=b.now - 10) for d in ("a.example", "c.example", "d.example")])
     due = b.internal("GET", "/knowledge-server-reads?limit=5")

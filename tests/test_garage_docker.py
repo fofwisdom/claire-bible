@@ -21,7 +21,8 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from claire import cli, media_proxy
+from claire import cli
+from claire.federation import media_proxy
 from claire.api import server
 from claire.api.media import create_media_app
 from claire.store import client_db, federation_media, media_storage

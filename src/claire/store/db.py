@@ -1631,7 +1631,7 @@ def _migrate_v29_knowledge_federation(conn: sqlite3.Connection) -> None:
 
     A table with the name but without a column that the code reads (for example from a development build) is not deleted: it becomes ``<name>_retired_v29`` (or ``_retired_v29_<n>`` when that name is used), its indexes are dropped so that the new table can have them, the log gets a warning, and the start continues (operator rule).
     """
-    from ..knowledge_federation import journal, known_servers
+    from ..federation.knowledge import journal, known_servers
 
     for module in (known_servers, journal):
         _retire_table_of_other_form(conn, module.TABLE, module.COLUMNS, version=29)
@@ -1659,7 +1659,7 @@ def _migrate_v30_remote_knowledge_bases(conn: sqlite3.Connection) -> None:
 
     The store modules own their tables: ``knowledge_federation.remote_kbs`` (``kf_remote_knowledge_bases``, ``kf_remote_kb_reads``) and ``store.themes`` (``theme_remote_knowledge_bases``). The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
     """
-    from ..knowledge_federation import remote_kbs
+    from ..federation.knowledge import remote_kbs
     from . import themes as themes_store
 
     for table, columns in {**remote_kbs.TABLES, themes_store.REMOTE_MEMBER_TABLE: themes_store.REMOTE_MEMBER_COLUMNS}.items():
@@ -1687,7 +1687,7 @@ def _migrate_v31_knowledge_base_actors(conn: sqlite3.Connection) -> None:
 
     The store modules own their tables: ``knowledge_federation.actors``, ``knowledge_federation.outbox``, and ``knowledge_federation.remote_documents``. The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
     """
-    from ..knowledge_federation import actors, outbox, remote_documents
+    from ..federation.knowledge import actors, outbox, remote_documents
 
     for module in (actors, outbox, remote_documents):
         for table, columns in module.TABLES.items():
@@ -1700,7 +1700,7 @@ def _migrate_v32_offers_and_grants(conn: sqlite3.Connection) -> None:
 
     The store modules own their tables: ``knowledge_federation.offers`` and ``knowledge_federation.grants``. The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
     """
-    from ..knowledge_federation import grants, offers
+    from ..federation.knowledge import grants, offers
 
     for module in (offers, grants):
         for table, columns in module.TABLES.items():
@@ -1710,7 +1710,7 @@ def _migrate_v32_offers_and_grants(conn: sqlite3.Connection) -> None:
 
 def _migrate_v34_automatic_offers(conn: sqlite3.Connection) -> None:
     """v34 schema (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.3, unit KF5): ``kf_outbound_offers`` gets the column ``automatic`` (an offer that the automatic rule of the account sent). Idempotent (A3); it runs at each start, before the step v32, so that the step v32 finds the columns that the code reads and keeps the table. A row of version 32 or 33 gets 0. When the table is not there, the step v32 makes it with the column. It changes no other row; ``knowledge_federation.offers`` owns the table."""
-    from ..knowledge_federation import offers
+    from ..federation.knowledge import offers
 
     if _table_exists(conn, "kf_outbound_offers"):
         offers.ensure_automatic_column(conn)
@@ -1922,7 +1922,7 @@ def _migrate_v33_knowledge_federation_limits(conn: sqlite3.Connection) -> None:
     - ``kb_contributions.remote_updated_at`` (the time of the version of the origin that a copy has) is one of ``kb_collab.REMOTE_COLUMNS``: the step v31 adds it.
     The store modules own their tables. The start continues for each state of the data (operator rule).
     """
-    from ..knowledge_federation import journal, outbox
+    from ..federation.knowledge import journal, outbox
     from . import kb_collab
 
     kb_collab.ensure_remote_columns(conn)

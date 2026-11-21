@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.core.config import Settings
-from claire.contributions import ContributionError, contribute_direct, curate
+from claire.collaboration.contributions import ContributionError, contribute_direct, curate
 from claire.extract.provider import MockProvider
 from claire.ingest import pipeline
 from claire.ingest.pipeline import STAGED_INGEST_MESSAGE, stage_raw
@@ -545,7 +545,7 @@ def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(t
 def test_auto_contribution_excludes_restaged_pending_documents(tmp_path: Path) -> None:
     """Verify auto_contribution._over_threshold excludes documents with extraction_status='pending' even when an earlier extraction row exists."""
     import json
-    from claire import auto_contribution
+    from claire.collaboration import auto_contribution
     from claire.ontology.base import normalize_name
 
     env = _setup_network_env(tmp_path, alice_mode="client")

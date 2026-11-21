@@ -13,9 +13,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from .. import theme_judgement
-from ..core import ids
-from ..store import themes as themes_store
+from ...collaboration import theme_judgement
+from ...core import ids
+from ...store import themes as themes_store
 from . import access, remote_kbs, vocabulary
 
 __all__ = ["KB_PAGE_SIZE", "THEMES_PATH", "kb_collection_page", "kb_collection_root", "knowledge_base_iris", "knowledge_base_object", "themes_collection", "visible_graph_counts"]

@@ -36,7 +36,7 @@ from ..store import actor_keys
 from ..store import auth_db
 from ..core import ids
 from ..store import db as dbm
-from .. import media_proxy
+from ..federation import media_proxy
 from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
@@ -788,9 +788,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if kind == "delete_actor":
             federation_store.remove_followers_of_actor(conn, event.actor.iri)
             # The federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md Section 12.1 rule 4, CT7, CT19): the contributions of the account stay with the credit "deleted account", its pending contributions go, its offers without an answer are closed, and its grants end.
-            from .. import contributions
-            from ..knowledge_federation import grants as kf_grants
-            from ..knowledge_federation import offers as kf_offers
+            from ..collaboration import contributions
+            from ..federation.knowledge import grants as kf_grants
+            from ..federation.knowledge import offers as kf_offers
 
             contributions.remote_actor_deleted(conn, event.actor.iri)
             kf_offers.actor_deleted(conn, event.actor.iri, now=now())

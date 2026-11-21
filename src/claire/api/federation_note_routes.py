@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Route
 
-from .. import federation_notes as note_text
+from ..federation import notes as note_text
 from ..core import ids
 from ..store import federation as federation_store
 from ..store import federation_client as client_store

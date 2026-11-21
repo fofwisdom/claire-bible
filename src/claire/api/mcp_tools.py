@@ -721,7 +721,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
 
     def _remote_record(conn: sqlite3.Connection, remote_id: Any) -> Any:
         """The record of a shared knowledge base of another server by its ID on this server (``remote_id`` of the theme view and of ``GET /api/kb/remote-grants``), or None. A record of a blocked domain is None."""
-        from ..knowledge_federation import remote_kbs
+        from ..federation.knowledge import remote_kbs
         from ..store import federation as federation_store
 
         if isinstance(remote_id, bool) or not isinstance(remote_id, int):
@@ -735,8 +735,8 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
 
         A target of another server has ``remote`` true, ``server``, ``url`` (its page on that server), ``remote_knowledge_base``, and ``mode``: ``approved`` when you have a grant of the role collaborator of that knowledge base in its term, else ``pending`` (its reviewers decide). ``remote_state`` is ``on``, or the reason that no target of another server is in the result (``no_origin``, ``federation_off``, ``not_a_federation_actor``: your account needs a public profile and a USERNAME).
         """
-        from .. import auto_contribution, contributions
-        from ..knowledge_federation import grants
+        from ..collaboration import auto_contribution, contributions
+        from ..federation.knowledge import grants
         from ..store import themes as themes_store
 
         who = _personal_kb_of_principal()
@@ -804,9 +804,9 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
     @mcp.tool()
     async def kb_submit(documents: list[str], theme: str | int | None = None, remote_knowledge_base: int | None = None) -> dict:
         """Contribute documents of your personal knowledge base to themes (the same as ``POST /submissions``). With ``theme`` (its number) you select the theme; without it the server uses the theme match of each document. A theme with shared knowledge bases of other servers sends an offer to each of them. With ``remote_knowledge_base`` (the ID of the record of a shared knowledge base of another server; not with ``theme``) the documents go only to that knowledge base: this needs a grant of the role collaborator of it in its term (``grant_required``). A credential with the scope ``readonly`` cannot use this tool. The result gives the state of each target; a contribution of an account that is not a reviewer of the target waits for approval. A target of another server has ``remote`` true and ``server``; its state is the decision of that server (``pending`` until it answers)."""
-        from .. import contributions
+        from ..collaboration import contributions
         from ..ingest.service import run_waiting_merge_jobs
-        from ..knowledge_federation import offers as kf_offers
+        from ..federation.knowledge import offers as kf_offers
         from ..store import kb_collab
         from ..store import themes as themes_store
 

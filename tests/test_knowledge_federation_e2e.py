@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.knowledge_federation import journal
+from claire.federation.knowledge import journal
 from claire.store.secrets import reset_secret_service
 from tests.knowledge_federation_servers import ALICE, B_KB_NUMBER, KfServer, fixture, server_actor
 

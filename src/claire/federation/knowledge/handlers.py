@@ -25,8 +25,8 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlsplit
 
-from .. import contributions, reputation
-from ..store import kb_collab
+from ...collaboration import contributions, reputation
+from ...store import kb_collab
 from . import access, actors, grants, journal, known_servers, offers, outbox, remote_documents, remote_kbs, vocabulary
 
 __all__ = ["HANDLERS", "install"]

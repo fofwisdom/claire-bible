@@ -31,9 +31,9 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from ..store import federation as federation_store
-from ..store import kb_collab
-from ..store import themes as themes_store
+from ...store import federation as federation_store
+from ...store import kb_collab
+from ...store import themes as themes_store
 from . import access, actors, collections, known_servers, remote_kbs, vocabulary
 
 __all__ = [

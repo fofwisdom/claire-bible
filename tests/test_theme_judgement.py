@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from claire import contributions
-from claire import theme_judgement as tj
+from claire.collaboration import contributions
+from claire.collaboration import theme_judgement as tj
 from claire.core.config import Settings
 from claire.ontology.base import normalize_name
 from claire.store import db as dbm

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.knowledge_federation import access, journal, known_servers
+from claire.federation.knowledge import access, journal, known_servers
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import federation as federation_store

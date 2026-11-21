@@ -14,10 +14,10 @@ import sqlite3
 import time
 from typing import Any
 
-from .core import ids
-from .i18n import t
-from .store import kb_collab
-from .store import themes as themes_store
+from ..core import ids
+from ..i18n import t
+from ..store import kb_collab
+from ..store import themes as themes_store
 
 log = logging.getLogger("claire.campaign")
 

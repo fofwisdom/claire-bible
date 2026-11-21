@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.knowledge_federation import known_servers, remote_kbs
+from claire.federation.knowledge import known_servers, remote_kbs
 from claire.store import db as dbm
 from claire.store import federation as federation_store
 from claire.store import themes as themes_store
@@ -229,7 +229,7 @@ def test_admin_adjustments_apply_to_a_remote_member_and_stay_after_a_run(a: KfSe
 
 
 def test_a_remote_knowledge_base_makes_no_theme_and_a_new_record_makes_a_run_due(a: KfServer) -> None:
-    from claire import theme_judgement
+    from claire.collaboration import theme_judgement
 
     a.judge()
     assert a.db(lambda conn: theme_judgement.run_is_due(conn, now=time.time())) is False

@@ -636,8 +636,8 @@ class AccountStore:
 
         collab = kb_collab.purge_account(self.conn, account_id, delete_activity_records=delete_activity_records)
         # The federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md Section 12): the grants that the account got are deleted, and its offers to other servers stay as records without the account or go with the option.
-        from ..knowledge_federation import grants as kf_grants
-        from ..knowledge_federation import offers as kf_offers
+        from ..federation.knowledge import grants as kf_grants
+        from ..federation.knowledge import offers as kf_offers
 
         kf_grants.purge_account(self.conn, account_id)
         kf_offers.purge_account(self.conn, account_id, delete_activity_records=delete_activity_records)

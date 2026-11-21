@@ -26,10 +26,10 @@ from typing import Any
 
 import nh3
 
-from ..core import ids
-from ..store import accounts as accounts_store
-from ..store import federation as federation_store
-from ..store import kb_collab
+from ...core import ids
+from ...store import accounts as accounts_store
+from ...store import federation as federation_store
+from ...store import kb_collab
 from . import collections, remote_kbs, vocabulary
 
 __all__ = [
@@ -202,7 +202,7 @@ def drop_actor(conn: sqlite3.Connection, number: int) -> None:
 
 
 def _object(conn: sqlite3.Connection, row: sqlite3.Row, origin: str) -> dict[str, Any]:
-    from ..store import themes as themes_store
+    from ...store import themes as themes_store
 
     signatures = {int(sig["kb_id"]): sig for sig in themes_store.load_signatures(conn) if int(sig["kb_id"]) == int(row["id"])}
     return collections.knowledge_base_object(conn, row, origin=origin, signatures=signatures, updated=record_updated_at(conn, int(row["number"])))
@@ -320,7 +320,7 @@ def _content_html(row: sqlite3.Row, origin: str) -> str:
     """The HTML of a document for another server: the compiled HTML, or the render of the source text; then the ``nh3`` allowlist sanitizer. A reference that starts at the root of this server gets the origin, so that it does not point to the server of the reader."""
     html = str(row["detail_html"] or "")
     if not html and str(row["detail"] or "").strip():
-        from ..core.ports import get_document_renderer
+        from ...core.ports import get_document_renderer
 
         html = get_document_renderer().render_to_html(row["detail"], format=row["detail_format"] or "adoc") or ""
     return _ROOT_REFERENCE.sub(lambda match: f"{match.group(1)}{origin}/", nh3.clean(html))

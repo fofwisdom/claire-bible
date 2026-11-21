@@ -310,7 +310,7 @@ The retired v12 recovery is described above. Other stores have their own version
 ## v32 (federation of shared knowledge, unit KF4)
 
 - **[코드] 버전 상수**: v32 도입 당시 `SCHEMA_VERSION`은 32였다(현재 값은 아래 "v33" 절).
-- **[코드]** The step `_migrate_v32_offers_and_grants` runs at each start and is idempotent. It makes the tables `kf_outbound_offers`, `kf_inbound_offers` (module `knowledge_federation.offers`), `kf_grants`, and `kf_received_grants` (module `knowledge_federation.grants`) with their indexes when they are not there. It changes no row. A table with one of these names and another form becomes `<name>_retired_v32` with its rows; the start continues. The tables are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.3.
+- **[코드]** The step `_migrate_v32_offers_and_grants` runs at each start and is idempotent. It makes the tables `kf_outbound_offers`, `kf_inbound_offers` (module `federation.knowledge.offers`), `kf_grants`, and `kf_received_grants` (module `federation.knowledge.grants`) with their indexes when they are not there. It changes no row. A table with one of these names and another form becomes `<name>_retired_v32` with its rows; the start continues. The tables are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.3.
 - **[테스트]** `tests/test_knowledge_federation_kf4.py` (`test_migration_v32_makes_the_tables_and_keeps_a_table_of_another_form`), `tests/test_knowledge_federation_stores.py`.
 
 ## v33 (federation of shared knowledge, limits of the security review)

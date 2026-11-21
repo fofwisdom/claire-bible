@@ -14,7 +14,7 @@ from tests.test_contribution_data_fixes import KOREA_MORE, _at_entity, _contribu
 from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
 from tests.test_curation_and_fork import theme  # noqa: F401 (fixture)
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.ingest.normalize import content_hash
 from claire.store import db as dbm
 from claire.store import kb_collab

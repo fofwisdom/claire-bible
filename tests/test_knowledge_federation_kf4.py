@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.core import ids
-from claire.knowledge_federation import grants, handlers, journal, offers, remote_kbs, vocabulary
+from claire.federation.knowledge import grants, handlers, journal, offers, remote_kbs, vocabulary
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import reset_token_stores

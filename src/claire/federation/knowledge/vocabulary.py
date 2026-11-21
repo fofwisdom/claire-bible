@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from ..ontology.base import normalize_name
+from ...ontology.base import normalize_name
 
 __all__ = [
     "ACCEPTS_AUTOMATIC",

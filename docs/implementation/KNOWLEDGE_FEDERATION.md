@@ -27,7 +27,7 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/knowledge_federation/vocabulary.py` | Identifiers, the table `TERMS`, `context_document`, `vocabulary_page`, builders, validators. No database access and no network access. |
+| `src/claire/federation/knowledge/vocabulary.py` | Identifiers, the table `TERMS`, `context_document`, `vocabulary_page`, builders, validators. No database access and no network access. |
 | `src/bible/static/ns/v1.jsonld` | The context document of version 1. It is the text of `context_json()`. |
 | `src/bible/static/ns/index.html` | The page of the vocabulary terms. It is the text of `vocabulary_page()`. Each term has an anchor. |
 | `tests/fixtures/knowledge_federation/` | The contract fixtures: `objects/`, `activities/`, `invalid/`. |
@@ -220,7 +220,7 @@ The design does not give these details. The owner can change them before the fir
 - Each file of `invalid/` gives its error code at its field.
 - The exchange between server A and server B: each answer refers to the activity that came.
 - The context file is JSON, has the namespace of decision KD9, and defines each Claire term that a builder uses.
-- The code lists are the ones of `src/claire/contributions.py` and `src/claire/store/kb_collab.py`. The wire extraction is a valid `ExtractionResult`.
+- The code lists are the ones of `src/claire/collaboration/contributions.py` and `src/claire/store/kb_collab.py`. The wire extraction is a valid `ExtractionResult`.
 
 Not tested: the context document with a JSON-LD processor (the repository has none in Python). The tests of KF1 are in Section 10.7.
 
@@ -232,9 +232,9 @@ Design: Sections 6.2, 6.3, 6.5, 13, 14, and 15.
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/knowledge_federation/known_servers.py` | The table `kf_known_servers`: how a server becomes known, the leases of the reads, the result of a read. No function commits. |
-| `src/claire/knowledge_federation/access.py` | The one-sided controls: the switch `federation`, the domain blocks, the signed read of a collection. No function changes data. |
-| `src/claire/knowledge_federation/journal.py` | The table `kf_inbox_journal`: receive, process, replay, retention, and the dispatch table `HANDLERS`. `receive` and `process` commit. |
+| `src/claire/federation/knowledge/known_servers.py` | The table `kf_known_servers`: how a server becomes known, the leases of the reads, the result of a read. No function commits. |
+| `src/claire/federation/knowledge/access.py` | The one-sided controls: the switch `federation`, the domain blocks, the signed read of a collection. No function changes data. |
+| `src/claire/federation/knowledge/journal.py` | The table `kf_inbox_journal`: receive, process, replay, retention, and the dispatch table `HANDLERS`. `receive` and `process` commit. |
 | `src/claire/api/knowledge_federation_internal.py` | The internal routes of the sidecar (Section 10.4). |
 | `src/claire/api/accounts_routes/knowledge_federation.py` | The admin routes (Section 10.5). |
 | `src/claire/store/db.py` | `_migrate_v29_knowledge_federation`, schema version 29. |
@@ -360,10 +360,10 @@ Design: Sections 8.1, 8.2, 8.3, 9.1, 9.2, and 14.
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/knowledge_federation/collections.py` | The ActivityStreams form of the `/kb` collection and of the themes collection of this server, and the IRIs of a knowledge base actor (`knowledge_base_iris`). No function changes data. |
-| `src/claire/knowledge_federation/remote_kbs.py` | The store of remote knowledge bases: the tables `kf_remote_knowledge_bases` and `kf_remote_kb_reads`, the leases, the batches, the end and the error of a read, `purge_blocked`. No function commits. |
+| `src/claire/federation/knowledge/collections.py` | The ActivityStreams form of the `/kb` collection and of the themes collection of this server, and the IRIs of a knowledge base actor (`knowledge_base_iris`). No function changes data. |
+| `src/claire/federation/knowledge/remote_kbs.py` | The store of remote knowledge bases: the tables `kf_remote_knowledge_bases` and `kf_remote_kb_reads`, the leases, the batches, the end and the error of a read, `purge_blocked`. No function commits. |
 | `src/claire/store/themes.py` | The table `theme_remote_knowledge_bases` and the functions of the remote members. |
-| `src/claire/theme_judgement.py` | Step 4b of `run_judgement`, `remote_signature`, `wire_signature`, `subject_score`. |
+| `src/claire/collaboration/theme_judgement.py` | Step 4b of `run_judgement`, `remote_signature`, `wire_signature`, `subject_score`. |
 | `src/claire/api/knowledge_federation_internal.py` | The internal routes (Section 11.4). |
 | `src/claire/api/server.py` | The theme view, the recent activity of the root page (`_recent_activity`), `GET /api/kb/similar`, `PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}`, the root page. |
 | `src/claire/store/db.py` | `_migrate_v30_remote_knowledge_bases`, schema version 30. |
@@ -455,11 +455,11 @@ Design: Sections 9.2, 9.3, 10, and 11, with Sections 6, 13, and 14 for the contr
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/knowledge_federation/actors.py` | The knowledge base actors of this server: the followers, the actor document, the collections, the `Article` of a document with its extraction. Tables `kf_kb_followers`, `kf_kb_actor_state`, `kf_document_announcements`. |
-| `src/claire/knowledge_federation/outbox.py` | The outbound activities (`kf_outbox`), the follows of this server (`kf_follows`), and `sync`, which adds the tasks that the state of `claire.db` needs. |
-| `src/claire/knowledge_federation/remote_documents.py` | The reads of documents of another server for a curation (`kf_remote_reads`) and the list of the documents of a remote knowledge base (`kf_remote_documents`). |
-| `src/claire/knowledge_federation/handlers.py` | The handlers of the inbox journal for the activity kinds of this unit. The import installs them. |
-| `src/claire/contributions.py` | `copy_remote_document`, `curate_remote`, `start_remote_revisions`, `origin_removed`, `in_origin_review`, and the authority identifiers in the merge job. |
+| `src/claire/federation/knowledge/actors.py` | The knowledge base actors of this server: the followers, the actor document, the collections, the `Article` of a document with its extraction. Tables `kf_kb_followers`, `kf_kb_actor_state`, `kf_document_announcements`. |
+| `src/claire/federation/knowledge/outbox.py` | The outbound activities (`kf_outbox`), the follows of this server (`kf_follows`), and `sync`, which adds the tasks that the state of `claire.db` needs. |
+| `src/claire/federation/knowledge/remote_documents.py` | The reads of documents of another server for a curation (`kf_remote_reads`) and the list of the documents of a remote knowledge base (`kf_remote_documents`). |
+| `src/claire/federation/knowledge/handlers.py` | The handlers of the inbox journal for the activity kinds of this unit. The import installs them. |
+| `src/claire/collaboration/contributions.py` | `copy_remote_document`, `curate_remote`, `start_remote_revisions`, `origin_removed`, `in_origin_review`, and the authority identifiers in the merge job. |
 | `src/claire/store/kb_collab.py` | The columns of a remote source in `kb_contributions` (`ensure_remote_columns`) and their reads. |
 | `src/claire/store/actor_keys.py` | `ensure_kb_actor_keys`, `load_kb_actor_keys`, `public_key_pem`. |
 | `src/claire/api/knowledge_federation_internal.py` | The internal routes (Section 12.5). |
@@ -622,14 +622,14 @@ Design: Sections 9.3, 12.1, 12.2, 13, 14, and 15 rule 5; [`SHARED_KNOWLEDGE_BASE
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/knowledge_federation/offers.py` | The offers that go out (`kf_outbound_offers`: `send`, `skip`, `record_decision`, `result_removed`, `outbound_view`) and the offers that come in (`kf_inbound_offers`: `record_inbound`, `answer_refusal`, `sync`, `actor_deleted`). No function commits. |
-| `src/claire/knowledge_federation/grants.py` | The grants that this server gave (`kf_grants`: `give`, `revoke`, `valid`) and the grants that its accounts got (`kf_received_grants`: `receive`, `receive_revoke`, `capability_for`). No function commits. |
-| `src/claire/knowledge_federation/handlers.py` | The handlers of `offer_contribution`, `accept_offer`, `reject_offer`, `grant`, and `revoke`. |
-| `src/claire/knowledge_federation/actors.py` | `account_actor_iri`, `local_account_of_actor`, `personal_article` (the `Article` of a document of a personal knowledge base for an `Offer`). |
-| `src/claire/knowledge_federation/outbox.py` | `sync` calls `offers.sync`, which puts the answers in the outbox. |
-| `src/claire/contributions.py` | `submit_to_themes` (the remote targets), `canonical_origin`, `contribute_remote`, `remote_actor_deleted`, and the new keys of `LIMITS`. |
+| `src/claire/federation/knowledge/offers.py` | The offers that go out (`kf_outbound_offers`: `send`, `skip`, `record_decision`, `result_removed`, `outbound_view`) and the offers that come in (`kf_inbound_offers`: `record_inbound`, `answer_refusal`, `sync`, `actor_deleted`). No function commits. |
+| `src/claire/federation/knowledge/grants.py` | The grants that this server gave (`kf_grants`: `give`, `revoke`, `valid`) and the grants that its accounts got (`kf_received_grants`: `receive`, `receive_revoke`, `capability_for`). No function commits. |
+| `src/claire/federation/knowledge/handlers.py` | The handlers of `offer_contribution`, `accept_offer`, `reject_offer`, `grant`, and `revoke`. |
+| `src/claire/federation/knowledge/actors.py` | `account_actor_iri`, `local_account_of_actor`, `personal_article` (the `Article` of a document of a personal knowledge base for an `Offer`). |
+| `src/claire/federation/knowledge/outbox.py` | `sync` calls `offers.sync`, which puts the answers in the outbox. |
+| `src/claire/collaboration/contributions.py` | `submit_to_themes` (the remote targets), `canonical_origin`, `contribute_remote`, `remote_actor_deleted`, and the new keys of `LIMITS`. |
 | `src/claire/store/kb_collab.py` | `pending_count_remote`, `count_pending_among`, `decisions_of_remote_actor`, `remote_actor_deleted`; `add_contribution` takes a remote source without a knowledge base actor. |
-| `src/claire/reputation.py` | `compute_remote`. |
+| `src/claire/collaboration/reputation.py` | `compute_remote`. |
 | `src/claire/api/server.py` | `/kb/{number}/remote-collaborators`, `/api/kb/remote-grants`, the remote targets of `/submissions`, and `offer` in the view of a contribution. |
 | `src/claire/api/federation_routes.py` | `Delete` of a remote actor through `POST /inbox-events`; the mode is not a condition (Section 13.7). |
 | `src/claire/store/db.py` | `_migrate_v32_offers_and_grants`, schema version 32. |
@@ -873,14 +873,14 @@ Design: Section 12.3, with Sections 6.3, 12.1, 12.2, and 14; [`SHARED_KNOWLEDGE_
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/auto_contribution.py` | `remote_state`, `remote_targets`, `remote_candidates`; `plan`, `run_account`, and `run_all` with the parameter `origin` and the remote targets. |
-| `src/claire/knowledge_federation/vocabulary.py` | `AUTOMATIC`, `ACCEPTS_AUTOMATIC`, `AUTOMATIC_NOT_ACCEPTED`, `REJECT_REASON_CODES`; `build_contribution(automatic=)`; the field `accepts_automatic` of `build_knowledge_base`. |
-| `src/claire/knowledge_federation/offers.py` | The column `automatic`, `send(automatic=)`, `automatic_of_account`, `automatic_offered`, `RETRY_REASONS`, `ensure_automatic_column`; `record_decision` gives the row. |
-| `src/claire/knowledge_federation/remote_kbs.py` | `claire:acceptsAutomatic` in `RECORD_KEYS`, `accepts_automatic`, `note_automatic_not_accepted`. |
-| `src/claire/knowledge_federation/handlers.py` | `offer_contribution` and `reject_offer` (Sections 15.4 and 15.5). |
-| `src/claire/knowledge_federation/collections.py`, `actors.py` | `claire:acceptsAutomatic` in the record of each shared knowledge base, and in `record_digest`. |
-| `src/claire/knowledge_federation/grants.py` | `kb_iris_in_effect`. |
-| `src/claire/contributions.py` | `contribute_remote(automatic=)`. |
+| `src/claire/collaboration/auto_contribution.py` | `remote_state`, `remote_targets`, `remote_candidates`; `plan`, `run_account`, and `run_all` with the parameter `origin` and the remote targets. |
+| `src/claire/federation/knowledge/vocabulary.py` | `AUTOMATIC`, `ACCEPTS_AUTOMATIC`, `AUTOMATIC_NOT_ACCEPTED`, `REJECT_REASON_CODES`; `build_contribution(automatic=)`; the field `accepts_automatic` of `build_knowledge_base`. |
+| `src/claire/federation/knowledge/offers.py` | The column `automatic`, `send(automatic=)`, `automatic_of_account`, `automatic_offered`, `RETRY_REASONS`, `ensure_automatic_column`; `record_decision` gives the row. |
+| `src/claire/federation/knowledge/remote_kbs.py` | `claire:acceptsAutomatic` in `RECORD_KEYS`, `accepts_automatic`, `note_automatic_not_accepted`. |
+| `src/claire/federation/knowledge/handlers.py` | `offer_contribution` and `reject_offer` (Sections 15.4 and 15.5). |
+| `src/claire/federation/knowledge/collections.py`, `actors.py` | `claire:acceptsAutomatic` in the record of each shared knowledge base, and in `record_digest`. |
+| `src/claire/federation/knowledge/grants.py` | `kb_iris_in_effect`. |
+| `src/claire/collaboration/contributions.py` | `contribute_remote(automatic=)`. |
 | `src/claire/api/server.py`, `cli.py`, `ingest/service.py`, `ingest/pipeline.py` | The canonical origin for each run; the remote targets of the dry run; the automatic offers in `GET /api/contributions`. |
 | `src/claire/store/db.py` | `_migrate_v34_automatic_offers`, schema version 34. |
 | `src/bible/static/js/kb_dialogs.js`, `console_kb.js` | The WebUI (Section 15.6). |
@@ -968,7 +968,7 @@ Design: Sections 8.3 rule 3, 9.2 rule 2, 9.3, 12.3, and 14; [`SHARED_KNOWLEDGE_B
 
 ### 16.1 Recent Activity of the Root Page (design Section 8.3 rule 3)
 
-`knowledge_federation/recent.py` (`recent_activity`) makes the recent activity of the root page (`_recent_activity` in `api/server.py`) from three stores, the newest first, at most 20 items:
+`src/claire/federation/knowledge/recent.py` (`recent_activity`) makes the recent activity of the root page (`_recent_activity` in `api/server.py`) from three stores, the newest first, at most 20 items:
 
 | `kind` | Source | Keys |
 | :--- | :--- | :--- |

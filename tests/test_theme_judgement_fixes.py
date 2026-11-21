@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from tests.test_theme_judgement import KOREA, SPACE, _fill, _run, _themes, env  # noqa: F401 (fixture)
 
-from claire import theme_judgement as tj
+from claire.collaboration import theme_judgement as tj
 from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store import themes as themes_store

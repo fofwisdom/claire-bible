@@ -16,8 +16,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .store import kb_collab
-from .store import themes as themes_store
+from ..store import kb_collab
+from ..store import themes as themes_store
 
 LEVELS = ("good", "limited", "low")
 COUNTED_REASONS = ("off_subject", "wrong_knowledge_type", "low_quality", "spam")

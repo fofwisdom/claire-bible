@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 
 from tests.kb_paths import seed
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.core import ids
 from claire.api.server import create_app
 from claire.core.config import Settings

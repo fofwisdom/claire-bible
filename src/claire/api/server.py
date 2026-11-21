@@ -52,19 +52,19 @@ from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..core.secret_scrub import install_log_scrubber, scrub_exception, scrub_text
-from .. import contributions
-from .. import theme_judgement
-from .. import reputation
-from .. import auto_contribution
+from ..collaboration import contributions
+from ..collaboration import theme_judgement
+from ..collaboration import reputation
+from ..collaboration import auto_contribution
 from ..accounts import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
 from ..store import kb_collab
 from ..store import themes as themes_store
 from ..store import federation as federation_store
-from ..knowledge_federation import remote_kbs
-from ..knowledge_federation import grants as kf_grants
-from ..knowledge_federation import offers as kf_offers
+from ..federation.knowledge import remote_kbs
+from ..federation.knowledge import grants as kf_grants
+from ..federation.knowledge import offers as kf_offers
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
@@ -940,7 +940,7 @@ def create_app(
 
         The kinds are ``remote_knowledge_base`` (a new shared knowledge base of another server), ``accepted_contribution`` (another server approved a contribution of an account of this server; the account is named only when its profile is public), and ``curation`` (a shared knowledge base of this server copied documents of another server). No item has a document. The list of the federated servers is not public (owner decision, 2026-11-19).
         """
-        from ..knowledge_federation import recent as kf_recent
+        from ..federation.knowledge import recent as kf_recent
 
         def _local_kb(kb_id: int) -> dict[str, Any] | None:
             try:
@@ -1765,7 +1765,7 @@ def create_app(
 
     def _curate_remote(kb: KnowledgeBaseInfo, account_id: int, body: dict[str, Any], documents: list[str]) -> JSONResponse:
         """The curation from a shared knowledge base of another server (federation design Section 11): ``{"remote_source": <id of the record>, "documents": ["<document IRI>", ...]}``. The sidecar reads each document with a signed GET; then the copy is made. Thus the answer is 202 with one read for each document."""
-        from ..knowledge_federation import remote_documents
+        from ..federation.knowledge import remote_documents
 
         remote_id = body.get("remote_source")
         if isinstance(remote_id, bool) or not isinstance(remote_id, int) or "source" in body:
@@ -1816,10 +1816,10 @@ def create_app(
 
         ``POST`` with ``{"actor": "<IRI of the account actor>"}``: give the role for 6 months. The knowledge base actor sends ``Grant``. A grant of the same actor that is in effect is revoked (a renewal). A recent sign-in in a session is necessary, as for the role ``collaborator`` of a local account (design Section 6.8). A remote collaborator has only the capabilities ``contribute_direct`` and ``contribute_theme``.
         """
-        from ..knowledge_federation import access as kf_access
-        from ..knowledge_federation import collections as kf_collections
-        from ..knowledge_federation import outbox as kf_outbox
-        from ..knowledge_federation import vocabulary as kf_vocabulary
+        from ..federation.knowledge import access as kf_access
+        from ..federation.knowledge import collections as kf_collections
+        from ..federation.knowledge import outbox as kf_outbox
+        from ..federation.knowledge import vocabulary as kf_vocabulary
 
         kb = _shared_kb_of_path(request)
         principal = request_principal(request)
@@ -1876,9 +1876,9 @@ def create_app(
 
     async def kb_remote_collaborator_route(request: Request) -> Response:
         """``DELETE /kb/{number}/remote-collaborators/{grant}`` (capability ``people``, recent sign-in): end one grant at once. The knowledge base actor sends ``Revoke``; the next contribution of the account needs approval again (design Section 12.2 rule 3)."""
-        from ..knowledge_federation import collections as kf_collections
-        from ..knowledge_federation import outbox as kf_outbox
-        from ..knowledge_federation import vocabulary as kf_vocabulary
+        from ..federation.knowledge import collections as kf_collections
+        from ..federation.knowledge import outbox as kf_outbox
+        from ..federation.knowledge import vocabulary as kf_vocabulary
 
         kb = _shared_kb_of_path(request)
         principal = request_principal(request)
@@ -1891,7 +1891,7 @@ def create_app(
         canonical = _federation_origin()
 
         def _revoke() -> JSONResponse:
-            from ..knowledge_federation import access as kf_access
+            from ..federation.knowledge import access as kf_access
 
             conn = dbm.connect_existing(s.db_file)
             try:
@@ -1944,8 +1944,8 @@ def create_app(
 
     async def kb_remote_sources_route(request: Request) -> JSONResponse:
         """``GET /kb/{number}/remote-sources`` (capability ``curate``): the shared knowledge bases of other servers that a reviewer of K can curate from (the remote members of the themes of K, federation design Section 11 rule 1), and the newest reads for curations into K. With ``?source=<id>``: also the documents of that knowledge base. The list of documents comes from the sidecar; the request starts a read when the list is older than 10 minutes."""
-        from ..knowledge_federation import outbox as kf_outbox
-        from ..knowledge_federation import remote_documents, remote_kbs
+        from ..federation.knowledge import outbox as kf_outbox
+        from ..federation.knowledge import remote_documents, remote_kbs
 
         kb = _shared_kb_of_path(request)
         selected_raw = request.query_params.get("source")
@@ -2450,7 +2450,7 @@ def create_app(
 
         ``follows`` is true for a reviewer (capability ``review``) of a shared knowledge base of this server that is a member of the theme, and for the admin: then each shared knowledge base of another server has ``follow``, the state of the follow of this server (``pending``, ``accepted``, or null; KNOWLEDGE_FEDERATION_DESIGN.md Section 9.2 rule 2), and the answer has ``Cache-Control: private, no-store``. Each other reader gets ``follows`` false and no follow state: the design gives the follow state to no public page.
         """
-        from ..knowledge_federation import outbox as kf_outbox
+        from ..federation.knowledge import outbox as kf_outbox
 
         origin = _public_origin(request)
         principal = request_principal(request)
@@ -4493,13 +4493,13 @@ def create_app(
 
     async def ns_context_route(request: Request) -> Response:
         """``GET /ns/v1``: the JSON-LD context of the knowledge federation vocabulary (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.1, KD9). Public, in each mode, also while federation is off: other servers read it."""
-        from ..knowledge_federation import vocabulary
+        from ..federation.knowledge import vocabulary
 
         return Response(vocabulary.context_json(), media_type=vocabulary.CONTEXT_MEDIA_TYPE, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
 
     async def ns_vocabulary_route(request: Request) -> Response:
         """``GET /ns``: the page of the vocabulary, with one anchor for each term."""
-        from ..knowledge_federation import vocabulary
+        from ..federation.knowledge import vocabulary
 
         return HTMLResponse(vocabulary.vocabulary_page(), headers={"Cache-Control": "public, max-age=86400"})
 
@@ -7040,7 +7040,7 @@ def create_app(
         from ..feeds.poller import run_scheduler as _feed_poll_scheduler
 
         feed_task = asyncio.create_task(_feed_poll_scheduler(s))
-        from ..media_proxy import run_cleanup_scheduler as _media_cleanup_scheduler
+        from ..federation.media_proxy import run_cleanup_scheduler as _media_cleanup_scheduler
 
         media_cleanup_task = asyncio.create_task(_media_cleanup_scheduler(s))
         try:

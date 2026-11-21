@@ -22,13 +22,13 @@ from typing import Any, Literal
 
 import httpx
 
-from .. import auto_contribution, contributions, theme_judgement
+from ..collaboration import auto_contribution, contributions, theme_judgement
 from ..core import ids
 from ..api import federation_routes
 from ..api.federation_internal import SERVICE_KEY_BYTES, service_key_path
 from ..api.security import WebRuntimeConfig
-from ..knowledge_federation import actors as kf_actors
-from ..knowledge_federation import vocabulary
+from ..federation.knowledge import actors as kf_actors
+from ..federation.knowledge import vocabulary
 from ..store import accounts as accounts_store
 from ..store import actor_keys, auth_db
 from ..store import db as dbm

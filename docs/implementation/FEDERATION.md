@@ -1060,7 +1060,7 @@ The first run of the Garage tests found that `S3MediaStore.presign` signed a que
 
 ## 21. Media Proxy (Unit FP4-7)
 
-Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 7.2, 8, and 9.1. Code: `src/claire/media_proxy.py` (fetch, proxy, cleanup, token), `src/claire/store/federation_media.py` (records), `src/claire/api/media.py` (route on the media host), `src/claire/api/accounts_routes/federation.py` (route on the app origin), `src/claire/api/usercontent.py` (render).
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 7.2, 8, and 9.1. Code: `src/claire/federation/media_proxy.py` (fetch, proxy, cleanup, token), `src/claire/store/federation_media.py` (records), `src/claire/api/media.py` (route on the media host), `src/claire/api/accounts_routes/federation.py` (route on the app origin), `src/claire/api/usercontent.py` (render).
 
 ### 21.1 Records
 
@@ -1302,7 +1302,7 @@ Tests: `tests/test_e2e_federation_thread_fetch.py` (a real app and the signed in
 
 Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 to 5.4, 6.6, 7.1, 8, 10, and 11 (RS10), and the results RT7 and RT8. Data: `client.db` version 5. Contract: 1.6. Quotes (Section 5.4 rules 5 and 6) are unit FP4-9Q.
 
-Code: `src/claire/federation_notes.py` (text to HTML), `src/claire/store/federation_notes.py` (store), `src/claire/api/accounts_routes/federation_notes.py` (routes of the owner), `src/claire/api/federation_note_routes.py` (internal routes), `sidecar/fedify/src/notes.ts` (the `Note` and the handoff of the tasks), `src/bible/static/js/syndication_compose.js` (view).
+Code: `src/claire/federation/notes.py` (text to HTML), `src/claire/store/federation_notes.py` (store), `src/claire/api/accounts_routes/federation_notes.py` (routes of the owner), `src/claire/api/federation_note_routes.py` (internal routes), `sidecar/fedify/src/notes.ts` (the `Note` and the handoff of the tasks), `src/bible/static/js/syndication_compose.js` (view).
 
 ### 25.1 Routes
 
@@ -1544,7 +1544,7 @@ Fedify refuses each document address that is not public (`UrlError: Invalid or p
 ### 27.4 Retention Run
 
 - `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of the server by `received_at`, is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
-- The daily cleanup of the `api` process (`media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
+- The daily cleanup of the `api` process (`federation.media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
 - `claire federation prune` shows `retention_days` and `expired_items` with the media numbers; `--apply` deletes.
 - An ingested document is never deleted (RD17). Feed items have no retention run.
 

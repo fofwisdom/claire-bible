@@ -23,9 +23,9 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from ..store import accounts as accounts_store
-from ..store import federation as federation_store
-from ..store import kb_collab
+from ...store import accounts as accounts_store
+from ...store import federation as federation_store
+from ...store import kb_collab
 from . import offers, remote_kbs
 
 __all__ = ["KINDS", "recent_activity"]

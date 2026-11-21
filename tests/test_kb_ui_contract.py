@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.core import ids
 from claire.store import db as dbm
 from claire.store import kb_collab
@@ -149,7 +149,7 @@ def test_reputation_gives_the_limits_of_the_level(world) -> None:  # noqa: F811
     mine = client.get("/api/reputation", headers=world.ben).json()
     conn = dbm.connect_existing(world.settings.db_file, readonly=True)
     try:
-        from claire import reputation
+        from claire.collaboration import reputation
 
         settings = reputation.read_settings(conn)
     finally:

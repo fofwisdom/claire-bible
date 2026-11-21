@@ -8,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 
-from claire import media_proxy
-from claire.media_proxy import MediaFetcher, create_media_token, verify_media_token
+from claire.federation import media_proxy
+from claire.federation.media_proxy import MediaFetcher, create_media_token, verify_media_token
 from claire.store import client_db
 from claire.store import federation_media
 from claire.store.secrets import SecretService

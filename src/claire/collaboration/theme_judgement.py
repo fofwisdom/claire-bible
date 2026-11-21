@@ -24,9 +24,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .ontology.base import normalize_name
-from .store import themes as themes_store
-from .store.vectors import pack_vector, unpack_vector
+from ..ontology.base import normalize_name
+from ..store import themes as themes_store
+from ..store.vectors import pack_vector, unpack_vector
 
 Key = tuple[str, str]  # (entity type, normal form of a name)
 
@@ -159,7 +159,7 @@ def signature_keys(row: dict[str, Any]) -> set[Key]:
 
 def remote_signature(kb: Any) -> Signature | None:
     """The signature of a remote knowledge base (a record of ``knowledge_federation.remote_kbs``), or None when its server gave no signature. ``kb_id`` is the number of the record, which is not a number of ``knowledge_bases``: the caller keeps the two kinds apart."""
-    from .knowledge_federation import remote_kbs
+    from ..federation.knowledge import remote_kbs
 
     rows = remote_kbs.signature_rows(kb)
     if not rows:
@@ -169,7 +169,7 @@ def remote_signature(kb: Any) -> Signature | None:
 
 def wire_signature(row: dict[str, Any]) -> dict[str, Any] | None:
     """The signature of a local knowledge base for another server (the input of ``vocabulary.build_knowledge_base``), from a row of ``kb_signatures``: the ``vocabulary.MAX_SIGNATURE_ENTITIES`` keys with the highest weight, as rows ``[type, norm_name, weight]``. None when the row has no key. The names and the centroid do not go to other servers."""
-    from .knowledge_federation import vocabulary
+    from ..federation.knowledge import vocabulary
 
     signature = _signature_from_row(row, is_shared=True)
     keys = sorted(signature.weights, key=lambda k: (-signature.weights[k], k))[: vocabulary.MAX_SIGNATURE_ENTITIES]
@@ -447,7 +447,7 @@ def _plan(conn: sqlite3.Connection, knowledge_bases: list[dict[str, Any]], setti
                 plan.personal.append((index, signature.kb_id, average))
 
     # 4b. Remote shared knowledge bases (federation design Section 8.2 rule 1): each one attaches to the theme of its type with the highest average score with the local shared members, when the score is at least the threshold. ``list_all`` gives no record of a blocked domain.
-    from .knowledge_federation import remote_kbs
+    from ..federation.knowledge import remote_kbs
 
     remote_excluded = {(int(m["theme_id"]), int(m["remote_kb_id"])) for m in themes_store.remote_members(conn, include_excluded=True) if m["excluded"]}
     remote_signatures = [signature for signature in (remote_signature(kb) for kb in remote_kbs.list_all(conn)) if signature is not None]
@@ -474,7 +474,7 @@ def _plan(conn: sqlite3.Connection, knowledge_bases: list[dict[str, Any]], setti
 
 def _write_plan(conn: sqlite3.Connection, plan: _Plan, knowledge_bases: list[dict[str, Any]], report: RunReport, ts: float) -> None:
     """The write part of a run for the signatures, the themes, and their members. No commit: the caller makes these changes one transaction."""
-    from .knowledge_federation import remote_kbs
+    from ..federation.knowledge import remote_kbs
 
     by_id = {kb["id"]: kb for kb in knowledge_bases}
     signatures = plan.signatures

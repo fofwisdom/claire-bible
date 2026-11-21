@@ -131,7 +131,7 @@ class IngestReport:
 
     def notice_lines(self, *, locale: str | None = "en") -> list[str]:
         """The texts of the campaign notices. ``locale`` None: the active locale."""
-        from ..campaign import notice_text
+        from ..collaboration.campaign import notice_text
 
         return [notice_text(notice, locale=locale) for notice in self.notices]
 
@@ -1601,7 +1601,7 @@ def extract_resolve_store(
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         _start_contribution_revisions(conn, settings, kb_id=tid, document_id=doc.id)
         _match_document_theme(conn, kb_id=tid, document_id=doc.id)
-        from ..campaign import notices_for_ingest
+        from ..collaboration.campaign import notices_for_ingest
 
         report.notices = notices_for_ingest(conn, kb_id=tid, document_id=doc.id)
         conn.commit()
@@ -1616,9 +1616,9 @@ def _auto_contribute_document(conn: sqlite3.Connection, settings: Any, *, kb_id:
         row = conn.execute("SELECT is_personal, account_id FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
         if row is None or not row[0] or row[1] is None:
             return
-        from .. import auto_contribution
+        from ..collaboration import auto_contribution
 
-        from ..contributions import canonical_origin
+        from ..collaboration.contributions import canonical_origin
 
         auto_contribution.run_account(conn, int(row[1]), origin=None if settings is None else canonical_origin(settings), documents=[document_id])
     except Exception as exc:  # noqa: BLE001
@@ -1634,7 +1634,7 @@ def _match_document_theme(conn: sqlite3.Connection, *, kb_id: int, document_id: 
         row = conn.execute("SELECT is_personal FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
         if row is None or not row[0] or conn.execute("SELECT 1 FROM themes WHERE state='active' LIMIT 1").fetchone() is None:
             return
-        from .. import theme_judgement
+        from ..collaboration import theme_judgement
 
         theme_judgement.match_document(conn, kb_id=kb_id, document_id=document_id)
         conn.commit()
@@ -1649,7 +1649,7 @@ def _start_contribution_revisions(conn: sqlite3.Connection, settings: Any, *, kb
     try:
         if conn.execute("SELECT 1 FROM kb_contributions WHERE root_document_id=? LIMIT 1", (document_id,)).fetchone() is None:
             return
-        from .. import contributions
+        from ..collaboration import contributions
 
         contributions.start_revisions(conn, Path(settings.data_dir), root_kb_id=kb_id, root_document_id=document_id)
     except Exception as exc:  # noqa: BLE001

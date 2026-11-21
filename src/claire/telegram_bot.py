@@ -1066,7 +1066,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
     def _contribute_to_theme(theme_ref: str, document_id: str) -> str:
         """Contribute one document of the personal knowledge base of the bot account to one theme, run the merge jobs, and return the reply text with the state of each target (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.7 rule 2 and 9.2). The caller runs it in a worker thread, in the locale of the update."""
-        from . import contributions
+        from .collaboration import contributions
         from .core import ids
         from .ingest.service import run_waiting_merge_jobs
         from .store import kb_collab

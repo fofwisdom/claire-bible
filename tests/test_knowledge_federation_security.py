@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.api import knowledge_federation_internal
 from claire.api.accounts_routes.knowledge_federation import ADMIN_KNOWN_SERVERS_API_PATH, AUDIT_KNOWN_SERVER_REMOVE
-from claire.knowledge_federation import actors, collections, handlers, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
+from claire.federation.knowledge import actors, collections, handlers, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
 from claire.store import accounts as accounts_store
 from claire.store import actor_keys, auth_db
 from claire.store import db as dbm

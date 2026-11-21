@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from claire import auto_contribution, theme_judgement
+from claire.collaboration import auto_contribution, theme_judgement
 from claire.core import ids
-from claire.knowledge_federation import handlers, journal, remote_kbs, vocabulary
+from claire.federation.knowledge import handlers, journal, remote_kbs, vocabulary
 from claire.ontology.base import normalize_name
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import reset_token_stores

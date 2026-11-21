@@ -15,7 +15,7 @@ from typing import Any
 
 from starlette.testclient import TestClient
 
-from claire import theme_judgement
+from claire.collaboration import theme_judgement
 from claire.api import federation_routes, server
 from claire.api.federation_internal import INTERNAL_PREFIX, SIGNATURE_HEADER, TIMESTAMP_HEADER, create_internal_federation_app, ensure_service_key, load_service_key, service_key_path, sign_request
 from claire.ontology.base import normalize_name

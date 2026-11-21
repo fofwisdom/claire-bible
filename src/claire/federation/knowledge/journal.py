@@ -292,7 +292,7 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
 
     No row is made (``rejected``) for these reasons, in this sequence: ``federation_off``, ``invalid_actor``, ``blocked_domain`` (the controls of ``access.exchange_refusal`` for the signer), ``invalid_activity`` (the activity is not a JSON object with an ``id`` that is an ``http`` or ``https`` IRI), ``signer_mismatch`` (the ``id`` is not on the origin of the signer, or the ``actor`` is not the signer and the signer is not the server actor of the origin of the actor), ``domain_quota`` (the registrable domain of the signer has ``remote_domain_daily_activities`` rows, or the activity would take its bytes over ``remote_domain_daily_bytes``, in the last 24 hours).
     """
-    from .. import contributions  # the import is here: the limits are admin settings of ``contributions``
+    from ...collaboration import contributions  # the import is here: the limits are admin settings of ``contributions``
 
     if verified_by not in VERIFIED_BY:
         raise ValueError(f"unknown signature mechanism: {verified_by!r}")

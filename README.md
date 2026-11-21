@@ -146,9 +146,11 @@ claire-bible/
 ├── src/claire/          # 도메인 코어 (bible/claire_bible import 금지)
 │   ├── accounts/        # USERNAME 정책, 초대 코드, 서버 등급, 지식베이스 접근 제어(kb_access), 프로바이더·연합 준비 검사
 │   ├── api/             # ASGI 웹 서비스, 계정·인증·OAuth/OIDC·MCP·연합 라우트 및 콘솔·인증 템플릿(api/templates/)
+│   ├── collaboration/   # 공유 지식베이스 기여, 자동 기여, 평판, 테마 판정, 캠페인 안내
 │   ├── core/            # 아웃바운드 렌더러 포트(ports.py), 설정(config.py), ID(ids.py), 비밀 마스킹(secret_scrub.py), 프로바이더·적재 한도 관리, 진행률
 │   ├── expand/          # 링크 확장 (자동 확장, 확장 제안, 확장 게이트)
 │   ├── extract/         # LLM(Gemini), STT/VLM, 엔티티 해소, 분류기 및 프레젠테이션 저작 서비스(presentation_service.py)
+│   ├── federation/      # ActivityPub 지식 연합(knowledge/), 연합 노트(notes.py), 원격 미디어 프록시(media_proxy.py)
 │   ├── feeds/           # RSS/Atom/JSON Feed 파서, 폴러 및 OPML 처리
 │   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그(locales/) 및 미들웨어 지원
 │   ├── ingest/          # 통합 적재 파이프라인, Fetcher(웹/YouTube/X/PDF), 정규화

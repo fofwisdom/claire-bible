@@ -265,7 +265,7 @@ def remote_media_urls(db_path: Path | None, *, account_id: int, content_html: st
 
     ``media_base`` is the origin of the media proxy, or an empty string for a path on this origin. A URL whose last fetch failed or was above the size limit has no proxy address: the render shows only the link to the remote URL (rule 4).
     """
-    from ..media_proxy import create_media_token
+    from ..federation.media_proxy import create_media_token
     from ..store import client_db
     from ..store import federation_media
 

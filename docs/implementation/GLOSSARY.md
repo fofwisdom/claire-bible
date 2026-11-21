@@ -141,7 +141,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 도메인 격리 | **지식 베이스** | Knowledge Base | `KnowledgeBaseInfo`, `KnowledgeBaseManager`, `kb_id` | `knowledge_bases` 테이블, `*.kb_id`. v27 전 이름은 "테마"이며 이 뜻으로 "테마"를 쓰지 않는다 |
 | 계정의 지식 베이스 | **개인 지식 베이스** | Personal Knowledge Base | `is_personal` | `knowledge_bases.is_personal = 1`. 지식 유형이 없다 |
 | 공동의 지식 베이스 | **공유 지식 베이스** | Shared Knowledge Base | `is_personal` | `knowledge_bases.is_personal = 0`. 소유자가 없고 항상 공개이며 지식 유형이 있다 |
-| 지식 베이스의 묶음 | **테마** | Theme | `store/themes.py`, `theme_judgement.py` | `themes`, `theme_knowledge_bases`, `theme_remote_knowledge_bases`. 주제와 지식 유형이 같은 지식 베이스의 묶음 (§1.9) |
+| 지식 베이스의 묶음 | **테마** | Theme | `store/themes.py`, `collaboration/theme_judgement.py` | `themes`, `theme_knowledge_bases`, `theme_remote_knowledge_bases`. 주제와 지식 유형이 같은 지식 베이스의 묶음 (§1.9) |
 | 현실·허구 구분 | **지식 유형** | Knowledge Type | `knowledge_type` (JSON 필드, 질의 매개변수), 카탈로그 `kb.knowledge_type.*` | `knowledge_bases.knowledge_type`, `themes.knowledge_type`. "성격", 단독 "유형"·"type"은 쓰지 않는다 (§1.10) |
 | 지식 유형 값 `real` | **현실** | Real world | `real` | "현실 세계", "실제"는 쓰지 않는다 |
 | 지식 유형 값 `fictional` | **허구** | Fiction | `fictional` | "창작", "가상"은 쓰지 않는다 |

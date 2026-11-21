@@ -23,10 +23,10 @@ import time
 from typing import Any
 
 from . import contributions, reputation, theme_judgement
-from .core import ids
-from .store import db as dbm
-from .store import kb_collab
-from .store import themes as themes_store
+from ..core import ids
+from ..store import db as dbm
+from ..store import kb_collab
+from ..store import themes as themes_store
 
 log = logging.getLogger("claire.auto_contribution")
 
@@ -230,7 +230,7 @@ def _over_threshold(conn: sqlite3.Connection, *, account_id: int, personal_kb_id
 
 def remote_state(conn: sqlite3.Connection, account_id: int, origin: str | None) -> str:
     """``on`` when the rule of the account can have targets on other servers now, else the reason (one of ``REMOTE_STATES``): this server has no canonical origin (``no_origin``), the switch ``federation`` is off (``federation_off``), or the account has no actor that can sign an ``Offer`` (``not_a_federation_actor``: a public profile and a USERNAME, federation design Section 12.1 rule 2)."""
-    from .knowledge_federation import access, actors
+    from ..federation.knowledge import access, actors
 
     if origin is None:
         return "no_origin"
@@ -243,8 +243,8 @@ def remote_state(conn: sqlite3.Connection, account_id: int, origin: str | None) 
 
 def remote_targets(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, now: float) -> list[Any]:
     """The records of the remote knowledge bases that the rule selects (federation design Section 12.3 rule 2), by the number of the record: with ``memberships`` the ones that gave the account a grant in its term, and the members (not excluded) of the themes of the rule. A record of a blocked domain is no target. The caller checks ``remote_state`` first."""
-    from .knowledge_federation import grants, remote_kbs
-    from .store import federation as federation_store
+    from ..federation.knowledge import grants, remote_kbs
+    from ..store import federation as federation_store
 
     found: dict[int, Any] = {}
     if rule["to_memberships"]:
@@ -263,7 +263,7 @@ def remote_targets(conn: sqlite3.Connection, account_id: int, rule: dict[str, An
 
 def _remote_scorer(conn: sqlite3.Connection, matcher: theme_judgement.DocumentMatcher, record: Any):
     """The score function of a remote target: the signature of the record (federation design Section 12.3 rule 2), else the signature of a local theme that has the record as a member (Section 8.5). None when it has none of them: the seed entities of a remote knowledge base do not come to this server."""
-    from .knowledge_federation import remote_kbs
+    from ..federation.knowledge import remote_kbs
 
     keys = {(etype, norm) for etype, norm, _weight in remote_kbs.signature_rows(record)}
     if keys:
@@ -280,7 +280,7 @@ def remote_candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_
 
     Not candidates: the documents of ``candidates`` that are not candidates (hidden, "never contribute", pasted text, uploaded file unless ``include_uploads``, no extraction), and each document with a row of ``kf_outbound_offers`` for that knowledge base (``offers.automatic_offered``: offered, accepted, rejected, removed, or skipped for a reason of the document). The duplicate and tombstone checks are on the other server: it rejects such an offer with ``duplicate``.
     """
-    from .knowledge_federation import offers
+    from ..federation.knowledge import offers
 
     matcher = matcher or theme_judgement.DocumentMatcher.load(conn)
     settings = settings or read_settings(conn)
@@ -331,7 +331,7 @@ def plan(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, ori
             out.append({"kb_id": kb_id, "mode": mode, "documents": found})
     if remote_state(conn, account_id, origin) != "on":
         return out
-    from .knowledge_federation import grants, offers, remote_kbs
+    from ..federation.knowledge import grants, offers, remote_kbs
 
     ts = time.time() if now is None else now
     for record in remote_targets(conn, account_id, rule, now=ts):
@@ -388,7 +388,7 @@ def run_account(conn: sqlite3.Connection, account_id: int, *, origin: str | None
 
 def _send_remote(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, target: dict[str, Any], origin: str | None, now: float) -> int:
     """Send the ``Offer`` of each document of one remote target of ``plan``. Return the number of offers that went to the outbox. A target that was skipped (``offers.send`` checks the account, the domain, the pending limit, and the limits of one document again) is a row with its reason."""
-    from .knowledge_federation import offers, remote_kbs
+    from ..federation.knowledge import offers, remote_kbs
 
     if target["mode"] == "closed" or origin is None:
         return 0

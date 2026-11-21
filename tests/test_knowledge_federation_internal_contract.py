@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 import pytest
 
 from claire.api.federation_internal import INTERNAL_PREFIX
-from claire.knowledge_federation import handlers, journal, known_servers, remote_documents, remote_kbs, vocabulary
+from claire.federation.knowledge import handlers, journal, known_servers, remote_documents, remote_kbs, vocabulary
 from claire.store.secrets import reset_secret_service
 from tests.knowledge_federation_servers import FIXTURES, KfServer, fixture, server_actor
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from claire import cli, media_proxy
+from claire import cli
+from claire.federation import media_proxy
 from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import federation_client as client_store

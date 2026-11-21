@@ -27,9 +27,9 @@ import secrets
 import sqlite3
 from typing import Any
 
-from ..core import ids
-from ..store import federation as federation_store
-from ..store import kb_collab
+from ...core import ids
+from ...store import federation as federation_store
+from ...store import kb_collab
 from . import access, actors, collections, grants, known_servers, outbox, remote_kbs, vocabulary
 
 __all__ = [
@@ -176,7 +176,7 @@ def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source
     The checks of the sender, in this sequence: a domain block (``blocked_domain``); the account is a federation actor (``not_a_federation_actor``: an account without a public profile and a USERNAME has no actor that can sign, design Section 12.1 rule 2); an offer of this document to this knowledge base that waits or was accepted (``contribution_duplicate``); the pending limit of the account (``pending_limit``); the document has an extraction (``document_not_extracted``); the limits of one document (KS2: the other server has the same limits). The offer carries the grant of the account for the knowledge base when it has one in its term (design Section 12.2 rule 2); the other server decides if the grant is in effect.
     ``automatic`` (unit KF5, design Section 12.3): the automatic rule of the account sends the offer. The ``claire:Contribution`` has ``claire:automatic``, and a target whose record says that its server accepts no automatic contributions is skipped first (``automatic_not_accepted``).
     """
-    from .. import contributions  # the import is here: ``contributions`` loads this module for a submission
+    from ...collaboration import contributions  # the import is here: ``contributions`` loads this module for a submission
 
     def _skipped(reason: str) -> dict[str, Any]:
         skip(conn, account_id=account_id, kb_iri=remote_kb.iri, domain=remote_kb.domain, source_kb_id=source_kb_id, source_document_id=source_document_id, submission_item_id=submission_item_id, automatic=automatic, reason=reason, now=now)

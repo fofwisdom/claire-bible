@@ -18,8 +18,8 @@ import sqlite3
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from ..store import accounts as accounts_store
-from ..store import federation as federation_store
+from ...store import accounts as accounts_store
+from ...store import federation as federation_store
 
 __all__ = [
     "SERVER_ACTOR_PATH",
@@ -45,7 +45,7 @@ def federation_on(conn: sqlite3.Connection) -> bool:
 
 def auto_contribution_accepted(conn: sqlite3.Connection) -> bool:
     """True when this server accepts automatic contributions of other servers: the switches ``federation`` and ``kb_auto_contribution`` are ``on`` (design Section 12.3 rule 1)."""
-    from .. import auto_contribution  # the import is here so that the store modules of this package do not load the contribution code
+    from ...collaboration import auto_contribution  # the import is here so that the store modules of this package do not load the contribution code
 
     return federation_on(conn) and auto_contribution.switch_on(conn)
 
@@ -91,7 +91,7 @@ def server_actor_of(iri: str) -> str | None:
 
 def quota_domain(domain: str) -> str:
     """Return the key of the limits for each domain (KS2, KS3): the registrable domain of a host (public suffix and one label), so that the subdomains of one domain share one limit. A host without a registrable domain (an IP address, a name under an unknown top-level domain) is its own key."""
-    from ..api.prototype_host import registrable_domain  # the import is here: the public suffix list loads at the first call
+    from ...api.prototype_host import registrable_domain  # the import is here: the public suffix list loads at the first call
 
     return registrable_domain(domain) or domain
 

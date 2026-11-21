@@ -38,9 +38,9 @@ from starlette.routing import BaseRoute, Route
 from pathlib import Path
 
 from ..core import ids
-from ..knowledge_federation import access, actors, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
-from ..knowledge_federation import collections as kf_collections
-from ..knowledge_federation import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
+from ..federation.knowledge import access, actors, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
+from ..federation.knowledge import collections as kf_collections
+from ..federation.knowledge import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
 from ..store import actor_keys, auth_db, kb_collab
 from ..store import db as dbm
 from ..store.secrets import get_secret_service

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from claire.knowledge_federation import vocabulary as v
+from claire.federation.knowledge import vocabulary as v
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "knowledge_federation"
@@ -335,7 +335,7 @@ def test_vocabulary_page_file_has_each_term() -> None:
 
 
 def test_code_lists_are_the_ones_of_the_local_modules() -> None:
-    from claire import contributions
+    from claire.collaboration import contributions
     from claire.store import kb_collab
 
     assert v.REASON_CODES == contributions.REASON_CODES
@@ -358,7 +358,7 @@ def test_e2e_server_serves_the_context_and_the_vocabulary_page(tmp_path) -> None
 
     from claire.api.server import create_app
     from claire.core.config import Settings
-    from claire.knowledge_federation import vocabulary
+    from claire.federation.knowledge import vocabulary
 
     (tmp_path / "data").mkdir()
     settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL="http://127.0.0.1:8765", CLAIRE_INJECT_TOKEN="owner-" + "s" * 32)

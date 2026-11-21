@@ -25,9 +25,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from ..store import federation as federation_store
-from ..store import kb_collab
-from ..store import themes as themes_store
+from ...store import federation as federation_store
+from ...store import kb_collab
+from ...store import themes as themes_store
 from . import access, known_servers, remote_kbs, vocabulary
 
 __all__ = [
@@ -353,7 +353,7 @@ def _record_page(conn: sqlite3.Connection, read: dict[str, Any], document: dict[
 
 def _record_document(conn: sqlite3.Connection, read: dict[str, Any], document: dict[str, Any], *, now: float) -> str:
     """Make the copy of a curation from the document that the sidecar read. Return ``done`` or ``failed``; the row has the code of the refusal or the contribution."""
-    from .. import contributions  # the import is here so that the store modules of this package do not load the contribution code
+    from ...collaboration import contributions  # the import is here so that the store modules of this package do not load the contribution code
 
     try:
         kind = vocabulary.validate_object(document, top_level=True)
@@ -389,7 +389,7 @@ def _record_document(conn: sqlite3.Connection, read: dict[str, Any], document: d
 
 def _record_recheck(conn: sqlite3.Connection, read: dict[str, Any], document: dict[str, Any] | None, error: str | None, *, now: float) -> str:
     """Apply the read again of a document that this server holds a copy of (``request_rechecks``). ``origin_removed`` (a 404 or 410 of the origin): each copy is hidden and waits in the review queue, as after a ``Delete`` (reason ``other``). A valid document: the revision rules of an ``Update`` (only a newer version changes a copy). Return ``done`` or ``failed``."""
-    from .. import contributions  # the import is here so that the store modules of this package do not load the contribution code
+    from ...collaboration import contributions  # the import is here so that the store modules of this package do not load the contribution code
 
     if error == ORIGIN_REMOVED:
         contributions.origin_removed(conn, source_kb_iri=read["kb_iri"], source_iri=read["target_iri"], reason="other", now=now)

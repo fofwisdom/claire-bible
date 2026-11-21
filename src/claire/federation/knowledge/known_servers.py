@@ -19,7 +19,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from ..store import federation as federation_store
+from ...store import federation as federation_store
 
 __all__ = [
     "COLUMNS",

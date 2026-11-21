@@ -17,7 +17,7 @@ from claire.core.config import Settings
 from claire.extract.provider import UnavailableProvider
 from claire.ingest import client_extraction as ce
 from claire.ingest.pipeline import stage_raw
-from claire.knowledge_federation import actors
+from claire.federation.knowledge import actors
 from claire.ontology.base import Document, Entity
 from claire.store import accounts as accounts_store
 from claire.store import auth_db

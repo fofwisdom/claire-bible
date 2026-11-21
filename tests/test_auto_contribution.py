@@ -11,7 +11,7 @@ import time
 from tests.kb_paths import step_up_request
 from tests.test_contributions import _fresh_token_stores, _graph, world  # noqa: F401 (fixtures)
 
-from claire import auto_contribution
+from claire.collaboration import auto_contribution
 from claire.core import ids
 from claire.ontology.base import normalize_name
 from claire.store import db as dbm

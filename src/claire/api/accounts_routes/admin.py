@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import reputation
+from ...collaboration import reputation
 from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db

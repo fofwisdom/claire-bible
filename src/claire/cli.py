@@ -680,7 +680,7 @@ def cmd_themes(args) -> int:
     """``claire theme``: the themes (collections of knowledge bases with one subject): list, run the judgement, and adjust (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2, 8.3, 13.4)."""
     import json
 
-    from . import theme_judgement
+    from .collaboration import theme_judgement
     from .core import ids
     from .store import themes as themes_store
     from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
@@ -792,7 +792,7 @@ def cmd_contribute(args) -> int:
     """``claire contribute``: the contributions of the admin account to shared knowledge bases and themes, its reputation, its automatic rule, and the flag "never contribute" (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.6, 8.7, 9.1, 9.2, 9.9)."""
     import json
 
-    from . import auto_contribution, contributions, reputation
+    from .collaboration import auto_contribution, contributions, reputation
     from .core import ids
     from .ingest.service import run_waiting_merge_jobs
     from .store import kb_collab
@@ -1045,7 +1045,7 @@ def cmd_contribute(args) -> int:
             rule = {"state": args.state, "to_memberships": args.memberships == "on", "to_mutual": args.mutual == "on", "include_uploads": args.uploads == "on", "theme_ids": sorted(set(theme_ids))}
             # The dry run (design Section 9.9 rule 6): the documents that the rule sends now to each target. A paused rule sends nothing.
             # A target on another server (federation design Section 12.3) has the address of its actor and its server in place of the number of a knowledge base of this server.
-            from .contributions import canonical_origin
+            from .collaboration.contributions import canonical_origin
 
             origin = canonical_origin(s)
             targets = [
@@ -4109,7 +4109,7 @@ def _cmd_federation_prune(args) -> int:
     import json
     import sqlite3
 
-    from . import media_proxy
+    from .federation import media_proxy
     from .store import client_db
     from .store import federation_media
 

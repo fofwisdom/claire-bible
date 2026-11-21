@@ -231,7 +231,7 @@ def create_media_app(
         return Response(content=obj.body, status_code=obj.status_code, headers=headers)
 
     # Remote media of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1, unit FP4-7).
-    from ..media_proxy import MediaProxy, proxy_response, verify_media_token
+    from ..federation.media_proxy import MediaProxy, proxy_response, verify_media_token
 
     remote_proxy = MediaProxy(settings, media_store, now=now)
 

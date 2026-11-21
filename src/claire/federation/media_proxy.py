@@ -22,14 +22,14 @@ from typing import Any
 import httpx
 from starlette.responses import PlainTextResponse, Response
 
-from .feeds.fetch import FeedFetcher, Resolver
-from .store import client_db
-from .store import db as dbm
-from .store import federation_client as client_store
-from .store import federation_media as media_records
-from .store.federation_media import media_kind
-from .store.media import MediaObject, MediaStore, MediaStoreError, RangeParseError
-from .store.secrets import SecretService, get_secret_service
+from ..feeds.fetch import FeedFetcher, Resolver
+from ..store import client_db
+from ..store import db as dbm
+from ..store import federation_client as client_store
+from ..store import federation_media as media_records
+from ..store.federation_media import media_kind
+from ..store.media import MediaObject, MediaStore, MediaStoreError, RangeParseError
+from ..store.secrets import SecretService, get_secret_service
 
 log = logging.getLogger(__name__)
 
@@ -331,7 +331,7 @@ CLEANUP_INTERVAL = 86400.0
 
 def cleanup_proxy(settings: Any) -> MediaProxy:
     """A proxy for a cleanup, with the media store of the settings."""
-    from .store.media import get_media_store
+    from ..store.media import get_media_store
 
     return MediaProxy(settings, get_media_store(settings))
 

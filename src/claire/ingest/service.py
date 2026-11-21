@@ -147,7 +147,7 @@ def run_theme_judgement_if_due(settings: Any) -> bool:
     if settings is None or not getattr(settings, "multi_theme", False):
         return False
     try:
-        from .. import theme_judgement
+        from ..collaboration import theme_judgement
 
         conn = dbm.connect_existing(settings.db_file)
         try:
@@ -158,9 +158,9 @@ def run_theme_judgement_if_due(settings: Any) -> bool:
             theme_judgement.run_judgement(conn)
             conn.commit()
             # Design Section 9.9 rule 4: after each judgement run the automatic rules run; then the merge jobs of the new contributions.
-            from .. import auto_contribution
+            from ..collaboration import auto_contribution
 
-            from ..contributions import canonical_origin
+            from ..collaboration.contributions import canonical_origin
 
             made = auto_contribution.run_all(conn, origin=canonical_origin(settings))
         finally:
@@ -181,7 +181,7 @@ def run_waiting_merge_jobs(settings: Any) -> int:
     if settings is None:
         return 0
     try:
-        from .. import contributions
+        from ..collaboration import contributions
 
         conn = dbm.connect_existing(settings.db_file)
         try:

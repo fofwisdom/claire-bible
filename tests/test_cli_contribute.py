@@ -13,7 +13,8 @@ import pytest
 from tests.test_auto_contribution import KOREA, _document
 from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
 
-from claire import cli, theme_judgement
+from claire import cli
+from claire.collaboration import theme_judgement
 from claire.core import ids
 from claire.store import db as dbm
 from claire.store import kb_collab

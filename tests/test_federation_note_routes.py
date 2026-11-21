@@ -9,7 +9,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from claire import federation_notes as note_text
+from claire.federation import notes as note_text
 from claire.api import federation_note_routes
 from claire.store import client_db
 from claire.store import db as dbm

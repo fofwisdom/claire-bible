@@ -22,9 +22,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import auto_contribution
-from ...knowledge_federation import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
-from ...knowledge_federation import actors, journal, known_servers, outbox, remote_documents, remote_kbs
+from ...collaboration import auto_contribution
+from ...federation.knowledge import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
+from ...federation.knowledge import actors, journal, known_servers, outbox, remote_documents, remote_kbs
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import federation as federation_store

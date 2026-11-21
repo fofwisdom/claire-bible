@@ -12,7 +12,7 @@ import pytest
 
 from tests.test_contributions import EXTRACTION, _fresh_token_stores, _graph, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
-from claire import contributions, theme_judgement
+from claire.collaboration import contributions, theme_judgement
 from claire.store import db as dbm
 from claire.store import themes as themes_store
 

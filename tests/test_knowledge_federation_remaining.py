@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from claire import contributions
+from claire.collaboration import contributions
 from claire.core import ids
-from claire.knowledge_federation import grants, handlers, journal, offers, remote_kbs, vocabulary
+from claire.federation.knowledge import grants, handlers, journal, offers, remote_kbs, vocabulary
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import federation as federation_store
@@ -234,7 +234,7 @@ def test_the_receiver_refuses_an_update_that_is_not_newer_and_a_read_keeps_a_new
         def _work(conn) -> int | None:
             known = conn.execute("SELECT 1 FROM kf_known_servers WHERE domain='c.example'").fetchone()
             if known is None:
-                from claire.knowledge_federation import known_servers
+                from claire.federation.knowledge import known_servers
 
                 known_servers.note_server(conn, "c.example", source="admin", added_by=1, now=b.now)
                 known_servers.record_read(conn, "c.example", server_actor_iri=f"{C}/ap/actors/server", software_name="claire-bible", software_version="1", shared_kb_count=None, now=b.now)
