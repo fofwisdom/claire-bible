@@ -27,6 +27,7 @@ from ..principal import request_principal
 from ..security import read_json_body
 from .admin import is_admin
 from .common import AccountsContext, json_error, not_found, open_auth_db, open_db, require_recent_auth, same_origin
+from .console_ui import console_actions, console_card, console_field, console_kv, console_result
 
 ADMIN_STORAGE_API_PATH = "/api/admin/storage"
 ADMIN_STORAGE_TEST_API_PATH = "/api/admin/storage/test"
@@ -56,11 +57,10 @@ def _format_ts(value: Any) -> str:
 
 
 def _field(name: str, label_key: str, value: str, *, input_type: str = "text", placeholder: str = "", hint_key: str | None = None) -> str:
-    hint = f'<small style="font-weight:400;color:var(--muted)">{escape(t(hint_key))}</small>' if hint_key else ""
-    return (
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t(label_key))}'
-        f'<input type="{input_type}" name="{name}" class="pref-input" value="{escape(value)}" placeholder="{escape(placeholder)}" data-storage-initial="{escape(value)}" autocomplete="off" spellcheck="false"/>'
-        f"{hint}</label>"
+    return console_field(
+        t(label_key),
+        f'<input type="{input_type}" name="{name}" class="pref-input" value="{escape(value)}" placeholder="{escape(placeholder)}" data-storage-initial="{escape(value)}" autocomplete="off" spellcheck="false"/>',
+        hint_html=escape(t(hint_key)) if hint_key else "",
     )
 
 
@@ -85,7 +85,7 @@ def _migration_html(last: dict[str, Any] | None) -> str:
         ("console.storage.migration.errors", last.get("errors", 0)),
         ("console.storage.migration.deleted_sources", last.get("deleted_sources", 0)),
     )
-    return '<dl data-storage-migration="present">' + "".join(f"<dt>{escape(t(key))}</dt><dd>{escape(str(value))}</dd>" for key, value in rows) + "</dl>"
+    return console_kv([(t(key), str(value)) for key, value in rows], attrs={"data-storage-migration": "present"})
 
 
 def admin_storage_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
@@ -94,42 +94,57 @@ def admin_storage_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     mode_options = "".join(f'<option value="{mode}"{" selected" if view["mode"] == mode else ""}>{escape(t(f"console.storage.mode.{mode}"))}</option>' for mode in media_storage.MODES)
     secret_placeholder = t("console.storage.secret_key.set") if view["secret_key_set"] else ""
     messages = " ".join(f'data-msg-{name}="{escape(t(f"console.storage.msg.{name}"))}"' for name in ("saved", "nochange", "failed", "testing", "test_ok", "test_failed", "not_configured", "reauth", "network"))
-    body = (
-        f'<section class="card" id="admin-storage-state" aria-label="{escape(t("console.storage.state.title"))}">'
-        f'<h2><span data-icon="database"></span> {escape(t("console.storage.state.title"))}</h2>'
-        "<dl>"
-        f'<dt>{escape(t("console.storage.state.active"))}</dt><dd><span class="badge badge-enabled" data-storage-field="mode">{escape(t("console.storage.mode." + str(view["mode"])))}</span></dd>'
-        f'<dt>{escape(t("console.storage.state.last_test"))}</dt><dd id="admin-storage-test-state">{_test_state_html(view["last_test"])}</dd>'
-        "</dl>"
-        f'<p class="hint">{escape(t("console.storage.state.hint"))}</p>'
-        "</section>"
-        f'<section class="card" id="admin-storage-settings" aria-label="{escape(t("console.storage.form.title"))}">'
-        f'<h2><span data-icon="settings"></span> {escape(t("console.storage.form.title"))}</h2>'
-        f'<p class="hint">{escape(t("console.storage.form.hint"))}</p>'
-        f'<form id="admin-storage-form" {messages}>'
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px 16px;margin-bottom:12px;align-items:start">'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.storage.field.mode"))}<select name="mode" class="pref-input" data-storage-initial="{escape(str(view["mode"]))}">{mode_options}</select></label>'
-        f"{_field('endpoint', 'console.storage.field.endpoint', view['endpoint'], input_type='url', placeholder=media_storage.GARAGE_ENDPOINT_PLACEHOLDER, hint_key='console.storage.field.endpoint_hint')}"
-        f"{_field('bucket', 'console.storage.field.bucket', view['bucket'], hint_key='console.storage.field.bucket_hint')}"
-        f"{_field('region', 'console.storage.field.region', view['region'], placeholder=media_storage.GARAGE_REGION, hint_key='console.storage.field.region_hint')}"
-        f"{_field('access_key', 'console.storage.field.access_key', view['access_key'])}"
-        f"{_field('secret_key', 'console.storage.field.secret_key', '', input_type='password', placeholder=secret_placeholder, hint_key='console.storage.field.secret_key_hint')}"
-        f"{_field('public_url_base', 'console.storage.field.public_url_base', view['public_url_base'], input_type='url', hint_key='console.storage.field.public_url_base_hint')}"
-        "</div>"
-        '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-        f'<button type="button" class="pref-btn" id="admin-storage-test">{escape(t("console.storage.test.run"))}</button>'
-        "</div>"
-        "</form>"
-        '<p class="result" id="admin-storage-result" role="status" aria-live="polite"></p>'
-        "</section>"
-        f'<section class="card" id="admin-storage-migration" aria-label="{escape(t("console.storage.migration.title"))}">'
-        f'<h2><span data-icon="upload"></span> {escape(t("console.storage.migration.title"))}</h2>'
-        f'<p class="hint">{escape(t("console.storage.migration.hint"))}</p>'
-        f"{_migration_html(view['last_migration'])}"
-        "</section>"
+    state_kv = console_kv(
+        [
+            {"label": t("console.storage.state.active"), "value_html": f'<span class="badge badge-enabled" data-storage-field="mode">{escape(t("console.storage.mode." + str(view["mode"])))}</span>'},
+            {"label": t("console.storage.state.last_test"), "value_html": _test_state_html(view["last_test"]), "attrs": {"id": "admin-storage-test-state"}},
+        ]
     )
-    return body, {"mode": view["mode"]}
+    state_card = console_card(
+        escape(t("console.storage.state.title")),
+        state_kv + f'<p class="hint">{escape(t("console.storage.state.hint"))}</p>',
+        id="admin-storage-state",
+        icon="database",
+        aria_label=t("console.storage.state.title"),
+    )
+    form_fields = (
+        '<div class="console-form-grid" style="margin-bottom:12px">'
+        + console_field(t("console.storage.field.mode"), f'<select name="mode" class="pref-input" data-storage-initial="{escape(str(view["mode"]))}">{mode_options}</select>')
+        + _field("endpoint", "console.storage.field.endpoint", view["endpoint"], input_type="url", placeholder=media_storage.GARAGE_ENDPOINT_PLACEHOLDER, hint_key="console.storage.field.endpoint_hint")
+        + _field("bucket", "console.storage.field.bucket", view["bucket"], hint_key="console.storage.field.bucket_hint")
+        + _field("region", "console.storage.field.region", view["region"], placeholder=media_storage.GARAGE_REGION, hint_key="console.storage.field.region_hint")
+        + _field("access_key", "console.storage.field.access_key", view["access_key"])
+        + _field("secret_key", "console.storage.field.secret_key", "", input_type="password", placeholder=secret_placeholder, hint_key="console.storage.field.secret_key_hint")
+        + _field("public_url_base", "console.storage.field.public_url_base", view["public_url_base"], input_type="url", hint_key="console.storage.field.public_url_base_hint")
+        + "</div>"
+    )
+    settings_form = (
+        f'<form id="admin-storage-form" {messages}>'
+        + form_fields
+        + console_actions(
+            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
+            f'<button type="button" class="pref-btn" id="admin-storage-test">{escape(t("console.storage.test.run"))}</button>'
+        )
+        + "</form>"
+        + console_result(id="admin-storage-result")
+    )
+    settings_card = console_card(
+        escape(t("console.storage.form.title")),
+        settings_form,
+        id="admin-storage-settings",
+        icon="settings",
+        hint_html=escape(t("console.storage.form.hint")),
+        aria_label=t("console.storage.form.title"),
+    )
+    migration_card = console_card(
+        escape(t("console.storage.migration.title")),
+        _migration_html(view["last_migration"]),
+        id="admin-storage-migration",
+        icon="upload",
+        hint_html=escape(t("console.storage.migration.hint")),
+        aria_label=t("console.storage.migration.title"),
+    )
+    return state_card + settings_card + migration_card, {"mode": view["mode"]}
 
 
 def routes(ctx: AccountsContext) -> list[Route]:

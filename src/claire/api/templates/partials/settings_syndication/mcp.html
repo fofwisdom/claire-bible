@@ -1,6 +1,6 @@
 <section id="panel-mcp" class="pref-panel" data-settings-panel="mcp">
   $agent_extraction_guide_html
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="puzzle"></span> ${th:console.synd.mcp.title} <span class="pref-pill pref-pill-mcp">${t:console.synd.common.implemented}</span><span class="pref-pill">${t:console.synd.common.server_wide}</span></h2>
     <p class="pref-desc">${th:console.synd.mcp.desc_before} <span class="pref-pill pref-pill-mcp">${t:console.synd.common.implemented}</span>${t:console.synd.mcp.desc_implemented} <span class="pref-pill pref-pill-prop">${t:console.synd.common.proposal}</span>${t:console.synd.mcp.desc_proposal}</p>
 
@@ -24,9 +24,9 @@
       </div>
       <code id="pref-mcp-theme-example" class="pref-mono" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);white-space:pre"></code>
     </div>
-  </div>
+  </section>
 
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="lock"></span> ${t:console.synd.mcp.auth_title} <span class="pref-pill pref-pill-mcp">${t:console.synd.common.implemented}</span></h2>
     <p class="pref-desc">${th:console.synd.mcp.auth_desc}</p>
     <div class="pref-table-wrap">
@@ -45,7 +45,7 @@
     <p class="pref-notice" role="status">$deprecation_notice_html</p>
 
     <div id="pref-mcp-grants-card" class="pref-table-wrap" style="margin:12px 0">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <div class="console-actions console-actions-end" style="margin-bottom:8px">
         <button type="button" class="pref-btn" id="pref-mcp-revoke-all" data-oauth-revoke-all="1">${t:console.oauth.revoke_all}</button>
       </div>
       <table class="pref-table">
@@ -67,11 +67,11 @@
         <p class="pref-desc">${th:console.synd.mcp.connect_examples_note}</p>
       </div>
     </details>
-  </div>
+  </section>
 
   $agent_clients_delivery_html
 
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="wrench"></span> ${th:console.synd.mcp.tools_title}</h2>
     <p class="pref-desc">${t:console.synd.mcp.tools_desc}</p>
     <p class="pref-notice" role="status">${t:console.synd.mcp.kb_required_note}</p>
@@ -105,5 +105,5 @@
       <p class="pref-desc" style="margin-top:8px">${th:console.synd.mcp.preview_desc}</p>
       <pre id="pref-mcp-toolslist" class="pref-code" style="margin-top:8px"></pre>
     </details>
-  </div>
+  </section>
 </section>

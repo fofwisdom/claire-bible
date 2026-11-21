@@ -46,6 +46,20 @@ from .common import (
 )
 from .console_federation_panels import settings_federation_body
 from .console_syndication_panels import SYNDICATION_SECTION_SLUGS, SettingsSectionRender, build_syndication_section
+from .console_ui import (
+    console_actions,
+    console_card,
+    console_field,
+    console_form_card,
+    console_host,
+    console_kv,
+    console_notice,
+    console_pill,
+    console_result,
+    console_stat_row,
+    console_table,
+    console_toggle_row,
+)
 
 # P3-a: Group 1 (내 계정 · 워크스페이스) 섹션이 쓰는 모듈.
 from ...accounts import server_tier as server_tier_mod
@@ -64,7 +78,7 @@ def _tokens_deprecation_banner_html() -> str:
     """Render the deprecation banner pointing operators and users to OAuth 2.1 in /settings/mcp."""
     mcp_link = '<a href="/settings/mcp">/settings/mcp</a>'
     message = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": mcp_link})
-    return f'<p class="proto-note" data-deprecated="tokens" role="status"><span data-icon="warning"></span> {message}</p>'
+    return console_notice(f'<span data-icon="warning"></span> {message}', tone="warn", attrs={"data-deprecated": "tokens", "role": "status"})
 
 
 ADMIN_INDEX_PATH = "/admin"
@@ -565,50 +579,26 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     if slug == "providers":
         body = (
-            f'<div class="card" id="admin-providers-card" aria-label="{escape(t("console.admin.providers.label"))}">'
-            '<div id="admin-providers-host" data-admin-panel-host="providers">'
-            f'<p class="hint">{escape(t("console.admin.providers.loading"))}</p>'
-            "</div>"
-            "</div>"
-            f'<section class="card" id="admin-providers-embed-card" aria-label="{escape(t("console.admin.providers.label"))}">'
-            '<div id="admin-providers-embed-host"></div>'
-            "</section>"
+            console_host("admin-providers-host", loading_text=t("console.admin.providers.loading"), panel_host="admin:providers", outer_id="admin-providers-card", attrs={"aria-label": t("console.admin.providers.label")})
+            + console_host("admin-providers-embed-host", outer_id="admin-providers-embed-card", attrs={"aria-label": t("console.admin.providers.label")})
         )
         return body, {}
 
     if slug == "kb":
-        body = (
-            f'<section class="card" id="admin-kb-card" aria-label="{escape(t("console.section.moderation.kb.title"))}">'
-            '<div id="admin-kb-host"></div>'
-            "</section>"
-        )
+        body = console_host("admin-kb-host", panel_host="admin:kb", outer_id="admin-kb-card", attrs={"aria-label": t("console.section.moderation.kb.title")})
         return body, {}
 
     if slug == "limits":
         body = (
-            f'<div class="card" id="admin-limits-card" aria-label="{escape(t("console.admin.limits.label"))}">'
-            '<div id="admin-limits-host" data-admin-panel-host="limits">'
-            f'<p class="hint">{escape(t("console.admin.limits.loading"))}</p>'
-            "</div>"
-            "</div>"
+            console_host("admin-limits-host", loading_text=t("console.admin.limits.loading"), panel_host="admin:limits", outer_id="admin-limits-card", attrs={"aria-label": t("console.admin.limits.label")})
             # The review of the shadow records of the same-subject source merge (EXPANSION.md §3.1). console_admin.js fills it from GET /api/admin/expansion/shadow.
-            f'<div class="card" id="admin-expansion-review-card" aria-label="{escape(t("console.js.admin.expansion_review.title"))}">'
-            '<div id="admin-expansion-review-host">'
-            f'<p class="hint">{escape(t("console.admin.limits.loading"))}</p>'
-            "</div>"
-            "</div>"
+            + console_host("admin-expansion-review-host", loading_text=t("console.admin.limits.loading"), outer_id="admin-expansion-review-card", attrs={"aria-label": t("console.js.admin.expansion_review.title")})
         )
         return body, {}
 
     if slug == "themes":
         # Theme judgement console (/moderation/themes): console_admin.js loads data from GET /api/admin/themes and GET /api/admin/reputations.
-        body = (
-            f'<section class="card" id="admin-themes-card" aria-label="{escape(t("console.section.moderation.themes.title"))}">'
-            '<div id="admin-themes-host" data-admin-panel-host="themes">'
-            f'<p class="hint">{escape(t("console.common.loading"))}</p>'
-            "</div>"
-            "</section>"
-        )
+        body = console_host("admin-themes-host", loading_text=t("console.common.loading"), panel_host="admin:themes", outer_id="admin-themes-card", attrs={"aria-label": t("console.section.moderation.themes.title")})
         return body, {}
 
     if slug == "tokens":
@@ -657,109 +647,138 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             else f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.admin.tokens.clients_empty"))}</td></tr>'
         )
         notice_banner = _tokens_deprecation_banner_html()
-        body = (
-            notice_banner
-            + f'<section class="card" id="admin-tokens-manager-card" aria-label="{escape(t("console.admin.tokens.manager_label"))}">'
-            '<div id="admin-tokens-host" data-admin-panel-host="tokens">'
-            f'<p class="hint">{escape(t("console.admin.tokens.loading"))}</p>'
-            "</div>"
-            "</section>"
-            f'<section class="card" id="admin-oauth-clients-card" aria-label="{escape(t("console.admin.tokens.clients_label"))}">'
-            f'<h2><span data-icon="lock"></span> {escape(t("console.admin.tokens.clients_title"))}</h2>'
-            f'<p class="hint">{t_code("console.admin.tokens.clients_hint", register="/oauth/register", authorize="/oauth/authorize")}</p>'
-            '<div class="pref-table-wrap">'
-            '<table class="pref-table">'
-            f'<thead><tr><th>{escape(t("console.oauth.col_client_name"))}</th><th>client_id · redirect_uris</th><th>{escape(t("console.admin.tokens.col_registered"))}</th><th>{escape(t("console.admin.tokens.col_expires"))}</th></tr></thead>'
-            f'<tbody id="pref-mcp-clients-tbody">{clients_tbody}</tbody>'
-            "</table>"
-            "</div>"
-            "</section>"
-            f'<section class="card" id="admin-token-policy-card" aria-label="{escape(t("console.admin.tokens.policy_label"))}">'
-            f'<h2><span data-icon="shield"></span> {escape(t("console.admin.tokens.policy_title"))} {prototype_badge("admin-token-policy-summary", "static")}</h2>'
-            f'{prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note"))}'
-            '<dl>'
-            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", write="write", readonly="readonly", revoke="/tokens/revoke")}</dd>'
-            f'<dt>{escape(t("console.admin.tokens.policy_oauth"))}</dt><dd>{t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")}</dd>'
-            f'<dt>{escape(t("console.admin.tokens.policy_session"))}</dt><dd>{t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")}</dd>'
-            "</dl>"
-            "</section>"
+        tokens_host_html = console_host(
+            "admin-tokens-host",
+            loading_text=t("console.admin.tokens.loading"),
+            panel_host="admin:tokens",
+            outer_id="admin-tokens-manager-card",
+            attrs={"aria-label": t("console.admin.tokens.manager_label")},
         )
+        clients_table_html = console_table(
+            [t("console.oauth.col_client_name"), "client_id · redirect_uris", t("console.admin.tokens.col_registered"), t("console.admin.tokens.col_expires")],
+            clients_tbody,
+            tbody_id="pref-mcp-clients-tbody",
+        )
+        clients_card_html = console_card(
+            escape(t("console.admin.tokens.clients_title")),
+            clients_table_html,
+            id="admin-oauth-clients-card",
+            icon="lock",
+            hint_html=t_code("console.admin.tokens.clients_hint", register="/oauth/register", authorize="/oauth/authorize"),
+            aria_label=t("console.admin.tokens.clients_label"),
+        )
+        policy_kv_html = console_kv(
+            [
+                {"label_html": t_code("console.admin.tokens.policy_permanent", prefix="cb_…"), "value_html": t_code("console.admin.tokens.policy_permanent_desc", owner="owner", write="write", readonly="readonly", revoke="/tokens/revoke")},
+                {"label": t("console.admin.tokens.policy_oauth"), "value_html": t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")},
+                {"label": t("console.admin.tokens.policy_session"), "value_html": t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")},
+            ]
+        )
+        policy_card_html = console_card(
+            escape(t("console.admin.tokens.policy_title")),
+            prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note")) + policy_kv_html,
+            id="admin-token-policy-card",
+            icon="shield",
+            badge_html=prototype_badge("admin-token-policy-summary", "static"),
+            aria_label=t("console.admin.tokens.policy_label"),
+        )
+        body = notice_banner + tokens_host_html + clients_card_html + policy_card_html
         return body, {"oauth_clients": oauth_clients_list}
 
     if slug == "mcp":
-        body = (
-            f'<section class="card" id="admin-mcp-telemetry-card" aria-label="{escape(t("console.admin.mcp.audit_label"))}">'
-            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-            f'<h2><span data-icon="list"></span> {t_code("console.admin.mcp.audit_title", table="mcp_telemetry")}</h2>'
-            '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-            f'<label style="font-size:12px;font-weight:600">{escape(t("console.common.status"))} <select id="admin-mcp-filter-status" class="pref-select">'
-            f'<option value="">{escape(t("console.admin.mcp.filter_all"))}</option>'
-            '<option value="SUCCESS">SUCCESS</option>'
-            '<option value="success">success</option>'
-            '<option value="ERROR">ERROR</option>'
-            '<option value="UNAUTHORIZED">UNAUTHORIZED</option>'
-            '<option value="auth_error">auth_error</option>'
-            "</select></label>"
-            f'<label style="font-size:12px;font-weight:600">{escape(t("console.admin.mcp.filter_tool"))} <input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="{escape(t("console.admin.mcp.filter_tool_placeholder"))}" style="width:130px"/></label>'
-            f'<label style="font-size:12px;font-weight:600">{escape(t("console.admin.mcp.filter_limit"))} <select id="admin-mcp-filter-limit" class="pref-select">'
-            f'<option value="25">{escape(t("console.admin.mcp.limit_25"))}</option>'
-            f'<option value="50" selected>{escape(t("console.admin.mcp.limit_50"))}</option>'
-            f'<option value="100">{escape(t("console.admin.mcp.limit_100"))}</option>'
-            f'<option value="200">{escape(t("console.admin.mcp.limit_200"))}</option>'
-            "</select></label>"
-            f'<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">{escape(t("console.common.refresh"))}</button>'
-            "</div>"
-            "</div>"
-            f'<p class="hint">{t_code("console.admin.mcp.audit_hint", endpoint="GET /api/admin/mcp/telemetry")}</p>'
-            '<p class="result" id="admin-mcp-telemetry-status" role="status" aria-live="polite"></p>'
-            '<div class="pref-table-wrap">'
-            '<table class="pref-table">'
-            f'<thead><tr><th>{escape(t("console.admin.mcp.col_time"))}</th><th>call_type</th><th>tool_name</th><th>status</th><th>duration_ms</th><th>response_bytes</th><th>client_id</th></tr></thead>'
-            f'<tbody id="pref-mcp-audit-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.mcp.audit_loading"))}</td></tr></tbody>'
-            "</table>"
-            "</div>"
-            "</section>"
-            f'<section class="card" id="admin-mcp-rbac-card" aria-label="{escape(t("console.admin.mcp.rbac_label"))}">'
-            f'<h2><span data-icon="compass"></span> {escape(t("console.admin.mcp.rbac_title"))} {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
-            f'{prototype_note("admin-mcp-rbac-table", t("console.admin.mcp.rbac_note"))}'
-            f'<p class="hint">{t_code("console.admin.mcp.rbac_hint", endpoint="/mcp")}</p>'
-            '<div class="pref-table-wrap">'
-            '<table class="pref-table">'
-            f'<thead><tr><th>{escape(t("console.admin.mcp.rbac_col_scope"))}</th><th>{escape(t("console.admin.mcp.rbac_col_design"))}</th><th>{escape(t("console.admin.mcp.rbac_col_current"))}</th><th>{escape(t("console.admin.mcp.rbac_col_result"))}</th></tr></thead>'
-            '<tbody id="pref-mcp-rbac-tbody">'
-            f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
-            f'<tr><td><code class="pref-mono">write</code></td><td>{escape(t("console.admin.mcp.rbac_write_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
-            f'<tr><td><code class="pref-mono">readonly</code></td><td>{escape(t("console.admin.mcp.rbac_readonly_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
-            f'<tr><td><code class="pref-mono">anonymous</code></td><td>{escape(t("console.admin.mcp.rbac_anonymous_design"))}</td><td>{escape(t("console.admin.mcp.rbac_anonymous_current"))}</td><td><span class="pref-pill">{escape(t("console.admin.mcp.rbac_stricter"))}</span></td></tr>'
-            "</tbody>"
-            "</table>"
-            "</div>"
-            "</section>"
-            f'<section class="card" id="admin-webmcp-policy-card" aria-label="{escape(t("console.admin.mcp.webmcp_label"))}">'
-            f'<h2><span data-icon="graph"></span> {t_code("console.admin.mcp.webmcp_title", header="Permissions-Policy")} {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
-            f'{prototype_note("admin-webmcp-global-switch", t("console.admin.mcp.webmcp_note"))}'
+        telemetry_controls = (
+            '<div class="console-form-row">'
+            + console_field(
+                t("console.common.status"),
+                f'<select id="admin-mcp-filter-status" class="pref-select"><option value="">{escape(t("console.admin.mcp.filter_all"))}</option><option value="SUCCESS">SUCCESS</option><option value="success">success</option><option value="ERROR">ERROR</option><option value="UNAUTHORIZED">UNAUTHORIZED</option><option value="auth_error">auth_error</option></select>',
+                for_id="admin-mcp-filter-status",
+            )
+            + console_field(
+                t("console.admin.mcp.filter_tool"),
+                f'<input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="{escape(t("console.admin.mcp.filter_tool_placeholder"))}" style="width:130px"/>',
+                for_id="admin-mcp-filter-tool",
+            )
+            + console_field(
+                t("console.admin.mcp.filter_limit"),
+                f'<select id="admin-mcp-filter-limit" class="pref-select"><option value="25">{escape(t("console.admin.mcp.limit_25"))}</option><option value="50" selected>{escape(t("console.admin.mcp.limit_50"))}</option><option value="100">{escape(t("console.admin.mcp.limit_100"))}</option><option value="200">{escape(t("console.admin.mcp.limit_200"))}</option></select>',
+                for_id="admin-mcp-filter-limit",
+            )
+            + f'<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">{escape(t("console.common.refresh"))}</button>'
+            + "</div>"
+        )
+        telemetry_table_html = console_table(
+            [t("console.admin.mcp.col_time"), "call_type", "tool_name", "status", "duration_ms", "response_bytes", "client_id"],
+            f'<tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.mcp.audit_loading"))}</td></tr>',
+            tbody_id="pref-mcp-audit-tbody",
+        )
+        telemetry_card = console_card(
+            t_code("console.admin.mcp.audit_title", table="mcp_telemetry"),
+            console_result(id="admin-mcp-telemetry-status") + telemetry_table_html,
+            id="admin-mcp-telemetry-card",
+            icon="list",
+            hint_html=t_code("console.admin.mcp.audit_hint", endpoint="GET /api/admin/mcp/telemetry"),
+            actions_html=telemetry_controls,
+            aria_label=t("console.admin.mcp.audit_label"),
+        )
+        rbac_rows = (
+            f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td>{console_pill(t("console.admin.mcp.rbac_match"), tone="ok")}</td></tr>'
+            f'<tr><td><code class="pref-mono">write</code></td><td>{escape(t("console.admin.mcp.rbac_write_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td>{console_pill(t("console.admin.mcp.rbac_review"), tone="warn")}</td></tr>'
+            f'<tr><td><code class="pref-mono">readonly</code></td><td>{escape(t("console.admin.mcp.rbac_readonly_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td>{console_pill(t("console.admin.mcp.rbac_match"), tone="ok")}</td></tr>'
+            f'<tr><td><code class="pref-mono">anonymous</code></td><td>{escape(t("console.admin.mcp.rbac_anonymous_design"))}</td><td>{escape(t("console.admin.mcp.rbac_anonymous_current"))}</td><td>{console_pill(t("console.admin.mcp.rbac_stricter"), tone="neutral")}</td></tr>'
+        )
+        rbac_card = console_card(
+            escape(t("console.admin.mcp.rbac_title")),
+            prototype_note("admin-mcp-rbac-table", t("console.admin.mcp.rbac_note"))
+            + f'<p class="hint">{t_code("console.admin.mcp.rbac_hint", endpoint="/mcp")}</p>'
+            + console_table(
+                [t("console.admin.mcp.rbac_col_scope"), t("console.admin.mcp.rbac_col_design"), t("console.admin.mcp.rbac_col_current"), t("console.admin.mcp.rbac_col_result")],
+                rbac_rows,
+                tbody_id="pref-mcp-rbac-tbody",
+            ),
+            id="admin-mcp-rbac-card",
+            icon="compass",
+            badge_html=prototype_badge("admin-mcp-rbac-table", "static"),
+            aria_label=t("console.admin.mcp.rbac_label"),
+        )
+        webmcp_switch_row = (
             '<div class="pref-row">'
             '<div class="pref-row-label">'
-            f'<strong>{t_code("console.admin.mcp.webmcp_switch", api="document.modelContext")}</strong>'
+            f'<label for="pref-webmcp-enabled"><strong>{t_code("console.admin.mcp.webmcp_switch", api="document.modelContext")}</strong></label>'
             f'<span>{t_code("console.admin.mcp.webmcp_switch_desc", header="Permissions-Policy: tools=()")}</span>'
             "</div>"
             f'<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="{escape(t("console.admin.mcp.webmcp_switch_label"))}"/>'
             "</div>"
-            f'<p class="hint" id="admin-webmcp-policy-hint">{t_code("console.admin.mcp.webmcp_state_hint", path="/settings/webmcp")}</p>'
-            "</section>"
-            f'<section class="card" id="admin-support-bundle-card" aria-label="{escape(t("console.admin.mcp.bundle_label"))}">'
-            f'<h2><span data-icon="package"></span> {t_code("console.admin.mcp.bundle_title", endpoint="POST /support/bundle")}</h2>'
-            f'<p class="hint">{escape(t("console.admin.mcp.bundle_hint"))}</p>'
-            '<form id="admin-support-bundle-form" data-support-bundle-form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.mcp.bundle_days"))}'
-            '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>'
-            "</label>"
-            f'<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> {escape(t("console.admin.mcp.bundle_submit"))}</button>'
-            "</form>"
-            '<p class="result" id="admin-support-bundle-result" data-support-bundle-result role="status" aria-live="polite"></p>'
-            "</section>"
         )
-        return body, {}
+        webmcp_card = console_card(
+            t_code("console.admin.mcp.webmcp_title", header="Permissions-Policy"),
+            prototype_note("admin-webmcp-global-switch", t("console.admin.mcp.webmcp_note"))
+            + webmcp_switch_row
+            + f'<p class="hint" id="admin-webmcp-policy-hint">{t_code("console.admin.mcp.webmcp_state_hint", path="/settings/webmcp")}</p>',
+            id="admin-webmcp-policy-card",
+            icon="graph",
+            badge_html=prototype_badge("admin-webmcp-global-switch", "client_only"),
+            aria_label=t("console.admin.mcp.webmcp_label"),
+        )
+        bundle_form_html = (
+            '<form id="admin-support-bundle-form" class="console-form-row" data-support-bundle-form>'
+            + console_field(
+                t("console.admin.mcp.bundle_days"),
+                '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>',
+                for_id="admin-support-bundle-days",
+            )
+            + f'<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> {escape(t("console.admin.mcp.bundle_submit"))}</button>'
+            + "</form>"
+            + console_result(id="admin-support-bundle-result", attrs={"data-support-bundle-result": True})
+        )
+        bundle_card = console_card(
+            t_code("console.admin.mcp.bundle_title", endpoint="POST /support/bundle"),
+            bundle_form_html,
+            id="admin-support-bundle-card",
+            icon="package",
+            hint_html=escape(t("console.admin.mcp.bundle_hint")),
+            aria_label=t("console.admin.mcp.bundle_label"),
+        )
+        return telemetry_card + rbac_card + webmcp_card + bundle_card, {}
 
     return (
         f'<div class="console-placeholder" data-area="admin" data-slug="{escape(slug)}">'
@@ -790,81 +809,82 @@ def _settings_invites_render(
 
     can_issue_invites = mode == "network" and (admin_viewer or member_invites_enabled)
     if mode != "network":
-        issue_inner = f'<div class="pref-notice">{escape(t("console.settings.invites.single_notice"))}</div>'
+        issue_inner = console_notice(escape(t("console.settings.invites.single_notice")))
     elif not can_issue_invites:
-        issue_inner = f'<div class="pref-notice">{escape(t("console.settings.invites.member_disabled_notice"))}</div>'
+        issue_inner = console_notice(escape(t("console.settings.invites.member_disabled_notice")))
     else:
         issue_inner = (
-            '<form id="invites-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.max_uses"))}'
-            '<select name="max_uses" class="pref-input" style="width:90px" required>'
-            '<option value="1" selected>1</option>'
-            '<option value="3">3</option>'
-            '<option value="5">5</option>'
-            "</select>"
-            "</label>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.expires_in"))}'
-            '<select name="expires_in" class="pref-input" style="width:120px" required>'
-            f'<option value="1800">{escape(t("console.settings.invites.exp_30m"))}</option>'
-            f'<option value="3600">{escape(t("console.settings.invites.exp_1h"))}</option>'
-            f'<option value="21600">{escape(t("console.settings.invites.exp_6h"))}</option>'
-            f'<option value="86400">{escape(t("console.settings.invites.exp_1d"))}</option>'
-            f'<option value="604800" selected>{escape(t("console.settings.invites.exp_7d"))}</option>'
-            "</select>"
-            "</label>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.note"))}'
-            f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.settings.invites.note_placeholder"))}" style="width:180px"/>'
-            "</label>"
-            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.invites.submit"))}</button>'
-            "</form>"
+            '<form id="invites-create-form" class="console-form-row" data-invite-create-form>'
+            + console_field(
+                t("console.settings.invites.max_uses"),
+                '<select name="max_uses" class="pref-input" style="width:90px" required><option value="1" selected>1</option><option value="3">3</option><option value="5">5</option></select>',
+            )
+            + console_field(
+                t("console.settings.invites.expires_in"),
+                (
+                    '<select name="expires_in" class="pref-input" style="width:120px" required>'
+                    f'<option value="1800">{escape(t("console.settings.invites.exp_30m"))}</option>'
+                    f'<option value="3600">{escape(t("console.settings.invites.exp_1h"))}</option>'
+                    f'<option value="21600">{escape(t("console.settings.invites.exp_6h"))}</option>'
+                    f'<option value="86400">{escape(t("console.settings.invites.exp_1d"))}</option>'
+                    f'<option value="604800" selected>{escape(t("console.settings.invites.exp_7d"))}</option>'
+                    "</select>"
+                ),
+            )
+            + console_field(
+                t("console.settings.invites.note"),
+                f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.settings.invites.note_placeholder"))}" style="width:180px"/>',
+            )
+            + f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.invites.submit"))}</button>'
+            + "</form>"
         )
 
-    issue_section = (
-        f'<section class="card" id="invites-issue-section" aria-label="{escape(t("console.settings.invites.issue_label"))}">'
-        f'<h2><span data-icon="mail"></span> {escape(t("console.settings.invites.issue_title"))}</h2>'
-        f'<p class="hint">{escape(t("console.settings.invites.issue_hint"))}</p>'
-        f"{issue_inner}"
-        '<p class="result" id="invites-result" data-invite-result role="status" aria-live="polite"></p>'
-        "</section>"
+    issue_section = console_card(
+        escape(t("console.settings.invites.issue_title")),
+        f"{issue_inner}{console_result(id='invites-result', attrs={'data-invite-result': True})}",
+        id="invites-issue-section",
+        icon="mail",
+        hint_html=escape(t("console.settings.invites.issue_hint")),
+        aria_label=t("console.settings.invites.issue_label"),
     )
 
     if admin_viewer:
-        header_cells = (
-            f'<th>{escape(t("console.settings.invites.col_code"))}</th>'
-            f'<th>{escape(t("console.common.status"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_issuer"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_expires"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_joined_users"))}</th>'
-            f'<th>{escape(t("console.common.manage"))}</th>'
-        )
-        col_count = 8
+        headers = [
+            t("console.settings.invites.col_code"),
+            t("console.common.status"),
+            t("console.settings.invites.col_usage"),
+            t("console.settings.invites.col_issuer"),
+            t("console.settings.invites.col_expires"),
+            t("console.settings.invites.col_note"),
+            t("console.settings.invites.col_joined_users"),
+            t("console.common.manage"),
+        ]
     else:
-        header_cells = (
-            f'<th>{escape(t("console.settings.invites.col_code"))}</th>'
-            f'<th>{escape(t("console.common.status"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_expires"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_joined_users"))}</th>'
-            f'<th>{escape(t("console.common.manage"))}</th>'
-        )
-        col_count = 7
+        headers = [
+            t("console.settings.invites.col_code"),
+            t("console.common.status"),
+            t("console.settings.invites.col_usage"),
+            t("console.settings.invites.col_expires"),
+            t("console.settings.invites.col_note"),
+            t("console.settings.invites.col_joined_users"),
+            t("console.common.manage"),
+        ]
+    col_count = len(headers)
 
     initial_msg = t("console.settings.invites.loading") if mode == "network" else t("console.settings.invites.single_list_empty")
-    list_section = (
-        f'<section class="card" id="invites-list-section" aria-label="{escape(t("console.settings.invites.list_label"))}">'
-        f'<h2><span data-icon="mail"></span> {escape(t("console.settings.invites.list_title"))}</h2>'
-        f'<p class="hint">{escape(t("console.settings.invites.list_hint"))}</p>'
-        '<div class="pref-table-wrap">'
-        '<table class="pref-table">'
-        f"<thead><tr>{header_cells}</tr></thead>"
-        f'<tbody id="invites-tbody"><tr><td colspan="{col_count}" style="color:var(--muted);text-align:center;">{escape(initial_msg)}</td></tr></tbody>'
-        "</table>"
-        "</div>"
-        f'<div id="invites-pagination" style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px" hidden><button type="button" class="pref-btn" id="invites-load-more">{escape(t("console.settings.invites.load_more"))}</button></div>'
-        "</section>"
+    list_table_html = console_table(
+        headers,
+        f'<tr><td colspan="{col_count}" style="color:var(--muted);text-align:center;">{escape(initial_msg)}</td></tr>',
+        tbody_id="invites-tbody",
+    )
+    pagination_html = f'<div class="console-actions console-actions-end" id="invites-pagination" hidden><button type="button" class="pref-btn" id="invites-load-more">{escape(t("console.settings.invites.load_more"))}</button></div>'
+    list_section = console_card(
+        escape(t("console.settings.invites.list_title")),
+        list_table_html + pagination_html,
+        id="invites-list-section",
+        icon="mail",
+        hint_html=escape(t("console.settings.invites.list_hint")),
+        aria_label=t("console.settings.invites.list_label"),
     )
 
     return SettingsSectionRender(
@@ -909,13 +929,13 @@ def _build_settings_account_section(
         # An account has one personal knowledge base (design Section 3). The page shows its number.
         personal_num = next((ids.format_public_id(kb.number) for kb in owned_themes if kb.is_personal and kb.number is not None), "")
         return SettingsSectionRender(
-            body_html='<div id="settings-kb-host"></div>',
+            body_html=console_host("settings-kb-host", panel_host="settings:kb"),
             extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}, "personal_kb_number": personal_num},
             extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
         )
     elif spec.slug == "kb_manage":
         return SettingsSectionRender(
-            body_html='<div id="settings-kb-manage-host"></div>',
+            body_html=console_host("settings-kb-manage-host", panel_host="settings:kb_manage"),
             extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}},
             extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
         )
@@ -990,7 +1010,7 @@ def _settings_tier_rows_html(tier: ServerTier) -> str:
         (t("console.tier.max_documents"), f"{tier.max_documents:,}"),
         (t("console.tier.byok_concurrency"), f"{tier.byok_max_concurrency:,}"),
     )
-    return "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
+    return console_kv(rows, attrs={"data-server-tier": True})
 
 
 def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool, include_tokens: bool = False) -> str:
@@ -1017,20 +1037,28 @@ def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool, inc
 
 def _settings_reauth_form_html(*, has_password: bool, form_id: str) -> str:
     if not has_password:
-        return (
-            f'<section class="console-subcard" id="{escape(form_id)}" data-settings-reauth="none" aria-label="{escape(t("console.reauth.submit"))}">'
-            f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.submit'))}</h2>"
-            f'<p class="hint">{escape(t("console.reauth.no_password_hint"))}</p>'
-            "</section>"
+        return console_card(
+            escape(t("console.reauth.submit")),
+            "",
+            id=form_id,
+            icon="lock",
+            hint_html=escape(t("console.reauth.no_password_hint")),
+            aria_label=t("console.reauth.submit"),
+            attrs={"data-settings-reauth": "none"},
         )
-    return (
-        f'<form class="console-subcard" id="{escape(form_id)}" data-settings-form="reauth" aria-label="{escape(t("console.reauth.submit"))}">'
-        f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.form_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.reauth.form_hint"))}</p>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.current_password"))}<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
+    body = (
+        console_field(t("console.settings.account.current_password"), '<input name="password" type="password" class="pref-input" required autocomplete="current-password"/>')
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    return console_form_card(
+        escape(t("console.reauth.form_title")),
+        body,
+        id=form_id,
+        icon="lock",
+        hint_html=escape(t("console.reauth.form_hint")),
+        aria_label=t("console.reauth.submit"),
+        attrs={"data-settings-form": "reauth"},
     )
 
 
@@ -1075,39 +1103,37 @@ def _settings_account_body(
         ("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")),
         ("extraction_mode", t("console.settings.account.extraction_mode_label"), _extraction_mode_text(account.extraction_mode)),
     ]
-    info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
+    info_html = console_kv([{"label": label, "value": value, "attrs": {"data-account-field": key}} for key, label, value in info_rows])
     # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
     federation_on = _federation_on(ctx)
-    step_up_attr = ""
+    profile_toggle_attrs: dict[str, Any] = {"data-settings-toggle": "profile-public"}
     if federation_on:
-        step_up_attr = ' data-step-up="password"' if has_password else ' data-step-up="session"'
-    federation_hint_html = (
-        f'<p class="hint" data-federation-hint>{escape(t("console.settings.account.federation_hint"))}</p>'
-        if federation_on
-        else ""
-    )
+        profile_toggle_attrs["data-step-up"] = "password" if has_password else "session"
+    if account.profile_public:
+        profile_toggle_attrs["checked"] = True
+    profile_toggle_attrs["aria-label"] = t("console.settings.account.profile_public_label")
+    federation_hint_html = f'<p class="hint" data-federation-hint>{escape(t("console.settings.account.federation_hint"))}</p>' if federation_on else ""
     profile_toggle_html = (
-        '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
-        f'<label for="pref-profile-public" style="font-size:12.5px;font-weight:600">{escape(t("console.settings.account.profile_public"))}</label>'
-        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{step_up_attr}{" checked" if account.profile_public else ""} aria-label="{escape(t("console.settings.account.profile_public_label"))}"/>'
-        '</div>'
-        f'{federation_hint_html}'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        console_toggle_row(t("console.settings.account.profile_public"), "pref-profile-public", checked=False, attrs=profile_toggle_attrs)
+        + federation_hint_html
+        + console_result(attrs={"data-settings-result": True})
     )
     # Schema v37: the sources of the documents of the personal knowledge base for other readers. Both modes: in single mode other readers can read the knowledge base of the admin too.
     source_toggle_html = (
         '<div data-source-public>'
-        '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
-        f'<label for="pref-personal-source-public" style="font-size:12.5px;font-weight:600">{escape(t("console.settings.account.source_public"))}</label>'
-        f'<input id="pref-personal-source-public" type="checkbox" switch data-settings-toggle="personal-source-public"{" checked" if account.personal_source_public else ""} aria-label="{escape(t("console.settings.account.source_public"))}"/>'
-        '</div>'
-        f'<p class="hint" data-source-public-hint>{escape(t("console.settings.account.source_public_hint"))}</p>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        '</div>'
+        + console_toggle_row(
+            t("console.settings.account.source_public"),
+            "pref-personal-source-public",
+            checked=bool(account.personal_source_public),
+            attrs={"data-settings-toggle": "personal-source-public", "aria-label": t("console.settings.account.source_public")},
+        )
+        + f'<p class="hint" data-source-public-hint>{escape(t("console.settings.account.source_public_hint"))}</p>'
+        + console_result(attrs={"data-settings-result": True})
+        + "</div>"
     )
 
     current_pw_html = (
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.current_password"))}<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        console_field(t("console.settings.account.current_password"), '<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/>')
         if has_password
         else f'<p class="hint">{escape(t("console.settings.account.no_password_hint"))}</p>'
     )
@@ -1118,7 +1144,7 @@ def _settings_account_body(
         for p in providers
     )
     link_html = (
-        f'<div style="display:flex;gap:8px;flex-wrap:wrap" data-identity-link-list>{provider_buttons}</div>'
+        f'<div class="console-actions" data-identity-link-list>{provider_buttons}</div>'
         if provider_buttons
         else f'<p class="hint" data-identity-link-empty>{escape(t("console.settings.account.identity_link_empty"))}</p>'
     )
@@ -1129,12 +1155,12 @@ def _settings_account_body(
     )
     if bundle_options:
         bundle_html = (
-            '<form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap" data-settings-form="bundle-export">'
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.bundle_theme"))}<select name="theme" class="pref-select" required>{bundle_options}</select></label>'
-            f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.settings.account.bundle_submit"))}</button>'
-            "</form>"
-            '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-            '<div data-bundle-output aria-live="polite"></div>'
+            '<form class="console-form-row" data-settings-form="bundle-export">'
+            + console_field(t("console.settings.account.bundle_theme"), f'<select name="theme" class="pref-select" required>{bundle_options}</select>')
+            + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.settings.account.bundle_submit"))}</button>'
+            + "</form>"
+            + console_result(attrs={"data-settings-result": True})
+            + '<div data-bundle-output aria-live="polite"></div>'
         )
     else:
         bundle_html = f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
@@ -1142,10 +1168,10 @@ def _settings_account_body(
     if admin_viewer:
         lifecycle_html = f'<p class="hint" data-lifecycle="admin">{escape(t("console.settings.account.lifecycle_admin"))}</p>'
     elif account.status == "deleting":
-        lifecycle_html = (
-            '<div class="pref-notice" data-tone="warn" data-lifecycle="deleting">'
-            f"{escape(t('console.settings.account.lifecycle_deleting', when=format_ts(account.delete_after)))}"
-            "</div>"
+        lifecycle_html = console_notice(
+            escape(t("console.settings.account.lifecycle_deleting", when=format_ts(account.delete_after))),
+            tone="warn",
+            attrs={"data-lifecycle": "deleting"},
         )
     else:
         lifecycle_html = (
@@ -1161,75 +1187,110 @@ def _settings_account_body(
 
     notice_key = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
     notice_text = t(notice_key) if notice_key else ""
-    notice_html = f'<p class="pref-notice" data-account-notice="{escape(notice or "")}" role="status">{escape(notice_text)}</p>' if notice_text else ""
+    notice_html = console_notice(escape(notice_text), attrs={"data-account-notice": notice or "", "role": "status"}) if notice_text else ""
     username_form_html = ""
     if account.username:
-        username_step_attr = f' data-reauth-mode="{"password" if has_password else "session"}"'
-        username_form_html = (
-            f'<form class="console-subcard" id="settings-username" data-settings-form="username"{username_step_attr} aria-label="{escape(t("console.settings.account.username_title"))}">'
-            f"<h2><span data-icon='id'></span> {escape(t('console.settings.account.username_title'))}</h2>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("auth.field.username"))}'
-            f'<input name="username" type="text" class="pref-input" value="{escape(account.username)}" minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{{2,29}}" required autocomplete="username" autocapitalize="none" spellcheck="false"/>'
-            "</label>"
-            f'<p class="hint">{escape(t("console.settings.account.username_rules"))}</p>'
-            f'<p class="hint">{escape(t("console.settings.account.username_hold_hint"))}</p>'
-            f'<p class="hint">{escape(t("console.settings.account.username_federation_hint"))}</p>'
-            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-            '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-            "</form>"
+        username_body = (
+            console_field(
+                t("auth.field.username"),
+                f'<input name="username" type="text" class="pref-input" value="{escape(account.username)}" minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{{2,29}}" required autocomplete="username" autocapitalize="none" spellcheck="false"/>',
+            )
+            + f'<p class="hint">{escape(t("console.settings.account.username_rules"))}</p>'
+            + f'<p class="hint">{escape(t("console.settings.account.username_hold_hint"))}</p>'
+            + f'<p class="hint">{escape(t("console.settings.account.username_federation_hint"))}</p>'
+            + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+            + console_result(attrs={"data-settings-result": True})
         )
-    body = (
-        f"{notice_html}"
-        f'<section class="console-subcard" id="settings-account-info" aria-label="{escape(t("console.settings.account.info_title"))}">'
-        f"<h2><span data-icon='id'></span> {escape(t('console.settings.account.info_title'))}</h2>"
-        f"<dl>{info_html}</dl>"
-        f"{profile_toggle_html}"
-        f"{source_toggle_html}"
-        "</section>"
-        f"{username_form_html}"
-        f'<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="{escape(t("console.settings.account.display_name"))}">'
-        f"<h2><span data-icon='tag'></span> {escape(t('console.settings.account.display_name'))}</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.display_name"))}<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f"{_settings_locale_html(account)}"
-        f"{_settings_entity_language_html(account)}"
-        f"{_settings_extraction_mode_html(account)}"
-        f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
-        f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="{escape(t("console.settings.account.password"))}">'
-        f"<h2><span data-icon='key'></span> {escape(t('console.settings.account.password_change') if has_password else t('console.settings.account.password_setup'))}</h2>"
-        f"{current_pw_html}"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.new_password"))}<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.new_password_confirm"))}<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
-        f"<p class=\"hint\">{escape(t('console.settings.account.password_rules', min=min_len))}</p>"
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<section class="console-subcard" id="settings-identities" data-settings-identities aria-label="{escape(t("console.settings.account.identities_label"))}">'
-        f"<h2><span data-icon='link'></span> {escape(t('console.settings.account.identities_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.settings.account.identities_hint"))}</p>'
+        username_form_html = console_form_card(
+            escape(t("console.settings.account.username_title")),
+            username_body,
+            id="settings-username",
+            icon="id",
+            aria_label=t("console.settings.account.username_title"),
+            attrs={"data-settings-form": "username", "data-reauth-mode": "password" if has_password else "session"},
+        )
+
+    display_name_body = (
+        console_field(t("console.settings.account.display_name"), f'<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/>')
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    password_body = (
+        current_pw_html
+        + console_field(t("console.settings.account.new_password"), f'<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/>')
+        + console_field(t("console.settings.account.new_password_confirm"), f'<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/>')
+        + f'<p class="hint">{escape(t("console.settings.account.password_rules", min=min_len))}</p>'
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    identities_table_html = (
         '<div class="pref-table-wrap"><table class="pref-table">'
         f"<thead><tr><th>{escape(t('console.settings.account.identities_col_provider'))}</th><th>{escape(t('console.settings.account.identities_col_linked'))}</th><th>{escape(t('console.settings.account.identities_col_last_login'))}</th><th></th></tr></thead>"
         f'<tbody data-identities-tbody><tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.settings.account.identities_loading"))}</td></tr></tbody>'
         "</table></div>"
-        f"{link_html}"
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</section>"
-        f'<section class="console-subcard" id="settings-quota" aria-label="{escape(t("console.settings.account.quota_title"))}">'
-        f"<h2><span data-icon='ruler'></span> {escape(t('console.settings.account.quota_title'))}</h2>"
-        f'<p class="hint">{escape(quota_hint)}</p>'
-        f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=admin_viewer)}</div>'
-        "</section>"
-        f'<section class="console-subcard" id="settings-bundle" aria-label="{escape(t("console.settings.account.bundle_label"))}">'
-        f"<h2><span data-icon='package'></span> {escape(t('console.settings.account.bundle_title'))}</h2>"
-        f'<p class="hint">{t_code("console.settings.account.bundle_hint", endpoint="POST /graph/bundle")}</p>'
-        f"{bundle_html}"
-        "</section>"
-        f'<section class="console-subcard" id="settings-account-lifecycle" aria-label="{escape(t("console.settings.account.lifecycle_title"))}">'
-        f"<h2><span data-icon='trash'></span> {escape(t('console.settings.account.lifecycle_title'))}</h2>"
-        f"{lifecycle_html}"
-        "</section>"
+    )
+    body = (
+        f"{notice_html}"
+        + console_card(
+            escape(t("console.settings.account.info_title")),
+            info_html + profile_toggle_html + source_toggle_html,
+            id="settings-account-info",
+            icon="id",
+            aria_label=t("console.settings.account.info_title"),
+        )
+        + username_form_html
+        + console_form_card(
+            escape(t("console.settings.account.display_name")),
+            display_name_body,
+            id="settings-display-name",
+            icon="tag",
+            aria_label=t("console.settings.account.display_name"),
+            attrs={"data-settings-form": "display-name"},
+        )
+        + _settings_locale_html(account)
+        + _settings_entity_language_html(account)
+        + _settings_extraction_mode_html(account)
+        + _settings_reauth_form_html(has_password=has_password, form_id="settings-account-reauth")
+        + console_form_card(
+            escape(t("console.settings.account.password_change") if has_password else t("console.settings.account.password_setup")),
+            password_body,
+            id="settings-password",
+            icon="key",
+            aria_label=t("console.settings.account.password"),
+            attrs={"data-settings-form": "password", "data-has-password": "1" if has_password else "0"},
+        )
+        + console_card(
+            escape(t("console.settings.account.identities_title")),
+            identities_table_html + link_html + console_result(attrs={"data-settings-result": True}),
+            id="settings-identities",
+            icon="link",
+            hint_html=escape(t("console.settings.account.identities_hint")),
+            aria_label=t("console.settings.account.identities_label"),
+            attrs={"data-settings-identities": True},
+        )
+        + console_card(
+            escape(t("console.settings.account.quota_title")),
+            console_stat_row(_settings_usage_stats_html(usage, admin_viewer=admin_viewer), attrs={"data-usage-stats": True}),
+            id="settings-quota",
+            icon="ruler",
+            hint_html=escape(quota_hint),
+            aria_label=t("console.settings.account.quota_title"),
+        )
+        + console_card(
+            escape(t("console.settings.account.bundle_title")),
+            bundle_html,
+            id="settings-bundle",
+            icon="package",
+            hint_html=t_code("console.settings.account.bundle_hint", endpoint="POST /graph/bundle"),
+            aria_label=t("console.settings.account.bundle_label"),
+        )
+        + console_card(
+            escape(t("console.settings.account.lifecycle_title")),
+            lifecycle_html,
+            id="settings-account-lifecycle",
+            icon="trash",
+            aria_label=t("console.settings.account.lifecycle_title"),
+        )
     )
     extra = {
         "has_password": has_password,
@@ -1240,38 +1301,30 @@ def _settings_account_body(
 
 def _settings_locale_html(account: accounts_store.Account) -> str:
     """The interface language selector ``#pref-account-locale`` (I18N design Section 6.2). The empty value is automatic negotiation. ``console_account.js`` sends the change with ``PATCH /api/me`` and loads the page again."""
-    title = icon_html("globe") + " " + escape(t("console.account.locale_title"))
-    label = escape(t("console.account.locale_label"))
+    label = t("console.account.locale_label")
     options = f'<option value=""{"" if account.locale else " selected"}>{escape(t("console.account.locale_auto"))}</option>' + "".join(
         f'<option value="{code}"{" selected" if account.locale == code else ""}>{escape(t(f"locale.name.{code}"))}</option>' for code in SUPPORTED_LOCALES
     )
-    return (
-        f'<section class="console-subcard" id="settings-locale" aria-label="{label}">'
-        f"<h2>{title}</h2>"
-        f'<label for="pref-account-locale" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
-        f'<select id="pref-account-locale" class="pref-input" data-settings-locale>{options}</select></label>'
-        f'<p class="hint">{escape(t("console.account.locale_hint"))}</p>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</section>"
+    body = (
+        console_field(label, f'<select id="pref-account-locale" class="pref-input" data-settings-locale>{options}</select>', for_id="pref-account-locale")
+        + f'<p class="hint">{escape(t("console.account.locale_hint"))}</p>'
+        + console_result(attrs={"data-settings-result": True})
     )
+    return console_card(escape(t("console.account.locale_title")), body, id="settings-locale", icon="globe", aria_label=label)
 
 
 def _settings_entity_language_html(account: accounts_store.Account) -> str:
     """The entity language selector ``#pref-account-entity-language`` (ontology.label_language). The empty value shows the stored main labels. ``console_account.js`` sends the change with ``PATCH /api/me``."""
-    title = icon_html("globe") + " " + escape(t("console.account.entity_language_title"))
-    label = escape(t("console.account.entity_language_label"))
+    label = t("console.account.entity_language_label")
     options = f'<option value=""{"" if account.entity_language else " selected"}>{escape(t("console.account.entity_language_none"))}</option>' + "".join(
         f'<option value="{code}"{" selected" if account.entity_language == code else ""}>{escape(t(f"entity_language.name.{code}"))}</option>' for code in ENTITY_LANGUAGES
     )
-    return (
-        f'<section class="console-subcard" id="settings-entity-language" aria-label="{label}">'
-        f"<h2>{title}</h2>"
-        f'<label for="pref-account-entity-language" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
-        f'<select id="pref-account-entity-language" class="pref-input" data-settings-entity-language>{options}</select></label>'
-        f'<p class="hint">{escape(t("console.account.entity_language_hint"))}</p>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</section>"
+    body = (
+        console_field(label, f'<select id="pref-account-entity-language" class="pref-input" data-settings-entity-language>{options}</select>', for_id="pref-account-entity-language")
+        + f'<p class="hint">{escape(t("console.account.entity_language_hint"))}</p>'
+        + console_result(attrs={"data-settings-result": True})
     )
+    return console_card(escape(t("console.account.entity_language_title")), body, id="settings-entity-language", icon="globe", aria_label=label)
 
 
 def _extraction_mode_text(mode: str) -> str:
@@ -1281,22 +1334,22 @@ def _extraction_mode_text(mode: str) -> str:
 
 def _settings_extraction_mode_html(account: accounts_store.Account) -> str:
     """Render the per-account extraction_mode selector (#pref-account-extraction-mode) and Agent Client onboarding notice."""
-    title = icon_html("bolt") + " " + escape(t("console.settings.account.extraction_mode_title"))
-    label = escape(t("console.settings.account.extraction_mode_label"))
+    label = t("console.settings.account.extraction_mode_label")
     mode = "client" if account.extraction_mode == "client" else "provider"
     options = f'<option value="provider"{" selected" if mode == "provider" else ""}>{escape(t("console.settings.account.extraction_mode_provider"))}</option><option value="client"{" selected" if mode == "client" else ""}>{escape(t("console.settings.account.extraction_mode_client"))}</option>'
-    hidden_attr = "" if mode == "client" else " hidden"
-    guide_notice = f'<div class="pref-notice" data-tone="ok" data-extraction-client-guide{hidden_attr} style="margin-top:8px"><p style="margin:0 0 8px">{escape(t("console.settings.account.extraction_mode_client_next"))}</p><a class="pref-btn" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a></div>'
-    return (
-        f'<section class="console-subcard" id="settings-extraction-mode" aria-label="{label}">'
-        f"<h2>{title}</h2>"
-        f'<label for="pref-account-extraction-mode" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
-        f'<select id="pref-account-extraction-mode" class="pref-input" data-settings-extraction-mode>{options}</select></label>'
-        f'<p class="hint">{escape(t("console.settings.account.extraction_mode_hint"))}</p>'
-        f"{guide_notice}"
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</section>"
+    guide_notice = console_notice(
+        f'<p style="margin:0 0 8px">{escape(t("console.settings.account.extraction_mode_client_next"))}</p>'
+        f'<a class="pref-btn" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a>',
+        tone="ok",
+        attrs={"data-extraction-client-guide": True, "hidden": mode != "client", "style": "margin-top:8px"},
     )
+    body = (
+        console_field(label, f'<select id="pref-account-extraction-mode" class="pref-input" data-settings-extraction-mode>{options}</select>', for_id="pref-account-extraction-mode")
+        + f'<p class="hint">{escape(t("console.settings.account.extraction_mode_hint"))}</p>'
+        + guide_notice
+        + console_result(attrs={"data-settings-result": True})
+    )
+    return console_card(escape(t("console.settings.account.extraction_mode_title")), body, id="settings-extraction-mode", icon="bolt", aria_label=label)
 
 
 def _settings_keys_extraction_guide_html(account: accounts_store.Account) -> str:
@@ -1305,15 +1358,18 @@ def _settings_keys_extraction_guide_html(account: accounts_store.Account) -> str
     title_text = t("console.settings.keys.extraction_guide_title")
     desc_text = t("console.settings.keys.extraction_guide_client") if mode == "client" else t("console.settings.keys.extraction_guide_provider")
     mode_badge = _extraction_mode_text(mode)
-    return (
-        f'<section class="console-subcard" id="settings-keys-extraction-guide" data-extraction-mode="{escape(mode)}" aria-label="{escape(title_text)}">'
-        f'<h2>{icon_html("bolt")} {escape(title_text)} <span class="pref-pill pref-pill-mcp">{escape(mode_badge)}</span></h2>'
-        f'<p class="hint">{escape(desc_text)}</p>'
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">'
+    actions_html = console_actions(
         f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.settings.keys.extraction_guide_change_mode"))}</a>'
         f'<a class="pref-btn pref-btn-accent" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.keys.extraction_guide_open_mcp"))}</a>'
-        "</div>"
-        "</section>"
+    )
+    return console_card(
+        escape(title_text),
+        actions_html,
+        id="settings-keys-extraction-guide",
+        icon="bolt",
+        badge_html=console_pill(mode_badge, tone="accent"),
+        hint_html=escape(desc_text),
+        attrs={"data-extraction-mode": mode, "aria-label": title_text},
     )
 
 
@@ -1329,11 +1385,16 @@ def _settings_keys_body(
     if not admin_viewer and (mode != "network" or principal.server_role != "member"):
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
-            f'<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="{escape(t("console.settings.keys.unavailable_label"))}">'
-            f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.unavailable_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.settings.keys.unavailable_hint"))}</p>'
-            "</section>"
-            f"{extraction_guide}"
+            console_card(
+                escape(t("console.settings.keys.unavailable_title")),
+                "",
+                id="settings-keys-unavailable",
+                icon="lock",
+                hint_html=escape(t("console.settings.keys.unavailable_hint")),
+                aria_label=t("console.settings.keys.unavailable_label"),
+                attrs={"data-keys-mode": "unavailable"},
+            )
+            + extraction_guide
         )
         return body, {"keys_mode": "unavailable"}
 
@@ -1350,75 +1411,79 @@ def _settings_keys_body(
     )
     # The server administrator: the personal key pays for the jobs of the account, the server providers pay for the server jobs (owner decision 2026-11-19).
     admin_card = (
-        (
-            f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-server-providers aria-label="{escape(t("console.settings.keys.admin_label"))}">'
-            f"<h2><span data-icon='bolt'></span> {escape(t('console.settings.keys.admin_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.settings.keys.admin_notice"))}</p>'
-            f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'
-            "</section>"
+        console_card(
+            escape(t("console.settings.keys.admin_title")),
+            console_actions(f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'),
+            id="settings-keys-admin-providers",
+            icon="bolt",
+            hint_html=escape(t("console.settings.keys.admin_notice")),
+            aria_label=t("console.settings.keys.admin_label"),
+            attrs={"data-keys-server-providers": True},
         )
         if admin_viewer
         else ""
     )
     if admin_viewer:
-        usage_card = (
-            f'<section class="console-subcard" id="settings-keys-usage" aria-label="{escape(t("console.settings.keys.admin_usage_label"))}">'
-            f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.admin_usage_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.settings.keys.admin_usage_hint"))}</p>'
-            f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=True, include_tokens=True)}</div>'
-            "</section>"
+        usage_card = console_card(
+            escape(t("console.settings.keys.admin_usage_title")),
+            console_stat_row(_settings_usage_stats_html(usage, admin_viewer=True, include_tokens=True), attrs={"data-usage-stats": True}),
+            id="settings-keys-usage",
+            icon="chart",
+            hint_html=escape(t("console.settings.keys.admin_usage_hint")),
+            aria_label=t("console.settings.keys.admin_usage_label"),
         )
     else:
-        usage_card = (
-            f'<section class="console-subcard" id="settings-keys-tier" aria-label="{escape(t("console.settings.keys.tier_label"))}">'
-            f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.tier_title'))}</h2>"
-            f'<p class="hint">{escape(t("console.settings.keys.tier_hint"))}</p>'
-            f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
-            f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
-            "</section>"
+        usage_card = console_card(
+            escape(t("console.settings.keys.tier_title")),
+            _settings_tier_rows_html(usage["tier"]) + console_stat_row(_settings_usage_stats_html(usage, admin_viewer=False), attrs={"data-usage-stats": True}),
+            id="settings-keys-tier",
+            icon="chart",
+            hint_html=escape(t("console.settings.keys.tier_hint")),
+            aria_label=t("console.settings.keys.tier_label"),
         )
     meta_hint = t("console.settings.keys.admin_meta_hint") if admin_viewer else t("console.settings.keys.meta_hint")
     delete_hint = t("console.settings.keys.admin_delete_hint") if admin_viewer else t("console.settings.keys.delete_hint")
-    body = (
-        f"{admin_card}"
-        f"{extraction_guide}"
-        f'<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="{escape(t("console.settings.keys.meta_label"))}">'
-        f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.meta_title'))}</h2>"
-        f'<p class="hint">{escape(meta_hint)}</p>'
+    meta_card = console_card(
+        escape(t("console.settings.keys.meta_title")),
         f'<p class="hint" data-key-storage-notice>{escape(t("console.settings.keys.storage_notice"))}</p>'
-        f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
-        "</section>"
-        f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"
-        f'<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="{escape(t("console.settings.keys.put_title"))}">'
-        f"<h2><span data-icon='plus'></span> {escape(t('console.settings.keys.put_title'))}</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
-        '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.model"))}<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.api_key"))}<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
-        f'<p class="hint">{escape(t("console.settings.keys.put_hint"))}</p>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.put_submit"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<form class="console-subcard" id="settings-keys-verify" data-settings-form="provider-key-verify" aria-label="{escape(t("console.settings.keys.verify_title"))}">'
-        f"<h2><span data-icon='repeat'></span> {escape(t('console.settings.keys.verify_title'))}</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
-        f'<p class="hint">{escape(t("console.settings.keys.verify_hint"))}</p>'
-        f'<button type="submit" class="pref-btn">{escape(t("console.settings.keys.verify_submit"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="{escape(t("console.settings.keys.delete_title"))}">'
-        f"<h2><span data-icon='trash'></span> {escape(t('console.settings.keys.delete_title'))}</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
-        f'<p class="hint">{escape(delete_hint)}</p>'
-        f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<section class="console-subcard" id="settings-keys-audit" aria-label="{escape(t("console.settings.keys.audit.title"))}">'
-        f"<h2><span data-icon='list'></span> {escape(t('console.settings.keys.audit.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.settings.keys.audit.hint", days=DECRYPTION_AUDIT_DAYS))}</p>'
-        f"{keys_routes.decryption_rows_html(decryptions)}"
-        "</section>"
-        f"{usage_card}"
+        + f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>',
+        id="settings-keys-meta",
+        icon="lock",
+        hint_html=escape(meta_hint),
+        aria_label=t("console.settings.keys.meta_label"),
+        attrs={"data-keys-mode": "byok"},
+    )
+    put_body = (
+        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
+        + '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
+        + console_field(t("console.settings.keys.model"), f'<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select>')
+        + console_field(t("console.settings.keys.api_key"), f'<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/>')
+        + f'<p class="hint">{escape(t("console.settings.keys.put_hint"))}</p>'
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.put_submit"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    verify_body = (
+        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
+        + f'<p class="hint">{escape(t("console.settings.keys.verify_hint"))}</p>'
+        + console_actions(f'<button type="submit" class="pref-btn">{escape(t("console.settings.keys.verify_submit"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    delete_body = (
+        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
+        + f'<p class="hint">{escape(delete_hint)}</p>'
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    body = (
+        admin_card
+        + extraction_guide
+        + meta_card
+        + _settings_reauth_form_html(has_password=has_password, form_id="settings-keys-reauth")
+        + console_form_card(escape(t("console.settings.keys.put_title")), put_body, id="settings-keys-put", icon="plus", aria_label=t("console.settings.keys.put_title"), attrs={"data-settings-form": "provider-key-put"})
+        + console_form_card(escape(t("console.settings.keys.verify_title")), verify_body, id="settings-keys-verify", icon="repeat", aria_label=t("console.settings.keys.verify_title"), attrs={"data-settings-form": "provider-key-verify"})
+        + console_form_card(escape(t("console.settings.keys.delete_title")), delete_body, id="settings-keys-delete", icon="trash", aria_label=t("console.settings.keys.delete_title"), attrs={"data-settings-form": "provider-key-delete"})
+        + console_card(escape(t("console.settings.keys.audit.title")), keys_routes.decryption_rows_html(decryptions), id="settings-keys-audit", icon="list", hint_html=escape(t("console.settings.keys.audit.hint", days=DECRYPTION_AUDIT_DAYS)), aria_label=t("console.settings.keys.audit.title"))
+        + usage_card
     )
     return body, {"keys_mode": "byok", "has_password": has_password}
 
@@ -1470,23 +1535,28 @@ def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Accou
         for c in clients
     )
     tbody = trs or f'<tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
-    body = (
-        notice_banner
-        + f'<section class="console-subcard" id="settings-tokens-manager-card" aria-label="{escape(t("console.settings.tokens.manager_label"))}">'
-        '<div id="settings-tokens-host" data-settings-panel-host="tokens">'
-        f'<p class="hint">{escape(t("console.settings.tokens.loading"))}</p>'
-        "</div>"
-        "</section>"
-        f'<section class="console-subcard" id="settings-oauth-clients" aria-label="{escape(t("console.settings.tokens.clients_label"))}">'
-        f"<h2><span data-icon='lock'></span> {escape(t('console.settings.tokens.clients_title'))}</h2>"
-        f'<p class="hint">{t_code("console.settings.tokens.clients_hint", authorize="/oauth/authorize")}</p>'
+    tokens_host = console_host(
+        "settings-tokens-host",
+        loading_text=t("console.settings.tokens.loading"),
+        panel_host="settings:tokens",
+        outer_id="settings-tokens-manager-card",
+        attrs={"aria-label": t("console.settings.tokens.manager_label")},
+    )
+    clients_table_html = (
         '<div class="pref-table-wrap"><table class="pref-table">'
         f"<thead><tr><th>{escape(t('console.oauth.col_client_name'))}</th><th>client_id · redirect_uris</th><th>{escape(t('console.settings.tokens.col_first_issued'))}</th><th>{escape(t('console.settings.tokens.col_last_expiry'))}</th><th>{escape(t('console.settings.tokens.col_count'))}</th></tr></thead>"
         f"<tbody data-oauth-clients-tbody>{tbody}</tbody>"
         "</table></div>"
-        "</section>"
     )
-    return body, {"oauth_clients": clients}
+    clients_card = console_card(
+        escape(t("console.settings.tokens.clients_title")),
+        clients_table_html,
+        id="settings-oauth-clients",
+        icon="lock",
+        hint_html=t_code("console.settings.tokens.clients_hint", authorize="/oauth/authorize"),
+        aria_label=t("console.settings.tokens.clients_label"),
+    )
+    return notice_banner + tokens_host + clients_card, {"oauth_clients": clients}
 
 
 def _render_console_section(

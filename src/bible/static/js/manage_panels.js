@@ -77,6 +77,188 @@
     return themes.find(t => String(t.number) === ref) || themes.find(t => String(t.id) === ref) || null;
   }
 
+  // Use ClaireConsoleUI when loaded and fall back to matching canonical markup.
+  const _ATTR_NAME_RE = /^[a-zA-Z_:][a-zA-Z0-9_.:-]*$/;
+  const _SAFE_CARD_TAGS = { section: true, div: true, form: true, article: true };
+
+  function consoleUi() {
+    return window.ClaireConsoleUI || null;
+  }
+
+  function joinCls() {
+    const out = [];
+    for (let i = 0; i < arguments.length; i += 1) {
+      const part = arguments[i];
+      if (part && String(part).trim()) out.push(String(part).trim());
+    }
+    return out.join(' ');
+  }
+
+  function attrsHtml(attrs) {
+    if (!attrs || typeof attrs !== 'object') return '';
+    const parts = [];
+    Object.keys(attrs).forEach(key => {
+      if (!_ATTR_NAME_RE.test(key)) return;
+      const val = attrs[key];
+      if (val === false || val == null) return;
+      if (val === true) parts.push(' ' + key);
+      else parts.push(' ' + key + '="' + esc(val) + '"');
+    });
+    return parts.join('');
+  }
+
+  function uiIcon(name) {
+    const cu = consoleUi();
+    if (cu && typeof cu.icon === 'function') return cu.icon(name);
+    if (!name) return '';
+    if (window.ClaireIcons && typeof window.ClaireIcons.svg === 'function') {
+      const svg = window.ClaireIcons.svg(name);
+      if (svg) return svg;
+    }
+    return '<span data-icon="' + esc(name) + '"></span>';
+  }
+
+  function uiCard(opts) {
+    const cu = consoleUi();
+    if (cu && typeof cu.card === 'function') return cu.card(opts);
+    const o = opts || {};
+    const tag = _SAFE_CARD_TAGS[o.tag] ? o.tag : 'section';
+    const cls = joinCls('console-subcard', o.split === false ? 'no-split' : '', o.extraClass);
+    const idAttr = o.id ? ' id="' + esc(o.id) + '"' : '';
+    const ariaAttr = o.ariaLabel ? ' aria-label="' + esc(o.ariaLabel) + '"' : '';
+    const titleContent = o.titleHtml != null ? String(o.titleHtml) : esc(o.title || '');
+    const iconPart = o.icon ? uiIcon(o.icon) + ' ' : '';
+    const badgePart = o.badgeHtml ? ' ' + String(o.badgeHtml) : '';
+    const headingHtml = (titleContent || o.icon || o.badgeHtml) ? '<h2>' + iconPart + titleContent + badgePart + '</h2>' : '';
+    const headerHtml = o.actionsHtml ? '<div class="console-card-head">' + headingHtml + String(o.actionsHtml) + '</div>' : headingHtml;
+    let hintHtml = '';
+    if (o.hintHtml != null && o.hintHtml !== '') hintHtml = '<p class="hint">' + String(o.hintHtml) + '</p>';
+    else if (o.hint != null && o.hint !== '') hintHtml = '<p class="hint">' + esc(o.hint) + '</p>';
+    const bodyHtml = o.bodyHtml != null ? String(o.bodyHtml) : '';
+    return '<' + tag + ' class="' + esc(cls) + '"' + idAttr + ariaAttr + attrsHtml(o.attrs) + '>' + headerHtml + hintHtml + bodyHtml + '</' + tag + '>';
+  }
+
+  function uiField(opts) {
+    const cu = consoleUi();
+    if (cu && typeof cu.field === 'function') return cu.field(opts);
+    const o = opts || {};
+    const cls = joinCls('console-field', o.extraClass);
+    const forAttr = o.id ? ' for="' + esc(o.id) + '"' : '';
+    const labelContent = o.labelHtml != null ? String(o.labelHtml) : esc(o.label || '');
+    const controlHtml = o.controlHtml != null ? String(o.controlHtml) : '';
+    let hintHtml = '';
+    if (o.hintHtml != null && o.hintHtml !== '') hintHtml = '<small class="console-field-hint">' + String(o.hintHtml) + '</small>';
+    else if (o.hint != null && o.hint !== '') hintHtml = '<small class="console-field-hint">' + esc(o.hint) + '</small>';
+    return '<label class="' + esc(cls) + '"' + forAttr + attrsHtml(o.attrs) + '>' + labelContent + controlHtml + hintHtml + '</label>';
+  }
+
+  function uiToggleRow(opts) {
+    const cu = consoleUi();
+    if (cu && typeof cu.toggleRow === 'function') return cu.toggleRow(opts);
+    const o = opts || {};
+    const idAttr = o.id ? ' id="' + esc(o.id) + '"' : '';
+    const labelContent = o.labelHtml != null ? String(o.labelHtml) : esc(o.label || '');
+    const labelEl = o.id ? '<label for="' + esc(o.id) + '"><strong>' + labelContent + '</strong></label>' : '<strong>' + labelContent + '</strong>';
+    let descHtml = '';
+    if (o.descHtml != null && o.descHtml !== '') descHtml = '<span>' + String(o.descHtml) + '</span>';
+    else if (o.desc != null && o.desc !== '') descHtml = '<span>' + esc(o.desc) + '</span>';
+    const checkedAttr = o.checked ? ' checked' : '';
+    const disabledAttr = o.disabled ? ' disabled' : '';
+    return '<div class="pref-row"><div class="pref-row-label">' + labelEl + descHtml + '</div><input' + idAttr + ' type="checkbox" switch' + checkedAttr + disabledAttr + attrsHtml(o.attrs) + '/></div>';
+  }
+
+  function uiNotice(html, tone, extraClass, attrs) {
+    const cu = consoleUi();
+    if (cu && typeof cu.notice === 'function') return cu.notice(html, tone, extraClass, attrs);
+    const cls = joinCls('pref-notice', extraClass);
+    return '<div class="' + esc(cls) + '" data-tone="' + esc(tone || 'info') + '"' + attrsHtml(attrs) + '>' + (html != null ? String(html) : '') + '</div>';
+  }
+
+  function uiPill(text, tone, extraClass, attrs) {
+    const cu = consoleUi();
+    if (cu && typeof cu.pill === 'function') return cu.pill(text, tone, extraClass, attrs);
+    const cls = joinCls('pref-pill', extraClass);
+    return '<span class="' + esc(cls) + '" data-tone="' + esc(tone || 'neutral') + '"' + attrsHtml(attrs) + '>' + esc(text) + '</span>';
+  }
+
+  function uiTable(opts) {
+    const o = opts || {};
+    const cu = consoleUi();
+    if (!o.tableId && cu && typeof cu.table === 'function') return cu.table(o);
+    const headers = Array.isArray(o.headers) ? o.headers : [];
+    const tblCls = joinCls('pref-table', o.extraClass);
+    const idAttr = o.tableId ? ' id="' + esc(o.tableId) + '"' : '';
+    const ariaAttr = o.ariaLabel ? ' aria-label="' + esc(o.ariaLabel) + '"' : '';
+    const caption = o.captionHtml ? '<caption>' + String(o.captionHtml) + '</caption>' : '';
+    let thead = '';
+    if (headers.length) {
+      thead = '<thead><tr>' + headers.map(h => {
+        if (h && typeof h === 'object') {
+          const thCls = h.className ? ' class="' + esc(h.className) + '"' : '';
+          const thContent = h.html != null ? String(h.html) : esc(h.label || '');
+          return '<th' + thCls + attrsHtml(h.attrs) + '>' + thContent + '</th>';
+        }
+        return '<th>' + esc(h) + '</th>';
+      }).join('') + '</tr></thead>';
+    }
+    const tbodyIdAttr = o.tbodyId ? ' id="' + esc(o.tbodyId) + '"' : '';
+    const bodyHtml = o.bodyHtml != null ? String(o.bodyHtml) : '';
+    return '<div class="pref-table-wrap"><table' + idAttr + ' class="' + esc(tblCls) + '"' + ariaAttr + '>' + caption + thead + '<tbody' + tbodyIdAttr + '>' + bodyHtml + '</tbody></table></div>';
+  }
+
+  function uiBtn(label, opts) {
+    const cu = consoleUi();
+    if (cu && typeof cu.btn === 'function') return cu.btn(label, opts);
+    const o = opts || {};
+    const variant = o.variant ? String(o.variant) : '';
+    const tokens = variant ? variant.split(/\s+/) : [];
+    const isAccent = tokens.indexOf('accent') >= 0 || tokens.indexOf('pri') >= 0 || tokens.indexOf('primary') >= 0;
+    const isDanger = tokens.indexOf('danger') >= 0;
+    const isSm = Boolean(o.sm) || o.size === 'sm' || tokens.indexOf('sm') >= 0;
+    const cls = joinCls('pref-btn', isAccent ? 'pref-btn-accent' : '', isDanger ? 'pref-btn-danger' : '', isSm ? 'pref-btn-sm' : '', o.extraClass);
+    const idAttr = o.id ? ' id="' + esc(o.id) + '"' : '';
+    const iconPart = o.icon ? uiIcon(o.icon) + ' ' : '';
+    const labelContent = o.labelHtml != null ? String(o.labelHtml) : esc(label || '');
+    if (o.href != null) {
+      return '<a class="' + esc(cls) + '" href="' + esc(o.href) + '"' + idAttr + attrsHtml(o.attrs) + '>' + iconPart + labelContent + '</a>';
+    }
+    const btnType = o.type ? String(o.type) : 'button';
+    const disabledAttr = o.disabled ? ' disabled' : '';
+    return '<button type="' + esc(btnType) + '" class="' + esc(cls) + '"' + idAttr + disabledAttr + attrsHtml(o.attrs) + '>' + iconPart + labelContent + '</button>';
+  }
+
+  function uiActions(html, extraClass) {
+    const cu = consoleUi();
+    if (cu && typeof cu.actions === 'function') return cu.actions(html, extraClass);
+    return '<div class="' + esc(joinCls('console-actions', extraClass)) + '">' + (html != null ? String(html) : '') + '</div>';
+  }
+
+  function renderAlertBanner(msg, isSuccess) {
+    if (!msg) return '';
+    return uiNotice(`${uiIcon(isSuccess ? 'check-circle' : 'warning')} ${esc(msg)}`, isSuccess ? 'ok' : 'danger', '', { role: 'status', 'aria-live': 'polite' });
+  }
+
+  function renderTogglePassBtn(inputId) {
+    const label = trKey('console.js.panels.providers.toggle_key');
+    return uiBtn('', { sm: true, labelHtml: '<span data-icon="eye"></span>', attrs: { onclick: `togglePassVisibility(${jsArg(inputId)})`, title: label, 'aria-label': label } });
+  }
+
+  function renderPanelLoadingCard(cardId, iconName, titleKey, loadingKey) {
+    return uiCard({ id: cardId, icon: iconName, title: trKey(titleKey), hint: trKey(loadingKey), split: false, bodyHtml: '' });
+  }
+
+  function renderPanelErrorCard(cardId, iconName, titleKey, failKey, err) {
+    return uiCard({ id: cardId, icon: iconName, title: trKey(titleKey), split: false, bodyHtml: uiNotice(`${esc(trKey(failKey))} ${esc((err && err.message) || err)}`, 'danger') });
+  }
+
+  function enhanceConsoleDom() {
+    if (window.ClaireConsoleShell && typeof window.ClaireConsoleShell.enhance === 'function') {
+      window.ClaireConsoleShell.enhance();
+    } else if (window.ClaireIcons && typeof window.ClaireIcons.hydrate === 'function') {
+      window.ClaireIcons.hydrate();
+    }
+  }
+
   // ==========================================
   // 1. PROVIDER MANAGER
   // ==========================================
@@ -188,11 +370,27 @@
   function renderModelSelectField(id, rawList, fallbackList, currentVal, defaultId) {
     const res = buildModelSelectResult(rawList, fallbackList, currentVal, defaultId);
     const disabledAttr = res.locked ? ' disabled' : '';
-    let html = `<select id="${esc(id)}"${disabledAttr} style="width:100%;box-sizing:border-box;margin-top:2px;">${res.optionsHtml}</select>`;
+    let html = `<select id="${esc(id)}" class="pref-select"${disabledAttr}>${res.optionsHtml}</select>`;
     if (res.unsupportedCurrent) {
-      html += `<div style="margin-top:3px;font-size:10px;color:var(--err,#cf222e);">${esc(trKey("console.js.panels.providers.model_unsupported", { model: res.previousVal }))}</div>`;
+      html += `<small class="console-field-hint" style="color:var(--danger);">${esc(trKey("console.js.panels.providers.model_unsupported", { model: res.previousVal }))}</small>`;
     }
     return html;
+  }
+
+  function setNoticeBox(el, tone, content, isHtml) {
+    if (!el) return;
+    if (!content) {
+      el.hidden = true;
+      el.style.display = 'none';
+      el.removeAttribute('data-tone');
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.style.display = '';
+    el.dataset.tone = tone || 'info';
+    if (isHtml) el.innerHTML = content;
+    else el.textContent = content;
   }
 
   let _capAbortCtrl = null;
@@ -275,17 +473,16 @@
     if (!cap || !cap.features) return '';
     const f = cap.features;
     const chip = (label, ok, note) => {
-      const color = ok ? 'var(--accent2,#1a7f37)' : 'var(--muted,#6e7781)';
-      const bg = ok ? 'rgba(26,127,55,0.1)' : 'rgba(136,136,136,0.1)';
-      return `<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:${bg};color:${color};margin-right:4px;margin-bottom:3px;" title="${esc(note || '')}">${ok ? esc(trKey("console.js.panels.providers.supported")) : esc(trKey("console.js.panels.providers.unsupported"))} · ${esc(label)}</span>`;
+      const prefix = ok ? trKey("console.js.panels.providers.supported") : trKey("console.js.panels.providers.unsupported");
+      return uiPill(`${prefix} · ${label}`, ok ? 'ok' : 'neutral', '', note ? { title: note } : null);
     };
-    let out = '<div style="margin:4px 0 6px;">';
-    out += chip(trKey("console.js.panels.providers.cap_extract"), Boolean(f.extract));
-    out += chip(trKey("console.js.panels.providers.cap_research"), Boolean(f.research));
-    out += chip(trKey("console.js.panels.providers.cap_embedding"), Boolean(f.embedding), cap.embedding_note || '');
-    out += chip('STT·VLM', Boolean(f.stt_vlm));
-    out += '</div>';
-    return out;
+    const items = [
+      chip(trKey("console.js.panels.providers.cap_extract"), Boolean(f.extract)),
+      chip(trKey("console.js.panels.providers.cap_research"), Boolean(f.research)),
+      chip(trKey("console.js.panels.providers.cap_embedding"), Boolean(f.embedding), cap.embedding_note || ''),
+      chip('STT·VLM', Boolean(f.stt_vlm))
+    ];
+    return uiActions(items.join(''));
   }
 
   function applyProviderCapabilities(caps) {
@@ -313,26 +510,13 @@
       const lockEl = document.getElementById('prov-cap-' + name);
       if (lockEl) {
         if (cap.locked_reason) {
-          lockEl.style.display = 'block';
-          lockEl.style.color = 'var(--err,#cf222e)';
-          lockEl.style.background = 'rgba(207,34,46,0.08)';
-          lockEl.style.borderColor = 'rgba(207,34,46,0.35)';
-          lockEl.textContent = trKey("console.js.panels.providers.locked_prefix") + ' ' + cap.locked_reason;
+          setNoticeBox(lockEl, 'danger', trKey("console.js.panels.providers.locked_prefix") + ' ' + cap.locked_reason, false);
         } else if (cap.embedding_note) {
-          lockEl.style.display = 'block';
-          lockEl.style.color = 'var(--warn,#9a6700)';
-          lockEl.style.background = 'rgba(154,103,0,0.08)';
-          lockEl.style.borderColor = 'rgba(154,103,0,0.35)';
-          lockEl.textContent = trKey("console.js.panels.providers.advisory") + ' ' + cap.embedding_note;
+          setNoticeBox(lockEl, 'warn', trKey("console.js.panels.providers.advisory") + ' ' + cap.embedding_note, false);
         } else if (cap.advisory) {
-          lockEl.style.display = 'block';
-          lockEl.style.color = 'var(--warn,#9a6700)';
-          lockEl.style.background = 'rgba(154,103,0,0.08)';
-          lockEl.style.borderColor = 'rgba(154,103,0,0.35)';
-          lockEl.textContent = cap.advisory;
+          setNoticeBox(lockEl, 'warn', cap.advisory, false);
         } else {
-          lockEl.style.display = 'none';
-          lockEl.textContent = '';
+          setNoticeBox(lockEl, '', '', false);
         }
       }
     }
@@ -364,11 +548,9 @@
     const sttEl = document.getElementById('prov-cap-stt');
     if (sttEl && caps.stt) {
       if (caps.stt.enabled && caps.stt.provider === 'gemini' && !caps.stt.ready) {
-        sttEl.style.display = 'block';
-        sttEl.textContent = trKey("console.js.panels.providers.stt_warning");
+        setNoticeBox(sttEl, 'warn', trKey("console.js.panels.providers.stt_warning"), false);
       } else {
-        sttEl.style.display = 'none';
-        sttEl.textContent = '';
+        setNoticeBox(sttEl, '', '', false);
       }
     }
 
@@ -377,23 +559,11 @@
       const locks = Array.isArray(caps.lock_reasons) ? caps.lock_reasons : [];
       const warns = Array.isArray(caps.warnings) ? caps.warnings : [];
       if (locks.length > 0) {
-        sumEl.style.display = 'block';
-        sumEl.style.color = 'var(--err,#cf222e)';
-        sumEl.style.background = 'rgba(207,34,46,0.08)';
-        sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
-        sumEl.innerHTML = '<strong>' + esc(trKey("console.js.panels.providers.save_locked")) + '</strong><ul style="margin:4px 0 0;padding-left:18px;">' + locks.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul>';
+        setNoticeBox(sumEl, 'danger', '<strong>' + esc(trKey("console.js.panels.providers.save_locked")) + '</strong><ul>' + locks.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul>', true);
       } else if (warns.length > 0) {
-        sumEl.style.display = 'block';
-        sumEl.style.color = 'var(--warn,#9a6700)';
-        sumEl.style.background = 'rgba(154,103,0,0.08)';
-        sumEl.style.borderColor = 'rgba(154,103,0,0.35)';
-        sumEl.innerHTML = '<strong>' + esc(trKey("console.js.panels.providers.advisory")) + '</strong><ul style="margin:4px 0 0;padding-left:18px;">' + warns.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>';
+        setNoticeBox(sumEl, 'warn', '<strong>' + esc(trKey("console.js.panels.providers.advisory")) + '</strong><ul>' + warns.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>', true);
       } else {
-        sumEl.style.display = 'block';
-        sumEl.style.color = 'var(--accent2,#1a7f37)';
-        sumEl.style.background = 'rgba(26,127,55,0.08)';
-        sumEl.style.borderColor = 'rgba(26,127,55,0.35)';
-        sumEl.textContent = trKey("console.js.panels.providers.check_passed");
+        setNoticeBox(sumEl, 'ok', trKey("console.js.panels.providers.check_passed"), false);
       }
     }
 
@@ -401,8 +571,6 @@
     if (saveBtn) {
       const canSave = Boolean(caps.can_save);
       saveBtn.disabled = !canSave;
-      saveBtn.style.opacity = canSave ? '1' : '0.45';
-      saveBtn.style.cursor = canSave ? 'pointer' : 'not-allowed';
       saveBtn.title = canSave ? '' : (caps.lock_reasons || []).join(' / ');
     }
   }
@@ -415,13 +583,7 @@
     const saveBtn = document.getElementById('prov-save-btn');
     const sumEl = document.getElementById('prov-cap-summary');
     if (saveBtn) saveBtn.disabled = true;
-    if (sumEl) {
-      sumEl.style.display = 'block';
-      sumEl.style.color = 'var(--muted,#6e7781)';
-      sumEl.style.background = 'rgba(136,136,136,0.08)';
-      sumEl.style.borderColor = 'var(--border)';
-      sumEl.textContent = trKey("console.js.panels.providers.check_in_work");
-    }
+    setNoticeBox(sumEl, 'info', trKey("console.js.panels.providers.check_in_work"), false);
     const payload = collectProviderFormPayload();
     if (opts.live) payload.live = true;
     try {
@@ -432,18 +594,8 @@
       applyProviderCapabilities(caps);
     } catch (e) {
       if (e && e.name === 'AbortError') return;
-      if (sumEl) {
-        sumEl.style.display = 'block';
-        sumEl.style.color = 'var(--err,#cf222e)';
-        sumEl.style.background = 'rgba(207,34,46,0.08)';
-        sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
-        sumEl.textContent = trKey("console.js.panels.providers.check_failed") + ' ' + (e.message || e);
-      }
-      if (saveBtn) {
-        saveBtn.disabled = true;
-        saveBtn.style.opacity = '0.45';
-        saveBtn.style.cursor = 'not-allowed';
-      }
+      setNoticeBox(sumEl, 'danger', trKey("console.js.panels.providers.check_failed") + ' ' + (e.message || e), false);
+      if (saveBtn) saveBtn.disabled = true;
     }
   }
 
@@ -460,16 +612,18 @@
     ];
     const embedSelEl = document.getElementById('prov-gemini-embed-model');
     const embedLifecycleEl = document.getElementById('prov-gemini-embed-lifecycle');
+    const embedInfoEl = document.getElementById('prov-gemini-embed-info');
     if (embedSelEl && embedLifecycleEl) {
       const syncEmbedLifecycleBanner = () => {
         const m = String(embedSelEl.value || 'gemini-embedding-2').trim();
         const isV1 = m === 'gemini-embedding-001';
         const spaceId = isV1 ? 'google:gemini-embedding-001:3072:v1_param' : `google:${m}:3072:v2_prompt`;
-        let msg = `<code>${esc(spaceId)}</code> · 3072d`;
+        let msg = `<code class="pref-mono">${esc(spaceId)}</code> · 3072d`;
         if (isV1) {
-          msg += '<div style="margin-top:4px;color:var(--warn,#9a6700);"><b>EOS Warning (2028-05-14):</b> <code>gemini-embedding-001</code> is scheduled for retirement. Migrate non-blocking with <code>./cb-manuscript app re-embed --target-space google:gemini-embedding-2:3072:v2_prompt --mode batch</code></div>';
+          msg += '<p class="hint" style="margin-top:0.25rem;color:var(--warn);"><b>EOS Warning (2028-05-14):</b> <code class="pref-mono">gemini-embedding-001</code> is scheduled for retirement. Migrate non-blocking with <code class="pref-mono">./cb-manuscript app re-embed --target-space google:gemini-embedding-2:3072:v2_prompt --mode batch</code></p>';
         }
         embedLifecycleEl.innerHTML = msg;
+        if (embedInfoEl) embedInfoEl.dataset.tone = isV1 ? 'warn' : 'info';
       };
       embedSelEl.addEventListener('change', syncEmbedLifecycleBanner);
       syncEmbedLifecycleBanner();
@@ -516,8 +670,9 @@
   async function testProviderConnection(provName) {
     const resEl = document.getElementById('prov-test-res-' + provName);
     if (resEl) {
-      resEl.style.display = 'block';
-      resEl.style.color = 'var(--muted,#888)';
+      resEl.hidden = false;
+      resEl.style.display = '';
+      resEl.removeAttribute('data-state');
       resEl.textContent = trKey("console.js.panels.providers.test_in_work");
     }
     const payload = { provider: provName, config: {} };
@@ -533,7 +688,7 @@
       const d = await r.json();
       if (resEl) {
         if (d.ok) {
-          resEl.style.color = 'var(--accent2,#1a7f37)';
+          resEl.dataset.state = 'ok';
           resEl.textContent = '' + (d.message || trKey("console.js.panels.providers.test_ok"));
           if (provName === 'gemini' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
             if (_provState.config && _provState.config.providers && _provState.config.providers.gemini) {
@@ -551,14 +706,14 @@
             }
           }
         } else {
-          resEl.style.color = 'var(--err,#cf222e)';
+          resEl.dataset.state = 'error';
           resEl.textContent = '' + (d.error || trKey("console.js.panels.providers.test_failed"));
         }
       }
       await runProviderCapabilityCheck({ live: provName === 'gemini' });
     } catch (e) {
       if (resEl) {
-        resEl.style.color = 'var(--err,#cf222e)';
+        resEl.dataset.state = 'error';
         resEl.textContent = trKey("console.js.panels.comm_error") + ' ' + (e.message || e);
       }
     }
@@ -688,7 +843,7 @@
     const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_shadow") : trKey("console.js.panels.lineage.llm_judge");
     const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
     const arrow = (x1, y1, x2, y2, label) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6e7781" stroke-width="1.4" marker-end="url(#prov-lineage-arrow)"/>${label ? `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 6}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity="0.78">${esc(label)}</text>` : ''}`;
-    let svg = '<svg id="prov-lineage-svg" viewBox="0 0 920 196" width="100%" style="max-width:920px;height:auto;display:block;border:1px solid var(--border);border-radius:6px;background:var(--card-bg,#fff);color:var(--fg,#1f2328);">';
+    let svg = '<svg id="prov-lineage-svg" viewBox="0 0 920 196" width="100%" style="max-width:920px;height:auto;display:block;border:1px solid var(--border);border-radius:0.5rem;background:var(--card-bg,var(--bg));color:var(--fg);">';
     svg += '<defs><marker id="prov-lineage-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#6e7781"/></marker></defs>';
     svg += box(10, 62, 118, 64, trKey("console.js.panels.lineage.box_input"), trKey("console.js.panels.lineage.box_input_sub"), 'PDF/Web/STT/VLM', '#6e7781');
     svg += arrow(128, 82, 152, 46);
@@ -723,44 +878,38 @@
     const provs = cfg.providers || {};
     const jev = provs.jev || {};
     const lineage = cfg.lineage_summary || {};
-    let h = '<div id="prov-lineage-visualizer-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="git-branch"></span> ' + esc(trKey("console.js.panels.lineage.title")) + '</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.lineage.desc")) + '</p>';
-    h += `<div id="prov-lineage-svg-host" style="margin-bottom:10px;">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
-
     const jevStats = lineage.jev || {};
-    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b></div>`;
+    const jevTelemetryHtml = `${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b>`;
+
+    let body = `<div id="prov-lineage-svg-host">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
+    body += uiNotice(jevTelemetryHtml, 'info');
 
     const specs = Array.isArray(lineage.architecture_specs) ? lineage.architecture_specs : [];
     if (specs.length > 0) {
-      h += '<details open style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.fixed_title")) + '</summary>';
-      h += '<table id="prov-architecture-spec-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_stage")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_fixed")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_code")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_reason")) + '</th></tr></thead><tbody>';
+      let specRows = '';
       for (const sp of specs) {
-        h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;font-weight:600;">${esc(sp.stage)}</td><td style="padding:3px 5px;"><code>${esc(sp.fixed_value)}</code></td><td style="padding:3px 5px;"><code>${esc(sp.scope)}</code></td><td style="padding:3px 5px;">${esc(sp.rationale)}</td></tr>`;
+        specRows += `<tr><td><strong>${esc(sp.stage)}</strong></td><td><code class="pref-mono">${esc(sp.fixed_value)}</code></td><td><code class="pref-mono">${esc(sp.scope)}</code></td><td>${esc(sp.rationale)}</td></tr>`;
       }
-      h += '</tbody></table></details>';
+      body += `<details class="pref-disclosure" open><summary>${esc(trKey("console.js.panels.lineage.fixed_title"))}</summary>${uiTable({ tableId: 'prov-architecture-spec-table', headers: [trKey("console.js.panels.lineage.col_stage"), trKey("console.js.panels.lineage.col_fixed"), trKey("console.js.panels.lineage.col_code"), trKey("console.js.panels.lineage.col_reason")], bodyHtml: specRows })}</details>`;
     }
 
     const fallbacks = Array.isArray(lineage.fallbacks) ? lineage.fallbacks : [];
     if (fallbacks.length > 0) {
-      h += '<details style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.fallback_title")) + '</summary>';
-      h += '<table id="prov-fallback-catalog-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">ID</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_location")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.col_status")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.col_description")) + '</th></tr></thead><tbody>';
+      let fbRows = '';
       for (const fb of fallbacks) {
         const badge = fb.status === 'REMOVED' ? trKey("console.js.panels.lineage.fallback_removed") : trKey("console.js.panels.lineage.fallback_excluded");
-        h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;"><code>${esc(fb.id)}</code></td><td style="padding:3px 5px;"><code>${esc(fb.location)}</code></td><td style="padding:3px 5px;">${esc(badge)}</td><td style="padding:3px 5px;">${esc(fb.description)}</td></tr>`;
+        const pillHtml = uiPill(badge, fb.status === 'REMOVED' ? 'danger' : 'neutral');
+        fbRows += `<tr><td><code class="pref-mono">${esc(fb.id)}</code></td><td><code class="pref-mono">${esc(fb.location)}</code></td><td>${pillHtml}</td><td>${esc(fb.description)}</td></tr>`;
       }
-      h += '</tbody></table></details>';
+      body += `<details class="pref-disclosure"><summary>${esc(trKey("console.js.panels.lineage.fallback_title"))}</summary>${uiTable({ tableId: 'prov-fallback-catalog-table', headers: ['ID', trKey("console.js.panels.lineage.col_location"), trKey("console.js.panels.col_status"), trKey("console.js.panels.col_description")], bodyHtml: fbRows })}</details>`;
     }
 
     const recDocs = Array.isArray(lineage.recent_documents) ? lineage.recent_documents : [];
-    h += '<details style="font-size:11px;"' + (recDocs.length > 0 ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.recent_title", { count: recDocs.length })) + '</summary>';
+    let recentContent = '';
     if (recDocs.length === 0) {
-      h += '<p style="margin:6px 0 0;opacity:0.75;">' + esc(trKey("console.js.panels.lineage.recent_empty")) + '</p>';
+      recentContent = `<p class="hint">${esc(trKey("console.js.panels.lineage.recent_empty"))}</p>`;
     } else {
-      h += '<table id="prov-recent-lineage-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_document")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_models")) + '</th><th style="padding:3px 5px;">JEV</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_fallback")) + '</th></tr></thead><tbody>';
+      let recRows = '';
       for (const d of recDocs.slice(0, 8)) {
         const lin = d.lineage || {};
         const finals = lin.final_output_models || {};
@@ -768,12 +917,20 @@
         const jevD = lin.jev || {};
         const jevSummary = jevD.enabled ? `shadow (${Number(jevD.evaluated || 0)})` : 'off';
         const fbCount = Array.isArray(lin.fallbacks_triggered) ? lin.fallbacks_triggered.length : 0;
-        h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;">${esc(d.title || d.id)}</td><td style="padding:3px 5px;"><code>${esc(modelTags || '-')}</code></td><td style="padding:3px 5px;">${esc(jevSummary)}</td><td style="padding:3px 5px;">${fbCount}</td></tr>`;
+        recRows += `<tr><td>${esc(d.title || d.id)}</td><td><code class="pref-mono">${esc(modelTags || '-')}</code></td><td>${esc(jevSummary)}</td><td>${fbCount}</td></tr>`;
       }
-      h += '</tbody></table>';
+      recentContent = uiTable({ tableId: 'prov-recent-lineage-table', headers: [trKey("console.js.panels.lineage.col_document"), trKey("console.js.panels.lineage.col_models"), 'JEV', trKey("console.js.panels.lineage.col_fallback")], bodyHtml: recRows });
     }
-    h += '</details></div>';
-    return h;
+    body += `<details class="pref-disclosure"${recDocs.length > 0 ? ' open' : ''}><summary>${esc(trKey("console.js.panels.lineage.recent_title", { count: recDocs.length }))}</summary>${recentContent}</details>`;
+
+    return uiCard({
+      id: 'prov-lineage-visualizer-card',
+      icon: 'fork',
+      title: trKey("console.js.panels.lineage.title"),
+      hint: trKey("console.js.panels.lineage.desc"),
+      split: false,
+      bodyHtml: body
+    });
   }
 
   function renderFeatureRoutingHtml(cfg) {
@@ -784,41 +941,49 @@
       { id: 'mock', label: 'Mock' }
     ];
 
-    let h = '<div id="prov-feature-routing-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="layers"></span> ' + esc(trKey("console.js.panels.routing.title")) + '</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.routing.desc")) + '</p>';
-    h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11.5px;">';
-    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.routing.col_slot")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_provider")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_model")) + '</th></tr></thead><tbody>';
+    let rowsHtml = '';
     for (const def of FEATURE_SLOT_DEFS) {
       const r = routing[def.slot] || { provider: 'inherit', model: '', effort: '' };
       const rProv = r.provider || 'inherit';
       const effProv = resolveEffectiveRouteProvider(cfg, rProv);
       const modelOpts = modelsForRouteProvider(cfg, effProv, def.slot);
       const selectedRouteModel = effProv === 'gemini' ? resolveGeminiVariantSelection(modelOpts, null, r.model || '', r.effort || 'medium', '') : (r.model || '');
-      h += `<tr style="border-bottom:1px solid var(--border);" data-route-slot="${esc(def.slot)}">`;
-      h += `<td style="padding:5px 6px;"><div style="font-weight:600;">${esc(def.label)}</div><div style="font-size:10px;opacity:0.7;"><code>${esc(def.slot)}</code> · ${esc(def.note)}</div></td>`;
-      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-provider" style="width:100%;box-sizing:border-box;">`;
+
+      let provOptsHtml = '';
       for (const opt of routeProvChoices) {
-        h += `<option value="${esc(opt.id)}" ${rProv === opt.id ? 'selected' : ''}>${esc(opt.label)}</option>`;
+        provOptsHtml += `<option value="${esc(opt.id)}" ${rProv === opt.id ? 'selected' : ''}>${esc(opt.label)}</option>`;
       }
-      h += '</select></td>';
-      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-model" style="width:100%;box-sizing:border-box;">`;
+      let modelOptsHtml = '';
       let matchedModel = false;
       for (const m of modelOpts) {
         if (m.id === selectedRouteModel) matchedModel = true;
         const mLabel = m.id === '' ? (m.label || trKey("console.js.panels.routing.inherit_model")) : m.id;
-        h += `<option value="${esc(m.id)}" ${selectedRouteModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
+        modelOptsHtml += `<option value="${esc(m.id)}" ${selectedRouteModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
       }
       if (selectedRouteModel && !matchedModel) {
-        h += `<option value="${esc(selectedRouteModel)}" selected>${esc(selectedRouteModel)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
+        modelOptsHtml += `<option value="${esc(selectedRouteModel)}" selected>${esc(selectedRouteModel)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
       }
-      h += '</select></td>';
-      h += '</tr>';
+
+      rowsHtml += `<tr data-route-slot="${esc(def.slot)}">`;
+      rowsHtml += `<td><div><strong>${esc(def.label)}</strong></div><div class="hint"><code class="pref-mono">${esc(def.slot)}</code> · ${esc(def.note)}</div></td>`;
+      rowsHtml += `<td><select id="prov-route-${esc(def.slot)}-provider" class="pref-select">${provOptsHtml}</select></td>`;
+      rowsHtml += `<td><select id="prov-route-${esc(def.slot)}-model" class="pref-select">${modelOptsHtml}</select></td>`;
+      rowsHtml += '</tr>';
     }
-    h += '</tbody></table></div>';
-    h += '<div id="prov-routing-embed-note" style="margin-top:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11px;opacity:0.9;">' + esc(trKey("console.js.panels.routing.embed_fixed_notice")) + '</div>';
-    h += '</div>';
-    return h;
+
+    const body = uiTable({
+      headers: [trKey("console.js.panels.routing.col_slot"), trKey("console.js.panels.col_provider"), trKey("console.js.panels.col_model")],
+      bodyHtml: rowsHtml
+    }) + uiNotice(esc(trKey("console.js.panels.routing.embed_fixed_notice")), 'info', '', { id: 'prov-routing-embed-note' });
+
+    return uiCard({
+      id: 'prov-feature-routing-card',
+      icon: 'settings',
+      title: trKey("console.js.panels.routing.title"),
+      hint: trKey("console.js.panels.routing.desc"),
+      split: false,
+      bodyHtml: body
+    });
   }
 
   function renderMemberTierCardHtml(cfg) {
@@ -834,35 +999,38 @@
       ['presentation', trKey("console.js.panels.tier.feature_presentation")],
       ['synthesize', trKey("console.js.panels.tier.feature_synthesize")]
     ];
-    let h = '<div id="prov-member-tier-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="shield"></span> ' + esc(trKey("console.js.panels.tier.title")) + '</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.desc")) + ' <a href="/admin/server">' + esc(trKey("console.js.panels.tier.desc_link")) + '</a></p>';
-    h += '<div style="display:flex;gap:8px;font-size:12px;margin-bottom:8px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.provider")) + '</label>';
-    h += '<select id="prov-tier-provider" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.provider_none"))}</option>`;
-    h += `<option value="gemini" ${tier.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (gemini)</option>`;
-    h += '</select></div>';
-    h += '<div style="flex:1.4;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.model")) + '</label>';
-    h += '<select id="prov-tier-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="" ${!selectedTierModel ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
+
+    const tierProvHtml = `<select id="prov-tier-provider" class="pref-select"><option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.provider_none"))}</option><option value="gemini" ${tier.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (gemini)</option></select>`;
+    let tierModelOptsHtml = `<option value="" ${!selectedTierModel ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
     let matched = false;
     for (const m of geminiModels) {
       if (m.id === selectedTierModel) matched = true;
-      h += `<option value="${esc(m.id)}" ${selectedTierModel === m.id ? 'selected' : ''}>${esc(m.id)}</option>`;
+      tierModelOptsHtml += `<option value="${esc(m.id)}" ${selectedTierModel === m.id ? 'selected' : ''}>${esc(m.id)}</option>`;
     }
     if (selectedTierModel && !matched) {
-      h += `<option value="${esc(selectedTierModel)}" selected>${esc(selectedTierModel)}</option>`;
+      tierModelOptsHtml += `<option value="${esc(selectedTierModel)}" selected>${esc(selectedTierModel)}</option>`;
     }
-    h += '</select></div>';
-    h += '</div>';
-    h += '<div style="font-size:11px;"><span style="opacity:0.8;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tier.features")) + '</span><div style="display:flex;flex-wrap:wrap;gap:10px;">';
+    const tierModelHtml = `<select id="prov-tier-model" class="pref-select">${tierModelOptsHtml}</select>`;
+
+    let featCheckHtml = '';
     for (const [fKey, fLabel] of featLabels) {
       const checked = tierFeats.includes(fKey) ? ' checked' : '';
-      h += `<label style="cursor:pointer;"><input type="checkbox" name="prov-tier-feature" value="${esc(fKey)}"${checked} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(fLabel)}</label>`;
+      featCheckHtml += `<label style="display:inline-flex;align-items:center;gap:0.375rem;font-weight:500;cursor:pointer;"><input type="checkbox" name="prov-tier-feature" value="${esc(fKey)}"${checked}/><span>${esc(fLabel)}</span></label>`;
     }
-    h += '</div></div></div>';
-    return h;
+
+    const body = '<div class="console-form-grid">'
+      + uiField({ id: 'prov-tier-provider', label: trKey("console.js.panels.tier.provider"), controlHtml: tierProvHtml })
+      + uiField({ id: 'prov-tier-model', label: trKey("console.js.panels.tier.model"), controlHtml: tierModelHtml })
+      + '</div>'
+      + `<div class="console-field"><span>${esc(trKey("console.js.panels.tier.features"))}</span>${uiActions(featCheckHtml)}</div>`;
+
+    return uiCard({
+      id: 'prov-member-tier-card',
+      icon: 'shield',
+      title: trKey("console.js.panels.tier.title"),
+      hintHtml: `${esc(trKey("console.js.panels.tier.desc"))} <a href="/admin/server">${esc(trKey("console.js.panels.tier.desc_link"))}</a>`,
+      bodyHtml: body
+    });
   }
 
   function renderProviderManagerDOM(msg, isSuccess) {
@@ -875,120 +1043,112 @@
     const stt = provs.stt || {};
     const active = cfg.active_provider || 'mock';
 
-    let alertHtml = '';
-    if (msg) {
-      const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
-      const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
-      alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
-    }
-
-    let h = '<h2><span data-icon="bolt"></span> ' + esc(trKey("console.js.panels.providers.title_full")) + '</h2>';
-    h += '<p class="al">' + esc(trKey("console.js.panels.providers.desc")) + ' <code>data/providers.json</code></p>';
-    h += alertHtml;
-
+    let h = renderAlertBanner(msg, isSuccess);
     h += renderPipelineLineageHtml(cfg);
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">' + esc(trKey("console.js.panels.providers.main_provider")) + '</label>';
-    h += '<select id="prov-active-select" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--card-bg);color:var(--fg);box-sizing:border-box;">';
-    const opts = [
-      {val: 'gemini', label: trKey("console.js.panels.providers.gemini_label")},
-      {val: 'mock', label: trKey("console.js.panels.providers.mock_label")}
+    const activeOpts = [
+      { val: 'gemini', label: trKey("console.js.panels.providers.gemini_label") },
+      { val: 'mock', label: trKey("console.js.panels.providers.mock_label") }
     ];
-    for (const opt of opts) {
-      h += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${opt.label}</option>`;
+    let activeSelectHtml = '<select id="prov-active-select" class="pref-select">';
+    for (const opt of activeOpts) {
+      activeSelectHtml += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${esc(opt.label)}</option>`;
     }
-    h += '</select>';
-    h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b></div>`;
-    h += '<div id="prov-feat-mock" style="margin-top:6px;"></div>';
-    h += '<div id="prov-cap-mock" style="display:none;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
-    h += '</div>';
+    activeSelectHtml += '</select>';
+    const activeHintHtml = `${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b>`;
+    const mainBody = uiField({ id: 'prov-active-select', label: trKey("console.js.panels.providers.main_provider"), controlHtml: activeSelectHtml, hintHtml: activeHintHtml })
+      + '<div id="prov-feat-mock"></div>'
+      + '<div id="prov-cap-mock" class="pref-notice" hidden></div>';
+    h += uiCard({
+      id: 'prov-main-provider-card',
+      icon: 'bolt',
+      title: trKey("console.js.panels.providers.title_full"),
+      hintHtml: `${esc(trKey("console.js.panels.providers.desc"))} <code class="pref-mono">data/providers.json</code>`,
+      bodyHtml: mainBody
+    });
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
-    h += '<strong style="font-size:13px;"><span data-icon="globe"></span> Google AI Studio</strong>';
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">' + esc(trKey("console.js.panels.providers.check_api")) + '</button>';
-    h += '</div>';
-    h += '<div id="prov-feat-gemini"></div>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div><label style="font-size:11px;opacity:0.8;">Google AI Studio API Key</label>';
-    h += '<div style="display:flex;gap:4px;margin-top:2px;">';
-    h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '" + esc(trKey("console.js.panels.providers.key_set")) + "' : '" + esc(trKey("console.js.panels.providers.key_placeholder")) + "'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="'+esc(trKey('console.js.panels.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.js.panels.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
+    const gemKeyPlaceholder = gemini.has_api_key ? trKey("console.js.panels.providers.key_set") : trKey("console.js.panels.providers.key_placeholder");
+    let gemKeyRow = `<div class="console-form-row"><input id="prov-gemini-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" placeholder="${esc(gemKeyPlaceholder)}"/>${renderTogglePassBtn('prov-gemini-key')}`;
     if (gemini.has_api_key) {
-      h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">' + esc(trKey("common.action.delete")) + '</button>';
+      gemKeyRow += uiBtn(trKey("common.action.delete"), { variant: 'danger', sm: true, attrs: { onclick: "clearApiKeyInput('prov-gemini-key', 'gemini')" } });
     }
-    h += '</div></div>';
+    gemKeyRow += '</div>';
+
     const geminiModelFallback = fallbackGeminiVariants();
     const selectedGeminiModel = resolveGeminiVariantSelection(gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash-medium', gemini.effort || 'medium', 'gemini-3.8-flash-medium');
-    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.model_label")) + '</label>';
-    h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, selectedGeminiModel, 'gemini-3.8-flash-medium');
-    h += '</div>';
     const selEmbedModel = String(gemini.embed_model || 'gemini-embedding-2').trim() || 'gemini-embedding-2';
     const rawEmbedModels = Array.isArray(gemini.available_embed_models) && gemini.available_embed_models.length ? gemini.available_embed_models.map((x) => (typeof x === 'string' ? x : String((x && x.id) || ''))).filter(Boolean) : ['gemini-embedding-2', 'gemini-embedding-001'];
     const embedChoices = Array.from(new Set(['gemini-embedding-2', 'gemini-embedding-001', ...rawEmbedModels, selEmbedModel].filter((x) => x && x !== 'gemini-embedding-2-preview')));
-    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
-    h += '<select id="prov-gemini-embed-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    let embedOptsHtml = '';
     for (const em of embedChoices) {
       const emTag = em === 'gemini-embedding-2' ? ' (3072d · GA Recommended)' : (em === 'gemini-embedding-001' ? ' (3072d · Legacy, EOS 2028-05-14)' : ' (3072d)');
-      h += `<option value="${esc(em)}" ${selEmbedModel === em ? 'selected' : ''}>${esc(em + emTag)}</option>`;
+      embedOptsHtml += `<option value="${esc(em)}" ${selEmbedModel === em ? 'selected' : ''}>${esc(em + emTag)}</option>`;
     }
-    h += '</select>';
-    h += `<div id="prov-gemini-embed-info" style="margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);font-size:11.5px;line-height:1.4;"><div id="prov-gemini-embed-lifecycle"><code>google:${esc(selEmbedModel)}:3072:${selEmbedModel === 'gemini-embedding-2' ? 'v2_prompt' : 'v1_param'}</code> · 3072d</div><div style="font-size:10.5px;opacity:0.8;margin-top:2px;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</div></div>`;
-    h += '</div>';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.min_interval"))}</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.max_retries"))}</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
-    h += '</div>';
-    h += '</div>';
-    h += '<div id="prov-cap-gemini" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
-    h += '<div id="prov-test-res-gemini" style="display:none;margin-top:8px;font-size:11px;"></div>';
-    h += '</div>';
+    const embedInfoHtml = `<div id="prov-gemini-embed-info" class="pref-notice" data-tone="${selEmbedModel === 'gemini-embedding-001' ? 'warn' : 'info'}"><div id="prov-gemini-embed-lifecycle"><code class="pref-mono">google:${esc(selEmbedModel)}:3072:${selEmbedModel === 'gemini-embedding-2' ? 'v2_prompt' : 'v1_param'}</code> · 3072d</div><p class="hint" style="margin-top:0.25rem;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</p></div>`;
+
+    const gemBody = '<div id="prov-feat-gemini"></div>'
+      + uiField({ id: 'prov-gemini-key', label: 'Google AI Studio API Key', controlHtml: gemKeyRow })
+      + uiField({ id: 'prov-gemini-model', label: trKey("console.js.panels.providers.model_label"), controlHtml: renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, selectedGeminiModel, 'gemini-3.8-flash-medium') })
+      + uiField({ id: 'prov-gemini-embed-model', label: trKey("console.js.panels.providers.embed_model_label"), controlHtml: `<select id="prov-gemini-embed-model" class="pref-select">${embedOptsHtml}</select>` })
+      + embedInfoHtml
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'prov-gemini-interval', label: trKey("console.js.panels.providers.min_interval"), controlHtml: `<input id="prov-gemini-interval" type="number" step="0.5" class="pref-input" value="${esc(gemini.min_interval || 4.0)}"/>` })
+      + uiField({ id: 'prov-gemini-retries', label: trKey("console.js.panels.providers.max_retries"), controlHtml: `<input id="prov-gemini-retries" type="number" class="pref-input" value="${esc(gemini.max_retries || 5)}"/>` })
+      + '</div>'
+      + '<div id="prov-cap-gemini" class="pref-notice" hidden></div>'
+      + '<p id="prov-test-res-gemini" class="result" role="status" aria-live="polite" hidden></p>';
+
+    h += uiCard({
+      id: 'prov-gemini-card',
+      icon: 'globe',
+      title: 'Google AI Studio',
+      actionsHtml: uiActions(uiBtn(trKey("console.js.panels.providers.check_api"), { sm: true, attrs: { onclick: "testProviderConnection('gemini')" } })),
+      split: false,
+      bodyHtml: gemBody
+    });
 
     h += renderFeatureRoutingHtml(cfg);
     h += renderMemberTierCardHtml(cfg);
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> ' + esc(trKey("console.js.panels.providers.aux_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
-    h += '<div>';
-    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.providers.jev_label"))}</label>`;
-    h += '<div style="margin-top:6px;display:flex;gap:4px;">';
-    h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? '" + esc(trKey("console.js.panels.providers.jev_key_set")) + "' : 'Jev API Key'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="'+esc(trKey('console.js.panels.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.js.panels.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
-    h += '</div>';
-    h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
-    h += `<div id="prov-jev-role" style="font-size:11px;opacity:0.8;margin-top:6px;">${esc(trKey("console.js.panels.providers.jev_role_shadow"))}</div>`;
-    h += '</div>';
-    h += '<div style="border-top:1px dashed var(--border);padding-top:8px;">';
-    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.providers.stt_label"))}</label>`;
-    h += '<div style="display:flex;gap:8px;margin-top:6px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.stt_provider")) + '</label>';
-    h += '<select id="prov-stt-prov" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="gemini" ${stt.provider==='gemini'?'selected':''}>Google AI Studio (API)</option>`;
-    h += `<option value="mock" ${stt.provider==='mock'?'selected':''}>Mock</option>`;
-    h += '</select></div>';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.stt_language"))}</label><input id="prov-stt-lang" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(stt.language||'ko')}"/></div>`;
-    h += '</div>';
-    h += '<div id="prov-cap-stt" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid rgba(154,103,0,0.35);background:rgba(154,103,0,0.08);color:var(--warn,#9a6700);border-radius:4px;font-size:11px;"></div>';
-    h += '</div>';
-    h += '</div>';
-    h += '</div>';
+    const jevKeyPlaceholder = jev.has_api_key ? trKey("console.js.panels.providers.jev_key_set") : 'Jev API Key';
+    const jevKeyRow = `<div class="console-form-row"><input id="prov-jev-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" placeholder="${esc(jevKeyPlaceholder)}"/>${renderTogglePassBtn('prov-jev-key')}</div>`;
+    const sttProvSelect = `<select id="prov-stt-prov" class="pref-select"><option value="gemini" ${stt.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (API)</option><option value="mock" ${stt.provider === 'mock' ? 'selected' : ''}>Mock</option></select>`;
+    const auxBody = uiToggleRow({ id: 'prov-jev-enabled', label: trKey("console.js.panels.providers.jev_label"), descHtml: `<span id="prov-jev-role">${esc(trKey("console.js.panels.providers.jev_role_shadow"))}</span>`, checked: Boolean(jev.enabled) })
+      + uiField({ id: 'prov-jev-key', label: 'Jev API Key', controlHtml: jevKeyRow })
+      + uiField({ id: 'prov-jev-url', label: 'Base URL', controlHtml: `<input id="prov-jev-url" class="pref-input" placeholder="Base URL" value="${esc(jev.base_url || 'https://api.typesafe.ai/v1')}"/>` })
+      + uiToggleRow({ id: 'prov-stt-enabled', label: trKey("console.js.panels.providers.stt_label"), checked: stt.enabled !== false })
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'prov-stt-prov', label: trKey("console.js.panels.providers.stt_provider"), controlHtml: sttProvSelect })
+      + uiField({ id: 'prov-stt-lang', label: trKey("console.js.panels.providers.stt_language"), controlHtml: `<input id="prov-stt-lang" class="pref-input" value="${esc(stt.language || 'ko')}"/>` })
+      + '</div>'
+      + '<div id="prov-cap-stt" class="pref-notice" data-tone="warn" hidden></div>';
+
+    h += uiCard({
+      id: 'prov-aux-card',
+      icon: 'puzzle',
+      title: trKey("console.js.panels.providers.aux_title"),
+      bodyHtml: auxBody
+    });
 
     const optsState = _provState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
-    h += '<div id="prov-cap-summary" style="display:none;margin-top:12px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>';
-    h += '<div style="display:flex;gap:8px;margin-top:12px;">';
-    h += '<button id="prov-save-btn" type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> ' + esc(trKey("console.js.panels.save_settings")) + '</button>';
+    let saveActionsHtml = uiBtn(trKey("console.js.panels.save_settings"), { id: 'prov-save-btn', variant: 'accent', icon: 'save', attrs: { onclick: 'saveProviderSettings()' } });
     if (canClose) {
-      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeProviderManager()">' + esc(trKey("common.action.close")) + '</button>';
+      saveActionsHtml += uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeProviderManager()' } });
     }
-    h += '</div>';
+    const saveBody = '<div id="prov-cap-summary" class="pref-notice" role="status" aria-live="polite" hidden></div>' + uiActions(saveActionsHtml);
+    h += uiCard({
+      id: 'prov-save-card',
+      icon: 'save',
+      title: trKey("console.js.panels.save_settings"),
+      split: false,
+      bodyHtml: saveBody
+    });
 
     target.innerHTML = h;
     if (cfg.capabilities) applyProviderCapabilities(cfg.capabilities);
     bindProviderCapabilityEvents();
+    enhanceConsoleDom();
   }
 
   async function renderProviderManager(container, opts) {
@@ -1003,7 +1163,8 @@
     }
     const target = _provState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="bolt"></span> ' + esc(trKey("console.js.panels.providers.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.loading_settings")) + '</p>';
+    target.innerHTML = renderPanelLoadingCard('prov-loading-card', 'bolt', 'console.js.panels.providers.title', 'console.js.panels.loading_settings');
+    enhanceConsoleDom();
     try {
       const url = resolveRootUrl(_provState.opts, 'providers');
       const r = await fetch(url);
@@ -1011,7 +1172,8 @@
       _provState.config = await r.json();
       renderProviderManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="bolt"></span> ${esc(trKey("console.js.panels.providers.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.load_failed"))} ${esc(e.message || e)}</p>`;
+      target.innerHTML = renderPanelErrorCard('prov-error-card', 'bolt', 'console.js.panels.providers.title', 'console.js.panels.load_failed', e);
+      enhanceConsoleDom();
     }
   }
 
@@ -1160,145 +1322,124 @@
     const cfg = _limitState.config;
     const lims = cfg.limits || {};
 
-    let alertHtml = '';
-    if (msg) {
-      const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
-      const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
-      alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
-    }
+    const effortOptions = (cur, includeDefault) => {
+      let opts = includeDefault ? `<option value="" ${!cur ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.effort_default"))}</option>` : '';
+      for (const lv of ['low', 'medium', 'high']) {
+        opts += `<option value="${lv}" ${cur === lv ? 'selected' : ''}>${lv}</option>`;
+      }
+      return opts;
+    };
 
-    let h = '<h2><span data-icon="ruler"></span> ' + esc(trKey("console.js.panels.limits.title_full")) + '</h2>';
-    h += '<p class="al">' + esc(trKey("console.js.panels.limits.desc")) + ' <code>data/ingest_limits.json</code></p>';
-    h += alertHtml;
+    let h = uiNotice(`${esc(trKey("console.js.panels.limits.desc"))} <code class="pref-mono">data/ingest_limits.json</code>`, 'info');
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="globe"></span> ' + esc(trKey("console.js.panels.limits.web_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.raw_budget")) + '</label>';
-    h += `<input id="limit-raw-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.raw_char_budget ?? 20000}"/>`;
-    h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">' + esc(trKey("console.js.panels.limits.raw_budget_hint")) + '</div>';
-    h += '</div>';
-    h += '</div>';
-    h += '</div>';
+    h += uiCard({
+      id: 'limit-web-card',
+      icon: 'globe',
+      title: trKey("console.js.panels.limits.web_title"),
+      bodyHtml: uiField({
+        id: 'limit-raw-char-budget',
+        label: trKey("console.js.panels.limits.raw_budget"),
+        hint: trKey("console.js.panels.limits.raw_budget_hint"),
+        controlHtml: `<input id="limit-raw-char-budget" type="number" min="0" class="pref-input" value="${esc(lims.raw_char_budget ?? 20000)}"/>`
+      })
+    });
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="doc"></span> ' + esc(trKey("console.js.panels.limits.pdf_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.pdf_max_extract"))}</label><input id="limit-pdf-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_max_extract_chars ?? 50000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.pdf_paper_threshold"))}</label><input id="limit-pdf-paper-threshold" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_paper_threshold_chars ?? 15000}"/></div>`;
-    h += '</div>';
-    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_parser")) + '</label>';
-    h += '<select id="limit-pdf-parser" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += '<option value="default" selected>' + esc(trKey("console.js.panels.limits.pdf_parser_default")) + '</option>';
-    h += '</select></div>';
-    h += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">';
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-appendix" type="checkbox" ${lims.pdf_exclude_appendix!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_exclude_appendix"))}</label>`;
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-references" type="checkbox" ${lims.pdf_exclude_references!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_exclude_references"))}</label>`;
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-detect-encoding-flaws" type="checkbox" ${lims.pdf_detect_encoding_flaws!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_detect_flaws"))}</label>`;
-    h += '</div>';
-    h += '<div style="display:flex;gap:8px;margin-top:4px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_paper_effort")) + '</label>';
-    h += '<select id="limit-pdf-paper-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="low" ${lims.pdf_paper_effort==='low'?'selected':''}>low</option>`;
-    h += `<option value="medium" ${lims.pdf_paper_effort==='medium'?'selected':''}>medium</option>`;
-    h += `<option value="high" ${(lims.pdf_paper_effort||'high')==='high'?'selected':''}>high</option>`;
-    h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_default_effort")) + '</label>';
-    h += '<select id="limit-pdf-default-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="" ${!lims.pdf_default_effort?'selected':''}>${esc(trKey("console.js.panels.limits.effort_default"))}</option>`;
-    h += `<option value="low" ${lims.pdf_default_effort==='low'?'selected':''}>low</option>`;
-    h += `<option value="medium" ${lims.pdf_default_effort==='medium'?'selected':''}>medium</option>`;
-    h += `<option value="high" ${lims.pdf_default_effort==='high'?'selected':''}>high</option>`;
-    h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_classify_effort")) + '</label>';
-    h += '<select id="limit-pdf-classifier-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="low" ${(lims.pdf_classifier_effort||'low')==='low'?'selected':''}>low</option>`;
-    h += `<option value="medium" ${lims.pdf_classifier_effort==='medium'?'selected':''}>medium</option>`;
-    h += `<option value="high" ${lims.pdf_classifier_effort==='high'?'selected':''}>high</option>`;
-    h += '</select></div>';
-    h += '</div>';
-    h += '</div>';
-    h += '</div>';
+    const pdfBody = '<div class="console-form-grid">'
+      + uiField({ id: 'limit-pdf-max-extract', label: trKey("console.js.panels.limits.pdf_max_extract"), controlHtml: `<input id="limit-pdf-max-extract" type="number" min="0" class="pref-input" value="${esc(lims.pdf_max_extract_chars ?? 50000)}"/>` })
+      + uiField({ id: 'limit-pdf-paper-threshold', label: trKey("console.js.panels.limits.pdf_paper_threshold"), controlHtml: `<input id="limit-pdf-paper-threshold" type="number" min="0" class="pref-input" value="${esc(lims.pdf_paper_threshold_chars ?? 15000)}"/>` })
+      + '</div>'
+      + uiField({
+        id: 'limit-pdf-parser',
+        label: trKey("console.js.panels.limits.pdf_parser"),
+        controlHtml: `<select id="limit-pdf-parser" class="pref-select"><option value="default" selected>${esc(trKey("console.js.panels.limits.pdf_parser_default"))}</option></select>`
+      })
+      + uiToggleRow({ id: 'limit-pdf-exclude-appendix', label: trKey("console.js.panels.limits.pdf_exclude_appendix"), checked: lims.pdf_exclude_appendix !== false })
+      + uiToggleRow({ id: 'limit-pdf-exclude-references', label: trKey("console.js.panels.limits.pdf_exclude_references"), checked: lims.pdf_exclude_references !== false })
+      + uiToggleRow({ id: 'limit-pdf-detect-encoding-flaws', label: trKey("console.js.panels.limits.pdf_detect_flaws"), checked: lims.pdf_detect_encoding_flaws !== false })
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'limit-pdf-paper-effort', label: trKey("console.js.panels.limits.pdf_paper_effort"), controlHtml: `<select id="limit-pdf-paper-effort" class="pref-select">${effortOptions(lims.pdf_paper_effort || 'high', false)}</select>` })
+      + uiField({ id: 'limit-pdf-default-effort', label: trKey("console.js.panels.limits.pdf_default_effort"), controlHtml: `<select id="limit-pdf-default-effort" class="pref-select">${effortOptions(lims.pdf_default_effort || '', true)}</select>` })
+      + uiField({ id: 'limit-pdf-classifier-effort', label: trKey("console.js.panels.limits.pdf_classify_effort"), controlHtml: `<select id="limit-pdf-classifier-effort" class="pref-select">${effortOptions(lims.pdf_classifier_effort || 'low', false)}</select>` })
+      + '</div>';
+    h += uiCard({
+      id: 'limit-pdf-card',
+      icon: 'doc',
+      title: trKey("console.js.panels.limits.pdf_title"),
+      bodyHtml: pdfBody
+    });
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> ' + esc(trKey("console.js.panels.limits.kg_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.extract_budget"))}</label><input id="limit-extract-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.extract_char_budget ?? 20000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.merged_budget"))}</label><input id="limit-merged-extract-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.merged_extract_char_budget ?? 0}"/></div>`;
-    h += '</div>';
-    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.slicing")) + '</label>';
-    h += '<select id="limit-slicing-strategy" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="table-exemption" ${(lims.slicing_strategy||'table-exemption')==='table-exemption'?'selected':''}>${esc(trKey("console.js.panels.limits.slicing_table"))}</option>`;
-    h += `<option value="strict" ${lims.slicing_strategy==='strict'?'selected':''}>${esc(trKey("console.js.panels.limits.slicing_strict"))}</option>`;
-    h += '</select></div>';
-    h += '</div>';
-    h += '</div>';
+    const slicingOpts = `<option value="table-exemption" ${(lims.slicing_strategy || 'table-exemption') === 'table-exemption' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.slicing_table"))}</option><option value="strict" ${lims.slicing_strategy === 'strict' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.slicing_strict"))}</option>`;
+    const kgBody = '<div class="console-form-grid">'
+      + uiField({ id: 'limit-extract-char-budget', label: trKey("console.js.panels.limits.extract_budget"), controlHtml: `<input id="limit-extract-char-budget" type="number" min="0" class="pref-input" value="${esc(lims.extract_char_budget ?? 20000)}"/>` })
+      + uiField({ id: 'limit-merged-extract-budget', label: trKey("console.js.panels.limits.merged_budget"), controlHtml: `<input id="limit-merged-extract-budget" type="number" min="0" class="pref-input" value="${esc(lims.merged_extract_char_budget ?? 0)}"/>` })
+      + '</div>'
+      + uiField({ id: 'limit-slicing-strategy', label: trKey("console.js.panels.limits.slicing"), controlHtml: `<select id="limit-slicing-strategy" class="pref-select">${slicingOpts}</select>` });
+    h += uiCard({
+      id: 'limit-kg-card',
+      icon: 'puzzle',
+      title: trKey("console.js.panels.limits.kg_title"),
+      bodyHtml: kgBody
+    });
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="compass"></span> ' + esc(trKey("console.js.panels.limits.context_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.embed_budget"))}</label><input id="limit-embed-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.embed_char_budget ?? 8000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.research_budget"))}</label><input id="limit-research-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.research_context_budget ?? 8000}"/></div>`;
-    h += '</div>';
-    h += '<div>';
-    h += `<label style="font-size:11px;opacity:0.8;display:block;">${esc(trKey("console.js.panels.limits.expand_budget"))}</label><input id="limit-expand-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_char_budget ?? 2000}"/>`;
-    h += '</div>';
-    h += '</div>';
-    h += '</div>';
+    const ctxBody = '<div class="console-form-grid">'
+      + uiField({ id: 'limit-embed-budget', label: trKey("console.js.panels.limits.embed_budget"), controlHtml: `<input id="limit-embed-budget" type="number" min="0" class="pref-input" value="${esc(lims.embed_char_budget ?? 8000)}"/>` })
+      + uiField({ id: 'limit-research-budget', label: trKey("console.js.panels.limits.research_budget"), controlHtml: `<input id="limit-research-budget" type="number" min="0" class="pref-input" value="${esc(lims.research_context_budget ?? 8000)}"/>` })
+      + '</div>'
+      + uiField({ id: 'limit-expand-budget', label: trKey("console.js.panels.limits.expand_budget"), controlHtml: `<input id="limit-expand-budget" type="number" min="0" class="pref-input" value="${esc(lims.expand_char_budget ?? 2000)}"/>` });
+    h += uiCard({
+      id: 'limit-context-card',
+      icon: 'compass',
+      title: trKey("console.js.panels.limits.context_title"),
+      bodyHtml: ctxBody
+    });
 
-    h += '<div id="limit-expand-section" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="link"></span> ' + esc(trKey("console.js.panels.limits.expand_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += `<label style="cursor:pointer;"><input id="limit-auto-expand" type="checkbox" ${lims.auto_expand!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.auto_expand"))}</label>`;
-    h += '<div style="font-size:10px;opacity:0.7;">' + esc(trKey("console.js.panels.limits.auto_expand_hint")) + '</div>';
-    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.same_subject_merge")) + '</label>';
-    h += '<select id="limit-same-subject-merge" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="off" ${lims.same_subject_merge!=='shadow'?'selected':''}>${esc(trKey("console.js.panels.limits.same_subject_merge_off"))}</option>`;
-    h += `<option value="shadow" ${lims.same_subject_merge==='shadow'?'selected':''}>${esc(trKey("console.js.panels.limits.same_subject_merge_shadow"))}</option>`;
-    h += '</select>';
-    h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">' + esc(trKey("console.js.panels.limits.same_subject_merge_hint")) + '</div></div>';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.expand_max"))}</label><input id="limit-expand-max" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_max ?? 5}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.watch_interval_days"))}</label><input id="limit-watch-interval-days" type="number" min="0.01" step="any" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.watch_interval_days ?? 1}"/></div>`;
-    h += '</div>';
-    h += '<div style="font-size:10px;opacity:0.7;">' + esc(trKey("console.js.panels.limits.watch_interval_hint")) + '</div>';
-    h += '</div>';
-    h += '</div>';
+    const mergeOpts = `<option value="off" ${lims.same_subject_merge !== 'shadow' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.same_subject_merge_off"))}</option><option value="shadow" ${lims.same_subject_merge === 'shadow' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.same_subject_merge_shadow"))}</option>`;
+    const expandBody = uiToggleRow({ id: 'limit-auto-expand', label: trKey("console.js.panels.limits.auto_expand"), desc: trKey("console.js.panels.limits.auto_expand_hint"), checked: lims.auto_expand !== false })
+      + uiField({ id: 'limit-same-subject-merge', label: trKey("console.js.panels.limits.same_subject_merge"), hint: trKey("console.js.panels.limits.same_subject_merge_hint"), controlHtml: `<select id="limit-same-subject-merge" class="pref-select">${mergeOpts}</select>` })
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'limit-expand-max', label: trKey("console.js.panels.limits.expand_max"), controlHtml: `<input id="limit-expand-max" type="number" min="0" class="pref-input" value="${esc(lims.expand_max ?? 5)}"/>` })
+      + uiField({ id: 'limit-watch-interval-days', label: trKey("console.js.panels.limits.watch_interval_days"), controlHtml: `<input id="limit-watch-interval-days" type="number" min="0.01" step="any" class="pref-input" value="${esc(lims.watch_interval_days ?? 1)}"/>` })
+      + '</div>'
+      + `<p class="hint">${esc(trKey("console.js.panels.limits.watch_interval_hint"))}</p>`;
+    h += uiCard({
+      id: 'limit-expand-section',
+      icon: 'link',
+      title: trKey("console.js.panels.limits.expand_title"),
+      bodyHtml: expandBody
+    });
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="film"></span> ' + esc(trKey("console.js.panels.limits.media_title")) + '</strong>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
-    h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.presentation_pdf_max")) + '</label>';
-    h += `<input id="limit-presentation-pdf-bytes" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.presentation_pdf_max_bytes ?? 67108864}"/>`;
-    h += '</div>';
-    h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.video_max_extract"))}</label><input id="limit-video-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_max_extract_chars ?? 200000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.video_chunk"))}</label><input id="limit-video-chunk-sec" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_chunk_duration_sec ?? 240}"/></div>`;
-    h += '</div>';
-    h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.vlm_max_images")) + '</label>';
-    h += `<input id="limit-vlm-max-images" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.vlm_max_images ?? 20}"/>`;
-    h += '</div>';
-    h += '</div>';
-    h += '</div>';
+    const mediaBody = uiField({ id: 'limit-presentation-pdf-bytes', label: trKey("console.js.panels.limits.presentation_pdf_max"), controlHtml: `<input id="limit-presentation-pdf-bytes" type="number" min="1" class="pref-input" value="${esc(lims.presentation_pdf_max_bytes ?? 67108864)}"/>` })
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'limit-video-max-extract', label: trKey("console.js.panels.limits.video_max_extract"), controlHtml: `<input id="limit-video-max-extract" type="number" min="0" class="pref-input" value="${esc(lims.video_max_extract_chars ?? 200000)}"/>` })
+      + uiField({ id: 'limit-video-chunk-sec', label: trKey("console.js.panels.limits.video_chunk"), controlHtml: `<input id="limit-video-chunk-sec" type="number" min="1" class="pref-input" value="${esc(lims.video_chunk_duration_sec ?? 240)}"/>` })
+      + '</div>'
+      + uiField({ id: 'limit-vlm-max-images', label: trKey("console.js.panels.limits.vlm_max_images"), controlHtml: `<input id="limit-vlm-max-images" type="number" min="0" class="pref-input" value="${esc(lims.vlm_max_images ?? 20)}"/>` });
+    h += uiCard({
+      id: 'limit-media-card',
+      icon: 'film',
+      title: trKey("console.js.panels.limits.media_title"),
+      bodyHtml: mediaBody
+    });
 
     const optsState = _limitState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
-    h += '<div style="display:flex;gap:8px;margin-top:16px;">';
-    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()"><span data-icon="save"></span> ' + esc(trKey("console.js.panels.save_settings")) + '</button>';
-    h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()"><span data-icon="restore"></span> ' + esc(trKey("console.js.panels.limits.reset")) + '</button>';
+    let saveActionsHtml = uiBtn(trKey("console.js.panels.save_settings"), { variant: 'accent', icon: 'save', attrs: { onclick: 'saveLimitSettings()' } });
+    saveActionsHtml += uiBtn(trKey("console.js.panels.limits.reset"), { icon: 'restore', attrs: { onclick: 'resetLimitSettings()' } });
     if (canClose) {
-      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeLimitManager()">' + esc(trKey("common.action.close")) + '</button>';
+      saveActionsHtml += uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeLimitManager()' } });
     }
-    h += '</div>';
+    const resultStateAttr = msg ? ` data-state="${isSuccess ? 'ok' : 'error'}"` : '';
+    const saveCardBody = uiActions(saveActionsHtml) + `<p id="limit-result" class="result" role="status" aria-live="polite"${resultStateAttr}>${msg ? esc(msg) : ''}</p>`;
+    h += uiCard({
+      id: 'limit-save-card',
+      icon: 'save',
+      title: trKey("console.js.panels.save_settings"),
+      split: false,
+      bodyHtml: saveCardBody
+    });
 
     target.innerHTML = h;
+    enhanceConsoleDom();
   }
 
   async function renderLimitManager(container, opts) {
@@ -1313,7 +1454,8 @@
     }
     const target = _limitState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="ruler"></span> ' + esc(trKey("console.js.panels.limits.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.loading_settings")) + '</p>';
+    target.innerHTML = renderPanelLoadingCard('limit-loading-card', 'ruler', 'console.js.panels.limits.title', 'console.js.panels.loading_settings');
+    enhanceConsoleDom();
     try {
       const url = resolveRootUrl(_limitState.opts, 'limits');
       const r = await fetch(url);
@@ -1321,7 +1463,8 @@
       _limitState.config = await r.json();
       renderLimitManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="ruler"></span> ${esc(trKey("console.js.panels.limits.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.load_failed"))} ${esc(e.message || e)}</p>`;
+      target.innerHTML = renderPanelErrorCard('limit-error-card', 'ruler', 'console.js.panels.limits.title', 'console.js.panels.load_failed', e);
+      enhanceConsoleDom();
     }
   }
 
@@ -1551,111 +1694,130 @@
     const isAdmin = evalBool(optsState.isAdmin, false);
     const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
 
-    let h = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2>';
-    if (isOwner) {
-      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_owner")) + '</p>';
-    } else {
-      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_reader")) + '</p>';
-    }
-
-    h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
+    let listHtml = '<div class="theme-manager-list">';
     for (const t of themes) {
       const themeKey = getThemeKey(t);
+      const themeIcon = t.icon || '📁';
       const isPub = t.is_public !== false;
-      const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.public")) + '</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.private")) + '</span>';
-      const toggleBtn = isPub ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.make_private"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.make_public"))}</button>`;
+      const pubBadge = uiPill(isPub ? trKey("console.js.panels.themes.public") : trKey("console.js.panels.themes.private"), isPub ? 'ok' : 'warn');
+      const toggleBtn = uiBtn(isPub ? trKey("console.js.panels.themes.make_private") : trKey("console.js.panels.themes.make_public"), { sm: true, attrs: { onclick: `toggleThemeVisibility(${jsArg(themeKey)}, ${!isPub})` } });
       const isPres = t.presentation_enabled === true;
-      const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_on_title")) + '"><span data-icon="screen"></span> ' + esc(trKey("console.js.panels.themes.presentation_on")) + '</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_off_title")) + '"><span data-icon="block"></span> ' + esc(trKey("console.js.panels.themes.presentation_off")) + '</span>';
-      const togglePresBtn = isPres ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.presentation_turn_off"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.presentation_turn_on"))}</button>`;
+      const presBadge = `<span class="pref-pill" data-tone="${isPres ? 'accent' : 'neutral'}" title="${esc(trKey(isPres ? 'console.js.panels.themes.presentation_on_title' : 'console.js.panels.themes.presentation_off_title'))}"><span data-icon="${isPres ? 'screen' : 'block'}"></span> ${esc(trKey(isPres ? 'console.js.panels.themes.presentation_on' : 'console.js.panels.themes.presentation_off'))}</span>`;
+      const togglePresBtn = uiBtn(isPres ? trKey("console.js.panels.themes.presentation_turn_off") : trKey("console.js.panels.themes.presentation_turn_on"), { sm: true, attrs: { onclick: `toggleThemePresentation(${jsArg(themeKey)}, ${!isPres})` } });
       const idLabel = themeKey === '0' ? trKey("console.js.panels.themes.id_default") : trKey("console.js.panels.themes.id_label", { id: t.number ? t.number : '#' + t.id });
       const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
-      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="${esc(trKey("console.js.panels.themes.legacy_title"))}"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_count", { count: t.legacy_hosts.length }))}</span>` : '';
+      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span class="pref-pill" data-tone="ap" title="${esc(trKey("console.js.panels.themes.legacy_title"))}"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_count", { count: t.legacy_hosts.length }))}</span>` : '';
 
-      h += '<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">';
-      h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">';
-      h += `<strong style="font-size:13px;">${esc(t.icon || '📁')} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>`;
-      h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
-      h += legacyHostsBadge;
+      let actions = legacyHostsBadge;
       if (t.ga_measurement_id) {
-        h += `<span style="color:#fbbf24;font-weight:600;font-size:12px;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px" title="Google Analytics 4"><span data-icon="chart"></span> ${esc(t.ga_measurement_id)}</span>`;
+        actions += `<span class="pref-pill" data-tone="warn" title="Google Analytics 4"><span data-icon="chart"></span> ${esc(t.ga_measurement_id)}</span>`;
       }
-      h += pubBadge;
-      if (isOwner) h += toggleBtn;
-      h += presBadge;
-      if (isOwner) h += togglePresBtn;
-      if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}</button>`;
-      h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})"><span data-icon="settings"></span> ${esc(trKey("console.js.panels.themes.show_options"))}</button>`;
+      actions += pubBadge;
+      if (isOwner) actions += toggleBtn;
+      actions += presBadge;
+      if (isOwner) actions += togglePresBtn;
+      if (isOwner) actions += uiBtn('', { sm: true, labelHtml: `<span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}`, attrs: { onclick: `showThemeEditForm(${jsArg(themeKey)})` } });
+      actions += uiBtn('', { sm: true, labelHtml: `<span data-icon="settings"></span> ${esc(trKey("console.js.panels.themes.show_options"))}`, attrs: { onclick: `toggleThemeOptionsView(${jsArg(themeKey)})` } });
       if (isAdmin && themeKey !== '0') {
-        h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("common.action.delete"))}</button>`;
+        actions += uiBtn('', { variant: 'danger', sm: true, labelHtml: `<span data-icon="trash"></span> ${esc(trKey("common.action.delete"))}`, attrs: { onclick: `deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})` } });
       }
-      h += '</div></div>';
-      if (t.description) h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>`;
-      h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}</p>`;
 
-      h += `<div id="theme-options-view-${themeKey}" style="display:none;margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
-      h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> ' + esc(trKey("console.js.panels.themes.options_title")) + '</div>';
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_label"))}</b>: ${esc(t.label)}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_manager"))}</b>: ${esc(effMgr)}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_icon"))}</b>: ${esc(t.icon || '📁')}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.col_description"))}</b>: ${esc(t.description || esc(trKey("console.js.panels.themes.no_description")))}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_legacy"))}</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => esc(trKey("console.js.panels.themes.legacy_host", { host: lh.host, activated: lh.activated_at || '-', sunset: lh.sunset_at || '-' }))).join(', ') : esc(trKey("console.js.panels.themes.none"))}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_ga"))}</b>: ${esc(t.ga_measurement_id || esc(trKey("console.js.panels.themes.ga_unset")))}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_visibility"))}</b>: ${isPub ? esc(trKey("console.js.panels.themes.visibility_public")) : esc(trKey("console.js.panels.themes.private"))}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_presentation"))}</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_enabled")) + '</span>' : '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_disabled")) + '</span>'}</div>`;
-      if (t.stats) h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_stats"))}</b>: ${esc(trKey("console.js.panels.themes.stats", { documents: t.stats.documents || 0, entities: t.stats.entities || 0, relations: t.stats.relations || 0 }))}</div>`;
-      h += '</div>';
+      listHtml += '<div class="pref-row" style="flex-direction:column;align-items:stretch;gap:0.5rem;">';
+      listHtml += '<div class="console-card-head">';
+      listHtml += `<strong>${esc(themeIcon)} ${esc(t.label)} <small class="hint">(${esc(idLabel)})</small></strong>`;
+      listHtml += uiActions(actions);
+      listHtml += '</div>';
+      if (t.description) listHtml += `<p class="hint">${esc(t.description)}</p>`;
+      listHtml += `<p class="hint">${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}</p>`;
+
+      listHtml += `<div id="theme-options-view-${themeKey}" class="pref-notice" data-tone="info" style="display:none;flex-direction:column;gap:0.25rem;">`;
+      listHtml += `<div><strong><span data-icon="settings"></span> ${esc(trKey("console.js.panels.themes.options_title"))}</strong></div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_label"))}</b>: ${esc(t.label)}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_manager"))}</b>: ${esc(effMgr)}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_icon"))}</b>: ${esc(themeIcon)}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.col_description"))}</b>: ${esc(t.description || trKey("console.js.panels.themes.no_description"))}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_legacy"))}</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => esc(trKey("console.js.panels.themes.legacy_host", { host: lh.host, activated: lh.activated_at || '-', sunset: lh.sunset_at || '-' }))).join(', ') : esc(trKey("console.js.panels.themes.none"))}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_ga"))}</b>: ${esc(t.ga_measurement_id || trKey("console.js.panels.themes.ga_unset"))}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_visibility"))}</b>: ${isPub ? esc(trKey("console.js.panels.themes.visibility_public")) : esc(trKey("console.js.panels.themes.private"))}</div>`;
+      listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_presentation"))}</b>: ${uiPill(trKey(isPres ? "console.js.panels.themes.presentation_enabled" : "console.js.panels.themes.presentation_disabled"), isPres ? 'accent' : 'neutral')}</div>`;
+      if (t.stats) listHtml += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_stats"))}</b>: ${esc(trKey("console.js.panels.themes.stats", { documents: t.stats.documents || 0, entities: t.stats.entities || 0, relations: t.stats.relations || 0 }))}</div>`;
+      listHtml += '</div>';
 
       if (isOwner) {
-        h += `<div id="theme-edit-form-${themeKey}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">`;
-        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_label"))}</label><input id="editthemep-label-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>`;
-        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_manager"))}</label><input id="editthemep-sorcerer-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.opt_manager"))}" value="${esc(rawMgr)}"/></div>`;
-        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.col_description"))}</label><input id="editthemep-desc-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>`;
+        listHtml += `<div id="theme-edit-form-${themeKey}" style="display:none;margin-top:0.25rem;padding-top:0.625rem;border-top:1px dashed var(--border);flex-direction:column;gap:0.625rem;">`;
+        listHtml += '<div class="console-form-grid">';
+        listHtml += uiField({ id: `editthemep-label-${themeKey}`, label: trKey("console.js.panels.themes.opt_label"), controlHtml: `<input id="editthemep-label-${themeKey}" class="pref-input" value="${esc(t.label)}"/>` });
+        listHtml += uiField({ id: `editthemep-sorcerer-${themeKey}`, label: trKey("console.js.panels.themes.opt_manager"), controlHtml: `<input id="editthemep-sorcerer-${themeKey}" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.opt_manager"))}" value="${esc(rawMgr)}"/>` });
+        listHtml += '</div>';
+        listHtml += uiField({ id: `editthemep-desc-${themeKey}`, label: trKey("console.js.panels.col_description"), controlHtml: `<input id="editthemep-desc-${themeKey}" class="pref-input" value="${esc(t.description || '')}"/>` });
         if (t.legacy_hosts && t.legacy_hosts.length) {
-          h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_note"))} ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
+          listHtml += uiNotice(`<span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_note"))} ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}`, 'info');
         }
-        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.ga_label"))}</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.ga_placeholder"))}" value="${esc(t.ga_measurement_id || '')}"/></div>`;
-        h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-        h += `<div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_icon"))}</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>`;
-        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.public_checkbox"))}</label></div>`;
-        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${themeKey}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.presentation_checkbox"))}</label></div>`;
-        h += '</div>';
-        h += '<div style="display:flex;gap:6px;margin-top:4px;align-items:center;">';
-        h += `<button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">${esc(trKey("common.action.save"))}</button>`;
-        h += `<button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">${esc(trKey("common.action.cancel"))}</button>`;
+        listHtml += '<div class="console-form-grid">';
+        listHtml += uiField({ id: `editthemep-ga-${themeKey}`, label: trKey("console.js.panels.themes.ga_label"), controlHtml: `<input id="editthemep-ga-${themeKey}" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.ga_placeholder"))}" value="${esc(t.ga_measurement_id || '')}"/>` });
+        listHtml += uiField({ id: `editthemep-icon-${themeKey}`, label: trKey("console.js.panels.themes.opt_icon"), controlHtml: `<input id="editthemep-icon-${themeKey}" class="pref-input" value="${esc(themeIcon)}"/>` });
+        listHtml += '</div>';
+        listHtml += uiToggleRow({ id: `editthemep-pub-${themeKey}`, label: trKey("console.js.panels.themes.public_checkbox"), checked: isPub });
+        listHtml += uiToggleRow({ id: `editthemep-pres-${themeKey}`, label: trKey("console.js.panels.themes.presentation_checkbox"), checked: isPres });
+        let formBtns = uiBtn(trKey("common.action.save"), { variant: 'accent', sm: true, attrs: { onclick: `updateThemeFromUI(${jsArg(themeKey)})` } });
+        formBtns += uiBtn(trKey("common.action.cancel"), { sm: true, attrs: { onclick: `hideThemeEditForm(${jsArg(themeKey)})` } });
         if (isAdmin && themeKey !== '0') {
-          h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}</button>`;
+          formBtns += uiBtn('', { variant: 'danger', sm: true, labelHtml: `<span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}`, attrs: { style: 'margin-left:auto;', onclick: `deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})` } });
         }
-        h += '</div></div>';
+        listHtml += uiActions(formBtns);
+        listHtml += '</div>';
       }
-      h += '</div>';
+      listHtml += '</div>';
     }
-    h += '</div>';
+    listHtml += '</div>';
+
+    let h = uiCard({
+      id: 'theme-list-card',
+      icon: 'folder',
+      title: trKey("console.js.panels.themes.title"),
+      hint: isOwner ? trKey("console.js.panels.themes.desc_owner") : trKey("console.js.panels.themes.desc_reader"),
+      split: false,
+      bodyHtml: listHtml
+    });
 
     if (isOwner) {
-      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.themes.add_title")) + '</summary>';
-      h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
-      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_label")) + '</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.label_placeholder")) + '"/></div>';
-      h += '<div><label for="newthemep-knowledge-type" style="font-size:11px;opacity:0.8">' + esc(trKey("kb.knowledge_type.label")) + '</label><select id="newthemep-knowledge-type" style="width:100%;box-sizing:border-box"><option value="real">' + esc(trKey("kb.knowledge_type.real")) + '</option><option value="fictional">' + esc(trKey("kb.knowledge_type.fictional")) + '</option></select></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_manager")) + '</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.opt_manager")) + '"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.col_description")) + '</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.desc_placeholder")) + '"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.ga_label")) + '</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.ga_placeholder")) + '"/></div>';
-      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_icon")) + '</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pres" type="checkbox" style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.presentation_checkbox")) + '</label></div></div>';
-      h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">' + esc(trKey("console.js.panels.themes.create")) + '</button>';
-      h += '</div></details>';
+      const kTypeOpts = `<option value="real">${esc(trKey("kb.knowledge_type.real"))}</option><option value="fictional">${esc(trKey("kb.knowledge_type.fictional"))}</option>`;
+      let addForm = '<details class="pref-disclosure"><summary><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.themes.add_title")) + '</summary>';
+      addForm += '<div style="display:flex;flex-direction:column;gap:0.625rem;margin-top:0.625rem;">';
+      addForm += '<div class="console-form-grid">';
+      addForm += uiField({ id: 'newthemep-label', label: trKey("console.js.panels.themes.opt_label"), controlHtml: `<input id="newthemep-label" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.label_placeholder"))}"/>` });
+      addForm += uiField({ id: 'newthemep-knowledge-type', label: trKey("kb.knowledge_type.label"), controlHtml: `<select id="newthemep-knowledge-type" class="pref-select">${kTypeOpts}</select>` });
+      addForm += '</div>';
+      addForm += '<div class="console-form-grid">';
+      addForm += uiField({ id: 'newthemep-sorcerer', label: trKey("console.js.panels.themes.opt_manager"), controlHtml: `<input id="newthemep-sorcerer" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.opt_manager"))}"/>` });
+      addForm += uiField({ id: 'newthemep-desc', label: trKey("console.js.panels.col_description"), controlHtml: `<input id="newthemep-desc" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.desc_placeholder"))}"/>` });
+      addForm += '</div>';
+      addForm += '<div class="console-form-grid">';
+      addForm += uiField({ id: 'newthemep-ga', label: trKey("console.js.panels.themes.ga_label"), controlHtml: `<input id="newthemep-ga" class="pref-input" placeholder="${esc(trKey("console.js.panels.themes.ga_placeholder"))}"/>` });
+      addForm += uiField({ id: 'newthemep-icon', label: trKey("console.js.panels.themes.opt_icon"), controlHtml: '<input id="newthemep-icon" class="pref-input" value="📁"/>' });
+      addForm += '</div>';
+      addForm += uiToggleRow({ id: 'newthemep-pres', label: trKey("console.js.panels.themes.presentation_checkbox"), checked: false });
+      addForm += uiActions(uiBtn(trKey("console.js.panels.themes.create"), { variant: 'accent', attrs: { onclick: 'createThemeFromUI()' } }));
+      addForm += '</div></details>';
+      h += uiCard({
+        id: 'theme-create-card',
+        icon: 'plus',
+        title: trKey("console.js.panels.themes.add_title"),
+        split: false,
+        bodyHtml: addForm
+      });
     } else {
-      h += '<p class="hint" style="margin-top:14px;font-size:12px;"><span data-icon="info"></span> ' + esc(trKey("console.js.panels.themes.ask_owner")) + '</p>';
+      h += uiNotice(`<span data-icon="info"></span> ${esc(trKey("console.js.panels.themes.ask_owner"))}`, 'info');
     }
 
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     if (canClose) {
-      h += '<div style="margin-top:16px;">';
-      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeThemeManager()">' + esc(trKey("common.action.close")) + '</button>';
-      h += '</div>';
+      h += uiActions(uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeThemeManager()' } }));
     }
 
     target.innerHTML = h;
+    enhanceConsoleDom();
   }
 
   async function renderThemeManager(container, opts) {
@@ -1665,7 +1827,8 @@
     }
     const target = _themeState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.themes.loading")) + '</p>';
+    target.innerHTML = renderPanelLoadingCard('theme-loading-card', 'folder', 'console.js.panels.themes.title', 'console.js.panels.themes.loading');
+    enhanceConsoleDom();
     try {
       // The personal knowledge base of the caller and the shared knowledge bases: all of them for the admin, else those where the caller is an active member (design Section 7).
       const isAdmin = evalBool(_themeState.opts.isAdmin, false);
@@ -1676,7 +1839,8 @@
       _themeState.themes = [data.personal_kb, ...(data.knowledge_bases || [])].filter(Boolean);
       renderThemeManagerDOM();
     } catch (e) {
-      target.innerHTML = '<p class="hint">' + esc(trKey("console.js.panels.themes.load_failed")) + ' ' + esc(String(e)) + '</p>';
+      target.innerHTML = renderPanelErrorCard('theme-error-card', 'folder', 'console.js.panels.themes.title', 'console.js.panels.themes.load_failed', e);
+      enhanceConsoleDom();
     }
   }
 
@@ -1782,139 +1946,130 @@
     if (!target) return;
     const tokens = _tokenState.tokens || [];
     const activeNewToken = newCreatedToken || _tokenState.newCreatedToken;
-
-    let alertHtml = '';
-    if (msg) {
-      const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
-      const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
-      alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
-    }
-
-    let h = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2>';
-    h += '<p class="al">' + esc(trKey("console.js.panels.tokens.desc")) + '</p>';
     const isRetired = Boolean(_tokenState.retired);
+
+    let h = '';
     if (isRetired) {
       const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /settings/mcp.';
       const retiredText = trFallback("console.js.panels.tokens.retired_notice", retiredFallback);
       const retiredHtml = retiredText.indexOf('/settings/mcp') !== -1 ? esc(retiredText).replace('/settings/mcp', '<a href="/settings/mcp">/settings/mcp</a>') : (esc(retiredText) + ' <a href="/settings/mcp">/settings/mcp</a>');
-      h += '<div id="tokens-retired-banner" data-tokens-retired="true" role="status" style="padding:8px 10px;border-radius:6px;background:rgba(207,34,46,0.1);color:var(--err,#cf222e);font-size:12px;margin-bottom:12px;border:1px solid var(--err,#cf222e);"><span data-icon="warning"></span> ' + retiredHtml + '</div>';
+      h += uiNotice(`<span data-icon="warning"></span> ${retiredHtml}`, 'danger', '', { id: 'tokens-retired-banner', 'data-tokens-retired': 'true', role: 'status' });
     }
     const scopeNotices = _tokenState.scopeNotices || [];
     if (scopeNotices.length) {
-      h += '<div role="status" style="padding:8px 10px;border-radius:6px;background:rgba(243,156,18,0.1);color:var(--warn,#9a6700);font-size:12px;margin-bottom:12px;border:1px solid var(--warn,#9a6700);"><span data-icon="warning"></span> ' + esc(trKey("console.js.panels.tokens.scope_notice")) + '<ul style="margin:4px 0 0;padding-left:18px;">' + scopeNotices.map(n => '<li>' + esc(n.name) + ' (#' + esc(String(n.id)) + ')</li>').join('') + '</ul></div>';
+      const scopeListHtml = '<ul>' + scopeNotices.map(n => `<li>${esc(n.name)} (#${esc(String(n.id))})</li>`).join('') + '</ul>';
+      h += uiNotice(`<span data-icon="warning"></span> ${esc(trKey("console.js.panels.tokens.scope_notice"))}${scopeListHtml}`, 'warn', '', { role: 'status' });
     }
-    h += alertHtml;
+    h += renderAlertBanner(msg, isSuccess);
 
     if (activeNewToken) {
       const rawVal = activeNewToken.token || '';
       const mcpOrigin = window.location.origin;
       const mcpUrl = `${mcpOrigin}/mcp`;
       const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${rawVal}` } } } }, null, 2);
-      h += '<div style="background:rgba(26,127,55,0.08);border:2px solid var(--accent2,#1a7f37);border-radius:8px;padding:12px;margin-bottom:16px;">';
-      h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);"><span data-icon="check-circle"></span> ' + esc(trKey("console.js.panels.tokens.minted_title")) + '</h3>';
-      h += '<p style="margin:0 0 8px 0;font-size:12px;">' + esc(trKey("console.js.panels.tokens.minted_hint")) + '</p>';
-      h += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
-      h += `<input type="text" id="newly-minted-token" readonly value="${esc(rawVal)}" style="flex:1;font-family:monospace;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);" onclick="this.select();"/>`;
-      h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="copyMintedToken()"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.copy")) + '</button>';
-      h += '</div>';
-      h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.mcp_json")) + '</summary>';
-      h += `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:11px;border:1px solid var(--border);">${esc(mcpSnippet)}</pre></details>`;
-      h += '</div>';
+      const mintedBody = `<div class="console-form-row"><input type="text" id="newly-minted-token" class="pref-input pref-mono" readonly value="${esc(rawVal)}" style="flex:1;min-width:12rem;" onclick="this.select();"/>${uiBtn(trKey("console.js.panels.tokens.copy"), { variant: 'accent', icon: 'clipboard', attrs: { onclick: 'copyMintedToken()' } })}</div>`
+        + `<details class="pref-disclosure"><summary><span data-icon="clipboard"></span> ${esc(trKey("console.js.panels.tokens.mcp_json"))}</summary><pre class="pref-code">${esc(mcpSnippet)}</pre></details>`;
+      h += uiCard({
+        id: 'tokens-minted-card',
+        icon: 'check-circle',
+        title: trKey("console.js.panels.tokens.minted_title"),
+        hint: trKey("console.js.panels.tokens.minted_hint"),
+        split: false,
+        bodyHtml: mintedBody
+      });
     }
 
     const disabledAttr = isRetired ? ' disabled aria-disabled="true"' : '';
-    const cardOpacity = isRetired ? 'opacity:0.65;' : '';
-    h += `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;${cardOpacity}">`;
-    h += '<h3 style="margin:0 0 10px 0;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.tokens.new_title")) + '</h3>';
-    h += '<div style="display:flex;flex-direction:column;gap:10px;">';
-    h += '<div>';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.name_label")) + '</label>';
-    h += '<input type="text" id="new-token-name"' + disabledAttr + ' placeholder="' + esc(trKey("console.js.panels.tokens.name_placeholder")) + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
-    h += '</div>';
+    const scopeOptsHtml = `<option value="readonly" selected>${esc(trKey("console.js.panels.tokens.scope_readonly"))}</option><option value="write">${esc(trKey("console.js.panels.tokens.scope_write"))}</option><option value="owner">${esc(trKey("console.js.panels.tokens.scope_owner"))}</option>`;
+    const expiryOptsHtml = `<option value="0" selected>${esc(trKey("console.js.panels.tokens.expiry_none"))}</option><option value="30">${esc(trKey("console.js.panels.tokens.expiry_30"))}</option><option value="90">${esc(trKey("console.js.panels.tokens.expiry_90"))}</option><option value="365">${esc(trKey("console.js.panels.tokens.expiry_365"))}</option>`;
+    const createBody = uiField({ id: 'new-token-name', label: trKey("console.js.panels.tokens.name_label"), controlHtml: `<input type="text" id="new-token-name" class="pref-input"${disabledAttr} placeholder="${esc(trKey("console.js.panels.tokens.name_placeholder"))}"/>` })
+      + '<div class="console-form-grid">'
+      + uiField({ id: 'new-token-scope', label: trKey("console.js.panels.tokens.scope_label"), controlHtml: `<select id="new-token-scope" class="pref-select"${disabledAttr}>${scopeOptsHtml}</select>` })
+      + uiField({ id: 'new-token-expiry', label: trKey("console.js.panels.tokens.expiry_label"), controlHtml: `<select id="new-token-expiry" class="pref-select"${disabledAttr}>${expiryOptsHtml}</select>` })
+      + '</div>'
+      + uiActions(uiBtn(trKey("console.js.panels.tokens.issue"), { id: 'create-api-token-btn', variant: 'accent', icon: 'key', disabled: isRetired, attrs: { onclick: 'createApiToken()' } }));
+    h += uiCard({
+      id: 'tokens-create-card',
+      icon: 'plus',
+      title: trKey("console.js.panels.tokens.new_title"),
+      hint: trKey("console.js.panels.tokens.desc"),
+      attrs: isRetired ? { style: 'opacity:0.65;' } : null,
+      bodyHtml: createBody
+    });
 
-    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
-    h += '<div style="flex:1;min-width:130px;">';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.scope_label")) + '</label>';
-    h += '<select id="new-token-scope"' + disabledAttr + ' style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
-    h += '<option value="readonly" selected>' + esc(trKey("console.js.panels.tokens.scope_readonly")) + '</option>';
-    h += '<option value="write">' + esc(trKey("console.js.panels.tokens.scope_write")) + '</option>';
-    h += '<option value="owner">' + esc(trKey("console.js.panels.tokens.scope_owner")) + '</option>';
-    h += '</select>';
-    h += '</div>';
-
-    h += '<div style="flex:1;min-width:130px;">';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.expiry_label")) + '</label>';
-    h += '<select id="new-token-expiry"' + disabledAttr + ' style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
-    h += '<option value="0" selected>' + esc(trKey("console.js.panels.tokens.expiry_none")) + '</option>';
-    h += '<option value="30">' + esc(trKey("console.js.panels.tokens.expiry_30")) + '</option>';
-    h += '<option value="90">' + esc(trKey("console.js.panels.tokens.expiry_90")) + '</option>';
-    h += '<option value="365">' + esc(trKey("console.js.panels.tokens.expiry_365")) + '</option>';
-    h += '</select>';
-    h += '</div>';
-    h += '</div>';
-
-    h += '<button type="button" id="create-api-token-btn"' + disabledAttr + ' class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:' + (isRetired ? 'not-allowed' : 'pointer') + ';" onclick="createApiToken()"><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.issue")) + '</button>';
-    h += '</div>';
-    h += '</div>';
-
-    h += '<h3 style="margin:0 0 8px 0;font-size:13px;"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.list_title", { count: tokens.length })) + '</h3>';
+    let listBody = '';
     if (!tokens.length) {
-      h += '<p class="hint">' + esc(trKey("console.js.panels.tokens.empty")) + '</p>';
+      listBody = `<p class="hint">${esc(trKey("console.js.panels.tokens.empty"))}</p>`;
     } else {
-      h += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      const scopeTones = { owner: 'accent', write: 'ap', readonly: 'neutral' };
+      const nowTs = Date.now() / 1000;
+      let rowsHtml = '';
       for (const tok of tokens) {
         const isRevoked = tok.revoked_at !== null && tok.revoked_at !== undefined;
-        const nowTs = Date.now() / 1000;
         const isExpired = tok.expires_at && tok.expires_at < nowTs;
-        let statusBadge = '<span style="color:#1a7f37;background:rgba(26,127,55,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_active")) + '</span>';
+        let statusTone = 'ok';
+        let statusText = trKey("console.js.panels.tokens.status_active");
         if (isRevoked) {
-          statusBadge = '<span style="color:#cf222e;background:rgba(207,34,46,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_revoked")) + '</span>';
+          statusTone = 'danger';
+          statusText = trKey("console.js.panels.tokens.status_revoked");
         } else if (isExpired) {
-          statusBadge = '<span style="color:#9a6700;background:rgba(154,103,0,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_expired")) + '</span>';
+          statusTone = 'warn';
+          statusText = trKey("console.js.panels.tokens.status_expired");
         }
 
         let expStr = trKey("console.js.panels.tokens.expiry_none_short");
         if (tok.expires_at) {
           const d = new Date(tok.expires_at * 1000);
-          expStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          expStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
         let lastUsedStr = trKey("console.js.panels.tokens.never_used");
         if (tok.last_used_at) {
           const lu = new Date(tok.last_used_at * 1000);
-          lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
-        const scopeColors = { owner: 'var(--accent,#0969da)', write: '#8250df', readonly: '#57606a' };
-        const scopeCol = scopeColors[tok.scope] || '#57606a';
-
-        h += `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg);opacity:${isRevoked ? '0.6' : '1'};">`;
-        h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
-        h += `<div><strong style="font-size:13px;">#${tok.id} ${esc(tok.name)}</strong> <span style="font-size:11px;font-weight:600;color:${scopeCol};border:1px solid ${scopeCol};padding:1px 5px;border-radius:4px;margin-left:4px;">${esc(tok.scope)}</span> ${statusBadge}</div>`;
-        if (!isRevoked) {
-          h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, ${jsArg(tok.name)})">${esc(trKey("console.js.panels.tokens.revoke"))}</button>`;
-        }
-        h += '</div>';
-
-        h += '<div style="font-size:12px;color:var(--sec-fg,#57606a);display:flex;flex-direction:column;gap:2px;">';
-        h += `<div>${esc(trKey("console.js.panels.tokens.identifier"))} <code style="font-size:11px;background:var(--sec-bg);padding:1px 4px;border-radius:3px;">${esc(tok.token_masked || 'cb_...')}</code></div>`;
-        h += `<div>${esc(trKey("console.js.panels.tokens.expires"))}: ${esc(expStr)} · ${esc(trKey("console.js.panels.tokens.last_used"))}: ${esc(lastUsedStr)}</div>`;
-        h += '</div>';
-        h += '</div>';
+        const revokeHtml = isRevoked ? '' : uiBtn(trKey("console.js.panels.tokens.revoke"), { variant: 'danger', sm: true, attrs: { onclick: `revokeApiToken(${tok.id}, ${jsArg(tok.name)})` } });
+        rowsHtml += `<tr${isRevoked ? ' data-off="true"' : ''}>`;
+        rowsHtml += `<td><strong>#${tok.id} ${esc(tok.name)}</strong></td>`;
+        rowsHtml += `<td>${uiPill(tok.scope, scopeTones[tok.scope] || 'neutral')}</td>`;
+        rowsHtml += `<td>${uiPill(statusText, statusTone)}</td>`;
+        rowsHtml += `<td><code class="pref-mono">${esc(tok.token_masked || 'cb_...')}</code></td>`;
+        rowsHtml += `<td>${esc(expStr)}</td>`;
+        rowsHtml += `<td>${esc(lastUsedStr)}</td>`;
+        rowsHtml += `<td>${revokeHtml}</td>`;
+        rowsHtml += '</tr>';
       }
-      h += '</div>';
+      const idHeader = trKey("console.js.panels.tokens.identifier").replace(/:+\s*$/, '');
+      listBody = uiTable({
+        headers: [
+          trKey("console.js.panels.tokens.name_label"),
+          trKey("console.js.panels.tokens.scope_label"),
+          trKey("console.js.panels.col_status"),
+          idHeader,
+          trKey("console.js.panels.tokens.expires"),
+          trKey("console.js.panels.tokens.last_used"),
+          ''
+        ],
+        bodyHtml: rowsHtml
+      });
     }
+    h += uiCard({
+      id: 'tokens-list-card',
+      icon: 'clipboard',
+      title: trKey("console.js.panels.tokens.list_title", { count: tokens.length }),
+      split: false,
+      bodyHtml: listBody
+    });
 
     const optsState = _tokenState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     if (canClose) {
-      h += '<div style="margin-top:16px;">';
-      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeTokenManager()">' + esc(trKey("common.action.close")) + '</button>';
-      h += '</div>';
+      h += uiActions(uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeTokenManager()' } }));
     }
 
     target.innerHTML = h;
+    enhanceConsoleDom();
   }
 
   async function renderTokenManager(container, opts, newCreatedToken) {
@@ -1932,7 +2087,8 @@
     }
     const target = _tokenState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.tokens.loading")) + '</p>';
+    target.innerHTML = renderPanelLoadingCard('tokens-loading-card', 'key', 'console.js.panels.tokens.title', 'console.js.panels.tokens.loading');
+    enhanceConsoleDom();
     _tokenState.retired = false;
     _tokenState.deprecationNotice = '';
     try {
@@ -1949,7 +2105,8 @@
       const initialSuccess = (_tokenState.opts && _tokenState.opts.initialSuccess) || false;
       renderTokenManagerDOM(initialMsg, initialSuccess, _tokenState.newCreatedToken);
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="key"></span> ${esc(trKey("console.js.panels.tokens.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.tokens.load_failed"))} ${esc(e.message || e)}</p>`;
+      target.innerHTML = renderPanelErrorCard('tokens-error-card', 'key', 'console.js.panels.tokens.title', 'console.js.panels.tokens.load_failed', e);
+      enhanceConsoleDom();
     }
   }
 

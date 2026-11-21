@@ -1,9 +1,9 @@
 <section id="panel-opml" class="pref-panel" data-settings-panel="opml">
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="package"></span> ${t:console.synd.opml.title}</h2>
     <p class="pref-desc">${th:console.synd.opml.desc}</p>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <div class="console-actions">
       <button type="button" id="btn-export-opml" class="pref-btn pref-btn-accent"><span data-icon="download"></span> ${t:console.synd.opml.export}</button>
       <button type="button" id="btn-sim-import-opml" class="pref-btn"><span data-icon="upload"></span> ${t:console.synd.opml.import_sim}</button>
     </div>
@@ -14,5 +14,5 @@
       <summary><span data-icon="shield"></span> ${th:console.synd.opml.tombstone_title}</summary>
       <p style="margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.55">${th:console.synd.opml.tombstone_desc}</p>
     </details>
-  </div>
+  </section>
 </section>

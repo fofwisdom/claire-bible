@@ -26,6 +26,7 @@ from ..principal import request_principal
 from ..security import read_json_body
 from .admin import is_admin
 from .common import AccountsContext, json_error, not_found, require_recent_auth, same_origin
+from .console_ui import console_actions, console_card, console_notice, console_result
 
 ADMIN_PLUGINS_API_PATH = "/api/admin/plugins"
 ADMIN_PLUGIN_API_PATH = "/api/admin/plugins/{id}"
@@ -177,16 +178,19 @@ def admin_plugins_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "reauth": t("console.admin.plugins.msg.reauth"),
         "network": t("console.admin.plugins.msg.network"),
     }
-    msg_attrs = "".join(f' data-msg-{escape(k.replace("_", "-"))}="{escape(v)}"' for k, v in messages.items())
-    body = (
-        f'<section class="card" id="admin-plugins-folders" aria-label="{escape(t("console.admin.plugins.folder_title"))}">'
-        f'<h2><span data-icon="folder"></span> {escape(t("console.admin.plugins.folder_title"))}</h2>'
+    msg_attrs = {f"data-msg-{k.replace('_', '-')}": v for k, v in messages.items()}
+    notices_html = "".join(console_notice(escape(n), tone="warn", attrs={"data-plugin-notice": True}) for n in notices)
+    folders_card = console_card(
+        escape(t("console.admin.plugins.folder_title")),
         f'<p>{escape(t("console.admin.plugins.folder_text", container=data["plugin_folder"], host="CB_PLUGINS_DIR"))}</p>'
         f'<p class="hint">{escape(t("console.admin.plugins.project_text", path=data["project_plugin_folder"]))}</p>'
         f'<p class="hint">{escape(t("console.admin.plugins.core_commit", commit=data.get("core_commit") or "-"))}</p>'
-        + "".join(f'<p class="notice" data-plugin-notice>{escape(n)}</p>' for n in notices)
-        + "</section>"
-        f'<section class="card" id="admin-plugins-card" aria-label="{escape(t("console.admin.plugins.label"))}"{msg_attrs}>'
+        + notices_html,
+        id="admin-plugins-folders",
+        icon="folder",
+        aria_label=t("console.admin.plugins.folder_title"),
+    )
+    plugins_table = (
         '<div class="pref-table-wrap">'
         '<table class="pref-table claire-table" id="admin-plugins-table">'
         f'<caption>{escape(t("console.admin.plugins.caption"))}</caption>'
@@ -195,18 +199,29 @@ def admin_plugins_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f'<th scope="col">{escape(t("console.admin.plugins.col_state"))}</th><th scope="col">{escape(t("console.admin.plugins.col_switch"))}</th></tr></thead>'
         f"<tbody>{rows}</tbody>"
         "</table></div>"
-        '<p id="admin-plugins-result" role="status" aria-live="polite"></p>'
-        "</section>"
+    )
+    plugins_card = console_card(
+        escape(t("console.admin.plugins.label")),
+        plugins_table + console_result(id="admin-plugins-result"),
+        id="admin-plugins-card",
+        icon="puzzle",
+        aria_label=t("console.admin.plugins.label"),
+        attrs=msg_attrs,
+    )
+    dialog_actions = console_actions(
+        f'<button type="submit" value="cancel" class="pref-btn" autofocus>{escape(t("console.admin.plugins.dialog.cancel"))}</button>'
+        '<button type="submit" value="confirm" class="pref-btn pref-btn-accent" id="admin-plugin-dialog-confirm"></button>',
+        extra_class="console-actions-end",
+    )
+    dialog_html = (
         f'<dialog id="admin-plugin-dialog" aria-labelledby="admin-plugin-dialog-title" data-title-template="{escape(t("console.admin.plugins.dialog.title", name="{name}"))}" style="max-width:40rem;border:1px solid var(--border);border-radius:0.75rem;padding:1rem;background:var(--bg);color:var(--fg)">'
         '<form method="dialog" style="display:flex;flex-direction:column;gap:10px">'
         '<h2 id="admin-plugin-dialog-title" style="margin:0;font-size:15px"></h2>'
         '<div id="admin-plugin-dialog-body"></div>'
-        '<div style="display:flex;gap:8px;justify-content:flex-end">'
-        f'<button type="submit" value="cancel" class="pref-btn" autofocus>{escape(t("console.admin.plugins.dialog.cancel"))}</button>'
-        '<button type="submit" value="confirm" class="pref-btn pref-btn-accent" id="admin-plugin-dialog-confirm"></button>'
-        "</div></form></dialog>"
+        f"{dialog_actions}"
+        "</form></dialog>"
     )
-    return body, {"title_template": t("console.admin.plugins.dialog.title", name="{name}")}
+    return folders_card + plugins_card + dialog_html, {"title_template": t("console.admin.plugins.dialog.title", name="{name}")}
 
 
 def _validate_put(body: Any) -> tuple[bool, str | None, list[str]]:

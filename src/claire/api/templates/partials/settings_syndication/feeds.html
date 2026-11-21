@@ -1,13 +1,13 @@
 <section id="panel-feeds" class="pref-panel" data-settings-panel="feeds">
-  <div class="pref-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+  <section class="console-subcard pref-card">
+    <div class="console-card-head">
       <div>
         <h2><span data-icon="broadcast"></span> ${t:console.synd.feeds.title}</h2>
         <p class="pref-desc">${th:console.synd.feeds.desc}</p>
       </div>
     </div>
 
-    <div style="overflow-x:auto">
+    <div class="pref-table-wrap">
       <table class="pref-table" aria-label="${t:console.synd.feeds.table_label}">
         <thead>
           <tr>
@@ -25,40 +25,13 @@
     </div>
 
     <form id="pref-add-feed-form" style="display:grid;grid-template-columns:130px 140px 1fr 1.2fr 1fr 110px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)">
-      <div>
-        <label for="new-feed-proto" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.synd.common.protocol}</label>
-        <select id="new-feed-proto" class="pref-select" style="width:100%">
-          <option value="rss">RSS / ATOM</option>
-          <option value="ap">ActivityPub</option>
-          <option value="at">AT Protocol</option>
-        </select>
-      </div>
-      <div>
-        <label for="new-feed-folder" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.synd.feeds.new_folder}</label>
-        <input id="new-feed-folder" type="text" class="pref-input" style="width:100%" value="${t:console.synd.feeds.new_folder_default}"/>
-      </div>
-      <div>
-        <label for="new-feed-title" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.settings.account.display_name}</label>
-        <input id="new-feed-title" type="text" required class="pref-input" style="width:100%" placeholder="${t:console.synd.feeds.new_title_placeholder}"/>
-      </div>
-      <div>
-        <label for="new-feed-url" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.synd.feeds.new_url}</label>
-        <input id="new-feed-url" type="text" required class="pref-input" style="width:100%" placeholder="https://lwn.net/headlines/rss"/>
-      </div>
-      <div>
-        <label for="new-feed-via" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.synd.feeds.new_via}</label>
-        <select id="new-feed-via" class="pref-select" style="width:100%" disabled></select>
-      </div>
-      <div>
-        <label for="new-feed-interval" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">${t:console.synd.feeds.new_interval}</label>
-        <select id="new-feed-interval" class="pref-select" style="width:100%">
-          <option value="15m">${t:console.synd.feeds.interval_15m}</option>
-          <option value="5m">${t:console.synd.feeds.interval_5m}</option>
-          <option value="1h">${t:console.synd.feeds.interval_1h}</option>
-          <option value="stream">${t:console.synd.feeds.interval_stream}</option>
-        </select>
-      </div>
-      <button type="submit" class="pref-btn pref-btn-pri">${t:console.common.add}</button>
+      <label class="console-field" for="new-feed-proto">${t:console.synd.common.protocol}<select id="new-feed-proto" class="pref-select"><option value="rss">RSS / ATOM</option><option value="ap">ActivityPub</option><option value="at">AT Protocol</option></select></label>
+      <label class="console-field" for="new-feed-folder">${t:console.synd.feeds.new_folder}<input id="new-feed-folder" type="text" class="pref-input" value="${t:console.synd.feeds.new_folder_default}"/></label>
+      <label class="console-field" for="new-feed-title">${t:console.settings.account.display_name}<input id="new-feed-title" type="text" required class="pref-input" placeholder="${t:console.synd.feeds.new_title_placeholder}"/></label>
+      <label class="console-field" for="new-feed-url">${t:console.synd.feeds.new_url}<input id="new-feed-url" type="text" required class="pref-input" placeholder="https://lwn.net/headlines/rss"/></label>
+      <label class="console-field" for="new-feed-via">${t:console.synd.feeds.new_via}<select id="new-feed-via" class="pref-select" disabled></select></label>
+      <label class="console-field" for="new-feed-interval">${t:console.synd.feeds.new_interval}<select id="new-feed-interval" class="pref-select"><option value="15m">${t:console.synd.feeds.interval_15m}</option><option value="5m">${t:console.synd.feeds.interval_5m}</option><option value="1h">${t:console.synd.feeds.interval_1h}</option><option value="stream">${t:console.synd.feeds.interval_stream}</option></select></label>
+      <button type="submit" class="pref-btn pref-btn-accent">${t:console.common.add}</button>
     </form>
-  </div>
+  </section>
 </section>

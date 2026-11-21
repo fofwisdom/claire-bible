@@ -53,6 +53,15 @@ from .common import (
     require_recent_auth,
     t_code,
 )
+from .console_ui import (
+    console_actions,
+    console_card,
+    console_field,
+    console_form_card,
+    console_kv,
+    console_result,
+    console_toggle_row,
+)
 
 ME_TELEGRAM_PATH = "/api/me/telegram"
 ME_SUPPORT_BUNDLES_PATH = "/api/me/support-bundles"
@@ -647,20 +656,32 @@ def _reauth_html(ctx: AccountsContext, account_id: int) -> str:
     finally:
         auth.close()
     if not has_pw:
-        return (
-            f'<section class="console-subcard" data-feature-reauth="none" aria-label="{escape(t("console.reauth.submit"))}">'
-            f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.submit'))}</h2>"
-            f'<p class="hint">{escape(t("console.reauth.feature_no_password_hint"))}</p>'
-            "</section>"
+        return console_card(
+            escape(t("console.reauth.submit")),
+            "",
+            icon="lock",
+            hint_html=escape(t("console.reauth.feature_no_password_hint")),
+            extra_class="card",
+            aria_label=t("console.reauth.submit"),
+            attrs={"data-feature-reauth": "none"},
         )
-    return (
-        f'<form class="console-subcard" data-feature-form="reauth" aria-label="{escape(t("console.reauth.submit"))}">'
-        f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.form_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.reauth.feature_hint"))}</p>'
-        f'<label class="feature-field">{escape(t("console.settings.account.current_password"))}<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
+    body = (
+        console_field(
+            t("console.settings.account.current_password"),
+            '<input name="password" type="password" class="pref-input" required autocomplete="current-password"/>',
+            extra_class="feature-field",
+        )
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>')
+        + console_result(attrs={"data-feature-result": True})
+    )
+    return console_form_card(
+        escape(t("console.reauth.form_title")),
+        body,
+        icon="lock",
+        hint_html=escape(t("console.reauth.feature_hint")),
+        extra_class="card",
+        aria_label=t("console.reauth.submit"),
+        attrs={"data-feature-form": "reauth"},
     )
 
 
@@ -670,53 +691,88 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
     if bot is None:
         status_html = f'<p class="hint" data-telegram-empty>{escape(t("console.telegram.empty"))}</p>'
         allowed_value = ""
-        enabled_checked = ""
-        manage_disabled = " disabled"
+        enabled_checked = False
+        manage_disabled = True
     else:
         rows = [
             (t("console.telegram.field.bot"), f"@{bot['bot_username']}" if bot["bot_username"] else str(bot["bot_id"])),
-            ("fingerprint", bot["fingerprint"]),
-            (t("console.common.status"), t(f"console.telegram.status.{bot['status']}") if bot["status"] in BOT_STATUSES else bot["status"]),
+            ("fingerprint", str(bot["fingerprint"])),
+            (t("console.common.status"), t(f"console.telegram.status.{bot['status']}") if bot["status"] in BOT_STATUSES else str(bot["status"])),
             (t("console.telegram.field.last_error"), bot["last_error"] or "-"),
             (t("console.telegram.field.status_at"), format_ts(bot["status_at"])),
             (t("console.telegram.field.allowed_count"), str(len(bot["allowed_user_ids"]))),
         ]
-        status_html = "<dl data-telegram-meta>" + "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows) + "</dl>"
+        status_html = console_kv(rows, attrs={"data-telegram-meta": True})
         allowed_value = ", ".join(str(i) for i in bot["allowed_user_ids"])
-        enabled_checked = " checked" if bot["enabled"] else ""
-        manage_disabled = ""
-    return (
-        '<div class="settings-features" data-feature-section="telegram">'
-        f"{_reauth_html(ctx, account.id)}"
-        f'<section class="card" aria-label="{escape(t("console.telegram.state_label"))}">'
-        f"<h2><span data-icon='bot'></span> {escape(t('console.telegram.state_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.telegram.state_hint"))}</p>'
+        enabled_checked = bool(bot["enabled"])
+        manage_disabled = False
+    state_card = console_card(
+        escape(t("console.telegram.state_title")),
         f'<div data-telegram-status>{status_html}</div>'
-        f'<div class="pref-row"><div class="pref-row-label"><strong>{escape(t("console.telegram.enable"))}</strong><span>{escape(t("console.telegram.enable_desc"))}</span></div>'
-        f'<input id="pref-telegram-enabled" type="checkbox" switch data-feature-toggle="telegram-enabled"{enabled_checked}{manage_disabled} aria-label="{escape(t("console.telegram.enable_label"))}"/></div>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</section>"
-        f'<form class="card" data-feature-form="telegram-register" aria-label="{escape(t("console.telegram.register_label"))}">'
-        f"<h2>{escape(t('console.telegram.register_title'))}</h2>"
-        f'<label class="feature-field">{escape(t("console.telegram.token"))}<input name="bot_token" type="password" class="pref-input" required autocomplete="off" spellcheck="false" placeholder="123456789:AA..."/></label>'
-        f'<label class="feature-field">{escape(t("console.telegram.allowed_ids_max", max=telegram_bots.MAX_ALLOWED_USERS))}<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}" placeholder="12345678"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.telegram.register_submit"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<form class="card" data-feature-form="telegram-allowed" aria-label="{escape(t("console.telegram.allowed_title"))}"{" hidden" if bot is None else ""}>'
-        f"<h2>{escape(t('console.telegram.allowed_title'))}</h2>"
-        f'<label class="feature-field">{escape(t("console.telegram.allowed_ids"))}<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}"/></label>'
-        f'<button type="submit" class="pref-btn">{escape(t("console.telegram.allowed_submit"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
-        f'<section class="card" aria-label="{escape(t("console.telegram.delete_title"))}"{" hidden" if bot is None else ""}>'
-        f"<h2>{escape(t('console.telegram.delete_title'))}</h2>"
-        f'<p class="hint">{escape(t("console.telegram.delete_hint"))}</p>'
-        f'<button type="button" class="pref-btn" data-feature-action="telegram-delete"><span data-icon="trash"></span> {escape(t("console.telegram.delete_title"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</section>"
-        "</div>"
+        + console_toggle_row(
+            t("console.telegram.enable"),
+            "pref-telegram-enabled",
+            desc_html=escape(t("console.telegram.enable_desc")),
+            checked=enabled_checked,
+            disabled=manage_disabled,
+            attrs={"data-feature-toggle": "telegram-enabled", "aria-label": t("console.telegram.enable_label")},
+        )
+        + console_result(attrs={"data-feature-result": True}),
+        icon="bot",
+        hint_html=escape(t("console.telegram.state_hint")),
+        extra_class="card",
+        aria_label=t("console.telegram.state_label"),
     )
+    register_body = (
+        console_field(
+            t("console.telegram.token"),
+            '<input name="bot_token" type="password" class="pref-input" required autocomplete="off" spellcheck="false" placeholder="123456789:AA..."/>',
+            extra_class="feature-field",
+        )
+        + console_field(
+            t("console.telegram.allowed_ids_max", max=telegram_bots.MAX_ALLOWED_USERS),
+            f'<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}" placeholder="12345678"/>',
+            extra_class="feature-field",
+        )
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.telegram.register_submit"))}</button>')
+        + console_result(attrs={"data-feature-result": True})
+    )
+    register_card = console_form_card(
+        escape(t("console.telegram.register_title")),
+        register_body,
+        icon="plus",
+        extra_class="card",
+        aria_label=t("console.telegram.register_label"),
+        attrs={"data-feature-form": "telegram-register"},
+    )
+    allowed_body = (
+        console_field(
+            t("console.telegram.allowed_ids"),
+            f'<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}"/>',
+            extra_class="feature-field",
+        )
+        + console_actions(f'<button type="submit" class="pref-btn">{escape(t("console.telegram.allowed_submit"))}</button>')
+        + console_result(attrs={"data-feature-result": True})
+    )
+    allowed_card = console_form_card(
+        escape(t("console.telegram.allowed_title")),
+        allowed_body,
+        icon="users",
+        extra_class="card",
+        aria_label=t("console.telegram.allowed_title"),
+        attrs={"data-feature-form": "telegram-allowed", "hidden": bot is None},
+    )
+    delete_card = console_card(
+        escape(t("console.telegram.delete_title")),
+        console_actions(f'<button type="button" class="pref-btn pref-btn-danger" data-feature-action="telegram-delete"><span data-icon="trash"></span> {escape(t("console.telegram.delete_title"))}</button>')
+        + console_result(attrs={"data-feature-result": True}),
+        icon="trash",
+        hint_html=escape(t("console.telegram.delete_hint")),
+        extra_class="card",
+        aria_label=t("console.telegram.delete_title"),
+        attrs={"hidden": bot is None},
+    )
+    return '<div class="settings-features" data-feature-section="telegram">' + _reauth_html(ctx, account.id) + state_card + register_card + allowed_card + delete_card + "</div>"
 
 
 def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Account, owned_themes: list[Any]) -> str:
@@ -727,34 +783,38 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
     )
     data_form = (
         '<form class="feature-inline" data-feature-form="data-bundle-create">'
-        f'<label class="feature-field">{escape(t("console.common.theme"))}<select name="theme" class="pref-select" required>{options}</select></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.bundles.data.submit"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
+        + console_field(t("console.common.theme"), f'<select name="theme" class="pref-select" required>{options}</select>', extra_class="feature-field")
+        + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.bundles.data.submit"))}</button>'
+        + console_result(attrs={"data-feature-result": True})
+        + "</form>"
         if options
         else f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
     )
-    return (
-        '<div class="settings-features" data-feature-section="bundles">'
-        f'<section class="card" aria-label="{escape(t("console.bundles.support.label"))}">'
-        f"<h2><span data-icon='pulse'></span> {escape(t('console.bundles.support.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.bundles.support.hint", max=MAX_ACTIVE_ACCOUNT_BUNDLES))}</p>'
+    support_form = (
         '<form class="feature-inline" data-feature-form="support-bundle-create">'
-        f'<label class="feature-field">{escape(t("console.admin.mcp.bundle_days"))}<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/></label>'
-        f'<label class="feature-field">{escape(t("console.bundles.support.target"))}<input name="target" class="pref-input" maxlength="2048"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> {escape(t("console.bundles.support.submit"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
-        '<div data-feature-list="support-bundles" aria-live="polite"></div>'
-        "</section>"
-        f'<section class="card" aria-label="{escape(t("console.bundles.data.label"))}">'
-        f"<h2><span data-icon='package'></span> {escape(t('console.bundles.data.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.bundles.data.hint"))}</p>'
-        f"{data_form}"
-        '<div data-feature-list="data-bundles" aria-live="polite"></div>'
-        "</section>"
-        "</div>"
+        + console_field(t("console.admin.mcp.bundle_days"), '<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/>', extra_class="feature-field")
+        + console_field(t("console.bundles.support.target"), '<input name="target" class="pref-input" maxlength="2048"/>', extra_class="feature-field")
+        + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> {escape(t("console.bundles.support.submit"))}</button>'
+        + console_result(attrs={"data-feature-result": True})
+        + "</form>"
     )
+    support_card = console_card(
+        escape(t("console.bundles.support.title")),
+        support_form + '<div data-feature-list="support-bundles" aria-live="polite"></div>',
+        icon="pulse",
+        hint_html=escape(t("console.bundles.support.hint", max=MAX_ACTIVE_ACCOUNT_BUNDLES)),
+        extra_class="card",
+        aria_label=t("console.bundles.support.label"),
+    )
+    data_card = console_card(
+        escape(t("console.bundles.data.title")),
+        data_form + '<div data-feature-list="data-bundles" aria-live="polite"></div>',
+        icon="package",
+        hint_html=escape(t("console.bundles.data.hint")),
+        extra_class="card",
+        aria_label=t("console.bundles.data.label"),
+    )
+    return '<div class="settings-features" data-feature-section="bundles">' + support_card + data_card + "</div>"
 
 
 def settings_backups_body(ctx: AccountsContext, *, account: accounts_store.Account) -> str:
@@ -764,38 +824,43 @@ def settings_backups_body(ctx: AccountsContext, *, account: accounts_store.Accou
     schedule_options = "".join(
         f'<option value="{key}"{" selected" if policy.schedule == key else ""}>{escape(t(f"console.backups.schedule.{key}"))}</option>' for key in BACKUP_SCHEDULES
     )
-    return (
-        '<div class="settings-features" data-feature-section="backups">'
-        f"{_reauth_html(ctx, account.id)}"
-        f'<section class="card" aria-label="{escape(t("console.backups.label"))}">'
-        f"<h2><span data-icon='save'></span> {escape(t('console.backups.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.backups.hint"))}</p>'
-        f'<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create"><span data-icon="save"></span> {escape(t("console.backups.create"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        '<div data-feature-list="backups" aria-live="polite"></div>'
-        "</section>"
-        f'<form class="card" data-feature-form="backup-policy" aria-label="{escape(t("console.backups.policy_title"))}">'
-        f"<h2><span data-icon='clock'></span> {escape(t('console.backups.policy_title'))}</h2>"
-        '<p class="hint" data-backup-policy-status></p>'
-        f'<label class="feature-field">{escape(t("console.backups.schedule"))}<select name="schedule" class="pref-select">{schedule_options}</select></label>'
-        f'<label class="feature-field">{escape(t("console.backups.keep", min=MIN_KEEP, max=MAX_KEEP))}<input type="number" name="keep" class="pref-input" min="{MIN_KEEP}" max="{MAX_KEEP}" value="{policy.keep}" required/></label>'
-        f'<button type="submit" class="pref-btn">{escape(t("common.action.save"))}</button>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</form>"
-        "</div>"
+    backup_card = console_card(
+        escape(t("console.backups.title")),
+        console_actions(f'<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create"><span data-icon="save"></span> {escape(t("console.backups.create"))}</button>')
+        + console_result(attrs={"data-feature-result": True})
+        + '<div data-feature-list="backups" aria-live="polite"></div>',
+        icon="save",
+        hint_html=escape(t("console.backups.hint")),
+        extra_class="card",
+        aria_label=t("console.backups.label"),
     )
+    policy_body = (
+        '<p class="hint" data-backup-policy-status></p>'
+        + console_field(t("console.backups.schedule"), f'<select name="schedule" class="pref-select">{schedule_options}</select>', extra_class="feature-field")
+        + console_field(t("console.backups.keep", min=MIN_KEEP, max=MAX_KEEP), f'<input type="number" name="keep" class="pref-input" min="{MIN_KEEP}" max="{MAX_KEEP}" value="{policy.keep}" required/>', extra_class="feature-field")
+        + console_actions(f'<button type="submit" class="pref-btn">{escape(t("common.action.save"))}</button>')
+        + console_result(attrs={"data-feature-result": True})
+    )
+    policy_card = console_form_card(
+        escape(t("console.backups.policy_title")),
+        policy_body,
+        icon="clock",
+        extra_class="card",
+        aria_label=t("console.backups.policy_title"),
+        attrs={"data-feature-form": "backup-policy"},
+    )
+    return '<div class="settings-features" data-feature-section="backups">' + _reauth_html(ctx, account.id) + backup_card + policy_card + "</div>"
 
 
 def admin_backups_body(ctx: AccountsContext, *, principal: Principal) -> str:
     assert principal.account_id is not None
-    return (
-        '<div class="settings-features" data-feature-section="admin-backups">'
-        f"{_reauth_html(ctx, principal.account_id)}"
-        f'<section class="card" aria-label="{escape(t("console.backups.restore_label"))}">'
-        f"<h2><span data-icon='restore'></span> {escape(t('console.backups.restore_title'))}</h2>"
-        f'<p class="hint">{t_code("console.backups.restore_hint", checkpoints="data/checkpoints/", command="./cb-manuscript restore")}</p>'
+    restore_card = console_card(
+        escape(t("console.backups.restore_title")),
         f'<div data-feature-list="admin-backups" aria-live="polite"><p class="hint">{escape(t("console.common.loading_list"))}</p></div>'
-        '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
-        "</section>"
-        "</div>"
+        + console_result(attrs={"data-feature-result": True}),
+        icon="restore",
+        hint_html=t_code("console.backups.restore_hint", checkpoints="data/checkpoints/", command="./cb-manuscript restore"),
+        extra_class="card",
+        aria_label=t("console.backups.restore_label"),
     )
+    return '<div class="settings-features" data-feature-section="admin-backups">' + _reauth_html(ctx, principal.account_id) + restore_card + "</div>"
