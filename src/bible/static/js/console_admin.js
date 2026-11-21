@@ -135,6 +135,7 @@
     if (!el) return;
     el.hidden = false;
     el.className = isError ? "result err" : "result ok";
+    el.setAttribute("data-state", isError ? "error" : "ok");
     el.textContent = message;
   }
 
@@ -183,7 +184,7 @@
             danger: true,
             bodyHtml: '<div class="claire-note danger"><span>' + ui.esc(tr("console.js.admin.accounts.purge_warn", { account: publicId })) + "</span></div>" +
               "<p>" + ui.esc(tr("console.js.admin.accounts.purge_contributions_stay")) + "</p>" +
-              '<div class="claire-srow"><div class="claire-srow-info"><label for="admin-purge-activity">' + ui.esc(tr("console.js.admin.accounts.purge_activity_label")) + "</label><span>" + ui.esc(tr("console.js.admin.accounts.purge_activity_hint")) + '</span></div><input id="admin-purge-activity" type="checkbox" class="claire-switch"/></div>',
+              '<div class="pref-row"><div class="pref-row-label"><label for="admin-purge-activity"><strong>' + ui.esc(tr("console.js.admin.accounts.purge_activity_label")) + "</strong></label><span>" + ui.esc(tr("console.js.admin.accounts.purge_activity_hint")) + '</span></div><input id="admin-purge-activity" type="checkbox" switch/></div>',
             submitLabel: tr("console.js.admin.accounts.purge_submit"),
             onSubmit: function (_dlg, body) {
               var box = body.querySelector("#admin-purge-activity");
@@ -313,7 +314,7 @@
   function initIdpSection(bootstrap) {
     var providers = Array.isArray(bootstrap.idp_providers) ? bootstrap.idp_providers.slice() : [];
     var origin = bootstrap.origin || window.location.origin;
-    var cardsContainer = document.getElementById("admin-idp-cards");
+    var cardsContainer = document.getElementById("admin-idp-cards") || document.getElementById("admin-idp-summary");
     var tbody = document.getElementById("pref-idp-tbody") || document.getElementById("pref-idp-providers-tbody");
     var loginPreview = document.getElementById("pref-idp-login-preview");
     var statusEl = document.getElementById("admin-idp-result") || document.getElementById("admin-idp-status");
@@ -322,10 +323,10 @@
     function renderIdpViews() {
       if (cardsContainer) {
         if (providers.length === 0) {
-          cardsContainer.innerHTML = '<p style="color:var(--muted);">No external IdP providers configured (`idp_providers.json`).</p>';
+          cardsContainer.innerHTML = '<p class="hint">' + escHtml(tr("console.js.admin.idp.empty")) + "</p>";
         } else {
           cardsContainer.innerHTML = providers.map(function (p) {
-            return '<section class="card" aria-label="' + escHtml(p.display_name) + '"><h2>' + escHtml(p.display_name) + " (" + escHtml(p.id) + ")</h2><dl><dt>Type</dt><dd>" + escHtml(p.type) + "</dd><dt>Client ID</dt><dd>" + escHtml(p.client_id) + "</dd></dl></section>";
+            return '<section class="console-subcard" aria-label="' + escHtml(p.display_name) + '"><h2>' + escHtml(p.display_name) + " (" + escHtml(p.id) + ')</h2><dl class="console-kv"><dt>Type</dt><dd>' + escHtml(p.type) + "</dd><dt>Client ID</dt><dd>" + escHtml(p.client_id) + "</dd></dl></section>";
           }).join("");
         }
       }
@@ -335,7 +336,7 @@
         } else {
           tbody.innerHTML = providers.map(function (p) {
             var cbUri = origin.replace(/\/$/, "") + "/auth/oidc/" + p.id + "/callback";
-            return '<tr data-idp-id="' + escHtml(p.id) + '"><td><input type="checkbox" switch data-idp-toggle="' + escHtml(p.id) + '"' + (p.enabled ? " checked" : "") + "/></td><td><strong>" + escHtml(p.display_name) + "</strong> (<code>" + escHtml(p.id) + '</code>)</td><td><span class="pref-mono">' + escHtml(p.issuer || "https://github.com") + '</span></td><td><code class="pref-mono">' + escHtml(p.client_id) + '</code></td><td><code class="pref-mono" style="white-space:normal">' + escHtml(cbUri) + '</code></td><td><input type="checkbox" switch data-idp-signup="' + escHtml(p.id) + '"' + (p.allow_signup ? " checked" : "") + '/></td><td><button type="button" class="pref-btn" data-idp-remove="' + escHtml(p.id) + '">삭제</button></td></tr>';
+            return '<tr data-idp-id="' + escHtml(p.id) + '"><td><input type="checkbox" switch data-idp-toggle="' + escHtml(p.id) + '"' + (p.enabled ? " checked" : "") + "/></td><td><strong>" + escHtml(p.display_name) + "</strong> (<code>" + escHtml(p.id) + '</code>)</td><td><span class="pref-mono">' + escHtml(p.issuer || "https://github.com") + '</span></td><td><code class="pref-mono">' + escHtml(p.client_id) + '</code></td><td><code class="pref-mono" style="white-space:normal">' + escHtml(cbUri) + '</code></td><td><input type="checkbox" switch data-idp-signup="' + escHtml(p.id) + '"' + (p.allow_signup ? " checked" : "") + '/></td><td><button type="button" class="pref-btn pref-btn-danger pref-btn-sm" data-idp-remove="' + escHtml(p.id) + '">' + escHtml(tr("common.action.delete")) + "</button></td></tr>";
           }).join("");
         }
       }
@@ -1212,9 +1213,9 @@
           var servers = (r.ok && r.data && r.data.servers) || [];
           if (!servers.some(function (s) { return s.domain === selectedDomain; })) selectedDomain = servers.length ? String(servers[0].domain) : "";
           var cur = servers.find(function (s) { return s.domain === selectedDomain; }) || null;
-          var addHtml = '<form id="admin-known-add-form" class="claire-card" style="flex-direction:row;align-items:flex-end;flex-wrap:wrap">' +
-            '<div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="admin-known-domain">' + ui.esc(tr("console.js.admin.federation.known.add_label")) + '</label><input id="admin-known-domain" class="claire-input" placeholder="other.example.org" maxlength="253" autocomplete="off" spellcheck="false" required/></div>' +
-            '<button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.federation.known.add_btn")) + "</button></form>";
+          var addHtml = '<form id="admin-known-add-form" class="console-subcard claire-card no-split"><div class="console-form-row">' +
+            '<label class="console-field claire-field" for="admin-known-domain" style="flex:1;min-width:220px">' + ui.esc(tr("console.js.admin.federation.known.add_label")) + '<input id="admin-known-domain" class="pref-input claire-input" placeholder="other.example.org" maxlength="253" autocomplete="off" spellcheck="false" required/></label>' +
+            '<button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + ui.esc(tr("console.js.admin.federation.known.add_btn")) + "</button></div></form>";
           if (!r.ok) {
             knownHost.innerHTML = addHtml + '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(r)) + "</span></div>";
           } else {
@@ -1223,8 +1224,8 @@
               return '<button type="button" class="claire-list-item' + (cur && cur.domain === s.domain ? " active" : "") + '" data-pick-known="' + ui.esc(s.domain) + '">' +
                 '<div class="claire-list-item-row"><strong>' + ui.esc(s.domain) + "</strong>" + statusTag(s) + "</div>" +
                 '<div class="claire-list-item-sub"><span>' + ui.esc(s.software_name ? s.software_name + (s.software_version ? " " + s.software_version : "") : "—") + " · " + ui.esc(s.kb_count == null ? tr("console.js.admin.federation.known.not_read") : ui.t("kb.pub.kb_count", { count: s.kb_count })) + "</span></div></button>";
-            }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p></div>") + "</div>";
-            var right = '<div class="claire-detail-col"><div class="claire-card">';
+            }).join("") : '<div class="console-subcard claire-card"><p class="hint claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p></div>") + "</div>";
+            var right = '<div class="claire-detail-col"><div class="console-subcard claire-card">';
             if (cur) {
               var kbRead = cur.kb_read || null;
               var fields = [
@@ -1243,13 +1244,13 @@
               if (cur.last_error) errors.push([tr("console.js.admin.federation.known.error_server", { time: fedTime(cur.last_error_at), error: fedCodeText(cur.last_error) }), cur.last_error]);
               if (kbRead && kbRead.last_error) errors.push([tr("console.js.admin.federation.known.error_kb_read", { time: fedTime(kbRead.last_error_at), error: fedCodeText(kbRead.last_error) }), kbRead.last_error]);
               if (kbRead && kbRead.refused_code) errors.push([tr("console.js.admin.federation.known.error_refused", { count: kbRead.refused, code: fedCodeText(kbRead.refused_code) }), kbRead.refused_code]);
-              right += '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + " " + statusTag(cur) + '</h3><div class="claire-actions">' +
-                (cur.status === "blocked" ? "" : '<button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.block_btn")) + "</button>") +
+              right += '<div class="console-card-head claire-card-head"><h3>' + ui.esc(cur.domain) + " " + statusTag(cur) + '</h3><div class="console-actions claire-actions">' +
+                (cur.status === "blocked" ? "" : '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.block_btn")) + "</button>") +
                 // DELETE /api/admin/federation/known-servers removes the server and what this server keeps of it (KNOWLEDGE_FEDERATION.md Section 14.4). A blocked server can be removed too: the domain block stays.
-                '<button type="button" class="claire-btn sec claire-btn-sm" data-remove-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.remove_btn")) + "</button></div></div>" +
+                '<button type="button" class="pref-btn pref-btn-sm claire-btn sec claire-btn-sm" data-remove-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.js.admin.federation.known.remove_btn")) + "</button></div></div>" +
                 (cur.status === "blocked" ? '<div class="claire-note warn"><span>' + ui.esc(tr("console.js.admin.federation.known.blocked_by", { domain: cur.blocked_by || cur.domain })) + "</span></div>" : "") +
-                '<dl data-known-read style="display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:13px">' + fields.map(function (f) {
-                  return '<dt class="claire-hint" style="margin:0">' + ui.esc(tr("console.js.admin.federation.known.field." + f[0])) + '</dt><dd style="margin:0;overflow-wrap:anywhere" data-known-field="' + ui.esc(f[0]) + '">' + ui.esc(f[1]) + "</dd>";
+                '<dl class="console-kv" data-known-read>' + fields.map(function (f) {
+                  return "<dt>" + ui.esc(tr("console.js.admin.federation.known.field." + f[0])) + '</dt><dd data-known-field="' + ui.esc(f[0]) + '">' + ui.esc(f[1]) + "</dd>";
                 }).join("") + "</dl>" +
                 errors.map(function (pair) { return '<div class="claire-note warn" data-known-error data-known-code="' + ui.esc(pair[1]) + '"><span>' + ui.esc(pair[0]) + "</span></div>"; }).join("") +
                 // The shared knowledge bases of the server from the store of remote knowledge bases ("kbs"). The name is the link to the page on that server.
@@ -1266,7 +1267,7 @@
                   rows: cur.kbs || []
                 });
             } else {
-              right += '<p class="claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p>";
+              right += '<p class="hint claire-hint">' + ui.esc(tr("console.js.admin.federation.known.empty")) + "</p>";
             }
             right += "</div></div>";
             knownHost.innerHTML = addHtml + '<div class="claire-split">' + left + right + "</div>";
@@ -1369,7 +1370,7 @@
       var drawJournal = function () {
         var ui = window.ClaireUi;
         var stateTone = { failed: "danger", processed: "ok" };
-        journalHost.innerHTML = '<section class="card"><div class="claire-card-head"><h3>' + ui.esc(tr("console.js.admin.federation.journal.title")) + "</h3>" +
+        journalHost.innerHTML = '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2><span data-icon="list"></span> ' + ui.esc(tr("console.js.admin.federation.journal.title")) + "</h2>" +
           ui.renderChips({
             name: "fed-journal-status",
             label: tr("console.js.admin.federation.journal.filter_label"),
@@ -1392,11 +1393,11 @@
               { label: tr("console.js.admin.federation.journal.col_attempts"), render: function (e) { return ui.esc(e.attempts == null ? "—" : e.attempts); } },
               { label: tr("console.js.admin.federation.journal.col_time"), render: function (e) { return ui.esc(fedTime(e.received_at)); } },
               // "replayable" is true for a row whose state is in journal.REPLAY_STATES ("failed", "received").
-              { label: "", actions: true, render: function (e) { return e.replayable ? '<button type="button" class="claire-btn claire-btn-sm" data-replay-j="' + ui.esc(e.id) + '">' + ui.esc(tr("console.js.admin.federation.journal.replay")) + "</button>" : "—"; } }
+              { label: "", actions: true, render: function (e) { return e.replayable ? '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-replay-j="' + ui.esc(e.id) + '">' + ui.esc(tr("console.js.admin.federation.journal.replay")) + "</button>" : "—"; } }
             ],
             rows: jRows
           }) +
-          (jNext != null ? '<div class="claire-actions"><button type="button" class="claire-btn sec" data-journal-more>' + ui.esc(tr("console.js.admin.federation.journal.more")) + "</button></div>" : "") + "</section>";
+          (jNext != null ? '<div class="console-actions claire-actions"><button type="button" class="pref-btn claire-btn sec" data-journal-more>' + ui.esc(tr("console.js.admin.federation.journal.more")) + "</button></div>" : "") + "</section>";
         journalHost.querySelectorAll('input[name="fed-journal-status"]').forEach(function (inp) {
           inp.addEventListener("change", function () { jStatus = inp.value; loadJournal(false); });
         });
@@ -1461,7 +1462,7 @@
         if (k.reembed_required) reembed[m] = (reembed[m] || 0) + 1;
       });
       var rows = Object.keys(counts).map(function (m) { return { model: m, kbs: counts[m], reembed: reembed[m] || 0 }; });
-      host.innerHTML = '<h2><span data-icon="database"></span> ' + ui.esc(tr("console.js.admin.providers.embed_card")) + "</h2>" +
+      host.innerHTML = '<section class="console-subcard claire-card" aria-label="' + ui.esc(tr("console.js.admin.providers.embed_card")) + '"><h2><span data-icon="database"></span> ' + ui.esc(tr("console.js.admin.providers.embed_card")) + "</h2>" +
         ui.renderTable({
           caption: tr("console.js.admin.providers.embed_card"),
           columns: [
@@ -1470,7 +1471,7 @@
             { label: ui.t("kb.pub.reembed_badge"), render: function (x) { return x.reembed ? '<span class="claire-tag danger">' + ui.esc(x.reembed) + "</span>" : '<span class="claire-tag ok">0</span>'; } }
           ],
           rows: rows
-        });
+        }) + "</section>";
       ui.enhance(host);
     });
   }
@@ -1508,7 +1509,8 @@
       });
       // The knowledge bases without an active moderator come first (design Section 10.2). The sort is stable: the sequence of the server stays in each of the two groups.
       filtered.sort(function (a, b) { return (a.active_moderators > 0 ? 1 : 0) - (b.active_moderators > 0 ? 1 : 0); });
-      host.innerHTML = '<div class="claire-panel-inner">' +
+      host.innerHTML = '<section class="console-subcard claire-card" aria-label="' + ui.esc(tr("console.js.admin.kb.title")) + '">' +
+        '<div class="console-card-head claire-card-head"><h2><span data-icon="folder"></span> ' + ui.esc(tr("console.js.admin.kb.title")) + "</h2>" +
         ui.renderChips({
           name: "admin-kb-filter",
           label: tr("console.js.admin.kb.filter_label"),
@@ -1517,7 +1519,7 @@
             { value: "all", label: tr("console.js.admin.kb.filter_all") },
             { value: "warn", label: tr("console.js.admin.kb.filter_warn") }
           ]
-        }) +
+        }) + "</div>" +
         (loadError ? '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(loadError)) + "</span></div>" : "") +
         ui.renderTable({
           caption: tr("console.js.admin.kb.title"),
@@ -1546,7 +1548,7 @@
             } }
           ],
           rows: filtered
-        }) + "</div>";
+        }) + "</section>";
       ui.enhance(host);
       host.querySelectorAll('input[name="admin-kb-filter"]').forEach(function (inp) {
         inp.addEventListener("change", function () { filterVal = inp.value; draw(); });
@@ -1563,7 +1565,7 @@
         ui.openDialog({
           title: tr("console.js.admin.kb.assign_mod"),
           icon: "user",
-          bodyHtml: '<div class="claire-field"><label class="claire-field-label" for="admin-assign-acc">' + ui.esc(tr("console.js.admin.kb.assign_prompt_label")) + '</label><input id="admin-assign-acc" class="claire-input" inputmode="numeric" pattern="[0-9]+" required/></div>',
+          bodyHtml: '<label class="console-field claire-field" for="admin-assign-acc">' + ui.esc(tr("console.js.admin.kb.assign_prompt_label")) + '<input id="admin-assign-acc" class="pref-input claire-input" inputmode="numeric" pattern="[0-9]+" required/></label>',
           onSubmit: function (_d, body) {
             var acc = body.querySelector("#admin-assign-acc").value.trim();
             if (!acc) return false;
@@ -1609,19 +1611,20 @@
     function render(data) {
       var report = data.report || {};
       var records = data.records || [];
-      var h = "<h2>" + ui.esc(tr("console.js.admin.expansion_review.title")) + "</h2>";
+      var h = '<section class="console-subcard claire-card no-split" aria-label="' + ui.esc(tr("console.js.admin.expansion_review.title")) + '">';
+      h += '<h2><span data-icon="merge"></span> ' + ui.esc(tr("console.js.admin.expansion_review.title")) + "</h2>";
       h += '<p class="hint">' + ui.esc(tr("console.js.admin.expansion_review.desc")) + "</p>";
-      if (data.mode !== "shadow") h += '<p class="hint" data-review-mode-off>' + ui.esc(tr("console.js.admin.expansion_review.mode_off")) + "</p>";
-      h += '<dl class="claire-review-stats" data-review-report>';
-      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.records")) + "</dt><dd>" + ui.esc(report.records || 0) + "</dd></div>";
-      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.judged")) + "</dt><dd>" + ui.esc(report.judged || 0) + "</dd></div>";
-      h += "<div><dt>" + ui.esc(tr("console.js.admin.expansion_review.pending")) + "</dt><dd>" + ui.esc(report.pending || 0) + "</dd></div>";
-      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.precision")) + '</dt><dd data-metric="precision">' + ui.esc(percent(report.precision)) + "</dd></div>";
-      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.recall")) + '</dt><dd data-metric="recall">' + ui.esc(percent(report.recall)) + "</dd></div>";
-      h += '<div><dt>' + ui.esc(tr("console.js.admin.expansion_review.accuracy")) + '</dt><dd data-metric="accuracy">' + ui.esc(percent(report.accuracy)) + "</dd></div>";
-      h += "</dl>";
+      if (data.mode !== "shadow") h += '<div class="claire-note warn" data-review-mode-off><span>' + ui.esc(tr("console.js.admin.expansion_review.mode_off")) + "</span></div>";
+      h += '<div class="pref-stat-row" data-review-report>';
+      h += '<div class="pref-stat"><b>' + ui.esc(report.records || 0) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.records")) + "</span></div>";
+      h += '<div class="pref-stat"><b>' + ui.esc(report.judged || 0) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.judged")) + "</span></div>";
+      h += '<div class="pref-stat"><b>' + ui.esc(report.pending || 0) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.pending")) + "</span></div>";
+      h += '<div class="pref-stat"><b data-metric="precision">' + ui.esc(percent(report.precision)) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.precision")) + "</span></div>";
+      h += '<div class="pref-stat"><b data-metric="recall">' + ui.esc(percent(report.recall)) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.recall")) + "</span></div>";
+      h += '<div class="pref-stat"><b data-metric="accuracy">' + ui.esc(percent(report.accuracy)) + "</b><span>" + ui.esc(tr("console.js.admin.expansion_review.accuracy")) + "</span></div>";
+      h += "</div>";
       h += '<p class="hint">' + ui.esc(tr("console.js.admin.expansion_review.matrix", { tp: report.tp || 0, fp: report.fp || 0, fn: report.fn || 0, tn: report.tn || 0 })) + "</p>";
-      h += '<label><input type="checkbox" data-review-pending ' + (pendingOnly ? "checked" : "") + "/> " + ui.esc(tr("console.js.admin.expansion_review.pending_only")) + "</label>";
+      h += '<div class="pref-row"><div class="pref-row-label"><label for="admin-expansion-pending-only"><strong>' + ui.esc(tr("console.js.admin.expansion_review.pending_only")) + '</strong></label></div><input id="admin-expansion-pending-only" type="checkbox" switch data-review-pending ' + (pendingOnly ? "checked" : "") + "/></div>";
       if (!records.length) {
         h += '<p class="hint" data-review-empty>' + ui.esc(tr("console.js.admin.expansion_review.empty")) + "</p>";
       }
@@ -1634,15 +1637,16 @@
         h += '<div class="hint">' + ui.esc(tr("console.js.admin.expansion_review.model", { model: model, relevance: score(r.relevance), quality: score(r.quality) })) + "</div>";
         if (r.reason) h += '<div class="hint">' + ui.esc(tr("console.js.admin.expansion_review.reason", { reason: r.reason })) + "</div>";
         h += '<div data-review-verdict>' + ui.esc(tr("console.js.admin.expansion_review.verdict", { verdict: verdict })) + (r.verdict_note ? " — " + ui.esc(r.verdict_note) : "") + "</div>";
-        h += '<div class="claire-actions">';
-        h += '<input type="text" class="claire-input" maxlength="500" data-review-note placeholder="' + ui.esc(tr("console.js.admin.expansion_review.note")) + '" value="' + ui.esc(r.verdict_note || "") + '"/>';
-        h += '<button type="button" class="btn" data-verdict="same">' + ui.esc(tr("console.js.admin.expansion_review.set_same")) + "</button>";
-        h += '<button type="button" class="btn" data-verdict="different">' + ui.esc(tr("console.js.admin.expansion_review.set_different")) + "</button>";
-        if (r.verdict) h += '<button type="button" class="sec" data-verdict="clear">' + ui.esc(tr("console.js.admin.expansion_review.clear")) + "</button>";
+        h += '<div class="console-actions claire-actions">';
+        h += '<input type="text" class="pref-input claire-input" maxlength="500" data-review-note placeholder="' + ui.esc(tr("console.js.admin.expansion_review.note")) + '" value="' + ui.esc(r.verdict_note || "") + '"/>';
+        h += '<button type="button" class="pref-btn pref-btn-sm" data-verdict="same">' + ui.esc(tr("console.js.admin.expansion_review.set_same")) + "</button>";
+        h += '<button type="button" class="pref-btn pref-btn-sm" data-verdict="different">' + ui.esc(tr("console.js.admin.expansion_review.set_different")) + "</button>";
+        if (r.verdict) h += '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm" data-verdict="clear">' + ui.esc(tr("console.js.admin.expansion_review.clear")) + "</button>";
         h += "</div></li>";
       });
-      h += "</ul>";
+      h += "</ul></section>";
       host.innerHTML = h;
+      ui.enhance(host);
       host.querySelector("[data-review-pending]").addEventListener("change", function (ev) {
         pendingOnly = ev.target.checked;
         load();
@@ -1667,7 +1671,8 @@
     function load() {
       ui.request("/api/admin/expansion/shadow?limit=100" + (pendingOnly ? "&pending=1" : "")).then(function (res) {
         if (!res.ok) {
-          host.innerHTML = '<p class="hint">' + ui.esc(ui.errorText(res)) + "</p>";
+          host.innerHTML = '<section class="console-subcard claire-card"><h2><span data-icon="merge"></span> ' + ui.esc(tr("console.js.admin.expansion_review.title")) + '</h2><div class="claire-note warn"><span>' + ui.esc(ui.errorText(res)) + "</span></div></section>";
+          ui.enhance(host);
           return;
         }
         render(res.data || {});
@@ -1694,7 +1699,7 @@
 
     // "min" is the lowest value that the server takes; the default is 0.
     function numberField(id, label, value, step, min) {
-      return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + ui.esc(label) + '</label><input id="' + id + '" type="number" class="claire-input" min="' + (min || "0") + '" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></div>';
+      return '<label class="console-field claire-field" for="' + id + '">' + ui.esc(label) + '<input id="' + id + '" type="number" class="pref-input claire-input" min="' + (min || "0") + '" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></label>';
     }
     function percent(value) { return value == null ? "—" : Math.round(Number(value) * 100) + "%"; }
     function fail(res) { ui.toast(ui.errorText(res), "danger"); }
@@ -1719,16 +1724,17 @@
         var curTh = themes.find(function (x) { return String(x.number) === selectedThemeNum; }) || null;
         var lastRun = data.last_run_at ? new Date(Number(data.last_run_at) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—";
 
-        var judgeHtml = '<div class="claire-panel-inner">' +
+        var judgeHtml = '<section class="console-subcard claire-card">' +
+          '<div class="console-card-head claire-card-head"><h2><span data-icon="bolt"></span> ' + ui.esc(tr("console.js.admin.themes.tab_judge")) + "</h2>" +
+          '<button type="button" class="pref-btn pref-btn-accent claire-btn pri" id="adm-th-run-now">' + ui.esc(tr("console.js.admin.themes.run_now")) + "</button></div>" +
           (thRes.ok ? "" : '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(thRes)) + "</span></div>") +
-          '<div class="claire-kpis">' +
-          '<div class="claire-kpi"><strong>' + ui.esc(themes.filter(function (x) { return x.state === "active"; }).length) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_themes")) + "</span></div>" +
-          '<div class="claire-kpi"><strong>' + ui.esc(levels.good) + " / " + ui.esc(levels.limited) + " / " + ui.esc(levels.low) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_levels")) + "</span></div>" +
-          '<div class="claire-kpi"><strong>' + ui.esc(lastRun) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_last_run")) + "</span></div>" +
+          '<div class="pref-stat-row claire-kpis">' +
+          '<div class="pref-stat claire-kpi"><strong>' + ui.esc(themes.filter(function (x) { return x.state === "active"; }).length) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_themes")) + "</span></div>" +
+          '<div class="pref-stat claire-kpi"><strong>' + ui.esc(levels.good) + " / " + ui.esc(levels.limited) + " / " + ui.esc(levels.low) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_levels")) + "</span></div>" +
+          '<div class="pref-stat claire-kpi"><strong>' + ui.esc(lastRun) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_last_run")) + "</span></div>" +
           "</div>" +
-          '<div class="claire-actions"><button type="button" class="claire-btn pri" id="adm-th-run-now">' + ui.esc(tr("console.js.admin.themes.run_now")) + "</button></div>" +
           (lastReport ? '<div class="claire-note ok"><span>' + ui.esc(tr("console.js.admin.themes.run_done")) + " " + ui.esc(Object.keys(lastReport).map(function (k) { return settingLabel("console.js.admin.themes.report.", k) + ": " + (typeof lastReport[k] === "object" ? JSON.stringify(lastReport[k]) : lastReport[k]); }).join(" · ")) + "</span></div>" : "") +
-          '<form id="adm-th-thresh-form" class="claire-grid-2">' +
+          '<form id="adm-th-thresh-form" class="console-form-grid">' +
           numberField("th-tm", tr("console.js.admin.themes.th_theme_match"), cfg.theme_match_threshold, "0.01") +
           numberField("th-dm", tr("console.js.admin.themes.th_doc_match"), cfg.document_match_threshold, "0.01") +
           numberField("th-sm", tr("console.js.admin.themes.th_seed_match"), cfg.seed_match_threshold, "0.01") +
@@ -1747,22 +1753,22 @@
           numberField("th-df", tr("console.js.admin.themes.th_remote_domain_followers_limit"), cfg.remote_domain_followers_limit, "1", "1") +
           numberField("th-rm", tr("console.js.admin.themes.th_remote_revision_min_seconds"), cfg.remote_revision_min_seconds, "1", "0") +
           numberField("th-dv", tr("console.js.admin.themes.th_remote_domain_daily_revisions"), cfg.remote_domain_daily_revisions, "1", "1") +
-          '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></div>";
+          '<div class="console-actions claire-actions" style="grid-column:1 / -1"><button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></section>";
 
         var adjLeft = '<div class="claire-list-col">' +
-          '<button type="button" class="claire-btn claire-btn-sm" id="adm-th-create">' + ui.esc(tr("console.js.admin.themes.create_theme")) + "</button>" +
+          '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" id="adm-th-create">' + ui.esc(tr("console.js.admin.themes.create_theme")) + "</button>" +
           (themes.length ? themes.map(function (th) {
             return '<button type="button" class="claire-list-item' + (curTh && String(curTh.number) === String(th.number) ? " active" : "") + '" data-pick-th="' + ui.esc(th.number) + '">' +
               '<div class="claire-list-item-row"><strong>' + ui.esc(th.label) + "</strong>" + dlgs.knowledgeTypeTag(th.knowledge_type) + "</div>" +
               '<div class="claire-list-item-sub"><span>' + ui.esc(th.number) + " · " + ui.esc(tr("console.js.admin.themes.state_" + th.state)) + (th.label_locked ? " · " + ui.esc(tr("console.js.admin.themes.label_locked")) : "") + "</span></div></button>";
-          }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p></div>") + "</div>";
+          }).join("") : '<div class="console-subcard claire-card"><p class="hint claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p></div>") + "</div>";
 
-        var adjRight = '<div class="claire-detail-col"><div class="claire-card">' + (curTh ? (
-          '<div class="claire-card-head"><h3><a href="/themes/' + ui.esc(curTh.number) + '/">' + ui.esc(curTh.label) + '</a></h3><div class="claire-actions">' +
-          (curTh.label_locked ? '<button type="button" class="claire-btn sec claire-btn-sm" id="adm-th-unlock">' + ui.esc(tr("console.js.admin.themes.unlock_label")) + "</button>" : "") +
-          (curTh.state !== "merged" ? '<button type="button" class="claire-btn danger claire-btn-sm" id="adm-th-merge">' + ui.esc(tr("console.js.admin.themes.merge_btn")) + "</button>" : "") +
+        var adjRight = '<div class="claire-detail-col"><div class="console-subcard claire-card">' + (curTh ? (
+          '<div class="console-card-head claire-card-head"><h3><a href="/themes/' + ui.esc(curTh.number) + '/">' + ui.esc(curTh.label) + '</a></h3><div class="console-actions claire-actions">' +
+          (curTh.label_locked ? '<button type="button" class="pref-btn pref-btn-sm claire-btn sec claire-btn-sm" id="adm-th-unlock">' + ui.esc(tr("console.js.admin.themes.unlock_label")) + "</button>" : "") +
+          (curTh.state !== "merged" ? '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" id="adm-th-merge">' + ui.esc(tr("console.js.admin.themes.merge_btn")) + "</button>" : "") +
           "</div></div>" +
-          '<form id="adm-th-rename-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="adm-th-label">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '</label><input id="adm-th-label" class="claire-input" value="' + ui.esc(curTh.label) + '" required/></div><button type="submit" class="claire-btn sec">' + ui.esc(tr("console.js.admin.themes.rename_btn")) + "</button></form>" +
+          '<form id="adm-th-rename-form" class="console-form-row"><label class="console-field claire-field" for="adm-th-label" style="flex:1;min-width:220px">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '<input id="adm-th-label" class="pref-input claire-input" value="' + ui.esc(curTh.label) + '" required/></label><button type="submit" class="pref-btn claire-btn sec">' + ui.esc(tr("console.js.admin.themes.rename_btn")) + "</button></form>" +
           ui.renderTable({
             caption: curTh.label,
             columns: [
@@ -1785,10 +1791,11 @@
             ],
             rows: curTh.knowledge_bases || []
           }) +
-          (curTh.state !== "merged" ? '<form id="adm-th-pin-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="adm-th-pin-kb">' + ui.esc(tr("console.js.admin.themes.pin_number_label")) + '</label><input id="adm-th-pin-kb" class="claire-input" inputmode="numeric" pattern="[0-9]+" required/></div><button type="submit" class="claire-btn sec">' + ui.esc(tr("console.js.admin.themes.pin_kb")) + "</button></form>" : "")
-        ) : '<p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p>") + "</div></div>";
+          (curTh.state !== "merged" ? '<form id="adm-th-pin-form" class="console-form-row"><label class="console-field claire-field" for="adm-th-pin-kb" style="flex:1;min-width:220px">' + ui.esc(tr("console.js.admin.themes.pin_number_label")) + '<input id="adm-th-pin-kb" class="pref-input claire-input" inputmode="numeric" pattern="[0-9]+" required/></label><button type="submit" class="pref-btn claire-btn sec">' + ui.esc(tr("console.js.admin.themes.pin_kb")) + "</button></form>" : "")
+        ) : '<p class="hint claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p>") + "</div></div>";
 
-        var agreeHtml = '<p class="claire-hint">' + ui.esc(tr("console.js.admin.themes.agree_hint")) + "</p>" + ui.renderTable({
+        var agreeHtml = '<section class="console-subcard claire-card"><h2><span data-icon="chart"></span> ' + ui.esc(tr("console.js.admin.themes.tab_agree")) + "</h2>" +
+          '<p class="hint claire-hint">' + ui.esc(tr("console.js.admin.themes.agree_hint")) + "</p>" + ui.renderTable({
           caption: tr("console.js.admin.themes.tab_agree"),
           columns: [
             { label: ui.t("kb.dlg.col_kb"), render: function (a) { return a.knowledge_base ? '<a href="/kb/' + ui.esc(a.knowledge_base) + '/">' + ui.esc(a.label || a.knowledge_base) + "</a>" : "—"; } },
@@ -1796,11 +1803,12 @@
             { label: tr("console.js.admin.themes.col_agreement"), render: function (a) { return ui.esc(percent(a.agreement)); } }
           ],
           rows: agreement
-        });
+        }) + "</section>";
 
-        var repHtml = '<form id="adm-rep-form" class="claire-grid-2">' + Object.keys(repSettings).map(function (key) {
-          return '<div class="claire-field"><label class="claire-field-label" for="rep-' + ui.esc(key) + '">' + ui.esc(settingLabel("console.js.admin.themes.rep.", key)) + '</label><input id="rep-' + ui.esc(key) + '" data-rep-key="' + ui.esc(key) + '" type="number" class="claire-input" min="0" step="any" value="' + ui.esc(repSettings[key]) + '"/></div>';
-        }).join("") + '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.rep_save")) + "</button></div></form>" +
+        var repHtml = '<section class="console-subcard claire-card"><h2><span data-icon="users"></span> ' + ui.esc(tr("console.js.admin.themes.tab_rep")) + "</h2>" +
+          '<form id="adm-rep-form" class="console-form-grid">' + Object.keys(repSettings).map(function (key) {
+          return '<label class="console-field claire-field" for="rep-' + ui.esc(key) + '">' + ui.esc(settingLabel("console.js.admin.themes.rep.", key)) + '<input id="rep-' + ui.esc(key) + '" data-rep-key="' + ui.esc(key) + '" type="number" class="pref-input claire-input" min="0" step="any" value="' + ui.esc(repSettings[key]) + '"/></label>';
+        }).join("") + '<div class="console-actions claire-actions" style="grid-column:1 / -1"><button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + ui.esc(tr("console.js.admin.themes.rep_save")) + "</button></div></form>" +
           ui.renderTable({
             caption: tr("console.js.admin.themes.tab_rep"),
             columns: [
@@ -1810,7 +1818,7 @@
               { label: ui.t("console.js.kb.rep_approval_180"), render: function (a) { return ui.esc(percent(a.approval_rate)) + ' <span class="claire-hint">' + ui.esc(a.decisions || 0) + "</span>"; } }
             ],
             rows: accounts
-          });
+          }) + "</section>";
 
         host.innerHTML = ui.renderTabs({
           id: "admin-themes-tabs",
@@ -1893,9 +1901,9 @@
           ui.openDialog({
             title: tr("console.js.admin.themes.create_theme"),
             icon: "plus",
-            bodyHtml: '<p class="claire-hint">' + ui.esc(tr("console.js.admin.themes.create_hint")) + "</p>" +
-              '<div class="claire-field"><label class="claire-field-label" for="new-ct-lbl">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '</label><input id="new-ct-lbl" class="claire-input" required/></div>' +
-              '<div class="claire-field"><label class="claire-field-label" for="new-ct-knowledge-type">' + ui.esc(ui.t("kb.knowledge_type.label")) + '</label><select id="new-ct-knowledge-type" class="claire-select"><option value="real">' + ui.esc(ui.t("kb.knowledge_type.real")) + '</option><option value="fictional">' + ui.esc(ui.t("kb.knowledge_type.fictional")) + "</option></select></div>",
+            bodyHtml: '<p class="hint claire-hint">' + ui.esc(tr("console.js.admin.themes.create_hint")) + "</p>" +
+              '<label class="console-field claire-field" for="new-ct-lbl">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '<input id="new-ct-lbl" class="pref-input claire-input" required/></label>' +
+              '<label class="console-field claire-field" for="new-ct-knowledge-type">' + ui.esc(ui.t("kb.knowledge_type.label")) + '<select id="new-ct-knowledge-type" class="pref-select claire-select"><option value="real">' + ui.esc(ui.t("kb.knowledge_type.real")) + '</option><option value="fictional">' + ui.esc(ui.t("kb.knowledge_type.fictional")) + "</option></select></label>",
             onSubmit: function (_d, body) {
               var lbl = body.querySelector("#new-ct-lbl").value.trim();
               if (!lbl) return false;

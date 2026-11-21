@@ -87,7 +87,7 @@
       var delivery = c.remote_target && c.remote_target.delivery && c.remote_target.delivery !== "delivered" ? c.remote_target.delivery : null;
       return h + (delivery ? ' <span class="claire-hint">' + esc(t("console.js.kb.subs_delivery." + delivery)) + "</span>" : "");
     }
-    function withdrawBtn(kb, contribution) { return '<button type="button" class="claire-btn claire-btn-sm" data-withdraw-kb="' + esc(kb) + '" data-withdraw-c="' + esc(contribution) + '">' + esc(t("console.js.kb.withdraw_btn")) + "</button>"; }
+    function withdrawBtn(kb, contribution) { return '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-withdraw-kb="' + esc(kb) + '" data-withdraw-c="' + esc(contribution) + '">' + esc(t("console.js.kb.withdraw_btn")) + "</button>"; }
 
     function buildPersonalTab(loadError) {
       var pkb = state.personal;
@@ -95,31 +95,31 @@
       var reviewed = state.joined.filter(function (k) { return k.role === "moderator" || k.role === "collaborator"; });
       var h = "";
       if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("folder") + " " + esc(t("console.js.kb.personal_card")) + "</h3>" +
-        '<a class="claire-btn claire-btn-sm" href="' + esc(homeHref) + '">' + esc(t("console.js.kb.open_workspace")) + "</a></div>";
+      h += '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2>' + ui().icon("folder") + " " + esc(t("console.js.kb.personal_card")) + "</h2>" +
+        '<a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="' + esc(homeHref) + '">' + esc(t("console.js.kb.open_workspace")) + "</a></div>";
       if (pkb) {
-        h += '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(pkb.label) + ' <span class="claire-tag">' + esc(pkb.number) + "</span></strong>" +
+        h += '<div class="pref-row"><div class="pref-row-label"><strong>' + esc(pkb.label) + ' <span class="claire-tag">' + esc(pkb.number) + "</span></strong>" +
           "<span>" + esc(t("kb.dlg.col_docs")) + ": " + esc(stats.documents || 0) + " · " + esc(t("kb.dlg.col_entities")) + ": " + esc(stats.entities || 0) + "</span></div></div>";
-        h += '<div class="claire-srow"><div class="claire-srow-info"><label for="kb-personal-public">' + esc(t("console.js.kb.public_toggle")) + "</label><span>" + esc(t("console.js.kb.public_hint")) + "</span></div>" +
-          '<input id="kb-personal-public" type="checkbox" class="claire-switch" data-personal-public' + (pkb.is_public ? " checked" : "") + "/></div>";
+        h += '<div class="pref-row"><div class="pref-row-label"><label for="kb-personal-public"><strong>' + esc(t("console.js.kb.public_toggle")) + "</strong></label><span>" + esc(t("console.js.kb.public_hint")) + "</span></div>" +
+          '<input id="kb-personal-public" type="checkbox" switch data-personal-public' + (pkb.is_public ? " checked" : "") + "/></div>";
       } else {
-        h += '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>";
+        h += '<p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>";
       }
-      h += "</div>";
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("users") + " " + esc(t("console.js.kb.moderated_card")) + "</h3>" +
-        '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="/kb">' + esc(t("kb.pub.nav_kbs")) + "</a>" +
-        '<button type="button" class="claire-btn pri claire-btn-sm" id="kb-create-btn">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button></div></div>";
+      h += "</section>";
+      h += '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2>' + ui().icon("users") + " " + esc(t("console.js.kb.moderated_card")) + "</h2>" +
+        '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="/kb">' + esc(t("kb.pub.nav_kbs")) + "</a>" +
+        '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" id="kb-create-btn">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button></div></div>";
       h += ui().renderTable({
         caption: t("console.js.kb.moderated_card"),
         columns: [
           { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '"><strong>' + esc(r.label) + "</strong></a> " + dlgs().knowledgeTypeTag(r.knowledge_type) + (r.state === "archived" ? " " + stateTag("archived") : ""); } },
           { label: t("kb.pub.col_role"), render: function (r) { return '<span class="claire-tag ok">' + esc(roleLabel(r.role)) + "</span>"; } },
           { label: t("kb.dlg.col_docs"), render: function (r) { return esc((r.stats && r.stats.documents) || 0); } },
-          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<a class="claire-btn claire-btn-sm" href="/moderation/kb/' + esc(r.number) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>"; } }
+          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="/moderation/kb/' + esc(r.number) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>"; } }
         ],
         rows: reviewed
       });
-      h += "</div>";
+      h += "</section>";
       return h;
     }
 
@@ -135,8 +135,8 @@
           });
         });
       });
-      var h = '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("merge") + " " + esc(t("console.js.kb.subs_card")) + "</h3>" +
-        '<button type="button" class="claire-btn pri claire-btn-sm" id="kb-submit-btn">' + esc(t("kb.dlg.contrib_title")) + "</button></div>";
+      var h = '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2>' + ui().icon("merge") + " " + esc(t("console.js.kb.subs_card")) + "</h2>" +
+        '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" id="kb-submit-btn">' + esc(t("kb.dlg.contrib_title")) + "</button></div>";
       h += ui().renderTable({
         caption: t("console.js.kb.subs_card"),
         columns: [
@@ -155,11 +155,11 @@
         ],
         rows: rows
       });
-      h += "</div>";
+      h += "</section>";
 
       // GET /api/contributions: each contribution with the credit of the account, in all shared knowledge bases, the newest first (design Section 10.3).
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("doc") + " " + esc(t("console.js.kb.mine_card")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.mine_hint")) + "</p>";
+      h += '<section class="console-subcard claire-card"><h2>' + ui().icon("doc") + " " + esc(t("console.js.kb.mine_card")) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.mine_hint")) + "</p>";
       h += ui().renderTable({
         caption: t("console.js.kb.mine_card"),
         columns: [
@@ -171,7 +171,7 @@
         ],
         rows: state.mine
       });
-      h += "</div>";
+      h += "</section>";
       return h;
     }
 
@@ -182,26 +182,26 @@
       (rule.themes || []).forEach(function (th) { selected[String(th.number)] = true; });
       var h = "";
       if (!state.serverSwitch) h += '<div class="claire-note warn"><span>' + esc(t("console.js.kb.rule_server_off")) + "</span></div>";
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("bolt") + " " + esc(t("console.js.kb.rule_card")) + ' <span class="claire-tag ' + (active ? "ok" : "warn") + '">' + esc(t(active ? "console.js.kb.rule_active_badge" : "console.js.kb.rule_paused_badge")) + "</span></h3>" +
-        '<div class="claire-actions">' +
+      h += '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2>' + ui().icon("bolt") + " " + esc(t("console.js.kb.rule_card")) + ' <span class="claire-tag ' + (active ? "ok" : "warn") + '">' + esc(t(active ? "console.js.kb.rule_active_badge" : "console.js.kb.rule_paused_badge")) + "</span></h2>" +
+        '<div class="console-actions claire-actions">' +
         (active
-          ? '<button type="button" class="claire-btn danger claire-btn-sm" id="kb-rule-pause">' + esc(t("console.js.kb.rule_pause")) + "</button>"
-          : '<button type="button" class="claire-btn pri claire-btn-sm" id="kb-rule-activate">' + esc(t("console.js.kb.rule_activate")) + "</button>") +
+          ? '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" id="kb-rule-pause">' + esc(t("console.js.kb.rule_pause")) + "</button>"
+          : '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" id="kb-rule-activate">' + esc(t("console.js.kb.rule_activate")) + "</button>") +
         "</div></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.rule_hint")) + "</p>";
-      h += '<div class="claire-srow"><div class="claire-srow-info"><label for="rule-memberships">' + esc(t("console.js.kb.rule_memberships")) + '</label></div><input id="rule-memberships" type="checkbox" class="claire-switch"' + (rule.memberships ? " checked" : "") + "/></div>";
-      h += '<div class="claire-srow"><div class="claire-srow-info"><label for="rule-mutual">' + esc(t("console.js.kb.rule_mutual")) + '</label></div><input id="rule-mutual" type="checkbox" class="claire-switch"' + (rule.mutual ? " checked" : "") + "/></div>";
-      h += '<div class="claire-srow"><div class="claire-srow-info"><label for="rule-uploads">' + esc(t("console.js.kb.rule_include_uploads")) + '</label></div><input id="rule-uploads" type="checkbox" class="claire-switch"' + (rule.include_uploads ? " checked" : "") + "/></div>";
-      h += '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("console.js.kb.rule_themes")) + "</legend>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.rule_hint")) + "</p>";
+      h += '<div class="pref-row"><div class="pref-row-label"><label for="rule-memberships"><strong>' + esc(t("console.js.kb.rule_memberships")) + '</strong></label></div><input id="rule-memberships" type="checkbox" switch' + (rule.memberships ? " checked" : "") + "/></div>";
+      h += '<div class="pref-row"><div class="pref-row-label"><label for="rule-mutual"><strong>' + esc(t("console.js.kb.rule_mutual")) + '</strong></label></div><input id="rule-mutual" type="checkbox" switch' + (rule.mutual ? " checked" : "") + "/></div>";
+      h += '<div class="pref-row"><div class="pref-row-label"><label for="rule-uploads"><strong>' + esc(t("console.js.kb.rule_include_uploads")) + '</strong></label></div><input id="rule-uploads" type="checkbox" switch' + (rule.include_uploads ? " checked" : "") + "/></div>";
+      h += '<fieldset class="console-field claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("console.js.kb.rule_themes")) + "</legend>";
       h += state.themes.length ? '<div class="claire-chips">' + state.themes.map(function (th) {
         return '<label class="claire-chip"><input type="checkbox" name="rule-theme" value="' + esc(th.number) + '"' + (selected[String(th.number)] ? " checked" : "") + "/><span>" + esc(th.label) + "</span></label>";
-      }).join("") + "</div>" : '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>";
+      }).join("") + "</div>" : '<p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>";
       h += "</fieldset>";
-      h += '<div class="claire-actions"><button type="button" class="claire-btn sec" id="kb-rule-dry">' + esc(t("console.js.kb.rule_dry_run")) + "</button>" +
-        '<button type="button" class="claire-btn pri" id="kb-rule-save">' + esc(t("console.js.kb.rule_save")) + "</button></div></div>";
+      h += '<div class="console-actions claire-actions"><button type="button" class="pref-btn claire-btn sec" id="kb-rule-dry">' + esc(t("console.js.kb.rule_dry_run")) + "</button>" +
+        '<button type="button" class="pref-btn pref-btn-accent claire-btn pri" id="kb-rule-save">' + esc(t("console.js.kb.rule_save")) + "</button></div></section>";
 
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.auto_card")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.auto_remote_hint")) + "</p>";
+      h += '<section class="console-subcard claire-card"><h2>' + esc(t("console.js.kb.auto_card")) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.auto_remote_hint")) + "</p>";
       h += ui().renderTable({
         caption: t("console.js.kb.auto_card"),
         columns: [
@@ -213,60 +213,60 @@
         ],
         rows: state.autos
       });
-      h += "</div>";
+      h += "</section>";
 
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.blocks_card")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.blocks_hint")) + "</p>";
+      h += '<section class="console-subcard claire-card"><h2>' + esc(t("console.js.kb.blocks_card")) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.blocks_hint")) + "</p>";
       h += ui().renderTable({
         caption: t("console.js.kb.blocks_card"),
         columns: [
           { label: t("kb.dlg.col_document"), render: function (id) { return '<a href="' + esc(homeHref + "?doc=" + encodeURIComponent(id)) + '"><code class="pref-mono">' + esc(id) + "</code></a>"; } },
-          { label: t("kb.pub.col_actions"), actions: true, render: function (id) { return '<button type="button" class="claire-btn claire-btn-sm" data-unblock-doc="' + esc(id) + '">' + esc(t("ws.kb.allow_contribute")) + "</button>"; } }
+          { label: t("kb.pub.col_actions"), actions: true, render: function (id) { return '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-unblock-doc="' + esc(id) + '">' + esc(t("ws.kb.allow_contribute")) + "</button>"; } }
         ],
         rows: state.blocks
       });
-      h += "</div>";
+      h += "</section>";
       return h;
     }
 
     function buildRepTab() {
       var rep = state.rep;
-      if (!rep) return '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>";
-      var h = '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("chart") + " " + esc(t("console.js.kb.rep_card")) + " " + levelTag(rep.level) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.rep_level_" + rep.level)) + "</p>";
-      h += '<div class="claire-kpis">' +
-        '<div class="claire-kpi"><strong>' + esc(percent(rep.fiction_share)) + "</strong><span>" + esc(t("console.js.kb.rep_fiction_share")) + "</span></div>" +
-        '<div class="claire-kpi"><strong>' + esc(rep.fiction_like_documents || 0) + " / " + esc(rep.visible_documents || 0) + "</strong><span>" + esc(t("console.js.kb.rep_fiction_count")) + "</span></div>" +
-        '<div class="claire-kpi"><strong>' + esc(percent(rep.approval_rate)) + "</strong><span>" + esc(t("console.js.kb.rep_approval_180")) + "</span></div>" +
-        '<div class="claire-kpi"><strong>' + esc(rep.decisions || 0) + "</strong><span>" + esc(t("console.js.kb.rep_decisions")) + "</span></div>" +
+      if (!rep) return '<section class="console-subcard claire-card"><p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></section>";
+      var h = '<section class="console-subcard claire-card"><h2>' + ui().icon("chart") + " " + esc(t("console.js.kb.rep_card")) + " " + levelTag(rep.level) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.rep_level_" + rep.level)) + "</p>";
+      h += '<div class="pref-stat-row claire-kpis">' +
+        '<div class="pref-stat claire-kpi"><strong>' + esc(percent(rep.fiction_share)) + "</strong><span>" + esc(t("console.js.kb.rep_fiction_share")) + "</span></div>" +
+        '<div class="pref-stat claire-kpi"><strong>' + esc(rep.fiction_like_documents || 0) + " / " + esc(rep.visible_documents || 0) + "</strong><span>" + esc(t("console.js.kb.rep_fiction_count")) + "</span></div>" +
+        '<div class="pref-stat claire-kpi"><strong>' + esc(percent(rep.approval_rate)) + "</strong><span>" + esc(t("console.js.kb.rep_approval_180")) + "</span></div>" +
+        '<div class="pref-stat claire-kpi"><strong>' + esc(rep.decisions || 0) + "</strong><span>" + esc(t("console.js.kb.rep_decisions")) + "</span></div>" +
         "</div>";
       // "limits" of GET /api/reputation: "pending" is the number of pending contributions in one shared knowledge base; "auto_documents" is the number of documents of one run of the automatic contribution (null: no limit; 0: paused).
       var limits = rep.limits || null;
       if (limits) {
         var autoLimit = limits.auto_documents;
-        h += '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(t("console.js.kb.rep_limit_pending")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_pending_hint")) + '</span></div><span class="claire-tag">' + esc(limits.pending == null ? t("console.js.kb.rep_limit_none") : limits.pending) + "</span></div>";
-        h += '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(t("console.js.kb.rep_limit_auto")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_auto_hint")) + '</span></div><span class="claire-tag' + (Number(autoLimit) === 0 && autoLimit != null ? " danger" : "") + '">' + esc(autoLimit == null ? t("console.js.kb.rep_limit_none") : (Number(autoLimit) === 0 ? t("console.js.kb.rep_limit_auto_paused") : autoLimit)) + "</span></div>";
+        h += '<div class="pref-row"><div class="pref-row-label"><strong>' + esc(t("console.js.kb.rep_limit_pending")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_pending_hint")) + '</span></div><span class="claire-tag">' + esc(limits.pending == null ? t("console.js.kb.rep_limit_none") : limits.pending) + "</span></div>";
+        h += '<div class="pref-row"><div class="pref-row-label"><strong>' + esc(t("console.js.kb.rep_limit_auto")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_auto_hint")) + '</span></div><span class="claire-tag' + (Number(autoLimit) === 0 && autoLimit != null ? " danger" : "") + '">' + esc(autoLimit == null ? t("console.js.kb.rep_limit_none") : (Number(autoLimit) === 0 ? t("console.js.kb.rep_limit_auto_paused") : autoLimit)) + "</span></div>";
       }
-      h += "</div>";
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.rep_fiction_docs")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("campaign.standing")) + ' <a href="/themes?knowledge_type=fictional">' + esc(t("campaign.fictional_themes_link")) + "</a></p>";
+      h += "</section>";
+      h += '<section class="console-subcard claire-card"><h2>' + esc(t("console.js.kb.rep_fiction_docs")) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("campaign.standing")) + ' <a href="/themes?knowledge_type=fictional">' + esc(t("campaign.fictional_themes_link")) + "</a></p>";
       h += ui().renderTable({
         caption: t("console.js.kb.rep_fiction_docs"),
         columns: [
           { label: t("kb.dlg.col_document"), render: function (d) { return esc(d.title || d.document); } },
           { label: t("kb.dlg.col_theme"), render: function (d) { return d.theme ? '<a href="/themes/' + esc(d.theme) + '/">' + esc(d.theme_label || d.theme) + "</a>" : "—"; } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (d) {
-            return '<button type="button" class="claire-btn claire-btn-sm" data-fic-contrib="' + esc(d.document) + '" data-fic-title="' + esc(d.title || "") + '" data-fic-theme="' + esc(d.theme || "") + '" data-fic-tlabel="' + esc(d.theme_label || "") + '">' + esc(t(d.theme ? "campaign.contribute_action" : "ws.kb.contribute_this_doc")) + "</button>";
+            return '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-fic-contrib="' + esc(d.document) + '" data-fic-title="' + esc(d.title || "") + '" data-fic-theme="' + esc(d.theme || "") + '" data-fic-tlabel="' + esc(d.theme_label || "") + '">' + esc(t(d.theme ? "campaign.contribute_action" : "ws.kb.contribute_this_doc")) + "</button>";
           } }
         ],
         rows: rep.documents || []
       });
-      h += "</div>";
+      h += "</section>";
       return h;
     }
 
     function buildMemTab() {
-      var h = '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.mem_card")) + "</h3></div>";
+      var h = '<section class="console-subcard claire-card"><h2>' + ui().icon("globe") + " " + esc(t("console.js.kb.mem_card")) + "</h2>";
       h += ui().renderTable({
         caption: t("console.js.kb.mem_card"),
         columns: [
@@ -278,17 +278,17 @@
           { label: t("kb.pub.col_actions"), actions: true, render: function (r) {
             // A banned account cannot leave and cannot join again (design Section 10.2).
             if (r.membership_state === "banned") return "—";
-            return '<button type="button" class="claire-btn claire-btn-sm" data-leave-kb="' + esc(r.number) + '">' + esc(t(r.membership_state === "pending" ? "kb.pub.kb_withdraw_join" : "kb.pub.kb_leave")) + "</button>";
+            return '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-leave-kb="' + esc(r.number) + '">' + esc(t(r.membership_state === "pending" ? "kb.pub.kb_withdraw_join" : "kb.pub.kb_leave")) + "</button>";
           } }
         ],
         rows: state.memberships
       });
-      h += "</div>";
+      h += "</section>";
 
       // The role collaborator in shared knowledge bases of other servers (federation design Section 12.2). The other server decides each use; this list shows the state that this server knows.
       if (state.grants.length) {
-        h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.grants_card")) + "</h3></div>";
-        h += '<p class="claire-hint">' + esc(t("console.js.kb.grants_hint")) + "</p>";
+        h += '<section class="console-subcard claire-card"><h2>' + ui().icon("globe") + " " + esc(t("console.js.kb.grants_card")) + "</h2>";
+        h += '<p class="hint claire-hint">' + esc(t("console.js.kb.grants_hint")) + "</p>";
         h += ui().renderTable({
           caption: t("console.js.kb.grants_card"),
           columns: [
@@ -298,14 +298,14 @@
           ],
           rows: state.grants
         });
-        h += "</div>";
+        h += "</section>";
       }
 
-      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("users") + " " + esc(t("console.js.kb.mutual_card")) + "</h3></div>";
-      h += '<p class="claire-hint">' + esc(t("console.js.kb.mutual_hint", { number: account.public_id || "" })) + "</p>";
-      h += '<form id="kb-mutual-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
-        '<div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="kb-mutual-acc">' + esc(t("console.js.kb.mutual_request_label")) + '</label><input id="kb-mutual-acc" class="claire-input" inputmode="numeric" pattern="[0-9]+" required/></div>' +
-        '<button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.mutual_request_btn")) + "</button></form>";
+      h += '<section class="console-subcard claire-card"><h2>' + ui().icon("users") + " " + esc(t("console.js.kb.mutual_card")) + "</h2>";
+      h += '<p class="hint claire-hint">' + esc(t("console.js.kb.mutual_hint", { number: account.public_id || "" })) + "</p>";
+      h += '<form id="kb-mutual-form" class="console-form-row">' +
+        '<label class="console-field claire-field" for="kb-mutual-acc" style="flex:1;min-width:220px">' + esc(t("console.js.kb.mutual_request_label")) + '<input id="kb-mutual-acc" class="pref-input claire-input" inputmode="numeric" pattern="[0-9]+" required/></label>' +
+        '<button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + esc(t("console.js.kb.mutual_request_btn")) + "</button></form>";
       h += ui().renderTable({
         caption: t("console.js.kb.mutual_card"),
         columns: [
@@ -313,14 +313,14 @@
           { label: t("kb.dlg.col_state"), render: function (m) { return '<span class="claire-tag ' + (m.state === "active" ? "ok" : "warn") + '">' + esc(t(m.state === "active" ? "console.js.kb.mutual_active" : (m.requested_by_me ? "console.js.kb.mutual_sent" : "console.js.kb.mutual_received"))) + "</span>"; } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (m) {
             var btns = "";
-            if (m.state === "pending" && !m.requested_by_me) btns += '<button type="button" class="claire-btn pri claire-btn-sm" data-mut-accept="' + esc(m.account) + '">' + esc(t("console.js.kb.mutual_accept")) + "</button> ";
-            btns += '<button type="button" class="claire-btn claire-btn-sm" data-mut-end="' + esc(m.account) + '">' + esc(t(m.state === "active" ? "console.js.kb.mutual_end" : "console.js.kb.mutual_remove")) + "</button>";
+            if (m.state === "pending" && !m.requested_by_me) btns += '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" data-mut-accept="' + esc(m.account) + '">' + esc(t("console.js.kb.mutual_accept")) + "</button> ";
+            btns += '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-mut-end="' + esc(m.account) + '">' + esc(t(m.state === "active" ? "console.js.kb.mutual_end" : "console.js.kb.mutual_remove")) + "</button>";
             return btns;
           } }
         ],
         rows: state.mutual
       });
-      h += "</div>";
+      h += "</section>";
       return h;
     }
 
@@ -471,8 +471,8 @@
     function canReview(k) { return isAdmin || k.role === "moderator" || k.role === "collaborator"; }
 
     function showNone(res) {
-      host.innerHTML = '<div class="claire-card"><p class="claire-hint">' + esc(!res || res.ok ? t("console.js.kb.no_managed_kbs") : ui().errorText(res)) + "</p>" +
-        '<div class="claire-actions"><a class="claire-btn" href="/kb">' + esc(t("kb.pub.nav_kbs")) + '</a><a class="claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></div>";
+      host.innerHTML = '<section class="console-subcard claire-card"><p class="hint claire-hint">' + esc(!res || res.ok ? t("console.js.kb.no_managed_kbs") : ui().errorText(res)) + "</p>" +
+        '<div class="console-actions claire-actions"><a class="pref-btn claire-btn" href="/kb">' + esc(t("kb.pub.nav_kbs")) + '</a><a class="pref-btn claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></section>";
     }
 
     // The list of the selector, read one time: the admin is a reviewer of each shared knowledge base; each other account reviews where it is a collaborator or a moderator.
@@ -538,10 +538,10 @@
       var box = host.querySelector("#kb-log-host");
       if (!box || view.log == null) return;
       if (!Array.isArray(view.log)) {
-        box.innerHTML = '<div class="claire-note warn"><span>' + esc(ui().errorText(view.log)) + "</span></div>";
+        box.innerHTML = "<h2>" + ui().icon("doc") + " " + esc(t("console.js.kb.tab_log")) + '</h2><div class="claire-note warn"><span>' + esc(ui().errorText(view.log)) + "</span></div>";
         return;
       }
-      box.innerHTML = '<p class="claire-hint">' + esc(t("console.js.kb.log_hint")) + "</p>" + ui().renderTable({
+      box.innerHTML = "<h2>" + ui().icon("doc") + " " + esc(t("console.js.kb.tab_log")) + '</h2><p class="hint claire-hint">' + esc(t("console.js.kb.log_hint")) + "</p>" + ui().renderTable({
         caption: t("console.js.kb.tab_log"),
         columns: [
           { label: t("console.js.kb.log_col_time"), render: function (e) { return esc(dateText(e.created_at)); } },
@@ -603,18 +603,18 @@
         if (!r.ok) { docsBox.innerHTML = '<div class="claire-note warn">' + esc(ui().errorText(r)) + "</div>"; return; }
         var sel = (r.data && r.data.selected) || { state: "none", documents: [] };
         var docs = sel.documents || [];
-        var reload = '<div class="claire-actions"><button type="button" class="claire-btn claire-btn-sm" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div>";
+        var reload = '<div class="console-actions claire-actions"><button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div>";
         var note = sel.state === "failed" ? '<div class="claire-note warn"><span>' + esc(t("console.js.kb.curate_remote_failed", { code: ui().errorText({ error: sel.error || "" }) })) + "</span></div>" :
-          sel.state !== "ready" ? '<p class="claire-hint">' + esc(t("console.js.kb.curate_remote_reading")) + "</p>" : "";
+          sel.state !== "ready" ? '<p class="hint claire-hint">' + esc(t("console.js.kb.curate_remote_reading")) + "</p>" : "";
         if (!docs.length) {
-          docsBox.innerHTML = note + (sel.state === "ready" ? '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>" : "") + reload + requestsHtml;
+          docsBox.innerHTML = note + (sel.state === "ready" ? '<p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>" : "") + reload + requestsHtml;
         } else {
           docsBox.innerHTML = note + '<form id="kb-curate-form" class="claire-panel-inner">' + docs.map(function (d) {
             // A document that this knowledge base has (or removed) is not selected again.
-            return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(d.iri) + '"' + (d.curated ? " disabled" : "") + '/><span class="claire-srow-info"><strong>' + esc(d.title || d.iri) + "</strong>" +
+            return '<label class="pref-row claire-srow" style="justify-content:flex-start"><input type="checkbox" name="doc" value="' + esc(d.iri) + '"' + (d.curated ? " disabled" : "") + '/><span class="pref-row-label claire-srow-info"><strong>' + esc(d.title || d.iri) + "</strong>" +
               (d.curated ? ' <span class="claire-tag">' + esc(t("console.js.kb.curate_remote_held")) + "</span>" : "") + "</span></label>";
-          }).join("") + '<div id="kb-curate-result"></div><div class="claire-actions"><button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.curate_submit")) + "</button>" +
-            '<button type="button" class="claire-btn" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div></form>" + requestsHtml;
+          }).join("") + '<div id="kb-curate-result"></div><div class="console-actions claire-actions"><button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + esc(t("console.js.kb.curate_submit")) + "</button>" +
+            '<button type="button" class="pref-btn claire-btn" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div></form>" + requestsHtml;
           docsBox.querySelector("#kb-curate-form").addEventListener("submit", function (ev) {
             ev.preventDefault();
             var checked = Array.prototype.slice.call(docsBox.querySelectorAll('input[name="doc"]:checked')).map(function (x) { return x.value; });
@@ -662,14 +662,14 @@
       var sel = pending.find(function (c) { return String(c.number) === String(selectedPending); }) || pending[0] || null;
       selectedPending = sel ? String(sel.number) : null;
 
-      var head = '<div class="claire-card"><div class="claire-card-head">' +
-        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-        '<label for="rkb" style="font-weight:600;font-size:13px">' + esc(t("console.js.kb.switch_kb")) + "</label>" +
-        '<select id="rkb" class="claire-select" style="width:auto;min-width:220px">' +
+      var head = '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head">' +
+        '<div class="console-actions">' +
+        '<label for="rkb" style="font-weight:600;font-size:0.8125rem">' + esc(t("console.js.kb.switch_kb")) + "</label>" +
+        '<select id="rkb" class="pref-select claire-select" style="width:auto;min-width:220px">' +
         view.managed.map(function (k) { return '<option value="' + esc(k.number) + '"' + (String(k.number) === currentNum ? " selected" : "") + ">" + esc(k.label) + " (" + esc(k.number) + ")</option>"; }).join("") + "</select>" +
         '<span class="claire-tag ' + (isMod ? "ok" : "acc") + '">' + esc(kb.role ? roleLabel(kb.role) : t("kb.role.admin")) + "</span>" + (archived ? " " + stateTag("archived") : "") +
-        '</div><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum)) + '">' + esc(t("console.js.kb.open_kb")) + "</a></div>" +
-        (archived ? '<div class="claire-note warn"><span>' + esc(t("kb.err.kb_archived")) + "</span></div>" : "") + "</div>";
+        '</div><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum)) + '">' + esc(t("console.js.kb.open_kb")) + "</a></div>" +
+        (archived ? '<div class="claire-note warn"><span>' + esc(t("kb.err.kb_archived")) + "</span></div>" : "") + "</section>";
 
       var queue = '<div class="claire-split"><div class="claire-list-col">' +
         (pending.length ? pending.map(function (c) {
@@ -677,43 +677,43 @@
           return '<button type="button" class="claire-list-item' + (sel && String(c.number) === String(sel.number) ? " active" : "") + '" data-pick-pending="' + esc(c.number) + '">' +
             '<div class="claire-list-item-row"><strong>' + esc(docTitle(c)) + "</strong>" + (level ? levelTag(level) : "") + (originWaits(c) ? '<span class="claire-tag warn">' + esc(t("console.js.kb.queue_origin_removed")) + "</span>" : "") + "</div>" +
             '<div class="claire-list-item-sub"><span>' + esc(contributorName(c)) + "</span>" + (c.offer ? "<span>" + esc(t("console.js.kb.curate_remote_tag", { server: c.offer.server })) + "</span>" : "") + "<span>" + esc(t("kb.origin." + c.origin)) + "</span></div></button>";
-        }).join("") : '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>") +
+        }).join("") : '<div class="console-subcard claire-card"><p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>") +
         '</div><div class="claire-detail-col">';
       if (sel && originWaits(sel)) {
         // The two decisions: show the copy again, or remove it (a moderator or the admin). A removal here never changes the origin.
-        queue += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
-          '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
+        queue += '<div class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
+          '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
           // An archived knowledge base is read-only: the server refuses the two decisions with 403 kb_archived, so the page does not show their controls.
-          (archived ? "" : '<button type="button" class="claire-btn pri claire-btn-sm" data-q-origin-keep="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_origin_keep")) + "</button>") +
-          (isMod && !archived ? '<button type="button" class="claire-btn danger claire-btn-sm" data-q-origin-remove="' + esc(sel.number) + '">' + esc(t("console.js.kb.content_remove")) + "</button>" : "") + "</div></div>" +
+          (archived ? "" : '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" data-q-origin-keep="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_origin_keep")) + "</button>") +
+          (isMod && !archived ? '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" data-q-origin-remove="' + esc(sel.number) + '">' + esc(t("console.js.kb.content_remove")) + "</button>" : "") + "</div></div>" +
           '<div class="claire-note warn"><span>' + esc(t("console.js.kb.queue_origin_hint")) + "</span></div>" +
-          '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
+          '<dl class="console-kv claire-kv">' +
           "<dt>" + esc(t("console.js.kb.queue_origin_reason")) + "</dt><dd>" + esc(reasonText(sel.origin_removed.reason)) + "</dd>" +
           (sel.remote ? "<dt>" + esc(t("console.js.kb.queue_origin_source")) + '</dt><dd><code class="pref-mono">' + esc(sel.remote.document) + "</code></dd>" : "") +
           "</dl></div>";
       } else if (sel) {
         var help = sel.review_help || null;
         var rep = sel.contributor_reputation || null;
-        queue += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
-          '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
+        queue += '<div class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
+          '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
           // An archived knowledge base is read-only (design Section 10.1): the server refuses review, curation, and removal with 403 kb_archived, so the page does not show their controls.
-          (archived ? "" : '<button type="button" class="claire-btn pri claire-btn-sm" data-q-approve="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_approve")) + "</button>" +
-          '<button type="button" class="claire-btn danger claire-btn-sm" data-q-reject="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_reject")) + "</button>") + "</div></div>";
-        queue += '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
+          (archived ? "" : '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" data-q-approve="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_approve")) + "</button>" +
+          '<button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" data-q-reject="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_reject")) + "</button>") + "</div></div>";
+        queue += '<dl class="console-kv claire-kv">' +
           "<dt>" + esc(t("kb.dlg.col_contributor")) + "</dt><dd>" + esc(contributorName(sel)) + "</dd>" +
           // An offer of an account of another server (federation design Sections 12.1 and 12.2): its server, and if its grant of the role collaborator was in effect when the offer came.
           (sel.offer ? "<dt>" + esc(t("console.js.kb.queue_remote_server")) + "</dt><dd>" + esc(sel.offer.server) + "</dd>" +
             "<dt>" + esc(t("console.js.kb.queue_grant")) + "</dt><dd>" + '<span class="claire-tag ' + (sel.offer.grant_valid ? "ok" : (sel.offer.with_grant ? "warn" : "")) + '">' +
             esc(t(sel.offer.grant_valid ? "console.js.kb.queue_grant_valid" : (sel.offer.with_grant ? "console.js.kb.queue_grant_invalid" : "console.js.kb.queue_grant_none"))) + "</span>" +
             // A moderator can give the role collaborator to this account from here (capability "people"); the grant goes to the next offers of the account.
-            (isMod && sel.offer.actor ? ' <button type="button" class="claire-btn claire-btn-sm" data-q-remote-grant="' + esc(sel.offer.actor) + '">' + esc(t("console.js.kb.remote_collab_give")) + "</button>" : "") + "</dd>" : "") +
+            (isMod && sel.offer.actor ? ' <button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-q-remote-grant="' + esc(sel.offer.actor) + '">' + esc(t("console.js.kb.remote_collab_give")) + "</button>" : "") + "</dd>" : "") +
           (rep ? "<dt>" + esc(t("console.js.kb.queue_reputation")) + "</dt><dd>" + levelTag(rep.level) + " " + esc(t("console.js.kb.queue_approval_rate", { rate: percent(rep.approval_rate) })) + "</dd>" : "") +
           (help ? "<dt>" + esc(t("console.js.kb.queue_route")) + "</dt><dd>" + esc(help.routed_by ? t("kb.routed." + help.routed_by) : "—") + "</dd>" +
             "<dt>" + esc(t("console.js.kb.queue_theme_score")) + "</dt><dd>" + esc(help.theme_score != null ? Number(help.theme_score).toFixed(2) : "—") + "</dd>" +
             "<dt>" + esc(t("console.js.kb.queue_kb_score")) + "</dt><dd>" + esc(help.kb_score != null ? Number(help.kb_score).toFixed(2) : "—") + "</dd>" : "") +
           "</dl>";
         if (help && (help.other_decisions || []).length) {
-          queue += '<div><strong style="font-size:12.5px">' + esc(t("console.js.kb.queue_other_decisions")) + "</strong>" +
+          queue += '<div><strong style="font-size:0.78125rem">' + esc(t("console.js.kb.queue_other_decisions")) + "</strong>" +
             ui().renderTable({
               caption: t("console.js.kb.queue_other_decisions"),
               columns: [
@@ -726,11 +726,11 @@
         }
         queue += "</div>";
       } else {
-        queue += '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>";
+        queue += '<div class="console-subcard claire-card"><p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>";
       }
       queue += "</div></div>";
 
-      var content = '<div class="claire-card">' + ui().renderTable({
+      var content = '<section class="console-subcard claire-card"><h2>' + ui().icon("doc") + " " + esc(t("console.js.kb.tab_content")) + "</h2>" + ui().renderTable({
         caption: t("console.js.kb.tab_content"),
         columns: [
           { label: t("kb.dlg.col_document"), render: function (c) { return "<strong>" + esc(docTitle(c)) + "</strong> <span class=\"claire-hint\">" + esc(t("kb.origin." + c.origin)) + "</span>"; } },
@@ -752,16 +752,16 @@
           } }
         ],
         rows: others
-      }) + "</div>";
+      }) + "</section>";
 
       var tabs = [
         { id: "queue", label: t("console.js.kb.tab_queue"), badge: pending.length, icon: "inbox", html: queue },
         { id: "content", label: t("console.js.kb.tab_content"), icon: "doc", html: content }
       ];
-      if (!archived) tabs.push({ id: "curate", label: t("console.js.kb.tab_curate"), icon: "puzzle", html: '<div id="kb-curate-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
+      if (!archived) tabs.push({ id: "curate", label: t("console.js.kb.tab_curate"), icon: "puzzle", html: '<div id="kb-curate-host" class="console-host"><p class="hint claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
 
       if (isMod) {
-        var people = '<div class="claire-card">' + ui().renderTable({
+        var people = '<section class="console-subcard claire-card"><h2>' + ui().icon("users") + " " + esc(t("console.js.kb.tab_people")) + "</h2>" + ui().renderTable({
           caption: t("console.js.kb.tab_people"),
           columns: [
             { label: t("kb.dlg.col_account"), render: function (m) { return "<strong>" + esc(m.display_name || m.account) + "</strong>" + (m.username ? ' <span class="claire-hint">@' + esc(m.username) + "</span>" : "") + ' <span class="claire-hint">' + esc(m.account) + "</span>"; } },
@@ -784,38 +784,39 @@
             } }
           ],
           rows: view.members
-        }) + "</div>";
+        }) + "</section>";
 
         var seeds = Array.isArray(kb.seed_entities) ? kb.seed_entities.join(", ") : "";
-        var settings = '<form class="claire-card" id="kb-manage-settings-form">' +
-          '<div class="claire-field"><label class="claire-field-label" for="mset-label">' + esc(t("kb.dlg.field_name")) + '</label><input id="mset-label" class="claire-input" maxlength="80" value="' + esc(kb.label || "") + '" required/></div>' +
-          '<div class="claire-field"><label class="claire-field-label" for="mset-desc">' + esc(t("kb.dlg.field_desc")) + '</label><textarea id="mset-desc" class="claire-textarea">' + esc(kb.description || "") + "</textarea></div>" +
-          '<div class="claire-field"><span class="claire-field-label">' + esc(t("kb.knowledge_type.label")) + '</span><div class="claire-actions">' + dlgs().knowledgeTypeTag(kb.knowledge_type) +
-          ' <button type="button" class="claire-btn sec" id="kb-type-btn">' + esc(t("kb.knowledge_type.change_apply")) + "</button></div></div>" +
-          '<div class="claire-field"><label class="claire-field-label" for="mset-seeds">' + esc(t("kb.dlg.field_seeds")) + '</label><input id="mset-seeds" class="claire-input" value="' + esc(seeds) + '"/></div>' +
-          '<div class="claire-field"><label class="claire-field-label" for="mset-policy">' + esc(t("kb.pub.col_policy")) + '</label><select id="mset-policy" class="claire-select">' +
+        var settings = '<form class="console-subcard claire-card no-split" id="kb-manage-settings-form">' +
+          "<h2>" + ui().icon("settings") + " " + esc(t("console.js.kb.tab_settings")) + "</h2>" +
+          '<label class="console-field claire-field" for="mset-label">' + esc(t("kb.dlg.field_name")) + '<input id="mset-label" class="pref-input claire-input" maxlength="80" value="' + esc(kb.label || "") + '" required/></label>' +
+          '<label class="console-field claire-field" for="mset-desc">' + esc(t("kb.dlg.field_desc")) + '<textarea id="mset-desc" class="console-textarea claire-textarea">' + esc(kb.description || "") + "</textarea></label>" +
+          '<div class="console-field claire-field"><span class="claire-field-label">' + esc(t("kb.knowledge_type.label")) + '</span><div class="console-actions claire-actions">' + dlgs().knowledgeTypeTag(kb.knowledge_type) +
+          ' <button type="button" class="pref-btn claire-btn sec" id="kb-type-btn">' + esc(t("kb.knowledge_type.change_apply")) + "</button></div></div>" +
+          '<label class="console-field claire-field" for="mset-seeds">' + esc(t("kb.dlg.field_seeds")) + '<input id="mset-seeds" class="pref-input claire-input" value="' + esc(seeds) + '"/></label>' +
+          '<label class="console-field claire-field" for="mset-policy">' + esc(t("kb.pub.col_policy")) + '<select id="mset-policy" class="pref-select claire-select">' +
           '<option value="open"' + (kb.join_policy === "open" ? " selected" : "") + ">" + esc(t("console.js.kb.settings_join_open")) + "</option>" +
-          '<option value="approval"' + (kb.join_policy === "approval" ? " selected" : "") + ">" + esc(t("console.js.kb.settings_join_approval")) + "</option></select></div>" +
-          '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.settings_save")) + "</button>" +
-          '<button type="button" class="claire-btn sec" id="kb-archive-btn">' + esc(t(archived ? "console.js.kb.settings_unarchive" : "console.js.kb.settings_archive")) + "</button>" +
-          (isAdmin ? '<button type="button" class="claire-btn danger" id="kb-delete-btn">' + esc(t("console.js.kb.settings_delete")) + "</button>" : "") +
+          '<option value="approval"' + (kb.join_policy === "approval" ? " selected" : "") + ">" + esc(t("console.js.kb.settings_join_approval")) + "</option></select></label>" +
+          '<div class="console-actions claire-actions"><button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + esc(t("console.js.kb.settings_save")) + "</button>" +
+          '<button type="button" class="pref-btn claire-btn sec" id="kb-archive-btn">' + esc(t(archived ? "console.js.kb.settings_unarchive" : "console.js.kb.settings_archive")) + "</button>" +
+          (isAdmin ? '<button type="button" class="pref-btn pref-btn-danger claire-btn danger" id="kb-delete-btn">' + esc(t("console.js.kb.settings_delete")) + "</button>" : "") +
           "</div></form>";
         // The data bundle of the knowledge base (design Section 13.2) is for its moderators and the admin: POST /kb/{number}/graph/bundle (capability "settings"). The bundle has the visible documents, their graph, and the contributions with the public number of the account with the credit. The link has a token and is valid for 24 hours.
-        settings += '<div class="claire-card" id="kb-bundle-card"><div class="claire-card-head"><h3>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_card")) + "</h3></div>" +
-          '<p class="claire-hint">' + esc(t("console.js.kb.bundle_hint")) + "</p>" +
-          '<div class="claire-actions"><button type="button" class="claire-btn" id="kb-bundle-btn">' + esc(t("console.js.kb.bundle_make")) + "</button></div>" +
-          '<div id="kb-bundle-result" role="status" aria-live="polite"></div></div>';
+        settings += '<section class="console-subcard claire-card" id="kb-bundle-card"><div class="console-card-head claire-card-head"><h3>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_card")) + "</h3></div>" +
+          '<p class="hint claire-hint">' + esc(t("console.js.kb.bundle_hint")) + "</p>" +
+          '<div class="console-actions claire-actions"><button type="button" class="pref-btn claire-btn" id="kb-bundle-btn">' + esc(t("console.js.kb.bundle_make")) + "</button></div>" +
+          '<div id="kb-bundle-result" role="status" aria-live="polite"></div></section>';
 
         // Collaborators of other servers (federation design Section 12.2): GET /kb/{number}/remote-collaborators; a grant has a term of 6 months, and Revoke ends it at once. The changes need a recent sign-in.
-        people += '<div class="claire-card" id="kb-remote-collab-host"><div class="claire-card-head"><h3>' + ui().icon("globe") + " " + esc(t("console.js.kb.remote_collab_card")) + "</h3></div>" +
-          '<p class="claire-hint">' + esc(t("console.js.kb.remote_collab_hint")) + "</p>" +
-          '<form id="kb-remote-collab-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
-            '<div class="claire-field" style="flex:1;min-width:260px"><label class="claire-field-label" for="kb-remote-collab-actor">' + esc(t("console.js.kb.remote_collab_actor")) + '</label><input id="kb-remote-collab-actor" class="claire-input" type="url" maxlength="2048" placeholder="https://example.org/ap/actors/…" required/></div>' +
-            '<button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.remote_collab_give")) + "</button></form>" +
-          '<div id="kb-remote-collab-list"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div></div>";
+        people += '<section class="console-subcard claire-card no-split" id="kb-remote-collab-host"><h2>' + ui().icon("globe") + " " + esc(t("console.js.kb.remote_collab_card")) + "</h2>" +
+          '<p class="hint claire-hint">' + esc(t("console.js.kb.remote_collab_hint")) + "</p>" +
+          '<form id="kb-remote-collab-form" class="console-form-row">' +
+            '<label class="console-field claire-field" for="kb-remote-collab-actor" style="flex:1;min-width:260px">' + esc(t("console.js.kb.remote_collab_actor")) + '<input id="kb-remote-collab-actor" class="pref-input claire-input" type="url" maxlength="2048" placeholder="https://example.org/ap/actors/…" required/></label>' +
+            '<button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + esc(t("console.js.kb.remote_collab_give")) + "</button></form>" +
+          '<div id="kb-remote-collab-list"><p class="hint claire-hint">' + esc(t("kb.ui.loading")) + "</p></div></section>";
         tabs.push({ id: "people", label: t("console.js.kb.tab_people"), icon: "users", html: people });
         tabs.push({ id: "settings", label: t("console.js.kb.tab_settings"), icon: "settings", html: settings });
-        tabs.push({ id: "log", label: t("console.js.kb.tab_log"), icon: "doc", html: '<div class="claire-card" id="kb-log-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
+        tabs.push({ id: "log", label: t("console.js.kb.tab_log"), icon: "doc", html: '<section class="console-subcard claire-card no-split" id="kb-log-host"><p class="hint claire-hint">' + esc(t("kb.ui.loading")) + "</p></section>" });
       }
 
       host.innerHTML = head + ui().renderTabs({ id: "kb-manage-tabs", ariaLabel: kb.label || currentNum, active: activeTab, tabs: tabs });
@@ -852,8 +853,8 @@
           { label: t("console.js.kb.grants_col_end"), render: function (g) { return esc(dateText(g.state === "revoked" ? g.revoked_at : g.end_time)); } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (g) {
             // A renewal is a new grant of 6 months; the server revokes the grant that is in effect.
-            var btns = '<button type="button" class="claire-btn claire-btn-sm" data-remote-grant-renew="' + esc(g.actor) + '">' + esc(t(g.state === "active" ? "console.js.kb.remote_collab_renew" : "console.js.kb.remote_collab_give")) + "</button>";
-            if (g.state === "active") btns += ' <button type="button" class="claire-btn danger claire-btn-sm" data-remote-grant-revoke="' + esc(g.id) + '">' + esc(t("console.js.kb.remote_collab_revoke")) + "</button>";
+            var btns = '<button type="button" class="pref-btn pref-btn-sm claire-btn claire-btn-sm" data-remote-grant-renew="' + esc(g.actor) + '">' + esc(t(g.state === "active" ? "console.js.kb.remote_collab_renew" : "console.js.kb.remote_collab_give")) + "</button>";
+            if (g.state === "active") btns += ' <button type="button" class="pref-btn pref-btn-danger pref-btn-sm claire-btn danger claire-btn-sm" data-remote-grant-revoke="' + esc(g.id) + '">' + esc(t("console.js.kb.remote_collab_revoke")) + "</button>";
             return btns;
           } }
         ],
@@ -891,11 +892,11 @@
       var sources = view.sources || [];
       var remoteSources = view.remoteSources || [];
       if (!sources.length && !remoteSources.length) {
-        box.innerHTML = '<div class="claire-card"><p class="claire-hint">' + esc(t("console.js.kb.curate_no_source")) + "</p></div>";
+        box.innerHTML = '<section class="console-subcard claire-card"><p class="hint claire-hint">' + esc(t("console.js.kb.curate_no_source")) + "</p></section>";
         return;
       }
       if (!selectedSource) selectedSource = sources.length ? String(sources[0].number) : "remote:" + remoteSources[0].id;
-      box.innerHTML = '<div class="claire-split"><div class="claire-list-col"><div class="claire-card"><strong style="font-size:13px">' + esc(t("console.js.kb.curate_source")) + "</strong>" +
+      box.innerHTML = '<div class="claire-split"><div class="claire-list-col"><strong class="hint" style="font-size:0.8125rem">' + esc(t("console.js.kb.curate_source")) + "</strong>" +
         sources.map(function (source) {
           return '<button type="button" class="claire-list-item' + (String(source.number) === selectedSource ? " active" : "") + '" data-curate-src="' + esc(source.number) + '">' +
             "<strong>" + esc(source.label) + '</strong><span class="claire-list-item-sub">' + esc(t(source.is_personal ? "themes.kb_personal" : "themes.kb_shared")) + "</span></button>";
@@ -906,7 +907,7 @@
           return '<button type="button" class="claire-list-item' + (key === selectedSource ? " active" : "") + '" data-curate-src="' + esc(key) + '">' +
             "<strong>" + esc(source.label) + '</strong><span class="claire-list-item-sub"><span>' + esc(t("console.js.kb.curate_remote_tag", { server: source.server })) + "</span>" +
             (source.follow ? "<span>" + esc(t("console.js.kb.curate_follow." + source.follow)) + "</span>" : "") + "</span></button>";
-        }).join("") + '</div></div><div class="claire-detail-col"><div class="claire-card" id="kb-curate-docs"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div></div></div>";
+        }).join("") + '</div><div class="claire-detail-col"><section class="console-subcard claire-card no-split" id="kb-curate-docs"><p class="hint claire-hint">' + esc(t("kb.ui.loading")) + "</p></section></div></div>";
       box.querySelectorAll("[data-curate-src]").forEach(function (btn) {
         btn.addEventListener("click", function () { selectedSource = btn.getAttribute("data-curate-src"); drawCuration(); });
       });
@@ -918,10 +919,10 @@
         if (source !== selectedSource || !docsBox.isConnected) return;
         var docs = ((r.ok && r.data && r.data.documents) || []).filter(function (d) { return d.hidden !== 1 && d.hidden !== true; });
         if (!r.ok) { docsBox.innerHTML = '<div class="claire-note warn">' + esc(ui().errorText(r)) + "</div>"; return; }
-        if (!docs.length) { docsBox.innerHTML = '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>"; return; }
+        if (!docs.length) { docsBox.innerHTML = '<p class="hint claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>"; return; }
         docsBox.innerHTML = '<form id="kb-curate-form" class="claire-panel-inner">' + docs.map(function (d) {
-          return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(d.id) + '"/><span class="claire-srow-info"><strong>' + esc(d.title || d.id) + "</strong></span></label>";
-        }).join("") + '<div id="kb-curate-result"></div><div class="claire-actions"><button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.curate_submit")) + "</button></div></form>";
+          return '<label class="pref-row claire-srow" style="justify-content:flex-start"><input type="checkbox" name="doc" value="' + esc(d.id) + '"/><span class="pref-row-label claire-srow-info"><strong>' + esc(d.title || d.id) + "</strong></span></label>";
+        }).join("") + '<div id="kb-curate-result"></div><div class="console-actions claire-actions"><button type="submit" class="pref-btn pref-btn-accent claire-btn pri">' + esc(t("console.js.kb.curate_submit")) + "</button></div></form>";
         docsBox.querySelector("#kb-curate-form").addEventListener("submit", function (ev) {
           ev.preventDefault();
           var checked = Array.prototype.slice.call(docsBox.querySelectorAll('input[name="doc"]:checked')).map(function (x) { return x.value; });
@@ -1027,14 +1028,14 @@
       if (bundleBtn) bundleBtn.addEventListener("click", function () {
         var box = host.querySelector("#kb-bundle-result");
         bundleBtn.disabled = true;
-        box.innerHTML = '<p class="claire-hint">' + esc(t("console.js.kb.bundle_making")) + "</p>";
+        box.innerHTML = '<p class="hint claire-hint">' + esc(t("console.js.kb.bundle_making")) + "</p>";
         ui().request(kbUrl(currentNum, "graph/bundle"), { method: "POST", body: {} }).then(function (r) {
           bundleBtn.disabled = false;
           if (!r.ok || !r.data || !r.data.token) { box.innerHTML = '<div class="claire-note warn"><span>' + esc(ui().errorText(r)) + "</span></div>"; return; }
           var b = r.data;
           // The download address of the token is at the root of the server; it needs no sign-in.
-          box.innerHTML = '<p class="claire-hint" data-kb-bundle-counts>' + esc(t("console.js.kb.bundle_made", { documents: b.documents_count, entities: b.entities_count, relations: b.relations_count, contributions: b.contributions_count, expires: dateText(Date.parse(b.expires_at) / 1000) })) + "</p>" +
-            '<div class="claire-actions"><a class="claire-btn pri" id="kb-bundle-download" href="/graph/bundle?token=' + encodeURIComponent(b.token) + '" download>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_download")) + "</a></div>";
+          box.innerHTML = '<p class="hint claire-hint" data-kb-bundle-counts>' + esc(t("console.js.kb.bundle_made", { documents: b.documents_count, entities: b.entities_count, relations: b.relations_count, contributions: b.contributions_count, expires: dateText(Date.parse(b.expires_at) / 1000) })) + "</p>" +
+            '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-accent claire-btn pri" id="kb-bundle-download" href="/graph/bundle?token=' + encodeURIComponent(b.token) + '" download>' + ui().icon("download") + " " + esc(t("console.js.kb.bundle_download")) + "</a></div>";
         });
       });
 
