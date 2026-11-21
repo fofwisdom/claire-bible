@@ -17,6 +17,16 @@ from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
 from .common import AccountsContext, escape, format_ts, open_db, t_code
+from .console_ui import (
+    console_actions,
+    console_card,
+    console_field,
+    console_host,
+    console_kv,
+    console_result,
+    console_table,
+    console_toggle_row,
+)
 
 __all__ = [
     "ACTOR_STATES",
@@ -93,25 +103,33 @@ def settings_federation_body(ctx: AccountsContext, *, account: accounts_store.Ac
         ("actor_state", t("console.federation.actor.state"), t(f"console.federation.actor_state.{state}")),
         ("followers_total", t("console.federation.actor.followers"), f"{status['followers']['total']:,}"),
     )
-    info_html = "".join(f'<dt>{escape(label)}</dt><dd data-federation-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in rows)
-    body = (
-        f'<section class="console-subcard" id="settings-federation-status" data-actor-state="{escape(state)}" aria-label="{escape(t("console.federation.actor.label"))}">'
-        f"<h2><span data-icon='globe'></span> {escape(t('console.federation.actor.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/settings/account">{escape(t("console.federation.actor.hint_link"))}</a></p>'
-        f"<dl>{info_html}</dl>"
-        "</section>"
-        f'<section class="console-subcard" id="settings-federation-followers" data-federation-followers aria-label="{escape(t("console.federation.followers.title"))}">'
-        f"<h2><span data-icon='users'></span> {escape(t('console.federation.followers.title'))}</h2>"
-        f'<p class="hint">{t_code("console.federation.followers.hint", reject="Reject")}</p>'
+    info_html = console_kv([{"label": label, "value": value, "attrs": {"data-federation-field": key}} for key, label, value in rows])
+    status_card = console_card(
+        escape(t("console.federation.actor.title")),
+        f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/settings/account">{escape(t("console.federation.actor.hint_link"))}</a></p>' + info_html,
+        id="settings-federation-status",
+        icon="globe",
+        aria_label=t("console.federation.actor.label"),
+        attrs={"data-actor-state": state},
+    )
+    followers_table = (
         '<div class="pref-table-wrap"><table class="pref-table">'
         f"<thead><tr><th>{escape(t('console.federation.followers.col_actor'))}</th><th>{escape(t('console.federation.followers.col_time'))}</th><th></th></tr></thead>"
         f'<tbody data-followers-tbody><tr><td colspan="3" style="color:var(--muted);text-align:center;">{escape(t("console.federation.followers.loading"))}</td></tr></tbody>'
         "</table></div>"
-        f'<div><button type="button" class="pref-btn" data-followers-more hidden>{escape(t("console.common.more"))}</button></div>'
-        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
-        "</section>"
     )
-    return body, {"federation_status": status}
+    followers_card = console_card(
+        escape(t("console.federation.followers.title")),
+        followers_table
+        + console_actions(f'<button type="button" class="pref-btn" data-followers-more hidden>{escape(t("console.common.more"))}</button>')
+        + console_result(attrs={"data-settings-result": True}),
+        id="settings-federation-followers",
+        icon="users",
+        hint_html=t_code("console.federation.followers.hint", reject="Reject"),
+        aria_label=t("console.federation.followers.title"),
+        attrs={"data-federation-followers": True},
+    )
+    return status_card + followers_card, {"federation_status": status}
 
 
 # --- /admin/federation ----------------------------------------------------------
@@ -140,29 +158,35 @@ def _reading_settings_html(values: dict[str, Any]) -> str:
     """The form of the reading settings of the server (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). ``console_admin.js`` sends the changed values to ``PUT /api/admin/federation/reading``."""
     fields = []
     for key in federation_client_store.READING_DEFAULTS:
-        label = escape(t(f"console.federation.reading.{key}"))
+        label = t(f"console.federation.reading.{key}")
         if key == "context_fetch":
             options = "".join(f'<option value="{value}"{" selected" if values[key] == value else ""}>{escape(t(f"console.federation.reading.context_fetch_{value}"))}</option>' for value in ("on", "off"))
-            fields.append(f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{label}<select name="{key}" class="pref-input" data-reading-initial="{escape(str(values[key]))}">{options}</select></label>')
+            fields.append(console_field(label, f'<select name="{key}" class="pref-input" data-reading-initial="{escape(str(values[key]))}">{options}</select>'))
             continue
         low, high = federation_client_store.READING_RANGES[key]
         scale = _MIB if key in _READING_BYTE_KEYS else 1
         shown, low, high = int(values[key]) // scale, low // scale, high // scale
         fields.append(
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{label}'
-            f'<input type="number" name="{key}" class="pref-input" value="{shown}" min="{low}" max="{high}" step="1" required inputmode="numeric" autocomplete="off" data-reading-scale="{scale}" data-reading-initial="{shown}"/>'
-            f'<small style="font-weight:400;color:var(--muted)">{escape(t("console.federation.reading.range", low=f"{low:,}", high=f"{high:,}"))}</small></label>'
+            console_field(
+                label,
+                f'<input type="number" name="{key}" class="pref-input" value="{shown}" min="{low}" max="{high}" step="1" required inputmode="numeric" autocomplete="off" data-reading-scale="{scale}" data-reading-initial="{shown}"/>',
+                hint_html=escape(t("console.federation.reading.range", low=f"{low:,}", high=f"{high:,}")),
+            )
         )
-    return (
-        f'<section class="card" id="admin-federation-reading" aria-label="{escape(t("console.federation.reading.title"))}">'
-        f'<h2><span data-icon="inbox"></span> {escape(t("console.federation.reading.title"))}</h2>'
-        f'<p class="hint">{escape(t("console.federation.reading.hint"))}</p>'
+    form_html = (
         f'<form id="admin-federation-reading-form" data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-nochange="{escape(t("console.federation.reading.nochange"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}">'
-        f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px 16px;margin-bottom:12px;align-items:start">{"".join(fields)}</div>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
-        "</form>"
-        '<p class="result" id="admin-federation-reading-result" role="status" aria-live="polite"></p>'
-        "</section>"
+        f'<div class="console-form-grid" style="margin-bottom:12px">{"".join(fields)}</div>'
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+        + "</form>"
+        + console_result(id="admin-federation-reading-result")
+    )
+    return console_card(
+        escape(t("console.federation.reading.title")),
+        form_html,
+        id="admin-federation-reading",
+        icon="inbox",
+        hint_html=escape(t("console.federation.reading.hint")),
+        aria_label=t("console.federation.reading.title"),
     )
 
 
@@ -184,64 +208,99 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     target = "off" if federation == "on" else "on"
     switch_label = t("console.federation.switch.turn_off") if federation == "on" else t("console.federation.switch.turn_on")
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
-    sw_panel = (
-        f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="{escape(t("console.federation.switch.title"))}">'
-        f"<h2><span data-icon='globe'></span> {escape(t('console.federation.switch.title'))}</h2>"
-        "<dl>"
-        f'<dt>{escape(t("console.federation.switch.state"))}</dt><dd><span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{escape(t("console.federation.switch.on") if federation == "on" else t("console.federation.switch.off"))}</span></dd>'
-        f'<dt>{escape(t("console.mode.title"))}</dt><dd data-federation-field="mode">{escape(t("console.mode.network") if mode == "network" else t("console.mode.single"))}</dd>'
-        "</dl>"
-        f'<p class="hint">{escape(t("console.federation.switch.hint"))}</p>'
-        f'<div><button type="button" class="{switch_class}" data-federation-switch="{target}">{escape(switch_label)}</button></div>'
-        '<p class="result" id="admin-federation-switch-result" role="status" aria-live="polite"></p>'
-        '<div class="claire-srow" id="admin-federation-auto-contrib">'
-        '<div class="claire-srow-info">'
-        f'<label for="admin-fed-auto-contrib-toggle">{escape(t("console.admin.federation.auto_contrib_title"))}</label>'
-        f'<span>{escape(t("console.admin.federation.auto_contrib_desc"))}</span>'
-        '</div>'
-        '<input id="admin-fed-auto-contrib-toggle" type="checkbox" class="claire-switch" data-fed-auto-contrib/>'
-        '</div>'
-        '<div class="claire-srow" id="admin-federation-signed-get">'
-        '<div class="claire-srow-info">'
+    switch_kv = console_kv(
+        [
+            {"label": t("console.federation.switch.state"), "value_html": f'<span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{escape(t("console.federation.switch.on") if federation == "on" else t("console.federation.switch.off"))}</span>'},
+            {"label": t("console.mode.title"), "value": t("console.mode.network") if mode == "network" else t("console.mode.single"), "attrs": {"data-federation-field": "mode"}},
+        ]
+    )
+    auto_contrib_row = (
+        '<div id="admin-federation-auto-contrib">'
+        + console_toggle_row(
+            t("console.admin.federation.auto_contrib_title"),
+            "admin-fed-auto-contrib-toggle",
+            desc_html=escape(t("console.admin.federation.auto_contrib_desc")),
+            attrs={"data-fed-auto-contrib": True},
+        )
+        + "</div>"
+    )
+    signed_get_row = (
+        '<div class="pref-row" id="admin-federation-signed-get">'
+        '<div class="pref-row-label">'
         f'<strong>{escape(t("console.admin.federation.signed_get_title"))}</strong>'
         f'<span>{escape(t("console.admin.federation.signed_get_desc"))}</span>'
-        '</div>'
-        f'<span class="claire-tag ok">{escape(t("console.admin.federation.signed_get_badge"))}</span>'
-        '</div>'
-        "</section>"
-        f'<section class="card" id="admin-federation-readiness" aria-label="{escape(t("console.federation.readiness.label"))}">'
-        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-        f"<h2><span data-icon='check-circle'></span> {escape(t('console.federation.readiness.title'))}</h2>"
-        f'<button type="button" class="pref-btn" id="admin-federation-refresh">{escape(t("console.federation.readiness.refresh"))}</button>'
         "</div>"
-        '<p class="result" id="admin-federation-readiness-result" role="status" aria-live="polite"></p>'
-        '<div class="pref-table-wrap"><table class="pref-table">'
-        f"<thead><tr><th>{escape(t('console.readiness.col_item'))}</th><th>{escape(t('console.readiness.col_name'))}</th><th>{escape(t('console.readiness.col_level'))}</th><th>{escape(t('console.common.status'))}</th><th>{escape(t('console.readiness.col_detail'))}</th></tr></thead>"
-        f'<tbody id="admin-federation-readiness-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.federation.readiness.loading"))}</td></tr></tbody>'
-        "</table></div>"
-        "</section>"
-        f'<section class="card" id="admin-federation-sidecar" aria-label="{escape(t("console.federation.sidecar.label"))}">'
-        f"<h2><span data-icon='pulse'></span> {escape(t('console.federation.sidecar.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.federation.sidecar.hint"))}</p>'
-        f'<dl id="admin-federation-heartbeat"><dt>{escape(t("console.federation.sidecar.heartbeat"))}</dt><dd>{escape(t("console.common.loading"))}</dd></dl>'
-        "</section>"
-        f"{reading_html}"
+        f'<span class="claire-tag ok">{escape(t("console.admin.federation.signed_get_badge"))}</span>'
+        "</div>"
     )
-    blocks_panel = (
-        f'<section class="card" id="admin-federation-domain-blocks" aria-label="{escape(t("console.federation.blocks.title"))}">'
-        f"<h2><span data-icon='block'></span> {escape(t('console.federation.blocks.title'))}</h2>"
-        f'<p class="hint">{escape(t("console.federation.blocks.hint"))}</p>'
-        '<div class="pref-table-wrap"><table class="pref-table">'
-        f"<thead><tr><th>{escape(t('console.federation.blocks.domain'))}</th><th>{escape(t('console.admin.accounts.invites.col_note'))}</th><th>{escape(t('console.federation.blocks.col_time'))}</th><th></th></tr></thead>"
-        f'<tbody id="admin-federation-domain-blocks-tbody">{_domain_block_rows_html(blocks)}</tbody>'
-        "</table></div>"
-        '<form id="admin-federation-domain-block-form" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.federation.blocks.domain"))}<input type="text" name="domain" class="pref-input" placeholder="{escape(t("console.federation.blocks.domain_placeholder"))}" maxlength="253" required autocomplete="off" spellcheck="false"/></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.note"))}<input type="text" name="note" class="pref-input" maxlength="200" autocomplete="off"/></label>'
-        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.federation.blocks.add"))}</button>'
-        "</form>"
-        '<p class="result" id="admin-federation-domain-blocks-result" role="status" aria-live="polite"></p>'
-        "</section>"
+    switch_card = console_card(
+        escape(t("console.federation.switch.title")),
+        switch_kv
+        + f'<p class="hint">{escape(t("console.federation.switch.hint"))}</p>'
+        + console_actions(f'<button type="button" class="{switch_class}" data-federation-switch="{target}">{escape(switch_label)}</button>')
+        + console_result(id="admin-federation-switch-result")
+        + auto_contrib_row
+        + signed_get_row,
+        id="admin-federation-switch",
+        icon="globe",
+        attrs={"data-federation-state": federation, "aria-label": t("console.federation.switch.title")},
+    )
+    readiness_card = console_card(
+        escape(t("console.federation.readiness.title")),
+        console_result(id="admin-federation-readiness-result")
+        + console_table(
+            [
+                t("console.readiness.col_item"),
+                t("console.readiness.col_name"),
+                t("console.readiness.col_level"),
+                t("console.common.status"),
+                t("console.readiness.col_detail"),
+            ],
+            f'<tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.federation.readiness.loading"))}</td></tr>',
+            tbody_id="admin-federation-readiness-tbody",
+        ),
+        id="admin-federation-readiness",
+        icon="check-circle",
+        actions_html=f'<button type="button" class="pref-btn" id="admin-federation-refresh">{escape(t("console.federation.readiness.refresh"))}</button>',
+        aria_label=t("console.federation.readiness.label"),
+    )
+    sidecar_card = console_card(
+        escape(t("console.federation.sidecar.title")),
+        console_kv([(t("console.federation.sidecar.heartbeat"), t("console.common.loading"))], attrs={"id": "admin-federation-heartbeat"}),
+        id="admin-federation-sidecar",
+        icon="pulse",
+        hint_html=escape(t("console.federation.sidecar.hint")),
+        aria_label=t("console.federation.sidecar.label"),
+    )
+    sw_panel = switch_card + readiness_card + sidecar_card + reading_html
+    blocks_table = console_table(
+        [
+            t("console.federation.blocks.domain"),
+            t("console.admin.accounts.invites.col_note"),
+            t("console.federation.blocks.col_time"),
+            "",
+        ],
+        _domain_block_rows_html(blocks),
+        tbody_id="admin-federation-domain-blocks-tbody",
+    )
+    blocks_form = (
+        '<form id="admin-federation-domain-block-form" class="console-form-row">'
+        + console_field(
+            t("console.federation.blocks.domain"),
+            f'<input type="text" name="domain" class="pref-input" placeholder="{escape(t("console.federation.blocks.domain_placeholder"))}" maxlength="253" required autocomplete="off" spellcheck="false"/>',
+        )
+        + console_field(t("console.admin.accounts.invites.note"), '<input type="text" name="note" class="pref-input" maxlength="200" autocomplete="off"/>')
+        + f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.federation.blocks.add"))}</button>'
+        + "</form>"
+        + console_result(id="admin-federation-domain-blocks-result")
+    )
+    blocks_panel = console_card(
+        escape(t("console.federation.blocks.title")),
+        blocks_table + blocks_form,
+        id="admin-federation-domain-blocks",
+        icon="block",
+        hint_html=escape(t("console.federation.blocks.hint")),
+        aria_label=t("console.federation.blocks.title"),
     )
     body = (
         '<div class="claire-tabs" id="admin-federation-tabs">'
@@ -250,12 +309,12 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f'<button type="button" class="claire-tab" role="tab" data-tab="known" aria-selected="false"><span data-icon="server"></span> <span>{escape(t("console.admin.federation.tab_known"))}</span></button>'
         f'<button type="button" class="claire-tab" role="tab" data-tab="blocks" aria-selected="false"><span data-icon="block"></span> <span>{escape(t("console.admin.federation.tab_blocks"))}</span></button>'
         f'<button type="button" class="claire-tab" role="tab" data-tab="journal" aria-selected="false"><span data-icon="list"></span> <span>{escape(t("console.admin.federation.tab_journal"))}</span></button>'
-        '</div></div>'
+        "</div></div>"
         '<div class="claire-tabpanels">'
         f'<div role="tabpanel" data-tabpanel="sw"><div class="claire-panel-inner">{sw_panel}</div></div>'
-        '<div role="tabpanel" data-tabpanel="known" hidden="until-found"><div class="claire-panel-inner"><div id="admin-federation-known-host"></div></div></div>'
+        f'<div role="tabpanel" data-tabpanel="known" hidden="until-found"><div class="claire-panel-inner">{console_host("admin-federation-known-host")}</div></div>'
         f'<div role="tabpanel" data-tabpanel="blocks" hidden="until-found"><div class="claire-panel-inner">{blocks_panel}</div></div>'
-        '<div role="tabpanel" data-tabpanel="journal" hidden="until-found"><div class="claire-panel-inner"><div id="admin-federation-journal-host"></div></div></div>'
-        '</div></div>'
+        f'<div role="tabpanel" data-tabpanel="journal" hidden="until-found"><div class="claire-panel-inner">{console_host("admin-federation-journal-host")}</div></div>'
+        "</div></div>"
     )
     return body, {"federation": federation, "domain_blocks": [domain_block_view(block) for block in blocks]}

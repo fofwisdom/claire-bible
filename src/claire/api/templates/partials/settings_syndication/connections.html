@@ -1,5 +1,5 @@
 <section id="panel-accounts" class="pref-panel" data-settings-panel="connections">
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="plug"></span> ${t:console.synd.connections.title}</h2>
     <p class="pref-desc">${th:console.synd.connections.desc}</p>
     <p class="pref-desc">${th:console.synd.connections.baseline}</p>
@@ -15,7 +15,7 @@
       </div>
     </details>
 
-    <div style="overflow-x:auto">
+    <div class="pref-table-wrap">
       <table class="pref-table" aria-label="${t:console.synd.connections.table_label}">
         <thead>
           <tr>
@@ -42,5 +42,5 @@
         <div>• ${th:console.synd.connections.security_etiquette}</div>
       </div>
     </details>
-  </div>
+  </section>
 </section>

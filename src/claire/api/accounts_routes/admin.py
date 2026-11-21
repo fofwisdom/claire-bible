@@ -37,6 +37,15 @@ from .common import (
     require_recent_auth,
     t_code,
 )
+from .console_ui import (
+    console_actions,
+    console_card,
+    console_field,
+    console_kv,
+    console_result,
+    console_stat_row,
+    console_table,
+)
 
 ADMIN_ACCOUNTS_PATH = "/admin/accounts"
 ADMIN_ACCOUNTS_API_PATH = "/api/admin/accounts"
@@ -258,16 +267,21 @@ def build_signup_trace(ctx: AccountsContext) -> dict[str, Any]:
 
 def _admin_card(item: dict[str, Any]) -> str:
     rows = [
-        (t("console.admin.accounts.field.number"), item["public_id"]),
-        ("USERNAME", item["username"] if item["username"] is not None else t("console.settings.account.username_unset")),
+        (t("console.admin.accounts.field.number"), str(item["public_id"])),
+        ("USERNAME", str(item["username"]) if item["username"] is not None else t("console.settings.account.username_unset")),
         (t("console.common.status"), account_status_text(item["status"])),
         (t("console.settings.account.field.role"), account_role_text(item["role"])),
         (t("console.admin.accounts.field.created"), format_ts(item["created_at"])),
         (t("console.admin.accounts.field.activated"), format_ts(item["activated_at"])),
-        (t("console.admin.accounts.field.themes"), item["theme_count"]),
+        (t("console.admin.accounts.field.themes"), str(item["theme_count"])),
     ]
-    body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
-    return f'<section class="card" aria-label="{escape(t("console.admin.accounts.admin_card"))}"><h2>{escape(t("console.admin.accounts.admin_card"))}</h2><dl>{body}</dl></section>'
+    return console_card(
+        escape(t("console.admin.accounts.admin_card")),
+        console_kv(rows),
+        icon="id",
+        extra_class="card",
+        aria_label=t("console.admin.accounts.admin_card"),
+    )
 
 
 def _trace_handle(step: dict[str, Any]) -> str:
@@ -330,23 +344,38 @@ def _render_signup_trace_section(signup_trace: dict[str, Any]) -> str:
     summary = signup_trace.get("summary") or {}
     roots = signup_trace.get("roots") or []
     tree_html = _render_trace_nodes_html(roots, is_root_list=True) if roots else f'<p id="admin-signup-trace-tree" style="color:var(--muted)">{escape(t("console.admin.accounts.trace.empty"))}</p>'
-    return f"""
-      <section class="card" id="admin-signup-trace-section" aria-label="{escape(t("console.admin.accounts.trace.label"))}">
-        <h2><span data-icon="users"></span> {t_code("console.admin.accounts.trace.title", endpoint="/api/admin/accounts/signup-trace")}</h2>
-        <p class="hint">{escape(t("console.admin.accounts.trace.hint"))}</p>
-        <div class="pref-stat-row" id="admin-signup-trace-stats">
-          <div class="pref-stat"><b>{int(summary.get("total_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_total"))}</span></div>
-          <div class="pref-stat"><b>{int(summary.get("invited_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_invited"))}</span></div>
-          <div class="pref-stat"><b>{int(summary.get("max_depth", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_max_depth"))}</span></div>
-        </div>
-        <div style="margin-top:10px">
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;max-width:340px">{escape(t("console.admin.accounts.trace.filter_label"))}
-            <input type="search" id="admin-signup-trace-filter" class="pref-input" placeholder="{escape(t("console.admin.accounts.trace.filter_placeholder"))}"/>
-          </label>
-        </div>
-        {tree_html}
-        <p id="admin-signup-trace-empty" style="color:var(--muted);margin-top:8px" hidden>{escape(t("console.admin.accounts.trace.no_matches"))}</p>
-      </section>"""
+    stats_html = console_stat_row(
+        [
+            f'<div class="pref-stat"><b>{int(summary.get("total_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_total"))}</span></div>',
+            f'<div class="pref-stat"><b>{int(summary.get("invited_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_invited"))}</span></div>',
+            f'<div class="pref-stat"><b>{int(summary.get("max_depth", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_max_depth"))}</span></div>',
+        ],
+        attrs={"id": "admin-signup-trace-stats"},
+    )
+    filter_html = (
+        '<div class="console-form-row">'
+        + console_field(
+            t("console.admin.accounts.trace.filter_label"),
+            f'<input type="search" id="admin-signup-trace-filter" class="pref-input" placeholder="{escape(t("console.admin.accounts.trace.filter_placeholder"))}" style="max-width:340px"/>',
+            for_id="admin-signup-trace-filter",
+        )
+        + "</div>"
+    )
+    body = (
+        stats_html
+        + filter_html
+        + tree_html
+        + f'<p id="admin-signup-trace-empty" class="hint" hidden>{escape(t("console.admin.accounts.trace.no_matches"))}</p>'
+    )
+    return console_card(
+        t_code("console.admin.accounts.trace.title", endpoint="/api/admin/accounts/signup-trace"),
+        body,
+        id="admin-signup-trace-section",
+        icon="users",
+        hint_html=escape(t("console.admin.accounts.trace.hint")),
+        extra_class="card",
+        aria_label=t("console.admin.accounts.trace.label"),
+    )
 
 
 def _render_admin_accounts_html(
@@ -355,7 +384,7 @@ def _render_admin_accounts_html(
     items: list[dict[str, Any]],
     retired: list[dict[str, Any]],
     tier_dict: dict[str, Any],
-    signup_trace: dict[str, Any],
+    signup_trace: dict[str, Any] | None = None,
 ) -> str:
     admin_items = [i for i in items if i["role"] == "admin"]
     member_items = [i for i in items if i["role"] != "admin"]
@@ -397,15 +426,17 @@ def _render_admin_accounts_html(
         else f'<tr><td colspan="8" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.members_empty"))}</td></tr>'
     )
 
-    invites_link_section = (
-        f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
-        f'<h2><span data-icon="mail"></span> {escape(t("console.admin.accounts.invites.title"))}</h2>'
-        f'<p class="hint">{escape(t("console.admin.accounts.invites.moved_hint"))}</p>'
-        f'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-        f'<a class="pref-btn pref-btn-accent" href="/settings/invites">{escape(t("console.admin.accounts.invites.open_settings"))}</a>'
-        f'<a class="pref-btn" href="/admin/server#server-invites-policy">{escape(t("console.admin.accounts.invites.open_server_policy"))}</a>'
-        f"</div>"
-        "</section>"
+    invites_link_section = console_card(
+        escape(t("console.admin.accounts.invites.title")),
+        console_actions(
+            f'<a class="pref-btn pref-btn-accent" href="/settings/invites">{escape(t("console.admin.accounts.invites.open_settings"))}</a>'
+            f'<a class="pref-btn" href="/admin/server#server-invites-policy">{escape(t("console.admin.accounts.invites.open_server_policy"))}</a>'
+        ),
+        id="admin-invites-section",
+        icon="mail",
+        hint_html=escape(t("console.admin.accounts.invites.moved_hint")),
+        extra_class="card",
+        aria_label=t("console.admin.accounts.invites.label"),
     )
 
     retired_trs: list[str] = []
@@ -442,71 +473,107 @@ def _render_admin_accounts_html(
     suspended_count = sum(1 for i in items if i.get("status") in {"suspended", "deleting"})
     total_themes_count = sum(int(i.get("theme_count", 0)) for i in items)
 
-    return f"""
-      {cards}
-      <section class="card" id="admin-members-section" aria-label="{escape(t("console.admin.accounts.members.label"))}">
-        <h2><span data-icon="users"></span> {t_code("console.admin.accounts.members.title", endpoint="/api/admin/accounts")}</h2>
-        <p class="hint">{escape(t("console.admin.accounts.members.hint"))}</p>
-        <p class="result" id="admin-accounts-result" data-accounts-result role="status" aria-live="polite"></p>
-        <div class="pref-table-wrap">
-          <table class="pref-table">
-            <thead>
-              <tr><th>{escape(t("console.admin.accounts.members.col_number"))}</th><th>USERNAME</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.field.themes"))}</th><th>{escape(t("console.admin.accounts.col_reputation"))}</th><th>{escape(t("console.admin.accounts.col_mod_kbs"))}</th><th>{escape(t("console.admin.accounts.members.col_key"))}</th><th>{escape(t("console.admin.accounts.members.col_actions"))}</th></tr>
-            </thead>
-            <tbody id="admin-accounts-tbody">{members_tbody}</tbody>
-          </table>
-        </div>
-      </section>
-      {_render_signup_trace_section(signup_trace)}
-      <section class="card" id="admin-retired-usernames-section" aria-label="{escape(t("console.admin.accounts.retired.label"))}">
-        <h2><span data-icon="restore"></span> {t_code("console.admin.accounts.retired.title", endpoint="/api/admin/usernames/*")}</h2>
-        <p class="hint">{escape(t("console.admin.accounts.retired.hint"))}</p>
-        <form id="admin-retired-release-form" data-retired-release-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.retired.target"))}
-            <input type="text" name="username" id="admin-retired-username-input" class="pref-input" placeholder="{escape(t("console.admin.accounts.retired.target_placeholder"))}" style="width:180px" required/>
-          </label>
-          <button type="button" class="pref-btn" id="admin-retired-preview-btn">{escape(t("console.admin.accounts.retired.preview"))}</button>
-          <button type="submit" class="pref-btn pref-btn-danger" id="admin-retired-apply-btn">{escape(t("console.admin.accounts.retired.release"))}</button>
-        </form>
-        <p class="result" id="admin-retired-result" data-retired-result role="status" aria-live="polite"></p>
-        <div class="pref-table-wrap">
-          <table class="pref-table">
-            <thead>
-              <tr><th>{escape(t("console.admin.accounts.retired.col_username"))}</th><th>{escape(t("console.admin.accounts.retired.col_time"))}</th><th>{escape(t("console.admin.accounts.retired.col_reason"))}</th><th>{escape(t("console.common.manage"))}</th></tr>
-            </thead>
-            <tbody id="admin-retired-tbody">{retired_tbody}</tbody>
-          </table>
-        </div>
-      </section>
-      <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="{escape(t("console.admin.accounts.userdb.label"))}">
-        <h2><span data-icon="database"></span> {escape(t("console.admin.accounts.userdb.title"))}</h2>
-        <p class="hint">{escape(t("console.admin.accounts.userdb.hint"))} <a href="/admin/server"><span data-icon="server"></span> {escape(t("console.admin.accounts.userdb.hint_link"))}</a></p>
-        <div class="pref-stat-row" id="pref-userdb-stats">
-          <div class="pref-stat"><b>{active_count}</b><span>{escape(t("console.admin.accounts.userdb.active"))}</span></div>
-          <div class="pref-stat"><b>{suspended_count}</b><span>{escape(t("console.admin.accounts.userdb.suspended"))}</span></div>
-          <div class="pref-stat"><b>{len(retired)}</b><span>{escape(t("console.admin.accounts.retired.col_username"))}</span></div>
-          <div class="pref-stat"><b>{total_themes_count}</b><span>{escape(t("console.admin.accounts.userdb.total_themes"))}</span></div>
-        </div>
-        <div class="pref-quota-grid">
-          <label>{escape(t("console.admin.accounts.userdb.quota_storage"))}<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
-          <label>{escape(t("console.admin.accounts.userdb.quota_docs"))}<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
-          <label>{escape(t("console.admin.accounts.userdb.quota_tokens"))}<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
-          <label>{escape(t("console.admin.accounts.userdb.quota_ingests"))}<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
-          <label class="pref-quota-switch"><span>{escape(t("console.admin.accounts.userdb.byok_switch"))} {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
-        </div>
-        {prototype_note("admin-accounts-byok-switch", t("console.admin.accounts.userdb.byok_note"))}
-        <div class="pref-table-wrap">
-          <table class="pref-table">
-            <caption style="caption-side:top;text-align:left;padding:0 0 6px">{prototype_badge("admin-accounts-isolation-table", "static")} <span class="proto-note-inline">{escape(t("console.admin.accounts.userdb.table_note"))}</span></caption>
-            <thead><tr><th>{escape(t("console.admin.accounts.userdb.col_kind"))}</th><th>{escape(t("console.admin.accounts.userdb.col_path"))}</th><th>{escape(t("console.admin.accounts.userdb.col_access"))}</th><th>{escape(t("console.admin.accounts.userdb.col_quota"))}</th></tr></thead>
-            <tbody id="pref-userdb-tbody">
-              <tr><td><strong>{escape(t("console.admin.accounts.userdb.row_admin"))}</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>{escape(t("console.admin.accounts.userdb.row_admin_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_admin_quota"))}</td></tr>
-              <tr><td><strong>{escape(t("console.admin.accounts.userdb.row_member"))}</strong></td><td><code class="pref-mono">{escape(t("console.admin.accounts.userdb.row_member_path"))}</code></td><td>{escape(t("console.admin.accounts.userdb.row_member_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_member_quota"))}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {invites_link_section}"""
+    members_table = console_table(
+        [
+            t("console.admin.accounts.members.col_number"),
+            "USERNAME",
+            t("console.common.status"),
+            t("console.admin.accounts.field.themes"),
+            t("console.admin.accounts.col_reputation"),
+            t("console.admin.accounts.col_mod_kbs"),
+            t("console.admin.accounts.members.col_key"),
+            t("console.admin.accounts.members.col_actions"),
+        ],
+        members_tbody,
+        tbody_id="admin-accounts-tbody",
+    )
+    members_section = console_card(
+        t_code("console.admin.accounts.members.title", endpoint="/api/admin/accounts"),
+        console_result(id="admin-accounts-result", attrs={"data-accounts-result": True}) + members_table,
+        id="admin-members-section",
+        icon="users",
+        hint_html=escape(t("console.admin.accounts.members.hint")),
+        extra_class="card",
+        aria_label=t("console.admin.accounts.members.label"),
+    )
+    retired_form = (
+        '<form id="admin-retired-release-form" class="console-form-row" data-retired-release-form>'
+        + console_field(
+            t("console.admin.accounts.retired.target"),
+            f'<input type="text" name="username" id="admin-retired-username-input" class="pref-input" placeholder="{escape(t("console.admin.accounts.retired.target_placeholder"))}" style="width:180px" required/>',
+            for_id="admin-retired-username-input",
+        )
+        + f'<button type="button" class="pref-btn" id="admin-retired-preview-btn">{escape(t("console.admin.accounts.retired.preview"))}</button>'
+        + f'<button type="submit" class="pref-btn pref-btn-danger" id="admin-retired-apply-btn">{escape(t("console.admin.accounts.retired.release"))}</button>'
+        + "</form>"
+        + console_result(id="admin-retired-result", attrs={"data-retired-result": True})
+    )
+    retired_table = console_table(
+        [
+            t("console.admin.accounts.retired.col_username"),
+            t("console.admin.accounts.retired.col_time"),
+            t("console.admin.accounts.retired.col_reason"),
+            t("console.common.manage"),
+        ],
+        retired_tbody,
+        tbody_id="admin-retired-tbody",
+    )
+    retired_section = console_card(
+        t_code("console.admin.accounts.retired.title", endpoint="/api/admin/usernames/*"),
+        retired_form + retired_table,
+        id="admin-retired-usernames-section",
+        icon="restore",
+        hint_html=escape(t("console.admin.accounts.retired.hint")),
+        extra_class="card",
+        aria_label=t("console.admin.accounts.retired.label"),
+    )
+    userdb_stats = console_stat_row(
+        [
+            f'<div class="pref-stat"><b>{active_count}</b><span>{escape(t("console.admin.accounts.userdb.active"))}</span></div>',
+            f'<div class="pref-stat"><b>{suspended_count}</b><span>{escape(t("console.admin.accounts.userdb.suspended"))}</span></div>',
+            f'<div class="pref-stat"><b>{len(retired)}</b><span>{escape(t("console.admin.accounts.retired.col_username"))}</span></div>',
+            f'<div class="pref-stat"><b>{total_themes_count}</b><span>{escape(t("console.admin.accounts.userdb.total_themes"))}</span></div>',
+        ],
+        attrs={"id": "pref-userdb-stats"},
+    )
+    userdb_quota_grid = (
+        '<div class="pref-quota-grid">'
+        f'<label>{escape(t("console.admin.accounts.userdb.quota_storage"))}<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>'
+        f'<label>{escape(t("console.admin.accounts.userdb.quota_docs"))}<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>'
+        f'<label>{escape(t("console.admin.accounts.userdb.quota_tokens"))}<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>'
+        f'<label>{escape(t("console.admin.accounts.userdb.quota_ingests"))}<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>'
+        f'<label class="pref-quota-switch"><span>{escape(t("console.admin.accounts.userdb.byok_switch"))} {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>'
+        "</div>"
+    )
+    userdb_rows = (
+        f'<tr><td><strong>{escape(t("console.admin.accounts.userdb.row_admin"))}</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>{escape(t("console.admin.accounts.userdb.row_admin_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_admin_quota"))}</td></tr>'
+        f'<tr><td><strong>{escape(t("console.admin.accounts.userdb.row_member"))}</strong></td><td><code class="pref-mono">{escape(t("console.admin.accounts.userdb.row_member_path"))}</code></td><td>{escape(t("console.admin.accounts.userdb.row_member_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_member_quota"))}</td></tr>'
+    )
+    userdb_table = console_table(
+        [
+            t("console.admin.accounts.userdb.col_kind"),
+            t("console.admin.accounts.userdb.col_path"),
+            t("console.admin.accounts.userdb.col_access"),
+            t("console.admin.accounts.userdb.col_quota"),
+        ],
+        userdb_rows,
+        tbody_id="pref-userdb-tbody",
+        caption_html=f'{prototype_badge("admin-accounts-isolation-table", "static")} <span class="proto-note-inline">{escape(t("console.admin.accounts.userdb.table_note"))}</span>',
+    )
+    userdb_section = console_card(
+        escape(t("console.admin.accounts.userdb.title")),
+        f'<p class="hint">{escape(t("console.admin.accounts.userdb.hint"))} <a href="/admin/server"><span data-icon="server"></span> {escape(t("console.admin.accounts.userdb.hint_link"))}</a></p>'
+        + userdb_stats
+        + userdb_quota_grid
+        + prototype_note("admin-accounts-byok-switch", t("console.admin.accounts.userdb.byok_note"))
+        + userdb_table,
+        id="pref-userdb-admin",
+        icon="database",
+        extra_class="card",
+        aria_label=t("console.admin.accounts.userdb.label"),
+        attrs={"data-userdb-view": "admin"},
+    )
+    return f"{cards}{members_section}{_render_signup_trace_section(signup_trace or {})}{retired_section}{userdb_section}{invites_link_section}"
 
 
 def routes(ctx: AccountsContext) -> list[Route]:

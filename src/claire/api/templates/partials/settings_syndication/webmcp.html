@@ -1,5 +1,5 @@
 <section id="panel-webmcp" class="pref-panel" data-settings-panel="webmcp">
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="graph"></span> ${th:console.synd.webmcp.title} <span class="pref-pill pref-pill-prop">${t:console.synd.common.proposal_unimplemented}</span></h2>
     <p class="pref-desc">${th:console.synd.webmcp.desc}</p>
 
@@ -68,9 +68,9 @@
         </table>
       </div>
     </details>
-  </div>
+  </section>
 
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="wrench"></span> ${t:console.synd.webmcp.tools_title}</h2>
     <p class="pref-desc">${th:console.synd.webmcp.tools_desc}</p>
     <div class="pref-table-wrap">
@@ -79,12 +79,12 @@
         <tbody id="pref-webmcp-tools-tbody"></tbody>
       </table>
     </div>
-  </div>
+  </section>
 
-  <div class="pref-card">
+  <section class="console-subcard pref-card">
     <h2><span data-icon="search"></span> ${t:console.synd.webmcp.sim_title}</h2>
     <p class="pref-desc">${t:console.synd.webmcp.sim_desc}</p>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="console-form-row">
       <label for="pref-webmcp-sim-tool" style="font-size:12.5px;font-weight:700">${t:console.synd.mcp.col_tool}</label>
       <select id="pref-webmcp-sim-tool" class="pref-select"></select>
       <button type="button" id="btn-webmcp-sim-run" class="pref-btn pref-btn-accent"><span data-icon="play"></span> ${t:console.synd.webmcp.sim_run}</button>
@@ -100,5 +100,5 @@
         <div id="pref-webmcp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
     </div>
-  </div>
+  </section>
 </section>

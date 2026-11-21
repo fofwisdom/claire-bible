@@ -74,6 +74,16 @@ from .common import (
     set_session_cookie,
     validate_display_name,
 )
+from .console_ui import (
+    console_card,
+    console_field,
+    console_kv,
+    console_notice,
+    console_pill,
+    console_result,
+    console_table,
+    console_toggle_row,
+)
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 from .login import safe_device_next
 
@@ -207,24 +217,25 @@ def verify_signup_token(
 
 def _render_admin_idp_cards(providers: list[IdpProviderMeta]) -> str:
     if not providers:
-        return f'<p class="hint">{escape(t("console.admin.idp.cards_empty"))}</p>'
+        return console_notice(escape(t("console.admin.idp.cards_empty")))
     cards = []
     for p in providers:
-        status_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.enabled"))}</span>' if p.enabled else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.disabled"))}</span>'
-        signup_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.signup"))}</span>' if p.allow_signup else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.no_signup"))}</span>'
-        secret_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.secret"))}</span>' if p.secret_configured else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.no_secret"))}</span>'
-        rows = [
-            (t("console.admin.idp.field.type"), p.type.upper()),
-            (t("console.settings.account.display_name"), p.display_name),
-            (t("console.admin.idp.field.client_id"), p.client_id),
-            (t("console.common.status"), f"{status_badge} {signup_badge} {secret_badge}"),
-            (t("console.admin.idp.field.issuer"), p.issuer or "-"),
-            (t("console.admin.idp.field.scopes"), ", ".join(p.scopes)),
-            (t("console.admin.idp.field.hosted_domain"), p.hosted_domain or "-"),
-            (t("console.admin.idp.field.tenant"), p.tenant_id or "-"),
-        ]
-        body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v) if not '<span' in v else v}</dd>" for k, v in rows)
-        cards.append(f'<section class="card" aria-label="{escape(p.display_name)}"><h2>{escape(p.display_name)} ({escape(p.id)})</h2><dl>{body}</dl></section>')
+        status_badge = console_pill(t("console.admin.idp.badge.enabled"), tone="ok") if p.enabled else console_pill(t("console.admin.idp.badge.disabled"), tone="danger")
+        signup_badge = console_pill(t("console.admin.idp.badge.signup"), tone="ok") if p.allow_signup else console_pill(t("console.admin.idp.badge.no_signup"), tone="neutral")
+        secret_badge = console_pill(t("console.admin.idp.badge.secret"), tone="ok") if p.secret_configured else console_pill(t("console.admin.idp.badge.no_secret"), tone="warn")
+        kv_html = console_kv(
+            [
+                (t("console.admin.idp.field.type"), p.type.upper()),
+                (t("console.settings.account.display_name"), p.display_name),
+                (t("console.admin.idp.field.client_id"), p.client_id),
+                {"label": t("console.common.status"), "value_html": f"{status_badge} {signup_badge} {secret_badge}"},
+                (t("console.admin.idp.field.issuer"), p.issuer or "-"),
+                (t("console.admin.idp.field.scopes"), ", ".join(p.scopes)),
+                (t("console.admin.idp.field.hosted_domain"), p.hosted_domain or "-"),
+                (t("console.admin.idp.field.tenant"), p.tenant_id or "-"),
+            ]
+        )
+        cards.append(console_card(f"{escape(p.display_name)} ({escape(p.id)})", kv_html, icon="id", aria_label=p.display_name))
     return "".join(cards)
 
 
@@ -241,7 +252,7 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
             f'<td><code class="pref-mono">{escape(p.client_id)}</code></td>'
             f'<td><code class="pref-mono" style="white-space:normal">{escape(callback)}</code></td>'
             f'<td><input type="checkbox" switch data-idp-signup="{escape(p.id)}"{" checked" if p.allow_signup else ""} aria-label="{escape(t("console.admin.idp.signup_label", name=p.display_name))}"/></td>'
-            f'<td><button type="button" class="pref-btn" data-idp-remove="{escape(p.id)}">{escape(t("common.action.delete"))}</button></td>'
+            f'<td><button type="button" class="pref-btn pref-btn-sm" data-idp-remove="{escape(p.id)}">{escape(t("common.action.delete"))}</button></td>'
             f"</tr>"
         )
     tbody = (
@@ -250,106 +261,132 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
         else f'<tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.idp.table_empty"))}</td></tr>'
     )
 
-    return f"""
-      <section class="card" aria-label="{escape(t("console.admin.idp.summary_label"))}">
-        <h2>{escape(t("console.admin.idp.summary_title"))}</h2>
-        <p class="hint">{t_code("console.admin.idp.summary_hint", variable="CLAIRE_OIDC_<ID>_CLIENT_SECRET")}</p>
-      </section>
-      <div id="admin-idp-cards">{cards}</div>
-      <section class="card" aria-label="{escape(t("console.admin.idp.registry_label"))}">
-        <h2><span data-icon="link"></span> {t_code("console.admin.idp.registry_title", endpoint="/api/admin/idp")}</h2>
-        <div class="pref-table-wrap">
-          <table class="pref-table">
-            <thead>
-              <tr><th style="width:52px">{escape(t("console.admin.idp.col_use"))}</th><th>{escape(t("console.settings.account.identities_col_provider"))}</th><th>{escape(t("console.admin.idp.col_issuer"))}</th><th>client_id</th><th>{escape(t("console.admin.idp.col_redirect"))}</th><th>{escape(t("console.admin.idp.badge.signup"))}</th><th>{escape(t("console.common.manage"))}</th></tr>
-            </thead>
-            <tbody id="pref-idp-tbody">{tbody}</tbody>
-          </table>
-        </div>
-        <form id="pref-idp-add-form" class="pref-idp-form">
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.admin.idp.new_id"))}
-            <input id="new-idp-id" name="id" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_id_placeholder"))}" required/>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.admin.idp.field.type"))}
-            <select id="new-idp-type" name="type" class="pref-select">
-              <option value="oidc">OIDC (Google · Keycloak · Entra)</option>
-              <option value="github">GitHub OAuth 2.0</option>
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.settings.account.display_name"))}
-            <input id="new-idp-name" name="display_name" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_name_placeholder"))}"/>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">issuer URL
-            <input id="new-idp-issuer" name="issuer" type="text" class="pref-input" placeholder="https://sso.example.org/realms/claire"/>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">client_id
-            <input id="new-idp-client" name="client_id" type="text" class="pref-input" placeholder="claire-bible" required/>
-          </label>
-          <button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.idp.new_submit"))}</button>
-        </form>
-        <p class="result" id="admin-idp-result" data-idp-result role="status" aria-live="polite"></p>
-        <pre id="pref-idp-discovery" class="pref-code" hidden></pre>
-      </section>
-      <section class="card" aria-label="{escape(t("console.admin.idp.policy_label"))}">
-        <h2><span data-icon="clipboard"></span> {escape(t("console.admin.idp.policy_title"))} {prototype_badge("admin-idp-login-policy", "prototype")}</h2>
-        {prototype_note("admin-idp-login-policy", t("console.admin.idp.policy_note"))}
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <strong>{escape(t("console.admin.idp.policy_mode"))}</strong>
-            <span>{t_code("console.admin.idp.policy_mode_desc", pair="(iss, sub)")}</span>
-          </div>
-          <select id="pref-idp-mode" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_mode"))}">
-            <option value="telegram_only">{escape(t("console.admin.idp.policy_mode_local"))}</option>
-            <option value="telegram_and_idp" selected>{escape(t("console.admin.idp.policy_mode_idp"))}</option>
-          </select>
-        </div>
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <strong>{escape(t("console.admin.idp.policy_provisioning"))}</strong>
-            <span>{escape(t("console.admin.idp.policy_provisioning_desc"))}</span>
-          </div>
-          <select id="pref-idp-provisioning" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_provisioning_label"))}">
-            <option value="invite" selected>{escape(t("console.admin.idp.policy_provisioning_invite"))}</option>
-            <option value="approval">{escape(t("console.admin.idp.policy_provisioning_approval"))}</option>
-            <option value="auto">{escape(t("console.admin.idp.policy_provisioning_auto"))}</option>
-          </select>
-        </div>
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <strong>{escape(t("console.admin.idp.policy_domains"))}</strong>
-            <span>{t_code("console.admin.idp.policy_domains_desc", claim="hd")}</span>
-          </div>
-          <input id="pref-idp-domains" type="text" class="pref-input" style="min-width:260px" value="example.ac.kr, example.org" aria-label="{escape(t("console.admin.idp.policy_domains"))}"/>
-        </div>
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <strong>{t_code("console.admin.idp.policy_verified", claim="email_verified=true")}</strong>
-            <span>{escape(t("console.admin.idp.policy_verified_desc"))}</span>
-          </div>
-          <input id="pref-idp-verified" type="checkbox" switch checked aria-label="{escape(t("console.admin.idp.policy_verified_label"))}"/>
-        </div>
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <strong>{escape(t("console.admin.idp.policy_backchannel"))}</strong>
-            <span>{escape(t("console.admin.idp.policy_backchannel_desc"))}</span>
-          </div>
-          <input id="pref-idp-bcl" type="checkbox" switch checked aria-label="Back-Channel Logout"/>
-        </div>
-      </section>
-      <section class="card" aria-label="{escape(t("console.admin.idp.sim_label"))}">
-        <h2><span data-icon="play"></span> {escape(t("console.admin.idp.sim_title"))} {prototype_badge("admin-idp-login-simulator", "simulation")}</h2>
-        {prototype_note("admin-idp-login-simulator", t("console.admin.idp.sim_note"))}
-        <p class="hint">{escape(t("console.admin.idp.sim_hint"))}</p>
-        <div class="pref-sim">
-          <div id="pref-idp-login-preview" class="pref-login"></div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <label for="pref-idp-persona" style="font-size:12px;font-weight:700">{escape(t("console.admin.idp.sim_persona"))}</label>
-            <select id="pref-idp-persona" class="pref-select"></select>
-            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start"><span data-icon="play"></span> {escape(t("console.admin.idp.sim_run"))}</button>
-            <div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
-          </div>
-        </div>
-      </section>"""
+    summary_card = console_card(
+        escape(t("console.admin.idp.summary_title")),
+        "",
+        id="admin-idp-summary",
+        icon="shield",
+        hint_html=t_code("console.admin.idp.summary_hint", variable="CLAIRE_OIDC_<ID>_CLIENT_SECRET"),
+        aria_label=t("console.admin.idp.summary_label"),
+    )
+    cards_host = f'<div class="console-host" id="admin-idp-cards">{cards}</div>'
+
+    registry_table = console_table(
+        [
+            t("console.admin.idp.col_use"),
+            t("console.settings.account.identities_col_provider"),
+            t("console.admin.idp.col_issuer"),
+            "client_id",
+            t("console.admin.idp.col_redirect"),
+            t("console.admin.idp.badge.signup"),
+            t("console.common.manage"),
+        ],
+        tbody,
+        tbody_id="pref-idp-tbody",
+    )
+    add_form = (
+        '<form id="pref-idp-add-form" class="pref-idp-form">'
+        + console_field(
+            t("console.admin.idp.new_id"),
+            f'<input id="new-idp-id" name="id" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_id_placeholder"))}" required/>',
+            for_id="new-idp-id",
+        )
+        + console_field(
+            t("console.admin.idp.field.type"),
+            '<select id="new-idp-type" name="type" class="pref-select"><option value="oidc">OIDC (Google · Keycloak · Entra)</option><option value="github">GitHub OAuth 2.0</option></select>',
+            for_id="new-idp-type",
+        )
+        + console_field(
+            t("console.settings.account.display_name"),
+            f'<input id="new-idp-name" name="display_name" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_name_placeholder"))}"/>',
+            for_id="new-idp-name",
+        )
+        + console_field(
+            "issuer URL",
+            '<input id="new-idp-issuer" name="issuer" type="text" class="pref-input" placeholder="https://sso.example.org/realms/claire"/>',
+            for_id="new-idp-issuer",
+        )
+        + console_field(
+            "client_id",
+            '<input id="new-idp-client" name="client_id" type="text" class="pref-input" placeholder="claire-bible" required/>',
+            for_id="new-idp-client",
+        )
+        + f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.idp.new_submit"))}</button>'
+        + "</form>"
+    )
+    registry_card = console_card(
+        t_code("console.admin.idp.registry_title", endpoint="/api/admin/idp"),
+        registry_table + add_form + console_result(id="admin-idp-result", attrs={"data-idp-result": True}) + '<pre id="pref-idp-discovery" class="pref-code" hidden></pre>',
+        icon="link",
+        aria_label=t("console.admin.idp.registry_label"),
+    )
+
+    policy_body = (
+        prototype_note("admin-idp-login-policy", t("console.admin.idp.policy_note"))
+        + '<div class="pref-row"><div class="pref-row-label">'
+        + f'<strong>{escape(t("console.admin.idp.policy_mode"))}</strong>'
+        + f'<span>{t_code("console.admin.idp.policy_mode_desc", pair="(iss, sub)")}</span>'
+        + "</div>"
+        + f'<select id="pref-idp-mode" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_mode"))}">'
+        + f'<option value="telegram_only">{escape(t("console.admin.idp.policy_mode_local"))}</option>'
+        + f'<option value="telegram_and_idp" selected>{escape(t("console.admin.idp.policy_mode_idp"))}</option>'
+        + "</select></div>"
+        + '<div class="pref-row"><div class="pref-row-label">'
+        + f'<strong>{escape(t("console.admin.idp.policy_provisioning"))}</strong>'
+        + f'<span>{escape(t("console.admin.idp.policy_provisioning_desc"))}</span>'
+        + "</div>"
+        + f'<select id="pref-idp-provisioning" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_provisioning_label"))}">'
+        + f'<option value="invite" selected>{escape(t("console.admin.idp.policy_provisioning_invite"))}</option>'
+        + f'<option value="approval">{escape(t("console.admin.idp.policy_provisioning_approval"))}</option>'
+        + f'<option value="auto">{escape(t("console.admin.idp.policy_provisioning_auto"))}</option>'
+        + "</select></div>"
+        + '<div class="pref-row"><div class="pref-row-label">'
+        + f'<label for="pref-idp-domains"><strong>{escape(t("console.admin.idp.policy_domains"))}</strong></label>'
+        + f'<span>{t_code("console.admin.idp.policy_domains_desc", claim="hd")}</span>'
+        + "</div>"
+        + f'<input id="pref-idp-domains" type="text" class="pref-input" style="min-width:260px" value="example.ac.kr, example.org" aria-label="{escape(t("console.admin.idp.policy_domains"))}"/>'
+        + "</div>"
+        + '<div class="pref-row"><div class="pref-row-label">'
+        + f'<label for="pref-idp-verified"><strong>{t_code("console.admin.idp.policy_verified", claim="email_verified=true")}</strong></label>'
+        + f'<span>{escape(t("console.admin.idp.policy_verified_desc"))}</span>'
+        + "</div>"
+        + f'<input id="pref-idp-verified" type="checkbox" switch checked aria-label="{escape(t("console.admin.idp.policy_verified_label"))}"/>'
+        + "</div>"
+        + console_toggle_row(
+            t("console.admin.idp.policy_backchannel"),
+            "pref-idp-bcl",
+            desc_html=escape(t("console.admin.idp.policy_backchannel_desc")),
+            checked=True,
+            attrs={"aria-label": "Back-Channel Logout"},
+        )
+    )
+    policy_card = console_card(
+        escape(t("console.admin.idp.policy_title")),
+        policy_body,
+        icon="clipboard",
+        badge_html=prototype_badge("admin-idp-login-policy", "prototype"),
+        aria_label=t("console.admin.idp.policy_label"),
+    )
+
+    sim_body = (
+        prototype_note("admin-idp-login-simulator", t("console.admin.idp.sim_note"))
+        + f'<p class="hint">{escape(t("console.admin.idp.sim_hint"))}</p>'
+        + '<div class="pref-sim">'
+        + '<div id="pref-idp-login-preview" class="pref-login"></div>'
+        + '<div style="display:flex;flex-direction:column;gap:8px">'
+        + console_field(t("console.admin.idp.sim_persona"), '<select id="pref-idp-persona" class="pref-select"></select>', for_id="pref-idp-persona")
+        + f'<button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start"><span data-icon="play"></span> {escape(t("console.admin.idp.sim_run"))}</button>'
+        + '<div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>'
+        + "</div></div>"
+    )
+    sim_card = console_card(
+        escape(t("console.admin.idp.sim_title")),
+        sim_body,
+        icon="play",
+        badge_html=prototype_badge("admin-idp-login-simulator", "simulation"),
+        aria_label=t("console.admin.idp.sim_label"),
+    )
+    return summary_card + cards_host + registry_card + policy_card + sim_card
 
 
 def _render_invite_complete_html(token: str, prefilled_name: str) -> str:

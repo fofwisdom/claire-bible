@@ -43,6 +43,17 @@ from .common import (
     t_code,
 )
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
+from .console_ui import (
+    console_actions,
+    console_card,
+    console_field,
+    console_kv,
+    console_notice,
+    console_pill,
+    console_result,
+    console_table,
+    console_toggle_row,
+)
 
 ADMIN_SERVER_PATH = "/admin/server"
 ADMIN_SERVER_API_PATH = "/api/admin/server"
@@ -100,11 +111,11 @@ def _usage_summary(conn: Any, auth_conn: Any) -> list[dict[str, Any]]:
 def _render_server_tier_section(state: dict[str, Any]) -> str:
     tier = ServerTier.from_dict(state["tier"])
     if not state["configured"]:
-        status = f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.tier.state.unset"))}</span> {t_code("console.admin.tier.state.unset_hint", none="none")}'
+        status = f'{console_pill(t("console.admin.tier.state.unset"), tone="danger")} {t_code("console.admin.tier.state.unset_hint", none="none")}'
     elif not state["valid"]:
-        status = f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.tier.state.invalid"))}</span> {t_code("console.admin.tier.state.invalid_hint", none="none")}'
+        status = f'{console_pill(t("console.admin.tier.state.invalid"), tone="danger")} {t_code("console.admin.tier.state.invalid_hint", none="none")}'
     else:
-        status = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.tier.state.set"))}</span>'
+        status = console_pill(t("console.admin.tier.state.set"), tone="ok")
     provider_options = "".join(
         f'<option value="{escape(p)}"{" selected" if p == tier.provider else ""}>{escape(p)}</option>'
         for p in TIER_PROVIDERS
@@ -120,45 +131,64 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
     )
 
     def num(name: str, label: str, value: int, minimum: int, hint: str = "") -> str:
-        hint_html = f'<span class="hint">{escape(hint)}</span>' if hint else ""
-        return (
-            f'<label>{escape(label)}<input type="number" name="{name}" min="{minimum}" step="1" '
-            f'value="{value}" required>{hint_html}</label>'
+        return console_field(
+            label,
+            f'<input type="number" name="{name}" class="pref-input" min="{minimum}" step="1" value="{value}" required>',
+            hint_html=escape(hint) if hint else "",
         )
 
     feat_summary = ", ".join(_feature_label(f) for f in tier.features) if tier.features else t("console.admin.tier.features_none")
     prov_summary = "Google AI Studio (gemini)" if tier.provider == "gemini" else t("console.admin.tier.provider_none")
-
-    return f"""
-      <section class="card" aria-label="{escape(t("console.admin.tier.label"))}" id="server-tier">
-        <h2>{escape(t("console.admin.tier.title"))}</h2>
-        <p class="hint">{escape(t("console.common.status"))}: {status}</p>
-        <p class="hint">{escape(t("console.admin.tier.hint"))} <a href="/admin/providers"><strong>{escape(t("console.admin.providers.label"))}</strong></a></p>
-        <dl>
-          <dt>{escape(t("console.admin.tier.provider_model"))}</dt><dd>{escape(prov_summary)}{f" · {escape(tier.model)}" if tier.model else ""} ({escape(t("console.admin.tier.max_effort_value", effort=tier.max_effort))})</dd>
-          <dt>{escape(t("console.tier.features"))}</dt><dd>{escape(feat_summary)}</dd>
-        </dl>
-        <form class="tier-form" data-server-tier-form>
-          <div hidden>
-            <label>{escape(t("console.settings.keys.provider"))}<select name="provider">{provider_options}</select></label>
-            <label>{escape(t("console.tier.model"))}<input type="text" name="model" value="{escape(tier.model)}" maxlength="128" autocomplete="off"></label>
-            <label>{escape(t("console.admin.tier.max_effort"))}<select name="max_effort">{effort_options}</select></label>
-            <fieldset><legend>{escape(t("console.tier.features"))}</legend>{feature_boxes}</fieldset>
-          </div>
-          {num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))}
-          {num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)}
-          {num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)}
-          {num("max_documents", t("console.admin.tier.max_documents"), tier.max_documents, 0)}
-          {num("byok_max_concurrency", t("console.admin.tier.byok_concurrency"), tier.byok_max_concurrency, 1)}
-          <button type="submit">{escape(t("console.admin.tier.submit"))}</button>
-          <p class="result" role="status" aria-live="polite" data-server-tier-result></p>
-        </form>
-        <form class="tier-form" data-server-tier-reauth hidden>
-          <label>{escape(t("console.admin.tier.reauth"))}<input type="password" name="password" autocomplete="current-password" required></label>
-          <button type="submit">{escape(t("console.reauth.submit"))}</button>
-          <p class="result" role="status" aria-live="polite" data-server-tier-reauth-result></p>
-        </form>
-      </section>"""
+    summary_kv = console_kv(
+        [
+            (
+                t("console.admin.tier.provider_model"),
+                f"{prov_summary}{f' · {tier.model}' if tier.model else ''} ({t('console.admin.tier.max_effort_value', effort=tier.max_effort)})",
+            ),
+            (t("console.tier.features"), feat_summary),
+        ]
+    )
+    hidden_fields = (
+        '<div hidden>'
+        + console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
+        + console_field(t("console.tier.model"), f'<input type="text" name="model" class="pref-input" value="{escape(tier.model)}" maxlength="128" autocomplete="off">')
+        + console_field(t("console.admin.tier.max_effort"), f'<select name="max_effort" class="pref-select">{effort_options}</select>')
+        + f'<fieldset><legend>{escape(t("console.tier.features"))}</legend>{feature_boxes}</fieldset>'
+        + "</div>"
+    )
+    tier_form = (
+        '<form class="tier-form" data-server-tier-form>'
+        + hidden_fields
+        + num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))
+        + num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)
+        + num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)
+        + num("max_documents", t("console.admin.tier.max_documents"), tier.max_documents, 0)
+        + num("byok_max_concurrency", t("console.admin.tier.byok_concurrency"), tier.byok_max_concurrency, 1)
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.tier.submit"))}</button>')
+        + console_result(attrs={"data-server-tier-result": True})
+        + "</form>"
+    )
+    reauth_form = (
+        '<form class="tier-form" data-server-tier-reauth hidden>'
+        + console_field(t("console.admin.tier.reauth"), '<input type="password" name="password" class="pref-input" autocomplete="current-password" required>')
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>')
+        + console_result(attrs={"data-server-tier-reauth-result": True})
+        + "</form>"
+    )
+    body = (
+        f'<p class="hint">{escape(t("console.common.status"))}: {status}</p>'
+        + f'<p class="hint">{escape(t("console.admin.tier.hint"))} <a href="/admin/providers"><strong>{escape(t("console.admin.providers.label"))}</strong></a></p>'
+        + summary_kv
+        + tier_form
+        + reauth_form
+    )
+    return console_card(
+        escape(t("console.admin.tier.title")),
+        body,
+        id="server-tier",
+        icon="bolt",
+        aria_label=t("console.admin.tier.label"),
+    )
 
 
 def _legacy_host_to_dict(h: LegacyHost) -> dict[str, Any]:
@@ -197,47 +227,61 @@ def _render_client_delivery_section(delivery: dict[str, Any] | None) -> str:
     uri_selected = " selected" if mode == "uri_path" else ""
     fqdn_selected = " selected" if mode == "fqdn" else ""
     fqdn_disabled = "" if fqdn_available else " disabled"
-    title = escape(t("console.admin.server.client_delivery.title"))
-    return f"""
-      <section class="card" aria-label="{title}" id="agent-client-delivery">
-        <h2>{title}</h2>
-        <p class="hint">{escape(t("console.admin.server.client_delivery.hint"))}</p>
-        <dl>
-          <dt>{escape(t("console.admin.server.client_delivery.active_mode"))}</dt><dd><span class="badge">{escape(mode)}</span></dd>
-          <dt>{escape(t("console.admin.server.client_delivery.resolved_base"))}</dt><dd><code>{escape(active_base)}</code></dd>
-          <dt>{escape(t("console.admin.server.client_delivery.marketplace_url"))}</dt><dd><code>{escape(marketplace_url)}</code></dd>
-          <dt>{escape(t("console.admin.server.client_delivery.uri_base"))}</dt><dd><code>{escape(uri_base)}</code></dd>
-          <dt>{escape(t("console.admin.server.client_delivery.fqdn_origin"))}</dt><dd>{fqdn_display}</dd>
-        </dl>
-        <form class="mode-form" method="post" action="{ADMIN_SERVER_PATH}" data-client-delivery-form>
-          <label for="agent-client-delivery-mode">{escape(t("console.admin.server.client_delivery.mode_label"))}</label>
-          <select id="agent-client-delivery-mode" name="agent_client_delivery_mode">
-            <option value="uri_path"{uri_selected}>uri_path</option>
-            <option value="fqdn"{fqdn_selected}{fqdn_disabled}>fqdn</option>
-          </select>
-          <button type="submit">{escape(t("console.admin.server.client_delivery.submit"))}</button>
-        </form>
-      </section>"""
+    title_text = t("console.admin.server.client_delivery.title")
+    kv_html = console_kv(
+        [
+            {"label": t("console.admin.server.client_delivery.active_mode"), "value_html": f'<span class="badge">{escape(mode)}</span>'},
+            {"label": t("console.admin.server.client_delivery.resolved_base"), "value_html": f"<code>{escape(active_base)}</code>"},
+            {"label": t("console.admin.server.client_delivery.marketplace_url"), "value_html": f"<code>{escape(marketplace_url)}</code>"},
+            {"label": t("console.admin.server.client_delivery.uri_base"), "value_html": f"<code>{escape(uri_base)}</code>"},
+            {"label": t("console.admin.server.client_delivery.fqdn_origin"), "value_html": fqdn_display},
+        ]
+    )
+    select_html = (
+        '<select id="agent-client-delivery-mode" name="agent_client_delivery_mode" class="pref-select">'
+        f'<option value="uri_path"{uri_selected}>uri_path</option>'
+        f'<option value="fqdn"{fqdn_selected}{fqdn_disabled}>fqdn</option>'
+        "</select>"
+    )
+    form_html = (
+        f'<form class="mode-form" method="post" action="{ADMIN_SERVER_PATH}" data-client-delivery-form>'
+        + console_field(t("console.admin.server.client_delivery.mode_label"), select_html, for_id="agent-client-delivery-mode")
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.server.client_delivery.submit"))}</button>')
+        + "</form>"
+    )
+    return console_card(
+        escape(title_text),
+        kv_html + form_html,
+        id="agent-client-delivery",
+        icon="package",
+        hint_html=escape(t("console.admin.server.client_delivery.hint")),
+        aria_label=title_text,
+    )
 
 
 def _render_invites_policy_section(*, member_invites_enabled: bool) -> str:
-    checked_attr = " checked" if member_invites_enabled else ""
-    title = escape(t("console.admin.server.invites.title"))
-    label = escape(t("console.admin.server.invites.label"))
-    return f"""
-      <section class="card" aria-label="{label}" id="server-invites-policy">
-        <h2><span data-icon="mail"></span> {title}</h2>
-        <p class="hint">{escape(t("console.admin.server.invites.hint"))}</p>
-        <div class="pref-row">
-          <div class="pref-row-label">
-            <label for="admin-member-invites-toggle"><strong>{escape(t("console.admin.server.invites.toggle_title"))}</strong></label>
-            <span>{escape(t("console.admin.server.invites.toggle_desc"))}</span>
-          </div>
-          <input id="admin-member-invites-toggle" type="checkbox" switch{checked_attr} aria-label="{escape(t("console.admin.server.invites.toggle_title"))}"/>
-        </div>
-        <p class="result" id="server-invites-policy-result" role="status" aria-live="polite"></p>
-        <a class="pref-btn" href="/settings/invites">{escape(t("console.admin.server.invites.manage_link"))}</a>
-      </section>"""
+    title = t("console.admin.server.invites.title")
+    label = t("console.admin.server.invites.label")
+    toggle_html = console_toggle_row(
+        t("console.admin.server.invites.toggle_title"),
+        "admin-member-invites-toggle",
+        desc_html=escape(t("console.admin.server.invites.toggle_desc")),
+        checked=member_invites_enabled,
+        attrs={"aria-label": t("console.admin.server.invites.toggle_title")},
+    )
+    body = (
+        toggle_html
+        + console_result(id="server-invites-policy-result")
+        + console_actions(f'<a class="pref-btn" href="/settings/invites">{escape(t("console.admin.server.invites.manage_link"))}</a>')
+    )
+    return console_card(
+        escape(title),
+        body,
+        id="server-invites-policy",
+        icon="mail",
+        hint_html=escape(t("console.admin.server.invites.hint")),
+        aria_label=label,
+    )
 
 
 def _render_server_html(
@@ -259,55 +303,51 @@ def _render_server_html(
 
     if mode == "single":
         if not network_mode_available:
-            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.server.notice.limited"))}</p>'
+            mode_notice = console_notice(escape(t("console.admin.server.notice.limited")), tone="danger")
             can_switch = False
         elif not readiness_report.passed:
             failed_ids = [item.id for item in readiness_report.items if not item.passed]
-            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.server.notice.not_ready", items=", ".join(failed_ids)))}</p>'
+            mode_notice = console_notice(escape(t("console.admin.server.notice.not_ready", items=", ".join(failed_ids))), tone="danger")
             can_switch = False
         else:
-            mode_notice = f'<p class="hint" style="color:#2f855a;font-weight:600;">{escape(t("console.admin.server.notice.ready"))}</p>'
+            mode_notice = console_notice(escape(t("console.admin.server.notice.ready")), tone="ok")
             can_switch = True
 
-        mode_desc = f"""
-          <div class="notice">
-            <strong>{escape(t("console.admin.server.to_network.title"))}</strong>
-            <ul>
-              <li>{t_code("console.admin.server.to_network.home", path="/@{admin_username}/")}</li>
-              <li>{t_code("console.admin.server.to_network.redirect", doc="/?doc=…", theme="/themes/{number}/…")}</li>
-              <li>{escape(t("console.admin.server.to_network.sunset"))}</li>
-            </ul>
-          </div>
-          <label class="check">
-            <input type="checkbox" name="confirm" required>
-            {escape(t("console.admin.server.to_network.confirm"))}
-          </label>
-        """
-        btn_class = ""
+        mode_desc = (
+            console_notice(
+                f'<strong>{escape(t("console.admin.server.to_network.title"))}</strong>'
+                "<ul>"
+                f'<li>{t_code("console.admin.server.to_network.home", path="/@{admin_username}/")}</li>'
+                f'<li>{t_code("console.admin.server.to_network.redirect", doc="/?doc=…", theme="/themes/{number}/…")}</li>'
+                f'<li>{escape(t("console.admin.server.to_network.sunset"))}</li>'
+                "</ul>",
+                tone="info",
+            )
+            + f'<label class="check"><input type="checkbox" name="confirm" required> {escape(t("console.admin.server.to_network.confirm"))}</label>'
+        )
+        btn_class = ' class="pref-btn pref-btn-accent"'
         btn_text = t("console.admin.server.switch_to_network")
     else:
         can_switch = True
         mode_notice = f'<p class="hint">{escape(t("console.admin.server.notice.network"))}</p>'
-        mode_desc = f"""
-          <div class="notice danger">
-            <strong>{escape(t("console.admin.server.to_single.title"))}</strong>
-            <ul>
-              <li>{escape(t("console.admin.server.to_single.members"))}</li>
-              <li>{escape(t("console.admin.server.to_single.username"))}</li>
-              <li>{t_code("console.admin.server.to_single.redirect", namespace="/@{admin}/…", root="/…")}</li>
-            </ul>
-          </div>
-          <label class="check">
-            <input type="checkbox" name="confirm" required>
-            {escape(t("console.admin.server.to_single.confirm"))}
-          </label>
-        """
-        btn_class = ' class="btn-danger"'
+        mode_desc = (
+            console_notice(
+                f'<strong>{escape(t("console.admin.server.to_single.title"))}</strong>'
+                "<ul>"
+                f'<li>{escape(t("console.admin.server.to_single.members"))}</li>'
+                f'<li>{escape(t("console.admin.server.to_single.username"))}</li>'
+                f'<li>{t_code("console.admin.server.to_single.redirect", namespace="/@{admin}/…", root="/…")}</li>'
+                "</ul>",
+                tone="danger",
+            )
+            + f'<label class="check"><input type="checkbox" name="confirm" required> {escape(t("console.admin.server.to_single.confirm"))}</label>'
+        )
+        btn_class = ' class="pref-btn pref-btn-danger btn-danger"'
         btn_text = t("console.admin.server.switch_to_single")
 
     check_rows = []
     for item in readiness_report.items:
-        status_tag = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.readiness.passed"))}</span>' if item.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.readiness.failed"))}</span>'
+        status_tag = console_pill(t("console.readiness.passed"), tone="ok") if item.passed else console_pill(t("console.readiness.failed"), tone="danger")
         check_rows.append(f"<tr><td><code>{escape(item.id)}</code></td><td>{escape(item.name)}</td><td>{status_tag}</td><td>{escape(item.detail)}</td></tr>")
     checks_tbody = "".join(check_rows)
 
@@ -318,61 +358,73 @@ def _render_server_html(
         hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.kb_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
     hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.server.legacy.empty"))}</td></tr>'
 
-    readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.server.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.server.readiness_not_passed"))}</span>'
-
-    return f"""
-      <section class="card" aria-label="{escape(t("console.mode.title"))}" id="server-mode">
-        <h2>{escape(t("console.mode.title"))}</h2>
-        <dl>
-          <dt>{escape(t("console.admin.server.current_mode"))}</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
-          <dt>{escape(t("console.admin.server.network_availability"))}</dt><dd><strong>{escape(t("console.admin.server.network_available") if network_mode_available else t("console.admin.server.network_limited"))}</strong></dd>
-          <dt>{escape(t("console.admin.server.readiness"))}</dt><dd>{readiness_summary}</dd>
-        </dl>
-        {mode_notice}
-        <form class="mode-form" data-mode-switch-form>
-          <input type="hidden" name="target_mode" value="{target_mode}">
-          {mode_desc}
-          <button type="submit"{btn_class}{"" if can_switch else " disabled"}>{escape(btn_text)}</button>
-          <p class="result" role="status" aria-live="polite" data-mode-switch-result></p>
-        </form>
-        <form class="mode-form" data-mode-switch-reauth hidden>
-          <p class="hint">{escape(t("console.admin.server.reauth_hint"))}</p>
-          <label>{escape(t("console.settings.account.password"))}<input type="password" name="password" autocomplete="current-password" required></label>
-          <button type="submit">{escape(t("console.admin.server.reauth_submit"))}</button>
-          <p class="result" role="status" aria-live="polite" data-mode-switch-reauth-result></p>
-        </form>
-      </section>
-
-      <section class="card" aria-label="{escape(t("console.admin.server.readiness_label"))}">
-        <h2>{escape(t("console.admin.server.readiness_title"))}</h2>
-        <table>
-          <thead>
-            <tr><th>{escape(t("console.readiness.col_item"))}</th><th>{escape(t("console.readiness.col_name"))}</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.readiness.col_detail"))}</th></tr>
-          </thead>
-          <tbody>
-            {checks_tbody}
-          </tbody>
-        </table>
-      </section>
-
-      <section class="card" aria-label="{escape(t("console.admin.server.legacy.label"))}">
-        <h2>{escape(t("console.admin.server.legacy.title"))}</h2>
-        <dl>
-          <dt>{escape(t("console.admin.server.legacy.after_status"))}</dt><dd>HTTP {policy.after_sunset_status}</dd>
-          <dt>{escape(t("console.admin.server.legacy.grace"))}</dt><dd>{escape(t("console.admin.server.legacy.days", days=policy.sunset_days))}</dd>
-        </dl>
-        <table>
-          <thead>
-            <tr><th>{escape(t("console.admin.server.legacy.col_host"))}</th><th>{escape(t("console.admin.server.legacy.col_theme"))}</th><th>{escape(t("console.admin.server.legacy.col_start"))}</th><th>{escape(t("console.admin.server.legacy.col_sunset"))}</th></tr>
-          </thead>
-          <tbody>
-            {hosts_tbody}
-          </tbody>
-        </table>
-      </section>
-{tier_section}
-{invites_policy_section}
-{client_delivery_section}"""
+    readiness_summary = console_pill(t("console.admin.server.readiness_all"), tone="ok") if readiness_report.passed else console_pill(t("console.admin.server.readiness_not_passed"), tone="danger")
+    mode_kv = console_kv(
+        [
+            {"label": t("console.admin.server.current_mode"), "value_html": f'<span class="badge">{escape(mode_text)}</span>'},
+            {"label": t("console.admin.server.network_availability"), "value_html": f'<strong>{escape(t("console.admin.server.network_available") if network_mode_available else t("console.admin.server.network_limited"))}</strong>'},
+            {"label": t("console.admin.server.readiness"), "value_html": readiness_summary},
+        ]
+    )
+    mode_switch_form = (
+        '<form class="mode-form" data-mode-switch-form>'
+        + f'<input type="hidden" name="target_mode" value="{target_mode}">'
+        + mode_desc
+        + f'<button type="submit"{btn_class}{"" if can_switch else " disabled"}>{escape(btn_text)}</button>'
+        + console_result(attrs={"data-mode-switch-result": True})
+        + "</form>"
+    )
+    mode_reauth_form = (
+        '<form class="mode-form" data-mode-switch-reauth hidden>'
+        + f'<p class="hint">{escape(t("console.admin.server.reauth_hint"))}</p>'
+        + console_field(t("console.settings.account.password"), '<input type="password" name="password" class="pref-input" autocomplete="current-password" required>')
+        + f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.server.reauth_submit"))}</button>'
+        + console_result(attrs={"data-mode-switch-reauth-result": True})
+        + "</form>"
+    )
+    # Keep exact opening tag of #server-mode for tests checking '<section class="card" aria-label="Server mode" id="server-mode">'.
+    mode_section = (
+        f'<section class="card" aria-label="{escape(t("console.mode.title"))}" id="server-mode">'
+        f'<h2><span data-icon="server"></span> {escape(t("console.mode.title"))}</h2>'
+        f"{mode_kv}{mode_notice}{mode_switch_form}{mode_reauth_form}"
+        "</section>"
+    )
+    readiness_section = console_card(
+        escape(t("console.admin.server.readiness_title")),
+        console_table(
+            [
+                t("console.readiness.col_item"),
+                t("console.readiness.col_name"),
+                t("console.common.status"),
+                t("console.readiness.col_detail"),
+            ],
+            checks_tbody,
+        ),
+        icon="check-circle",
+        aria_label=t("console.admin.server.readiness_label"),
+    )
+    legacy_kv = console_kv(
+        [
+            (t("console.admin.server.legacy.after_status"), f"HTTP {policy.after_sunset_status}"),
+            (t("console.admin.server.legacy.grace"), t("console.admin.server.legacy.days", days=policy.sunset_days)),
+        ]
+    )
+    legacy_table = console_table(
+        [
+            t("console.admin.server.legacy.col_host"),
+            t("console.admin.server.legacy.col_theme"),
+            t("console.admin.server.legacy.col_start"),
+            t("console.admin.server.legacy.col_sunset"),
+        ],
+        hosts_tbody,
+    )
+    legacy_section = console_card(
+        escape(t("console.admin.server.legacy.title")),
+        legacy_kv + legacy_table,
+        icon="clock",
+        aria_label=t("console.admin.server.legacy.label"),
+    )
+    return f"{mode_section}{readiness_section}{legacy_section}{tier_section}{invites_policy_section}{client_delivery_section}"
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
