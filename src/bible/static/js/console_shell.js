@@ -244,21 +244,20 @@
 
   function isHintElement(el){
     if(!el) return false;
-    return el.matches('p.hint, p.pref-desc, p.console-desc, .console-hint');
+    return el.matches('p.hint, p.pref-desc, p.console-desc, .console-hint, .claire-hint');
   }
 
   function hasInteractiveControls(root){
-    return Boolean(root.querySelector('input, button, select, textarea, form, [role="status"], .console-kv, .pref-row, .console-actions, pre, code, ul, ol'));
+    return Boolean(root.querySelector('input, button, select, textarea, form, [role="status"], dl, .console-kv, .pref-row, .claire-srow, .console-actions, .claire-actions, .claire-chips, pre, code, ul, ol'));
   }
 
   function enhanceSplitCards(body){
-    const candidates = body.querySelectorAll('.card, .console-subcard, .pref-card');
+    const candidates = body.querySelectorAll('.card, .console-subcard, .pref-card, .claire-card');
     candidates.forEach(function(card){
       if(card.dataset.splitEnhanced === '1' || card.classList.contains('is-split') || card.classList.contains('no-split')) return;
-      card.dataset.splitEnhanced = '1';
 
-      if(card.querySelector('table, .pref-table-wrap, .pref-stat-row, .pref-panel, [data-admin-panel-host], [data-settings-panel-host]')) return;
-      if(card.querySelector('.card, .console-subcard, .pref-card')) return;
+      if(card.matches('.claire-tabs, .claire-split, .pref-panel, [data-admin-panel-host], [data-settings-panel-host], [data-console-host]')) return;
+      if(card.querySelector('.claire-tabs, .claire-split, table, .pref-table-wrap, .claire-tw, .pref-stat-row, .claire-kpis, .pref-panel, [data-admin-panel-host], [data-settings-panel-host], [data-console-host], .card, .console-subcard, .pref-card, .claire-card')) return;
       if(!hasInteractiveControls(card)) return;
 
       const children = Array.from(card.children);
@@ -268,8 +267,9 @@
       let heading = null;
       if(first.matches('h2, h3')){
         heading = first;
-      } else if(first.matches('.console-card-head') && first.querySelector('h2, h3')){
-        heading = first;
+      } else if(first.matches('.console-card-head, .claire-card-head')){
+        if(first.querySelector('.console-actions, .claire-actions, button, a.pref-btn, a.claire-btn')) return;
+        if(first.querySelector('h2, h3')) heading = first;
       }
       if(!heading) return;
 
@@ -292,6 +292,7 @@
       card.appendChild(meta);
       card.appendChild(ctrl);
       card.classList.add('is-split');
+      card.dataset.splitEnhanced = '1';
     });
   }
 
@@ -303,18 +304,17 @@
       if(headers.length){
         table.querySelectorAll('tbody tr').forEach(function(trEl){
           Array.from(trEl.children).forEach(function(cell, colIdx){
-            if(cell.tagName !== 'TD') return;
+            if(cell.tagName !== 'TD' || cell.hasAttribute('colspan')) return;
             if(!cell.hasAttribute('data-label') && headers[colIdx]){
               cell.setAttribute('data-label', headers[colIdx]);
             }
           });
         });
       }
-      const wrap = table.closest('.pref-table-wrap');
-      if(wrap && !wrap.hasAttribute('tabindex')){
-        wrap.setAttribute('tabindex', '0');
-        if(!wrap.hasAttribute('role')) wrap.setAttribute('role', 'region');
-      }
+    });
+    body.querySelectorAll('.pref-table-wrap, .claire-tw').forEach(function(wrap){
+      if(!wrap.hasAttribute('tabindex')) wrap.setAttribute('tabindex', '0');
+      if(!wrap.hasAttribute('role')) wrap.setAttribute('role', 'region');
     });
   }
 
@@ -333,11 +333,11 @@
     const items = [];
     const seen = new Set();
     body.querySelectorAll('h2').forEach(function(heading, idx){
-      if(heading.closest('[hidden]')) return;
+      if(heading.classList.contains('sr-only') || heading.closest('[hidden], dialog, .sr-only')) return;
       const text = (heading.textContent || '').trim();
       if(!text || seen.has(text)) return;
       seen.add(text);
-      const card = heading.closest('section, form, .card, .console-subcard, .pref-card') || heading;
+      const card = heading.closest('section, form, .card, .console-subcard, .pref-card, .claire-card') || heading;
       if(!card.id && !heading.id) heading.id = 'console-sec-' + (idx + 1);
       const target = card.id ? card : heading;
       items.push({ id: target.id, label: text, target: target });
@@ -380,31 +380,60 @@
     }
   }
 
+  function hydrateIcons(scope){
+    if(window.ClaireIcons && typeof window.ClaireIcons.hydrate === 'function'){
+      window.ClaireIcons.hydrate(scope);
+    }
+  }
+
   function initSectionEnhancer(){
     const body = document.getElementById('console-section-body');
-    if(!body) return;
+    if(!body){
+      window.ClaireConsoleShell = {
+        enhance: function(targetRoot){
+          if(!targetRoot || targetRoot.nodeType !== 1) return;
+          enhanceSplitCards(targetRoot);
+          enhanceTables(targetRoot);
+          hydrateIcons(targetRoot);
+        }
+      };
+      return;
+    }
 
     let applying = false;
     let rafId = 0;
 
-    function run(){
+    function run(targetRoot){
       rafId = 0;
+      const scope = (targetRoot && targetRoot.nodeType === 1) ? targetRoot : body;
       applying = true;
       try{
-        enhanceSplitCards(body);
-        enhanceTables(body);
-        rebuildToc(body);
+        enhanceSplitCards(scope);
+        enhanceTables(scope);
+        if(scope === body) rebuildToc(body);
+        hydrateIcons(scope);
       } finally {
         applying = false;
       }
     }
 
-    run();
+    window.ClaireConsoleShell = { enhance: run };
+    run(body);
+
+    body.addEventListener('click', function(ev){
+      if(ev.target && ev.target.closest && ev.target.closest('[role="tab"]')){
+        run(body);
+      }
+    });
+
+    body.addEventListener('claire:tabchange', function(){
+      run(body);
+    });
 
     if(typeof MutationObserver === 'function'){
       const mo = new MutationObserver(function(){
         if(applying) return;
-        if(!rafId) rafId = window.requestAnimationFrame(run);
+        if(!rafId) rafId = window.requestAnimationFrame(function(){ run(body); });
       });
       mo.observe(body, { childList: true, subtree: true });
     }

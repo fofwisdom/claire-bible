@@ -513,9 +513,10 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
     _set_mode(console_env.db_file, "network")
     client = console_env.client
     labels = {"prototype": "Prototype", "simulation": "Simulation", "client_only": "Stored in the browser only", "static": "Fixed text"}
+    assert ".proto-badge{" in client.get("/static/css/console_ui.css").text
     for path, markers in ADMIN_PROTOTYPE_MARKERS.items():
         body = client.get(path, headers=console_env.admin_owner).text
-        assert ".proto-badge{" in body, path
+        assert "/static/css/console_ui.css" in body, path
         for marker, kind in markers:
             badge = f'<span class="proto-badge" data-prototype="{marker}" data-prototype-kind="{kind}">{labels[kind]}</span>'
             assert badge in body, (path, marker)
