@@ -1,4 +1,5 @@
 <section id="panel-mcp" class="pref-panel" data-settings-panel="mcp">
+  $agent_extraction_guide_html
   <div class="pref-card">
     <h2><span data-icon="puzzle"></span> ${th:console.synd.mcp.title} <span class="pref-pill pref-pill-mcp">${t:console.synd.common.implemented}</span><span class="pref-pill">${t:console.synd.common.server_wide}</span></h2>
     <p class="pref-desc">${th:console.synd.mcp.desc_before} <span class="pref-pill pref-pill-mcp">${t:console.synd.common.implemented}</span>${t:console.synd.mcp.desc_implemented} <span class="pref-pill pref-pill-prop">${t:console.synd.common.proposal}</span>${t:console.synd.mcp.desc_proposal}</p>
@@ -68,6 +69,8 @@
     </details>
   </div>
 
+  $agent_clients_delivery_html
+
   <div class="pref-card">
     <h2><span data-icon="wrench"></span> ${th:console.synd.mcp.tools_title}</h2>
     <p class="pref-desc">${t:console.synd.mcp.tools_desc}</p>
@@ -103,6 +106,4 @@
       <pre id="pref-mcp-toolslist" class="pref-code" style="margin-top:8px"></pre>
     </details>
   </div>
-
-  $agent_clients_delivery_html
 </section>

@@ -285,7 +285,7 @@
   - 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 서버 프로바이더·관리자 CLI로 자동 전환/폴백하지 않는다. 이 규칙은 관리자의 개인 키에도 같다.
 - **WebUI `/settings/keys` 연동**:
   - 네트워크 모드 멤버 계정으로 `/settings/keys`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
-  - [code] The server administrator gets, in the two modes, a card with the link to `/admin/providers` (`data-keys-server-providers`), the same key forms (`data-keys-mode="byok"`), and a usage card of the account (documents, storage, tokens of the personal key this month) in place of the server tier card. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다.
+  - [code] The server administrator gets, in the two modes, a card with the link to `/admin/providers` (`data-keys-server-providers`), the same key forms (`data-keys-mode="byok"`), and a usage card of the account (documents, storage, tokens of the personal key this month) in place of the server tier card. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다. 두 모드 모든 계정의 `/settings/keys`에는 현재 `extraction_mode` 안내와 `/settings/account#settings-extraction-mode` · `/settings/mcp#pref-mcp-agent-guide` 이동 링크가 담긴 `#settings-keys-extraction-guide` 카드(관리자 링크 없음)를 함께 그린다.
 
 ### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`)
 
@@ -321,7 +321,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, USERNAME 행, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, USERNAME 행, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환 및 `client` 모드 활성 시 `/settings/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`), 인터페이스 언어·개체 언어, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 목록 응답도 소유자에게 번들마다 같은 `download_url`을 준다(서포트 번들은 `telemetry.db`의 행, 데이터 번들은 모드 `0600` sidecar가 토큰을 가진다). 그래서 목록의 각 행에 "링크 복사"가 번들이 만료될 때까지 있다. 목록에는 그 밖의 토큰 필드가 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. 토큰을 sidecar에 두기 전에 만든 데이터 번들은 행에 링크가 없다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
 | `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
@@ -330,7 +330,7 @@
 | `/settings/themes` | 1 | 본인 지식 베이스 관리(목록 `GET /kb?joined=true`, 변경 `POST /kb`·`PATCH /kb/{number}/`). 슬롯 수 표시는 없다(서버 등급의 `max_themes`는 폐지, CT-3) |
 | `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`, 지원 중단 예정 안내·`Deprecation` 헤더)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
 | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
-| `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | `/settings/mcp`의 OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 활성 `agent_client` 번들 배포 링크(`/clients/<client_id>/...` 및 60초 HMAC `?t=`), 수동 토큰 지원 중단 안내, `/settings/webmcp` 설정 |
+| `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | `/settings/mcp` 상단의 에이전트 주도 추출 빠른 시작 4단계 가이드(`#pref-mcp-agent-guide`, 현재 `extraction_mode` 배지 및 `#pref-mcp-client-bundles` 바로가기), OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 활성 `agent_client` 번들 배포 링크(`/clients/<client_id>/...` 및 60초 HMAC `?t=`), 수동 토큰 지원 중단 안내, `/settings/webmcp` 설정 |
 
 - **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
 - **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)와 계정 검사`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.

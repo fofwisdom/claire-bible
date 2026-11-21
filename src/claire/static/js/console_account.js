@@ -741,6 +741,35 @@
     });
   }
 
+  function bindExtractionModeSelect() {
+    var select = document.querySelector("select[data-settings-extraction-mode]");
+    if (!select) return;
+    var saved = select.value;
+    select.addEventListener("change", function () {
+      var section = select.closest("section") || select.parentElement;
+      var fail = function () {
+        select.value = saved;
+        show(section, tr("console.js.account.extraction_mode_error"), true);
+      };
+      select.disabled = true;
+      request("PATCH", "/api/me", { extraction_mode: select.value }).then(function (r) {
+        if (r.ok) {
+          saved = select.value;
+          var field = document.querySelector('[data-account-field="extraction_mode"]');
+          var chosen = select.options && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+          if (field && chosen) field.textContent = chosen.textContent;
+          var guide = document.querySelector("[data-extraction-client-guide]");
+          if (guide) guide.hidden = select.value !== "client";
+          show(section, tr("console.js.common.saved"), false);
+        } else {
+          fail();
+        }
+      }).catch(fail).then(function () {
+        select.disabled = false;
+      });
+    });
+  }
+
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
     // The console page has no app.js apiUrl/rootUrl. Unprefixed /tokens resolves to the caller's own account (N3). The page /settings/kb (console_kb.js) has the function of the old /settings/themes.
@@ -764,6 +793,7 @@
       bindToggles();
       bindLocaleSelect();
       bindEntityLanguageSelect();
+      bindExtractionModeSelect();
     } else if (section === "federation") {
       bindFederation();
     } else if (section === "keys") {

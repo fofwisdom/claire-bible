@@ -937,6 +937,7 @@ def _settings_account_body(
         ("status", t("console.common.status"), account_status_text(account.status)),
         ("password", t("console.settings.account.password"), t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset")),
         ("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")),
+        ("extraction_mode", t("console.settings.account.extraction_mode_label"), _extraction_mode_text(account.extraction_mode)),
     ]
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
     # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
@@ -1041,6 +1042,7 @@ def _settings_account_body(
         "</form>"
         f"{_settings_locale_html(account)}"
         f"{_settings_entity_language_html(account)}"
+        f"{_settings_extraction_mode_html(account)}"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
         f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="{escape(t("console.settings.account.password"))}">'
         f"<h2><span data-icon='key'></span> {escape(t('console.settings.account.password_change') if has_password else t('console.settings.account.password_setup'))}</h2>"
@@ -1119,6 +1121,49 @@ def _settings_entity_language_html(account: accounts_store.Account) -> str:
     )
 
 
+def _extraction_mode_text(mode: str) -> str:
+    """Return the localized label for the given extraction_mode value."""
+    return t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
+
+
+def _settings_extraction_mode_html(account: accounts_store.Account) -> str:
+    """Render the per-account extraction_mode selector (#pref-account-extraction-mode) and Agent Client onboarding notice."""
+    title = icon_html("bolt") + " " + escape(t("console.settings.account.extraction_mode_title"))
+    label = escape(t("console.settings.account.extraction_mode_label"))
+    mode = "client" if account.extraction_mode == "client" else "provider"
+    options = f'<option value="provider"{" selected" if mode == "provider" else ""}>{escape(t("console.settings.account.extraction_mode_provider"))}</option><option value="client"{" selected" if mode == "client" else ""}>{escape(t("console.settings.account.extraction_mode_client"))}</option>'
+    hidden_attr = "" if mode == "client" else " hidden"
+    guide_notice = f'<div class="pref-notice" data-tone="ok" data-extraction-client-guide{hidden_attr} style="margin-top:8px"><p style="margin:0 0 8px">{escape(t("console.settings.account.extraction_mode_client_next"))}</p><a class="pref-btn" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a></div>'
+    return (
+        f'<section class="console-subcard" id="settings-extraction-mode" aria-label="{label}">'
+        f"<h2>{title}</h2>"
+        f'<label for="pref-account-extraction-mode" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
+        f'<select id="pref-account-extraction-mode" class="pref-input" data-settings-extraction-mode>{options}</select></label>'
+        f'<p class="hint">{escape(t("console.settings.account.extraction_mode_hint"))}</p>'
+        f"{guide_notice}"
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</section>"
+    )
+
+
+def _settings_keys_extraction_guide_html(account: accounts_store.Account) -> str:
+    """Render a compact Agent-Driven Extraction guide card on /settings/keys without any admin-only URLs."""
+    mode = "client" if account.extraction_mode == "client" else "provider"
+    title_text = t("console.settings.keys.extraction_guide_title")
+    desc_text = t("console.settings.keys.extraction_guide_client") if mode == "client" else t("console.settings.keys.extraction_guide_provider")
+    mode_badge = _extraction_mode_text(mode)
+    return (
+        f'<section class="console-subcard" id="settings-keys-extraction-guide" data-extraction-mode="{escape(mode)}" aria-label="{escape(title_text)}">'
+        f'<h2>{icon_html("bolt")} {escape(title_text)} <span class="pref-pill pref-pill-mcp">{escape(mode_badge)}</span></h2>'
+        f'<p class="hint">{escape(desc_text)}</p>'
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">'
+        f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.settings.keys.extraction_guide_change_mode"))}</a>'
+        f'<a class="pref-btn pref-btn-accent" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.keys.extraction_guide_open_mcp"))}</a>'
+        "</div>"
+        "</section>"
+    )
+
+
 def _settings_keys_body(
     ctx: AccountsContext,
     *,
@@ -1127,6 +1172,7 @@ def _settings_keys_body(
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
+    extraction_guide = _settings_keys_extraction_guide_html(account)
     if not admin_viewer and (mode != "network" or principal.server_role != "member"):
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
@@ -1134,6 +1180,7 @@ def _settings_keys_body(
             f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.unavailable_title'))}</h2>"
             f'<p class="hint">{escape(t("console.settings.keys.unavailable_hint"))}</p>'
             "</section>"
+            f"{extraction_guide}"
         )
         return body, {"keys_mode": "unavailable"}
 
@@ -1181,6 +1228,7 @@ def _settings_keys_body(
     delete_hint = t("console.settings.keys.admin_delete_hint") if admin_viewer else t("console.settings.keys.delete_hint")
     body = (
         f"{admin_card}"
+        f"{extraction_guide}"
         f'<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="{escape(t("console.settings.keys.meta_label"))}">'
         f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.meta_title'))}</h2>"
         f'<p class="hint">{escape(meta_hint)}</p>'

@@ -311,3 +311,21 @@ def test_settings_mcp_client_bundles_panel_is_localized(env):
     assert "번들 엔드포인트" in ko_resp.text
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in ko_resp.text, retired
+
+
+def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
+    for lang, expected_title, expected_step in (
+        ("en", "Agent-Driven Extraction Quick Start", "Switch Extraction mode to client in Account Settings"),
+        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "계정 설정에서 추출 모드를 client로 전환하세요"),
+    ):
+        resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": lang})
+        assert resp.status_code == 200
+        html = resp.text
+        assert 'id="pref-mcp-agent-guide"' in html
+        assert expected_title in html
+        assert expected_step in html
+        assert '<ol class="pref-flow"' in html
+        assert 'href="/settings/account#settings-extraction-mode"' in html
+        assert 'href="#pref-mcp-client-bundles"' in html
+        assert html.index('id="pref-mcp-agent-guide"') < html.index('id="pref-mcp-endpoint"')
+        assert html.index('id="pref-mcp-client-bundles"') < html.index('id="pref-mcp-tools-tbody"')

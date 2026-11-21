@@ -101,6 +101,29 @@ def _resolve_delivery_settings_and_roles(ctx: AccountsContext, settings: Any) ->
     return settings_obj, roles, anon_ro
 
 
+def _render_agent_extraction_guide_block(account: accounts_store.Account) -> str:
+    """Render the Agent-Driven Extraction quick start guide at the top of /settings/mcp."""
+    mode = "client" if account.extraction_mode == "client" else "provider"
+    mode_text = t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
+    pill_class = "pref-pill pref-pill-mcp" if mode == "client" else "pref-pill"
+    steps = "".join(f"<li>{escape(t(f'console.synd.mcp.guide_step_{i}'))}</li>" for i in range(1, 5))
+    return (
+        f'<div class="pref-card" id="pref-mcp-agent-guide" data-extraction-mode="{escape(mode)}">'
+        f'<h2><span data-icon="bolt"></span> {escape(t("console.synd.mcp.guide_title"))} <span class="{pill_class}">{escape(mode_text)}</span></h2>'
+        f'<p class="pref-desc">{escape(t("console.synd.mcp.guide_desc"))}</p>'
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.guide_mode_label"))}</strong></div>'
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        f'<code id="pref-mcp-extraction-mode" class="pref-mono">{escape(mode)}</code>'
+        f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.synd.mcp.guide_mode_change"))}</a>'
+        "</div></div>"
+        f'<ol class="pref-flow" style="margin:8px 0 10px;list-style:decimal inside">{steps}</ol>'
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        f'<a class="pref-btn pref-btn-accent" href="#pref-mcp-client-bundles"><span data-icon="puzzle"></span> {escape(t("console.synd.mcp.guide_jump_bundles"))}</a>'
+        "</div></div>"
+    )
+
+
 def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
     mode = str(summary.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
     active_base = str(summary.get("active_base_url") or "/clients")
@@ -220,6 +243,7 @@ def build_syndication_section(
         "tokens_label": escape(tokens_label),
         "oauth_grants_rows": grant_rows,
         "deprecation_notice_html": deprecation_notice_html,
+        "agent_extraction_guide_html": _render_agent_extraction_guide_block(account) if slug == "mcp" else "",
         "agent_clients_delivery_html": _render_agent_clients_delivery_block(client_delivery) if client_delivery is not None else "",
     }
     panel_html = _render_partial(slug, values)

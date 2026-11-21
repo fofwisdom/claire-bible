@@ -319,3 +319,50 @@ def test_admin_theme_and_token_settings_still_redirect(env):
         resp = env.client.get(f"/settings/{slug}", headers=env.admin, follow_redirects=False)
         assert resp.status_code == status
         assert resp.headers["location"] == f"/admin/{slug}"
+
+
+def test_account_and_keys_pages_render_extraction_mode_controls_and_guides(env):
+    _set_mode(env.db_file, "network")
+    account_html = _get(env, "/settings/account", env.alice).text
+    assert 'id="settings-extraction-mode"' in account_html
+    assert 'id="pref-account-extraction-mode"' in account_html
+    assert 'data-settings-extraction-mode' in account_html
+    assert 'data-account-field="extraction_mode"' in account_html
+    assert '<option value="provider" selected>' in account_html
+    assert '<option value="client">' in account_html
+    assert 'data-extraction-client-guide hidden' in account_html
+    assert 'href="/settings/mcp#pref-mcp-agent-guide"' in account_html
+    assert "/admin/" not in account_html
+
+    for server_mode in ("network", "single"):
+        _set_mode(env.db_file, server_mode)
+        keys_html = _get(env, "/settings/keys", env.alice).text
+        assert 'id="settings-keys-extraction-guide"' in keys_html
+        assert 'data-extraction-mode="provider"' in keys_html
+        assert 'href="/settings/account#settings-extraction-mode"' in keys_html
+        assert 'href="/settings/mcp#pref-mcp-agent-guide"' in keys_html
+        assert "/admin/" not in keys_html
+        assert ADMIN_USERNAME not in keys_html
+        if server_mode == "single":
+            assert MEMBER_USERNAME not in keys_html
+
+
+def test_e2e_extraction_mode_patch_updates_account_keys_and_mcp_guides(env):
+    _set_mode(env.db_file, "network")
+    patch_resp = env.client.patch("/api/me", headers=env.alice, json={"extraction_mode": "client"})
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["extraction_mode"] == "client"
+
+    account_html = _get(env, "/settings/account", env.alice).text
+    assert '<option value="client" selected>' in account_html
+    assert 'data-extraction-client-guide style=' in account_html
+    assert 'data-extraction-client-guide hidden' not in account_html
+
+    keys_html = _get(env, "/settings/keys", env.alice).text
+    assert 'id="settings-keys-extraction-guide" data-extraction-mode="client"' in keys_html
+    assert "/admin/" not in keys_html
+
+    mcp_html = _get(env, "/settings/mcp", env.alice).text
+    assert 'id="pref-mcp-agent-guide" data-extraction-mode="client"' in mcp_html
+    assert '<code id="pref-mcp-extraction-mode" class="pref-mono">client</code>' in mcp_html
+    assert "/admin/" not in mcp_html
