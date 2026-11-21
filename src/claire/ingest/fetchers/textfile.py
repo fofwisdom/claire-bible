@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ...core.config import get_settings
 from ...extract.table_budget import slice_document_text

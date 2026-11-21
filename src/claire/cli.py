@@ -29,6 +29,7 @@ from typing import Any, Callable
 
 from .core import ids
 from .core.config import get_settings
+from .ontology.base import Entity
 from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
 

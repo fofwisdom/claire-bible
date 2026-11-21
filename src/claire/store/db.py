@@ -14,6 +14,7 @@ import secrets
 import shutil
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -6571,7 +6572,7 @@ def sync_user_dictionary(conn: sqlite3.Connection) -> int:
     for r in rows:
         words.append(r["name"])
         try:
-            aliases = _json.loads(r["aliases"] or "[]")
+            aliases = json.loads(r["aliases"] or "[]")
             words.extend(aliases)
         except Exception:
             pass

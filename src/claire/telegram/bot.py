@@ -23,7 +23,7 @@ def _plain(html_text: str) -> str:
 
     return _html.unescape(_re.sub(r"<[^>]+>", "", html_text))
 
-from ..core.config import get_settings
+from ..core.config import Settings, get_settings
 from ..i18n import SUPPORTED_LOCALES, resolve_bot_locale, use_locale
 from ..i18n import t as _t
 from ..store import db as dbm

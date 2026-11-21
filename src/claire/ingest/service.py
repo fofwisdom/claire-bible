@@ -25,6 +25,7 @@ from ..accounts.provider_policy import (
     validate_ingest_effort,
 )
 from ..core.config import Settings
+from ..ontology.base import Document
 from ..extract.provider import UnavailableProvider, get_provider
 from ..core.secret_scrub import scrub_exception
 from ..store import auth_db as _auth_db

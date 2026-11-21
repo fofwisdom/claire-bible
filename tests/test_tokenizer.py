@@ -168,3 +168,19 @@ def test_sync_user_dictionary_from_db():
     added = dbm.sync_user_dictionary(conn)
     # 이미 upsert_entity 에서 등록되었을 수 있으므로 0 이상 정수 반환 확인
     assert isinstance(added, int)
+
+
+def test_sync_user_dictionary_gives_names_and_aliases_to_the_tokenizer(monkeypatch):
+    """sync_user_dictionary reads the aliases column: the tokenizer gets each entity name and each alias."""
+    conn = _init_memory_db()
+    dbm.upsert_entity(conn, Entity(type="Tool", name="도구삼번", aliases=["별칭다", "별칭라"]))
+    received: list[str] = []
+
+    class _Recorder:
+        def add_user_words(self, words):
+            received.extend(words)
+            return len(received)
+
+    monkeypatch.setattr("claire.retrieval.tokenizer.get_search_tokenizer", lambda: _Recorder())
+    assert dbm.sync_user_dictionary(conn) == 3
+    assert received == ["도구삼번", "별칭다", "별칭라"]

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 from ...core.config import ProviderUnavailableError, get_settings
 from .adoc_text import adoc_cell, adoc_table

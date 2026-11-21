@@ -21,7 +21,7 @@ from typing import Any
 from ..accounts.provider_policy import ProviderPolicyError, context_of
 from ..extract.provider import Provider, RelationCandidate, emit_progress
 from ..extract.resolver import _call_provider_embed, resolve_or_create
-from ..ontology.base import Document, Relation
+from ..ontology.base import Document, Entity, Relation
 from ..ontology.registry import (
     classify_entity_type,
     classify_relation_type,

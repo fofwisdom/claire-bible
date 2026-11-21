@@ -8,6 +8,7 @@ rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 �
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import threading
@@ -760,8 +761,6 @@ class GeminiProvider:
             return WatchClassification.model_validate_json(raw_text).model_dump()
         except Exception:
             try:
-                import json
-
                 return WatchClassification(**json.loads(raw_text)).model_dump()
             except Exception:  # noqa: BLE001
                 return {"watch": False, "interval_days": None, "reason": "판정 파싱 실패"}

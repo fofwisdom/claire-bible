@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
