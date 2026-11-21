@@ -200,7 +200,7 @@ def test_admin_sets_the_limit_of_the_documents_of_one_submission(world) -> None:
 
 def test_syndication_page_has_the_shared_knowledge_base_dialogs(world) -> None:  # noqa: F811
     """The page ``/syndication`` loads ``shared_ui.js``, ``kb_dialogs.js`` and ``shared_ui.css``, as the workspace page does."""
-    from claire.graphview import _STATIC_DIR
+    from bible import STATIC_DIR as _STATIC_DIR
 
     page = world.client.get("/syndication", headers={**world.ben, "Accept": "text/html"})
     assert page.status_code == 200

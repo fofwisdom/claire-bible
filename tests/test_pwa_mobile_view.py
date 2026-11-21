@@ -22,9 +22,9 @@ from claire.store import db as dbm
 from claire.store.token_store import reset_token_stores
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-APP_JS_PATH = PROJECT_ROOT / "src" / "claire" / "static" / "js" / "app.js"
-MANIFEST_PATH = PROJECT_ROOT / "src" / "claire" / "static" / "icons" / "manifest.json"
-WEBMANIFEST_PATH = PROJECT_ROOT / "src" / "claire" / "static" / "icons" / "site.webmanifest"
+APP_JS_PATH = PROJECT_ROOT / "src" / "bible" / "static" / "js" / "app.js"
+MANIFEST_PATH = PROJECT_ROOT / "src" / "bible" / "static" / "icons" / "manifest.json"
+WEBMANIFEST_PATH = PROJECT_ROOT / "src" / "bible" / "static" / "icons" / "site.webmanifest"
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +46,7 @@ def _node_available() -> bool:
 # ==============================================================================
 
 def test_static_app_js_syntax_via_node():
-    """Verify that src/claire/static/js/app.js has 0 syntax errors according to node --check."""
+    """Verify that src/bible/static/js/app.js has 0 syntax errors according to node --check."""
     if not _node_available():
         pytest.skip("node is not installed in the environment")
     result = subprocess.run(
@@ -317,7 +317,7 @@ def _assert_workspace_syndication_rule(html: str) -> None:
 def test_syndication_excluded_from_mobile_workspace_templates():
     """The workspace has no syndication view, tab, or drawer. It links to /syndication from the application bar and the stage strip only."""
     # The application bar is a shared partial (ui_chrome.py), thus the rule applies to the markup of the workspace page that the server builds, not to the template file.
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     _assert_workspace_syndication_rule(re.sub(r"<script\b.*?</script>", "", GRAPH_HTML, flags=re.S))
 

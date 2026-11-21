@@ -29,7 +29,7 @@ PUBLIC_URL = "http://127.0.0.1:8765"
 SECRET_ADMIN_USERNAME = "hidden_operator_p3b"
 MEMBER_USERNAME = "alice_member"
 OTHER_USERNAME = "bob_member"
-JS_BUNDLE = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "console_syndication.js"
+JS_BUNDLE = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "console_syndication.js"
 
 SECTION_PANEL_IDS: dict[str, str] = {
     "reader": "panel-reader",

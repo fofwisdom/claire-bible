@@ -24,7 +24,7 @@ from starlette.testclient import TestClient
 from claire.api import server
 from claire.api.accounts_routes.common import render_template
 from claire.config import Settings
-from claire.presentation.favicon import (
+from bible.web.favicon import (
     FAVICON_PLACEHOLDER,
     PWA_REGISTER_SCRIPT_PATH,
     inject_favicon_head_tags,
@@ -277,7 +277,7 @@ def test_pwa_register_script_route_and_syntax(base_settings: Settings) -> None:
     assert "javascript" in head_resp.headers.get("content-type", "")
 
     # 3. Node.js syntax check
-    js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "pwa-register.js"
+    js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "pwa-register.js"
     assert js_path.is_file()
     check = subprocess.run(["node", "-c", str(js_path)], capture_output=True, text=True)
     assert check.returncode == 0, f"pwa-register.js syntax error: {check.stderr}"
@@ -323,7 +323,7 @@ def test_console_shell_and_share_pwa_head_tags() -> None:
     assert '<script src="/static/js/pwa-register.js" defer></script>' in console_html
 
     # Share template in graphview
-    from claire.graphview import _SHARED_HTML
+    from claire_bible.web.pages import _SHARED_HTML
     assert '<link rel="manifest" href="/manifest.json"/>' in _SHARED_HTML
     assert '<script src="/static/js/pwa-register.js" defer></script>' in _SHARED_HTML
 

@@ -13,10 +13,10 @@ from claire.extract.prompts import (
     render_detail_prompt,
 )
 from claire.extract.provider import MockProvider
-from claire.graphview import GRAPH_HTML, shared_html
+from claire_bible.web.pages import GRAPH_HTML, shared_html
 from claire.ingest.pipeline import ensure_document_detail
 from claire.ontology.base import Document
-from claire.render import render_adoc_to_html
+from bible.adoc import render_adoc_to_html
 from claire.store import db as dbm
 from claire.store.queries import document_detail
 
@@ -745,7 +745,7 @@ def test_client_js_convert_asciidoc_to_html_runtime():
         else:
             pytest.skip("Node.js is not installed on the system")
 
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
     assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
 
     sample = """
@@ -1066,7 +1066,7 @@ def test_aot_render_adoc_js_runtime_quote_with_ellipsis_hardbreak():
     if shutil.which("node") is None:
         pytest.skip("node binary not available")
 
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
     assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
 
     sample = """[quote, Author, Source]
@@ -1123,7 +1123,7 @@ def test_adoc_quotes_and_entities_not_corrupted_into_mark_tags():
     if shutil.which("node") is None:
         pytest.skip("node binary not available")
 
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
     assert adoc_js_path.is_file()
 
     runner_code = f"""
@@ -1179,7 +1179,7 @@ def test_adoc_tilde_range_is_not_subscript():
     if shutil.which("node") is None:
         pytest.skip("node binary not available")
 
-    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "renderers" / "adoc_parser.js"
     runner_code = f"""
 const fs = require('fs');
 global.window = {{}};
@@ -1200,7 +1200,7 @@ console.log(JSON.stringify({{ html: convertAsciidocToHtml({json.dumps(sample)}) 
 
 def test_init_db_renders_stored_bodies_again_after_renderer_revision_change(tmp_path):
     """A stored detail_html of an older converter revision is rendered again at init_db, one time."""
-    from claire.render.aot import RENDERER_REVISION
+    from bible.adoc.aot import RENDERER_REVISION
 
     conn = dbm.connect(tmp_path / "claire.db")
     dbm.init_db(conn)

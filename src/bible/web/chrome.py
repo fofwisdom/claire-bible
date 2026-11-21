@@ -5,7 +5,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-_PARTIALS_DIR = Path(__file__).resolve().parent / "templates" / "partials"
+_PARTIALS_DIR = Path(__file__).resolve().parent.parent / "templates" / "partials"
 
 
 def _read_partial(filename: str) -> str:

@@ -21,18 +21,17 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
-from ... import ui_chrome
 from ...accounts.username_policy import server_reserved_labels
+from ...core.ports import get_web_ui_renderer
 from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, interpolate, t
 from ...i18n.catalog import BrowserCatalogScope
-from ...presentation.favicon import inject_favicon_head_tags
 from ...store import auth_db
 from ...store import client_db
 from ...store import db as dbm
 from .. import security
 from ..principal import Principal, has_recent_auth
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 SESSION_CHANNELS = frozenset({"cookie", "x-session"})
 DISPLAY_NAME_MAX_LENGTH = 64
 
@@ -324,6 +323,7 @@ def render_template(
     values.update({k: escape(v) for k, v in tx.items()})
     values.update(mk)
     body = template.substitute(values)
+    web_ui = get_web_ui_renderer()
     if "<!-- __COMMON_APPBAR__ -->" in body:
         appbar_raw = mk.get("common_appbar_html")
         if appbar_raw is None:
@@ -335,7 +335,7 @@ def render_template(
             scope_badge_escaped = escape(tx.get("scope_badge", ""))
             brand_icon = "shield" if is_moderation_area else "settings"
             brand_key = "nav.topbar.moderation" if is_moderation_area else "nav.topbar.console"
-            appbar_raw = ui_chrome.render_appbar_html(
+            appbar_raw = web_ui.render_appbar_html(
                 bar_id="console-bar",
                 brand_id="console-back-graph",
                 brand_href=graph_href,
@@ -356,13 +356,13 @@ def render_template(
         appbar_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), appbar_raw)
         body = body.replace("<!-- __COMMON_APPBAR__ -->", appbar_rendered)
     if "<!-- __COMMON_CMDPALETTE__ -->" in body:
-        palette_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), ui_chrome.render_cmdpalette_html())
+        palette_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), web_ui.render_cmdpalette_html())
         body = body.replace("<!-- __COMMON_CMDPALETTE__ -->", palette_rendered)
     if "<!-- __COMMON_INGEST_MODALS__ -->" in body:
-        ingest_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), ui_chrome.render_ingest_modals_html())
+        ingest_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), web_ui.render_ingest_modals_html())
         body = body.replace("<!-- __COMMON_INGEST_MODALS__ -->", ingest_rendered)
     include_script = name not in ("login.html", "setup.html")
-    body = inject_favicon_head_tags(body, include_pwa_register=include_script)
+    body = web_ui.inject_favicon_head_tags(body, include_pwa_register=include_script)
     response = HTMLResponse(body, status_code=status_code)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = FORM_PAGE_REFERRER_POLICY

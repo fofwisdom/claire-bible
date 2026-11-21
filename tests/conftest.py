@@ -6,7 +6,16 @@ from collections.abc import Iterator
 
 import pytest
 
+import claire_bible.bootstrap
 from claire.i18n import use_locale
+
+claire_bible.bootstrap.configure()
+
+
+@pytest.fixture(autouse=True)
+def _configure_claire_bible_ports() -> None:
+    """Configure renderer ports before each test."""
+    claire_bible.bootstrap.configure(force=True)
 
 
 @pytest.fixture

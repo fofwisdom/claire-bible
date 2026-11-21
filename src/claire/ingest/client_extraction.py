@@ -26,8 +26,8 @@ from ..ingest.normalize import content_hash as compute_content_hash
 from ..ingest.pipeline import _auto_contribute_document, _match_document_theme, _start_contribution_revisions, stage_raw
 from ..ingest.router import fetch as default_fetch
 from ..ontology.base import Entity, Relation, new_id, normalize_name
+from ..core.ports import get_document_renderer
 from ..ontology.registry import PROVISIONAL_TYPE_PATTERN, classify_entity_type, classify_relation_type, export_ontology_spec, validate_relation
-from ..render.aot import render_to_html
 from ..store import db as dbm
 from ..store.telemetry import evaluate_summary_verdict
 from ..store.vectors import EmbedPin, is_kb_active_space_eos, make_vector_store, read_embed_pin, read_embedding_space, read_kb_embedding_spaces, resolve_embed_identity
@@ -631,8 +631,9 @@ def _validate_asciidoc_detail(detail: str, errors: list[dict[str, str]]) -> tupl
         return "", ""
     if errors:
         return cleaned, ""
+    renderer = get_document_renderer()
     try:
-        rendered_html = render_to_html(cleaned, format="adoc")
+        rendered_html = renderer.render_to_html(cleaned, format="adoc")
     except Exception as exc:  # noqa: BLE001
         errors.append({"field": "detail", "code": "detail_adoc_render_failed", "message": f"AsciiDoc compilation failed: {exc}"})
         return cleaned, ""

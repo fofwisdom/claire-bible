@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from claire.render.media_transform import (
+from bible.adoc.media_transform import (
     extract_media_key,
     media_url,
     transform_media_urls_in_html,

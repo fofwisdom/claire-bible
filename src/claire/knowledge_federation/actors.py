@@ -320,9 +320,9 @@ def _content_html(row: sqlite3.Row, origin: str) -> str:
     """The HTML of a document for another server: the compiled HTML, or the render of the source text; then the ``nh3`` allowlist sanitizer. A reference that starts at the root of this server gets the origin, so that it does not point to the server of the reader."""
     html = str(row["detail_html"] or "")
     if not html and str(row["detail"] or "").strip():
-        from ..render import render_to_html
+        from ..core.ports import get_document_renderer
 
-        html = render_to_html(row["detail"], format=row["detail_format"] or "adoc") or ""
+        html = get_document_renderer().render_to_html(row["detail"], format=row["detail_format"] or "adoc") or ""
     return _ROOT_REFERENCE.sub(lambda match: f"{match.group(1)}{origin}/", nh3.clean(html))
 
 

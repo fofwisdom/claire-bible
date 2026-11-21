@@ -28,8 +28,8 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | File | Content |
 | :--- | :--- |
 | `src/claire/knowledge_federation/vocabulary.py` | Identifiers, the table `TERMS`, `context_document`, `vocabulary_page`, builders, validators. No database access and no network access. |
-| `src/claire/static/ns/v1.jsonld` | The context document of version 1. It is the text of `context_json()`. |
-| `src/claire/static/ns/index.html` | The page of the vocabulary terms. It is the text of `vocabulary_page()`. Each term has an anchor. |
+| `src/bible/static/ns/v1.jsonld` | The context document of version 1. It is the text of `context_json()`. |
+| `src/bible/static/ns/index.html` | The page of the vocabulary terms. It is the text of `vocabulary_page()`. Each term has an anchor. |
 | `tests/fixtures/knowledge_federation/` | The contract fixtures: `objects/`, `activities/`, `invalid/`. |
 | `tests/test_knowledge_federation_vocabulary.py` | The tests, and `write_fixtures()` that writes the fixture files from the builders. |
 
@@ -329,7 +329,7 @@ Code: `sidecar/fedify/src/knowledge.ts`, `sidecar.ts`, `internal_api.ts`, `main.
 1. **Inbound activities.** A `POST` to an inbox (`/ap/inbox`, `/ap/actors/{id}/inbox`, `/ap/kb/{number}/inbox`) whose JSON body has the Claire context IRI in its `@context` array is an activity of the knowledge federation. It does not go to the inbox listener of Fedify. The sidecar verifies the HTTP signature of the request (`verifyRequest` of Fedify, with the digest of the body in the signature) and calls `POST /knowledge-activities` with the parsed body (no key changes), `signer` = the owner of the key, `verified_by` = `http-signature`, and `recipient` = the actor of the inbox path, or `null` for the shared inbox. The key document must be on the server of its owner. Answers: 401 without a valid signature; 413 for a body within 8192 bytes of the inbox body limit (the request to Claire has the same limit); 403 for a blocked domain; 503 with `Retry-After` when Claire gave no answer, so that the sender tries again (Claire gives `duplicate` for a second delivery); else 202, for each decision of Claire. An activity with a Linked Data signature or an integrity proof but no valid HTTP signature is not accepted on this path.
 2. **Collections.** `GET /ap/kb` and `GET /ap/themes` (with `?page=true` and `&max_id=` for `kb`): the sidecar verifies the HTTP signature and calls `GET /knowledge-collections/{kb|themes}` with the owner of the key as `signer` (no `signer` without a valid signature). It gives the `document` of Claire with `Content-Type: application/activity+json`, and the same `404 Not Found` for each refusal. The paths are below `/ap/`, so the reverse proxy rules of [`FEDERATION.md`](FEDERATION.md) Section 10 send them to the sidecar without a change.
 3. **Reads.** One loop of `main.ts` (each 60 seconds) calls `Sidecar.processKnowledgeReads`: `GET /knowledge-server-reads`, then for each domain NodeInfo (`/.well-known/nodeinfo`, then the document of the link) and the server actor (`/ap/actors/server`), then `POST /knowledge-server-reads`; then `GET /knowledge-kb-reads` and the read of each `/kb` collection (Section 11.4). Each request is a GET that the server actor of this server signs (the document loader of Fedify, which refuses a private network address). The server actor and each page must be on the server that was asked. `shared_kb_count` is `null`: NodeInfo of a Claire server does not give the number. Error codes of a server read: `blocked_domain`, `nodeinfo_unavailable`, `nodeinfo_invalid`, `server_actor_unavailable`, `server_actor_invalid`.
-4. **Context document.** `sidecar/fedify/src/claire_context_v1.json` is a copy of `src/claire/static/ns/v1.jsonld` (a Python test fails when the two are different). `knowledge.ts` puts it in the table of preloaded contexts of `@fedify/vocab-runtime` (the import `jsr:@fedify/vocab-runtime@^2.4.5`, which is in `deno.lock` as a dependency of Fedify), so that the context loader and the document loaders of Fedify give it without a request.
+4. **Context document.** `sidecar/fedify/src/claire_context_v1.json` is a copy of `src/bible/static/ns/v1.jsonld` (a Python test fails when the two are different). `knowledge.ts` puts it in the table of preloaded contexts of `@fedify/vocab-runtime` (the import `jsr:@fedify/vocab-runtime@^2.4.5`, which is in `deno.lock` as a dependency of Fedify), so that the context loader and the document loaders of Fedify give it without a request.
 
 Unit KF3 added the knowledge base actors, the outbound activities, and the read of documents for a curation (Section 12.7). Unit KF4 added the account actor as a signer and the work in single mode (Section 13.6).
 
@@ -634,7 +634,7 @@ Design: Sections 9.3, 12.1, 12.2, 13, 14, and 15 rule 5; [`SHARED_KNOWLEDGE_BASE
 | `src/claire/api/federation_routes.py` | `Delete` of a remote actor through `POST /inbox-events`; the mode is not a condition (Section 13.7). |
 | `src/claire/store/db.py` | `_migrate_v32_offers_and_grants`, schema version 32. |
 | `sidecar/fedify/src/sidecar.ts`, `knowledge.ts`, `internal_api.ts` | The account actor as a signer; no mode condition (Section 13.6). |
-| `src/claire/static/js/console_kb.js`, `kb_dialogs.js`, `console_admin.js` | The WebUI (Section 13.5). |
+| `src/bible/static/js/console_kb.js`, `kb_dialogs.js`, `console_admin.js` | The WebUI (Section 13.5). |
 
 ### 13.2 Flow
 
@@ -883,11 +883,11 @@ Design: Section 12.3, with Sections 6.3, 12.1, 12.2, and 14; [`SHARED_KNOWLEDGE_
 | `src/claire/contributions.py` | `contribute_remote(automatic=)`. |
 | `src/claire/api/server.py`, `cli.py`, `ingest/service.py`, `ingest/pipeline.py` | The canonical origin for each run; the remote targets of the dry run; the automatic offers in `GET /api/contributions`. |
 | `src/claire/store/db.py` | `_migrate_v34_automatic_offers`, schema version 34. |
-| `src/claire/static/js/kb_dialogs.js`, `console_kb.js` | The WebUI (Section 15.6). |
+| `src/bible/static/js/kb_dialogs.js`, `console_kb.js` | The WebUI (Section 15.6). |
 
 ### 15.2 Vocabulary
 
-The context `v1` was not served yet, so the new terms are in `v1` (design Section 9.1 rule 2 applies after the first server serves it). `static/ns/v1.jsonld`, `static/ns/index.html`, and the copy of the sidecar were written again from the module.
+The context `v1` was not served yet, so the new terms are in `v1` (design Section 9.1 rule 2 applies after the first server serves it). `src/bible/static/ns/v1.jsonld`, `src/bible/static/ns/index.html`, and the copy of the sidecar were written again from the module.
 
 | Term or value | Where | Rule |
 | :--- | :--- | :--- |
@@ -1012,7 +1012,7 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 | `src/claire/store/actor_keys.py` | `load_kb_public_jwks` |
 | `src/claire/api/federation_routes.py` | Contract `1.12`, sealed heartbeat models `KnowledgeSelfCheck`, `SignedSelfCheck`, `LoopState`, `HeartbeatLoops` |
 | `src/claire/api/accounts_routes/federation.py` | Gate `POST /api/admin/federation` (`failures` filters on `level == "required" and applies and not passed`), heartbeat `knowledge_self_check` and `loops` |
-| `src/claire/api/accounts_routes/console_federation_panels.py`, `src/claire/static/js/console_admin.js`, `src/claire/i18n/locales/en.json`, `src/claire/i18n/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
+| `src/claire/api/accounts_routes/console_federation_panels.py`, `src/bible/static/js/console_admin.js`, `src/claire/i18n/locales/en.json`, `src/claire/i18n/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
 | `src/claire/cli.py` | `--federation` help (`GF1 to GF17`) and output |
 | `src/claire/api/security.py`, `src/claire/api/host_router.py` | Decision CD4 (`DQ1: A`): `development` accepts `https://<name>.test/` and applies `.test` DNS role rules |
 | `sidecar/fedify/src/internal_api.ts`, `sidecar/fedify/src/sidecar.ts`, `sidecar/fedify/src/main.ts` | Contract `1.12`, `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange`, `loops()` |

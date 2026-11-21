@@ -542,7 +542,7 @@ A cookie request that is not from the same origin gets 403 (`AuthenticationMiddl
 
 ### 7.7 Native Actor in the Dialog of `/syndication` (Unit FP3-5)
 
-The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/claire/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
+The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/bible/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
 
 - The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. The rule is the same in both server modes.
 - The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee.
@@ -977,7 +977,7 @@ All routes are for the owner of the account, in both server modes. An item of an
 - The page has the command palette of the workspace (`command_palette.js`, the `/` key) with the three stages.
 - Stage 1 is the same in both server modes. An account that is not an actor (for example, while `federation` is off) gets the notice `synd.client.not_actor`, and the timeline has only the stored items.
 - The stage strip of the home page (HW-8) shows the counts of the timeline (`GET /api/federation/timeline?limit=1`) and its three links go to the three stages.
-- Code: `src/claire/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/claire/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.
+- Code: `src/bible/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/bible/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.
 
 ### 19.4 Differences from the Design and Limits
 
@@ -1183,7 +1183,7 @@ Tests: `tests/test_e2e_federation_interactions.py` (mentions, rate limit, reacti
 
 ## 23. Feed View (Unit FP4-F3)
 
-Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/claire/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_kb_id`, and `linked_doc_id`.
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/bible/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_kb_id`, and `linked_doc_id`.
 
 ### 23.1 Routes
 
@@ -1302,7 +1302,7 @@ Tests: `tests/test_e2e_federation_thread_fetch.py` (a real app and the signed in
 
 Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 to 5.4, 6.6, 7.1, 8, 10, and 11 (RS10), and the results RT7 and RT8. Data: `client.db` version 5. Contract: 1.6. Quotes (Section 5.4 rules 5 and 6) are unit FP4-9Q.
 
-Code: `src/claire/federation_notes.py` (text to HTML), `src/claire/store/federation_notes.py` (store), `src/claire/api/accounts_routes/federation_notes.py` (routes of the owner), `src/claire/api/federation_note_routes.py` (internal routes), `sidecar/fedify/src/notes.ts` (the `Note` and the handoff of the tasks), `src/claire/static/js/syndication_compose.js` (view).
+Code: `src/claire/federation_notes.py` (text to HTML), `src/claire/store/federation_notes.py` (store), `src/claire/api/accounts_routes/federation_notes.py` (routes of the owner), `src/claire/api/federation_note_routes.py` (internal routes), `sidecar/fedify/src/notes.ts` (the `Note` and the handoff of the tasks), `src/bible/static/js/syndication_compose.js` (view).
 
 ### 25.1 Routes
 
@@ -1398,7 +1398,7 @@ Tests: `tests/test_e2e_federation_outbound.py` (reply, mentions, edit, delete wi
 
 Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 (`quote_request`, `quote_authorize`, `quote_reject`, `quote_revoke`), 5.4 rules 5 and 6, 6.6 rule 5, 7.1, 8, and 11, and the result RT9. Protocol: FEP-044f. Data: `client.db` version 6 and `claire.db` version 24. Contract: 1.7.
 
-Code: `src/claire/store/federation_quotes.py` (store), `src/claire/api/accounts_routes/federation_quotes.py` (routes of the owner), `src/claire/api/federation_quote_routes.py` (internal routes), `sidecar/fedify/src/quotes.ts` (the activities and the authorization), `src/claire/static/js/syndication_compose.js` (view).
+Code: `src/claire/store/federation_quotes.py` (store), `src/claire/api/accounts_routes/federation_quotes.py` (routes of the owner), `src/claire/api/federation_quote_routes.py` (internal routes), `sidecar/fedify/src/quotes.ts` (the activities and the authorization), `src/bible/static/js/syndication_compose.js` (view).
 
 ### 26.1 Routes
 

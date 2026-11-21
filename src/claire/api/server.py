@@ -95,7 +95,7 @@ from .oauth import (
     handle_telegram_push,
     handle_token,
 )
-from ..presentation.favicon import inject_favicon_head_tags
+from ..core.ports import get_document_renderer, get_slide_renderer, get_web_ui_renderer
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
@@ -131,11 +131,9 @@ _SW_JS_CONTENT: str = (
 _IMAGE_PATH_RE = re.compile(
     r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif)$"
 )
-_STATIC_ICONS_DIR = Path(__file__).resolve().parent.parent / "static" / "icons"
 _ICON_FILENAME_RE = re.compile(
     r"^[A-Za-z0-9_.-]+\.(?:png|svg|ico|json|xml|webmanifest)$"
 )
-_STATIC_FONTS_DIR = Path(__file__).resolve().parent.parent / "static" / "fonts"
 _FONT_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\.woff2$")
 FONTS = (
     "NotoSansKR-Regular.woff2",
@@ -850,10 +848,8 @@ def create_app(
         else:
             collection_url = f"{origin}{ns.prefix}/kb"
             if collections.wants_html(request):
-                from ..graphview import render_graph_html
-
                 return HTMLResponse(
-                    render_graph_html(
+                    get_web_ui_renderer().render_graph_html(
                         s,
                         include_private=principal.account_id == ns.account_id and principal.scope in ("owner", "readonly"),
                         theme=None,
@@ -1035,7 +1031,7 @@ def create_app(
                     conn_s.close()
 
         if root_page or collections.wants_html(request):
-            template_path = Path(__file__).resolve().parent.parent / "templates" / "public_directory.html"
+            template_path = Path(__file__).resolve().parent / "templates" / "public_directory.html"
             template_text = template_path.read_text(encoding="utf-8")
 
             username = None
@@ -1132,7 +1128,7 @@ def create_app(
                 content=content_html,
                 pagination=pagination_html,
             )
-            rendered = inject_favicon_head_tags(rendered)
+            rendered = get_web_ui_renderer().inject_favicon_head_tags(rendered)
 
             # The page text follows the interface language, thus the locale is a part of the entity tag.
             etag_parts = [get_locale(), hashlib.sha256(content_html.encode("utf-8")).hexdigest()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
@@ -4049,8 +4045,6 @@ def create_app(
         return await asyncio.to_thread(_public_page, request, view="kb_detail", title=kb.label, ref=ids.format_public_id(kb.number))
 
     async def graph_ui(request: Request) -> Response:
-        from ..graphview import render_graph_html
-
         setup_redirect = await account_routes.setup_redirect(request)
         if setup_redirect is not None:
             return setup_redirect
@@ -4155,7 +4149,7 @@ def create_app(
                 raise
             except Exception:
                 pass
-        html_text = render_graph_html(
+        html_text = get_web_ui_renderer().render_graph_html(
             s,
             include_private=include_private,
             theme=theme,
@@ -4216,11 +4210,9 @@ def create_app(
         return scope, include_private, theme
 
     async def syndication_ui_route(request: Request) -> HTMLResponse:
-        from ..graphview import render_syndication_html
-
         scope, include_private, theme = _resolve_syndication_ui_context(request)
         return HTMLResponse(
-            render_syndication_html(
+            get_web_ui_renderer().render_syndication_html(
                 s,
                 include_private=include_private,
                 theme=theme,
@@ -4716,31 +4708,31 @@ def create_app(
         )
 
     async def favicon_ico_route(_request: Request) -> Response:
-        path = _STATIC_ICONS_DIR / "favicon.ico"
+        path = get_web_ui_renderer().static_dir / "icons" / "favicon.ico"
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="image/x-icon")
 
     async def favicon_svg_route(_request: Request) -> Response:
-        path = _STATIC_ICONS_DIR / "favicon.svg"
+        path = get_web_ui_renderer().static_dir / "icons" / "favicon.svg"
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="image/svg+xml")
 
     async def apple_touch_route(_request: Request) -> Response:
-        path = _STATIC_ICONS_DIR / "apple-touch-icon.png"
+        path = get_web_ui_renderer().static_dir / "icons" / "apple-touch-icon.png"
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="image/png")
 
     async def manifest_route(_request: Request) -> Response:
-        path = _STATIC_ICONS_DIR / "manifest.json"
+        path = get_web_ui_renderer().static_dir / "icons" / "manifest.json"
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="application/manifest+json")
 
     async def browserconfig_route(_request: Request) -> Response:
-        path = _STATIC_ICONS_DIR / "browserconfig.xml"
+        path = get_web_ui_renderer().static_dir / "icons" / "browserconfig.xml"
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="application/xml")
@@ -4759,7 +4751,7 @@ def create_app(
         rel = request.query_params.get("p", "") or request.query_params.get("name", "")
         if not _ICON_FILENAME_RE.fullmatch(rel):
             return PlainTextResponse("Not Found", status_code=404)
-        path = _STATIC_ICONS_DIR / rel
+        path = get_web_ui_renderer().static_dir / "icons" / rel
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         media_type = None
@@ -4777,7 +4769,7 @@ def create_app(
 
     def _create_font_file_handler(name: str) -> Any:
         async def _font_route(_request: Request) -> Response:
-            path = _STATIC_FONTS_DIR / name
+            path = get_web_ui_renderer().static_dir / "fonts" / name
             if not path.is_file():
                 return PlainTextResponse("Not Found", status_code=404)
             return FileResponse(
@@ -4792,7 +4784,7 @@ def create_app(
         rel = request.query_params.get("p", "") or request.query_params.get("name", "")
         if not _FONT_FILENAME_RE.fullmatch(rel):
             return PlainTextResponse("Not Found", status_code=404)
-        path = _STATIC_FONTS_DIR / rel
+        path = get_web_ui_renderer().static_dir / "fonts" / rel
         if not path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(
@@ -4931,7 +4923,6 @@ def create_app(
         """Export of one document as a file (RD24, MD-3). ``format=markdown`` (or ``md``) is the only format: the AsciiDoc body becomes Markdown with a YAML front matter header. Read-only. The access rule is the rule of ``GET /document``. The federation client offers it in the context menu of an item."""
         from urllib.parse import quote as _quote
 
-        from ..render.markdown_export import document_markdown
         from ..store.queries import document_detail
 
         document_id = request.query_params.get("id", "").strip()
@@ -4957,7 +4948,7 @@ def create_app(
         report = await asyncio.to_thread(_load)
         if report is None:
             return JSONResponse({"error": "not_found"}, status_code=404)
-        body = document_markdown(report)
+        body = get_document_renderer().document_markdown(report)
         ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "-", f"claire-{document_id}").strip("-") + ".md"
         title_name = _quote((str(report.get("title") or document_id).strip() or document_id)[:120] + ".md", safe="")
         return Response(
@@ -6032,7 +6023,6 @@ def create_app(
         return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
 
     async def shared_doc_page(request: Request) -> Response:
-        from ..graphview import shared_html
         from ..store.queries import document_detail
 
         token = request.query_params.get("s", "")
@@ -6126,7 +6116,7 @@ def create_app(
 
         can_access_raw = scope in ("owner", "write")
         return HTMLResponse(
-            shared_html(
+            get_web_ui_renderer().shared_html(
                 document,
                 s,
                 base_url=base_url,
@@ -6168,7 +6158,7 @@ def create_app(
 
     async def presentation_page(request: Request) -> Response:
         from starlette.responses import FileResponse, HTMLResponse
-        from ..presentation import PresentationService, render_unready_presentation_page
+        from ..presentation import PresentationService
 
         token = request.query_params.get("s", "").strip()
         doc_id = request.query_params.get("id", "").strip()
@@ -6185,7 +6175,7 @@ def create_app(
 
         if not getattr(target_theme, "presentation_enabled", False):
             back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
-            html_content = render_unready_presentation_page(
+            html_content = get_slide_renderer().render_unready_presentation_page(
                 title=doc_title or "프레젠테이션",
                 status="disabled",
                 back_url=back_url,
@@ -6219,7 +6209,7 @@ def create_app(
         if not is_ready:
             back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
             status = res.get("status", "not_created")
-            html_content = render_unready_presentation_page(
+            html_content = get_slide_renderer().render_unready_presentation_page(
                 title=doc_title or "프레젠테이션",
                 status=status,
                 back_url=back_url,
@@ -6241,8 +6231,7 @@ def create_app(
                 or "reveal.js/dist/" in content_str
                 or "reveal.js/plugin/" in content_str
             ):
-                from ..presentation.hud import inject_hud_toolbar
-                cleaned_str = inject_hud_toolbar(content_str)
+                cleaned_str = get_slide_renderer().inject_hud_toolbar(content_str)
                 file_path.write_text(cleaned_str, encoding="utf-8")
         except Exception:
             pass
@@ -7079,10 +7068,12 @@ def create_app(
                 log.warning("scheduled account backup cycle failed: %s", type(exc).__name__)
             await asyncio.sleep(ACCOUNT_BACKUP_SCHEDULER_INTERVAL)
 
-    static_dir = Path(__file__).resolve().parent.parent / "static"
+    from ..core.ports import get_web_ui_renderer
+
+    static_dir = get_web_ui_renderer().static_dir
     static_dir.mkdir(parents=True, exist_ok=True)
     static_docs_dir = static_dir / "docs"
-    docs_template_file = Path(__file__).resolve().parent.parent / "templates" / "docs.html"
+    docs_template_file = Path(__file__).resolve().parent / "templates" / "docs.html"
     implementation_spec_file = (
         Path(__file__).resolve().parent.parent.parent.parent
         / "docs"
@@ -7093,9 +7084,8 @@ def create_app(
     async def docs_ui_route(_request: Request) -> Response:
         if not docs_template_file.is_file():
             return PlainTextResponse("Documentation UI template not found", status_code=500)
-        from ..presentation.favicon import inject_favicon_head_tags
         html = docs_template_file.read_text(encoding="utf-8")
-        return HTMLResponse(inject_favicon_head_tags(html))
+        return HTMLResponse(get_web_ui_renderer().inject_favicon_head_tags(html))
 
     async def openapi_yaml_route(_request: Request) -> Response:
         spec_path = static_docs_dir / "openapi.yaml"

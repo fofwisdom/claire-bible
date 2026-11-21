@@ -176,7 +176,7 @@ def test_run_api_serves_role_port_in_same_process(tmp_path):
         PYTHONDONTWRITEBYTECODE="1",
     )
     proc = subprocess.Popen(
-        [sys.executable, "-m", "claire.cli", "serve-api"],
+        [sys.executable, "-m", "claire_bible.cli", "serve-api"],
         cwd=tmp_path,
         env=env,
         stdout=subprocess.PIPE,

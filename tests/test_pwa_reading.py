@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 from claire import ids
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.graphview import render_graph_html
+from claire_bible.web.pages import render_graph_html
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
@@ -180,7 +180,7 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
 
 def test_static_app_js_whoami_call():
     """Verify that app.js calls apiUrl('whoami'), exposes window.apiUrl, and does not use rootUrl('whoami')."""
-    app_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "app.js"
+    app_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "app.js"
     content = app_js_path.read_text(encoding="utf-8")
 
     assert "fetch(apiUrl('whoami'))" in content, "app.js must call fetch(apiUrl('whoami'))"
@@ -190,7 +190,7 @@ def test_static_app_js_whoami_call():
 
 def test_static_app_js_relation_handling():
     """Verify that app.js inspects d.relation from whoami to set effectiveScope and enforce readonly for visitors."""
-    app_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "app.js"
+    app_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "app.js"
     content = app_js_path.read_text(encoding="utf-8")
 
     assert "d.relation" in content, "app.js must inspect d.relation in whoami handler"
@@ -200,7 +200,7 @@ def test_static_app_js_relation_handling():
 
 def test_static_reader_js_reader_api_url_helper_and_calls():
     """Verify readerApiUrl helper is defined and wraps all 8 document/presentation/share endpoints."""
-    reader_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "reader.js"
+    reader_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "reader.js"
     content = reader_js_path.read_text(encoding="utf-8")
 
     assert "function readerApiUrl(path)" in content, "reader.js must define readerApiUrl(path)"

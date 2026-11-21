@@ -5,9 +5,12 @@ import os
 import sqlite3
 from pathlib import Path
 
+import claire_bible.bootstrap
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
+
+claire_bible.bootstrap.configure()
 
 
 def _insert_entity_row(conn, ent: Entity) -> None:

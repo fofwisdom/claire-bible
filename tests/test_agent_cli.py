@@ -30,7 +30,7 @@ def test_agent_output_schema_strictly_sealed():
 def test_cli_json_flag_returns_single_valid_json():
     # Run `claire repo --json` as a subprocess
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "repo", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "repo", "--json"],
         capture_output=True,
         text=True,
     )
@@ -47,7 +47,7 @@ def test_cli_json_flag_returns_single_valid_json():
 
 def test_cli_queue_json_contains_data():
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "queue", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "queue", "--json"],
         capture_output=True,
         text=True,
     )
@@ -63,7 +63,7 @@ def test_cli_queue_json_contains_data():
 def test_cli_unified_audit():
     # Test unified audit --check all --json
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "audit", "--check", "all", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "audit", "--check", "all", "--json"],
         capture_output=True,
         text=True,
     )
@@ -78,7 +78,7 @@ def test_cli_unified_audit():
 def test_cli_unified_reprocess_dry_run():
     # Test unified reprocess --dry-run --json
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "reprocess", "--dry-run", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "reprocess", "--dry-run", "--json"],
         capture_output=True,
         text=True,
     )
@@ -112,7 +112,7 @@ def test_cli_auth_share_doc():
 
     # 1. Test auth
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "auth", "--scope", "readonly", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "auth", "--scope", "readonly", "--json"],
         capture_output=True,
         text=True,
     )
@@ -125,7 +125,7 @@ def test_cli_auth_share_doc():
 
     # 2. Test share with valid document
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "share", doc_id, "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "share", doc_id, "--json"],
         capture_output=True,
         text=True,
     )
@@ -137,7 +137,7 @@ def test_cli_auth_share_doc():
 
     # 3. Test doc pin / unpin
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "doc", doc_id, "--pin", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "doc", doc_id, "--pin", "--json"],
         capture_output=True,
         text=True,
     )
@@ -148,7 +148,7 @@ def test_cli_auth_share_doc():
 
     # restore unpin
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "doc", doc_id, "--unpin", "--json"],
+        [sys.executable, "-m", "claire_bible.cli", "doc", doc_id, "--unpin", "--json"],
         capture_output=True,
         text=True,
     )
@@ -161,7 +161,7 @@ def test_cli_auth_share_doc():
 def test_cli_unrecognized_argument_fails():
     """알 수 없거나 오타가 발생한 옵션(-no-tombstone 등) 입력 시 즉시 2번 코드로 실패하고 중단되는지 검증."""
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "purge", "-no-tombstone", "https://example.com/test"],
+        [sys.executable, "-m", "claire_bible.cli", "purge", "-no-tombstone", "https://example.com/test"],
         capture_output=True,
         text=True,
     )

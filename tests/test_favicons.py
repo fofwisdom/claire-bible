@@ -115,7 +115,7 @@ def test_icon_query_endpoint(client: TestClient) -> None:
 
 def test_graph_ui_contains_favicon_tags(client: TestClient) -> None:
     # Even without auth, graph UI template has the head tags
-    from claire.graphview import _SHARED_HTML, GRAPH_HTML
+    from claire_bible.web.pages import _SHARED_HTML, GRAPH_HTML
     for html in (GRAPH_HTML, _SHARED_HTML):
         assert 'name="application-name" content="Claire Bible"' in html
         assert 'name="apple-mobile-web-app-title" content="Claire Bible"' in html
@@ -129,7 +129,7 @@ def test_graph_ui_contains_favicon_tags(client: TestClient) -> None:
 
 
 def test_shared_favicon_module_interface() -> None:
-    from claire.presentation.favicon import (
+    from bible.web.favicon import (
         FAVICON_PLACEHOLDER,
         FAVICON_SVG_PATH,
         FAVICON_TAGS_HTML,
@@ -196,8 +196,8 @@ def test_reference_docs_favicon_integration(client: TestClient) -> None:
 
 def test_oauth_and_presentation_views_favicon_integration() -> None:
     from claire.api.oauth import _render_authorize_page
-    from claire.presentation.hud import inject_hud_toolbar
-    from claire.presentation.views import render_unready_presentation_page
+    from bible.slides.hud import inject_hud_toolbar
+    from bible.slides.views import render_unready_presentation_page
 
     # OAuth login template
     login_html = _render_authorize_page(

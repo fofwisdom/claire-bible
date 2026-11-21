@@ -8,7 +8,10 @@ from typing import Any
 
 import pytest
 
-from claire import graphview, ui_chrome
+import bible
+from bible.adoc import aot, markdown_export, media_transform
+from bible.slides import converter, hud, preprocessor, views
+from bible.web import chrome, favicon
 from claire.core import (
     DocumentRendererPort,
     RendererNotConfiguredError,
@@ -21,8 +24,7 @@ from claire.core import (
     ports_configured,
     reset_ports,
 )
-from claire.presentation import converter, favicon, hud, preprocessor, views
-from claire.render import aot, markdown_export, media_transform
+from claire_bible.web import pages
 
 
 class _FakeDocumentRenderer:
@@ -145,7 +147,7 @@ def test_configure_ports_rejects_none_without_partial_mutation(tmp_path: Path) -
 
 
 def test_real_render_modules_satisfy_port_protocols() -> None:
-    """Verify current claire render, presentation, chrome, and graphview modules match the port protocols."""
+    """Verify that bible and claire_bible modules match the port protocols."""
 
     class _RealDocumentAdapter:
         renderer_revision = aot.RENDERER_REVISION
@@ -161,17 +163,17 @@ def test_real_render_modules_satisfy_port_protocols() -> None:
         render_unready_presentation_page = staticmethod(views.render_unready_presentation_page)
 
     class _RealWebUIAdapter:
-        static_dir = graphview._STATIC_DIR
-        templates_dir = graphview._TEMPLATES_DIR
+        static_dir = bible.STATIC_DIR
+        templates_dir = bible.TEMPLATES_DIR
         render_favicon_head_tags = staticmethod(favicon.render_favicon_head_tags)
         inject_favicon_head_tags = staticmethod(favicon.inject_favicon_head_tags)
         get_scalar_favicon_config = staticmethod(favicon.get_scalar_favicon_config)
-        render_appbar_html = staticmethod(ui_chrome.render_appbar_html)
-        render_cmdpalette_html = staticmethod(ui_chrome.render_cmdpalette_html)
-        render_ingest_modals_html = staticmethod(ui_chrome.render_ingest_modals_html)
-        render_graph_html = staticmethod(graphview.render_graph_html)
-        render_syndication_html = staticmethod(graphview.render_syndication_html)
-        shared_html = staticmethod(graphview.shared_html)
+        render_appbar_html = staticmethod(chrome.render_appbar_html)
+        render_cmdpalette_html = staticmethod(chrome.render_cmdpalette_html)
+        render_ingest_modals_html = staticmethod(chrome.render_ingest_modals_html)
+        render_graph_html = staticmethod(pages.render_graph_html)
+        render_syndication_html = staticmethod(pages.render_syndication_html)
+        shared_html = staticmethod(pages.shared_html)
 
     doc_adapter = _RealDocumentAdapter()
     slide_adapter = _RealSlideAdapter()

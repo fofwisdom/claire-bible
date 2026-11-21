@@ -11,13 +11,14 @@ import pytest
 from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
-from claire.config import Settings
-from claire.presentation import (
-    PresentationService,
+from bible.slides import (
     compile_presentation_html,
     find_asciidoctor_executable,
     prepare_presentation_adoc_for_compile,
 )
+from claire.config import Settings
+from claire.core.ports import get_slide_renderer
+from claire.presentation import PresentationService
 from claire.store import db as dbm
 
 
@@ -202,7 +203,7 @@ Welcome to Claire Bible Presentation.
         assert cached["content_hash"] == result["content_hash"]
     else:
         # Test with mock compiler
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+        with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
             dummy_file = svc.get_presentation_file_path(doc_id)
             dummy_file.write_text("<html>Mock reveal.js</html>")
             mock_compile.return_value = (dummy_file, 120)
@@ -256,7 +257,7 @@ A test slide for API routes.
         assert res.json()["status"] == "not_created"
 
         # 2. Trigger generation
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+        with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
             target_file = tmp_path / "presentations" / f"{doc_id}.html"
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("<!DOCTYPE html><html><body><h1>Slide Test</h1></body></html>")
@@ -310,7 +311,7 @@ def test_presentation_cli_generate_and_status(tmp_path: Path):
         s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
         mock_settings.return_value = (s, None)
 
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+        with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
             target_file = tmp_path / "presentations" / f"{doc_id}.html"
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("<!DOCTYPE html><html><body><h1>Slide Test</h1></body></html>")
@@ -497,7 +498,7 @@ def test_presentation_cli_compose_and_compile(tmp_path: Path):
         s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
         mock_settings.return_value = (s, None)
 
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+        with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
             target_file = tmp_path / "presentations" / f"{doc_id}.html"
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("<!DOCTYPE html><html><body><h1>Slide Deck</h1></body></html>")
@@ -565,7 +566,7 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+        with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
             target_file = tmp_path / "presentations" / f"{doc_id}.html"
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("<!DOCTYPE html><html><body><h1>API Slide</h1></body></html>")
@@ -649,8 +650,8 @@ def test_document_detail_has_presentation(tmp_path):
 
 
 def test_presentation_hud_and_layout():
-    from claire.presentation.hud import inject_hud_toolbar
-    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
+    from bible.slides.hud import inject_hud_toolbar
+    from bible.slides.preprocessor import prepare_presentation_adoc_for_compile
 
     # 1. Test HUD injection
     sample_html = "<html><head><title>Test Deck</title></head><body><div class='reveal'></div></body></html>"
@@ -675,10 +676,10 @@ def test_presentation_hud_and_layout():
     assert "@media print" in injected
     assert "size: landscape" in injected
 
-    # 3. Test the header tabs and the panes layout of the workspace page. The header tabs are in the application bar that ui_chrome.py builds, thus the test reads the markup of the built page, not the template file.
+    # 3. Test the header tabs and the panes layout of the workspace page. The header tabs are in the application bar that bible/web/chrome.py builds, thus the test reads the markup of the built page, not the template file.
     import re
 
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     index_html = re.sub(r"<script\b.*?</script>", "", GRAPH_HTML, flags=re.S)
 
@@ -699,7 +700,7 @@ def test_presentation_hud_and_layout():
     assert 'id="rpresentationbtn"' not in index_html
 
     # 4. Check workspace.css hides download button for anonymous / non-owner
-    workspace_css = Path("src/claire/static/css/workspace.css").read_text(encoding="utf-8")
+    workspace_css = Path("src/bible/static/css/workspace.css").read_text(encoding="utf-8")
     assert 'body:not([data-auth-scope="owner"]) #presentation-download-btn' in workspace_css
 
     # 5. Verify PDF로 저장 title in HUD and index.html
@@ -718,7 +719,7 @@ def test_presentation_hud_and_layout():
     assert "updateVerticalDots" in injected
 
     # 7. Verify BookStack theme styling, 16:9 aspect ratio, imageblock, mark, and vertical dots in reveal-claire.css
-    reveal_css = Path("src/claire/static/css/reveal-claire.css").read_text(encoding="utf-8")
+    reveal_css = Path("src/bible/static/css/reveal-claire.css").read_text(encoding="utf-8")
     assert "BookStack" in reveal_css
     assert "--cb-slide-bg: #ffffff;" in reveal_css
     assert '[data-theme="dark"]' in reveal_css
@@ -729,7 +730,7 @@ def test_presentation_hud_and_layout():
     assert ".cb-v-dot" in reveal_css
 
     # 8. Verify reader.js text updates (removal of 고품질 and PDF save alert)
-    reader_js = Path("src/claire/static/js/reader.js").read_text(encoding="utf-8")
+    reader_js = Path("src/bible/static/js/reader.js").read_text(encoding="utf-8")
     assert "고품질" not in reader_js
     assert "reader.pres.can_make" in reader_js
     assert "reader.pres.pdf_owner_only" in reader_js
@@ -772,7 +773,7 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
     target_file = tmp_path / "presentations" / f"{doc_id}.html"
     target_file.parent.mkdir(parents=True, exist_ok=True)
     target_file.write_text("<!DOCTYPE html><html><body><h1>Async Option A</h1></body></html>")
-    with patch("claire.presentation.service.compile_presentation_html") as mock_compile, TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
+    with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile, TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
         mock_compile.return_value = (target_file, 120)
         # 1. Option A: GET /p/presentation on ungenerated document MUST return 404 guidance HTML
         # and MUST NOT trigger LLM authoring or file generation
@@ -799,8 +800,8 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
 
 def test_prepare_presentation_adoc_header_attributes():
     """Ensure reveal.js attributes are placed in the document header before blank lines."""
-    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
-    from claire.presentation.hud import sanitize_presentation_assets
+    from bible.slides.preprocessor import prepare_presentation_adoc_for_compile
+    from bible.slides.hud import sanitize_presentation_assets
 
     raw_adoc = """= Future Web Test
 :icons: font
@@ -896,7 +897,7 @@ def test_presentation_metadata_is_ready(tmp_path: Path):
 
 def test_sanitize_presentation_assets_rewrites_images_and_injects_base():
     """Verify relative image paths are rewritten to /image?p=images/... and <base href='/'> is injected."""
-    from claire.presentation.hud import sanitize_presentation_assets
+    from bible.slides.hud import sanitize_presentation_assets
 
     sample_html = """<!DOCTYPE html>
 <html>
@@ -963,7 +964,7 @@ def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
 
 def test_presentation_security_neutralizes_malicious_directives_and_inclusions():
     """Verify preprocessor blocks dangerous directives and compiler enforces secure safe mode."""
-    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
+    from bible.slides.preprocessor import prepare_presentation_adoc_for_compile
 
     malicious_adoc = """= Security Test
 :allow-uri-read:
@@ -991,7 +992,7 @@ eval::print('rce')[]
 @pytest.mark.asyncio
 async def test_presentation_converter_secure_safe_mode_prevents_file_leak(tmp_path: Path):
     """Verify compiler executes with secure safe mode and does not leak file content."""
-    from claire.presentation.converter import compile_presentation_html, find_asciidoctor_executable
+    from bible.slides.converter import compile_presentation_html, find_asciidoctor_executable
 
     if not find_asciidoctor_executable():
         pytest.skip("asciidoctor executable not found on host")

@@ -83,7 +83,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
 
     def seed(*, mode: str, federation: str) -> None:
@@ -117,7 +117,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
     sock_path = federation_socket_path(data_dir)
     sidecar_db = data_dir / "fedify" / "fedify.db"
     sidecar_db.parent.mkdir(parents=True)
-    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    claire = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sidecar = None
     sidecar_out = ""
     try:
@@ -310,7 +310,7 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         CLAIRE_SECRET_KEY="55" * 32,
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     conn = dbm.connect_existing(data_dir / "claire.db")
     try:
@@ -324,7 +324,7 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
     sock_path = federation_socket_path(data_dir)
     sidecar_db = data_dir / "fedify" / "fedify.db"
     sidecar_db.parent.mkdir(parents=True)
-    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    claire = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sidecar = None
     try:
         deadline = time.monotonic() + 60
@@ -363,7 +363,7 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         assert finger.status_code == 404 and finger.text == "Not Found"
 
         # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire.
-        check = subprocess.run([sys.executable, "-m", "claire.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+        check = subprocess.run([sys.executable, "-m", "claire_bible.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
         report = json.loads(check.stdout)
         items = {item["id"]: item["passed"] for item in report["data"]["items"]}
         assert items == {f"GF{i}": (i not in (7, 17)) for i in range(1, 18)}, check.stdout
@@ -393,7 +393,7 @@ def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
         CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     conn = dbm.connect_existing(data_dir / "claire.db")
     try:
@@ -409,7 +409,7 @@ def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
         conn.close()
 
     sock_path = federation_socket_path(data_dir)
-    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    claire = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         deadline = time.monotonic() + 60
         while True:
@@ -463,7 +463,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         CLAIRE_MULTI_THEME="1",
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     theme_number = 516412345678901234
     conn = dbm.connect_existing(data_dir / "claire.db")
@@ -487,7 +487,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         conn.close()
 
     sock_path = federation_socket_path(data_dir)
-    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    claire = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         deadline = time.monotonic() + 60
         while True:

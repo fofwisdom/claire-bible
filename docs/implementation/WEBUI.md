@@ -16,27 +16,28 @@ This document tells how the web workspace works now. The design principles are i
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/ui_chrome.py` | Single-source builder for the shared application bar (`render_appbar_html()`), command palette (`render_cmdpalette_html()`), and ingestion modals (`render_ingest_modals_html()`). Future routes (`themes`, `kb`, etc.) must use this module instead of duplicating chrome HTML. |
-| `src/claire/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/moderation/*`, `/admin/*`). |
-| `src/claire/templates/partials/common_cmdpalette.html` | Shared `<dialog id="cmdpalette" closedby="any">` markup rendered on every page. |
-| `src/claire/templates/partials/common_ingest_modals.html` | Shared centered modal dialogs `#modal-ingest`, `#modal-reingest`, and `#modal-regen`. |
-| `src/claire/templates/index.html` | Markup of the workspace: expandable common chrome markers, list pane, center views, context panel, `#modal-dedup` / `#modal-purge`, bottom bar. |
-| `src/claire/static/css/appbar.css` | Shared rules of the application bar, popover menus (`#pop-ingest-menu`, `#pop-hamburger-menu`), command palette dialog, and `.claire-dialog` modals. |
-| `src/claire/static/css/workspace.css` | Grid, list pane, context panel, home view, ingest cockpit, narrow screens. |
-| `src/claire/static/css/reader.css` | Reader text and the entity mark highlight. |
-| `src/claire/static/js/appbar.js` | Shared `ClaireAppBar`: theme toggle, `closedBy` backdrop close fallback, native popover & fallback toggle controller, `#palettetrigger` binder. |
-| `src/claire/static/js/ingest_dialogs.js` | Shared `ClaireIngestDialogs`: dropdown dispatcher for `[data-ingest-cmd]` (`ingest`, `reingest`, `regen`) and unified modal controllers. |
-| `src/claire/static/js/app.js` | Workspace state, home entry, lists, context panel, home cards, local graph, workspace dialog adapters (`openIngest`, `openReingest`, `openRegen`, `openDedup`, `openPurge`), palette configuration. |
-| `src/claire/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
-| `src/claire/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
-| `src/claire/static/js/icons.js` | `ClaireIcons`: line icons (Section 9). |
-| `src/claire/graphview.py` | Builds the workspace and `/syndication` bundles using `ui_chrome.py` and resolves translation slots for each locale ([`I18N.md`](I18N.md) §4). |
+| `src/bible/web/chrome.py` | Single-source builder for the shared application bar (`render_appbar_html()`), command palette (`render_cmdpalette_html()`), and ingestion modals (`render_ingest_modals_html()`). Future routes (`themes`, `kb`, etc.) must use this module through `WebUIRendererPort` instead of duplicating chrome HTML. |
+| `src/bible/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/moderation/*`, `/admin/*`). |
+| `src/bible/templates/partials/common_cmdpalette.html` | Shared `<dialog id="cmdpalette" closedby="any">` markup rendered on every page. |
+| `src/bible/templates/partials/common_ingest_modals.html` | Shared centered modal dialogs `#modal-ingest`, `#modal-reingest`, and `#modal-regen`. |
+| `src/bible/templates/index.html` | Markup of the workspace: expandable common chrome markers, list pane, center views, context panel, `#modal-dedup` / `#modal-purge`, bottom bar. |
+| `src/bible/static/css/appbar.css` | Shared rules of the application bar, popover menus (`#pop-ingest-menu`, `#pop-hamburger-menu`), command palette dialog, and `.claire-dialog` modals. |
+| `src/bible/static/css/workspace.css` | Grid, list pane, context panel, home view, ingest cockpit, narrow screens. |
+| `src/bible/static/css/reader.css` | Reader text and the entity mark highlight. |
+| `src/bible/static/js/appbar.js` | Shared `ClaireAppBar`: theme toggle, `closedBy` backdrop close fallback, native popover & fallback toggle controller, `#palettetrigger` binder. |
+| `src/bible/static/js/ingest_dialogs.js` | Shared `ClaireIngestDialogs`: dropdown dispatcher for `[data-ingest-cmd]` (`ingest`, `reingest`, `regen`) and unified modal controllers. |
+| `src/bible/static/js/app.js` | Workspace state, home entry, lists, context panel, home cards, local graph, workspace dialog adapters (`openIngest`, `openReingest`, `openRegen`, `openDedup`, `openPurge`), palette configuration. |
+| `src/bible/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
+| `src/bible/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
+| `src/bible/static/js/icons.js` | `ClaireIcons`: line icons (Section 9). |
+| `src/bible/web/pages.py` | Builds the workspace and `/syndication` standalone bundles with `src/bible/web/chrome.py` and gives pure slot-filling helpers (`localize_page`, `render_graph_page`, `render_syndication_page`, `render_shared_page`). |
+| `src/claire_bible/web/pages.py` | Loads settings, themes, and locale data ([`I18N.md`](I18N.md) §4) into `render_graph_html`, `render_syndication_html`, and `shared_html`. |
 
 ---
 
 ## 2. Application Bar
 
-**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*`, `/moderation/*`, and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/claire/ui_chrome.py` (`src/claire/templates/partials/common_appbar.html`) styled by `src/claire/static/css/appbar.css` and controlled by `src/claire/static/js/appbar.js`. It has three parts:
+**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*`, `/moderation/*`, and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/bible/web/chrome.py` (`src/bible/templates/partials/common_appbar.html`) styled by `src/bible/static/css/appbar.css` and controlled by `src/bible/static/js/appbar.js`. It has three parts:
 
 1. Start (`.bar-brand-group`): brand link (`Claire Bible`), page-specific theme picker, workspace list toggle (`#listtoggle`).
 2. Center (`.appbar-center`): always includes the unified command palette trigger button (`#palettetrigger`, keyboard shortcut `/`) inside `.appbar-palette-slot`, followed by page-specific center content (workspace view tabs `#centertabs` and `#streamtabs`, or syndication stream title, or console title/badge). The bar has no text `<input>`.

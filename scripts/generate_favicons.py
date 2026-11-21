@@ -639,7 +639,7 @@ def generate_all_icons(output_dir: Path):
 
 def main():
     repo_root = Path(__file__).resolve().parent.parent
-    pkg_target_dir = repo_root / "src" / "claire" / "static" / "icons"
+    pkg_target_dir = repo_root / "src" / "bible" / "static" / "icons"
     root_target_dir = repo_root / "icons"
     generate_all_icons(pkg_target_dir)
     generate_all_icons(root_target_dir)

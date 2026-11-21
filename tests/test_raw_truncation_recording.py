@@ -6,7 +6,7 @@ from claire.extract.table_budget import (
     slice_text_with_table_exemption,
     slice_text_with_table_exemption_info,
 )
-from claire.graphview import render_graph_html, shared_html
+from claire_bible.web.pages import render_graph_html, shared_html
 from claire.ingest.fetchers.textfile import fetch_file, fetch_text
 from claire.ingest.fetchers.web import fetch_web
 from claire.ontology.base import Document
@@ -221,7 +221,7 @@ def test_document_detail_and_ui_with_vlm():
     # Node.js 런타임 평가 검증
     import json
     import subprocess
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
     start = GRAPH_HTML.index("function docMetaHtml(dc){")
     end = GRAPH_HTML.index("function renderReader(dc){")
     fn = GRAPH_HTML[start:end]
@@ -316,7 +316,7 @@ def test_document_detail_and_ui_with_stt():
 def test_shared_html_contains_cc_docmeta_badge():
     import json
     import subprocess
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     doc = {
         "id": "doc_video_cc",
@@ -394,7 +394,7 @@ def test_document_detail_and_ui_with_cc():
 def test_docmeta_rollover_shows_total_character_count():
     import json
     import subprocess
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # Case 1: non-truncated document with raw_chars
     doc1 = {

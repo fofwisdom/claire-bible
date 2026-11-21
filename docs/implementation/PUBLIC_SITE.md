@@ -13,7 +13,8 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire/api/server.py` | Robots and sitemap handlers, shared document page | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache` |
 | `src/claire/api/security.py` | Route rules, CSP header | `ROUTE_POLICY`, `_build_content_security_policy`, `SafeAccessLogMiddleware` |
 | `src/claire/store/db.py` | Documents and share tokens for the sitemap | `list_public_sitemap_documents`, `create_doc_share` |
-| `src/claire/graphview.py` | Page metadata and GA tag | `render_ga_tag`, `render_open_graph_tags`, `shared_html`, `render_graph_html` |
+| `src/bible/web/metadata.py` | Pure page metadata and GA tag builders | `render_ga_tag`, `render_open_graph_tags`, `sanitize_preview_text`, `extract_knowledge_node_tags`, `resolve_preview_image` |
+| `src/claire_bible/web/pages.py` | Request and database page assembly | `shared_html`, `render_graph_html`, `render_syndication_html` |
 | `src/claire/store/knowledge_base.py` | GA ID of a theme | `validate_ga_measurement_id`, `KnowledgeBaseManager.has_any_ga_enabled` |
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
 | `src/claire/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
@@ -87,9 +88,9 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 
 | Page | Robots directive | Source |
 | :--- | :--- | :--- |
-| Main application page | `<meta name="robots" content="index, follow">` | `src/claire/templates/index.html` |
-| Syndication page | `noindex, nofollow, noarchive` | `src/claire/templates/syndication.html` |
-| Login, setup | `noindex, nofollow` | `src/claire/templates/login.html`, `src/claire/templates/setup.html` |
+| Main application page | `<meta name="robots" content="index, follow">` | `src/bible/templates/index.html` |
+| Syndication page | `noindex, nofollow, noarchive` | `src/bible/templates/syndication.html` |
+| Login, setup | `noindex, nofollow` | `src/claire/api/templates/login.html`, `src/claire/api/templates/setup.html` |
 | `/invite/{code}` | Header `X-Robots-Tag: noindex, nofollow` | `src/claire/api/accounts_routes/invites.py` |
 | Prototype host | Header `X-Robots-Tag: noindex, nofollow` | `src/claire/api/prototype_host.py` |
 
@@ -130,4 +131,4 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 
 ### 6.4 Events
 
-**[code]** `src/claire/static/js/app.js` and `src/claire/static/js/reader.js` send `page_view` (virtual paths such as `/doc/{id}` and `/node/{id}`), `select_content`, `home_navigate`, `search` (with the search text in `search_term`), and `share` events when `window.gtag` exists.
+**[code]** `src/bible/static/js/app.js` and `src/bible/static/js/reader.js` send `page_view` (virtual paths such as `/doc/{id}` and `/node/{id}`), `select_content`, `home_navigate`, `search` (with the search text in `search_term`), and `share` events when `window.gtag` exists.

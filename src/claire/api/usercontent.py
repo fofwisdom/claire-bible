@@ -37,7 +37,7 @@ from starlette.responses import FileResponse, HTMLResponse, PlainTextResponse, R
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from ..render.media_transform import transform_media_urls_in_html
+from ..core.ports import get_document_renderer, get_web_ui_renderer
 from ..store import db as dbm
 from ..store.media import create_media_capability_token
 from ..store.secrets import SecretService, get_secret_service
@@ -56,7 +56,6 @@ __all__ = [
 ]
 
 DEFAULT_VIEWING_TOKEN_TTL = 3600
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 ALLOWED_STATIC_PREFIXES = ("vendor/", "css/", "fonts/", "icons/")
 DISALLOWED_STATIC_PREFIXES = ("js/",)
 
@@ -448,8 +447,9 @@ def create_usercontent_app(
             return PlainTextResponse("Not Found", status_code=404)
         if not any(path.startswith(prefix) for prefix in ALLOWED_STATIC_PREFIXES):
             return PlainTextResponse("Not Found", status_code=404)
-        file_path = (STATIC_DIR / path).resolve()
-        if not file_path.is_relative_to(STATIC_DIR) or not file_path.is_file():
+        static_dir = get_web_ui_renderer().static_dir.resolve()
+        file_path = (static_dir / path).resolve()
+        if not file_path.is_relative_to(static_dir) or not file_path.is_file():
             return PlainTextResponse("Not Found", status_code=404)
 
         return FileResponse(
@@ -503,7 +503,7 @@ def create_usercontent_app(
         if not raw_content:
             raw_content = f"<h1>{html.escape(doc_dict.get('title') or 'Document')}</h1>"
 
-        raw_content = transform_media_urls_in_html(
+        raw_content = get_document_renderer().transform_media_urls_in_html(
             raw_content,
             is_public=not is_private,
             account_id=account_id,
@@ -630,7 +630,7 @@ def create_usercontent_app(
 
         if pres_file and pres_file.is_file():
             content = pres_file.read_text(encoding="utf-8")
-            content = transform_media_urls_in_html(
+            content = get_document_renderer().transform_media_urls_in_html(
                 content,
                 is_public=not is_private,
                 account_id=account_id if doc_dict else 1,

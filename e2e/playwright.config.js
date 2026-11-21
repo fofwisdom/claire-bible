@@ -30,7 +30,7 @@ function resolvePythonPrefix() {
 const py = resolvePythonPrefix();
 // scripts/e2e.sh gives a file for the server output. Without it, the request lines of the server fill the test output.
 const serverLog = process.env.CLAIRE_E2E_SERVER_LOG;
-const serverCommand = `${py} e2e/seed_db.py && ${py} -m claire.cli serve-api`;
+const serverCommand = `${py} e2e/seed_db.py && ${py} -m claire_bible.cli serve-api`;
 const webServerEnv = {
   ...process.env,
   PYTHONPATH: process.env.PYTHONPATH ? `src:${process.env.PYTHONPATH}` : 'src',

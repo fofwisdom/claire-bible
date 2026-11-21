@@ -21,7 +21,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import ids, ui_chrome
+from ... import ids
+from ...core.ports import get_web_ui_renderer
 from ...i18n import SUPPORTED_LOCALES, get_locale, interpolate, t
 from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store.provider_keys import DECRYPTION_AUDIT_DAYS
@@ -1569,7 +1570,7 @@ def _render_console_section(
     is_moderation_area = spec.area == "moderation"
     brand_icon = "shield" if is_moderation_area else "settings"
     brand_title_key = "nav.topbar.moderation" if is_moderation_area else "nav.topbar.console"
-    common_appbar_html = ui_chrome.render_appbar_html(
+    common_appbar_html = get_web_ui_renderer().render_appbar_html(
         bar_id="console-bar",
         brand_id="console-back-graph",
         brand_href=graph_href,

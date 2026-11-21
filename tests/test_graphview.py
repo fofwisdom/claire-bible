@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from claire import graphview
+from bible.web import pages as bible_pages
 from claire.extract.provider import MockProvider
-from claire.graphview import (
+from claire_bible.web import pages as claire_bible_pages
+from claire_bible.web.pages import (
     _SHARED_HTML,
     GRAPH_HTML,
     render_graph_html,
@@ -34,7 +35,7 @@ def _db():
 
 
 def test_queries_module_separation_and_reexport_compatibility():
-    """Verify claire.store.queries owns all query functions and claire.graphview does not re-export them."""
+    """Verify claire.store.queries owns all query functions and web page modules do not re-export them."""
     query_names = [
         "graph_json",
         "documents_list",
@@ -47,8 +48,10 @@ def test_queries_module_separation_and_reexport_compatibility():
     ]
     for name in query_names:
         assert hasattr(store_queries, name), f"store.queries missing {name}"
-        assert not hasattr(graphview, name), f"graphview must not re-export {name}"
-        assert name not in graphview.__all__, f"graphview.__all__ must not contain {name}"
+        assert not hasattr(bible_pages, name), f"bible.web.pages must not re-export {name}"
+        assert name not in bible_pages.__all__, f"bible.web.pages.__all__ must not contain {name}"
+        assert not hasattr(claire_bible_pages, name), f"claire_bible.web.pages must not re-export {name}"
+        assert name not in claire_bible_pages.__all__, f"claire_bible.web.pages.__all__ must not contain {name}"
 
 
 
@@ -590,7 +593,7 @@ def test_drawerfooter_knowledge_manager_and_github_icon_layout():
 
 def test_code_block_css_resets():
     """인라인 코드(.doc-content code) 스타일이 블록 코드(.doc-content pre code)에 오염되지 않도록 transparent 리셋 CSS 검증."""
-    from claire.graphview import _SHARED_HTML, render_graph_html
+    from claire_bible.web.pages import _SHARED_HTML, render_graph_html
 
     main_html = render_graph_html()
     assert ".doc-content pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in main_html
@@ -599,7 +602,7 @@ def test_code_block_css_resets():
 
 def test_rendered_document_uses_format_neutral_class_and_justifies_top_level_paragraphs():
     """Markdown와 AsciiDoc 공통 컨테이너가 중립 명칭과 제한된 문단 양끝 정렬을 사용한다."""
-    from claire.graphview import _SHARED_HTML, render_graph_html
+    from claire_bible.web.pages import _SHARED_HTML, render_graph_html
 
     main_html = render_graph_html()
     expected_rule = ".doc-content > p{text-align:justify;text-align-last:start;text-justify:auto;text-indent:1em}"
@@ -615,7 +618,7 @@ def test_rendered_document_uses_format_neutral_class_and_justifies_top_level_par
 
 def test_unified_search_ui_components():
     """헤더 통합 검색창 요소 검증 및 수동 체크박스/고급 검색 패널 제거 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 수동 체크박스 및 불필요한 설정 토글 제거 검증
     assert 'id="advsearchbtn"' not in GRAPH_HTML
@@ -637,7 +640,7 @@ def test_unified_search_ui_components():
 
 def test_doclist_desclines_toolbar():
     """'제목만 표시' 및 '요약 표시' 선택기가 doclist 최상단 툴바에 배치되었는지 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # doclist 안의 최상단에 .doclist-toolbar 와 id="desclines" 가 위치해야 함
     doclist_match = re.search(r'<div id="doclist">\s*<div class="doclist-toolbar">\s*<select id="desclines"', GRAPH_HTML)
@@ -650,7 +653,7 @@ def test_doclist_desclines_toolbar():
 
 def test_decision_stream_timestamp_log_format_no_ampm():
     """의사결정 스트림 타임스탬프가 브라우저 타임존 기준 24시간제 로그 포맷(YYYY-MM-DD HH:mm:ss)으로 렌더링되는지 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     assert "formatDecisionTimestamp" in GRAPH_HTML
     assert "getBrowserTimezoneInfo" in GRAPH_HTML
@@ -662,7 +665,7 @@ def test_decision_stream_timestamp_log_format_no_ampm():
 
 def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     """모바일 하단 바 제거, 리더 전체화면 및 선택된 문서 노드 전체 선택 기능 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 모바일 본문 리더가 팝업이 아닌 중앙 본문 작업 영역(position:relative)에 그대로 표시 및 하단 바 제거 확인
     assert '#reader{\n      position:relative!important;' in GRAPH_HTML
@@ -704,7 +707,7 @@ def test_document_detail_and_right_menu_includes_nodes():
 
 def test_graph_engine_physics_and_rendering_backends():
     """Shopify Editions 방식 그래프 엔진: 계층 물리 + WebGPU/Canvas2D 폴백 + 앱 연결 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 허브-스포크 계층 물리(신장 숲 + 결정적 시드 배치 + 워밍업), vis 물리 튜닝 제거
     assert "function buildHierarchy(topo, settings){" in GRAPH_HTML
@@ -751,7 +754,7 @@ def test_graph_engine_physics_and_rendering_backends():
 
 def test_graph_engine_interaction_model():
     """잡아 던지기·별 수축·커서 자석/물결·호버 포커스·흐름 패킷·감속 모션 존중 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 드래그: 허브를 잡으면 별이 오므라들고, 놓으면 속도로 던진 뒤 회복 감쇠
     assert "grabConstrict" in GRAPH_HTML
@@ -779,7 +782,7 @@ def test_graph_engine_interaction_model():
 
 def test_topological_structure_and_isolated_orbit_layout():
     """연결 수 0 노드 및 2노드 쌍을 별 무리 바깥 궤도에 배치하는지 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 위상 구조 분석 함수 및 외곽 궤도 배치 마커
     assert "function applyTopologicalStructure(nodes, edges){" in GRAPH_HTML
@@ -817,7 +820,7 @@ def test_mobile_node_tap_popup_markers():
 
 def test_adaptive_physics_and_visual_hierarchy_html_markers():
     """대규모 노드 밀집도 완화 및 시각적 위계(Visual Hierarchy), 퀵 프리셋 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 밀집도 퀵 프리셋 UI
     assert 'id="degpresets"' in GRAPH_HTML
@@ -840,7 +843,7 @@ def test_adaptive_physics_and_visual_hierarchy_html_markers():
 
 def test_progress_lists_no_double_bullets():
     """웹 적재(iprog) 및 조사(rprog) 진행 목록에서 불릿 중복(• •) 방지 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # li.textContent에 별도의 불릿('• ')을 중복 추가하지 않아야 함
     assert "li.textContent='• '" not in GRAPH_HTML
@@ -855,7 +858,7 @@ def test_progress_lists_no_double_bullets():
 
 def test_reader_keyboard_navigation_markup_and_styles():
     """문서 읽기 키보드 탐색 및 포커스, 모바일 가로 스크롤 허용 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. #rbody의 tabindex 및 접근성 명시
     assert '<div class="rbody" id="rbody" tabindex="0" role="region" aria-label="${t:ws.reader.body}">' in GRAPH_HTML
@@ -878,7 +881,7 @@ def test_reader_keyboard_navigation_markup_and_styles():
 
 def test_bibliographic_text_row_above_summary_and_docmeta_separation():
     """서지 정보는 지식 그래프의 전유물이며, 리더 및 패널, 공유 페이지에 문서 레벨 서지 행(.docbiblio)이 렌더링되지 않음을 검증."""
-    from claire.graphview import GRAPH_HTML, _SHARED_HTML
+    from claire_bible.web.pages import GRAPH_HTML, _SHARED_HTML
 
     # 1. 첫 행의 docmeta 에는 적재 메타데이터(초점, 파서, 절단 등)만 남고 서지 정보는 없음
     assert "function docMetaHtml(dc){" in GRAPH_HTML
@@ -899,7 +902,7 @@ def test_bibliographic_text_row_above_summary_and_docmeta_separation():
 
 def test_open_ingest_shows_status_when_running():
     """적재가 실행 중일 때 적재 단추(openIngest)를 누르면 자료 적재 입력 폼 대신 적재 상태 화면을 표시하는지 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. openIngest() 내에 activeIngest 실행 중 상태 확인 및 renderIngestStatus() 호출 분기
     assert "if(activeIngest && activeIngest.running){\n    renderIngestStatus();\n    return;\n  }" in GRAPH_HTML
@@ -917,7 +920,7 @@ def test_open_ingest_shows_status_when_running():
 
 def test_common_header_height_and_component_synchronization():
     """3개 열 헤더(#docs .dhead, #centerhead, #detailhead)의 48px 높이 일치 및 검색창·탭 컴포넌트 34px 높이 동기화 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 3개 열 헤더 높이가 모두 48px 및 border-bottom으로 통일되어 하단 경계선이 수평 일치함
     assert "#docs .dhead{height:48px;min-height:48px;box-sizing:border-box;" in GRAPH_HTML
@@ -935,7 +938,7 @@ def test_common_header_height_and_component_synchronization():
 
 def test_matrix_confirm_button_and_redundant_close_removal():
     """지식 적재 콕핏 뷰에서 불필요한 닫기(✕) 단추 제거 및 확인 단추 크기 규격화(34px, 6px radius) 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 닫기 단추(matrix-close-btn) 제거 및 확인 단추(matrix-confirm-btn) 단일 배치 검증
     assert 'id="matrix-confirm-btn"' in GRAPH_HTML
@@ -948,7 +951,7 @@ def test_matrix_confirm_button_and_redundant_close_removal():
 
 def test_detailpane_title_and_duplicate_removal():
     """'메뉴 & 상세' 타이틀을 '상세 메뉴'로 변경하고, 우측 상세 패널(renderDocPanel)에서 본문 리더와 중복되는 원문 링크 및 요약 제거 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 헤더 타이틀이 '문맥' 카탈로그 키로 변경됨
     assert '<strong data-i18n="context.title">' in GRAPH_HTML
@@ -978,7 +981,7 @@ def test_detailpane_title_and_duplicate_removal():
 
 def test_default_graph_view_and_stream_tabs_separation():
     """최초 접속 및 로고 클릭 시 기본 화면이 전체 그래프로 복원되고, 의사결정 스트림은 본문/프레젠테이션/그래프와 별도의 박스로 분리됨을 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 초기 body 및 기본 뷰가 home으로 설정됨
     assert '<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">' in GRAPH_HTML
@@ -1020,7 +1023,7 @@ def test_default_graph_view_and_stream_tabs_separation():
 
 def test_docmeta_message_html_and_red_box_removal():
     """상세 메뉴에서 빨간 테두리 상자 안 내용(병합된 출처, 아이콘 뱃지 태그)이 제거되고 docmeta 롤오버 메시지가 직접 노출됨을 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. getDocMetaMessages 및 docMetaMessageHtml 함수가 번들에 포함됨
     assert "function getDocMetaMessages(dc){" in GRAPH_HTML
@@ -1049,7 +1052,7 @@ def test_docmeta_message_html_and_red_box_removal():
 
 def test_heatmap_matrix_mobile_and_visual_improvements():
     """Heatmap Matrix 뷰의 모바일 본문 보기, 롤오버 왜곡 방지 및 수평 스크롤 완화 검증."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 불필요한 단추(matrix-doc-btn) 제거 및 확인 단추 단일 배치, 직결 함수/링크 제공 검증
     assert 'id="matrix-doc-btn"' not in GRAPH_HTML
@@ -1084,7 +1087,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
     4. 본문 목록 단추 상호작용 시 왼쪽 팝업 드로어 열림
     5. 본문 보기 시 팝업이 아닌 본문 영역에 그대로 표시
     """
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     # 1. 센터 탭 그룹은 한 줄에 모두 담김 (mobile-doclist-btn, centertabs[reader, graph, presentation], streamtabs[stream])
     g_start = GRAPH_HTML.index('<div class="center-tab-group"')
@@ -1135,7 +1138,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
 def test_list_pane_rename_and_windowed_document_list():
     """The list pane is named '목록', has one wrapper for the document lists and one container for the entity list, and pages the document list by 31."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     assert "본문 목록" not in GRAPH_HTML
     assert '<span class="btn-label">${t:nav.list}</span>' in GRAPH_HTML
@@ -1153,7 +1156,7 @@ def test_list_pane_rename_and_windowed_document_list():
 
 def test_entity_list_markup():
     """The graph view has an entity list with a sort control and filter chips. The E2E test proves that the graph and the list use one predicate."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     assert '<div id="entlist" role="list" aria-label="${t:ws.list.entities_label}"></div>' in GRAPH_HTML
     assert GRAPH_HTML.index('<div id="listbody">') < GRAPH_HTML.index('<div id="doclistwrap">') < GRAPH_HTML.index('<div id="enttools">') < GRAPH_HTML.index('<div id="entlist"') < GRAPH_HTML.index('id="listtopbtn"')
@@ -1168,7 +1171,7 @@ def test_entity_list_markup():
 
 def test_node_detail_panel_markup_has_closed_source_rows_and_no_observation_section():
     """The node detail panel has no 관찰 · 주장 section, the heading 더 알아보기 has no emoji, and the summary of a source document is justified text."""
-    from claire.graphview import GRAPH_HTML
+    from claire_bible.web.pages import GRAPH_HTML
 
     assert "관찰 · 주장" not in GRAPH_HTML
     assert "🔬 더 알아보기" not in GRAPH_HTML

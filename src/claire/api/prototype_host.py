@@ -25,7 +25,7 @@ __all__ = ["DEV_PROTOTYPE_PORT", "PROTOTYPE_CSP", "PROTOTYPE_PAGE", "create_prot
 DEV_PROTOTYPE_PORT = 8769
 _PROTOTYPE_LABEL = "prototype"
 
-PROTOTYPE_PAGE = Path(__file__).resolve().parent.parent / "templates" / "prototype" / "federation_client_prototype.html"
+PROTOTYPE_PAGE = Path(__file__).resolve().parent / "templates" / "prototype" / "federation_client_prototype.html"
 
 # The page has one inline <style>, one inline <script>, inline event handlers, and style attributes. It loads no other resource and opens no network connection.
 PROTOTYPE_CSP = (

@@ -11,7 +11,7 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .. import ui_chrome
+from ..core.ports import get_web_ui_renderer
 from ..i18n import catalog as i18n_catalog
 from ..store import accounts as accounts_store
 from .accounts_routes.admin import is_admin
@@ -69,7 +69,7 @@ def render_public_kb_page(
         "mode": caller["mode"],
     }
     bootstrap_json = json.dumps(bootstrap, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    appbar_html = ui_chrome.render_appbar_html(
+    appbar_html = get_web_ui_renderer().render_appbar_html(
         bar_id="public-bar",
         brand_id="brand-home",
         brand_href="/",

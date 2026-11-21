@@ -11,7 +11,7 @@ from starlette.testclient import TestClient
 
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.graphview import GRAPH_HTML, render_graph_html, shared_html
+from claire_bible.web.pages import GRAPH_HTML, render_graph_html, shared_html
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
@@ -36,7 +36,7 @@ class StubService:
 
 def test_cjk_font_files_exist():
     """Verify that all required woff2 font files exist in static/fonts directory."""
-    fonts_dir = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "fonts"
+    fonts_dir = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "fonts"
     assert fonts_dir.is_dir(), f"Fonts directory not found: {fonts_dir}"
 
     expected_fonts = [

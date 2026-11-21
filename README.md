@@ -137,24 +137,29 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 
 ```text
 claire-bible/
-├── src/claire/
+├── src/bible/           # 순수 렌더링·UI 엔진 (claire/claire_bible import 금지)
+│   ├── adoc/            # AsciiDoc AOT HTML 렌더링, 미디어 변환 및 Markdown 내보내기
+│   ├── slides/          # 슬라이드 전처리, Asciidoctor reveal.js 컴파일, HUD·뷰어
+│   ├── web/             # 공통 UI 크롬, 파비콘, 메타데이터, 독립 HTML 번들 조립
+│   ├── static/          # Web UI 정적 자산 (JS, CSS, 폰트, 아이콘, 벤더 라이브러리)
+│   └── templates/       # 작업 공간·공유·신디케이션 HTML 템플릿 및 공용 파셜
+├── src/claire/          # 도메인 코어 (bible/claire_bible import 금지)
 │   ├── accounts/        # USERNAME 정책, 초대 코드, 서버 등급, 프로바이더·연합 준비 검사
-│   ├── api/             # ASGI 웹 서비스, 계정·인증·OAuth/OIDC·MCP·연합 내부/외부 라우트
+│   ├── api/             # ASGI 웹 서비스, 계정·인증·OAuth/OIDC·MCP·연합 라우트 및 콘솔·인증 템플릿(api/templates/)
+│   ├── core/            # 아웃바운드 렌더러 포트 계약 (ports.py)
 │   ├── expand/          # 링크 확장 (자동 확장, 확장 제안, 확장 게이트)
 │   ├── extract/         # LLM(Gemini), STT/VLM, 엔티티 해소 및 분류기
 │   ├── feeds/           # RSS/Atom/JSON Feed 파서, 폴러 및 OPML 처리
-│   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그 및 미들웨어 지원
+│   ├── i18n/            # 한/영(ko/en) 다국어 카탈로그(locales/) 및 미들웨어 지원
 │   ├── ingest/          # 통합 적재 파이프라인, Fetcher(웹/YouTube/X/PDF), 정규화
 │   ├── ontology/        # 온톨로지 스키마, 엔티티/관계 타입 및 레지스트리
-│   ├── presentation/    # Asciidoctor reveal.js 프레젠테이션 저작 및 컴파일
-│   ├── render/          # AsciiDoc AOT HTML 렌더링, 미디어 변환 및 Markdown 내보내기
+│   ├── presentation/    # LLM 프레젠테이션 저작·캐시 오케스트레이션 (service.py)
 │   ├── retrieval/       # FTS5(kiwipiepy 토크나이저 포함) + 벡터 하이브리드 검색 엔진
-│   ├── static/          # Web UI 정적 자산 (JS, CSS, 로케일 카탈로그, 벤더 라이브러리)
 │   ├── store/           # SQLite 저장소(claire.db, auth.db, client.db), 테마, 벡터, 비밀 관리
-│   ├── templates/       # Web UI HTML 템플릿 (홈/리더/그래프, 로그인/설정, 통합 콘솔)
-│   ├── cli.py           # 통합 CLI 진입점
+│   ├── cli.py           # CLI 파서 및 명령 구현
 │   ├── config.py        # Pydantic 설정 및 환경변수 로딩
 │   └── telegram_bot.py  # 계정별 텔레그램 봇 인터페이스 및 슈퍼바이저
+├── src/claire_bible/    # 조합 루트 (bootstrap, CLI·웹 진입점, 요청·DB 페이지 하이드레이션)
 ├── sidecar/fedify/      # Deno 기반 Fedify ActivityPub 연합 사이드카
 ├── ops/                 # 호스트 오케스트레이션 도구 구현 (cb_manuscript.py)
 ├── docs/                # 원칙(PRINCIPLES.md), 목표(GOALS.md), 구현 정본(implementation/), 설계 기록(design/)

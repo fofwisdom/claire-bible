@@ -20,8 +20,8 @@ This document tells what the code does now. Anchors are file paths and symbol na
 | `src/claire/graph_bundle.py` | `create_graph_bundle`, `import_graph_bundle`, `GRAPH_BUNDLE_FORMAT_VERSION`, `GRAPH_BUNDLE_TTL_SECONDS` |
 | `src/claire/graph_bundle_review.py` | `export_review_evidence`, `count_review_tables`, `REVIEW_SCHEMA_VERSION`, `REVIEW_TABLES` |
 | `src/claire/api/server.py` | `rollback_resolution_route`, `resolution_decisions_route`, `create_graph_bundle_route`, `download_graph_bundle_route`, `pair_review_items_route`, `pair_review_verdict_route`, `pair_review_stats_route`, `admin_pair_review_report_route` |
-| `src/claire/static/js/app.js` | `renderHeatmapMatrix`, `renderMiniMatrixBannerHtml`, `renderDecisionStreamCenter`, `triggerRollback`, `isDecisionStreamEnabledForActiveTheme` |
-| `src/claire/static/js/reader.js` | `renderReader`: heatmap banner on top of a document |
+| `src/bible/static/js/app.js` | `renderHeatmapMatrix`, `renderMiniMatrixBannerHtml`, `renderDecisionStreamCenter`, `triggerRollback`, `isDecisionStreamEnabledForActiveTheme` |
+| `src/bible/static/js/reader.js` | `renderReader`: heatmap banner on top of a document |
 | `scripts/verify_jev_system1.py` | Offline Jev benchmark on a golden set, with the Go / No-Go gate |
 
 ---

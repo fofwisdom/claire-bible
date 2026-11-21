@@ -1377,19 +1377,21 @@ RENDERER_REVISION_KEY = "aot_renderer_revision"
 
 
 def _recompile_stale_detail_html(conn: sqlite3.Connection) -> None:
-    """Render ``detail_html`` of all stored bodies again when ``RENDERER_REVISION`` of ``render/aot.py`` is not the number in ``meta``. A change of the converter thus reaches the stored documents without an operator step. Only ``detail_html`` changes; ``detail`` stays."""
-    from ..render import render_to_html
-    from ..render.aot import RENDERER_REVISION
+    """Render ``detail_html`` of all stored bodies again when the renderer revision differs from ``meta``."""
+    from ..core.ports import get_document_renderer
+
+    renderer = get_document_renderer()
+    renderer_revision = renderer.renderer_revision
 
     row = conn.execute("SELECT value FROM meta WHERE key=?", (RENDERER_REVISION_KEY,)).fetchone()
-    if row is not None and str(row[0]) == str(RENDERER_REVISION):
+    if row is not None and str(row[0]) == str(renderer_revision):
         return
     rows = conn.execute("SELECT rowid, detail FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''").fetchall()
     for r in rows:
-        conn.execute("UPDATE documents SET detail_html=? WHERE rowid=?", (render_to_html(r[1]), r[0]))
+        conn.execute("UPDATE documents SET detail_html=? WHERE rowid=?", (renderer.render_to_html(r[1]), r[0]))
     if rows:
-        logging.getLogger(__name__).info("AOT renderer revision %s: rendered %d bodies again", RENDERER_REVISION, len(rows))
-    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (RENDERER_REVISION_KEY, str(RENDERER_REVISION)))
+        logging.getLogger(__name__).info("AOT renderer revision %s: rendered %d bodies again", renderer_revision, len(rows))
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (RENDERER_REVISION_KEY, str(renderer_revision)))
 
 
 def _migrate_v21_account_feeds(conn: sqlite3.Connection) -> None:
@@ -5397,9 +5399,9 @@ def set_document_detail(
 
     detail = remove_leading_original_link(detail)
     if html is None and detail:
-        from ..render import render_to_html
+        from ..core.ports import get_document_renderer
 
-        html_content = render_to_html(detail, format=fmt)
+        html_content = get_document_renderer().render_to_html(detail, format=fmt)
     else:
         html_content = html or ""
 
@@ -5672,10 +5674,10 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str, kb_id: 
     if row["detail_html"]:
         return row["detail_html"]
     if row["detail"] and row["detail"].strip():
-        from ..render import render_to_html
+        from ..core.ports import get_document_renderer
 
         fmt = row["detail_format"] or "adoc"
-        rendered = render_to_html(row["detail"], format=fmt)
+        rendered = get_document_renderer().render_to_html(row["detail"], format=fmt)
         if rendered:
             try:
                 upd_query = "UPDATE documents SET detail_html=? WHERE id=?"
@@ -5693,8 +5695,10 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str, kb_id: 
 
 def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = None, kb_id: int | None = None) -> int:
     """모든 문서(또는 지정된 doc_id)의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
+    from ..core.ports import get_document_renderer
     from ..extract.prompts import remove_leading_original_link
-    from ..render import render_to_html
+
+    render_to_html = get_document_renderer().render_to_html
 
     query = "SELECT id, detail, detail_format FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
     params: list[Any] = []

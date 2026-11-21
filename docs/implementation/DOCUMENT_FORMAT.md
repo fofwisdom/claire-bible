@@ -35,7 +35,7 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
 
 ### 3.1 Ahead-of-time HTML on the server
 
-- **[code]** `src/claire/render/aot.py` converts AsciiDoc to semantic HTML without a dependency. `render_to_html` calls `render_adoc_to_html`; its `format` argument has no effect.
+- **[code]** `src/bible/adoc/aot.py` converts AsciiDoc to semantic HTML without a dependency. `render_to_html` calls `render_adoc_to_html`; its `format` argument has no effect. Core callers call it through `claire.core.ports.get_document_renderer().render_to_html`.
 - **[code]** The converter escapes HTML first. Then it converts:
   - inline marks: strong, emphasis, highlight, links, code, sub- and superscript, math spans (`stem:`, `latexmath:`, `asciimath:`, `$...$`, `\(...\)`) to `<span class="math inline">`, and cross references (`<<id>>`, `<<id, label>>`, `xref:id[label]`) to `<a class="xref">`;
   - blocks: sections, quote, admonition, source with callout badges (`conum`) and callout lists (`colist`), math blocks (`[latexmath]`, `[stem]`, `[asciimath]`) to `<div class="mathblock">`, tables with column and row spans and alignment, nested lists, images;
@@ -44,15 +44,15 @@ The readable body of a document (`documents.detail`) is AsciiDoc. No other body 
 - **[code]** Sub- and superscript follow Asciidoctor: `~x~` and `^x^` mark text without whitespace only. A tilde with a digit on both sides is a range (`15~29세`, `2014~19년`), not a subscript mark (`_SUBSCRIPT_RE`). `adoc_parser.js` has the same rules.
 - **[code]** `set_document_detail` stores `detail_html` from `render_to_html` when the caller gives no HTML. It also sets the status of the presentation of the document to `stale` (see [`PRESENTATION.md`](PRESENTATION.md)).
 - **[code]** `get_document_detail_html` renders and stores `detail_html` on read when it is empty. `recompile_all_detail_html` (CLI `recompile-html`) renders all bodies again with the current converter.
-- **[code]** `RENDERER_REVISION` in `aot.py` identifies the converter output. When it is not the value of the key `aot_renderer_revision` in `meta`, `_recompile_stale_detail_html` in `_migrate` renders `detail_html` of all stored bodies again, one time. Increase it when a change of the converter changes stored HTML.
+- **[code]** `RENDERER_REVISION` in `src/bible/adoc/aot.py` identifies the converter output. When it is not the value of the key `aot_renderer_revision` in `meta`, `_recompile_stale_detail_html` in `_migrate` renders `detail_html` of all stored bodies again, one time. Increase it when a change of the converter changes stored HTML.
 - Tests: `tests/test_adoc_render.py`.
 
 ### 3.2 Display in the browser
 
-- **[code]** The reader (`src/claire/static/js/reader.js`) and the share page (`src/claire/templates/share.html`) insert `detail_html` after `DOMPurify.sanitize`. When `detail_html` is empty, they render `detail` in the browser with `renderContent` of `src/claire/static/js/renderers/adoc_parser.js`. `renderContent` renders AsciiDoc only. The summary also goes through `renderContent`.
+- **[code]** The reader (`src/bible/static/js/reader.js`) and the share page (`src/bible/templates/share.html`) insert `detail_html` after `DOMPurify.sanitize`. When `detail_html` is empty, they render `detail` in the browser with `renderContent` of `src/bible/static/js/renderers/adoc_parser.js`. `renderContent` renders AsciiDoc only. The summary also goes through `renderContent`.
 - **[code]** The pages load KaTeX (math) and DOMPurify from `unpkg.com` with subresource integrity hashes. The browser does not parse AsciiDoc with Asciidoctor.js.
-- **[code]** The `usercontent` host renders a document at `/render/doc/{id}` (`src/claire/api/usercontent.py`). It changes the media references in the stored HTML at render time with `transform_media_urls_in_html` (`src/claire/render/media_transform.py`).
-- **[code]** Graph view labels and previews remove Markdown, AsciiDoc, LaTeX, and HTML marks (`sanitize_preview_text` in `src/claire/graphview.py`). This removes marks of old text; it writes no Markdown.
+- **[code]** The `usercontent` host renders a document at `/render/doc/{id}` (`src/claire/api/usercontent.py`). It changes the media references in the stored HTML at render time with `transform_media_urls_in_html` (`src/bible/adoc/media_transform.py`, called through `DocumentRendererPort`).
+- **[code]** Graph view labels and previews remove Markdown, AsciiDoc, LaTeX, and HTML marks (`sanitize_preview_text` in `src/bible/web/metadata.py`). This removes marks of old text; it writes no Markdown.
 
 ## 4. Raw Text from Fetchers
 
@@ -68,7 +68,7 @@ This is the only place where Claire writes Markdown (RD24) **[decision]**.
 
 - **[code]** Route: `GET /document/export?id=<document ID>&format=markdown` in `src/claire/api/server.py` (`document_export_route`). Access rule: `read`, the rule of `GET /document`. `format` is `markdown` (also accepted: `md`; default `markdown`). Another value gives 400 `unsupported_format`. No `id` gives 400. An unknown document gives 404. An anonymous request does not find hidden documents.
 - **[code]** The answer is `text/markdown; charset=utf-8` with `Content-Disposition: attachment`. The ASCII file name is `claire-<id>.md`; the UTF-8 file name is the title (120 characters at most) with `.md`. The route writes nothing in the database.
-- **[code]** Conversion (MX2): `adoc_to_markdown` in `src/claire/render/markdown_export.py`, without a dependency. It converts section titles, strong, emphasis, highlight (to strong), links, images, lists, tables (GFM), source, literal, quote, admonition, and sidebar blocks, thematic breaks, anchors, and cross references. An unknown construct goes out as text.
+- **[code]** Conversion (MX2): `adoc_to_markdown` in `src/bible/adoc/markdown_export.py`, without a dependency. It converts section titles, strong, emphasis, highlight (to strong), links, images, lists, tables (GFM), source, literal, quote, admonition, and sidebar blocks, thematic breaks, anchors, and cross references. An unknown construct goes out as text.
 - **[code]** File (MX3): `document_markdown` writes a YAML front matter header (`title`, `source`, `date`, `summary`, `claire_document_id`), then the title as a level 1 heading when the body does not start with one, then the body.
-- **[code]** User interface (MX1): in `/syndication`, the article menu of the reader and the context menu of an item of the knowledge base view have the command `export-md` (`src/claire/templates/syndication.html`, `src/claire/static/js/syndication_live.js`). The command opens the export route with the theme of the view.
+- **[code]** User interface (MX1): in `/syndication`, the article menu of the reader and the context menu of an item of the knowledge base view have the command `export-md` (`src/bible/templates/syndication.html`, `src/bible/static/js/syndication_live.js`). The command opens the export route with the theme of the view.
 - Test: `tests/test_e2e_markdown_export.py`.

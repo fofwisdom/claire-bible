@@ -800,7 +800,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         CLAIRE_MULTI_THEME="1",
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     theme_number = 516412345678901234
     conn = dbm.connect_existing(data_dir / "claire.db")
@@ -822,7 +822,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
     from claire.api.federation_internal import federation_socket_path
 
     sock_path = federation_socket_path(data_dir)
-    proc = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         deadline = time.monotonic() + 60
         while True:
@@ -911,7 +911,7 @@ def test_e2e_follow_events_through_the_internal_socket(tmp_path):
         CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     conn = dbm.connect_existing(data_dir / "claire.db")
     try:
@@ -930,7 +930,7 @@ def test_e2e_follow_events_through_the_internal_socket(tmp_path):
     remote = "http://127.0.0.1:9"
     alice_iri = f"{origin}/ap/actors/{ALICE_PUBLIC_ID}"
 
-    proc = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         deadline = time.monotonic() + 60
         while True:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 
-from .favicon import render_favicon_head_tags
+from ..web.favicon import render_favicon_head_tags
 
 
 def render_unready_presentation_page(

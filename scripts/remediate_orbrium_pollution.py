@@ -20,7 +20,7 @@ root_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root_dir / "src"))
 
 from claire.extract.prompts import sanitize_rendered_detail
-from claire.render import render_to_html
+from bible.adoc import render_to_html
 
 
 def remediate_database(db_path: Path, *, target_doc_ids: list[str] | None = None, dry_run: bool = False) -> int:

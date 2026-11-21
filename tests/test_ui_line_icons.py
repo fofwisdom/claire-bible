@@ -9,19 +9,23 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = ROOT / "src" / "claire"
+BIBLE_PKG = ROOT / "src" / "bible"
+CLAIRE_PKG = ROOT / "src" / "claire"
 
 # Source files that make the web UI.
-UI_GLOBS = (
+BIBLE_UI_GLOBS = (
     "templates/**/*.html",
     "static/js/**/*.js",
     "static/css/*.css",
+)
+CLAIRE_UI_GLOBS = (
+    "api/templates/**/*.html",
     "i18n/locales/*.json",
     "api/accounts_routes/*.py",
 )
 
 # Visual prototypes of design documents are records, not product pages.
-EXCLUDED_DIRS = (PKG / "templates" / "prototype",)
+EXCLUDED_DIRS = (CLAIRE_PKG / "api" / "templates" / "prototype",)
 
 # Emoji: the pictograph planes, the emoji variation selector, and the BMP characters whose default presentation is emoji (Unicode Emoji_Presentation=Yes).
 EMOJI = re.compile(
@@ -48,8 +52,10 @@ POST_TEMPLATE = re.compile(r"quoteTemplate")
 
 def _ui_files() -> list[Path]:
     files: set[Path] = set()
-    for pattern in UI_GLOBS:
-        files.update(PKG.glob(pattern))
+    for pattern in BIBLE_UI_GLOBS:
+        files.update(BIBLE_PKG.glob(pattern))
+    for pattern in CLAIRE_UI_GLOBS:
+        files.update(CLAIRE_PKG.glob(pattern))
     return sorted(f for f in files if f.is_file() and not any(d in f.parents for d in EXCLUDED_DIRS))
 
 
@@ -78,7 +84,7 @@ def test_ui_files_are_found() -> None:
 def test_web_ui_has_no_emoji() -> None:
     violations = _violations()
     assert not violations, (
-        "Emoji in the web UI (principle G1 in docs/PRINCIPLES.md). Use a line icon of src/claire/static/js/icons.js: "
+        "Emoji in the web UI (principle G1 in docs/PRINCIPLES.md). Use a line icon of src/bible/static/js/icons.js: "
         "an empty element <span data-icon=\"name\"></span> in markup, ClaireIcons.svg(\"name\") in a script, "
         "or icon_html(\"name\") in api/accounts_routes. Add a new icon to icons.js if no icon fits. "
         "In plain text (textContent, <option>, alert), write the text without the emoji.\n" + "\n".join(violations)

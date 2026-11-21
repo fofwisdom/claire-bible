@@ -13,7 +13,7 @@
 
 ## 0. 작업 전에 알아 둘 것
 
-1. **[코드] 엔진은 외부 의존성이 없다.** 파일 4개를 `src/claire/graphview.py`의 `_GRAPH_ENGINE_FILES = ("core.js", "simulation.js", "renderers.js", "network.js")` 순서대로 `GRAPH_HTML`에 인라인한다. CDN 스크립트를 추가하지 않는다.
+1. **[코드] 엔진은 외부 의존성이 없다.** 파일 4개를 `src/bible/web/pages.py`의 `_GRAPH_ENGINE_FILES = ("core.js", "simulation.js", "renderers.js", "network.js")` 순서대로 `GRAPH_HTML`에 인라인한다. CDN 스크립트를 추가하지 않는다.
 2. **[코드] `GRAPH_HTML`은 모듈 import 시점에 한 번 만들어진다**(`GRAPH_HTML: str = _build_standalone_graph_html()`). JS를 고친 뒤에는 서버를 재시작해야 화면에 반영된다.
 3. **[코드] 마커 테스트는 정확한 문자열을 검사한다.** `tests/test_graphview.py`의 `test_graph_engine_physics_and_rendering_backends`, `test_graph_engine_interaction_model`, `test_topological_structure_and_isolated_orbit_layout`, `test_adaptive_physics_and_visual_hierarchy_html_markers`가 함수 시그니처, 옵션 이름, 상수 줄을 그대로 찾는다. 이름이나 줄을 바꾸면 테스트도 같이 고친다.
 4. **[결정] 운영 서버에 접근하거나 배포하지 않는다.** 검증은 개발 모드와 그래프 번들로 한다(§11). 운영 배포 상태를 알아야 하면 소유자에게 확인을 요청한다.
@@ -27,13 +27,14 @@
 
 | 파일 | 역할 | 주요 기호 |
 | :--- | :--- | :--- |
-| `src/claire/static/js/graph/core.js` | 네임스페이스 `window.ClaireGraph`, 수학·해시·색 유틸, 이벤트, vis 호환 `DataSet` | `hash32`(FNV-1a), `hashUnit`, `parseColor`, `mixColor`, `Emitter`, `DataSet` |
-| `src/claire/static/js/graph/simulation.js` | 신장 숲 구축, 별 무리 배치, 바깥 궤도, 물리 한 스텝 | `SIM_DEFAULTS`, `buildHierarchy`, `packStars`, `Simulation`(`setTopology`, `setHidden`, `_placeOrbits`, `snapToHomes`, `warmup`, `step`, `release`, `dragTo`) |
-| `src/claire/static/js/graph/renderers.js` | 렌더러와 무관한 프레임 버퍼, WebGPU(WGSL) 렌더러, Canvas2D 렌더러 | `Frame`, `NODE_STRIDE = 12`, `EDGE_STRIDE = 16`, `SHAPE_CIRCLE/RING/SQUARE`, `WebGPURenderer`, `Canvas2DRenderer` |
-| `src/claire/static/js/graph/network.js` | vis-network 호환 `Network`: 렌더 루프, 카메라, 입력, 선택, 라벨 오버레이, 백엔드 폴백 | `DEFAULT_OPTIONS`, `_tick`, `_draw`, `_drawOverlay`, `_fitNow`, `_fitInsets`, `_syncPackAspect`, `_setHover` |
-| `src/claire/static/js/app.js` | 워크스페이스. 데이터 적재, 필터, 검색, 경로, 팝업, 테마 연결, 홈 미니맵(`Simulation` 단독 사용) | `applyTopologicalStructure`, `applyView`, `nodeRadius`, `nodeFontSize`, `idleEdgeStyle`, `clusterMatches`, `NODE_POP_DELAY_MS`, `setupWheelZoom`, `computeHomeMiniLayout`, `drawHomeMiniMap` |
+| `src/bible/static/js/graph/core.js` | 네임스페이스 `window.ClaireGraph`, 수학·해시·색 유틸, 이벤트, vis 호환 `DataSet` | `hash32`(FNV-1a), `hashUnit`, `parseColor`, `mixColor`, `Emitter`, `DataSet` |
+| `src/bible/static/js/graph/simulation.js` | 신장 숲 구축, 별 무리 배치, 바깥 궤도, 물리 한 스텝 | `SIM_DEFAULTS`, `buildHierarchy`, `packStars`, `Simulation`(`setTopology`, `setHidden`, `_placeOrbits`, `snapToHomes`, `warmup`, `step`, `release`, `dragTo`) |
+| `src/bible/static/js/graph/renderers.js` | 렌더러와 무관한 프레임 버퍼, WebGPU(WGSL) 렌더러, Canvas2D 렌더러 | `Frame`, `NODE_STRIDE = 12`, `EDGE_STRIDE = 16`, `SHAPE_CIRCLE/RING/SQUARE`, `WebGPURenderer`, `Canvas2DRenderer` |
+| `src/bible/static/js/graph/network.js` | vis-network 호환 `Network`: 렌더 루프, 카메라, 입력, 선택, 라벨 오버레이, 백엔드 폴백 | `DEFAULT_OPTIONS`, `_tick`, `_draw`, `_drawOverlay`, `_fitNow`, `_fitInsets`, `_syncPackAspect`, `_setHover` |
+| `src/bible/static/js/app.js` | 워크스페이스. 데이터 적재, 필터, 검색, 경로, 팝업, 테마 연결, 홈 미니맵(`Simulation` 단독 사용) | `applyTopologicalStructure`, `applyView`, `nodeRadius`, `nodeFontSize`, `idleEdgeStyle`, `clusterMatches`, `NODE_POP_DELAY_MS`, `setupWheelZoom`, `computeHomeMiniLayout`, `drawHomeMiniMap` |
 | `src/claire/store/queries.py` | `/graph` 응답 생성 | `graph_json` |
-| `src/claire/graphview.py` | 정적 자산을 묶어 단일 HTML 생성 | `_GRAPH_ENGINE_FILES`, `_build_standalone_graph_html` |
+| `src/bible/web/pages.py` | 정적 자산을 묶어 순수 HTML 번들 생성 | `_GRAPH_ENGINE_FILES`, `_build_standalone_graph_html`, `GRAPH_HTML`, `render_graph_page` |
+| `src/claire_bible/web/pages.py` | 요청·DB·로케일 데이터를 채워 페이지 조립 | `localize_page`, `render_graph_html`, `render_syndication_html`, `shared_html` |
 
 규모 [코드, `d15ae8e0`]: `core.js` 178줄, `simulation.js` 710줄, `renderers.js` 402줄, `network.js` 1,202줄, `app.js` 7,930줄.
 
@@ -308,11 +309,11 @@ e2e 시드 데이터는 작아서 별 무리, 카메라, 라벨 문제를 재현
 1. 받은 `.tar.zst`를 빈 스크래치 디렉터리에 둔다. 가져오기 전에 압축 안의 경로를 확인한다(정상이면 `manifest.json`, `graph_export.db` 두 파일).
 2. 별도 DB로 가져온다. 기존 `data/` DB는 건드리지 않는다.
    ```bash
-   uv run python -m claire.cli import-graph <번들.tar.zst> --target-db <스크래치>/snapshot.db
+   uv run python -m claire_bible.cli import-graph <번들.tar.zst> --target-db <스크래치>/snapshot.db
    ```
 3. 그 DB로 개발 모드 서버를 띄운다(백그라운드).
    ```bash
-   CLAIRE_DB_PATH=<스크래치>/snapshot.db CLAIRE_INJECT_PORT=8767 CLAIRE_PUBLIC_URL=http://127.0.0.1:8767/ CLAIRE_ENVIRONMENT=development CLAIRE_INJECT_TOKEN=<개발용 토큰> uv run python -m claire.cli serve-api
+   CLAIRE_DB_PATH=<스크래치>/snapshot.db CLAIRE_INJECT_PORT=8767 CLAIRE_PUBLIC_URL=http://127.0.0.1:8767/ CLAIRE_ENVIRONMENT=development CLAIRE_INJECT_TOKEN=<개발용 토큰> uv run python -m claire_bible.cli serve-api
    ```
 4. 로컬 DB에는 운영에 없는 형식 안내 배너(`#format-warn-banner`)가 떠서 그래프 영역 높이가 줄어든다. 운영과 비교할 때는 이 배너를 숨기고 측정한다.
 
@@ -401,41 +402,42 @@ Shopify Editions Fall '26 참고 관찰 [실측, 2026-10-30]:
 | 노드에 새 시각 상태 추가 | 앱은 항목 필드(`borderWidth`, `opacity`, `color`)로 표현. 새 모양이 필요하면 `network.js` `_draw`에서 `frame.pushNode` | 두 렌더러가 같은 `SHAPE_*`를 지원하는지(`renderers.js`) |
 | 새 이벤트 | `network.js`에서 `this.emit('<이름>', payload)`, app.js에서 `net.on` | 마커 테스트의 이벤트 목록(`test_graph_engine_interaction_model`) |
 | 노드 크기·글자 크기 규칙 | app.js `nodeRadius`, `nodeFontSize` | 크기 변경은 `_structureChanged`를 거쳐 재구축을 일으킨다 |
-| 새 엔진 파일 추가 | `graphview.py` `_GRAPH_ENGINE_FILES`(의존 순서) | 마커 테스트, 외부 의존성 없음 원칙 |
+| 새 엔진 파일 추가 | `src/bible/web/pages.py` `_GRAPH_ENGINE_FILES`(의존 순서) | 마커 테스트, 외부 의존성 없음 원칙 |
 
 ---
 
-## 15. Page assembly and static assets (`graphview.py`)
+## 15. Page assembly and static assets (`src/bible/web/pages.py`, `src/claire_bible/web/pages.py`)
 
-Basis: commit d15ae8e0 (2026-11-16). This section is in English.
+Basis: commit d15ae8e0 (2026-11-16); updated for the `bible` / `claire` / `claire_bible` package split. This section is in English.
 
 ### 15.1 Layers [code]
 
 | Layer | Location | Content |
 | :--- | :--- | :--- |
 | Data queries | `src/claire/store/queries.py` | `graph_json`, `documents_list`, `documents_page`, `node_detail`, `document_detail`, `dedup_clusters`, `synthesis_context`, `synthesize`, `theme_summary`. The API server, the MCP tools (`src/claire/api/mcp_tools.py`), and the CLI import them from here. |
-| Templates | `src/claire/templates/` | `index.html` (workspace), `share.html` (shared document), `syndication.html`, `console_shell.html`, and other page shells |
-| Static assets | `src/claire/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `vendor/`, `docs/` |
-| Page assembly | `src/claire/graphview.py` | Builds the inline bundles and fills the slots for each request |
+| Templates | `src/bible/templates/`, `src/claire/api/templates/` | `src/bible/templates/` holds `index.html` (workspace), `share.html` (shared document), `syndication.html`, and `partials/common_*.html`. `src/claire/api/templates/` holds `console_shell.html`, `login.html`, `setup.html`, `docs.html`, `public_kb.html`, `public_directory.html`, `partials/settings_syndication/`, and `prototype/federation_client_prototype.html`. |
+| Static assets | `src/bible/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `vendor/`, `docs/`, `ns/` |
+| Pure bundle assembly | `src/bible/web/pages.py` | Builds standalone inline bundles and fills DTO slots (`render_graph_page`, `render_shared_page`, `render_syndication_page`) with zero imports from `claire`. |
+| Request page assembly and ports | `src/claire_bible/web/pages.py`, `src/claire_bible/bootstrap.py`, `src/claire/core/ports.py` | Loads database, settings, and locale data (`render_graph_html`, `render_syndication_html`, `shared_html`) and binds them to `WebUIRendererPort`. |
 
 Callers import the query functions directly from `src/claire/store/queries.py` [code].
 
 ### 15.2 Inline bundles [code]
 
-- At import time, `graphview.py` builds three strings: `GRAPH_HTML` (`_build_standalone_graph_html`), `_SHARED_HTML` (`_build_standalone_shared_html`), and `SYNDICATION_HTML` (`_build_standalone_syndication_html`).
+- At import time, `src/bible/web/pages.py` builds three strings: `GRAPH_HTML` (`_build_standalone_graph_html`), `_SHARED_HTML` (`_build_standalone_shared_html`), and `SYNDICATION_HTML` (`_build_standalone_syndication_html`).
 - Each builder reads a template, removes its `<link … href=/static/css/…>` and `<script src=/static/js/…>` tags, and puts the CSS and JS file contents inline in the page.
 - `GRAPH_HTML` script order: config, `i18n.js`, `icons.js`, the four engine files (`_GRAPH_ENGINE_FILES`), `adoc_parser.js`, `reader.js`, `command_palette.js`, `app.js`.
-- The shared page and the workspace use the same AsciiDoc parser file `static/js/renderers/adoc_parser.js`. There is no copy of the parser in Python strings.
-- `localize_page` resolves the translation slots (`${html_lang}`, `${t:key}`, `${tj:key}`) once for each locale (`lru_cache` on `_graph_html_for`, `_syndication_html_for`, `_shared_html_for`).
-- `render_graph_html` and `shared_html` replace the request slots (for example `__SOURCE_BASE_URL__`, `__THEMES_JSON__`, `__CLAIRE_API_BASE__`, `<!-- __GA_TAG__ -->`, `<!-- __I18N_CATALOG__ -->`).
+- The shared page and the workspace use the same AsciiDoc parser file `src/bible/static/js/renderers/adoc_parser.js`. There is no copy of the parser in Python strings.
+- `localize_page` in `src/claire_bible/web/pages.py` calls `src/bible/web/pages.py` to resolve translation slots (`${html_lang}`, `${t:key}`, `${tj:key}`) once for each locale (`lru_cache` on `_graph_html_for`, `_syndication_html_for`, `_shared_html_for`).
+- `render_graph_html`, `render_syndication_html`, and `shared_html` in `src/claire_bible/web/pages.py` load request and database values and fill the request slots (for example `__SOURCE_BASE_URL__`, `__THEMES_JSON__`, `__CLAIRE_API_BASE__`, `<!-- __GA_TAG__ -->`, `<!-- __I18N_CATALOG__ -->`).
 - A change in a template, CSS, or JS file of these three pages shows only after a server restart, because the bundles are built at import time.
 
 ### 15.3 Static file serving [code]
 
-- `src/claire/api/server.py` mounts `/static/locales` on `src/claire/i18n/locales/` (`LOCALES_DIR`) before `/static` on `src/claire/static/`.
+- `src/claire/api/server.py` mounts `/static/locales` on `src/claire/i18n/locales/` (`LOCALES_DIR`) before `/static` on `src/bible/static/` (resolved from `get_web_ui_renderer().static_dir`).
 - `src/claire/api/security.py` makes `GET` and `HEAD` on `/static/{path:path}` public.
 - The console pages (`src/claire/api/accounts_routes/console.py`) load their scripts from `/static/js/` with `defer`; they are not inline bundles.
-- The wheel includes the assets because `pyproject.toml` has `only-include = ["src/claire"]`.
+- The wheel includes the assets because `pyproject.toml` has `only-include = ["src/claire", "src/bible", "src/claire_bible"]`.
 
 ### 15.4 Tests [code]
 

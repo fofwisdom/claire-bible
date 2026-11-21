@@ -938,7 +938,7 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 | `claire plugin show <id>` | 매니페스트(`client_id`, `required_scopes`, `files`, `files_sha256` 포함), 다이제스트, 레코드, 겹침 그룹 |
 | `claire plugin enable <id> --digest <sha256:…> [--replace <id> …]` | 호스트 운영자 경로. 콘솔과 같은 검사(다이제스트 일치, 겹침 그룹의 켜진 플러그인을 `--replace`에 정확히 나열)와 감사 기록. 거부되면 종료 코드 4(인자 누락 2) |
 | `claire plugin disable <id>` | 끄기 |
-| `claire plugin check [<folder>]` | 기여자용: 매니페스트, 다이제스트, lock, 프로젝트 플러그인과의 겹침(프로젝트 플러그인만 실패), AST import 검사(`agent_client`의 `claire*`/네트워크/프로세스 차단 및 비실행 파일 검증 포함), 추종 커밋이 `HEAD`의 조상인지, `register(ctx)`와 `[[provides]]` 일치(`ingest_adapter`). 서버 상태는 쓰지 않는다 |
+| `claire plugin check [<folder>]` | 기여자용: 매니페스트, 다이제스트, lock, 프로젝트 플러그인과의 겹침(프로젝트 플러그인만 실패), AST import 검사(`bible*`·`claire_bible*` 차단 및 `agent_client`의 `claire*`/네트워크/프로세스 차단과 비실행 파일 검증 포함), 추종 커밋이 `HEAD`의 조상인지, `register(ctx)`와 `[[provides]]` 일치(`ingest_adapter`). 서버 상태는 쓰지 않는다 |
 | `claire plugin lock` | `plugins/project.lock`을 쓴다. `HEAD`의 lock과 다이제스트가 다르면 리비전이 `HEAD`보다 커야 한다(아니면 종료 코드 4) |
 | `claire plugin new <id> --type {ingest_adapter,agent_client}` | `plugins/<type>/_template`을 복사한다(`ingest_adapter` 템플릿 기본 제공; `agent_client`는 템플릿 폴더가 있을 때 생성하며 없으면 종료 코드 4). `claire.` id는 프로젝트 플러그인 폴더로, 그 밖은 플러그인 폴더로. 추종 커밋은 실행 중인 코어의 커밋. 컨테이너에서는 플러그인 폴더가 읽기 전용이라 종료 코드 4 |
 | `claire plugin run <id> <command> [arguments]` | 켜진 플러그인의 명령. 켜지지 않았으면 종료 코드 4 |

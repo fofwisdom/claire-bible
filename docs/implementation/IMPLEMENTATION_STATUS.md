@@ -18,21 +18,21 @@
 
 | 대상 | 위치 |
 | :--- | :--- |
-| 홈 화면 (개요) | `renderHome()`, `renderHomeMap()`, `drawHomeMiniMap()`, `renderHomeDecisions()`, `renderHomeMaintenance()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/claire/static/js/app.js`), `#homewrap` (`src/claire/templates/index.html`) |
-| 홈 단계 띠 (HW-8) | `renderHomeFlow()`, `paintHomeFlow()` (`src/claire/static/js/app.js`), `#home-flow` (`src/claire/templates/index.html`), `.home-flow` (`src/claire/static/css/workspace.css`). owner에게만 보이고 `GET /api/feeds`, `GET /api/federation/following?limit=1`, `GET /api/federation/status`, `GET /api/federation/timeline?limit=1`, `GET /stats`의 건수를 쓴다. 실패한 경로의 건수는 보이지 않는다 |
-| 목록 전환 및 접기/펼치기 | `listMode()`, `setListOverride()`, `syncListPane()`, `toggleListPane()`, 저장소 키 `claireListOpen` (`src/claire/static/js/app.js`), 호출: `setCenterView()` (`src/claire/static/js/reader.js`), `#listswitch` · `#listtoggle` |
-| 문맥 패널 (온디맨드) | `hasContext()`, `isContextOpen()`, `setContextUserOpen()`, `openContextPanel()`, `closeContextPanel()`, `contextOpenButton()`, `syncWorkspaceLayout()`, 저장소 키 `claireContextOpen` (`src/claire/static/js/app.js`), `#detailpane` · `#detailclose` (유일한 닫기) · 열기 단추 `#rctxbtn` · `#gctxbtn` · `#botnav-context` |
-| 좁은 화면 하단 바·시트 (≤720px) | `openDocDrawer()`, `closeDocDrawer()`, `openDrawer()`, `closeDrawer()`, `closeAllDrawers()` (`src/claire/static/js/app.js`), `#botnav` (`src/claire/templates/index.html`, `src/claire/static/css/workspace.css`) |
+| 홈 화면 (개요) | `renderHome()`, `renderHomeMap()`, `drawHomeMiniMap()`, `renderHomeDecisions()`, `renderHomeMaintenance()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/bible/static/js/app.js`), `#homewrap` (`src/bible/templates/index.html`) |
+| 홈 단계 띠 (HW-8) | `renderHomeFlow()`, `paintHomeFlow()` (`src/bible/static/js/app.js`), `#home-flow` (`src/bible/templates/index.html`), `.home-flow` (`src/bible/static/css/workspace.css`). owner에게만 보이고 `GET /api/feeds`, `GET /api/federation/following?limit=1`, `GET /api/federation/status`, `GET /api/federation/timeline?limit=1`, `GET /stats`의 건수를 쓴다. 실패한 경로의 건수는 보이지 않는다 |
+| 목록 전환 및 접기/펼치기 | `listMode()`, `setListOverride()`, `syncListPane()`, `toggleListPane()`, 저장소 키 `claireListOpen` (`src/bible/static/js/app.js`), 호출: `setCenterView()` (`src/bible/static/js/reader.js`), `#listswitch` · `#listtoggle` |
+| 문맥 패널 (온디맨드) | `hasContext()`, `isContextOpen()`, `setContextUserOpen()`, `openContextPanel()`, `closeContextPanel()`, `contextOpenButton()`, `syncWorkspaceLayout()`, 저장소 키 `claireContextOpen` (`src/bible/static/js/app.js`), `#detailpane` · `#detailclose` (유일한 닫기) · 열기 단추 `#rctxbtn` · `#gctxbtn` · `#botnav-context` |
+| 좁은 화면 하단 바·시트 (≤720px) | `openDocDrawer()`, `closeDocDrawer()`, `openDrawer()`, `closeDrawer()`, `closeAllDrawers()` (`src/bible/static/js/app.js`), `#botnav` (`src/bible/templates/index.html`, `src/bible/static/css/workspace.css`) |
 | 31개 창 표시와 무한 스크롤 | `createWindowedList()`, 상수 `LIST_PAGE` |
 | 문서 목록 데이터 | `docMainPager` · `docFilterPager`, `loadDocPage()`, `refreshDocs()`, `ensureDocLoaded()`, `loadDocsById()` |
 | 엔티티 목록 | `renderEntityList()`, 표시 조건 `isNodeListed()` (그래프 `applyView()`와 같은 조건, [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §10) |
 | 노드 상세 패널 | `renderPanel()`, `srcRowHtml()`, `showNodeInList()`, 요청 순서 `nodeLoadSeq` |
-| 문서 문맥 3탭 및 출처·대조 단계 배지 (HW-3) | `renderDocPanel()`, `renderDocLinksTab()`, `renderDocEntitiesTab()`, `renderDocSourceTab()`, `switchDocCtxTab()`, `#panel`의 `keydown` 리스너, 출처 배지는 `docMetaHtml()`, `resolutionStageBadge()` (`src/claire/static/js/app.js`), `docMetaHtml()`, `renderReader()` (`src/claire/static/js/reader.js`), `.ctx-tabs`, `.src-badge`, `.stage-*` (`src/claire/static/css/workspace.css`) |
-| 로컬 그래프 (문맥 패널 연결 탭, HW-4) | `renderLocalGraphHtml()`, `setEntityHoverHighlight()`, `clearEntityHoverHighlight()` (`src/claire/static/js/app.js`), `#ctx-local-graph-slot` (`renderDocLinksTab()`), `.ctx-local-graph` (`src/claire/static/css/workspace.css`), 링 1 최대 24개, 링 2 최대 12개, 초과 시 미표시 개수 안내 |
-| 리더 엔티티 마크 및 서버 별칭 (HW-5) | `document_detail()` (`src/claire/store/queries.py`의 `nodes[].aliases`), `applyEntityMarks()`, `clearEntityMarks()`, `setReaderEntityMarkHover()`, `clearReaderEntityMarkHover()` (`src/claire/static/js/reader.js`), `::highlight(claire-entity)` (`src/claire/static/css/reader.css`), `#rlegend` (`src/claire/templates/index.html`), 본문 400,000자 초과 또는 후보 300개 초과 시 마크 비활성화 |
-| 그래프 인사이트 목록 및 뷰 간 엔티티 상세 (HW-6) | `renderGraphInsights()`, `getGraphInsightLists()`, `deselectEntity()` (`src/claire/static/js/app.js`), `#ctx-insights`, `.ctx-insight-row`, `.backlink` |
-| 명령 팔레트 (HW-7) | `ClaireCommandPalette` (`src/claire/static/js/command_palette.js`), `<dialog id="cmdpalette">` · `#palettebtn` (`src/claire/templates/index.html`), `.cmd-palette` (`src/claire/static/css/workspace.css`), `openCommandPaletteFromMenu()` (`src/claire/static/js/app.js`) |
-| 선 아이콘 공용 모듈 (HD4를 `/syndication`, `/settings`, `/admin`, 문서 리더 메타 태그, 공유 페이지, 홈 작업 영역에 적용) | `ClaireIcons.svg()`, `ClaireIcons.hydrate()` (`src/claire/static/js/icons.js`), `.lineicon` · `[data-icon]` (`src/claire/static/css/theme.css`), `icon_html()` (`src/claire/api/accounts_routes/common.py`), `ConsoleSectionSpec.icon` (`src/claire/api/accounts_routes/console.py`), 명령 팔레트의 `iconName`. 마크업은 빈 `data-icon` 요소를 쓰고 모듈이 `currentColor` 인라인 SVG로 채운다. 홈 작업 영역의 패널·메뉴·상태 배너(`app.js`, `index.html`)도 같은 규칙을 쓴다. 채운 모양은 `class="filled"`를 쓴다(즐겨찾기 별). 테마 아이콘(사용자 데이터)과 텔레그램 단추 이름은 범위 밖이다. `textContent`로 쓰는 상태 문구와 `<option>`은 아이콘 없이 글자만 둔다. 규칙은 [`PRINCIPLES.md`](../PRINCIPLES.md) G1. 테스트: `e2e/line_icons.spec.js`, `tests/test_ui_line_icons.py` |
+| 문서 문맥 3탭 및 출처·대조 단계 배지 (HW-3) | `renderDocPanel()`, `renderDocLinksTab()`, `renderDocEntitiesTab()`, `renderDocSourceTab()`, `switchDocCtxTab()`, `#panel`의 `keydown` 리스너, 출처 배지는 `docMetaHtml()`, `resolutionStageBadge()` (`src/bible/static/js/app.js`), `docMetaHtml()`, `renderReader()` (`src/bible/static/js/reader.js`), `.ctx-tabs`, `.src-badge`, `.stage-*` (`src/bible/static/css/workspace.css`) |
+| 로컬 그래프 (문맥 패널 연결 탭, HW-4) | `renderLocalGraphHtml()`, `setEntityHoverHighlight()`, `clearEntityHoverHighlight()` (`src/bible/static/js/app.js`), `#ctx-local-graph-slot` (`renderDocLinksTab()`), `.ctx-local-graph` (`src/bible/static/css/workspace.css`), 링 1 최대 24개, 링 2 최대 12개, 초과 시 미표시 개수 안내 |
+| 리더 엔티티 마크 및 서버 별칭 (HW-5) | `document_detail()` (`src/claire/store/queries.py`의 `nodes[].aliases`), `applyEntityMarks()`, `clearEntityMarks()`, `setReaderEntityMarkHover()`, `clearReaderEntityMarkHover()` (`src/bible/static/js/reader.js`), `::highlight(claire-entity)` (`src/bible/static/css/reader.css`), `#rlegend` (`src/bible/templates/index.html`), 본문 400,000자 초과 또는 후보 300개 초과 시 마크 비활성화 |
+| 그래프 인사이트 목록 및 뷰 간 엔티티 상세 (HW-6) | `renderGraphInsights()`, `getGraphInsightLists()`, `deselectEntity()` (`src/bible/static/js/app.js`), `#ctx-insights`, `.ctx-insight-row`, `.backlink` |
+| 명령 팔레트 (HW-7) | `ClaireCommandPalette` (`src/bible/static/js/command_palette.js`), `<dialog id="cmdpalette">` · `#palettebtn` (`src/bible/templates/index.html`), `.cmd-palette` (`src/bible/static/css/workspace.css`), `openCommandPaletteFromMenu()` (`src/bible/static/js/app.js`) |
+| 선 아이콘 공용 모듈 (HD4를 `/syndication`, `/settings`, `/admin`, 문서 리더 메타 태그, 공유 페이지, 홈 작업 영역에 적용) | `ClaireIcons.svg()`, `ClaireIcons.hydrate()` (`src/bible/static/js/icons.js`), `.lineicon` · `[data-icon]` (`src/bible/static/css/theme.css`), `icon_html()` (`src/claire/api/accounts_routes/common.py`), `ConsoleSectionSpec.icon` (`src/claire/api/accounts_routes/console.py`), 명령 팔레트의 `iconName`. 마크업은 빈 `data-icon` 요소를 쓰고 모듈이 `currentColor` 인라인 SVG로 채운다. 홈 작업 영역의 패널·메뉴·상태 배너(`app.js`, `index.html`)도 같은 규칙을 쓴다. 채운 모양은 `class="filled"`를 쓴다(즐겨찾기 별). 테마 아이콘(사용자 데이터)과 텔레그램 단추 이름은 범위 밖이다. `textContent`로 쓰는 상태 문구와 `<option>`은 아이콘 없이 글자만 둔다. 규칙은 [`PRINCIPLES.md`](../PRINCIPLES.md) G1. 테스트: `e2e/line_icons.spec.js`, `tests/test_ui_line_icons.py` |
 | 서버 페이지 | `documents_page()` (`src/claire/store/queries.py`), 커서 `decode_documents_cursor()` (`src/claire/store/db.py`), 계약: [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) `GET /documents` |
 | 테스트 | `tests/test_documents_paging.py`, `tests/test_graphview.py`, `e2e/workspace.spec.js`의 `document list with server pages`, `node detail panel and node request order`, `home view (HW-1, HW-2)`, `document context panel (HW-3)`, `command palette (HW-7)` |
 
@@ -68,10 +68,10 @@ Current behavior: [`WEBUI.md`](WEBUI.md) §2. Design principles: [`HOME_OVERVIEW
 
 | Item | Position |
 | :--- | :--- |
-| Rules of the bar | `src/claire/static/css/appbar.css` (`.appbar`, `.bar-brand-group`, `.appbar-center`, `.appbar-end`, `.bar-icon-btn`, `.bar-ingest-btn`, `.bar-auth`, `.palette-trigger`, theme picker). `graphview.py` puts the file in the bundles of the workspace and of `/syndication`; the console loads it as a link. |
-| Workspace | `<header id="bar" class="appbar">` (`src/claire/templates/index.html`) |
-| `/syndication` | `<header id="synd-bar" class="appbar">` and the view toolbar `.synd-toolbar` (`src/claire/templates/syndication.html`, `src/claire/static/css/syndication.css`). `renderTopBar()` (`src/claire/static/js/syndication_live.js`) hides the theme picker when there is one theme. |
-| Console | `<header class="appbar console-topbar">` and the script of the light and dark switch (`src/claire/templates/console_shell.html`), `_build_theme_selector_html()` (`src/claire/api/accounts_routes/console.py`) |
+| Rules of the bar | `src/bible/static/css/appbar.css` (`.appbar`, `.bar-brand-group`, `.appbar-center`, `.appbar-end`, `.bar-icon-btn`, `.bar-ingest-btn`, `.bar-auth`, `.palette-trigger`, theme picker). `src/bible/web/pages.py` puts the file in the bundles of the workspace and of `/syndication`; the console loads it as a link. |
+| Workspace | `<header id="bar" class="appbar">` (`src/bible/templates/index.html`) |
+| `/syndication` | `<header id="synd-bar" class="appbar">` and the view toolbar `.synd-toolbar` (`src/bible/templates/syndication.html`, `src/bible/static/css/syndication.css`). `renderTopBar()` (`src/bible/static/js/syndication_live.js`) hides the theme picker when there is one theme. |
+| Console | `<header class="appbar console-topbar">` and the script of the light and dark switch (`src/claire/api/templates/console_shell.html`), `_build_theme_selector_html()` (`src/claire/api/accounts_routes/console.py`) |
 | Tests | `e2e/app_bar.spec.js` (same structure, height, and background on the three pages; the switch applies to the other pages; narrow screen). `_assert_workspace_syndication_rule()` in `tests/test_pwa_mobile_view.py`, `tests/test_pwa_restoration.py`, and `tests/test_pwa_mobile_view_adversarial_challenger1.py`. |
 
 Limits:
@@ -151,13 +151,13 @@ Limits:
 
 ### 4.4 문서 형식과 프레젠테이션 ([`DOCUMENT_FORMAT.md`](DOCUMENT_FORMAT.md), [`PRESENTATION.md`](PRESENTATION.md))
 
-1. 프레젠테이션 HUD와 미준비 페이지(`presentation/hud.py`, `presentation/views.py`)는 이모지 아이콘과 카탈로그 키 없는 한국어를 쓴다(G1, i18n 규칙 위반).
+1. 프레젠테이션 HUD와 미준비 페이지(`src/bible/slides/hud.py`, `src/bible/slides/views.py`)는 이모지 아이콘과 카탈로그 키 없는 한국어를 쓴다(G1, i18n 규칙 위반).
 2. 여러 본문을 함께 내보내는 기능(PDF, EPUB, 묶음)은 설계가 없다.
 
 ### 4.5 인터페이스 언어 ([`I18N.md`](I18N.md))
 
 1. `heal_graph()`(`src/claire/store/db.py`)의 CLI 진행 줄은 한국어다(`doctor --heal`, `audit --heal`). ID6은 영어를 요구한다.
-2. `app.js`(재적재 대상 placeholder)와 `console_admin.js`(IdP 행 삭제 단추)에 고정 한국어가 있다. `templates/docs.html`은 `lang="ko"`로 고정이다.
+2. `app.js`(재적재 대상 placeholder)와 `console_admin.js`(IdP 행 삭제 단추)에 고정 한국어가 있다. `src/claire/api/templates/docs.html`은 `lang="ko"`로 고정이다.
 3. 카탈로그 키 `cli.preflight.header`와 `resolve_cli_locale()`은 쓰이지 않는다.
 
 ### 4.6 계정, 공개 사이트, MCP ([`ACCOUNTS.md`](ACCOUNTS.md), [`PUBLIC_SITE.md`](PUBLIC_SITE.md), [`API_AND_MCP_GUIDE.md`](API_AND_MCP_GUIDE.md))

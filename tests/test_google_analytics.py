@@ -13,9 +13,10 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
+from bible.web.metadata import render_ga_tag
 from claire.api import security
 from claire.config import Settings
-from claire.graphview import GRAPH_HTML, render_ga_tag, render_graph_html, shared_html
+from claire_bible.web.pages import GRAPH_HTML, render_graph_html, shared_html
 from claire.store import db as dbm
 
 

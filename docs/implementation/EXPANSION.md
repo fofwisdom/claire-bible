@@ -62,7 +62,7 @@ Result of `expand_document`: `{document_id, candidates, selected, stored, shadow
 
 Owner decision (2026-11-18): the merge is off by default, and only the shadow mode can be enabled, to collect data about its value. No setting value merges: `same_subject_merge` accepts `"off"` and `"shadow"` only (`IngestLimitManager.update_config`, the validator of `Settings`). [code]
 
-A verdict is the decision of a person, so only the WebUI gives it. The server administrator reviews the records in the card "동일 주제 출처 병합 검토" on `/admin/limits` (`initExpansionReview` in `src/claire/static/js/console_admin.js`): each record shows the parent and the child (titles and links), the model judgement with its scores and reason, and the current verdict, with the buttons "같은 주제", "다른 주제", and "판정 삭제" and an optional note. The card also shows the report. It uses `GET /api/admin/expansion/shadow` and `PUT /api/admin/expansion/shadow/{record_id}/verdict` ([API_HTTP_CONTRACT.md](API_HTTP_CONTRACT.md)). The admin sees and judges only the records of the knowledge bases of the admin account; member knowledge bases are private. The verdict keeps the account that gave it (`verdict_by`). [code]
+A verdict is the decision of a person, so only the WebUI gives it. The server administrator reviews the records in the card "동일 주제 출처 병합 검토" on `/admin/limits` (`initExpansionReview` in `src/bible/static/js/console_admin.js`): each record shows the parent and the child (titles and links), the model judgement with its scores and reason, and the current verdict, with the buttons "같은 주제", "다른 주제", and "판정 삭제" and an optional note. The card also shows the report. It uses `GET /api/admin/expansion/shadow` and `PUT /api/admin/expansion/shadow/{record_id}/verdict` ([API_HTTP_CONTRACT.md](API_HTTP_CONTRACT.md)). The admin sees and judges only the records of the knowledge bases of the admin account; member knowledge bases are private. The verdict keeps the account that gave it (`verdict_by`). [code]
 
 `claire expand-shadow` (`cmd_expand_shadow` in `src/claire/cli.py`) reads the records for agents. It does not change data: [code]
 
@@ -81,7 +81,7 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
 
 ## 4. Display of merged sources
 
-`get_document_extra_sources` gives the list. The document API (`src/claire/store/queries.py`) returns it as `extra_sources`. The main web UI (`src/claire/static/js/app.js`), the reader (`src/claire/static/js/reader.js`), and the share page (`src/claire/templates/share.html`) show the sources of documents that earlier merges made. [code]
+`get_document_extra_sources` gives the list. The document API (`src/claire/store/queries.py`) returns it as `extra_sources`. The main web UI (`src/bible/static/js/app.js`), the reader (`src/bible/static/js/reader.js`), and the share page (`src/bible/templates/share.html`) show the sources of documents that earlier merges made. [code]
 
 ## 5. Tests
 

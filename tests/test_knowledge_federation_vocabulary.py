@@ -16,7 +16,7 @@ from claire.knowledge_federation import vocabulary as v
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "knowledge_federation"
-STATIC_NS = ROOT / "src" / "claire" / "static" / "ns"
+STATIC_NS = ROOT / "src" / "bible" / "static" / "ns"
 
 A = "https://a.example"
 B = "https://b.example"

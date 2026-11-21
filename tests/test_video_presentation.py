@@ -13,7 +13,7 @@ import pytest
 from claire.config import Settings, get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.provider import MockProvider
-from claire.graphview import GRAPH_HTML
+from claire_bible.web.pages import GRAPH_HTML
 from claire.ingest.fetchers.pdf import PdfExtractResult
 from claire.ingest.fetchers.presentation import (
     PresentationExtract,

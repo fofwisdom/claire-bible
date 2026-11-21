@@ -292,14 +292,14 @@ def test_e2e_internal_paths_answer_on_the_socket_only(tmp_path):
         CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
         PYTHONDONTWRITEBYTECODE="1",
     )
-    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
     key = load_service_key(service_key_path(data_dir))
     sock_path = federation_socket_path(data_dir)
     target = f"{INTERNAL_PREFIX}/config"
     public = f"http://127.0.0.1:{port}"
 
-    proc = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen([sys.executable, "-m", "claire_bible.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         deadline = time.monotonic() + 60
         while True:

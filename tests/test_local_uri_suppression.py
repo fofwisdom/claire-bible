@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from claire.graphview import shared_html
+from claire_bible.web.pages import shared_html
 from claire.ingest.fetchers.textfile import fetch_file
 from claire.ontology.base import Document, Entity
 from claire.store import db as dbm
@@ -164,7 +164,7 @@ def test_client_docmeta_html_runtime_suppresses_local_uri(tmp_path: Path):
         else:
             pytest.skip("Node.js is not installed on the system")
 
-    share_tmpl_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "templates" / "share.html"
+    share_tmpl_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "templates" / "share.html"
     content = share_tmpl_path.read_text(encoding="utf-8")
     fn_start = content.find("function docMetaHtml(dc)")
     assert fn_start != -1

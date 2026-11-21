@@ -155,8 +155,9 @@ def cmd_doctor(args) -> int:
             return 0 if report["is_healthy"] else 1
 
         print("claire doctor: Integrity report of the knowledge graph and the database")
-        from .presentation import find_asciidoctor_executable
-        asc_exec = find_asciidoctor_executable()
+        from .core.ports import get_slide_renderer
+
+        asc_exec = get_slide_renderer().find_asciidoctor_executable()
         asc_desc = " · ".join(asc_exec) if asc_exec else "not installed (asciidoctor-revealjs is necessary)"
         print(f"• Presentation compiler      : {asc_desc}")
         print("=" * 50)
@@ -3311,13 +3312,14 @@ def cmd_presentation(args) -> int:
     import asyncio
     import json
     import sys
-    from .presentation import PresentationService, find_asciidoctor_executable
+    from .core.ports import get_slide_renderer
+    from .presentation import PresentationService
 
     action = getattr(args, "action", "generate")
     s, theme = get_effective_settings(args)
 
     if action == "doctor":
-        exe = find_asciidoctor_executable()
+        exe = get_slide_renderer().find_asciidoctor_executable()
         if exe:
             if getattr(args, "json", False):
                 print(json.dumps({"status": "ok", "executable": exe}, ensure_ascii=False))

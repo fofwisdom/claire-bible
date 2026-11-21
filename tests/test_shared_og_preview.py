@@ -14,13 +14,13 @@ from starlette.testclient import TestClient
 
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.graphview import (
+from bible.web.metadata import (
     extract_knowledge_node_tags,
     render_open_graph_tags,
     resolve_preview_image,
     sanitize_preview_text,
-    shared_html,
 )
+from claire_bible.web.pages import shared_html
 from claire.ingest.source_types import is_media_source_type
 from claire.store import db as dbm
 

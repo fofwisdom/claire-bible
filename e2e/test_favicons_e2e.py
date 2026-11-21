@@ -18,9 +18,8 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from claire.api import server
 from claire.config import Settings
-from claire.presentation.favicon import (
+from bible.web.favicon import (
     APPLICATION_NAME,
     FAVICON_ICO_PATH,
     FAVICON_SVG_PATH,
@@ -28,14 +27,19 @@ from claire.presentation.favicon import (
     MANIFEST_PATH,
     inject_favicon_head_tags,
 )
+import claire_bible.bootstrap
+from claire.store import accounts as accounts_store
 from claire.store import db as dbm
+from claire_bible.web.app import create_app
 
 
 @pytest.fixture
 def favicon_e2e_app(tmp_path: Path):
+    claire_bible.bootstrap.configure(force=True)
     db_file = tmp_path / "claire_favicon_e2e.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
+    accounts_store.AccountStore(conn).complete_setup(accounts_store.ADMIN_ACCOUNT_ID, username="e2eadmin", display_name="E2E Admin")
     conn.close()
 
     settings = Settings(
@@ -53,9 +57,9 @@ def favicon_e2e_app(tmp_path: Path):
         site_name="Claire Bible",
     )
     service = SimpleNamespace(provider=SimpleNamespace(name="stub"))
-    app = server.create_app(settings, service)
-    client = TestClient(app, base_url="https://claire.example.com")
-    return client
+    app = create_app(settings, service)
+    with TestClient(app, base_url="https://claire.example.com") as client:
+        yield client
 
 
 def test_common_favicon_e2e_journey(favicon_e2e_app: TestClient) -> None:
@@ -88,17 +92,23 @@ def test_common_favicon_e2e_journey(favicon_e2e_app: TestClient) -> None:
     scalar_cfg = json.loads(docs_html[start:end])
     assert scalar_cfg.get("favicon") == FAVICON_SVG_PATH
 
-    # 3. OAuth authorization screen (/oauth/authorize)
+    # 3. OAuth authorization screen (/oauth/authorize -> /login?tx=...)
+    reg_resp = client.post(
+        "/oauth/register",
+        json={"client_name": "Favicon E2E Client", "redirect_uris": ["https://claire.example.com/callback"]},
+    )
+    assert reg_resp.status_code == 201
     oauth_resp = client.get(
         "/oauth/authorize",
         params={
             "response_type": "code",
-            "client_id": "test-client-id",
+            "client_id": reg_resp.json()["client_id"],
             "redirect_uri": "https://claire.example.com/callback",
             "state": "state-xyz",
-            "code_challenge": "challenge-xyz",
+            "code_challenge": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
             "code_challenge_method": "S256",
         },
+        follow_redirects=True,
     )
     assert oauth_resp.status_code == 200
     oauth_html = oauth_resp.text

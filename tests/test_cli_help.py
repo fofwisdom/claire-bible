@@ -99,7 +99,7 @@ def test_cli_help_stdout_formatting(capsys):
 def test_e2e_cli_help_execution():
     """End-to-end test executing `claire --help` as a subprocess CLI command."""
     proc = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "--help"],
+        [sys.executable, "-m", "claire_bible.cli", "--help"],
         capture_output=True,
         text=True,
         check=False,

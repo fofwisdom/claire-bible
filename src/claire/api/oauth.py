@@ -28,9 +28,9 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from ..config import get_settings
+from ..core.ports import get_web_ui_renderer
 from ..i18n import get_locale, t
 from ..notify import push_locale
-from ..presentation.favicon import render_favicon_head_tags
 from ..store import accounts as accounts_store
 from ..store import auth_db
 from ..store import db as dbm
@@ -418,7 +418,7 @@ def _render_authorize_page(
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>{_h(t("auth.oauth.page_title"))}</title>
-    {render_favicon_head_tags(include_pwa_register=False)}
+    {get_web_ui_renderer().render_favicon_head_tags(include_pwa_register=False)}
     <style>{_OAUTH_PAGE_CSS}</style>
 </head>
 <body>
@@ -1314,7 +1314,7 @@ def _render_device_page(
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>{_h(t("auth.device.page_title"))}</title>
-    {render_favicon_head_tags(include_pwa_register=False)}
+    {get_web_ui_renderer().render_favicon_head_tags(include_pwa_register=False)}
     <style>{_OAUTH_PAGE_CSS}</style>
 </head>
 <body>

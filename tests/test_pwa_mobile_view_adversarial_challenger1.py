@@ -30,8 +30,8 @@ from claire.store import db as dbm
 from claire.store.token_store import reset_token_stores
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-APP_JS_PATH = PROJECT_ROOT / "src" / "claire" / "static" / "js" / "app.js"
-INDEX_HTML_PATH = PROJECT_ROOT / "src" / "claire" / "templates" / "index.html"
+APP_JS_PATH = PROJECT_ROOT / "src" / "bible" / "static" / "js" / "app.js"
+INDEX_HTML_PATH = PROJECT_ROOT / "src" / "bible" / "templates" / "index.html"
 
 
 @pytest.fixture(autouse=True)

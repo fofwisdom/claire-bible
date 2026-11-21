@@ -98,7 +98,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
 
             # 2-1. Docmeta presentation contract & UI verification
             from claire.store.queries import document_detail
-            from claire.graphview import shared_html
+            from claire_bible.web.pages import GRAPH_HTML, shared_html
 
             detail = document_detail(conn, report.document_id)
             assert detail is not None
@@ -110,7 +110,6 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             assert '"vlm_language": "ko"' in rendered_page
 
             import subprocess
-            from claire.graphview import GRAPH_HTML
 
             start = GRAPH_HTML.index("function docMetaHtml(dc){")
             end = GRAPH_HTML.index("function renderReader(dc){")

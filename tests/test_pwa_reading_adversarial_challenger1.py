@@ -41,7 +41,7 @@ from tests.kb_paths import kb_number
 from claire import ids
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.graphview import render_graph_html
+from claire_bible.web.pages import render_graph_html
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
@@ -710,7 +710,7 @@ def test_reader_presentation_disabled_and_visitor(tmp_path: Path):
 
 def test_static_reader_js_helper_adversarial_contract():
     """[M3-CH-19] Validate readerApiUrl JavaScript logic under edge cases."""
-    reader_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "reader.js"
+    reader_js_path = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "reader.js"
     content = reader_js_path.read_text(encoding="utf-8")
 
     # Verify implementation of readerApiUrl handles leading slashes and fallback

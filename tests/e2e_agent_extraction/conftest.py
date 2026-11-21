@@ -476,7 +476,7 @@ def run_claire_cli(env: ClaireTestEnv, args: list[str], extra_env: dict[str, str
     venv_python = REPO_ROOT / ".venv" / "bin" / "python"
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     return subprocess.run(
-        [python_bin, "-m", "claire.cli", *args],
+        [python_bin, "-m", "claire_bible.cli", *args],
         cwd=str(env.tmp_path),
         env=sub_env,
         capture_output=True,

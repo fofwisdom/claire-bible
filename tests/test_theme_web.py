@@ -5,11 +5,11 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.config import Settings
-from claire.graphview import render_graph_html
+from claire_bible.web.pages import render_graph_html
 from tests.single_mode import complete_admin_setup
 
 # 테마 관리 UI는 루트 상세 메뉴에서 빠지고 콘솔이 쓰는 공유 모듈에만 있다.
-MANAGE_PANELS_JS = (Path(__file__).resolve().parents[1] / "src" / "claire" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
+MANAGE_PANELS_JS = (Path(__file__).resolve().parents[1] / "src" / "bible" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
 
 
 def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):

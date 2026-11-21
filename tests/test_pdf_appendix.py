@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from claire.config import get_settings
-from claire.graphview import render_graph_html
+from claire_bible.web.pages import render_graph_html
 from claire.ingest.fetchers.pdf import (
     find_appendix_split,
     slice_pdf_text,

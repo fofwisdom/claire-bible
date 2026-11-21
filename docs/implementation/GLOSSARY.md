@@ -152,7 +152,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 추출 지향성 | **초점** | Extraction Focus | `focus` | `documents.meta["focus"]` (데이터만 남음. 수집 초점은 봉인됨, CT28) |
 | 국소 그래프 | **로컬 그래프** | Local Graph | `renderLocalGraphHtml()`, `ctx-local-graph` | 문서 문맥 패널 연결 탭의 인라인 SVG 그래프 (링 1 문서 엔티티 최대 24, 링 2 타 문서 연결 엔티티 최대 12) |
 | 본문 마크 | **엔티티 마크** | Entity Mark | `applyEntityMarks()`, `claire-entity` | CSS Custom Highlight API 기반 리더 본문 엔티티 하이라이트 (DOM 트리 변경 없음) |
-| 통합 검색·실행 창 | **명령 팔레트** | Command Palette | `ClaireCommandPalette` (`src/claire/static/js/command_palette.js`) | `<dialog id="cmdpalette">` 기반 명령·문서·엔티티 통합 검색 및 이동 모달 (`/` 키) |
+| 통합 검색·실행 창 | **명령 팔레트** | Command Palette | `ClaireCommandPalette` (`src/bible/static/js/command_palette.js`) | `<dialog id="cmdpalette">` 기반 명령·문서·엔티티 통합 검색 및 이동 모달 (`/` 키) |
 | 링크 따라가기 | **링크 확장** | Link Expansion | `expand` (`src/claire/expand/`, `expand_queue`, `expand-loop`, `expand-run`, 등급 기능 `expand`, `CLAIRE_EXPAND_MAX`) | 적재한 문서의 링크를 따라가 관련 문서를 더한다. 깊이는 1로 고정이며 이름에 넣지 않는다. "1홉 확장"은 옛 이름이다 ([EXPANSION.md](EXPANSION.md)) |
 | 자동 방식 | **자동 확장** | Automatic Expansion | `auto_expand`, `expand/automatic.py`, 원천값 `expand:<부모 id>` | LLM이 링크를 선별하고 확장 게이트를 통과한 링크를 독립 문서로 적재한다. 끄면 확장 제안이 남는다 |
 | 버튼 제안 방식 | **확장 제안** | Expansion Proposal | `expand/proposal.py`, 원천값 `expand-proposal` | 자동 확장이 꺼져 있을 때 텔레그램 버튼으로 후보 링크를 제안한다 |

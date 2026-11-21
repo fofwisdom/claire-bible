@@ -41,7 +41,7 @@ class Finding:
 
     def text(self) -> str:
         what = {
-            "core_import": "imports a core module other than claire.plugin_sdk",
+            "core_import": "imports a restricted package or core module other than claire.plugin_sdk",
             "network_module": "imports a network module that permissions.network_modules does not name",
             "process": "starts processes, but permissions.executables is empty",
             "blocked_import": "uses a module or built-in disallowed for agent_client plugins",
@@ -70,6 +70,9 @@ def check_source(source: str, filename: str, *, network_modules: tuple[str, ...]
         if name == "claire" or name.startswith("claire."):
             if is_agent_client or not (name == SDK_MODULE or name.startswith(SDK_MODULE + ".")):
                 findings.append(Finding(filename, line, "core_import", name))
+            return
+        if name in ("bible", "claire_bible") or name.startswith(("bible.", "claire_bible.")):
+            findings.append(Finding(filename, line, "core_import", name))
             return
         if is_agent_client:
             if _matches(name, AGENT_CLIENT_NETWORK_MODULES) is not None:

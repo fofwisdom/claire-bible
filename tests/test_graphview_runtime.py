@@ -19,11 +19,11 @@ import tempfile
 
 import pytest
 
-from claire.graphview import _SHARED_HTML, GRAPH_HTML, _graph_html_for, _shared_html_for
+from claire_bible.web.pages import _SHARED_HTML, GRAPH_HTML, _graph_html_for, _shared_html_for
 
-_PACKAGE_DIR = Path(__file__).resolve().parent.parent / "src" / "claire"
-_STATIC_JS_DIR = _PACKAGE_DIR / "static" / "js"
-_TEMPLATES_DIR = _PACKAGE_DIR / "templates"
+_BIBLE_DIR = Path(__file__).resolve().parent.parent / "src" / "bible"
+_STATIC_JS_DIR = _BIBLE_DIR / "static" / "js"
+_TEMPLATES_DIR = _BIBLE_DIR / "templates"
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +74,7 @@ def test_graphview_bundle_js_syntax(node_available: bool) -> None:
     if not node_available:
         pytest.skip("Node.js is not installed on the system")
 
-    # The translation slots of the page are resolved for one locale before the scripts run (graphview.localize_page).
+    # The translation slots of the page are resolved for one locale before the scripts run (claire_bible.web.pages.localize_page).
     scripts = extract_scripts(_graph_html_for("en"))
     assert len(scripts) >= 1, "GRAPH_HTML should contain at least one <script> block"
 

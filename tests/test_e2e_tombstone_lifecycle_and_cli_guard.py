@@ -117,7 +117,7 @@ def test_e2e_tombstone_lifecycle_untombstone_and_cli_guard(tmp_path: Path, monke
 
         # Step 6: CLI Guard Safety Test - typo option (-no-tombstone) must fail and NOT execute purge
         res = subprocess.run(
-            [sys.executable, "-m", "claire.cli", "purge", "-no-tombstone", new_doc_id, "--apply", "--yes"],
+            [sys.executable, "-m", "claire_bible.cli", "purge", "-no-tombstone", new_doc_id, "--apply", "--yes"],
             capture_output=True,
             text=True,
             env={"CLAIRE_DB_PATH": str(db_file), "CLAIRE_DATA_LIFECYCLE": "purgeable", "CLAIRE_ALLOW_PURGE": "1"},

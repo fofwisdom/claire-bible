@@ -13,8 +13,8 @@ digest = "sha256:bc962392017d9321d27f5753219bc0de2c57f8de194a73361d9c708b9461f5d
 
 [[plugin]]
 id = "claire.hoyolab"
-revision = 2
-digest = "sha256:670274c1381c1b496f47916b0e1f7d56aa4b93cc6ae14d9cd70db50822109f4e"
+revision = 3
+digest = "sha256:dec1da225d552920e0bc19d6bc23b0ed75a66bf56c94615b16a627fae554c8c2"
 
 [[plugin]]
 id = "claire.law_go_kr"

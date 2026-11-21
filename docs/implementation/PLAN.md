@@ -27,12 +27,20 @@ SQLite 정본 + FTS + vector + detail HTML
 ### 입력과 수집
 
 - `src/claire/telegram_bot.py`: 텔레그램 long-polling 진입점
-- `src/claire/cli.py`: 적재·검색·운영 명령
-- `src/claire/api/server.py`: 루프백 기본 로컬 API와 웹 UI
+- `src/claire/cli.py`: 적재·검색·운영 명령 (`src/claire_bible/cli.py`가 포트 연결 후 위임)
+- `src/claire/api/server.py`: 루프백 기본 로컬 API와 웹 UI (`src/claire_bible/web/app.py`가 포트 연결 후 `create_app` 위임)
 - `src/claire/ingest/router.py`: URL·공유 텍스트·파일·메모 분류
 - `src/claire/ingest/fetchers/`: 웹, 리다이렉트, YouTube, X, 텍스트, PDF, 영상 등 fetcher. 정본: [INGESTION.md](INGESTION.md)
 
 Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류와 콘텐츠 해시를 포함하는 정규화된 `Document`를 반환한다. 네트워크 입력은 허용 프로토콜과 목적지 정책을 통과해야 한다.
+
+### 렌더링과 조합 루트
+
+- `src/bible/adoc/`: AsciiDoc AOT HTML 렌더링, Markdown 내보내기, 미디어 URL 변환 (`claire`·`claire_bible` 미참조)
+- `src/bible/slides/`: 슬라이드 전처리, Asciidoctor reveal.js 컴파일, HUD, 안내 페이지
+- `src/bible/web/`, `src/bible/templates/`, `src/bible/static/`: UI 크롬, 파비콘, 메타데이터, 독립 HTML 번들 및 정적 자산
+- `src/claire/core/ports.py`: 도메인 코어(`claire`)가 호출하는 아웃바운드 렌더러 포트 계약 (`DocumentRendererPort`, `SlideRendererPort`, `WebUIRendererPort`)
+- `src/claire_bible/`: 조합 루트(`bootstrap.py`, `cli.py`, `web/app.py`, `web/pages.py`)로 `bible`과 `claire` 데이터를 연결한다
 
 ### 추출과 온톨로지
 

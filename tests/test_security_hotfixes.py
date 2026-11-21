@@ -19,13 +19,13 @@ from starlette.testclient import TestClient
 
 from claire.api.server import create_app
 from claire.config import Settings
-from claire.graphview import shared_html
+from claire_bible.web.pages import shared_html
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.token_store import get_token_store
 
 ROOT = Path(__file__).resolve().parents[1]
-STATIC_JS = ROOT / "src" / "claire" / "static" / "js"
+STATIC_JS = ROOT / "src" / "bible" / "static" / "js"
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 WRITE_TOKEN = "write-" + ("w" * 32)

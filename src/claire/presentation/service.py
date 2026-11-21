@@ -12,13 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ..core.ports import get_slide_renderer
 from ..extract.prompts import PRESENTATION_PROMPT_VERSION
 from ..ontology.base import Document
 from ..store import db as dbm
-from .converter import compile_presentation_html, find_asciidoctor_executable
-from .preprocessor import (
-    prepare_presentation_adoc_for_compile,
-)
 
 # Concurrency slot = 1: Dedicated worker pool and semaphore to prevent freezing the server
 _PRES_SEMAPHORE = asyncio.Semaphore(1)
@@ -96,7 +93,7 @@ class PresentationService:
     @classmethod
     def is_engine_available(cls) -> bool:
         """Check if asciidoctor-revealjs compiler is available on system."""
-        return find_asciidoctor_executable() is not None
+        return get_slide_renderer().find_asciidoctor_executable() is not None
 
     @classmethod
     def is_in_flight(cls, key: str) -> bool:
@@ -355,7 +352,8 @@ class PresentationService:
             return res_dict
 
         # 3. Prepare compiler attributes (theme, customcss, revealjsdir)
-        compiler_adoc = prepare_presentation_adoc_for_compile(
+        slide_renderer = get_slide_renderer()
+        compiler_adoc = slide_renderer.prepare_presentation_adoc_for_compile(
             adoc_content,
             theme=theme,
             transition=transition,
@@ -384,7 +382,7 @@ class PresentationService:
 
         # 4. Execute compilation
         try:
-            _, duration_ms = await compile_presentation_html(
+            _, duration_ms = await slide_renderer.compile_presentation_html(
                 compiler_adoc,
                 target_file,
                 doc_id=doc_id,

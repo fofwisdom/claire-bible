@@ -6,13 +6,14 @@ import asyncio
 import sqlite3
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from claire.api.server import create_app
+from claire_bible.web.app import create_app
 from claire.config import Settings
+from claire.core.ports import get_slide_renderer
 from claire.store import db as dbm
 
 
@@ -103,7 +104,7 @@ The website of the future may assemble itself for every visitor.
 """
 
         with patch("claire.extract.provider.MockProvider.compose_presentation", side_effect=slow_compose):
-            with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+            with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
                 target_file = tmp_path / "presentations" / f"{doc_id}.html"
                 target_file.parent.mkdir(parents=True, exist_ok=True)
                 target_file.write_text("<!DOCTYPE html><html><body><h1>Future Web Slide</h1></body></html>")
