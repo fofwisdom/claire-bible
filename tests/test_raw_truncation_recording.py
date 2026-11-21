@@ -6,11 +6,12 @@ from claire.extract.table_budget import (
     slice_text_with_table_exemption,
     slice_text_with_table_exemption_info,
 )
-from claire.graphview import document_detail, render_graph_html, shared_html
+from claire.graphview import render_graph_html, shared_html
 from claire.ingest.fetchers.textfile import fetch_file, fetch_text
 from claire.ingest.fetchers.web import fetch_web
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from claire.store.queries import document_detail
 
 from tests.js_i18n import js_i18n_prelude
 

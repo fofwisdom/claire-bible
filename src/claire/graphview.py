@@ -1,6 +1,6 @@
-"""읽기전용 그래프 시각화 및 문서 뷰어 — 정적 자산 로더 + 템플릿 렌더러.
+"""Read-only graph visualization and document viewer: static asset bundler and HTML page renderers.
 
-데이터 질의 로직은 `claire.store.queries`로 분리되었으며, UI 정적 자산(CSS/JS) 및 템플릿은 `src/claire/static/`, `src/claire/templates/`에 위치합니다. 이 모듈은 하위 호환성을 위해 쿼리 함수들을 re-export하고, 단일 페이지 오프라인 번들(GRAPH_HTML, _SHARED_HTML) 및 서빙용 렌더러를 제공합니다.
+UI static assets (CSS and JS) and templates live in ``src/claire/static/`` and ``src/claire/templates/``. This module builds standalone bundles (``GRAPH_HTML``, ``_SHARED_HTML``, ``SYNDICATION_HTML``) and renders pages for serving.
 """
 
 from __future__ import annotations
@@ -8,21 +8,11 @@ from __future__ import annotations
 import html as _html
 import json as _json
 import re
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-# 순수 데이터 쿼리 계층 Re-export (하위 호환성 100% 보장)
-from .store.queries import (
-    dedup_clusters,
-    document_detail,
-    documents_list,
-    graph_json,
-    node_detail,
-    synthesis_context,
-    synthesize,
-    theme_summary,
-)
 from . import ui_chrome
 from .i18n import browser_catalog_json, get_locale, t
 from .presentation.favicon import (
@@ -487,8 +477,11 @@ def render_open_graph_tags(
     base_url: str = "",
     share_token: str = "",
     settings: Any = None,
+    *,
+    is_media: bool = False,
+    is_media_source: Callable[[str], bool] | None = None,
 ) -> str:
-    """텔레그램, 마스토돈, 슬랙, 디스코드, X 등과 호환되는 Open Graph 및 Twitter Cards 메타태그와 Schema.org JSON-LD를 생성한다."""
+    """Build Open Graph, Twitter Cards, and Schema.org JSON-LD metadata tags."""
     base = base_url.rstrip("/") if base_url else ""
 
     raw_title = str((doc or {}).get("title") or "공유 문서").strip()
@@ -507,9 +500,9 @@ def render_open_graph_tags(
 
     author = str((doc or {}).get("author") or "").strip()
     src_type = str((doc or {}).get("source_type") or "").strip().lower()
-    from .ingest.source_types import is_media_source_type
+    media_source = is_media or (is_media_source(src_type) if is_media_source is not None else False)
 
-    if is_media_source_type(src_type) or author.lower() in ("orbrium", "youtube", "채널", "channel"):
+    if media_source or author.lower() in ("orbrium", "youtube", "채널", "channel"):
         author = ""
     published_at = str((doc or {}).get("published_at") or "").strip()
 
@@ -644,9 +637,12 @@ def shared_html(
         doc_copy["presentation_pdf"] = pres
     doc = doc_copy
 
+    from .ingest.source_types import is_media_source_type
+
     doc_id = str((doc or {}).get("id", "") or "").strip()
     ga_tag = render_ga_tag(ga_id, doc_id=doc_id)
-    og_tags = render_open_graph_tags(doc, base_url=resolved_base_url, share_token=share_token, settings=s)
+    src_type = str((doc or {}).get("source_type") or "").strip().lower()
+    og_tags = render_open_graph_tags(doc, base_url=resolved_base_url, share_token=share_token, settings=s, is_media=is_media_source_type(src_type))
 
     raw_summary = str((doc or {}).get("summary") or (doc or {}).get("detail") or "").strip()
     esc_summary = _html.escape(raw_summary).replace("\n", "<br/>")
@@ -1057,13 +1053,8 @@ __all__ = [
     "GRAPH_HTML",
     "SYNDICATION_HTML",
     "_SHARED_HTML",
-    "dedup_clusters",
-    "document_detail",
-    "documents_list",
     "extract_knowledge_node_tags",
-    "graph_json",
     "inject_favicon_head_tags",
-    "node_detail",
     "render_favicon_head_tags",
     "render_ga_tag",
     "render_graph_html",
@@ -1072,7 +1063,4 @@ __all__ = [
     "resolve_preview_image",
     "sanitize_preview_text",
     "shared_html",
-    "synthesis_context",
-    "synthesize",
-    "theme_summary",
 ]

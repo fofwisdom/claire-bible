@@ -1012,7 +1012,7 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 | `src/claire/store/actor_keys.py` | `load_kb_public_jwks` |
 | `src/claire/api/federation_routes.py` | Contract `1.12`, sealed heartbeat models `KnowledgeSelfCheck`, `SignedSelfCheck`, `LoopState`, `HeartbeatLoops` |
 | `src/claire/api/accounts_routes/federation.py` | Gate `POST /api/admin/federation` (`failures` filters on `level == "required" and applies and not passed`), heartbeat `knowledge_self_check` and `loops` |
-| `src/claire/api/accounts_routes/console_federation_panels.py`, `src/claire/static/js/console_admin.js`, `src/claire/static/locales/en.json`, `src/claire/static/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
+| `src/claire/api/accounts_routes/console_federation_panels.py`, `src/claire/static/js/console_admin.js`, `src/claire/i18n/locales/en.json`, `src/claire/i18n/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
 | `src/claire/cli.py` | `--federation` help (`GF1 to GF17`) and output |
 | `src/claire/api/security.py`, `src/claire/api/host_router.py` | Decision CD4 (`DQ1: A`): `development` accepts `https://<name>.test/` and applies `.test` DNS role rules |
 | `sidecar/fedify/src/internal_api.ts`, `sidecar/fedify/src/sidecar.ts`, `sidecar/fedify/src/main.ts` | Contract `1.12`, `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange`, `loops()` |

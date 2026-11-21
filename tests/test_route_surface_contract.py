@@ -58,7 +58,7 @@ SYSTEM = {
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",
     "/fonts/NotoSerifKR-Regular.woff2", "/fonts/NotoSerifKR-Bold.woff2", "/fonts/D2Coding.woff2",
     "/fonts/D2CodingBold.woff2", "/p", "/p/presentation", "/image", "/images/{filename:path}",
-    "/p/images/{filename:path}", "/static/{path:path}", "/reference", "/openapi.yaml",
+    "/p/images/{filename:path}", "/static/locales/{path:path}", "/static/{path:path}", "/reference", "/openapi.yaml",
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
     "/oauth/token", "/oauth/revoke", "/oauth/device_authorization", "/device", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",

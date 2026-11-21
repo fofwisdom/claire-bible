@@ -1,6 +1,6 @@
 """JSON catalog loader and interpolation (I18N design Section 4).
 
-The catalogs in ``src/claire/static/locales/`` are the single source for Python and for browser JavaScript. A catalog is a flat object: dot-delimited key to string template. The placeholder syntax is ``{name}``.
+The catalogs in ``src/claire/i18n/locales/`` are the single source for Python and for browser JavaScript. A catalog is a flat object: dot-delimited key to string template. The placeholder syntax is ``{name}``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any, Literal
 from .context import get_locale
 from .locales import DEFAULT_LOCALE, SUPPORTED_LOCALE_SET, LocaleCode
 
-LOCALES_DIR = Path(__file__).resolve().parent.parent / "static" / "locales"
+LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 PLACEHOLDER = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 _KEY = re.compile(r"^[a-z0-9_]+(?:\.[a-z0-9_]+)+$")
 

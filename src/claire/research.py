@@ -22,7 +22,7 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
     parts: list[str] = []
     focus = ""
     if node_id:
-        from .graphview import synthesis_context
+        from .store.queries import synthesis_context
 
         ctx, names = synthesis_context(conn, [node_id], kb_id=kb_id)
         if ctx:

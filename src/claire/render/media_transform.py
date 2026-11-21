@@ -12,11 +12,9 @@ Design references:
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-
-from ..store.media import create_media_capability_token
-from ..store.secrets import SecretService
 
 __all__ = [
     "extract_media_key",
@@ -76,14 +74,14 @@ def media_url(
     kb_id: int = 0,
     visibility_epoch: int = 1,
     roles: Any | None = None,
-    secret_service: SecretService | None = None,
+    token_signer: Callable[..., str] | None = None,
     expires_in: int = 3600,
 ) -> str:
-    """Transform media reference to target media URL (설계 §5.4).
+    """Transform a media reference into the target media URL.
 
-    - If media host is configured (roles.media or CLAIRE_MEDIA_FQDN), returns URL on media host.
-    - Otherwise returns app host legacy path (/image?p=images/...).
-    - For private media (is_public=False), attaches 1-hour capability viewing token.
+    - If a media host is set (``roles.media``), return the URL on the media host.
+    - Otherwise return the app host path (``/image?p=images/...``).
+    - For private media (``is_public=False``), call ``token_signer`` to sign a capability token.
     """
     clean_key = extract_media_key(ref)
     if clean_key is None:
@@ -99,13 +97,14 @@ def media_url(
         base = f"/image?p=images/{clean_key}"
 
     if not is_public:
-        token = create_media_capability_token(
+        if token_signer is None:
+            raise ValueError("token_signer is required when is_public is False")
+        token = token_signer(
             account_id=account_id,
             kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             key=clean_key,
             expires_in=expires_in,
-            secret_service=secret_service,
         )
         sep = "&" if "?" in base else "?"
         return f"{base}{sep}account_id={account_id}&kb_id={kb_id}&visibility_epoch={visibility_epoch}&token={token}"
@@ -122,10 +121,10 @@ def transform_media_urls_in_html(
     kb_id: int = 0,
     visibility_epoch: int = 1,
     roles: Any | None = None,
-    secret_service: SecretService | None = None,
+    token_signer: Callable[..., str] | None = None,
     expires_in: int = 3600,
 ) -> str:
-    """Rewrite media references in HTML at render time (설계 §5.4)."""
+    """Rewrite media references in HTML at render time."""
     if not html_content:
         return ""
 
@@ -141,7 +140,7 @@ def transform_media_urls_in_html(
             kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             roles=roles,
-            secret_service=secret_service,
+            token_signer=token_signer,
             expires_in=expires_in,
         )
 

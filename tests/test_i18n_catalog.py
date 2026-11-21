@@ -20,9 +20,9 @@ def test_catalogs_have_the_same_keys_and_placeholders() -> None:
             assert sorted(catalog.PLACEHOLDER.findall(other[key])) == sorted(catalog.PLACEHOLDER.findall(template)), f"{locale}.json placeholders differ for {key}"
 
 
-def test_catalog_files_are_served_from_the_static_directory() -> None:
-    # The browser reads the same files at /static/locales/{locale}.json (decision ID4).
-    assert catalog.LOCALES_DIR == Path(catalog.__file__).resolve().parent.parent / "static" / "locales"
+def test_catalog_files_are_served_from_the_i18n_directory() -> None:
+    # Python reads the catalogs from i18n/locales/, and the API mounts the directory at /static/locales.
+    assert catalog.LOCALES_DIR == Path(catalog.__file__).resolve().parent / "locales"
     assert {p.name for p in catalog.LOCALES_DIR.glob("*.json")} == {f"{code}.json" for code in SUPPORTED_LOCALES}
 
 

@@ -10,18 +10,20 @@ from claire.extract.provider import MockProvider
 from claire.graphview import (
     _SHARED_HTML,
     GRAPH_HTML,
-    document_detail,
-    documents_list,
-    graph_json,
-    node_detail,
     render_graph_html,
     shared_html,
-    synthesis_context,
-    synthesize,
 )
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store import queries as store_queries
+from claire.store.queries import (
+    document_detail,
+    documents_list,
+    graph_json,
+    node_detail,
+    synthesis_context,
+    synthesize,
+)
 
 
 def _db():
@@ -32,7 +34,7 @@ def _db():
 
 
 def test_queries_module_separation_and_reexport_compatibility():
-    """claire.store.queries 순수 쿼리 함수들이 분리되었으며, claire.graphview에서 동일 객체로 re-export되는지 검증."""
+    """Verify claire.store.queries owns all query functions and claire.graphview does not re-export them."""
     query_names = [
         "graph_json",
         "documents_list",
@@ -41,12 +43,12 @@ def test_queries_module_separation_and_reexport_compatibility():
         "dedup_clusters",
         "synthesis_context",
         "synthesize",
+        "theme_summary",
     ]
     for name in query_names:
         assert hasattr(store_queries, name), f"store.queries missing {name}"
-        assert getattr(store_queries, name) is getattr(graphview, name), (
-            f"graphview.{name} is not re-exported from store.queries"
-        )
+        assert not hasattr(graphview, name), f"graphview must not re-export {name}"
+        assert name not in graphview.__all__, f"graphview.__all__ must not contain {name}"
 
 
 

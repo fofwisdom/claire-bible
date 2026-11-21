@@ -415,10 +415,10 @@ Basis: commit d15ae8e0 (2026-11-16). This section is in English.
 | :--- | :--- | :--- |
 | Data queries | `src/claire/store/queries.py` | `graph_json`, `documents_list`, `documents_page`, `node_detail`, `document_detail`, `dedup_clusters`, `synthesis_context`, `synthesize`, `theme_summary`. The API server, the MCP tools (`src/claire/api/mcp_tools.py`), and the CLI import them from here. |
 | Templates | `src/claire/templates/` | `index.html` (workspace), `share.html` (shared document), `syndication.html`, `console_shell.html`, and other page shells |
-| Static assets | `src/claire/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `locales/`, `vendor/`, `docs/` |
+| Static assets | `src/claire/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `vendor/`, `docs/` |
 | Page assembly | `src/claire/graphview.py` | Builds the inline bundles and fills the slots for each request |
 
-`graphview.py` re-exports the query functions of `store/queries.py` for old imports [code].
+Callers import the query functions directly from `src/claire/store/queries.py` [code].
 
 ### 15.2 Inline bundles [code]
 
@@ -432,7 +432,7 @@ Basis: commit d15ae8e0 (2026-11-16). This section is in English.
 
 ### 15.3 Static file serving [code]
 
-- `src/claire/api/server.py` mounts `/static` with Starlette `StaticFiles` on `src/claire/static/`.
+- `src/claire/api/server.py` mounts `/static/locales` on `src/claire/i18n/locales/` (`LOCALES_DIR`) before `/static` on `src/claire/static/`.
 - `src/claire/api/security.py` makes `GET` and `HEAD` on `/static/{path:path}` public.
 - The console pages (`src/claire/api/accounts_routes/console.py`) load their scripts from `/static/js/` with `defer`; they are not inline bundles.
 - The wheel includes the assets because `pyproject.toml` has `only-include = ["src/claire"]`.

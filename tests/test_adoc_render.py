@@ -13,11 +13,12 @@ from claire.extract.prompts import (
     render_detail_prompt,
 )
 from claire.extract.provider import MockProvider
-from claire.graphview import GRAPH_HTML, document_detail, shared_html
+from claire.graphview import GRAPH_HTML, shared_html
 from claire.ingest.pipeline import ensure_document_detail
 from claire.ontology.base import Document
 from claire.render import render_adoc_to_html
 from claire.store import db as dbm
+from claire.store.queries import document_detail
 
 
 def test_config_render_format_validation():

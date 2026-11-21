@@ -178,7 +178,7 @@ def test_readonly_document_get_does_not_mark_document_seen(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from claire import graphview
+    from claire.store import queries as store_queries
 
     detail_calls: list[tuple[str, bool, int | None]] = []
 
@@ -188,7 +188,7 @@ def test_readonly_document_get_does_not_mark_document_seen(
         detail_calls.append((document_id, include_hidden, kb_id))
         return {"id": document_id, "title": "stub"}
 
-    monkeypatch.setattr(graphview, "document_detail", fake_document_detail)
+    monkeypatch.setattr(store_queries, "document_detail", fake_document_detail)
 
     def unexpected_seen_mutation(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("GET /document must not mutate seen state")
@@ -303,7 +303,7 @@ def test_owner_dedup_scan_post_reaches_service(
     service: StubService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from claire import graphview
+    from claire.store import queries as store_queries
 
     kb_ids: list[int | None] = []
 
@@ -311,7 +311,7 @@ def test_owner_dedup_scan_post_reaches_service(
         kb_ids.append(kb_id)
         return {"clusters": [], "scan": scan}
 
-    monkeypatch.setattr(graphview, "dedup_clusters", fake_dedup_clusters)
+    monkeypatch.setattr(store_queries, "dedup_clusters", fake_dedup_clusters)
 
     response = client.post("/dedup/scan", headers=OWNER_HEADERS)
 

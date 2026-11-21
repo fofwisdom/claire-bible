@@ -395,7 +395,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/images/{filename:path}"): _system("public", "none"),
     ("GET", "/p/images/{filename:path}"): _system("public", "none"),
     ("HEAD", "/p/images/{filename:path}"): _system("public", "none"),
-    # Mount("/static")의 정적 자산(O2). 접두 아래에서는 system이라 404다.
+    # Mount("/static/locales") and Mount("/static") static assets (O2). Under a prefix they are system routes and return 404.
+    ("GET", "/static/locales/{path:path}"): _system("public", "none"),
+    ("HEAD", "/static/locales/{path:path}"): _system("public", "none"),
     ("GET", "/static/{path:path}"): _system("public", "none"),
     ("HEAD", "/static/{path:path}"): _system("public", "none"),
     ("GET", "/"): _root("read", "read"),

@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from claire import graphview, secret_scrub
+from claire import secret_scrub
 from claire.accounts import provider_policy as policy
 from claire.accounts import server_tier
 from claire.api import server
@@ -33,6 +33,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import provider_keys
+from claire.store import queries as store_queries
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
 from claire.store.token_store import get_token_store, reset_token_stores
@@ -226,7 +227,7 @@ def synth_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         calls.append((provider, entity_ids, kb_id))
         return {"answer": "synthesized"}
 
-    monkeypatch.setattr(graphview, "synthesize", _fake, raising=False)
+    monkeypatch.setattr(store_queries, "synthesize", _fake)
     return calls
 
 

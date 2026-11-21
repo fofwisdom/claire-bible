@@ -39,6 +39,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..render.media_transform import transform_media_urls_in_html
 from ..store import db as dbm
+from ..store.media import create_media_capability_token
 from ..store.secrets import SecretService, get_secret_service
 
 __all__ = [
@@ -400,6 +401,9 @@ def create_usercontent_app(
     app_origin = f"{scheme}://{app_host}"
     usercontent_origin = f"{scheme}://{usercontent_host}"
 
+    def _sign_media_token(*, account_id: int, kb_id: int, visibility_epoch: int, key: str, expires_in: int) -> str:
+        return create_media_capability_token(account_id=account_id, kb_id=kb_id, visibility_epoch=visibility_epoch, key=key, expires_in=expires_in, secret_service=secret_service)
+
     def _is_document_pending(doc_id_val: int | str) -> bool:
         if not db_path or not db_path.exists():
             return False
@@ -506,7 +510,7 @@ def create_usercontent_app(
             kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             roles=roles,
-            secret_service=secret_service,
+            token_signer=_sign_media_token,
         )
         cleaned_body = sanitize_usercontent_html(raw_content)
         title_str = html.escape(doc_dict.get("title") or "Document")
@@ -633,7 +637,7 @@ def create_usercontent_app(
                 kb_id=kb_id if doc_dict else 0,
                 visibility_epoch=visibility_epoch if doc_dict else 1,
                 roles=roles,
-                secret_service=secret_service,
+                token_signer=_sign_media_token,
             )
             deck_html = re.sub(r"<script(?![^>]*\bnonce=)", f'<script nonce="{nonce}"', content)
         else:

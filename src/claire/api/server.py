@@ -47,6 +47,7 @@ from ..accounts import server_tier
 from ..config import Settings, get_settings
 from ..i18n import get_locale
 from ..i18n import t as _t
+from ..i18n.catalog import LOCALES_DIR
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
@@ -176,19 +177,6 @@ def _entity_language_kwargs(request: Request) -> dict[str, Any]:
     """Keyword for the query functions that select entity labels: the entity language of the account of the request. Empty when the account has none (and for an anonymous visitor), thus those calls do not change."""
     language = request_principal(request).entity_language
     return {"entity_language": language} if language else {}
-
-
-def _resolve_query_func(name: str, default: Any) -> Any:
-    """테스트 monkeypatch 및 하위 호환성을 위해 graphview 속성이 패치된 경우 우선 사용한다."""
-    try:
-        from .. import graphview
-
-        fn = getattr(graphview, name, None)
-        if fn is not None and fn is not default:
-            return fn
-    except ImportError:
-        pass
-    return default
 
 
 async def _http_error(_request: Request, exc: HTTPException) -> JSONResponse:
@@ -4010,14 +3998,13 @@ def create_app(
     async def graph_data(request: Request) -> JSONResponse:
         from ..store.queries import graph_json
 
-        _graph_json = _resolve_query_func("graph_json", graph_json)
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
 
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                g = _graph_json(conn, include_hidden=include_hidden, kb_id=theme.id, **_entity_language_kwargs(request))
+                g = graph_json(conn, include_hidden=include_hidden, kb_id=theme.id, **_entity_language_kwargs(request))
                 g["kb_id"] = theme.id
                 g["theme_label"] = theme.label
                 return g
@@ -4838,7 +4825,6 @@ def create_app(
     async def documents_list_route(request: Request) -> JSONResponse:
         from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
-        _documents_list = _resolve_query_func("documents_list", documents_list)
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
         hides_sources = _hides_sources(request, theme)
@@ -4893,7 +4879,7 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 format_status = dbm.check_format_mismatch(conn, render_format, kb_id=theme.id)
-                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
+                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=documents_list, **filters)
                 if hides_sources:
                     page["documents"] = _apply_source_rule(conn, theme, page["documents"])
                 return {
@@ -4912,7 +4898,6 @@ def create_app(
     async def node_detail(request: Request) -> JSONResponse:
         from ..store.queries import node_detail as _detail
 
-        _detail = _resolve_query_func("node_detail", _detail)
         node_id = request.query_params.get("id", "")
         if not node_id:
             raise HTTPException(status_code=400, detail="id required")
@@ -4988,7 +4973,6 @@ def create_app(
     async def document_detail_route(request: Request) -> JSONResponse:
         from ..store.queries import document_detail
 
-        _document_detail = _resolve_query_func("document_detail", document_detail)
         document_id = request.query_params.get("id", "")
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
@@ -5003,7 +4987,7 @@ def create_app(
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
-                rep = _document_detail(conn, document_id, include_hidden=include_hidden, kb_id=t_info.id, **language_kwargs)
+                rep = document_detail(conn, document_id, include_hidden=include_hidden, kb_id=t_info.id, **language_kwargs)
                 if rep is not None and hides_sources:
                     rep = _apply_source_rule(conn, t_info, [rep])[0]
                 if rep is not None:
@@ -5354,7 +5338,6 @@ def create_app(
     async def synthesize_route(request: Request) -> JSONResponse:
         from ..store.queries import synthesize
 
-        _synthesize = _resolve_query_func("synthesize", synthesize)
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         await _require_theme_feature(theme, theme_svc, "synthesize")
@@ -5367,7 +5350,7 @@ def create_app(
         def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id, include_hidden=synthesis_sees_hidden)
+                res = synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id, include_hidden=synthesis_sees_hidden)
                 res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
                 return res
@@ -5870,14 +5853,13 @@ def create_app(
     async def dedup_scan_route(request: Request) -> JSONResponse:
         from ..store.queries import dedup_clusters
 
-        _dedup_clusters = _resolve_query_func("dedup_clusters", dedup_clusters)
         theme, theme_settings, theme_svc = _get_theme_ctx(request)
 
         def _scan() -> dict[str, Any]:
             scan = theme_svc.dedup_scan()
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _dedup_clusters(conn, scan, kb_id=theme.id)
+                res = dedup_clusters(conn, scan, kb_id=theme.id)
                 if theme.id != 0:
                     res["kb_id"] = theme.id
                     res["theme_label"] = theme.label
@@ -5933,8 +5915,7 @@ def create_app(
 
                 from ..store.queries import node_detail as _detail
 
-                _detail_fn = _resolve_query_func("node_detail", _detail)
-                rep = _detail_fn(conn, updated.id, kb_id=theme.id, **language_kwargs)
+                rep = _detail(conn, updated.id, kb_id=theme.id, **language_kwargs)
                 if rep is not None and theme.id != 0:
                     rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
@@ -6054,7 +6035,6 @@ def create_app(
         from ..graphview import shared_html
         from ..store.queries import document_detail
 
-        _document_detail = _resolve_query_func("document_detail", document_detail)
         token = request.query_params.get("s", "")
         if not dbm.plausible_share_token(token):
             return PlainTextResponse("Not Found", status_code=404)
@@ -6074,14 +6054,14 @@ def create_app(
                 document_id = dbm.resolve_doc_share(conn, token, kb_id=0)
                 if not document_id:
                     return None
-                doc = _document_detail(conn, document_id, include_hidden=False, kb_id=0)
+                doc = document_detail(conn, document_id, include_hidden=False, kb_id=0)
                 if doc is not None and not doc.get("hidden"):
                     return doc
             finally:
                 conn.close()
 
             # When resolving token via default DB fallback: if document_id was found
-            # in doc_shares of Theme 0, but _document_detail is None in Theme 0,
+            # in doc_shares of Theme 0, but document_detail is None in Theme 0,
             # search other themes via theme_mgr.resolve_document_targets(doc_id=document_id).
             if document_id and getattr(s, "multi_theme", False):
                 targets = theme_mgr.resolve_document_targets(doc_id=document_id)
@@ -6092,7 +6072,7 @@ def create_app(
                     try:
                         t_conn = dbm.connect_existing(Path(target_db), readonly=True)
                         try:
-                            doc = _document_detail(t_conn, document_id, include_hidden=False, kb_id=target["kb_id"])
+                            doc = document_detail(t_conn, document_id, include_hidden=False, kb_id=target["kb_id"])
                             if doc is not None and not doc.get("hidden"):
                                 return doc
                         finally:
@@ -7291,6 +7271,7 @@ def create_app(
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
         *clients_app_routes(s, config=runtime_cfg),
+        Mount("/static/locales", StaticFiles(directory=str(LOCALES_DIR), check_dir=False), name="static-locales"),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
 

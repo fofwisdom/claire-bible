@@ -258,8 +258,9 @@ def test_pdf_parser_fallback_metadata_and_ingest_report(tmp_path: Path, monkeypa
 def test_graphview_parser_fallback_badge():
     """웹 UI 및 document_detail API에서 pdf_parser_fallback 및 주황색 배지가 노출되는지 검증."""
     import sqlite3
-    from claire.graphview import document_detail, render_graph_html
+    from claire.graphview import render_graph_html
     from claire.store import db as dbm
+    from claire.store.queries import document_detail
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

@@ -13,7 +13,7 @@ import pytest
 from claire.config import Settings, get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.provider import MockProvider
-from claire.graphview import GRAPH_HTML, document_detail
+from claire.graphview import GRAPH_HTML
 from claire.ingest.fetchers.pdf import PdfExtractResult
 from claire.ingest.fetchers.presentation import (
     PresentationExtract,
@@ -25,6 +25,7 @@ from claire.ingest.fetchers.web import render_html_cdp
 from claire.ingest.pipeline import ingest
 from claire.ontology.base import Document, SourceAttachment
 from claire.store import db as dbm
+from claire.store.queries import document_detail
 from claire.store.raw import load_artifact, raw_disk_usage, save_document_attachments
 from claire.store.vectors import VectorStore
 

@@ -17,8 +17,12 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 from claire.store import db as store_db
 from claire.store import federation as store_federation
@@ -90,7 +94,7 @@ _REEXPORT_CACHE: dict[str, str | None] = {}
 
 
 def _canonical(name: str, theme_fns: dict[str, ThemeParam]) -> str | None:
-    """정규 이름을 store 함수 이름으로. 다른 모듈의 재수출(`from ..graphview import synthesis_context`)도 따라간다."""
+    """Resolve a module path to the canonical store function name, including re-exports."""
     if name in theme_fns:
         return name
     if not name.startswith("claire.") or "." not in name:
@@ -307,45 +311,52 @@ def test_store_theme_functions_are_found() -> None:
     assert fns["claire.store.db.add_edge"].index is None  # 키워드 전용
 
 
-def test_detector_resolves_import_aliases() -> None:
-    """별칭 해석과 판정 규칙 자체를 확인한다."""
-    fns = _theme_functions()
-    src = (
-        "from ..store import db as dbm\n"
-        "from ..store.queries import theme_summary as ts\n"
-        "def f(conn, t, kw):\n"
-        "    from ..store.db import get_document\n"
-        "    dbm.get_document(conn, 1)\n"  # 위반
-        "    dbm.get_document(conn, 1, t)\n"
-        "    get_document(conn, 1, kb_id=None)\n"
-        "    ts(conn, None)\n"  # 위반: 위치 2가 kb_id
-        "    ts(conn, None, t)\n"
-        "    dbm.add_edge(conn, 1, 2, 'r', 'd', 1.0, None, None, t)\n"  # 위반: 키워드 전용
-        "    dbm.get_document(conn, 1, **kw)\n"  # 위반
-        "    dbm.get_document(conn, 1, **{'kb_id': t})\n"
-        "    from ..store.queries import node_detail as _detail\n"
-        "    _detail = _resolve_query_func('node_detail', _detail)\n"
-        "    _detail(conn, 'e1')\n"  # 위반: 래퍼로 받은 별칭
-        "    fn = dbm.get_entity\n"
-        "    fn(conn, 'e1', t)\n"
-        "    from ..graphview import synthesis_context\n"
-        "    synthesis_context(conn, ['e1'])\n"  # 위반: 재수출을 거친 호출
-    )
-    # 모듈 이름 계산(상대 import 해석)을 위해 요청 경로 안의 가상 경로를 쓴다
-    found = _violations_in(SRC / "claire" / "api" / "_fake_for_test.py", fns, source=src)
-    assert sorted(v.line for v in found) == [5, 8, 10, 11, 15, 19], [str(v) for v in found]
-    assert all(v.scope == "f" and not v.in_typeerror_fallback for v in found)
+def test_detector_resolves_import_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify import alias resolution and kb_id enforcement rules."""
+    stub = ModuleType("claire._reexport_stub")
+    stub.synthesis_context = store_queries.synthesis_context  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "claire._reexport_stub", stub)
+    _REEXPORT_CACHE.clear()
+    try:
+        fns = _theme_functions()
+        src = (
+            "from ..store import db as dbm\n"
+            "from ..store.queries import theme_summary as ts\n"
+            "def f(conn, t, kw):\n"
+            "    from ..store.db import get_document\n"
+            "    dbm.get_document(conn, 1)\n"  # 위반
+            "    dbm.get_document(conn, 1, t)\n"
+            "    get_document(conn, 1, kb_id=None)\n"
+            "    ts(conn, None)\n"  # 위반: 위치 2가 kb_id
+            "    ts(conn, None, t)\n"
+            "    dbm.add_edge(conn, 1, 2, 'r', 'd', 1.0, None, None, t)\n"  # 위반: 키워드 전용
+            "    dbm.get_document(conn, 1, **kw)\n"  # 위반
+            "    dbm.get_document(conn, 1, **{'kb_id': t})\n"
+            "    from ..store.queries import node_detail as _detail\n"
+            "    _detail = _resolve_query_func('node_detail', _detail)\n"
+            "    _detail(conn, 'e1')\n"  # 위반: 래퍼로 받은 별칭
+            "    fn = dbm.get_entity\n"
+            "    fn(conn, 'e1', t)\n"
+            "    from .._reexport_stub import synthesis_context\n"
+            "    synthesis_context(conn, ['e1'])\n"  # 위반: 재수출을 거친 호출
+        )
+        # 모듈 이름 계산(상대 import 해석)을 위해 요청 경로 안의 가상 경로를 쓴다
+        found = _violations_in(SRC / "claire" / "api" / "_fake_for_test.py", fns, source=src)
+        assert sorted(v.line for v in found) == [5, 8, 10, 11, 15, 19], [str(v) for v in found]
+        assert all(v.scope == "f" and not v.in_typeerror_fallback for v in found)
 
-    fallback_src = (
-        "from ..store import db as dbm\n"
-        "def g(conn, t):\n"
-        "    try:\n"
-        "        dbm.get_document(conn, 1, kb_id=t)\n"
-        "    except TypeError:\n"
-        "        dbm.get_document(conn, 1)\n"
-    )
-    found = _violations_in(SRC / "claire" / "api" / "_fake_for_test.py", fns, source=fallback_src)
-    assert [(v.line, v.in_typeerror_fallback) for v in found] == [(6, True)]
+        fallback_src = (
+            "from ..store import db as dbm\n"
+            "def g(conn, t):\n"
+            "    try:\n"
+            "        dbm.get_document(conn, 1, kb_id=t)\n"
+            "    except TypeError:\n"
+            "        dbm.get_document(conn, 1)\n"
+        )
+        found = _violations_in(SRC / "claire" / "api" / "_fake_for_test.py", fns, source=fallback_src)
+        assert [(v.line, v.in_typeerror_fallback) for v in found] == [(6, True)]
+    finally:
+        _REEXPORT_CACHE.clear()
 
 
 def test_request_paths_pass_kb_id_explicitly() -> None:

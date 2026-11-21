@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from claire.config import get_settings
-from claire.graphview import document_detail, render_graph_html
+from claire.graphview import render_graph_html
 from claire.ingest.fetchers.pdf import (
     find_appendix_split,
     slice_pdf_text,
@@ -18,6 +18,7 @@ from claire.ingest.fetchers.textfile import fetch_file
 from claire.ingest.fetchers.web import fetch_web
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from claire.store.queries import document_detail
 
 
 def test_find_appendix_split_patterns():

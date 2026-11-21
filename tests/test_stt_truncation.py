@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from claire.store import db as dbm
-from claire.graphview import document_detail
+from claire.store.queries import document_detail
 from claire import cli
 
 

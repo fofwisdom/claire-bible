@@ -16,7 +16,7 @@ UI_GLOBS = (
     "templates/**/*.html",
     "static/js/**/*.js",
     "static/css/*.css",
-    "static/locales/*.json",
+    "i18n/locales/*.json",
     "api/accounts_routes/*.py",
 )
 

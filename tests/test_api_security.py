@@ -292,6 +292,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/image",
         "/images/{filename:path}",
         "/p/images/{filename:path}",
+        "/static/locales/{path:path}",
         "/static/{path:path}",
         "/support/bundle",
         "/graph/bundle",

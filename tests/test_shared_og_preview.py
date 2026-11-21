@@ -21,6 +21,7 @@ from claire.graphview import (
     sanitize_preview_text,
     shared_html,
 )
+from claire.ingest.source_types import is_media_source_type
 from claire.store import db as dbm
 
 
@@ -264,7 +265,7 @@ def test_render_open_graph_tags_suppresses_media_platform_authors():
         "author": "Orbrium",
         "source_type": "video",
     }
-    tags_video = render_open_graph_tags(doc_video)
+    tags_video = render_open_graph_tags(doc_video, is_media=True)
     assert 'article:author' not in tags_video
     assert 'name="author"' not in tags_video
 
@@ -274,7 +275,7 @@ def test_render_open_graph_tags_suppresses_media_platform_authors():
         "author": "Tech Channel",
         "source_type": "youtube",
     }
-    tags_yt = render_open_graph_tags(doc_yt)
+    tags_yt = render_open_graph_tags(doc_yt, is_media_source=is_media_source_type)
     assert 'article:author' not in tags_yt
     assert 'name="author"' not in tags_yt
 

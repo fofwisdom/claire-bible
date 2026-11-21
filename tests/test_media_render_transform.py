@@ -1,11 +1,14 @@
-import pytest
+from functools import partial
 from types import SimpleNamespace
+
+import pytest
 
 from claire.render.media_transform import (
     extract_media_key,
     media_url,
     transform_media_urls_in_html,
 )
+from claire.store.media import create_media_capability_token
 from claire.store.secrets import SecretService
 
 
@@ -25,6 +28,7 @@ def test_extract_media_key():
 
 def test_media_url_resolution_with_and_without_media_host():
     sec = SecretService(b"t" * 32)
+    signer = partial(create_media_capability_token, secret_service=sec)
     roles_with_media = SimpleNamespace(scheme="https", app="claire.example.com", media="media.example.com")
     roles_app_only = SimpleNamespace(scheme="http", app="127.0.0.1:8766", media=None)
 
@@ -40,7 +44,7 @@ def test_media_url_resolution_with_and_without_media_host():
         account_id=5,
         kb_id=10,
         visibility_epoch=2,
-        secret_service=sec,
+        token_signer=signer,
     )
     assert url_priv.startswith("https://media.example.com/media/secret.png?")
     assert "account_id=5" in url_priv
@@ -60,10 +64,18 @@ def test_media_url_resolution_with_and_without_media_host():
         account_id=5,
         kb_id=10,
         visibility_epoch=2,
-        secret_service=sec,
+        token_signer=signer,
     )
     assert url_app_priv.startswith("/image?p=images/secret.png&")
     assert "token=" in url_app_priv
+
+
+def test_private_media_without_token_signer_raises():
+    roles = SimpleNamespace(scheme="https", app="claire.example.com", media="media.example.com")
+    with pytest.raises(ValueError, match="token_signer"):
+        media_url("images/secret.png", roles=roles, is_public=False)
+    with pytest.raises(ValueError, match="token_signer"):
+        transform_media_urls_in_html('<img src="images/secret.png">', roles=roles, is_public=False)
 
 
 def test_transform_media_urls_in_html():
