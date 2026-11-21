@@ -253,8 +253,11 @@ def test_login_rejects_cross_origin_and_accepts_fetch_metadata(client, settings)
     # CORS 허용 목록에 있어도 로그인은 같은 origin만 받는다(로그인 CSRF).
     assert client.login(USERNAME, PASSWORD, origin=CROSS_ORIGIN).status_code == 403
     assert client.login(USERNAME, PASSWORD, origin="http://evil.example").status_code == 403
+    assert client.login(USERNAME, PASSWORD, origin="null", headers={"Sec-Fetch-Site": "none"}).status_code == 403
     ok = client.login(USERNAME, PASSWORD, origin=None, headers={"Sec-Fetch-Site": "same-origin"})
     assert ok.status_code == 303
+    ok_none = client.login(USERNAME, PASSWORD, origin=None, headers={"Sec-Fetch-Site": "none"})
+    assert ok_none.status_code == 303
 
 
 def test_logout_deletes_session_and_cookie(client, settings):

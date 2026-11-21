@@ -13,7 +13,7 @@ import asyncio
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from ...accounts import readiness
@@ -24,7 +24,8 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import legacy_hosts
 from ...store import usage_ledger
-from ..host_router import LegacyHost, LegacyHostPolicy
+from .. import clients_host
+from ..host_router import HostRoles, LegacyHost, LegacyHostPolicy
 from ..principal import request_principal
 from ..security import read_json_body
 from .admin import is_admin
@@ -45,8 +46,11 @@ from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 ADMIN_SERVER_PATH = "/admin/server"
 ADMIN_SERVER_API_PATH = "/api/admin/server"
 ADMIN_SERVER_MODE_PATH = "/api/admin/server/mode"
+ADMIN_SERVER_CLIENT_DELIVERY_PATH = "/api/admin/server/client-delivery"
 ADMIN_SERVER_SUNSET_PATH = "/api/admin/server/legacy-hosts/sunset"
 ADMIN_SERVER_TIER_PATH = "/api/admin/server-tier"
+
+_CLIENT_DELIVERY_ALLOWED_FIELDS = frozenset({"agent_client_delivery_mode"})
 
 _LABELLED_FEATURES = ("expand", "stt", "vlm", "presentation", "synthesize")
 
@@ -165,6 +169,53 @@ def _legacy_host_to_dict(h: LegacyHost) -> dict[str, Any]:
     }
 
 
+def _resolve_roles(ctx: AccountsContext, settings: Any) -> HostRoles | None:
+    cfg = ctx.config
+    roles = getattr(cfg, "host_roles", None)
+    if roles is not None:
+        return roles
+    if hasattr(cfg, "environment") and hasattr(cfg, "expected_authority"):
+        try:
+            return HostRoles.from_settings(settings, environment=cfg.environment, app_authority=cfg.expected_authority)
+        except Exception:
+            return None
+    return None
+
+
+def _render_client_delivery_section(delivery: dict[str, Any] | None) -> str:
+    if delivery is None:
+        return ""
+    mode = str(delivery.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
+    fqdn_available = bool(delivery.get("fqdn_available"))
+    active_base = str(delivery.get("active_base_url") or "/clients")
+    uri_base = str(delivery.get("uri_path_base_url") or "/clients")
+    fqdn_origin = delivery.get("fqdn_origin")
+    fqdn_display = f"<code>{escape(str(fqdn_origin))}</code>" if fqdn_origin else f'<span class="hint">{escape(t("console.admin.server.client_delivery.unavailable"))}</span>'
+    uri_selected = " selected" if mode == "uri_path" else ""
+    fqdn_selected = " selected" if mode == "fqdn" else ""
+    fqdn_disabled = "" if fqdn_available else " disabled"
+    title = escape(t("console.admin.server.client_delivery.title"))
+    return f"""
+      <section class="card" aria-label="{title}" id="agent-client-delivery">
+        <h2>{title}</h2>
+        <p class="hint">{escape(t("console.admin.server.client_delivery.hint"))}</p>
+        <dl>
+          <dt>{escape(t("console.admin.server.client_delivery.active_mode"))}</dt><dd><span class="badge">{escape(mode)}</span></dd>
+          <dt>{escape(t("console.admin.server.client_delivery.resolved_base"))}</dt><dd><code>{escape(active_base)}</code></dd>
+          <dt>{escape(t("console.admin.server.client_delivery.uri_base"))}</dt><dd><code>{escape(uri_base)}</code></dd>
+          <dt>{escape(t("console.admin.server.client_delivery.fqdn_origin"))}</dt><dd>{fqdn_display}</dd>
+        </dl>
+        <form class="mode-form" method="post" action="{ADMIN_SERVER_PATH}" data-client-delivery-form>
+          <label for="agent-client-delivery-mode">{escape(t("console.admin.server.client_delivery.mode_label"))}</label>
+          <select id="agent-client-delivery-mode" name="agent_client_delivery_mode">
+            <option value="uri_path"{uri_selected}>uri_path</option>
+            <option value="fqdn"{fqdn_selected}{fqdn_disabled}>fqdn</option>
+          </select>
+          <button type="submit">{escape(t("console.admin.server.client_delivery.submit"))}</button>
+        </form>
+      </section>"""
+
+
 def _render_server_html(
     *,
     mode: str,
@@ -173,8 +224,10 @@ def _render_server_html(
     policy: LegacyHostPolicy,
     hosts: list[LegacyHost],
     tier_state: dict[str, Any],
+    client_delivery: dict[str, Any] | None = None,
 ) -> str:
     tier_section = _render_server_tier_section(tier_state)
+    client_delivery_section = _render_client_delivery_section(client_delivery)
     mode_text = t("console.admin.server.mode_single") if mode == "single" else t("console.admin.server.mode_network")
     target_mode = "network" if mode == "single" else "single"
 
@@ -291,7 +344,8 @@ def _render_server_html(
           </tbody>
         </table>
       </section>
-{tier_section}"""
+{tier_section}
+{client_delivery_section}"""
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -301,6 +355,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
+        roles = _resolve_roles(ctx, settings)
         raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
@@ -312,6 +367,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
                 tier_state = _server_tier_state(conn)
+                client_delivery = clients_host.delivery_summary(conn, settings, roles, anonymous_readonly=bool(getattr(ctx.config, "anonymous_readonly", getattr(settings, "anonymous_readonly", False))))
             finally:
                 conn.close()
 
@@ -322,6 +378,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 policy=policy,
                 hosts=hosts,
                 tier_state=tier_state,
+                client_delivery=client_delivery,
             )
             extra_scripts = (
                 '<script src="/static/js/server_mode.js" defer></script>\n'
@@ -344,6 +401,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
+        roles = _resolve_roles(ctx, settings)
 
         def _fetch_api_data() -> dict[str, Any]:
             conn = open_db(ctx)
@@ -353,6 +411,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 report = readiness.check_readiness(conn, settings)
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
+                client_delivery = clients_host.delivery_summary(conn, settings, roles, anonymous_readonly=bool(getattr(ctx.config, "anonymous_readonly", getattr(settings, "anonymous_readonly", False))))
                 return {
                     "mode": mode,
                     "readiness": report.to_dict(),
@@ -362,6 +421,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         "sunset_days": policy.sunset_days,
                     },
                     "legacy_hosts": [_legacy_host_to_dict(h) for h in hosts],
+                    "agent_client_delivery_mode": client_delivery["mode"],
+                    "agent_client_delivery": client_delivery,
                 }
             finally:
                 conn.close()
@@ -589,11 +650,77 @@ def routes(ctx: AccountsContext) -> list[Route]:
         data = await asyncio.to_thread(_save)
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
+    def _apply_client_delivery_update(principal: Any, settings: Any, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        unknown = sorted(set(payload) - _CLIENT_DELIVERY_ALLOWED_FIELDS)
+        if unknown:
+            return 400, {"error": "custom_host_or_path_disallowed", "detail": f"Unsupported fields: {', '.join(unknown)}"}
+        target_mode = payload.get("agent_client_delivery_mode")
+        if not isinstance(target_mode, str) or target_mode not in clients_host.AGENT_CLIENT_DELIVERY_MODES:
+            return 400, {"error": "invalid_delivery_mode", "detail": f"agent_client_delivery_mode must be one of {clients_host.AGENT_CLIENT_DELIVERY_MODES}"}
+        roles = _resolve_roles(ctx, settings)
+        if target_mode == "fqdn" and (roles is None or roles.clients is None):
+            return 400, {"error": "clients_host_unavailable", "detail": "Isolated clients host is unavailable in this environment"}
+
+        conn = open_db(ctx)
+        try:
+            clients_host.write_delivery_mode(conn, target_mode, updated_by=principal.account_id, roles=roles)
+            auth_conn = open_auth_db(ctx)
+            try:
+                auth_db.record_admin_audit(
+                    auth_conn,
+                    actor_account_id=principal.account_id,
+                    action="server.client_delivery.update",
+                    detail={"agent_client_delivery_mode": target_mode},
+                )
+            finally:
+                auth_conn.close()
+            summary = clients_host.delivery_summary(conn, settings, roles, anonymous_readonly=bool(getattr(ctx.config, "anonymous_readonly", getattr(settings, "anonymous_readonly", False))))
+            return 200, {"agent_client_delivery_mode": target_mode, "agent_client_delivery": summary}
+        except ValueError as exc:
+            return 400, {"error": "invalid_delivery_mode", "detail": str(exc)}
+        finally:
+            conn.close()
+
+    async def admin_server_client_delivery_api(request: Request) -> Response:
+        principal = request_principal(request)
+        if not is_admin(principal):
+            return not_found()
+        if not same_origin(request):
+            return json_error(403, "forbidden")
+        denied = require_recent_auth(principal)
+        if denied is not None:
+            return denied
+
+        body = await read_json_body(request)
+        settings = getattr(request.app.state, "settings", None) or ctx.config
+        status_code, resp_data = await asyncio.to_thread(_apply_client_delivery_update, principal, settings, body)
+        return JSONResponse(resp_data, status_code=status_code, headers={"Cache-Control": "no-store"})
+
+    async def admin_server_page_post(request: Request) -> Response:
+        principal = request_principal(request)
+        if not is_admin(principal):
+            return not_found()
+        if not same_origin(request):
+            return json_error(403, "forbidden")
+        denied = require_recent_auth(principal)
+        if denied is not None:
+            return denied
+
+        form = await request.form()
+        payload = {k: str(v) for k, v in form.multi_items()} if len(form.multi_items()) == len(form.keys()) else {"__duplicate__": "1"}
+        settings = getattr(request.app.state, "settings", None) or ctx.config
+        status_code, resp_data = await asyncio.to_thread(_apply_client_delivery_update, principal, settings, payload)
+        if status_code != 200:
+            return JSONResponse(resp_data, status_code=status_code, headers={"Cache-Control": "no-store"})
+        return RedirectResponse(ADMIN_SERVER_PATH, status_code=303)
+
     return [
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_get, methods=["GET"]),
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_put, methods=["PUT"]),
         Route(ADMIN_SERVER_PATH, admin_server_page, methods=["GET"]),
+        Route(ADMIN_SERVER_PATH, admin_server_page_post, methods=["POST"]),
         Route(ADMIN_SERVER_API_PATH, admin_server_api, methods=["GET"]),
         Route(ADMIN_SERVER_MODE_PATH, admin_server_mode_api, methods=["POST"]),
+        Route(ADMIN_SERVER_CLIENT_DELIVERY_PATH, admin_server_client_delivery_api, methods=["POST"]),
         Route(ADMIN_SERVER_SUNSET_PATH, admin_server_sunset_api, methods=["POST"]),
     ]

@@ -151,18 +151,16 @@ def cookie_session_token(request: Request) -> str | None:
 
 
 def same_origin(request: Request) -> bool:
-    """공개 쓰기 라우트(로그인 CSRF 방지)의 동일 origin 판정.
-
-    ``Origin``의 판정은 `api.security.CORSPolicyMiddleware`의 결과(`security.request_origin_kind`)를 그대로 쓴다. ``Origin``이 없으면 ``Sec-Fetch-Site: same-origin``이어야 하고, ``Sec-Fetch-Site``가 있으면 항상 ``same-origin``이어야 한다. 둘 다 없으면 거부한다(모호하면 실패, C1).
-    """
-    fetch_site = request.headers.get("sec-fetch-site")
-    if fetch_site is not None and fetch_site.strip().lower() != "same-origin":
+    """Validate same-origin requests via Origin and Sec-Fetch-Site (accepts matching Origin, or missing Origin with Sec-Fetch-Site same-origin or none)."""
+    raw_fetch_site = request.headers.get("sec-fetch-site")
+    fetch_site = raw_fetch_site.strip().lower() if raw_fetch_site is not None else None
+    if fetch_site is not None and fetch_site not in ("same-origin", "none"):
         return False
     kind = security.request_origin_kind(request)
     if kind == "same":
         return True
     if kind == "none":
-        return fetch_site is not None
+        return fetch_site in ("same-origin", "none")
     return False
 
 

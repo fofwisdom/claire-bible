@@ -175,7 +175,7 @@ def test_mcp_owner_bearer_tools_list_and_call(tmp_path: Path) -> None:
         assert resp.status_code == 200
         body = resp.json()
         names = {t["name"] for t in body["result"]["tools"]}
-        assert len(names) == 12 and {"kb_candidates", "kb_submit"} <= names
+        assert len(names) == 19 and {"kb_candidates", "kb_submit", "stage_source", "list_staged_sources", "claim_staged_source", "renew_staged_claim", "get_extraction_spec", "get_staged_source", "submit_client_extraction"} <= names
 
 
 def test_mcp_session_regeneration_invalidates_previous_token(tmp_path: Path) -> None:

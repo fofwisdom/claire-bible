@@ -13,13 +13,17 @@ from __future__ import annotations
 import re
 import string
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from ... import ids
-from ...i18n import t
+from ...i18n import interpolate, t
 from ...store import accounts as accounts_store
+from ...store import db as dbm
 from ...store.knowledge_base import KnowledgeBaseInfo
-from .common import TEMPLATES_DIR, AccountsContext, escape
+from .. import clients_host
+from ..host_router import HostRoles
+from .common import TEMPLATES_DIR, AccountsContext, escape, format_ts, open_db
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
     {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
@@ -84,6 +88,73 @@ def _no_theme_body(slug: str, *, themes_href: str) -> str:
     )
 
 
+def _resolve_delivery_settings_and_roles(ctx: AccountsContext, settings: Any) -> tuple[Any, HostRoles | None, bool]:
+    cfg = getattr(ctx, "config", None)
+    settings_obj = settings or cfg or SimpleNamespace(db_file=getattr(ctx, "db_file", None), data_dir=getattr(ctx, "data_dir", None))
+    roles = getattr(cfg, "host_roles", None)
+    if roles is None and cfg is not None and hasattr(cfg, "environment") and hasattr(cfg, "expected_authority"):
+        try:
+            roles = HostRoles.from_settings(settings_obj, environment=cfg.environment, app_authority=cfg.expected_authority)
+        except Exception:
+            roles = None
+    anon_ro = bool(getattr(cfg, "anonymous_readonly", getattr(settings_obj, "anonymous_readonly", False)))
+    return settings_obj, roles, anon_ro
+
+
+def _render_agent_clients_delivery_block(summary: dict[str, Any]) -> str:
+    mode = str(summary.get("mode") or clients_host.DEFAULT_AGENT_CLIENT_DELIVERY_MODE)
+    active_base = str(summary.get("active_base_url") or "/clients")
+    clients = summary.get("clients") or []
+    rows = []
+    for client in clients:
+        cid = str(client.get("client_id") or "")
+        pid = str(client.get("plugin_id") or "")
+        manifest_url = str(client.get("manifest_url") or "")
+        bundle_url = str(client.get("bundle_url") or "")
+        file_links = []
+        for entry in client.get("files") or []:
+            fpath = str(entry.get("path") or "")
+            furl = str(entry.get("url") or "")
+            fsha = str(entry.get("sha256") or "")
+            short_sha = fsha[:12] if fsha else "-"
+            file_links.append(
+                f'<div><a href="{escape(furl)}"><code class="pref-mono">{escape(fpath)}</code></a> '
+                f'<code class="pref-mono" data-sha256="{escape(fsha)}" title="{escape(fsha)}">{escape(short_sha)}</code></div>'
+            )
+        files_html = "".join(file_links) or "-"
+        rows.append(
+            f'<tr data-agent-client-row="{escape(cid)}">'
+            f'<td><strong>{escape(cid)}</strong><br/><code class="pref-mono">{escape(pid)}</code></td>'
+            f'<td><a href="{escape(manifest_url)}">manifest.json</a></td>'
+            f'<td><a href="{escape(bundle_url)}">bundle.tar.gz</a></td>'
+            f"<td>{files_html}</td></tr>"
+        )
+    tbody = "".join(rows) or f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.synd.mcp.bundles_empty"))}</td></tr>'
+    auth_note = (
+        f'<p class="pref-desc">{escape(t("console.synd.mcp.bundles_auth_note", ttl=clients_host.BUNDLE_TOKEN_TTL))}</p>'
+        if summary.get("requires_auth")
+        else f'<p class="pref-desc">{escape(t("console.synd.mcp.bundles_public_note"))}</p>'
+    )
+    return (
+        f'<div class="pref-card" id="pref-mcp-client-bundles" data-delivery-mode="{escape(mode)}">'
+        f'<h2><span data-icon="puzzle"></span> {escape(t("console.synd.mcp.bundles_title"))}</h2>'
+        f"{auth_note}"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_mode"))}</strong><span>{escape(t("console.synd.mcp.bundles_mode_desc"))}</span></div>'
+        f'<code id="pref-mcp-client-delivery-mode" class="pref-mono">{escape(mode)}</code>'
+        "</div>"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.bundles_endpoint"))}</strong><span>{escape(t("console.synd.mcp.bundles_endpoint_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-client-delivery-base" class="pref-mono">{escape(active_base)}</code>'
+        f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-client-delivery-base">{escape(t("console.common.copy"))}</button></div>'
+        "</div>"
+        '<div class="pref-table-wrap"><table class="pref-table">'
+        f'<thead><tr><th>{escape(t("console.synd.mcp.bundles_col_client"))}</th><th>{escape(t("console.synd.mcp.bundles_col_manifest"))}</th><th>{escape(t("console.synd.mcp.bundles_col_bundle"))}</th><th>{escape(t("console.synd.mcp.bundles_col_files"))}</th></tr></thead>'
+        f'<tbody id="pref-mcp-client-bundles-tbody">{tbody}</tbody>'
+        "</table></div></div>"
+    )
+
+
 def build_syndication_section(
     ctx: AccountsContext,
     *,
@@ -94,6 +165,7 @@ def build_syndication_section(
     selected_theme: KnowledgeBaseInfo | None,
     owned_themes: list[KnowledgeBaseInfo],
     theme_query: str | None,
+    settings: Any = None,
 ) -> SettingsSectionRender:
     if slug not in SYNDICATION_SECTION_SLUGS:
         raise KeyError(slug)
@@ -116,10 +188,39 @@ def build_syndication_section(
     client_href = f"{_syndication_base_href(mode, account)}?tab=client&kb={ref}"
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
+    oauth_grants: list[dict[str, Any]] = []
+    client_delivery: dict[str, Any] | None = None
+    if slug == "mcp":
+        settings_obj, roles, anon_ro = _resolve_delivery_settings_and_roles(ctx, settings)
+        conn = open_db(ctx)
+        try:
+            oauth_grants = dbm.list_account_oauth_grants(conn, account.id)
+            client_delivery = clients_host.delivery_summary(
+                conn,
+                settings_obj,
+                roles,
+                account_id=account.id,
+                anonymous_readonly=anon_ro,
+            )
+        finally:
+            conn.close()
+    grant_rows = "".join(
+        f"<tr data-oauth-grant-row=\"{escape(str(g['grant_id']))}\"><td><strong>{escape(g['client_name'])}</strong><br/><code class=\"pref-mono\">{escape(g['client_id'])}</code></td>"
+        f"<td><code class=\"pref-mono\">{escape(g['scope'])}</code></td>"
+        f"<td>{escape(format_ts(g['created_at']))}</td>"
+        f"<td>{escape(format_ts(g['last_used_at']) if g.get('last_used_at') else '-')}</td>"
+        f"<td>{escape(format_ts(g['expires_at']))}</td>"
+        f"<td class=\"pref-actions\"><button type=\"button\" class=\"pref-btn\" data-oauth-revoke-grant=\"{escape(str(g['grant_id']))}\">{escape(t('console.oauth.revoke'))}</button></td></tr>"
+        for g in oauth_grants
+    ) or f'<tr><td colspan="6" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
+    deprecation_notice_html = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": '<a href="/settings/mcp">/settings/mcp</a>'})
     values = {
         "client_href": escape(client_href),
         "tokens_href": escape(tokens_href),
         "tokens_label": escape(tokens_label),
+        "oauth_grants_rows": grant_rows,
+        "deprecation_notice_html": deprecation_notice_html,
+        "agent_clients_delivery_html": _render_agent_clients_delivery_block(client_delivery) if client_delivery is not None else "",
     }
     panel_html = _render_partial(slug, values)
     root_attrs = {
@@ -134,15 +235,16 @@ def build_syndication_section(
     }
     attrs = " ".join(f'{name}="{escape(value)}"' for name, value in root_attrs.items())
     body_html = f"<div {attrs}>\n{panel_html}\n{_toast_html()}\n</div>"
+    syndication_bootstrap: dict[str, Any] = {
+        "section": slug,
+        "theme_ref": ref,
+        "owned_theme_refs": owned_refs,
+        "nav_slugs": list(THEME_SCOPED_NAV_SLUGS),
+    }
+    if client_delivery is not None:
+        syndication_bootstrap["agent_client_delivery"] = client_delivery
     return SettingsSectionRender(
         body_html=body_html,
-        extra_bootstrap={
-            "syndication": {
-                "section": slug,
-                "theme_ref": ref,
-                "owned_theme_refs": owned_refs,
-                "nav_slugs": list(THEME_SCOPED_NAV_SLUGS),
-            }
-        },
+        extra_bootstrap={"syndication": syndication_bootstrap},
         extra_scripts_html=CONSOLE_SYNDICATION_SCRIPT_HTML,
     )

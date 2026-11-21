@@ -60,7 +60,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`과 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, 옛 `/prototype/syndication`, RD20에서 지움)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로·클라이언트 번들 호스트용 `settings`, `syndication`, `prototype`, `clients`와 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`, `clients`는 루트 고유 기능 경로(`/settings/*`, `/syndication`, 옛 `/prototype/syndication`, `/clients/*` 및 `clients.<registrable_domain>`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1, `AE1b`). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **서버 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.server_hosts`). 포트는 뗀다.
 
@@ -75,9 +75,9 @@
 
 | 자격증명 | 저장 위치 | `account_id` 결정 | `credential_id` | `authenticated_at` |
 | :--- | :--- | :--- | :--- | :--- |
-| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` | None |
-| 상시 API·MCP 토큰 | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 그 항목을 무시한다(경고 로그) | `api:<id>` | None |
-| OAuth 액세스 토큰 | `oauth_tokens.account_id` | 행 값. NULL이면 거부 | 토큰 SHA-256 hex 앞 16자 | None |
+| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` (Deprecated 헤더 송출) | None |
+| 상시 API·MCP 토큰(지원 중단 예정, `AE3`) | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 무시(경고 로그). `retired: true` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1`이면 검증·발급 중단(`410`) | `api:<id>` | None |
+| OAuth 2.1 액세스 토큰 (`AE2a`/`AE2b`, 권장) | `oauth_tokens.account_id` | 행 값. NULL이면 거부 (`granted_scope`: `readonly` \| `write`, Refresh 회전 패밀리·폐기 추적) | 토큰 SHA-256 hex 앞 16자 | None |
 | 세션(쿠키·`X-Session`·Bearer로 보낸 세션 토큰) | `auth_sessions.account_id`, `authenticated_at` | 행 값. NULL이면 거부 | `nonce` SHA-256 hex 앞 16자(토큰 회전에도 유지) | cookie·x-session 채널에서만 행 값. Bearer로 보낸 세션은 None |
 | CLI·텔레그램 매직 링크 | `auth_sessions`(`create_session`) | P1에서는 관리자(1) | 세션과 같음 | 발급·링크 교환 시각 |
 
@@ -107,11 +107,11 @@
 
 ### 5.2 `/login`, `/logout`
 
-- **[코드] `GET /login`**: public. 로그인 화면.
-- **[코드] `POST /login`**: public. 핸들러가 동일 origin을 확인한다(`common.same_origin`): `Sec-Fetch-Site`가 있으면 `same-origin`이어야 하고, `Origin`이 있으면 같은 origin이어야 하며, 둘 다 없으면 403.
+- **[코드] `GET /login`**: public. 로그인 화면(`?tx=` OAuth 트랜잭션 배너·hidden input 및 `/device` next 전달 지원, `autocomplete="username"` / `autocorrect="off"` / `autocomplete="current-password"`).
+- **[코드] `POST /login`**: public. 핸들러가 동일 origin을 확인한다(`common.same_origin`): `Sec-Fetch-Site`가 있으면 `same-origin` 또는 일치하는 `Origin`과의 `none`이어야 하고(`same-site`·`cross-site` 거부), `Origin`이 있으면 같은 origin이어야 하며, 둘 다 없으면 403. `tx` 파라미터가 있으면 `__Host-claire_oauth_tx` / `claire_oauth_tx` 쿠키 일치 및 `oauth_pending_requests` 계정 바인딩 검증 후 `303 /oauth/authorize?tx=<tx_id>`로 이동한다.
 - **[코드] 처리 순서**(`perform_login`): 정규화 → 실패 제한 확인과 시도 기록(`begin_login_attempt`, 한 트랜잭션) → 계정 조회 → 상태가 `active`인지 → 비밀번호 검증 → 성공이면 `settle_login_success` → 새 owner 세션(브라우저가 보낸 기존 세션은 지운다).
-- **[코드] 응답**: 성공 303 `Location: /`와 새 세션 쿠키. 실패 401, 같은 문구 하나. 계정 없음, `setup_required`, 정지, 비밀번호 행 없음을 구분하지 않고, 이때도 `verify_password(None, ...)`이 같은 비용의 더미 scrypt를 계산한다. 실패 제한 중이면 429와 `Retry-After`(초). 양식 값이 문자열이 아니면 400.
-- **[코드] `POST /logout`**: public, 동일 origin 필수. 쿠키의 세션 행 하나를 지우고 쿠키를 지운 뒤 303 `Location: /login`.
+- **[코드] 응답**: 성공 303 `Location: /`(또는 `/oauth/authorize?tx=...`·`/device`)와 새 세션 쿠키. 실패 401, 같은 문구 하나. 계정 없음, `setup_required`, 정지, 비밀번호 행 없음을 구분하지 않고, 이때도 `verify_password(None, ...)`이 같은 비용의 더미 scrypt를 계산한다. 실패 제한 중이면 429와 `Retry-After`(초). 양식 값이 문자열이 아니면 400.
+- **[코드] `POST /logout`**: public, 동일 origin 필수. 쿠키의 세션 행 하나를 지우고 세션·OAuth tx 쿠키를 지운 뒤 `Clear-Site-Data: "cookies", "storage", "cache"` 헤더와 함께 303 `Location: /login`.
 - **[코드] 세션 쿠키**: 이름 `claire_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age`는 `SESSION_TTL`(7일), `Secure`는 `CLAIRE_ENVIRONMENT=production`일 때만.
 
 ### 5.3 단계 인증과 `/api/auth/reauth`
@@ -149,8 +149,8 @@
 
 - **[코드]** 모두 규칙 `_any("owner")`. `write`·`readonly` 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
-- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale, entity_language, personal_source_public}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다.
-- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`, `entity_language`, `personal_source_public`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(§5.9).
+- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale, entity_language, personal_source_public, extraction_mode}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다. `extraction_mode`는 계정의 추출 모드(`"provider"` 또는 `"client"`, 기본값 `"provider"`)다.
+- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`, `entity_language`, `personal_source_public`, `extraction_mode`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. `extraction_mode`는 `"provider"` 또는 `"client"`만 받고 그 밖의 값은 400 `invalid_extraction_mode`이다(`AE4`). 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(§5.9).
 - **[코드] 출처 공개 (`accounts.personal_source_public`, `claire.db` v37, 소유자 결정 2026-11-18)**: 계정이 아닌 독자(공개 프로필의 방문자, 다른 계정, 익명)가 개인 지식베이스 문서의 출처('원문 열기')를 보는지 정한다. 기본값과 v37 이관 값은 1(공개)이다. 0이면 계정만 출처를 본다. `PATCH /api/me`의 `personal_source_public`이 `true`·`false`만 받고, 그 밖의 값은 모든 쓰기보다 먼저 400 `invalid_personal_source_public`이다. 단계 인증을 요구하지 않는다. `/settings/account`의 `#pref-personal-source-public`이 두 모드 모두에서 이 값을 바꾼다.
   - **적용되는 응답**(`server.py`의 `_hides_sources`·`_apply_source_rule`, `queries.documents_with_hidden_source`·`hide_document_source`): 개인 지식베이스의 `GET /documents`, `GET /document`, `GET /document/export`, `GET /node`의 `documents[]`. 숨길 때 `url`은 `null`, `extra_sources`는 빈 목록이 되고, 이름에 `url`이 있는 다른 키(`meta.effective_url`, `presentation_pdf.public_url` 등)는 모든 단계에서 빠진다. 본문은 그대로다.
   - **기여**: 공유 지식베이스에 기여해 보이는(`kb_contributions.state` = `visible`) 문서는 그 문서가 출처나 루트인 경우 설정과 상관없이 출처를 보인다(기여가 출처를 공개했다). 공유 지식베이스의 사본은 항상 출처를 보인다.
@@ -297,7 +297,7 @@
 | 경로 | 동작 |
 | :--- | :--- |
 | `/admin` | 302 `/admin/server`. `?kb=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
-| `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`server.py`) |
+| `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급, 에이전트 클라이언트 번들 전달 방식(`uri_path` \| `fqdn`, `POST /api/admin/server/client-delivery`) (`server.py`) |
 | `/admin/accounts` | §5.4 (`admin.py`) |
 | `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
 | `/admin/providers` | 서버 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
@@ -328,9 +328,9 @@
 | `/settings/federation` | 1 | 내 핸들, 액터 ID와 상태, 팔로워 목록과 제거, 계정의 읽기 보존 설정([FEDERATION.md](FEDERATION.md)) |
 | `/settings/keys` | 1 | §5.8 WebUI |
 | `/settings/themes` | 1 | 본인 지식 베이스 관리(목록 `GET /kb?joined=true`, 변경 `POST /kb`·`PATCH /kb/{number}/`). 슬롯 수 표시는 없다(서버 등급의 `max_themes`는 폐지, CT-3) |
-| `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
+| `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`, 지원 중단 예정 안내·`Deprecation` 헤더)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
 | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
-| `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | MCP 연결 안내와 WebMCP 설정 |
+| `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | `/settings/mcp`의 OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 활성 `agent_client` 번들 배포 링크(`/clients/<client_id>/...` 및 60초 HMAC `?t=`), 수동 토큰 지원 중단 안내, `/settings/webmcp` 설정 |
 
 - **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
 - **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)와 계정 검사`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.

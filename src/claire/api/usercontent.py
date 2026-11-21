@@ -400,6 +400,20 @@ def create_usercontent_app(
     app_origin = f"{scheme}://{app_host}"
     usercontent_origin = f"{scheme}://{usercontent_host}"
 
+    def _is_document_pending(doc_id_val: int | str) -> bool:
+        if not db_path or not db_path.exists():
+            return False
+        conn = dbm.connect_existing(db_path, readonly=True)
+        try:
+            row = conn.execute("SELECT COALESCE(extraction_status, 'extracted') FROM documents WHERE id = ?", (str(doc_id_val),)).fetchone()
+            if row is None and isinstance(doc_id_val, int):
+                row = conn.execute("SELECT COALESCE(extraction_status, 'extracted') FROM documents WHERE id = ?", (doc_id_val,)).fetchone()
+            return row is not None and str(row[0] or "extracted") == "pending"
+        except sqlite3.OperationalError:
+            return False
+        finally:
+            conn.close()
+
     def _resolve_document_and_theme(doc_id_val: int | str) -> tuple[dict[str, Any], dict[str, Any]] | None:
         if not db_path or not db_path.exists():
             return None
@@ -412,6 +426,8 @@ def create_usercontent_app(
             if row is None:
                 return None
             doc_dict = dict(row)
+            if str(doc_dict.get("extraction_status") or "extracted") == "pending":
+                return None
             kb_id = doc_dict.get("kb_id", 0)
             theme_row = conn.execute("SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)).fetchone()
             if theme_row is not None:
@@ -562,14 +578,17 @@ def create_usercontent_app(
         doc_id: int | None = None
 
         if doc_id_param:
+            if _is_document_pending(doc_id_param):
+                return PlainTextResponse("Document not found", status_code=404)
             try:
                 doc_id = int(doc_id_param)
             except ValueError:
                 doc_id = None
-            if doc_id is not None:
-                resolved = _resolve_document_and_theme(doc_id)
-                if resolved is not None:
-                    doc_dict, theme_dict = resolved
+            resolved = _resolve_document_and_theme(doc_id if doc_id is not None else doc_id_param)
+            if resolved is not None:
+                doc_dict, theme_dict = resolved
+                if doc_id is None:
+                    doc_id = doc_dict.get("id")
 
         if doc_dict is not None and theme_dict is not None and doc_id is not None:
             account_id = theme_dict.get("account_id") or 1

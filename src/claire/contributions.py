@@ -44,7 +44,7 @@ REASON_CODES = ("off_subject", "wrong_knowledge_type", "duplicate", "low_quality
 # Keys of ``documents.meta`` that are results of the work in the source knowledge base. The copy does not take them: K makes its own.
 _SOURCE_ONLY_META = ("focus", "resolution_log", "heatmap_matrix", "syndication", "model_lineage")
 # Columns of ``documents`` that the copy does not take from the source.
-_COPY_OVERRIDES = {"seen": 1, "watch_enabled": 0, "watch_interval": None, "last_watched_at": None, "watch_reason": None, "pinned": 0}
+_COPY_OVERRIDES = {"seen": 1, "watch_enabled": 0, "watch_interval": None, "last_watched_at": None, "watch_reason": None, "pinned": 0, "extraction_status": "extracted", "claim_token": None, "lease_expires_at": None, "claimed_by_client_id": None}
 
 
 class ContributionError(Exception):
@@ -81,13 +81,15 @@ def copy_document(conn: sqlite3.Connection, *, source_document_id: str, source_k
     row = conn.execute(f"SELECT {', '.join(columns)} FROM documents WHERE id=? AND kb_id=?", (source_document_id, int(source_kb_id))).fetchone()
     if row is None:
         raise ContributionError(404, "document_not_found")
+    values = dict(zip(columns, tuple(row)))
+    if str(values.get("extraction_status") or "extracted") != "extracted":
+        raise ContributionError(409, "document_not_extracted")
     extraction = conn.execute(
         "SELECT provider, model, prompt_version, raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1",
         (source_document_id, int(source_kb_id)),
     ).fetchone()
     if extraction is None or not str(extraction["raw_response"] or "").strip():
         raise ContributionError(409, "document_not_extracted")
-    values = dict(zip(columns, tuple(row)))
     target_id = new_id("doc")
     try:
         meta = json.loads(values.get("meta") or "{}")
@@ -348,6 +350,9 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     doc = dbm.get_document(conn, document_id, kb_id=kb_id)
     if doc is None:
         raise ContributionError(404, "document_not_found")
+    doc_row = dbm.get_document_row(conn, document_id, kb_id=kb_id)
+    if doc_row is not None and "extraction_status" in doc_row.keys() and str(doc_row["extraction_status"] or "extracted") != "extracted":
+        raise ContributionError(409, "document_not_extracted")
 
     # The same rule as the ingest pipeline: a provider without the function embeds.
     has_embed = bool(provider.has_embed_capability()) if hasattr(provider, "has_embed_capability") else True

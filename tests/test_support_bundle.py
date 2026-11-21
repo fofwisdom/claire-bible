@@ -724,9 +724,10 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
     mcp_diag = _read_json(f"{root}/diagnostics/mcp.json")
     assert mcp_diag["mcp_runtime"]["transport"] == "streamable_http"
     assert mcp_diag["mcp_runtime"]["endpoint_path"] == "/mcp"
-    assert len(mcp_diag["tools_registered"]) == 12
+    assert len(mcp_diag["tools_registered"]) == 19
     tool_names = {t["name"] for t in mcp_diag["tools_registered"]}
     assert {"kb_candidates", "kb_submit"} <= tool_names  # the tools of the automatic contribution (design Section 9.9 rule 7)
+    assert {"stage_source", "list_staged_sources", "claim_staged_source", "renew_staged_claim", "get_extraction_spec", "get_staged_source", "submit_client_extraction"} <= tool_names
     assert "resolve_entity" in tool_names
     assert "search" in tool_names
     assert "neighbors" in tool_names

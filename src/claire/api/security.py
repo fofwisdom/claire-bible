@@ -66,6 +66,12 @@ __all__ = [
     "RouteRule",
     "RouteSurface",
     "LEGACY_COOKIE_FALLBACK_REMOVED",
+    "OAUTH_TX_COOKIE_NAME",
+    "LEGACY_OAUTH_TX_COOKIE_NAME",
+    "oauth_tx_cookie_name",
+    "set_oauth_tx_cookie",
+    "clear_oauth_tx_cookie",
+    "read_oauth_tx_cookie",
     "ErrorBoundaryMiddleware",
     "InvalidJSONBody",
     "RequestBodyTooLarge",
@@ -598,6 +604,15 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/oauth/authorize/poll"): _system("public", "none"),
     ("HEAD", "/oauth/authorize/poll"): _system("public", "none"),
     ("POST", "/oauth/token"): _system("public", "none"),
+    ("POST", "/oauth/revoke"): _system("public", "none"),
+    ("POST", "/oauth/device_authorization"): _system("public", "none"),
+    ("GET", "/device"): _system("public", "none"),
+    ("HEAD", "/device"): _system("public", "none"),
+    ("POST", "/device"): _system("public", "none"),
+    ("GET", "/api/me/oauth/grants"): _any("owner", "none"),
+    ("HEAD", "/api/me/oauth/grants"): _any("owner", "none"),
+    ("POST", "/api/me/oauth/grants"): _any("owner", "none"),
+    ("DELETE", "/api/me/oauth/grants"): _any("owner", "none"),
     # 계정 (설계 §8.4–§8.7). /admin/*·/api/admin/*는 admin 접근 수준(§9.1)이고, 설정 전용 조건은 핸들러가 404로 판정한다(api.accounts_routes).
     ("GET", "/setup"): _system("owner", "none"),
     ("HEAD", "/setup"): _system("owner", "none"),
@@ -620,10 +635,18 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/admin/usernames/release"): _system("admin", "none"),
     ("GET", "/admin/server"): _system("admin", "none"),
     ("HEAD", "/admin/server"): _system("admin", "none"),
+    ("POST", "/admin/server"): _system("admin", "none"),
     ("GET", "/api/admin/server"): _system("admin", "none"),
     ("HEAD", "/api/admin/server"): _system("admin", "none"),
     ("POST", "/api/admin/server/mode"): _system("admin", "none"),
+    ("POST", "/api/admin/server/client-delivery"): _system("admin", "none"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin", "none"),
+    ("GET", "/clients/{client_id}/manifest.json"): _system("public", "none"),
+    ("HEAD", "/clients/{client_id}/manifest.json"): _system("public", "none"),
+    ("GET", "/clients/{client_id}/bundle.tar.gz"): _system("public", "none"),
+    ("HEAD", "/clients/{client_id}/bundle.tar.gz"): _system("public", "none"),
+    ("GET", "/clients/{client_id}/files/{relpath:path}"): _system("public", "none"),
+    ("HEAD", "/clients/{client_id}/files/{relpath:path}"): _system("public", "none"),
     ("GET", "/api/admin/federation"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation"): _system("admin", "none"),
     ("POST", "/api/admin/federation"): _system("admin", "none"),
@@ -848,6 +871,16 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/settings/kb/manage"): _system("owner", "none"),
     ("GET", "/settings/kb/{kb_number:int}"): _system("owner", "none"),
     ("HEAD", "/settings/kb/{kb_number:int}"): _system("owner", "none"),
+    ("POST", "/api/client-extraction/stage"): _any("write", "write"),
+    ("GET", "/api/client-extraction/sources"): _any("write", "write"),
+    ("HEAD", "/api/client-extraction/sources"): _any("write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/claim"): _any("write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/renew"): _any("write", "write"),
+    ("GET", "/api/client-extraction/spec"): _any("read", "none"),
+    ("HEAD", "/api/client-extraction/spec"): _any("read", "none"),
+    ("GET", "/api/client-extraction/sources/{document_id}"): _any("write", "write"),
+    ("HEAD", "/api/client-extraction/sources/{document_id}"): _any("write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/submit"): _any("write", "write"),
 }
 
 
@@ -1190,6 +1223,53 @@ LEGACY_SESSION_COOKIE_NAME = "claire_session"
 # P3 G9에서 True로 바뀌며 운영 환경 과도기 폴백이 완전히 제거된다(§5.2, §17.2).
 LEGACY_COOKIE_FALLBACK_REMOVED = True
 _SESSION_COOKIE_NAMES = (SESSION_COOKIE_NAME, LEGACY_SESSION_COOKIE_NAME)
+OAUTH_TX_COOKIE_NAME = "__Host-claire_oauth_tx"
+LEGACY_OAUTH_TX_COOKIE_NAME = "claire_oauth_tx"
+
+
+def oauth_tx_cookie_name(config: WebRuntimeConfig) -> str:
+    return OAUTH_TX_COOKIE_NAME if config.secure_cookie else LEGACY_OAUTH_TX_COOKIE_NAME
+
+
+def set_oauth_tx_cookie(
+    response: Response,
+    config: WebRuntimeConfig,
+    tx_id: str,
+    *,
+    max_age: int = 600,
+) -> None:
+    response.set_cookie(
+        oauth_tx_cookie_name(config),
+        tx_id,
+        max_age=max_age,
+        path="/",
+        secure=config.secure_cookie,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def clear_oauth_tx_cookie(response: Response, config: WebRuntimeConfig) -> None:
+    _delete_cookie(response, oauth_tx_cookie_name(config), config)
+    if config.secure_cookie:
+        _delete_cookie(response, LEGACY_OAUTH_TX_COOKIE_NAME, config)
+
+
+def read_oauth_tx_cookie(scope: Scope) -> str | None:
+    """Read the opaque OAuth login transaction cookie with __Host- priority and single-occurrence enforcement."""
+    values = _raw_headers(scope, b"cookie")
+    if not values:
+        return None
+    decoded = [value.decode("latin-1") for value in values]
+    host_count = _cookie_occurrences(decoded, OAUTH_TX_COOKIE_NAME)
+    if host_count == 1:
+        return _cookie_value(decoded, OAUTH_TX_COOKIE_NAME)
+    if host_count > 1:
+        return None
+    legacy_count = _cookie_occurrences(decoded, LEGACY_OAUTH_TX_COOKIE_NAME)
+    if legacy_count != 1:
+        return None
+    return _cookie_value(decoded, LEGACY_OAUTH_TX_COOKIE_NAME)
 
 
 def session_cookie_name(config: WebRuntimeConfig) -> str:
@@ -1588,6 +1668,11 @@ class CORSPolicyMiddleware:
         cross_origin: str | None = None
         if origin is None:
             state[_ORIGIN_KIND_KEY] = "none"
+        elif origin.strip().lower() == "null":
+            await _send_response(
+                PlainTextResponse("Forbidden", status_code=403), scope, receive, send
+            )
+            return
         elif origin == self.config.public_origin:
             state[_ORIGIN_KIND_KEY] = "same"
         elif origin in self.config.cors_allowed_origins:
@@ -2349,6 +2434,23 @@ class AuthenticationMiddleware:
             await self.app(scope, receive, clear_cookie_send)
             return
 
+        if auth_channel == "bearer" and credential is not None and (credential.credential_id or "").startswith(("api:", "env:")):
+            log.info("Deprecated manual bearer token used path=%s credential=%s", _safe_log_path(path), credential.credential_id)
+
+            async def deprecated_bearer_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    names = {name.lower() for name, _val in headers}
+                    if b"deprecation" not in names:
+                        headers.append((b"deprecation", b"true"))
+                    if b"link" not in names:
+                        headers.append((b"link", b'</settings/mcp>; rel="successor-version"'))
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.app(scope, receive, deprecated_bearer_send)
+            return
+
         await self.app(scope, receive, send)
 
 
@@ -2485,6 +2587,15 @@ def _prototype_app(roles: HostRoles) -> ASGIApp | None:
     return create_prototype_app()
 
 
+def _clients_app(settings: Any, config: WebRuntimeConfig, roles: HostRoles, *, secret_service: Any = None) -> ASGIApp | None:
+    """Return the isolated agent client bundle delivery sub-application when configured."""
+    if roles.clients is None:
+        return None
+    from .clients_host import create_clients_app
+
+    return create_clients_app(settings, config=config, secret_service=secret_service)
+
+
 def wrap_web_app(
     app: ASGIApp,
     settings: Any,
@@ -2558,6 +2669,7 @@ def wrap_web_app(
         usercontent=usercontent_app,
         media=media_app,
         prototype=_prototype_app(roles),
+        clients=_clients_app(settings, config, roles, secret_service=sec_svc),
     )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)

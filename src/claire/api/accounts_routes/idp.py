@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
 import logging
 import secrets
 import time
 from typing import Any
+from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -33,7 +35,7 @@ from ...accounts.invites import (
 )
 from ...accounts.username_policy import UsernameRejected, validate_username
 from ...api.principal import Principal, request_principal
-from ...api.security import read_json_body
+from ...api.security import read_json_body, read_oauth_tx_cookie
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
@@ -71,14 +73,38 @@ from .common import (
     validate_display_name,
 )
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
+from .login import safe_device_next
 
 log = logging.getLogger("claire.api.idp")
 
 OIDC_COOKIE_NAME = "claire_oidc_state"
+OIDC_NEXT_COOKIE_NAME = "claire_oidc_next"
 OIDC_COOKIE_PATH = "/auth/oidc"
 OIDC_STATE_TTL = 600.0  # 10 minutes
 SIGNUP_TOKEN_AAD = b"claire:signup_token"
 SIGNUP_TOKEN_TTL = 600.0  # 10 minutes
+
+
+def _encode_oidc_next_cookie(cookie_key: str, *, tx_id: str = "", next_path: str = "") -> str | None:
+    """Encode a post-callback OAuth tx or /device next destination bound to the OIDC state cookie key."""
+    if tx_id:
+        return f"{cookie_key}|tx:{tx_id}"
+    if next_path:
+        return f"{cookie_key}|next:{next_path}"
+    return None
+
+
+def _decode_oidc_next_cookie(raw_value: str | None, cookie_key: str) -> tuple[str | None, str | None]:
+    """Decode (tx_id, next_path) from the OIDC next cookie only when its key prefix matches cookie_key."""
+    if not isinstance(raw_value, str) or not raw_value.startswith(f"{cookie_key}|"):
+        return None, None
+    payload = raw_value[len(cookie_key) + 1:]
+    if payload.startswith("tx:"):
+        tx_val = payload[3:].strip()
+        return (tx_val or None), None
+    if payload.startswith("next:"):
+        return None, safe_device_next(payload[5:]) or None
+    return None, safe_device_next(payload) or None
 
 
 def _is_admin(principal: Principal) -> bool:
@@ -406,6 +432,23 @@ def routes(ctx: AccountsContext) -> list[Route]:
             finally:
                 auth_conn.close()
 
+        tx_param = request.query_params.get("tx", "").strip() if purpose == "login" else ""
+        next_path = safe_device_next(request.query_params.get("next")) if (purpose == "login" and not tx_param) else ""
+        if tx_param:
+            cookie_tx = read_oauth_tx_cookie(request.scope)
+            if not cookie_tx or not hmac.compare_digest(cookie_tx, tx_param):
+                return json_error(400, "invalid_oauth_tx", detail=t("auth.login.oauth_tx_invalid"))
+
+            def _has_pending_tx() -> bool:
+                db_conn = open_db(ctx)
+                try:
+                    return dbm.get_oauth_pending_request(db_conn, tx_param) is not None
+                finally:
+                    db_conn.close()
+
+            if not await asyncio.to_thread(_has_pending_tx):
+                return json_error(400, "invalid_oauth_tx", detail=t("auth.login.oauth_tx_invalid"))
+
         verifier, challenge = generate_pkce_pair()
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
@@ -440,6 +483,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 code_challenge=challenge,
             )
 
+        next_cookie_val = _encode_oidc_next_cookie(cookie_key, tx_id=tx_param, next_path=next_path)
         resp = RedirectResponse(auth_url, status_code=302)
         resp.set_cookie(
             OIDC_COOKIE_NAME,
@@ -450,6 +494,18 @@ def routes(ctx: AccountsContext) -> list[Route]:
             samesite="lax",
             secure=ctx.config.secure_cookie,
         )
+        if next_cookie_val:
+            resp.set_cookie(
+                OIDC_NEXT_COOKIE_NAME,
+                next_cookie_val,
+                max_age=int(OIDC_STATE_TTL),
+                path=OIDC_COOKIE_PATH,
+                httponly=True,
+                samesite="lax",
+                secure=ctx.config.secure_cookie,
+            )
+        else:
+            resp.delete_cookie(OIDC_NEXT_COOKIE_NAME, path=OIDC_COOKIE_PATH)
         return resp
 
     async def me_link_start(request: Request) -> Response:
@@ -512,33 +568,33 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return resp
 
     async def oidc_callback(request: Request) -> Response:
+        def _clear_oidc_cookies(resp: Response) -> Response:
+            resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
+            resp.delete_cookie(OIDC_NEXT_COOKIE_NAME, path=OIDC_COOKIE_PATH)
+            return resp
+
         provider_id = request.path_params.get("id", "")
         provider = await asyncio.to_thread(find_provider, ctx, provider_id, include_secrets=True)
         if provider is None or not provider.enabled:
             return not_found()
 
         cookie_key = request.cookies.get(OIDC_COOKIE_NAME)
+        raw_next_cookie = request.cookies.get(OIDC_NEXT_COOKIE_NAME)
         query_state = request.query_params.get("state")
         query_code = request.query_params.get("code")
 
         if not cookie_key or not query_state or not query_code:
-            resp = json_error(400, "invalid_callback_parameters", detail="Missing state, code, or state cookie")
-            resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-            return resp
+            return _clear_oidc_cookies(json_error(400, "invalid_callback_parameters", detail="Missing state, code, or state cookie"))
 
         auth_conn = open_auth_db(ctx)
         try:
             try:
                 state_record = auth_db.consume_oidc_state(auth_conn, key=cookie_key, state=query_state)
             except auth_db.OidcStateError as exc:
-                resp = json_error(400, "invalid_oidc_state", detail=str(exc))
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(json_error(400, "invalid_oidc_state", detail=str(exc)))
 
             if state_record.provider_id != provider.id:
-                resp = json_error(400, "provider_mismatch")
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(json_error(400, "provider_mismatch"))
 
             redirect_uri = callback_url(request, ctx, provider.id)
             client = get_auth_client(provider)
@@ -558,26 +614,18 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     identity = await client.verify_id_token(str(id_token), expected_nonce=state_record.nonce)
             except OidcError as exc:
                 log.warning("OIDC authentication failure: %s", exc)
-                resp = json_error(400, "oidc_verification_failed", detail=str(exc))
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(json_error(400, "oidc_verification_failed", detail=str(exc)))
 
             if state_record.purpose == "link":
                 if state_record.account_id is None:
-                    resp = json_error(400, "missing_account_binding")
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(json_error(400, "missing_account_binding"))
 
                 existing = auth_db.find_account_identity(auth_conn, iss=identity.iss, sub=identity.sub)
                 if existing is not None:
                     if existing.account_id != state_record.account_id:
-                        resp = json_error(409, "identity_already_linked", detail="This identity is linked to another account")
-                        resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                        return resp
+                        return _clear_oidc_cookies(json_error(409, "identity_already_linked", detail="This identity is linked to another account"))
                     # Already linked to this account
-                    resp = RedirectResponse("/settings/account?notice=already_linked", status_code=302)
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(RedirectResponse("/settings/account?notice=already_linked", status_code=302))
 
                 auth_db.link_account_identity(
                     auth_conn,
@@ -592,9 +640,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="identity.link",
                     detail={"iss": identity.iss, "provider": provider.id},
                 )
-                resp = RedirectResponse("/settings/account?notice=identity_linked", status_code=302)
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(RedirectResponse("/settings/account?notice=identity_linked", status_code=302))
 
             elif state_record.purpose == "login":
                 existing = auth_db.find_account_identity(auth_conn, iss=identity.iss, sub=identity.sub)
@@ -607,8 +653,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                             f"<body><h1>{escape(t('auth.invite.required'))}</h1><p>{escape(t('auth.invite.required_detail'))}</p></body></html>",
                             status_code=403,
                         )
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(resp)
+
+                expected_tx, expected_next = _decode_oidc_next_cookie(raw_next_cookie, cookie_key)
+                if expected_tx:
+                    cookie_tx = read_oauth_tx_cookie(request.scope)
+                    if not cookie_tx or not hmac.compare_digest(cookie_tx, expected_tx):
+                        return _clear_oidc_cookies(json_error(403, "invalid_oauth_tx", detail=t("auth.login.oauth_tx_invalid")))
 
                 conn = open_db(ctx)
                 try:
@@ -618,9 +669,19 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     except Exception:
                         account = None
                     if account is None or account.status != "active":
-                        resp = forbidden()
-                        resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                        return resp
+                        return _clear_oidc_cookies(forbidden())
+
+                    mode = store.server_mode()
+                    redirect_path = account_home_path(mode, account.username)
+                    status_code = 302
+                    if expected_tx:
+                        if not dbm.bind_oauth_pending_request_account(conn, expected_tx, account.id):
+                            return _clear_oidc_cookies(json_error(400, "invalid_oauth_tx", detail=t("auth.login.oauth_tx_invalid")))
+                        redirect_path = f"/oauth/authorize?tx={quote(expected_tx, safe='')}"
+                        status_code = 303
+                    elif expected_next:
+                        redirect_path = expected_next
+                        status_code = 303
 
                     auth_db.record_identity_login(auth_conn, iss=identity.iss, sub=identity.sub)
                     session_token = accounts_store.create_account_session(
@@ -629,37 +690,26 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         scope="owner",
                         replace_token=cookie_session_token(request),
                     )
-                    mode = store.server_mode()
-                    redirect_path = account_home_path(mode, account.username)
                 finally:
                     conn.close()
 
-                resp = RedirectResponse(redirect_path, status_code=302)
+                resp = RedirectResponse(redirect_path, status_code=status_code)
                 set_session_cookie(resp, ctx, session_token)
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(resp)
 
             elif state_record.purpose == "signup":
                 if state_record.invitation_id is None:
-                    resp = json_error(400, "missing_invitation_binding")
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(json_error(400, "missing_invitation_binding"))
 
                 existing = auth_db.find_account_identity(auth_conn, iss=identity.iss, sub=identity.sub)
                 if existing is not None:
-                    resp = json_error(409, "identity_already_linked", detail="This identity is already linked to an account")
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(json_error(409, "identity_already_linked", detail="This identity is already linked to an account"))
 
                 inv = auth_db.get_invitation_by_id(auth_conn, state_record.invitation_id)
                 if inv is None:
-                    resp = not_found()
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(not_found())
                 if inv.status != "active":
-                    resp = json_error(410, f"invitation_{inv.status}", reason=inv.status)
-                    resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                    return resp
+                    return _clear_oidc_cookies(json_error(410, f"invitation_{inv.status}", reason=inv.status))
 
                 signup_token = create_signup_token(
                     ctx,
@@ -670,14 +720,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     email=identity.email,
                     display_name=identity.display_name,
                 )
-                resp = RedirectResponse(f"/invite/complete?token={signup_token}", status_code=302)
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(RedirectResponse(f"/invite/complete?token={signup_token}", status_code=302))
 
             else:
-                resp = json_error(400, "unsupported_purpose")
-                resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
-                return resp
+                return _clear_oidc_cookies(json_error(400, "unsupported_purpose"))
 
         finally:
             auth_conn.close()

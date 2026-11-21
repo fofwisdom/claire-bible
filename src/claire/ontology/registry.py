@@ -95,3 +95,29 @@ def ontology_prompt_block() -> str:
         "'proposed_type' field; do NOT fall back to related_to/Note as a dumping ground."
     )
     return "\n".join(lines)
+
+
+PROVISIONAL_TYPE_PATTERN = r"^[a-z][a-z0-9_]{1,47}$"
+
+
+def export_ontology_spec() -> dict[str, object]:
+    """Return the active ontology types, domain/range rules, and provisional type constraints."""
+    entity_types = [{"name": t.value, "description": ENTITY_DESCRIPTIONS[t]} for t in EntityType]
+    relation_types = []
+    for t in RelationType:
+        domains, ranges = RELATION_DOMAIN_RANGE.get(t, (frozenset(), frozenset()))
+        relation_types.append(
+            {
+                "name": t.value,
+                "description": RELATION_DESCRIPTIONS[t],
+                "domains": sorted(d.value for d in (domains or ())),
+                "ranges": sorted(r.value for r in (ranges or ())),
+            }
+        )
+    return {
+        "entity_types": entity_types,
+        "relation_types": relation_types,
+        "provisional_type_pattern": PROVISIONAL_TYPE_PATTERN,
+        "catch_all_disallowed_as_dump": [EntityType.NOTE.value, RelationType.RELATED_TO.value],
+        "prompt_block": ontology_prompt_block(),
+    }

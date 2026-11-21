@@ -143,14 +143,15 @@ def test_resolve_or_create_safe_gating_verdicts():
     # 3. Gate 4: LLM Judge 경계선 판정
     e3 = Entity(type="Framework", name="Letta", aliases=[], observations=["Agent memory"], sources=["doc_1"])
     dbm.upsert_entity(conn, e3)
-    # 테마는 첫 저장에서 "test" 모델로 고정됐다(§10.4). 같은 모델로 시드한다.
-    vstore.put(e3.id, [1.0, 0.0, 0.0], "test")
+    # Match the test@2d embedding space pinned at step 2; keep e3 orthogonal to e2 with borderline 0.8 cosine to [0.6, 0.8].
+    vstore.put(e3.id, [0.0, 1.0], "test")
 
     # borderline 점수(0.8) & judge가 SAME 반환
     res3 = resolve_or_create(
         conn, vstore,
         name="Agent Memory Server", etype="Framework", aliases=[], observations=[], document_id="doc_3",
-        embed_fn=lambda: [0.8, 0.6, 0.0],
+        embed_fn=lambda: [0.6, 0.8],
+        embed_model="test",
         judge_fn=lambda nm, et, obs, cand: True,
     )
     assert res3.created is False

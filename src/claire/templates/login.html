@@ -20,6 +20,8 @@
       .check { display: flex; gap: .5rem; align-items: flex-start; font-weight: 400; }
       button { margin-top: 1rem; padding: .5rem 1rem; font: inherit; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
       button.link { background: none; color: var(--accent); padding: 0; margin: 0; text-decoration: underline; }
+      .idp-links { display: flex; flex-direction: column; gap: .5rem; }
+      .idp-btn { display: block; width: 100%; padding: .55rem 1rem; text-align: center; text-decoration: none; font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
       .errors { color: var(--error); margin: 0 0 1rem; padding-left: 1.25rem; }
       .notice { border-left: 3px solid var(--accent); padding: .5rem .75rem; background: var(--card); }
       .result { min-height: 1.5rem; margin: .5rem 0 0; }
@@ -38,17 +40,20 @@
   <body>
     <main>
       <h1>${t:auth.login.title}</h1>
+      $oauth_tx_banner
       $errors
       <form class="card" method="post" action="/login" autocomplete="on">
+        $oauth_tx_input
         <label for="username">${t:auth.field.username}</label>
         <input id="username" name="username" type="text" value="$username" required maxlength="64"
-               autocomplete="username" autocapitalize="none" spellcheck="false">
+               autocomplete="username" autocorrect="off" autocapitalize="none" spellcheck="false">
 
         <label for="password">${t:auth.field.password}</label>
         <input id="password" name="password" type="password" required autocomplete="current-password">
 
         <button type="submit">${t:auth.login.submit}</button>
       </form>
+      $idp_links
       $locale_switch_html
     </main>
   </body>

@@ -14,7 +14,6 @@ docs/
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 명세
 ├── design/                     # [설계] 의도와 이유: 구현을 마치지 않은 아키텍처, 구현을 마친 작업의 설계 원칙 (현재 상태는 말하지 않음)
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
-│   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # 에이전트 주도 추출·agent_client·OAuth 2.1 통일·4계층 보안·gemini-embedding-2 지원·4트랙 분할 구현 계획(AED1–AED11, Rev. 2.5), Track B(AE6a–AE6d) 구현 → PROVIDERS.md·SCHEMA_VERSIONING.md·EXTRACTION.md·COMMANDS.md, Tracks A·C·D 미구현
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
@@ -28,6 +27,7 @@ docs/
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
 │   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3 → implementation/FEDERATION.md
 │   ├── ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md  # → ACCOUNTS.md
+│   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # AED1–AED10, AED11 1단계(Tracks A–D 구현 완료; AED11 2단계 멀티모달 벡터는 후속 설계 범위) → PROVIDERS.md, EXTRACTION.md, INGESTION.md, ACCOUNTS.md, API_AND_MCP_GUIDE.md, API_HTTP_CONTRACT.md, EXTERNAL_ACCESS.md, SCHEMA_VERSIONING.md, COMMANDS.md, GLOSSARY.md
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md     # → DOCUMENT_FORMAT.md
 │   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md  # → EXTRACTION.md
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md  # → DATA_LIFECYCLE.md
@@ -100,7 +100,7 @@ docs/
 1. **[`docs/implementation/`](implementation/)**
    - 현재 실행 코드와 정확히 일치하는 기능 명세, 와이어 프로토콜, 스키마 및 운영 문서 집합입니다.
    - HTTP 경로는 [`API_HTTP_CONTRACT.md`](implementation/API_HTTP_CONTRACT.md), 인증 채널과 거부 규칙은 [`API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md) §1, 기계 판독용 OpenAPI 사양은 [`openapi.yaml`](implementation/openapi.yaml)을 따릅니다.
-   - SQLite DB 스키마 버전 및 마이그레이션 규칙은 [`SCHEMA_VERSIONING.md`](implementation/SCHEMA_VERSIONING.md), OAuth 2.0 토큰 교환은 [`API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md) §2.5에 있습니다.
+   - SQLite DB 스키마 버전 및 마이그레이션 규칙은 [`SCHEMA_VERSIONING.md`](implementation/SCHEMA_VERSIONING.md), OAuth 2.1 인증·토큰 흐름은 [`API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md) §2.5에 있습니다.
    - Fedify 사이드카 연합(ActivityPub 탐색, 내부 연합 API, 액터 키, 준비 검사, reverse proxy 규칙)은 [`FEDERATION.md`](implementation/FEDERATION.md)에 정의되어 있습니다.
    - 지식 모델 표준 용어 및 코드 매핑은 [`GLOSSARY.md`](implementation/GLOSSARY.md), 공개 파이프라인 아키텍처는 [`PLAN.md`](implementation/PLAN.md)를 참조합니다.
    - 새로 설계하고 구현한 내용은 코드와 같은 커밋에서 이 디렉터리의 해당 문서에 기록합니다. 작업 전에 알아야 할 치명적이지 않은 제약, 보류 결정, 이미 실패하는 테스트는 [`IMPLEMENTATION_STATUS.md`](implementation/IMPLEMENTATION_STATUS.md)에 둡니다. 보안 문제는 문서에 적지 않습니다.

@@ -39,8 +39,9 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 36 | 직전 version (아래 "v36" 절) | shadow 기록의 사람 판정 열(`same_subject_shadow.verdict*`) |
 | 37 | 직전 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
 | 38 | 직전 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
-| 39 | 현재 version (아래 "v39" 절) | 임베딩 공간 레지스트리(`embedding_spaces`), KB별 활성/목표 공간(`active_space_id`, `target_space_id`), 다중 공간 벡터 PK(`embeddings(owner_id, kb_id, space_id)`) |
-| 39 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 39 | 직전 version (아래 "v39" 절) | 임베딩 공간 레지스트리(`embedding_spaces`), KB별 활성/목표 공간(`active_space_id`, `target_space_id`), 다중 공간 벡터 PK(`embeddings(owner_id, kb_id, space_id)`) |
+| 40 | 현재 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
+| 41 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -366,3 +367,19 @@ The retired v12 recovery is described above. Other stores have their own version
   - 테이블 `embeddings`: `space_id TEXT NOT NULL DEFAULT ''` 열을 추가하고 기본 키를 `(owner_id, kb_id, space_id)`로 재구성하며 인덱스 `idx_embeddings_kb_space(kb_id, space_id)`를 생성한다.
 - **[코드] 데이터 이관**: v38 이하 DB의 기존 `embeddings` 행은 `(knowledge_bases.embed_provider, embeddings.model, embeddings.dim)` 기준으로 표준 `space_id`를 계산해 재적재하며(레거시 `'claire'`·빈 모델 행은 `space_id=''`), `embed_model`이 설정된 KB의 `active_space_id`를 채운다.
 - **[테스트]** `tests/test_schema_v39.py`, `tests/test_embedding_pin.py`.
+
+## v40 (OAuth 2.1 인증·Device Grant 및 클라이언트 주도 추출 스테이징, AE2a/AE2b/AE4)
+
+확인 기준: Track C (`AE2a`, `AE2b`, `AE3`) 및 Track D (`AE4`) 구현 (2026-11-21). 설계: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) §5.2 (`AED3`), §6.3–§6.6 (`AED5`).
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 40`.
+- **[코드] 추가·변경 객체**(`_migrate_v40_oauth_v21`, 멱등):
+  - 열 `oauth_codes.granted_scope` (`TEXT DEFAULT 'readonly'`).
+  - 열 `oauth_tokens.granted_scope`, `token_family_id`, `refresh_expires_at`, `rotated_at`, `revoked_at`, `last_used_at` 및 인덱스 `idx_oauth_tokens_family(token_family_id)`.
+  - 테이블 `oauth_pending_requests(tx_id PRIMARY KEY, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, scope, state, account_id, created_at, expires_at, consumed_at)`.
+  - 테이블 `oauth_device_codes(device_code PRIMARY KEY, user_code UNIQUE, client_id, client_name, scope, status, account_id, interval, last_poll_at, created_at, expires_at)` 및 인덱스 `idx_oauth_device_codes_user(user_code)`.
+- **[코드] 추가·변경 객체**(`_migrate_v40_client_staging`, 멱등):
+  - 열 `accounts.extraction_mode` (`TEXT NOT NULL DEFAULT 'provider' CHECK (extraction_mode IN ('provider', 'client'))`).
+  - 열 `documents.content_hash`, `documents.extraction_status` (`TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed'))`), `documents.claim_token`, `documents.lease_expires_at`, `documents.claimed_by_client_id`, `documents.raw_chars` 및 인덱스 `idx_documents_kb_extraction_status(kb_id, extraction_status)`.
+- **[코드] 데이터 이관**: v39 이하의 기존 `oauth_codes`·`oauth_tokens` 행은 `granted_scope`가 비어 있을 때 `scope`로 백필하고, `token_family_id`가 없는 기존 토큰은 고유 패밀리 ID를 부여한다. 기존 `accounts.extraction_mode`가 비어 있거나 허용 값 밖인 행은 `'provider'`로, 기존 `documents.extraction_status`가 비어 있거나 허용 값 밖인 행은 `'extracted'`로 정규화한다.
+- **[테스트]** `tests/test_schema_v40.py`, `tests/test_oauth_flow.py`, `tests/test_client_staging_ae4.py`.

@@ -19,13 +19,13 @@
 
 ## 1. 개요 및 연결 기본 원칙
 
-Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이션, 개발자 스크립트, 그리고 외부 AI 하네스(Google Gemini, Claude Code/Desktop, Antigravity, Cursor 등)에서 원활하고 안전하게 활용할 수 있도록 **표준 REST API**와 **Model Context Protocol (MCP)** 엔드포인트를 단일 ASGI 프로세스(`claire_api`) 내에 통합 제공한다.
+Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이션, 개발자 스크립트, 그리고 외부 AI 에이전트(Google Gemini, Google Antigravity, Cursor 등 OAuth 2.1/Streamable HTTP 및 `agent_client` 번들 지원 클라이언트)에서 안전하게 활용할 수 있도록 **표준 REST API**와 **Model Context Protocol (MCP)** 엔드포인트를 단일 ASGI 프로세스(`claire_api`) 내에 통합 제공한다.
 
 ### 1.1 접속 주소 (Base URL) 및 Host Authority
 - **개발 환경 (`development`)**: `http://<CB_API_BIND>:<CB_API_PORT>` (예: `http://127.0.0.1:8765` 또는 `http://192.168.10.25:8766`)
 - **프로덕션 환경 (`production`)**: `https://<CLAIRE_FQDN>` (예: `https://claire.example.com` 또는 `https://cb.netspheres.org`)
 - **Host roles** [code] (`HostRouter` in `src/claire/api/host_router.py`):
-  - The `Host` header (with the port) selects the role: `app` (the API and `/mcp`), `usercontent`, `media`, `prototype`, and `legacy` (old theme FQDNs: before the sunset `GET` and `HEAD` get 308 to the canonical path, other methods get 421; after the sunset 410).
+  - The `Host` header (with the port) selects the role: `app` (the API and `/mcp`), `usercontent`, `media`, `prototype`, `clients` (`AE1b`: cookieless `agent_client` bundle delivery host `clients.<registrable_domain>` / dev `:8770`, `CSP: default-src 'none'; sandbox`, when `agent_client_delivery_mode="fqdn"`), and `legacy` (old theme FQDNs: before the sunset `GET` and `HEAD` get 308 to the canonical path, other methods get 421; after the sunset 410).
   - A host name or IP address that has no role gets HTTP `421 Misdirected Request`.
   - 역방향 프록시(Nginx, Cloudflare 등) 구성 시 클라이언트가 요청한 `Host` 헤더를 백엔드로 변조 없이 전달해야 한다. (상세 네트워크 구성은 [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) 참조)
 
@@ -38,20 +38,18 @@ The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DES
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 / 진단 번들 |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **시스템 관리자 (`owner`)** | 독립 상시 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
-| **Write (`write`)** | An API token (`cb_...`) with the scope `write`: `claire token create <name> --scope write` | Personal knowledge base: read, ingest, regenerate, publish | Shared knowledge base: read, contributions | — | No |
-| **읽기 전용 (`readonly`)** | 독립 상시 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **시스템 관리자 (`owner`)** | OAuth 2.1 / 세션(`claire auth`, 텔레그램 `/web`), 또는 지원 중단 예정 상시 토큰(`cb_...`, `env:owner`) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
+| **Write (`write`)** | OAuth 2.1 `write` 스코프 토큰(권장, `AE2a`) 또는 `claire token create <name> --scope write`(지원 중단 예정) | Personal knowledge base: read, ingest, client extraction (`AE5`), regenerate, publish | Shared knowledge base: read, contributions | — | No |
+| **읽기 전용 (`readonly`)** | OAuth 2.1 `readonly` 스코프 토큰(권장) 또는 텔레그램 `/webro` 세션 / 상시 토큰(`cb_...`, `env:readonly`, 지원 중단 예정) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
-### 1.3 환경변수 통제 방식 폐기 및 독립 자격증명 파일 기반 상시 이용 토큰 관리 (Decoupled Token Architecture)
-- **환경변수 통제 폐기 및 하이브리드 분리 모델**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, 지식 데이터베이스(`claire.db`)와 완전히 분리된 독립 자격증명 파일(`data/auth/api_tokens.json`, `chmod 0600`) 관리 체계로 전면 전환했다. 토큰 검증은 100% 인메모리에서 수행되어 SQLite 쓰기 락 경합이 전혀 발생하지 않으며(0%), 지식베이스 손상이나 롤백 시에도 인증 체계가 안전하게 유지(장애 격리)된다.
-- **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `data/auth/api_tokens.json` 파일로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
-- **토큰 관리 다중 인터페이스**:
-  - **CLI**: `claire token [list|create|revoke]`
-  - **WebUI**: 콘솔 `/settings/tokens`(관리자는 `/admin/tokens`) (토큰 발급 및 즉시 폐기, 클라이언트 연동 설정 제공)
-  - **텔레그램 봇**: `/token`, `/token list`, `/token create <이름> [scope]`, `/token revoke <ID>`
-  - **REST API**: `/tokens` (GET, POST, DELETE), `/tokens/revoke` (POST)
-- **RFC 6750 Bearer 토큰 사양**: 발급된 모든 토큰은 URL-safe 256비트 엔트로피(`cb_` 접두사)를 가지며, 요청 시 `Authorization: Bearer <TOKEN>` 헤더로 전송된다.
+### 1.3 인증 아키텍처 전환: OAuth 2.1 기본화 및 수동 상시 토큰 지원 중단 (`AE2a`/`AE2b`/`AE3`)
+- **OAuth 2.1 우선 권장**: AI 클라이언트와 도구는 `/settings/mcp`에서 관리하는 OAuth 2.1(`S256` PKCE 또는 RFC 8628 `/device`) 사용을 권장한다(§3.1 방법 3).
+- **레거시 상시 이용 토큰(`data/auth/api_tokens.json`, `Deprecated`)**: 기존 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)와 `data/auth/api_tokens.json` 상시 토큰(`cb_...`)은 OAuth 2.1로 대체되어 지원 중단 예정이다. 수동 토큰 Bearer 인증과 `/tokens*` 경로는 `Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더를 반환하며, `TokenStore.set_retired(True)`(`api_tokens.json` `"retired": true`) 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급은 `410 Gone`(`manual_tokens_retired`)을 반환하고 파일 기반 수동 토큰 검증이 중단된다.
+- **토큰 관리 인터페이스**:
+  - **OAuth 2.1 인가 관리**: 콘솔 `/settings/mcp`, API `/api/me/oauth/grants`, `POST /oauth/revoke`
+  - **레거시 상시 토큰 관리 (Deprecated)**: `claire token [list|create|revoke]`, 콘솔 `/settings/tokens`(관리자 `/admin/tokens`), 텔레그램 `/token`, REST API `/tokens*`
+- **RFC 6750 Bearer 토큰 사양**: 레거시 상시 토큰은 `cb_` 접두사를 가지며, OAuth 2.1 액세스 토큰·세션과 함께 `Authorization: Bearer <TOKEN>`으로 전송된다.
 
 ### 1.4 자격증명 채널 및 상호 배타성 규약
 인증 시 다음 세 채널 중 **정확히 하나만** 사용해야 한다:
@@ -267,9 +265,14 @@ curl -s -X POST https://claire.example.com/oauth/token \
 
 ---
 
-### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`)
+### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`, Deprecated)
 
-외부 AI 도구(Claude Desktop, Cursor, Antigravity 등) 및 CI/CD 자동화 파이프라인에서 상시 이용할 수 있는 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다.
+> [!WARNING] **수동 토큰 지원 중단 예정 (`AE3`)**
+> - 상시 이용 수동 토큰(`cb_...`, `data/auth/api_tokens.json`) 및 환경변수 토큰(`env:*`)은 OAuth 2.1(`AE2a`/`AE2b`, 콘솔 `/settings/mcp`)로 대체되었으며 지원 중단(Deprecated) 표시됩니다.
+> - 수동 토큰 Bearer 인증 응답 및 `/tokens`·`/tokens/revoke` 응답에는 `Deprecation: true`와 `Link: </settings/mcp>; rel="successor-version"` 헤더가 포함되며, JSON 응답에도 `"deprecated": true` 및 안내 문구가 포함됩니다.
+> - `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 활성화 시 `POST /tokens`는 `410 Gone`(`manual_tokens_retired`)을 반환하고 수동 Bearer 검증이 즉시 비활성화됩니다.
+
+외부 AI 도구(Antigravity, Cursor 등) 및 CI/CD 자동화 파이프라인에서 사용하던 레거시 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다. 신규 연동은 §3.1 방법 3의 OAuth 2.1을 권장한다.
 
 > [!IMPORTANT] **`/tokens` 계정 격리 (Account Isolation, Rev. 2.3)**
 > - `/tokens`, `/tokens/revoke`, `DELETE /tokens`는 라우트 정책 상 `surface="any"`, `access="owner"` 규칙을 가지며, 항상 요청 주체의 `Principal.account_id`로 엄격히 필터링된다.
@@ -283,6 +286,7 @@ curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/toke
 ```
 ```json
 {
+  "deprecated": true,
   "tokens": [
     {
       "id": 1,
@@ -296,7 +300,7 @@ curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/toke
     },
     {
       "id": 2,
-      "name": "Claude Desktop",
+      "name": "Antigravity Agent",
       "scope": "readonly",
       "created_at": 1729066000.0,
       "expires_at": null,
@@ -309,9 +313,9 @@ curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/toke
 ```
 
 #### 2) 신규 토큰 발급: `POST /tokens` (Owner 전용)
-새로운 상시 이용 API/MCP 토큰을 발급한다. 발급 시점에만 전체 원본 시크릿 토큰(`token`)이 반환된다.
+새로운 상시 이용 API/MCP 토큰을 발급한다. 발급 시점에만 전체 원본 시크릿 토큰(`token`)이 반환된다. `TokenStore.is_retired()`가 참(`CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `api_tokens.json` `"retired": true`)이면 HTTP `410 Gone`(`manual_tokens_retired`)을 반환한다.
 - **요청 본문 필드**:
-  - `name` (str, 필수): 토큰 식별용 이름 (예: `"Claude Desktop"`, `"Cursor Agent"`)
+  - `name` (str, 필수): 토큰 식별용 이름 (예: `"Agent Client"`, `"Cursor Agent"`)
   - `scope` (str, 선택, 기본 `"readonly"`): `"owner"`, `"write"`, `"readonly"` 중 선택
   - `expires_in_days` (int, 선택, 기본 `null`): 만료 일수 (생략 또는 `null` 지정 시 무기한 상시 이용)
 ```bash
@@ -319,7 +323,7 @@ curl -s -X POST https://claire.example.com/tokens \
      -H "Authorization: Bearer <OWNER_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
-       "name": "Claude Desktop",
+       "name": "Agent Client",
        "scope": "readonly",
        "expires_in_days": null
      }'
@@ -327,11 +331,12 @@ curl -s -X POST https://claire.example.com/tokens \
 ```json
 {
   "ok": true,
+  "deprecated": true,
   "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
   "token": {
     "id": 3,
     "token": "cb_xX9vY27z1234567890abcdefghijklmno",
-    "name": "Claude Desktop",
+    "name": "Agent Client",
     "scope": "readonly",
     "created_at": 1729069000.0,
     "expires_at": null,
@@ -374,6 +379,22 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 ---
 
+### 2.8 클라이언트 추출 스테이징 및 제출 API (`/api/client-extraction/*`, `AE5`)
+
+계정의 `extraction_mode = 'client'`(`PATCH /api/me`, `AE4`)이거나 클라이언트가 원문을 직접 스테이징·추출할 때 사용하는 HTTP REST API다 (`src/claire/api/server.py`, `src/claire/ingest/client_extraction.py`, 스키마 `"agent-extract-v1"`). 모든 경로는 호출자의 개인 지식베이스만 대상으로 하며(`CT4`), 타인 `kb`·`kb_id`·`theme` 매개변수는 거부한다. 세부 4계층 검증 및 옵션 B 서버 임베딩 파이프라인은 [`EXTRACTION.md`](EXTRACTION.md) §9에 있다.
+
+| 메서드 | 경로 | 최소 스코프 | 요청 매개변수 / 본문 | 응답 / 주요 오류 |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/api/client-extraction/stage` | `write` | JSON `{url_or_text \| url \| text, title?, source_type?, full_content?: bool (기본 true), mode?}` | 200 `{document_id, kb_id, content_hash, raw_chars, extraction_status: "pending", ...}` / 400 `invalid_full_content` |
+| `GET` | `/api/client-extraction/sources` | `write` | query `status` (기본 `"pending"`, `"all"` 허용), `limit` (기본 `50`) | 200 `{sources: [...], count}` |
+| `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` | 선택 JSON `{client_id?, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at, content_hash, ...}` / 400 `invalid_lease_seconds` / 409 임대 충돌 |
+| `POST` | `/api/client-extraction/sources/{document_id}/renew` | `write` | JSON `{claim_token, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at}` / 400 `invalid_lease_seconds` / 409 |
+| `GET` | `/api/client-extraction/spec` | `readonly` | 없음 | 200 `schema_version`, 활성 온톨로지 타입·domain/range 규칙·AsciiDoc/제출 스키마 명세 |
+| `GET` | `/api/client-extraction/sources/{document_id}` | `write` | query `claim_token?`, `offset?`, `limit?` (기본 `32000`자), `line_offset?`, `line_limit?`, `full_content?` (`true` 기본) | 200 nonce-bound `<untrusted_source_document nonce="..." document_id="..." sha256="...">` 프레이밍 원문 조각 + `expected_content_hash` |
+| `POST` | `/api/client-extraction/sources/{document_id}/submit` | `write` | JSON `{claim_token, expected_content_hash \| content_hash, payload \| 인라인 필드, dry_run?: bool}` (`ConfigDict(extra="forbid", strict=True)`) | 200 `{ok: true, committed: !dry_run, extraction_origin: "agent_client", ...}` / 422 스키마·요약·AsciiDoc·온톨로지·근거 span 검증 실패 / 409 `content_hash_mismatch`·임대 불일치 |
+
+---
+
 ## 3. MCP (Model Context Protocol) 연동 및 도구 가이드
 
 Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있도록 **Model Context Protocol (MCP)** 공식 사양을 지원한다.
@@ -386,9 +407,9 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 - **`ContextVar[Principal]` 기반 계정 격리**:
   - `AuthenticationMiddleware`가 인증한 주체는 `mcp_tools.current_principal` (`ContextVar[Principal | None]`)을 통해 MCP 도구 함수 실행 컨텍스트로 전달된다.
   - 모든 MCP 도구의 `_kb_id` 해석은 `current_principal`의 `account_id`의 개인 지식 베이스와 공유 지식 베이스(공개)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
-- **읽기 전용 DB 연결 (`readonly=True`) 및 DDL 제거**:
-  - MCP 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`를 사용하여 읽기 전용 모드로 데이터베이스를 연다.
-  - 도구 호출마다 불필요하게 실행되던 DDL(`init_db`)을 완전히 제거하여 SQLite 쓰기 락 경합을 방지하고 응답 성능을 최적화한다.
+- **DB 연결 분리 및 쓰기 가드**:
+  - 읽기 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`로 읽기 전용 연결을 열고 DDL(`init_db`)을 실행하지 않는다.
+  - 쓰기 도구(`kb_submit` 및 `AE5` 클라이언트 추출 쓰기 도구)는 `require_mcp_write_scope()`로 `write`/`owner` 스코프를 강제하고, `AE5` 도구는 호출자 개인 지식베이스만 허용한다(`CT4`).
 - **포트 보존 호스트 검증**:
   - MCP `TransportSecuritySettings`의 `allowed_hosts`에 포트를 보존한 호스트 값(`localhost:port`, `127.0.0.1:port`, `fqdn:port`)을 등록하여 비표준 포트 환경에서의 DNS 리바인딩 보호와 정상 통신을 양립한다.
 
@@ -398,155 +419,151 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 
 MCP 클라이언트는 다음 세 가지 방식 중 하나로 `/mcp`에 접속할 수 있다:
 
-#### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token)
-CLI(`claire token create`), WebUI(🔑 API/MCP 키 또는 `/settings/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 사용하는 방식으로, Claude Desktop, Cursor 등 데스크톱 및 백그라운드 AI 에이전트에 가장 권장된다.
-- **발급**: `claire token create "Claude Desktop" --scope readonly`
+#### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token, Deprecated)
+CLI(`claire token create`), WebUI(`/settings/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 전달하는 레거시 방식이다 (`Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더 반환). 새 연동은 아래 방법 3(OAuth 2.1)을 사용한다.
+- **발급**: `claire token create "Agent Client" --scope readonly` (또는 `--scope write`)
 - **헤더**: `Authorization: Bearer <PERSISTENT_TOKEN>`
-- **특징**: 환경변수 주입이나 브라우저 대화형 재인증 없이 상시 이용 가능하며, 관리 화면이나 CLI에서 언제든지 즉시 폐기(Revoke)할 수 있다.
+- **퇴역 스위치**: `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급이 `410 Gone`으로 차단되고 기존 토큰 검증이 거부된다.
 
 #### 방법 2: 텔레그램 발급 세션 토큰 (X-Session)
 텔레그램 봇(`/web`, `/webro`)에서 발급받은 임시 세션 토큰을 전달한다.
 - **헤더**: `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
 
-#### 방법 3: OAuth 2.1 표준 인가 서버 (Gemini Spark / 원터치 승인)
-Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라이언트를 위한 완전 자동화 플로우이다:
+#### 방법 3: OAuth 2.1 표준 인가 서버 (Telegram-Free 브라우저 흐름 & RFC 8628 Device Grant)
+Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호환 클라이언트를 위한 통합 플로우이다:
 
 ```
-[외부 AI 클라이언트 (Gemini 등)]               [Claire Bible 인가 서버]
+[외부 AI 클라이언트]                             [Claire Bible 인가 서버]
               │                                           │
   1. GET /mcp (미인증) ──────────────────────────────────>│ (401 + WWW-Authenticate)
   2. GET /.well-known/oauth-protected-resource (RFC 9728) │
   3. GET /.well-known/oauth-authorization-server (RFC 8414)
   4. POST /oauth/register (RFC 7591 동적 클라이언트 등록) ──>│ (201 Created, client_id/secret)
-  5. GET /oauth/authorize (Redirect, PKCE S256) ─────────>│
-              │                                           │
-              ├─ [브라우저 로그인 시] -> [✅ 바로 승인하기] 1클릭
-              └─ [비로그인 시] -> [📱 텔레그램 승인 요청] 1클릭
-              │                                           │
-  6. POST /oauth/token (인증 코드 + PKCE verifier) ───────>│ (200 OK, access_token + refresh_token)
-  7. POST /mcp (Authorization: Bearer <access_token>) ───>│ (JSON-RPC MCP 서비스 개시)
+  5. GET /oauth/authorize (PKCE S256, scope=readonly|write)│
+              ├─ [미로그인 시] -> oauth_pending_requests + HttpOnly oauth_tx 쿠키 -> 303 /login?tx=<tx_id>
+              │                  (아이디/비밀번호 또는 OIDC 로그인 -> 303 /oauth/authorize?tx=<tx_id>)
+              └─ [로그인 시]  -> Zero-JS 동의 화면 (`write` 스코프는 단계 인증 `step_up_password` 필요)
+  6. POST /oauth/token (authorization_code + S256 / refresh_token / device_code) ─>│ (access_token + refresh_token)
+  7. POST /oauth/revoke (RFC 7009) · GET/DELETE /api/me/oauth/grants              │ (토큰·패밀리 즉시 폐기)
 ```
 
-- **영구 독립 세션 (`oauth_tokens` 테이블)**:
-  - The tables `oauth_clients`, `oauth_codes`, `oauth_tokens`, and `oauth_auth_requests` are in `claire.db` [code] (`src/claire/store/db.py`).
-  - 텔레그램 웹 세션의 단일 활성 정책과 완전히 격리된다. 텔레그램에서 `/web`을 재발급받아도 Gemini에 연결된 토큰은 절대 끊어지지 않는다.
-- **Refresh Token 자동 회전**:
-  - An access token is valid for 30 days (`OAUTH_ACCESS_TOKEN_TTL`) and a refresh token for 1 year (`OAUTH_REFRESH_TOKEN_TTL`) [code]. The client gets a new token with `grant_type=refresh_token`.
-  - `scopes_supported` in the metadata has one value, `["readonly"]` [code] (`src/claire/api/oauth.py`).
-- **Known limits** [code]: the MCP telemetry (`record_mcp_telemetry`) records no `client_id`. There is no route to list or revoke OAuth tokens. There is no call limit for each credential. The `claude_desktop_config` example in the output of `claire token create` uses `@modelcontextprotocol/server-everything`, which is not a connection to a remote HTTP server (use the forms of §3.4). Proposals: [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md) MP1 to MP4.
+- **영구 독립 세션 (`oauth_tokens` 테이블, v40)**:
+  - The tables `oauth_clients`, `oauth_codes`, `oauth_tokens`, `oauth_auth_requests`, `oauth_pending_requests`, and `oauth_device_codes` are in `claire.db` [code] (`src/claire/store/db.py`).
+  - 텔레그램 웹 세션과 완전히 격리되며, 텔레그램 봇이나 `account_id=1` 제한 없이 모든 활성 계정에서 브라우저 OAuth 또는 RFC 8628 `/device` 흐름을 완료할 수 있다.
+- **스코프 영속화·단계 인증·Refresh 회전 및 재사용 탐지**:
+  - `scopes_supported` is `["readonly", "write"]`, and only `S256` PKCE is accepted (`plain` rejected with `400 invalid_request`) [code] (`src/claire/api/oauth.py`).
+  - Granted scopes are preserved across code/device/refresh exchanges (`granted_scope`); refresh requests may downscope (e.g. `readonly write` to `readonly`), while escalation returns `400 invalid_scope`.
+  - Approving `write` scope requires recent session authentication (`STEP_UP_WINDOW_SECONDS`) or inline `step_up_password` verification (`allowCredentials` descriptors are exposed for WebAuthn step-up UI).
+  - Each `refresh_token` exchange marks the parent row `rotated_at` within a shared `token_family_id` and issues a new pair (`access_ttl` 30d, `refresh_ttl` 1y). Reusing an already-rotated refresh token revokes the entire token family immediately (`revoked_at`).
+  - `POST /oauth/revoke` (RFC 7009) and `GET`/`POST`/`DELETE /api/me/oauth/grants` list active client authorizations and revoke individual grants or all grants for the account.
+  - Headless fallback: `POST /oauth/device_authorization` returns `device_code` + `user_code` (`ABCD-EFGH`) and `/device` provides the zero-JS verification UI backed by `grant_type=urn:ietf:params:oauth:grant-type:device_code`.
 - **다중 계정 귀속 (Account Binding, Rev. 2.3)**:
-  - 하드코딩된 관리자 계정 ID(`ADMIN_ACCOUNT_ID`)를 제거하고, `validate_session_binding`으로 검증된 세션의 실제 `account_id`(`active` 상태 계정 필수)에 인가 코드(`oauth_codes`), 액세스 토큰, 리프레시 토큰(`oauth_tokens`)이 귀속된다.
+  - `validate_session_binding`으로 검증된 세션의 실제 `account_id`(`active` 상태 계정 필수)에 인가 코드(`oauth_codes`), 액세스 토큰, 리프레시 토큰(`oauth_tokens`)이 귀속된다.
   - 계정이 정지(`suspended`), 삭제 중(`deleting`), 소각(`purged`) 상태로 변경되면 리프레시 토큰 갱신 요청(`POST /oauth/token` `grant_type=refresh_token`) 시 즉시 `invalid_grant`로 거부된다.
-- **CSRF 및 오리진 방어**:
-  - 동의 폼 화면에 `Referrer-Policy: same-origin`을 강제하여 크로스 오리진 요청 시 리퍼러 유출을 차단한다.
-  - `POST /oauth/authorize`에서 `same_origin()` 검증을 거쳐 서브도메인 CSRF 및 `Origin: null` 공격을 방어한다.
-  - 미등록 `client_id` 거부, 등록된 `oauth_clients.redirect_uris`와 요청된 `redirect_uri`의 엄격한 정확 일치 검증, `javascript:`, `data:`, `vbscript:` 등 위험한 스킴 원천 차단, 기밀 클라이언트의 `client_secret` 검증을 강제한다.
-  - `/oauth/authorize/telegram-push`는 관리자(`account_id=1`) 세션 흐름에만 허용된다.
+- **CSRF 및 오리진 방어 (`modern-web-guidance`)**:
+  - 동의/로그인/기기 화면에 `Referrer-Policy: same-origin` 및 zero-JS HTML(인라인 `<script>` 제거, 단색 SVG)을 강제한다.
+  - `same_origin()`은 `Sec-Fetch-Site: same-origin` 및 일치하는 `Origin`과의 `none`만 허용하고 `same-site`·`cross-site`·opaque `"null"` 오리진은 거부한다.
+  - `_is_safe_redirect_uri()` 및 `CORSPolicyMiddleware`는 `"null"` 오리진과 위험한 스킴(`javascript:`, `data:`, `vbscript:`, `file:`)을 거부한다.
+  - `/oauth/authorize/telegram-push`는 관리자(`account_id=1`)용 선택적 레거시 푸시 경로로만 유지된다.
 
 ---
 
-### 3.2 제공 툴셋 (10종 Read-Only 도구)
+### 3.2 제공 툴셋 (19종 도구)
 
-모든 MCP 도구는 멀티 테마 파라미터(`theme: str | int | None = None`)를 공통 지원한다.
+모든 읽기 도구와 신디케이션 도구는 `kb`(지식베이스 번호, `CT23`)를 사용한다. 클라이언트 추출 도구는 호출자 개인 지식베이스만 대상으로 하며(`CT4`), 쓰기 작업은 `require_mcp_write_scope()`로 `write` 또는 `owner` 스코프를 검사한다.
+
+#### 1) 읽기 전용 탐색 도구 (10종, `kb` 필수)
 
 | 툴 이름 | 입력 파라미터 | 주요 역할 및 특징 |
 |---|---|---|
-| `resolve_entity` | `name: str`, `theme: str\|int?` | **탐색 루프의 진입점**. 이름이나 별칭 문자열로 노드 ID 검색 (정확 일치 -> 별칭 -> FTS5 fuzzy 폴백). |
-| `search` | `query: str`, `entity_type: str?`, `near_ids: list[str]?`, `limit: int?`, `theme: str\|int?` | FTS5 전문 검색. `entity_type` 필터 및 특정 프론티어 근방(`near_ids`) 필터링 지원. LLM 호출 0. |
-| `neighbors` | `entity_ids: list[str]\|str`, `exclude_ids: list[str]?`, `limit: int?`, `theme: str\|int?` | **탐색의 핵심 단위**. 여러 노드의 1홉 이웃을 합집합으로 조회하며 `degree` 포함. `truncated`, `omitted` 반환. |
-| `path` | `from_id: str`, `to_id: str`, `max_hops: int?`, `theme: str\|int?` | 두 노드 사이의 최단 연결 경로(BFS)를 탐색하여 인과/연결 관계 규명. |
-| `context` | `entity_ids: list[str]`, `compact: bool?`, `theme: str\|int?` | 노드들의 관찰(observations), 연결선, 출처 요약을 종합 반환하는 **탐색 종료 단계 툴** (최대 10개 노드). |
-| `overview` | `theme: str\|int?` | 지식베이스 전체의 엔티티 타입 분포, 주요 허브 노드, 핵심 수렴 정보를 제공하는 **오리엔테이션 툴**. |
-| `node` | `id: str`, `full: bool?`, `theme: str\|int?` | 노드 1개의 상세 정보(타입, 별칭, 속성, 관찰 목록). 소스 문서는 최신 10개로 캡. |
-| `documents` | `limit: int?`, `since: str?`, `query: str?`, `theme: str\|int?` | 문서 타임라인 목록 조회 (최대 100건 하드캡 및 잘림 표시 제공). |
-| `document` | `document_id: str`, `theme: str\|int?` | 단일 문서 본문 및 메타데이터 열람 (`mark_seen` 부작용 제거, `fetched_at`은 ISO8601 UTC 정규화). |
-| `stats` | `theme: str\|int?` | 데이터베이스 카운트 요약(문서 수, 엔티티 수, 관계 수, 소스 유형별 통계). |
+| `resolve_entity` | `name: str`, `kb: str\|int?` | **탐색 루프의 진입점**. 이름이나 별칭 문자열로 노드 ID 검색 (정확 일치 -> 별칭 -> FTS5 fuzzy 폴백). |
+| `search` | `query: str`, `entity_type: str?`, `near_ids: list[str]?`, `limit: int?`, `kb: str\|int?` | FTS5 전문 검색. `entity_type` 필터 및 특정 프론티어 근방(`near_ids`) 필터링 지원. LLM 호출 0. |
+| `neighbors` | `entity_ids: list[str]\|str`, `exclude_ids: list[str]?`, `limit: int?`, `kb: str\|int?` | **탐색의 핵심 단위**. 여러 노드의 1홉 이웃을 합집합으로 조회하며 `degree` 포함. `truncated`, `omitted` 반환. |
+| `path` | `from_id: str`, `to_id: str`, `max_hops: int?`, `kb: str\|int?` | 두 노드 사이의 최단 연결 경로(BFS)를 탐색하여 인과/연결 관계 규명. |
+| `context` | `entity_ids: list[str]`, `compact: bool?`, `kb: str\|int?` | 노드들의 observations, 연결 관계, 출처 요약을 종합 반환하는 **탐색 종료 단계 툴** (최대 10개 노드). |
+| `overview` | `kb: str\|int?` | 지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 주요 허브 노드, 핵심 수렴 개요. |
+| `node` | `entity_id: str`, `full: bool?`, `kb: str\|int?` | 단일 노드 상세 정보(타입, 별칭, 속성, 관찰 목록) 및 연결 문서(최대 10건) 조회. |
+| `documents` | `limit: int?`, `since: str?`, `query: str?`, `kb: str\|int?` | 문서 타임라인 목록 조회 (최대 100건 하드캡 및 잘림 표시 제공). |
+| `document` | `document_id: str`, `kb: str\|int?` | 단일 문서 본문 및 메타데이터 열람 (`mark_seen` 부작용 제거, `fetched_at`은 ISO8601 UTC 정규화). |
+| `stats` | `kb: str\|int?` | 데이터베이스 카운트 요약(문서 수, 엔티티 수, 관계 수, 소스 유형별 통계). |
+
+#### 2) 지식 베이스 기여 및 신디케이션 도구 (2종)
+
+| 툴 이름 | 입력 파라미터 | 스코프 / 제약 | 주요 역할 |
+|---|---|---|---|
+| `kb_candidates` | `kb: str\|int?`, `theme: str\|int?`, `remote_knowledge_base: int?`, `include_uploads: bool?` | 읽기 | 개인 지식베이스의 문서 중 컬렉션 테마나 원격 공유 지식베이스에 맞는 후보 점수 계산 (LLM 호출 0). |
+| `kb_submit` | `documents: list[str]`, `theme: str\|int?`, `remote_knowledge_base: int?` | `write` | 개인 지식베이스의 문서를 테마 또는 원격 공유 지식베이스에 기여 제출. |
+
+#### 3) 클라이언트 주도 추출 도구 (7종, `AE5` / `AED9`)
+
+| 툴 이름 | 입력 파라미터 | 스코프 / 제약 | 주요 역할 |
+|---|---|---|---|
+| `stage_source` | `url_or_text?`, `url?`, `text?`, `title?`, `source_type?`, `full_content: bool = True`, `mode?`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 원문을 `pending` 상태로 스테이징 (`full_content=True` 기본). |
+| `list_staged_sources` | `status: str? = "pending"`, `limit: int = 50`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 개인 지식베이스의 스테이징 대기 목록 조회. |
+| `claim_staged_source` | `document_id: str`, `client_id: str?`, `lease_seconds: float\|int = 300.0`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 300초 기본 임대 창(`lease_seconds`)으로 문서를 선점하고 일회용 `claim_token` 발급. |
+| `renew_staged_claim` | `document_id: str`, `claim_token: str`, `lease_seconds: float\|int = 300.0`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 활성 추출 임대 연장. |
+| `get_extraction_spec` | (없음) | 읽기 (`read_only`) | `"agent-extract-v1"` 엄격 JSON 스키마, 활성 온톨로지 타입·domain/range 규칙, AsciiDoc 검증 규칙 반환. |
+| `get_staged_source` | `document_id: str`, `claim_token: str?`, `offset: int = 0`, `limit: int?`, `full_content: bool = True`, `line_offset: int?`, `line_limit: int?`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 난수 nonce가 포함된 `<untrusted_source_document nonce="..." document_id="..." sha256="...">` 태그로 감싼 원문 조각(기본 `32000`자 또는 줄 슬라이스)과 `expected_content_hash` 반환. |
+| `submit_client_extraction` | `document_id: str`, `claim_token: str`, `expected_content_hash: str`, `payload: dict`, `dry_run: bool = False`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | `ConfigDict(extra="forbid", strict=True)`, 요약·AsciiDoc·근거 span·온톨로지 4계층 검증 및 옵션 B 서버 임베딩 계산 후 원자적 커밋(`extraction_origin = "agent_client"`). |
 
 ---
 
 ### 3.3 권장 에이전트 탐색 루프 (Agent Exploration Loop)
 
-서버가 거대한 서브그래프 전체를 한 번에 덤프하지 않고, AI 에이전트가 점진적으로 프론티어를 넓혀가는 탐색 패턴을 권장한다:
+서버가 거대한 서브그래프 전체를 한 번에 덤프하지 않고, AI 에이전트가 점진적으로 프론티어를 넓혀가는 탐색 패턴을 권장한다 (클라이언트 추출 루프는 [`EXTRACTION.md`](EXTRACTION.md) §9 참조):
 
 ```text
-[0. 오리엔테이션] ──> overview() (지식베이스 전체 도메인 및 허브 감 잡기)
+[0. 오리엔테이션] ──> overview(kb=0) (지식베이스 전체 도메인 및 허브 감 잡기)
         │
-[1. 진입점 확보]  ──> resolve_entity(name="...") 또는 search(query="...")
+[1. 진입점 확보]  ──> resolve_entity(name="...", kb=0) 또는 search(query="...", kb=0)
         │
-[2. 프론티어 확장] ──> neighbors(entity_ids=[...], exclude_ids=[...], limit=30)
+[2. 프론티어 확장] ──> neighbors(entity_ids=[...], exclude_ids=[...], limit=30, kb=0)
         │            (degree 높은 허브 선별 및 유망한 관계 가지 확장)
         ▼
-[3. 영역 좁히기]  ──> search(query="...", near_ids=[...])
+[3. 영역 좁히기]  ──> search(query="...", near_ids=[...], kb=0)
         │
-[4. 심층 종합]    ──> context(entity_ids=[...], compact=True) (최종 근거 수집)
+[4. 심층 종합]    ──> context(entity_ids=[...], compact=True, kb=0) (최종 근거 수집)
 ```
 
 ---
 
 ### 3.4 클라이언트별 연결 설정
 
-#### 1) Google Gemini (Spark / 맞춤형 연결 앱)
+#### 1) Google Antigravity (`claire.antigravity` `agent_client` 번들 + OAuth 2.1, 권장)
+1. 콘솔 `/settings/mcp`에서 `claire.antigravity` 번들을 내려받는다(`uri_path` 모드는 `/clients/antigravity/bundle.tar.gz`, `fqdn` 모드는 `clients.<registrable_domain>/antigravity/bundle.tar.gz`; 60초 HMAC `?t=` 또는 Bearer 인증, `CSP: default-src 'none'; sandbox` 격리 전달).
+2. 번들(`plugins/agent_client/claire.antigravity/client_bundle/`)에는 `mcp_config.json.tmpl`, `rules/AGENTS.md`, `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`가 들어 있다.
+3. `~/.gemini/antigravity/mcp_config.json` (또는 클라이언트 MCP 설정 파일)에 `url` 형식으로 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
+```json
+{
+  "mcpServers": {
+    "claire": {
+      "url": "https://claire.example.com/mcp"
+    }
+  }
+}
+```
+
+#### 2) Google Gemini (Spark / 맞춤형 연결 앱)
 1. `gemini.google.com/spark/apps` 접속 ➡️ **[MCP 서버에 연결]** 클릭.
 2. **MCP 서버 URL**: `https://<CLAIRE_FQDN>/mcp` 입력 후 [다음] 클릭.
-3. Gemini가 DCR 및 메타데이터를 자동 감지하여 Claire 승인 페이지를 표시.
-4. 브라우저에서 **[✅ 바로 승인하기]** (또는 스마트폰 텔레그램 알림에서 **[승인]**) 클릭 ➡️ 즉시 연동 완료!
+3. 브라우저의 OAuth 2.1 동의 화면(`/oauth/authorize` → `/login?tx=`)에서 로그인 후 권한을 승인한다.
 
-#### 2) Claude Desktop (`claude_desktop_config.json`)
-- 경로:
-  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-  - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-  - Linux: `~/.config/Claude/claude_desktop_config.json`
+#### 3) Cursor (`.cursor/mcp.json`)
+OAuth 2.1 지원 클라이언트에서는 `url`만 등록하거나, 레거시 상시 토큰을 임시 사용할 때는 `Authorization` 헤더를 함께 지정한다:
 ```json
 {
   "mcpServers": {
     "claire": {
-      "url": "https://claire.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer <PERSISTENT_TOKEN>"
-      }
+      "url": "https://claire.example.com/mcp"
     }
   }
 }
 ```
 
-#### 3) Claude Code
-Add Claire as a remote HTTP MCP server:
-```bash
-claude mcp add --transport http claire https://claire.example.com/mcp --header "Authorization: Bearer <PERSISTENT_TOKEN>"
-```
-
-#### 4) Cursor (`.cursor/mcp.json`)
-```json
-{
-  "mcpServers": {
-    "claire": {
-      "url": "https://claire.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer <PERSISTENT_TOKEN>"
-      }
-    }
-  }
-}
-```
-
-#### 5) Google Antigravity (`~/.gemini/config/mcp_config.json` 또는 `.agents/mcp_config.json`)
-```json
-{
-  "mcpServers": {
-    "claire-bible": {
-      "serverUrl": "https://claire.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer <PERSISTENT_TOKEN>"
-      }
-    }
-  }
-}
-```
-
-#### 6) 직접 JSON-RPC 통신 (curl 예시)
+#### 4) 직접 JSON-RPC 통신 (curl 예시)
 ```bash
 curl -s -X POST https://claire.example.com/mcp \
-     -H "Authorization: Bearer <PERSISTENT_TOKEN>" \
+     -H "Authorization: Bearer <OAUTH_OR_BEARER_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -556,7 +573,8 @@ curl -s -X POST https://claire.example.com/mcp \
          "name": "search",
          "arguments": {
            "query": "OAuth 2.1 PKCE",
-           "limit": 3
+           "limit": 3,
+           "kb": 0
          }
        }
      }'
@@ -566,44 +584,40 @@ curl -s -X POST https://claire.example.com/mcp \
 
 ## 4. API 및 MCP 토큰 관리 종합 인터페이스
 
-Claire Bible은 환경변수에 의존하지 않고 상시 연동 토큰을 제어할 수 있도록 세 가지 공식 인터페이스(CLI, WebUI, Telegram Bot)를 제공한다.
+신규 클라이언트 인가는 콘솔 `/settings/mcp`의 **OAuth 2.1 부여 관리 및 `agent_client` 번들 배포**를 기본으로 한다. 레거시 상시 토큰은 CLI, WebUI, Telegram 봇 모두에서 지원 중단 안내(`Deprecation`)를 함께 출력하며 퇴역 전까지만 유지된다.
 
-### 4.1 CLI 토큰 관리 (`claire token`)
+### 4.1 CLI 토큰 관리 (`claire token`, Deprecated)
 
-터미널이나 자동화 스크립트에서 토큰을 직접 생성, 조회, 폐기할 수 있다.
+터미널이나 스크립트에서 레거시 상시 토큰을 조회·발급·폐기한다(명령 실행 시 `[DEPRECATED]` 안내 출력):
 
 ```bash
 # 1. 활성 토큰 목록 조회 (폐기/만료 토큰 포함 시 -a 또는 --all)
 claire token list
 claire token list -a --json
 
-# 2. 상시 이용 토큰 발급 (기본: readonly 권한, 무기한)
-claire token create "Claude Desktop" --scope readonly
-claire token create "Cursor Agent" --scope readonly --expires-in 90 --json
+# 2. 상시 이용 토큰 발급 (기본: readonly 권한, 무기한; json 응답 키 mcp_client_config 제공)
+claire token create "Agent Client" --scope readonly
+claire token create "Cursor Agent" --scope write --expires-in 90 --json
 
 # 3. 토큰 즉시 폐기 (ID 또는 토큰값 지정)
 claire token revoke 2
 claire token revoke "cb_xX9vY..." --json
 ```
 
-### 4.2 WebUI 토큰 관리 콘솔 화면 (🔑 API/MCP 키)
+### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/settings/mcp`, `/settings/tokens`)
 
-- **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 토큰 관리 패널이 없다.
-- **콘솔 화면**: 관리 패널(`src/claire/static/js/manage_panels.js`)을 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`에서 쓴다. 관리자가 `/settings/tokens`를 열면 `/admin/tokens`로 302된다. 두 화면 모두 호출자 계정의 토큰만 다룬다(§2.6 계정 격리). `/settings/mcp`는 `/mcp` 연결 주소, `theme` 인자 예시, 클라이언트 설정 안내를 보여 준다. 루트 상단바의 **⚙️** 아이콘(관리자는 **🛠️**)이 `/settings`(관리자는 `/admin`)로 이동한다.
-- **제공 기능**:
-  - 발급된 모든 토큰의 상태(활성, 만료, 폐기), 권한 스코프(`owner` / `write` / `readonly`), 만료 일시, 최근 사용 시각(Last Used) 실시간 모니터링.
-  - 새 토큰 발급 폼: 이름, 권한, 유효기간(무기한/30일/90일/1년) 설정 후 [✨ 토큰 발급] 1클릭 생성.
-  - 발급 즉시 Claude Desktop 및 Cursor에 붙여넣을 수 있는 `mcpServers` JSON 설정 스니펫 자동 생성.
-  - 특정 토큰의 즉시 폐기(Revoke) 버튼 제공.
+- **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
+- **`/settings/mcp` (권장)**: OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 활성 `agent_client` 플러그인 번들(`claire.antigravity` 등)의 60초 `?t=` 다운로드 링크(`/clients/<client_id>/...`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
+- **`/settings/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
 
-### 4.3 텔레그램 봇 토큰 명령어 (`/token`)
+### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)
 
-스마트폰이나 텔레그램 메신저에서 원격으로 토큰 상태를 조회하고 긴급 폐기 또는 새 토큰을 즉시 발급할 수 있다.
+스마트폰이나 텔레그램 메신저에서 원격으로 레거시 상시 토큰 상태를 조회·발급·폐기할 수 있으며, 모든 응답에 OAuth 2.1(`/settings/mcp`) 이전 안내가 덧붙는다.
 
 - **목록 조회**: `/token` 또는 `/token list`
 - **토큰 생성**: `/token create <이름> [owner|write|readonly]`
-  - 예: `/token create ClaudeDesktop readonly`
-  - 발급 즉시 봇 메시지로 전체 시크릿 토큰과 MCP 연결 URL이 전송된다.
+  - 예: `/token create AgentClient readonly`
+  - 발급 즉시 봇 메시지로 시크릿 토큰, MCP 연결 URL, 지원 중단 안내가 전송된다.
 - **토큰 폐기**: `/token revoke <ID 또는 토큰값>`
   - 예: `/token revoke 2`
   - 폐기 즉시 해당 토큰의 모든 API/MCP 연결이 영구 차단된다.

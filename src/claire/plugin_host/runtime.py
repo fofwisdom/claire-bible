@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import ORIGIN_PROJECT, STATE_ENABLED, STATE_FAILED, STATE_INVALID
+from . import ORIGIN_PROJECT, STATE_ENABLED, STATE_FAILED, STATE_INVALID, TYPE_AGENT_CLIENT, TYPE_INGEST_ADAPTER
 from .context import PluginCommand, PluginContext, RegisteredEntry
 from .discovery import PluginStatus, compute_states, discover
 from .manifest import python_name
@@ -79,6 +79,19 @@ class Snapshot:
                 return status
         return None
 
+    def agent_clients(self) -> list[PluginStatus]:
+        return [
+            status
+            for status in self.statuses
+            if status.state == STATE_ENABLED and status.manifest is not None and status.manifest.type == TYPE_AGENT_CLIENT
+        ]
+
+    def agent_client(self, client_id: str) -> PluginStatus | None:
+        for status in self.agent_clients():
+            if status.manifest is not None and status.manifest.client_id == client_id:
+                return status
+        return None
+
 
 def _ensure_namespace(name: str) -> None:
     if name not in sys.modules:
@@ -97,6 +110,8 @@ def import_plugin(status: PluginStatus, *, fresh: bool = False) -> tuple[str, An
     """
     manifest = status.manifest
     assert manifest is not None and status.path is not None
+    if manifest.type != TYPE_INGEST_ADAPTER:
+        raise ImportError(f"plugin {manifest.id!r} ({manifest.type}) has no Python module to import")
     type_package = f"{PACKAGE_ROOT}.{manifest.type}"
     _ensure_namespace(PACKAGE_ROOT)
     _ensure_namespace(type_package)
@@ -129,6 +144,8 @@ def register_plugin(status: PluginStatus, *, fresh: bool = False) -> tuple[str, 
     """Import and call ``register(ctx)``. Raise ``PluginRegistrationMismatch`` when the entries differ from ``provides``."""
     manifest = status.manifest
     assert manifest is not None and status.path is not None and status.origin is not None
+    if manifest.type != TYPE_INGEST_ADAPTER:
+        raise ImportError(f"plugin {manifest.id!r} ({manifest.type}) cannot register Python entries")
     module_name, function = import_plugin(status, fresh=fresh)
     ctx = PluginContext(manifest, status.path, status.origin)
     function(ctx)
@@ -185,6 +202,12 @@ class PluginRuntime:
             self._snapshot, self._snapshot_key, self._taken_at = snapshot, key, time.monotonic()
             return snapshot
 
+    def agent_clients(self, *, settings: Any = None) -> list[PluginStatus]:
+        return self.current(settings=settings).agent_clients()
+
+    def agent_client(self, client_id: str, *, settings: Any = None) -> PluginStatus | None:
+        return self.current(settings=settings).agent_client(client_id)
+
     def _read_records(self, db_file: Path, discovery: Any) -> tuple[Any, bool]:
         from ..store import plugins as store
 
@@ -225,6 +248,8 @@ class PluginRuntime:
         restart_needed: list[str] = []
         for status in statuses:
             if status.state != STATE_ENABLED or status.digest is None or status.manifest is None:
+                continue
+            if status.manifest.type != TYPE_INGEST_ADAPTER:
                 continue
             failed = self._failed.get(status.id)
             if failed and failed[0] == status.digest:

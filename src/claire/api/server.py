@@ -72,6 +72,7 @@ from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, Know
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .accounts_routes.common import same_origin
+from .clients_host import clients_app_routes
 from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
@@ -83,8 +84,13 @@ from .oauth import (
     handle_authorization_server_metadata,
     handle_authorize,
     handle_authorize_poll,
+    handle_device_authorization,
+    handle_device_verification,
+    handle_list_oauth_grants,
     handle_protected_resource_metadata,
     handle_register,
+    handle_revoke,
+    handle_revoke_oauth_grants,
     handle_telegram_push,
     handle_token,
 )
@@ -286,7 +292,8 @@ def create_app(
                 object.__setattr__(s, "inject_token", owner_tok["token"])
             except Exception:
                 pass
-    account_routes = build_account_routes(s, WebRuntimeConfig.from_settings(s))
+    runtime_cfg = WebRuntimeConfig.from_settings(s)
+    account_routes = build_account_routes(s, runtime_cfg)
     svc = service or IngestService(s)
     theme_mgr = KnowledgeBaseManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
@@ -3464,6 +3471,12 @@ def create_app(
             _log_operation_failure(request, "ingest limits update", exc)
             raise HTTPException(status_code=500, detail="failed to update ingest limits configuration") from exc
 
+    _token_deprecation_headers = {
+        "Deprecation": "true",
+        "Link": '</settings/mcp>; rel="successor-version"',
+    }
+    _token_deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/settings/mcp)."
+
     async def tokens_list_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
         if scope != "owner":
@@ -3488,7 +3501,16 @@ def create_app(
             sanitized.append(item)
         # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 rule 2: the tokens whose scope ``collaborator`` became ``readonly`` are listed once.
         notices = store.take_scope_notices(target_account_id) if request.method == "GET" else []
-        return JSONResponse({"tokens": sanitized, "scope_notices": notices})
+        return JSONResponse(
+            {
+                "tokens": sanitized,
+                "scope_notices": notices,
+                "deprecated": True,
+                "deprecation_notice": _token_deprecation_notice,
+                "retired": store.is_retired(),
+            },
+            headers=_token_deprecation_headers,
+        )
 
     async def tokens_create_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -3499,6 +3521,16 @@ def create_app(
             )
         principal = request_principal(request)
         target_account_id = principal.account_id if principal.account_id is not None else 1
+        store = get_token_store(data_dir=s.data_dir)
+        if store.is_retired():
+            return JSONResponse(
+                {
+                    "error": "manual_tokens_retired",
+                    "detail": "Manual persistent tokens are retired. Use OAuth 2.1 (/settings/mcp).",
+                },
+                status_code=410,
+                headers=_token_deprecation_headers,
+            )
         body = await _json_object(request)
         name = str(body.get("name") or "").strip()
         if not name:
@@ -3510,14 +3542,25 @@ def create_app(
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="만료 기간(expires_in_days)은 정수여야 합니다.")
 
-        store = get_token_store(data_dir=s.data_dir)
         try:
             created = store.create_api_token(name=name, scope=tok_scope, expires_in_days=expires_in_days, account_id=target_account_id)
-            return JSONResponse({
-                "ok": True,
-                "token": created,
-                "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
-            }, status_code=201)
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "token": created,
+                    "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
+                    "deprecated": True,
+                    "deprecation_notice": _token_deprecation_notice,
+                },
+                status_code=201,
+                headers=_token_deprecation_headers,
+            )
+        except PermissionError as p_err:
+            return JSONResponse(
+                {"error": "manual_tokens_retired", "detail": str(p_err)},
+                status_code=410,
+                headers=_token_deprecation_headers,
+            )
         except ValueError as v_err:
             raise HTTPException(status_code=400, detail=str(v_err)) from v_err
         except Exception as exc:
@@ -3543,7 +3586,15 @@ def create_app(
             revoked = store.revoke_api_token(token_id, account_id=target_account_id)
             if not revoked:
                 raise HTTPException(status_code=404, detail="토큰을 찾을 수 없거나 이미 폐기되었습니다.")
-            return JSONResponse({"ok": True, "message": "토큰이 성공적으로 폐기되었습니다."})
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "message": "토큰이 성공적으로 폐기되었습니다.",
+                    "deprecated": True,
+                    "deprecation_notice": _token_deprecation_notice,
+                },
+                headers=_token_deprecation_headers,
+            )
         except HTTPException:
             raise
         except Exception as exc:
@@ -4981,13 +5032,20 @@ def create_app(
         theme, theme_settings, _ = _get_theme_ctx(request)
         raw_sees_hidden = _sees_hidden(request, theme)
 
+        class _DocumentNotExtracted(Exception):
+            pass
+
         def _find_raw(t_settings: Settings, t_kb_id: int) -> tuple[str, str] | None:
             conn = dbm.connect_existing(t_settings.db_file, readonly=True)
             try:
-                if not raw_sees_hidden:
-                    # The source file of a hidden document is not for a requester who does not see hidden documents: the answer is the one of a document that is not there.
-                    hidden_row = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (doc_id, t_kb_id)).fetchone()
-                    if hidden_row is not None and hidden_row[0]:
+                doc_state = conn.execute("SELECT hidden, COALESCE(extraction_status, 'extracted') AS extraction_status FROM documents WHERE id=? AND kb_id=?", (doc_id, t_kb_id)).fetchone()
+                if doc_state is not None:
+                    if not raw_sees_hidden and bool(doc_state["hidden"]):
+                        # The source file of a hidden document is not for a requester who does not see hidden documents: the answer is the one of a document that is not there.
+                        return None
+                    if str(doc_state["extraction_status"] or "extracted") == "pending":
+                        if raw_sees_hidden:
+                            raise _DocumentNotExtracted()
                         return None
                 try:
                     row = conn.execute(
@@ -5020,7 +5078,10 @@ def create_app(
             finally:
                 conn.close()
 
-        resolved = await asyncio.to_thread(_find_raw, theme_settings, theme.id)
+        try:
+            resolved = await asyncio.to_thread(_find_raw, theme_settings, theme.id)
+        except _DocumentNotExtracted:
+            return JSONResponse({"error": "document_not_extracted"}, status_code=409, headers=raw_security_headers)
         active_settings = theme_settings
 
         if resolved is None:
@@ -5330,18 +5391,29 @@ def create_app(
             raise HTTPException(status_code=400, detail="query is too long")
         node_id = body.get("node_id") or None
         document_id = body.get("doc_id") or None
-        if document_id is not None and not _sees_hidden(request, research_theme):
-            # The context of the research reads the document: a hidden document is not there for a requester who does not see hidden documents.
-            def _doc_hidden() -> bool:
+        if document_id is not None:
+            can_see_hidden = _sees_hidden(request, research_theme)
+
+            def _doc_access_issue() -> str | None:
                 conn = dbm.connect_existing(research_settings.db_file, readonly=True)
                 try:
-                    row = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (str(document_id), research_theme.id)).fetchone()
-                    return row is not None and bool(row[0])
+                    row = conn.execute("SELECT hidden, COALESCE(extraction_status, 'extracted') AS extraction_status FROM documents WHERE id=? AND kb_id=?", (str(document_id), research_theme.id)).fetchone()
+                    if row is None:
+                        return None
+                    if not can_see_hidden and bool(row["hidden"]):
+                        # The context of the research reads the document: a hidden document is not there for a requester who does not see hidden documents.
+                        return "not_found"
+                    if str(row["extraction_status"] or "extracted") == "pending":
+                        return "not_extracted" if can_see_hidden else "not_found"
+                    return None
                 finally:
                     conn.close()
 
-            if await asyncio.to_thread(_doc_hidden):
+            issue = await asyncio.to_thread(_doc_access_issue)
+            if issue == "not_found":
                 raise HTTPException(status_code=404, detail="document not found")
+            if issue == "not_extracted":
+                return JSONResponse({"error": "document_not_extracted"}, status_code=409)
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -5954,22 +6026,27 @@ def create_app(
 
         include_hidden = _sees_hidden(request, theme)
 
-        def _share(settings: Settings, target_theme_info: KnowledgeBaseInfo) -> str | None:
+        def _share(settings: Settings, target_theme_info: KnowledgeBaseInfo) -> tuple[str, str | None]:
             conn = dbm.connect_existing(settings.db_file)
             try:
                 row = dbm.get_document_row(conn, document_id, kb_id=target_theme_info.id)
                 if row is None:
-                    return None
+                    return ("not_found", None)
                 if not include_hidden and bool(row["hidden"]):
-                    return None
-                return dbm.create_doc_share(conn, document_id, kb_id=target_theme_info.id)
+                    return ("not_found", None)
+                doc_status = str(row["extraction_status"] or "extracted") if "extraction_status" in row.keys() else "extracted"
+                if doc_status == "pending":
+                    return ("not_extracted" if include_hidden else "not_found", None)
+                return ("ok", dbm.create_doc_share(conn, document_id, kb_id=target_theme_info.id))
             finally:
                 conn.close()
 
-        token = await asyncio.to_thread(_share, theme_settings, theme)
+        share_status, token = await asyncio.to_thread(_share, theme_settings, theme)
         target_kb_id = theme.id
 
-        if not token:
+        if share_status == "not_extracted":
+            return JSONResponse({"error": "document_not_extracted"}, status_code=409)
+        if share_status != "ok" or not token:
             raise HTTPException(status_code=404, detail="document not found")
         return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
 
@@ -6537,7 +6614,263 @@ def create_app(
 
         return JSONResponse({"error": "method not allowed"}, status_code=405)
 
-    mcp_app = build_mcp_app(s, theme_mgr=theme_mgr)
+    def _reject_foreign_kb_param(request: Request, personal_kb: KnowledgeBaseInfo, body: dict[str, Any] | None = None) -> None:
+        raw_ref = None
+        if body is not None:
+            raw_ref = body.get("kb") or body.get("kb_id") or body.get("theme")
+        if raw_ref is None:
+            raw_ref = request.query_params.get("kb") or request.query_params.get("kb_id") or request.query_params.get("theme")
+        if raw_ref is None or not str(raw_ref).strip():
+            return
+        ref_str = str(raw_ref).strip()
+        if ref_str == str(personal_kb.id):
+            return
+        target = None
+        try:
+            target = theme_mgr.get_kb_by_reference(ref_str)
+        except Exception:
+            target = None
+        if target is None:
+            try:
+                target = theme_mgr.get_kb(int(ref_str))
+            except Exception:
+                target = None
+        if target is None or int(target.id) != int(personal_kb.id):
+            if target is not None and not target.is_shared:
+                raise HTTPException(status_code=404, detail="theme not found")
+            raise HTTPException(status_code=403, detail="kb_ingest_by_contribution")
+
+    async def _optional_json_object(request: Request) -> dict[str, Any]:
+        ctype = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if not ctype:
+            raw_bytes = await request.body()
+            if not raw_bytes:
+                return {}
+            raise HTTPException(status_code=400, detail="content-type must be application/json")
+        return await _json_object(request)
+
+    def _parse_optional_int(raw: str | None, name: str) -> int | None:
+        if raw is None or raw == "":
+            return None
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{name} must be an integer") from exc
+
+    async def client_extraction_stage_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, _ = _get_personal_kb_ctx(request)
+        body = await _json_object(request)
+        _reject_foreign_kb_param(request, theme, body)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        url_or_text = str(body.get("url_or_text") or body.get("url") or body.get("text") or "").strip()
+        title = body.get("title")
+        source_type = body.get("source_type")
+        full_content_raw = body.get("full_content", True)
+        if not isinstance(full_content_raw, bool):
+            return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
+        full_content = full_content_raw
+        mode = body.get("mode")
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                return ce.stage_source(
+                    conn,
+                    kb_id=theme.id,
+                    account_id=int(principal.account_id),
+                    url_or_text=url_or_text,
+                    title=str(title) if title is not None else None,
+                    source_type=str(source_type) if source_type is not None else None,
+                    full_content=full_content,
+                    mode=str(mode) if mode is not None else None,
+                    settings=theme_settings,
+                    data_dir=Path(s.data_dir) if getattr(s, "data_dir", None) else None,
+                )
+            finally:
+                conn.close()
+
+        try:
+            res = await asyncio.to_thread(_work)
+            return JSONResponse(res, status_code=200)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    async def client_extraction_list_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, _ = _get_personal_kb_ctx(request)
+        _reject_foreign_kb_param(request, theme)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        status_filter = request.query_params.get("status", "pending")
+        if status_filter == "all":
+            status_filter = None
+        limit_val = _parse_optional_int(request.query_params.get("limit"), "limit")
+        limit = 50 if limit_val is None else limit_val
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
+            try:
+                return ce.list_staged_sources(conn, kb_id=theme.id, account_id=int(principal.account_id), status=status_filter, limit=limit)
+            finally:
+                conn.close()
+
+        try:
+            res = await asyncio.to_thread(_work)
+            return JSONResponse(res, status_code=200)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    async def client_extraction_claim_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, _ = _get_personal_kb_ctx(request)
+        body = await _optional_json_object(request)
+        _reject_foreign_kb_param(request, theme, body)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        doc_id = request.path_params.get("document_id", "")
+        client_id = body.get("client_id")
+        lease_raw = body.get("lease_seconds", dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS)
+        if isinstance(lease_raw, bool) or not isinstance(lease_raw, (int, float)):
+            return JSONResponse({"ok": False, "error": "invalid_lease_seconds", "message": "lease_seconds must be a number."}, status_code=400)
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                return ce.claim_staged_source(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, client_id=str(client_id) if client_id is not None else None, lease_seconds=lease_raw)
+            finally:
+                conn.close()
+
+        try:
+            res = await asyncio.to_thread(_work)
+            return JSONResponse(res, status_code=200)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    async def client_extraction_renew_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, _ = _get_personal_kb_ctx(request)
+        body = await _json_object(request)
+        _reject_foreign_kb_param(request, theme, body)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        doc_id = request.path_params.get("document_id", "")
+        claim_token = str(body.get("claim_token") or "")
+        lease_raw = body.get("lease_seconds", dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS)
+        if isinstance(lease_raw, bool) or not isinstance(lease_raw, (int, float)):
+            return JSONResponse({"ok": False, "error": "invalid_lease_seconds", "message": "lease_seconds must be a number."}, status_code=400)
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                return ce.renew_staged_claim(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, claim_token=claim_token, lease_seconds=lease_raw)
+            finally:
+                conn.close()
+
+        try:
+            res = await asyncio.to_thread(_work)
+            return JSONResponse(res, status_code=200)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    async def client_extraction_spec_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        del request
+        return JSONResponse(ce.get_extraction_spec(), status_code=200)
+
+    async def client_extraction_get_source_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, _ = _get_personal_kb_ctx(request)
+        _reject_foreign_kb_param(request, theme)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        doc_id = request.path_params.get("document_id", "")
+        claim_token = request.query_params.get("claim_token")
+        offset = _parse_optional_int(request.query_params.get("offset"), "offset") or 0
+        limit = _parse_optional_int(request.query_params.get("limit"), "limit")
+        line_offset = _parse_optional_int(request.query_params.get("line_offset"), "line_offset")
+        line_limit = _parse_optional_int(request.query_params.get("line_limit"), "line_limit")
+        fc_param = request.query_params.get("full_content", "true").strip().lower()
+        full_content = fc_param not in ("0", "false", "no")
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
+            try:
+                return ce.get_staged_source(
+                    conn,
+                    kb_id=theme.id,
+                    account_id=int(principal.account_id),
+                    document_id=doc_id,
+                    claim_token=claim_token,
+                    offset=offset,
+                    limit=limit,
+                    full_content=full_content,
+                    line_offset=line_offset,
+                    line_limit=line_limit,
+                )
+            finally:
+                conn.close()
+
+        try:
+            res = await asyncio.to_thread(_work)
+            return JSONResponse(res, status_code=200)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    async def client_extraction_submit_route(request: Request) -> JSONResponse:
+        from ..ingest import client_extraction as ce
+
+        theme, theme_settings, theme_svc = _get_personal_kb_ctx(request)
+        body = await _json_object(request)
+        _reject_foreign_kb_param(request, theme, body)
+        principal = request_principal(request)
+        assert principal.account_id is not None
+        doc_id = request.path_params.get("document_id", "")
+        claim_token = str(body.get("claim_token") or "")
+        expected_hash = str(body.get("expected_content_hash") or body.get("content_hash") or "")
+        dry_run_raw = body.get("dry_run", False)
+        if not isinstance(dry_run_raw, bool):
+            return JSONResponse({"ok": False, "error": "invalid_dry_run", "message": "dry_run must be a boolean."}, status_code=400)
+        if "payload" in body:
+            raw_payload = body["payload"]
+        else:
+            raw_payload = {k: v for k, v in body.items() if k not in ("claim_token", "expected_content_hash", "content_hash", "dry_run", "kb", "kb_id", "theme")}
+        if not isinstance(raw_payload, dict):
+            return JSONResponse({"ok": False, "error": "schema_validation_error", "message": "payload must be a JSON object."}, status_code=422)
+
+        def _work() -> dict[str, Any]:
+            return ce.submit_client_extraction(
+                theme_settings.db_file,
+                kb_id=theme.id,
+                account_id=int(principal.account_id),
+                document_id=doc_id,
+                claim_token=claim_token,
+                expected_content_hash=expected_hash,
+                payload=raw_payload,
+                dry_run=dry_run_raw,
+                theme_svc=theme_svc,
+                kb_settings=theme_settings,
+                root_settings=s,
+                root_provider=getattr(svc, "provider", None),
+                credential_id=principal.credential_id,
+                credential_kind=principal.channel,
+            )
+
+        try:
+            res = await asyncio.to_thread(_work)
+            status = 200 if res.get("ok") else 422
+            return JSONResponse(res, status_code=status)
+        except ce.ClientExtractionError as exc:
+            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
+
+    mcp_app = build_mcp_app(s, theme_mgr=theme_mgr, svc=svc, service_pool=service_pool)
 
     async def mcp_route(request: Request) -> Response:
         response_meta: dict = {}
@@ -6943,8 +7276,21 @@ def create_app(
         Route("/oauth/authorize/telegram-push", handle_telegram_push, methods=["POST"]),
         Route("/oauth/authorize/poll", handle_authorize_poll, methods=["GET"]),
         Route("/oauth/token", handle_token, methods=["POST"]),
+        Route("/oauth/revoke", handle_revoke, methods=["POST"]),
+        Route("/oauth/device_authorization", handle_device_authorization, methods=["POST"]),
+        Route("/device", handle_device_verification, methods=["GET", "HEAD", "POST"]),
+        Route("/api/me/oauth/grants", handle_list_oauth_grants, methods=["GET", "HEAD"]),
+        Route("/api/me/oauth/grants", handle_revoke_oauth_grants, methods=["POST", "DELETE"]),
+        Route("/api/client-extraction/stage", client_extraction_stage_route, methods=["POST"]),
+        Route("/api/client-extraction/sources", client_extraction_list_route, methods=["GET", "HEAD"]),
+        Route("/api/client-extraction/sources/{document_id}/claim", client_extraction_claim_route, methods=["POST"]),
+        Route("/api/client-extraction/sources/{document_id}/renew", client_extraction_renew_route, methods=["POST"]),
+        Route("/api/client-extraction/spec", client_extraction_spec_route, methods=["GET", "HEAD"]),
+        Route("/api/client-extraction/sources/{document_id}", client_extraction_get_source_route, methods=["GET", "HEAD"]),
+        Route("/api/client-extraction/sources/{document_id}/submit", client_extraction_submit_route, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
+        *clients_app_routes(s, config=runtime_cfg),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
 
@@ -6956,7 +7302,7 @@ def create_app(
         exception_handlers={HTTPException: _http_error, policy.ProviderPolicyError: _policy_error},
         lifespan=app_lifespan,
     )
-    app.state.runtime_config = WebRuntimeConfig.from_settings(s)
+    app.state.runtime_config = runtime_cfg
     app.state.settings = s
 
     def _add_static(prefix: str, path: str | Path, name: str = "static") -> None:
@@ -7062,7 +7408,8 @@ def run_api() -> int:
     from .dev_listeners import dev_listeners
 
     prototype_authority_value = runtime.host_roles.prototype if runtime.host_roles is not None else None
-    listeners = dev_listeners(s, prototype=prototype_authority_value)
+    clients_authority_value = runtime.host_roles.clients if runtime.host_roles is not None else None
+    listeners = dev_listeners(s, prototype=prototype_authority_value, clients=clients_authority_value)
     # The prototype listener (RD20) is a tool of the maintainer on a fixed port. When another process has that port (a second development server, parallel tests), the server starts without it.
     optional_listeners = set(listeners[1:]) - set(dev_listeners(s))
     listen = ", ".join(f"{host}:{port}" for host, port in listeners)

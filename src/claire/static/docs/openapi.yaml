@@ -4,7 +4,8 @@ info:
   version: 1.0.0
   description: >-
     OpenAPI 3.1.0 specification of the Claire Bible HTTP API,
-    including RFC 8693 OAuth 2.0 Token Exchange, hybrid graph search, and MCP integration.
+    including OAuth 2.1 (PKCE S256, Device Authorization Grant, Refresh Rotation, Revocation, RFC 8693 Token Exchange),
+    hybrid graph search, MCP integration, agent_client bundle delivery, and client-driven extraction staging.
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -1047,37 +1048,34 @@ paths:
         '200':
           description: The result.
 
-  /explore/federation:
+  /accounts:
     get:
-      summary: Data of the root page of network mode about other servers
+      summary: Public account directory
       description: >-
-        The themes across servers, the federated servers, and the recent activity across servers
-        (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 1 to 3). The data is public. `themes`: the
-        active themes, the one with the most recent activity first, each with `number`, `url`, `label`,
-        `knowledge_type`, `local_knowledge_bases`, and `remote_knowledge_bases` (the counts of the shared
-        knowledge bases of this server and of other servers). `servers`: the known servers that have
-        shared knowledge bases in the store of remote knowledge bases, each with `domain`,
-        `software_name`, `software_version`, and `knowledge_bases` (the count); a blocked server is not
-        in the list. `recent`: the 20 newest items of the recent activity, each with `kind`, `at`,
-        `server`, `label`, and `url` (the knowledge base of the other server and its page there; null
-        without a record): `remote_knowledge_base` (a new record, with `knowledge_type`),
-        `accepted_contribution` (another server approved contributions of an account of this server;
-        `account` is `{"username", "display_name"}`, or null when the account is not active with a
-        public profile and a USERNAME), and `curation` (a shared knowledge base of this server copied
-        documents of another server; `knowledge_base` is `{"number", "label", "url"}`). No item has a
-        document; a blocked domain is not in it. Network mode only: single mode has no root page (404).
-      operationId: getFederationOverview
+        The accounts with a public profile (`profile_public` 1) and the state `active`, in both server
+        modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2). At the root: a JSON
+        OrderedCollection; with `page=true`: an OrderedCollectionPage with the collection parameters
+        `max_id`, `min_id`, `since_id`, and `limit`. Each item has the public number, `username`,
+        `display_name`, and the public themes with their counts. A browser navigation gets the HTML
+        page. The old paths `/explore/accounts` and `/explore/federation` are removed (404). The list of
+        the federated servers is not public.
+      operationId: listPublicAccounts
       x-claire-access: public
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
         - {}
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, requests an OrderedCollectionPage slice instead of the root OrderedCollection.
       responses:
         '200':
-          description: '`{"themes": [...], "servers": [...], "recent": [...]}` with `Cache-Control: public, max-age=60`.'
-        '404':
-          description: The server is in single mode.
+          description: The collection root, a page of the collection, or the HTML page.
 
   /api/kb/similar:
     get:
@@ -1389,6 +1387,103 @@ paths:
         '200':
           description: '`{"mode": "off" | "shadow", "report": {"records", "judged", "pending", "tp", "fp", "fn", "tn", "precision", "recall", "accuracy"}, "records": [{"id", "parent": {"document_id", "title", "url"}, "child": {"document_id", "title", "url"}, "same_subject", "relevance", "quality", "interpretation", "reason", "created_at", "verdict", "verdict_note", "verdict_at"}]}`. A metric is null when its denominator is 0.'
 
+  /api/me/pair-review/items:
+    get:
+      summary: Entity pair review items that wait for a verdict of the account (schema v38)
+      operationId: listPairReviewItems
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 20, default: 5}
+          description: 400 `limit_invalid` outside 1 to 20.
+      responses:
+        '200':
+          description: '`{"rule": {"version", "same", "different"}, "verdicts": ["same", "different", "unsure"], "items": [{"id", "kb_id", "document_id", "decided_at", "reasons", "new_entity", "candidate", "snapshot_source", "rule_version", "prelabel_hidden", "prelabel", "verdict_counts", "consensus"}]}`. Only items of knowledge bases that the account can read. A blind item has `prelabel: null` and `prelabel_hidden: true` until the verdict.'
+        '404':
+          description: 'No signed-in account.'
+
+  /api/me/pair-review/items/{item_id}/verdict:
+    put:
+      summary: Give or change the verdict of the account on one item
+      operationId: setPairReviewVerdict
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict: {type: string, enum: [same, different, unsure]}
+                note: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: '`{"ok": true, "item": {..., "prelabel", "my_verdict": {"verdict", "note", "blind", "rule_version", "created_at", "updated_at"}}}`'
+        '400':
+          description: '`verdict_invalid`'
+        '404':
+          description: '`pair_item_not_found` (also for an item of a knowledge base that the account cannot read)'
+    delete:
+      summary: Remove the verdict of the account on one item
+      operationId: deletePairReviewVerdict
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: '`{"ok": true, "item": {...}}`'
+        '404':
+          description: '`pair_item_not_found` or `verdict_not_found`'
+
+  /api/me/pair-review/stats:
+    get:
+      summary: Verdicts of the account and the items that wait for it
+      operationId: pairReviewStats
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"verdicts", "by_verdict": {"same", "different", "unsure"}, "waiting"}`'
+
+  /api/admin/pair-review/report:
+    get:
+      summary: Routine evaluation report of the entity pair review (Jev, LLM judge, pre-label against the consensus of people)
+      operationId: pairReviewReport
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"rule_version", "consensus_rule", "items", "verdicts", "jev_by_model", "judge", "pipeline_merges", "prelabel", "gate"}`. It shows the gate; it changes no role.'
+
   /api/admin/expansion/shadow/{record_id}/verdict:
     put:
       summary: Give the human verdict of one shadow record
@@ -1420,6 +1515,76 @@ paths:
           description: '`verdict_invalid`'
         '404':
           description: '`shadow_record_not_found` (also for a record of a knowledge base of another account)'
+
+  /api/admin/plugins:
+    get:
+      summary: Plugins of the server with their states (INGESTION.md section 2.2)
+      operationId: listPlugins
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"core_commit", "project_plugin_folder", "plugin_folder", "initialized", "unknown_folders", "plugins": [{"id", "origin", "type", "state", "reason", "digest", "revision", "core_commit", "api", "maturity", "license", "maintainers", "name", "description", "provides", "permissions", "requires", "overlap_group", "overlap", "record"}], "process_reports"}`'
+        '404':
+          description: Not the administrator
+
+  /api/admin/plugins/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$'}
+    put:
+      summary: Switch a plugin on (with the digest that the administrator saw) or off
+      operationId: switchPlugin
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+                digest: {type: string, description: 'Required to switch on. 400 `digest_required` without it.'}
+                replace: {type: array, items: {type: string}, description: 'Exactly the enabled plugins of the overlap group; they go off in the same transaction.'}
+      responses:
+        '200':
+          description: '`{"id", "enabled", "replaced"}`'
+        '400':
+          description: '`invalid_request`, `digest_required`, `replace_not_allowed`'
+        '401':
+          description: '`reauth_required` (switching on needs a recent sign-in)'
+        '403':
+          description: '`step_up_requires_session`, `forbidden`'
+        '404':
+          description: Not the administrator, or `not_found`
+        '409':
+          description: '`plugin_changed`, `plugin_overlap`, `plugin_not_loadable`, `plugin_store_not_started`'
+    delete:
+      summary: Remove the record of a removed plugin
+      operationId: deletePluginRecord
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"id", "deleted": true}`'
+        '404':
+          description: Not the administrator, or no record
+        '409':
+          description: '`plugin_folder_exists`'
 
   /api/admin/reputations:
     get:
@@ -1950,7 +2115,7 @@ paths:
 
   /.well-known/oauth-protected-resource:
     get:
-      summary: OAuth 2.0 Protected Resource Metadata (RFC 9728)
+      summary: OAuth 2.1 Protected Resource Metadata (RFC 9728)
       description: Returns metadata describing the MCP protected resource and authorization servers.
       operationId: getProtectedResourceMetadata
       x-claire-access: public
@@ -1976,7 +2141,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    example: ["readonly"]
+                    example: ["readonly", "write"]
                   bearer_methods_supported:
                     type: array
                     items:
@@ -1985,7 +2150,7 @@ paths:
 
   /.well-known/oauth-authorization-server:
     get:
-      summary: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+      summary: OAuth 2.1 Authorization Server Metadata (RFC 8414)
       description: Returns metadata describing the authorization server endpoints and capabilities.
       operationId: getAuthorizationServerMetadata
       x-claire-access: public
@@ -1997,7 +2162,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [issuer, authorization_endpoint, token_endpoint, registration_endpoint, scopes_supported, response_types_supported, grant_types_supported]
+                required: [issuer, authorization_endpoint, token_endpoint, registration_endpoint, revocation_endpoint, device_authorization_endpoint, scopes_supported, response_types_supported, grant_types_supported, code_challenge_methods_supported, token_endpoint_auth_methods_supported]
                 properties:
                   issuer:
                     type: string
@@ -2007,10 +2172,15 @@ paths:
                     type: string
                   registration_endpoint:
                     type: string
+                  revocation_endpoint:
+                    type: string
+                  device_authorization_endpoint:
+                    type: string
                   scopes_supported:
                     type: array
                     items:
                       type: string
+                    example: ["readonly", "write"]
                   response_types_supported:
                     type: array
                     items:
@@ -2019,11 +2189,20 @@ paths:
                     type: array
                     items:
                       type: string
+                  code_challenge_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: ["S256"]
+                  token_endpoint_auth_methods_supported:
+                    type: array
+                    items:
+                      type: string
 
   /oauth/register:
     post:
       summary: Dynamic Client Registration (RFC 7591)
-      description: Dynamically registers an OAuth client (e.g., Google Gemini Spark).
+      description: Dynamically registers an OAuth 2.1 client (for example Google Gemini Spark or Antigravity).
       operationId: registerClient
       x-claire-access: public
       security: []
@@ -2036,7 +2215,7 @@ paths:
               properties:
                 client_name:
                   type: string
-                  example: Google Gemini Spark
+                  example: Antigravity
                 redirect_uris:
                   type: array
                   items:
@@ -2064,31 +2243,31 @@ paths:
 
   /oauth/authorize:
     get:
-      summary: OAuth 2.0 Authorization Endpoint (RFC 6749 & RFC 7636 PKCE)
-      description: Presents consent screen or supports 1-click / telegram push approval.
+      summary: OAuth 2.1 Authorization Endpoint (PKCE S256 only)
+      description: Redirects unauthenticated callers to `/login?tx=` or renders zero-JS consent for `readonly`/`write` scopes (`write` requires recent step-up auth).
       operationId: authorizeGet
       x-claire-access: public
       security: []
       parameters:
         - name: response_type
           in: query
-          required: true
+          required: false
           schema:
             type: string
             enum: [code]
         - name: client_id
           in: query
-          required: true
+          required: false
           schema:
             type: string
         - name: redirect_uri
           in: query
-          required: true
+          required: false
           schema:
             type: string
         - name: code_challenge
           in: query
-          required: true
+          required: false
           schema:
             type: string
         - name: code_challenge_method
@@ -2096,28 +2275,65 @@ paths:
           required: false
           schema:
             type: string
+            enum: [S256]
             default: S256
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [readonly, write, "readonly write"]
         - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: tx
           in: query
           required: false
           schema:
             type: string
       responses:
         '200':
-          description: HTML consent and authorization page.
+          description: 'Zero-JS HTML consent page (`Cache-Control: no-store`, `Referrer-Policy: same-origin`).'
           content:
             text/html:
               schema:
                 type: string
         '302':
-          description: Redirect back to client redirect_uri with authorization code.
+          description: Redirect to `/login?tx=` or back to `redirect_uri` with `code` and `state`.
+        '400':
+          description: Invalid OAuth authorization request or unsupported PKCE method.
+    post:
+      summary: OAuth 2.1 Authorization Consent Submit
+      description: Submits user consent decision (`approve`/`deny`), verifying inline `step_up_password` when granting `write` scope without recent step-up auth.
+      operationId: authorizePost
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                tx: {type: string}
+                action: {type: string, enum: [approve, deny]}
+                step_up_password: {type: string, format: password}
+      responses:
+        '302':
+          description: Redirect back to client `redirect_uri` with `code` or `error=access_denied`.
+        '400':
+          description: Missing or invalid transaction / OAuth request.
+        '403':
+          description: Cross-origin submission rejected or invalid step-up credential.
 
   /oauth/token:
     post:
-      summary: OAuth 2.0 Token Endpoint (RFC 6749, RFC 7636, RFC 8693)
+      summary: OAuth 2.1 Token Endpoint (Authorization Code PKCE, Refresh Rotation, Device Code, RFC 8693)
       description: >-
-        Exchanges a subject token (such as a Telegram bootstrap ticket, static inject token,
-        or existing session token) for a scoped Bearer access token.
+        Issues tokens for `authorization_code` (`S256` PKCE), `refresh_token` (with single-use family rotation and reuse revocation),
+        `urn:ietf:params:oauth:grant-type:device_code` (RFC 8628), and `urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693).
       operationId: exchangeToken
       x-claire-access: public
       security: []
@@ -2126,10 +2342,35 @@ paths:
         content:
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/TokenExchangeRequest'
+              oneOf:
+                - type: object
+                  required: [grant_type, code, redirect_uri, code_verifier]
+                  properties:
+                    grant_type: {type: string, const: authorization_code}
+                    code: {type: string}
+                    redirect_uri: {type: string}
+                    code_verifier: {type: string}
+                    client_id: {type: string}
+                    client_secret: {type: string}
+                - type: object
+                  required: [grant_type, refresh_token]
+                  properties:
+                    grant_type: {type: string, const: refresh_token}
+                    refresh_token: {type: string}
+                    scope: {type: string}
+                    client_id: {type: string}
+                    client_secret: {type: string}
+                - type: object
+                  required: [grant_type, device_code]
+                  properties:
+                    grant_type: {type: string, const: urn:ietf:params:oauth:grant-type:device_code}
+                    device_code: {type: string}
+                    client_id: {type: string}
+                    client_secret: {type: string}
+                - $ref: '#/components/schemas/TokenExchangeRequest'
       responses:
         '200':
-          description: Successful token exchange.
+          description: Successful token issuance or rotation.
           headers:
             Cache-Control:
               schema:
@@ -2144,17 +2385,222 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenExchangeResponse'
         '400':
-          description: Invalid token exchange request or invalid grant.
+          description: Invalid request, `authorization_pending`, `slow_down`, `expired_token`, or `invalid_grant`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuthErrorResponse'
         '401':
-          description: Unauthorized client or unauthenticated request.
+          description: Invalid client authentication.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth/revoke:
+    post:
+      summary: OAuth 2.1 Token Revocation (RFC 7009)
+      description: Revokes an access token or its refresh token family immediately.
+      operationId: revokeOAuthToken
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: {type: string}
+                client_id: {type: string}
+                client_secret: {type: string}
+      responses:
+        '200':
+          description: 'Token revoked (`{"ok": true}`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: {type: boolean}
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth/device_authorization:
+    post:
+      summary: OAuth 2.1 Device Authorization Endpoint (RFC 8628)
+      description: Issues a `device_code` and human-enterable `user_code` (`ABCD-EFGH`) for headless CLI/client onboarding.
+      operationId: deviceAuthorization
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [client_id]
+              properties:
+                client_id: {type: string}
+                client_secret: {type: string}
+                scope: {type: string, default: readonly}
+      responses:
+        '200':
+          description: 'Device authorization challenge issued (`Cache-Control: no-store`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device_code, user_code, verification_uri, verification_uri_complete, expires_in, interval]
+                properties:
+                  device_code: {type: string}
+                  user_code: {type: string, example: "ABCD-EFGH"}
+                  verification_uri: {type: string}
+                  verification_uri_complete: {type: string}
+                  expires_in: {type: integer, example: 600}
+                  interval: {type: integer, example: 5}
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /device:
+    get:
+      summary: RFC 8628 Device Verification UI
+      description: Zero-JS HTML page to enter `user_code` and approve or deny a headless device authorization (`write` requires recent step-up auth).
+      operationId: getDeviceVerification
+      x-claire-access: public
+      security: []
+      parameters:
+        - name: user_code
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: 'Device verification HTML (`Cache-Control: no-store`, `Referrer-Policy: same-origin`).'
+          content:
+            text/html:
+              schema: {type: string}
+    post:
+      summary: RFC 8628 Device Verification Action
+      description: Looks up `user_code` or submits `approve` / `deny` decision.
+      operationId: postDeviceVerification
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                user_code: {type: string}
+                action: {type: string, enum: [lookup, approve, deny]}
+                step_up_password: {type: string, format: password}
+      responses:
+        '200':
+          description: Updated verification HTML (`approved`, `denied`, or lookup/consent form).
+          content:
+            text/html:
+              schema: {type: string}
+        '400':
+          description: Unknown or expired `user_code`.
+        '403':
+          description: Cross-origin request rejected or invalid step-up password.
+
+  /api/me/oauth/grants:
+    get:
+      summary: List active OAuth 2.1 grants for the signed-in account
+      operationId: listOAuthGrants
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Active OAuth 2.1 token grants for the account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [grants]
+                properties:
+                  grants:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: Unauthenticated caller.
+    post:
+      summary: Revoke one or all OAuth 2.1 grants for the signed-in account
+      operationId: revokeOAuthGrantsPost
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grant_id: {type: string}
+                client_id: {type: string}
+                revoke_all: {type: boolean}
+      responses:
+        '200':
+          description: 'Revocation result (`{"ok": true, "revoked": n}`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, revoked]
+                properties:
+                  ok: {type: boolean}
+                  revoked: {type: integer}
+        '400':
+          description: Missing `grant_id`, `client_id`, or `revoke_all`.
+        '403':
+          description: Cross-origin cookie request rejected.
+    delete:
+      summary: Revoke one or all OAuth 2.1 grants for the signed-in account
+      operationId: revokeOAuthGrantsDelete
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: grant_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: client_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: all
+          in: query
+          required: false
+          schema: {type: boolean}
+      responses:
+        '200':
+          description: 'Revocation result (`{"ok": true, "revoked": n}`).'
 
   /search:
     post:
@@ -2209,11 +2655,6 @@ paths:
   /documents:
     get:
       summary: List archived documents
-      description: >-
-        In the personal knowledge base, for its account, each document also has `theme_match`
-        (`{"theme": "<number>", "theme_label", "knowledge_type", "score"}`, or null when the document
-        has no matched theme) and `never_contribute` (the flag "never contribute" of the document). For
-        each other requester and for a shared knowledge base, the two keys are absent.
       operationId: listDocuments
       x-claire-access: read
       security:
@@ -2226,6 +2667,58 @@ paths:
           required: false
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of documents in the response. The order is `fetched_at` descending, then `id` descending.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 300
+            default: 300
+        - name: before
+          in: query
+          required: false
+          description: Keyset cursor `<fetched_at>:<id>`. Use the `next_before` value of the response before. The response has only the documents after this cursor in the list order.
+          schema:
+            type: string
+        - name: pinned
+          in: query
+          required: false
+          description: Only the documents with this pinned flag.
+          schema:
+            type: string
+            enum: ['0', '1']
+        - name: hidden
+          in: query
+          required: false
+          description: Only the documents with this hidden flag. The anonymous scope never gets hidden documents.
+          schema:
+            type: string
+            enum: ['0', '1']
+        - name: q
+          in: query
+          required: false
+          description: Only the documents whose title or latest extraction summary contains this text.
+          schema:
+            type: string
+            maxLength: 200
+        - name: detail
+          in: query
+          required: false
+          description: "`missing`: documents with no detail text. `mismatched`: documents with a detail text in a format that is not the configured render format."
+          schema:
+            type: string
+            enum: [missing, mismatched]
+        - name: id
+          in: query
+          required: false
+          description: Only the documents with these identifiers. The parameter can be given a maximum of 100 times.
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
       responses:
         '200':
           description: Document archive list with format status.
@@ -2254,6 +2747,22 @@ paths:
                   kb_id:
                     type: integer
                   theme_label:
+                    type: string
+                  next_before:
+                    type: string
+                    nullable: true
+                    description: Cursor for the `before` parameter of the next page. `null` when this page is the last one.
+                  total:
+                    type: integer
+                    description: Number of documents that match the filters, without the cursor.
+        '400':
+          description: A parameter value is not valid. The `error` field has a fixed text, for example `limit must be an integer 1..300` or `before must be <fetched_at>:<id>`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
                     type: string
 
   /document/export:
@@ -2419,6 +2928,13 @@ paths:
           required: true
           schema:
             type: string
+        - name: docs
+          in: query
+          required: false
+          description: With the value `brief`, each item of `documents` has only `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, and `has_raw_file`. Without this parameter, each item has `id`, `title`, `url`, `summary`, `detail`, `detail_format`, `detail_html`, and `fetched_at`.
+          schema:
+            type: string
+            enum: [brief]
       responses:
         '200':
           description: Entity details and adjacent edges.
@@ -2595,7 +3111,8 @@ paths:
 
   /tokens:
     get:
-      summary: List persistent API and MCP tokens
+      deprecated: true
+      summary: List persistent API and MCP tokens (Deprecated; use OAuth 2.1 in /settings/mcp)
       operationId: listTokens
       x-claire-access: owner
       security:
@@ -2604,13 +3121,20 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: List of active, expired, and revoked persistent tokens.
+          description: 'List of active, expired, and revoked persistent tokens. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          headers:
+            Deprecation:
+              schema: {type: string, example: "true"}
+            Link:
+              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
                 type: object
                 required: [tokens]
                 properties:
+                  deprecated:
+                    type: boolean
                   tokens:
                     type: array
                     items:
@@ -2621,7 +3145,8 @@ paths:
           $ref: '#/components/responses/NotFound'
 
     post:
-      summary: Create a new persistent API and MCP token
+      deprecated: true
+      summary: Create a new persistent API and MCP token (Deprecated; returns 410 when retired)
       operationId: createToken
       x-claire-access: owner
       security:
@@ -2638,7 +3163,7 @@ paths:
               properties:
                 name:
                   type: string
-                  example: "Claude Desktop"
+                  example: "Antigravity"
                 scope:
                   type: string
                   enum: [owner, write, readonly]
@@ -2649,7 +3174,12 @@ paths:
                   example: 90
       responses:
         '201':
-          description: Token created successfully. Raw token is returned only once.
+          description: 'Token created successfully. Raw token is returned only once. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          headers:
+            Deprecation:
+              schema: {type: string, example: "true"}
+            Link:
+              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -2657,6 +3187,8 @@ paths:
                 required: [ok, token, message]
                 properties:
                   ok:
+                    type: boolean
+                  deprecated:
                     type: boolean
                   message:
                     type: string
@@ -2668,9 +3200,21 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          description: 'Manual tokens are retired (`CLAIRE_MANUAL_TOKENS_RETIRED=1` or `api_tokens.json` `retired: true`; `manual_tokens_retired`).'
+          headers:
+            Deprecation:
+              schema: {type: string, example: "true"}
+            Link:
+              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
 
     delete:
-      summary: Revoke an API and MCP token immediately
+      deprecated: true
+      summary: Revoke an API and MCP token immediately (Deprecated)
       operationId: revokeTokenDelete
       x-claire-access: owner
       security:
@@ -2691,7 +3235,12 @@ paths:
                     - type: string
       responses:
         '200':
-          description: Token revoked successfully.
+          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          headers:
+            Deprecation:
+              schema: {type: string, example: "true"}
+            Link:
+              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -2707,7 +3256,8 @@ paths:
 
   /tokens/revoke:
     post:
-      summary: Revoke an API and MCP token immediately
+      deprecated: true
+      summary: Revoke an API and MCP token immediately (Deprecated)
       operationId: revokeTokenPost
       x-claire-access: owner
       security:
@@ -2728,7 +3278,12 @@ paths:
                     - type: string
       responses:
         '200':
-          description: Token revoked successfully.
+          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          headers:
+            Deprecation:
+              schema: {type: string, example: "true"}
+            Link:
+              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -2999,6 +3554,88 @@ paths:
         '404':
           description: Not the server admin with owner scope, or invalid theme reference.
 
+  /api/admin/server:
+    get:
+      summary: Read server mode, readiness checks, legacy host policy, and agent_client delivery state
+      operationId: getAdminServer
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Server administration summary including `agent_client_delivery_mode` and `agent_client_delivery`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, readiness, network_mode_available, legacy_host_policy, legacy_hosts, agent_client_delivery_mode, agent_client_delivery]
+                properties:
+                  mode:
+                    type: string
+                    enum: [single, network]
+                  readiness:
+                    type: object
+                  network_mode_available:
+                    type: boolean
+                  legacy_host_policy:
+                    type: object
+                  legacy_hosts:
+                    type: array
+                    items: {type: object}
+                  agent_client_delivery_mode:
+                    type: string
+                    enum: [uri_path, fqdn]
+                  agent_client_delivery:
+                    type: object
+        '404':
+          description: Not the server admin.
+
+  /api/admin/server/client-delivery:
+    post:
+      summary: Switch agent_client bundle delivery mode (`uri_path` or `fqdn`)
+      description: Requires admin scope, same-origin check, and recent step-up authentication. Rejects custom host/path override fields (`custom_host_or_path_disallowed`). Audits `server.client_delivery.update`.
+      operationId: setAdminServerClientDelivery
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [agent_client_delivery_mode]
+              properties:
+                agent_client_delivery_mode:
+                  type: string
+                  enum: [uri_path, fqdn]
+      responses:
+        '200':
+          description: 'Delivery mode updated (`Cache-Control: no-store`).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent_client_delivery_mode, agent_client_delivery]
+                properties:
+                  agent_client_delivery_mode:
+                    type: string
+                    enum: [uri_path, fqdn]
+                  agent_client_delivery:
+                    type: object
+        '400':
+          description: '`custom_host_or_path_disallowed`, `invalid_delivery_mode`, or `clients_host_unavailable`.'
+        '401':
+          description: '`reauth_required`.'
+        '403':
+          description: '`step_up_requires_session` or `forbidden`.'
+        '404':
+          description: Not the server admin.
+
   /api/admin/mcp/telemetry:
     get:
       summary: Read MCP call telemetry (admin only)
@@ -3236,7 +3873,7 @@ paths:
         '404':
           description: Not an owner-scope credential.
     patch:
-      summary: Change own display name
+      summary: Change own display name, profile visibility, or interface language
       operationId: updateMe
       x-claire-access: owner
       security:
@@ -3250,11 +3887,32 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [display_name]
+              minProperties: 1
               properties:
                 display_name:
                   type: string
                   maxLength: 64
+                profile_public:
+                  description: Public profile switch. The values true and false are also accepted.
+                  oneOf:
+                    - type: integer
+                      enum: [0, 1]
+                    - type: boolean
+                locale:
+                  description: Interface language of the account. Null or an empty string is automatic negotiation. The response also sets or clears the `claire_locale` cookie.
+                  type: ['string', 'null']
+                  enum: [en, ko, '', null]
+                entity_language:
+                  description: Language of the entity names that the account sees (decided from the script of a name). Null or an empty string shows the stored main labels. The stored data does not change.
+                  type: ['string', 'null']
+                  enum: [en, ko, ja, zh, '', null]
+                personal_source_public:
+                  description: When true, a reader other than the account sees the sources (url, extra_sources, and each key with "url" in its name) of the documents of the personal knowledge base. When false, only the account sees them, except for a document with a visible contribution in a shared knowledge base.
+                  type: boolean
+                extraction_mode:
+                  description: Default extraction mode for the account (`provider` runs server LLM extraction; `client` stages raw sources as `pending` for connected `agent_client` extraction).
+                  type: string
+                  enum: [provider, client]
       responses:
         '200':
           description: Updated account.
@@ -3263,13 +3921,73 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (keys other than display_name) or `invalid_display_name`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, locale, entity_language, personal_source_public, and extraction_mode), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, `invalid_entity_language`, `invalid_personal_source_public`, or `invalid_extraction_mode`.'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '404':
           description: Not an owner-scope credential.
+
+  /api/locale:
+    post:
+      summary: Select the interface language
+      description: >-
+        Public route; the request must come from the same origin. Sets the `claire_locale` cookie, or clears it for automatic negotiation.
+        For an owner session, the server also stores the choice on the account (`accounts.locale`).
+        A form body (`locale`, `next`) is for the pages without JavaScript (`/login`, `/setup`): the response is 303 to `next`.
+      operationId: setLocale
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [locale]
+              properties:
+                locale:
+                  type: ['string', 'null']
+                  enum: [en, ko, '', null]
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [locale, next]
+              properties:
+                locale:
+                  type: string
+                  enum: [en, ko, '']
+                next:
+                  type: string
+                  enum: [/login, /setup]
+      responses:
+        '200':
+          description: The stored choice (`locale`, null for automatic) and the language of the next request (`effective_locale`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [locale, effective_locale]
+                properties:
+                  locale:
+                    type: ['string', 'null']
+                    enum: [en, ko, null]
+                  effective_locale:
+                    type: string
+                    enum: [en, ko]
+        '303':
+          description: Form body. The browser goes back to `next`.
+        '400':
+          description: '`invalid_request` (other keys, or a `next` that is not permitted) or `invalid_locale`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: The request does not come from the same origin.
 
   /api/me/password:
     post:
@@ -3489,6 +4207,1047 @@ paths:
         '404':
           description: '`object_not_found`. Also single mode.'
 
+  /api/federation/notes:
+    post:
+      summary: Publish a public note, or a reply to an item of the timeline (network mode)
+      description: >-
+        The owner gives plain text. The server makes the HTML (paragraphs, links,
+        mentions `@name@host`, hashtags `#tag`) and sanitizes it. The note, its
+        item of the timeline, and its `note` task are stored in one transaction.
+        The sidecar sends `Create(Note)` to the followers and to the mentioned
+        actors. The account must be a federation actor.
+      operationId: createFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [content]
+              properties:
+                content: {type: string, description: Plain text. The limit is the reading setting `note_max_chars`.}
+                in_reply_to: {type: [string, 'null'], description: ID of an item of the own timeline.}
+                summary: {type: [string, 'null'], description: Content warning, 500 characters at most.}
+                sensitive: {type: boolean}
+                language: {type: [string, 'null'], description: 'Language tag, for example `en`. Default: the locale of the account.'}
+                quote_of: {type: [string, 'null'], description: 'ID of an item of the own timeline that the note quotes (FEP-044f). The quote is `pending` until the author of the quoted object approves it.'}
+                quote_policy: {type: string, enum: [public, followers, manual, nobody], description: 'Who can quote this note. Default: `public`.'}
+      responses:
+        '201':
+          description: The note is stored and its task waits for the sidecar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note: {$ref: '#/components/schemas/FederationNote'}
+                  item_id: {type: string, description: ID of the item of the own timeline for this note.}
+        '400':
+          description: '`invalid_request`, `empty_content`, `content_too_long`, `summary_too_long`, `too_many_mentions`, `too_many_tags`, `invalid_language`, `invalid_mention`, `invalid_quote_policy`, or `blocked_domain`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: '`item_not_found`. Also single mode, or not an owner-scope credential.'
+        '409':
+          description: '`not_actor`, or `own_item` for a quote of an own note.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /api/federation/notes/{note_id}:
+    parameters:
+      - {name: note_id, in: path, required: true, schema: {type: string}, description: Note number as a decimal string.}
+    patch:
+      summary: Edit an own note (network mode)
+      description: Changes the text, the content warning, the language, or the quote policy. The sidecar sends `Update(Note)`; a change of the quote policy alone does not set `updated`.
+      operationId: updateFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                content: {type: string}
+                summary: {type: [string, 'null']}
+                sensitive: {type: boolean}
+                language: {type: [string, 'null']}
+                quote_policy: {type: string, enum: [public, followers, manual, nobody]}
+      responses:
+        '200':
+          description: The changed note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note: {$ref: '#/components/schemas/FederationNote'}
+        '400':
+          description: The 400 codes of `POST /api/federation/notes`.
+        '404':
+          description: '`note_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor`.'
+    delete:
+      summary: Delete an own note (network mode)
+      description: The object ID returns 410 from then on. The sidecar sends `Delete` with a `Tombstone`. A remote server can ignore it.
+      operationId: deleteFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The note is deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: {type: boolean}
+                  id: {type: string}
+        '404':
+          description: '`note_not_found`. Also single mode.'
+
+  /api/federation/timeline/{item_id}/favourite:
+    parameters:
+      - {name: item_id, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Favourite the object of an item of the timeline (network mode)
+      description: Records the state on the item and makes a `like` task. A repeated request changes nothing.
+      operationId: favouriteFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '400':
+          description: '`blocked_domain`.'
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+    delete:
+      summary: Remove the favourite of an item (network mode)
+      description: Makes an `undo_like` task with the ID of the `Like`.
+      operationId: unfavouriteFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+
+  /api/federation/timeline/{item_id}/boost:
+    parameters:
+      - {name: item_id, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Boost the object of an item of the timeline (network mode)
+      description: Records the state on the item and makes an `announce` task. A repeated request changes nothing.
+      operationId: boostFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '400':
+          description: '`blocked_domain`.'
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+    delete:
+      summary: Remove the boost of an item (network mode)
+      description: Makes an `undo_announce` task with the ID of the `Announce`.
+      operationId: unboostFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+
+  /api/federation/quotes:
+    get:
+      summary: List the quote requests for own objects (network mode)
+      description: >-
+        Requests of remote actors to quote an own note or a published document
+        (FEP-044f): those that wait for the owner, and the approved ones. The
+        view has addresses of the remote server only; the server does not fetch
+        the quoting object.
+      operationId: listFederationQuotes
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The requests, newest first, 100 of each group at most.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests: {type: array, items: {$ref: '#/components/schemas/FederationQuoteRequest'}}
+                  authorizations: {type: array, items: {$ref: '#/components/schemas/FederationQuoteRequest'}}
+                  counts:
+                    type: object
+                    properties:
+                      pending: {type: integer}
+                      approved: {type: integer}
+        '404':
+          description: Single mode, or not an owner-scope credential.
+
+  /api/federation/quotes/{quote_id}:
+    parameters:
+      - {name: quote_id, in: path, required: true, schema: {type: string}}
+    patch:
+      summary: Approve, refuse, or revoke a quote request (network mode)
+      description: >-
+        `approved` or `refused` for a request that waits (a refused request can
+        be approved later), `revoked` for an approved request. The sidecar sends
+        `Accept` with a `QuoteAuthorization`, `Reject`, or `Delete` of the
+        authorization. The public path of a revoked authorization returns 410.
+      operationId: decideFederationQuote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties:
+                state: {type: string, enum: [approved, refused, revoked]}
+      responses:
+        '200':
+          description: The request with its new state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quote: {$ref: '#/components/schemas/FederationQuoteRequest'}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`quote_not_found`. Also single mode.'
+        '409':
+          description: '`invalid_state` (with the `state` of the request), or `not_actor`.'
+
+  /api/federation/objects/{object_id}:
+    parameters:
+      - {name: object_id, in: path, required: true, schema: {type: string}, description: Object number of a published document as a decimal string.}
+    patch:
+      summary: Set the quote policy of a published document (network mode)
+      description: A change makes an `update` task; the sidecar sends `Update` of the object with the new `canQuote`. The default of a published document is `manual`.
+      operationId: updateFederationObject
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [quote_policy]
+              properties:
+                quote_policy: {type: string, enum: [public, followers, manual, nobody]}
+      responses:
+        '200':
+          description: The object with its quote policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: object
+                    properties:
+                      id: {type: string}
+                      kb_id: {type: integer}
+                      document_id: {type: string}
+                      quote_policy: {type: string}
+        '400':
+          description: '`invalid_request` or `invalid_quote_policy`.'
+        '404':
+          description: '`object_not_found`. Also single mode.'
+
+  /api/feeds:
+    get:
+      summary: List the feeds of the own account
+      description: Feeds of the account (single mode and network mode), with folder, cache and poll state, and item counts.
+      operationId: listFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Feeds and folders.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feeds: {type: array, items: {$ref: '#/components/schemas/Feed'}}
+                  folders: {type: array, items: {type: string}}
+                  limit: {type: integer}
+        '404':
+          description: Not an owner-scope credential.
+    post:
+      summary: Subscribe to a feed
+      operationId: subscribeFeed
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: {type: string, description: An http or https feed URL.}
+                title: {type: string}
+                folder: {type: string}
+      responses:
+        '201':
+          description: The feed is added (`created` is true).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feed: {$ref: '#/components/schemas/Feed'}
+                  created: {type: boolean}
+        '200':
+          description: The account has a feed with this URL. Nothing is added (`created` is false).
+        '400':
+          description: '`invalid_request` or `invalid_url`.'
+        '409':
+          description: '`feed_limit`.'
+    delete:
+      summary: Unsubscribe from a feed
+      description: Deletes the feed and its items. A linked document stays.
+      operationId: unsubscribeFeed
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [feed_id]
+              properties:
+                feed_id: {type: integer}
+      responses:
+        '200':
+          description: The feed is deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed: {type: boolean}
+                  feed_id: {type: integer}
+                  items: {type: integer}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+
+  /api/feeds/poll:
+    post:
+      summary: Poll the feeds of the own account now
+      description: >-
+        Conditional GET with the stored ETag and Last-Modified. Without
+        `feed_id`, at most 50 feeds (oldest poll first). A feed in backoff is
+        not fetched.
+      operationId: pollFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                feed_id: {type: integer}
+      responses:
+        '200':
+          description: Poll results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  polled: {type: integer}
+                  not_polled: {type: integer}
+                  outcomes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        feed_id: {type: integer}
+                        result: {type: string, enum: [updated, not_modified, error, backoff]}
+                        http_status: {type: [integer, 'null']}
+                        added: {type: integer}
+                        updated: {type: integer}
+                        error: {type: [string, 'null']}
+                        next_poll_at: {type: [number, 'null']}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+
+  /api/feeds/opml:
+    get:
+      summary: Export the feeds of the own account as OPML 2.0
+      operationId: exportFeedsOpml
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: OPML document. A feed with a folder is in a category outline.
+          content:
+            text/x-opml:
+              schema: {type: string}
+    post:
+      summary: Import feeds from an OPML document
+      description: >-
+        Each outline with xmlUrl is a feed. Nested categories give one folder
+        level (names joined with " › "). Outlines without a feed are skipped
+        and listed. A known URL is a duplicate. The import does not poll.
+      operationId: importFeedsOpml
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [opml]
+              properties:
+                opml: {type: string, description: The OPML document as text.}
+      responses:
+        '200':
+          description: Import report.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts:
+                    type: object
+                    properties:
+                      added: {type: integer}
+                      skipped: {type: integer}
+                      duplicate: {type: integer}
+                      failed: {type: integer}
+                  added: {type: array, items: {type: object}}
+                  skipped: {type: array, items: {type: object}}
+                  duplicate: {type: array, items: {type: object}}
+                  failed: {type: array, items: {type: object}}
+        '400':
+          description: '`invalid_request` or `invalid_opml` (with `reason`).'
+
+  /api/feeds/items:
+    get:
+      summary: List feed items of the own account
+      operationId: listFeedItems
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: feed_id, in: query, schema: {type: integer}}
+        - {name: folder, in: query, schema: {type: string}}
+        - {name: unread, in: query, schema: {type: string, enum: ['0', '1']}}
+        - {name: starred, in: query, schema: {type: string, enum: ['0', '1']}}
+        - {name: before_id, in: query, schema: {type: integer}, description: Cursor from next_before_id.}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: content, in: query, schema: {type: string, enum: ['0', '1']}, description: '1 adds the HTML body.'}
+      responses:
+        '200':
+          description: One page, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/FeedItem'}}
+                  next_before_id: {type: [integer, 'null']}
+        '400':
+          description: '`invalid_request`.'
+    patch:
+      summary: Mark feed items read, unread, starred, or not starred
+      operationId: markFeedItems
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              description: Either item_ids (1 to 500) with unread and/or starred, or feed_id with unread.
+              properties:
+                item_ids: {type: array, items: {type: integer}, maxItems: 500}
+                feed_id: {type: integer}
+                unread: {type: boolean}
+                starred: {type: boolean}
+      responses:
+        '200':
+          description: Number of matched items.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changed: {type: integer}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+  /api/feeds/items/{item_id}:
+    get:
+      summary: Get one feed item of the own account with the render URL of its body
+      operationId: getFeedItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: item_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: The item. render_url is the address of the body for a sandbox iframe.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item:
+                    allOf:
+                      - {$ref: '#/components/schemas/FeedItem'}
+                      - type: object
+                        properties:
+                          has_body: {type: boolean}
+                          render_url: {type: string}
+        '404':
+          description: '`item_not_found`.'
+  /api/feeds/items/{item_id}/ingest:
+    post:
+      summary: Ingest one feed item into a theme of the own account
+      operationId: ingestFeedItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: item_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme]
+              properties:
+                theme: {type: string, description: Public theme reference of the caller.}
+      responses:
+        '200':
+          description: The ingest report with linked (kb_id and document_id, or null).
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`item_not_found`, or the theme is not a theme of the caller.'
+        '409':
+          description: '`item_without_url`.'
+  /api/feeds/discover:
+    post:
+      summary: Find the feeds of an address
+      operationId: discoverFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: {type: string}
+      responses:
+        '200':
+          description: The feed at the address, or the feeds that the page declares with link rel="alternate".
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: {type: string}
+                  error: {type: [string, 'null']}
+                  feeds:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url: {type: string}
+                        title: {type: string}
+                        format: {type: string, enum: [rss, atom, json]}
+                        subscribed: {type: boolean}
+        '400':
+          description: '`invalid_request` or `invalid_url`.'
+
+  /clients/{client_id}/manifest.json:
+    get:
+      summary: Download agent_client bundle manifest JSON (AE1b)
+      description: >-
+        Delivers static bundle metadata and SHA-256 digests for an enabled `agent_client` plugin in `uri_path` mode
+        (in `fqdn` mode, served from the cookieless `clients` HostRole origin `clients.<registrable_domain>` or dev `:8770`).
+        Always responds with `CSP: default-src 'none'; sandbox` and `Cache-Control: no-store`. Accepts Bearer token or
+        60-second HMAC `?t=<account_id>.<exp>.<sig>` token bound to `(account_id, client_id, manifest.json, exp)`.
+      operationId: getAgentClientManifest
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,31}$'}
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+          description: Short-TTL HMAC bundle download token (60s).
+      responses:
+        '200':
+          description: 'Bundle manifest JSON (`Content-Security-Policy: default-src ''none''; sandbox`).'
+          content:
+            application/json:
+              schema: {type: object}
+        '401':
+          description: 'Missing or invalid Bearer or `?t=` bundle token (`WWW-Authenticate: Bearer`).'
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Disabled/unknown `client_id` or delivery mode mismatch (`fqdn` vs `uri_path`).
+
+  /clients/{client_id}/bundle.tar.gz:
+    get:
+      summary: Download deterministic agent_client tar.gz bundle archive (AE1b)
+      description: >-
+        Delivers the gzip-compressed archive of verified static files for an enabled `agent_client` plugin
+        with `CSP: default-src 'none'; sandbox` and `Cache-Control: no-store`. Accepts Bearer token or `?t=` HMAC token.
+      operationId: getAgentClientBundleArchive
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,31}$'}
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Gzip-compressed deterministic `.tar.gz` bundle archive.
+          content:
+            application/gzip:
+              schema: {type: string, format: binary}
+        '401':
+          description: Missing or invalid Bearer or `?t=` bundle token.
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Disabled/unknown `client_id` or delivery mode mismatch.
+
+  /clients/{client_id}/files/{relpath}:
+    get:
+      summary: Download one verified static asset file from an agent_client bundle (AE1b)
+      description: >-
+        Delivers a declared non-executable file (`relpath` in manifest `files`) with SHA-256 verification against the approved snapshot,
+        `CSP: default-src 'none'; sandbox`, and `Cache-Control: no-store`.
+      operationId: getAgentClientBundleFile
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,31}$'}
+        - name: relpath
+          in: path
+          required: true
+          schema: {type: string}
+        - name: t
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Static bundle asset bytes.
+        '401':
+          description: Missing or invalid Bearer or `?t=` bundle token.
+        '403':
+          description: Forbidden cross-origin credential request.
+        '404':
+          description: Undeclared path, unknown `client_id`, or delivery mode mismatch.
+
+  /api/client-extraction/stage:
+    post:
+      summary: Stage full raw source text in the personal KB without calling a server LLM (AE4/AE5)
+      description: Requires `write` or `owner` scope and targets only the caller's personal KB (`CT4`; foreign `kb`/`kb_id`/`theme` params return 403).
+      operationId: stageClientExtractionSource
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url_or_text: {type: string}
+                url: {type: string}
+                text: {type: string}
+                title: {type: string, nullable: true}
+                source_type: {type: string, nullable: true}
+                full_content: {type: boolean, default: true}
+                mode: {type: string, nullable: true}
+      responses:
+        '200':
+          description: Source staged as `pending`.
+          content:
+            application/json:
+              schema: {type: object}
+        '400':
+          description: '`invalid_full_content` or missing input.'
+        '403':
+          description: '`scope_insufficient` or `kb_ingest_by_contribution` (`CT4`).'
+
+  /api/client-extraction/sources:
+    get:
+      summary: List staged documents in the caller's personal KB queue (AE5)
+      operationId: listClientExtractionSources
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: {type: string, enum: [pending, extracted, failed, all], default: pending}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, default: 50}
+      responses:
+        '200':
+          description: List of staged source summaries (`document_id`, `content_hash`, `raw_chars`, `extraction_status`).
+          content:
+            application/json:
+              schema: {type: object}
+        '403':
+          description: '`scope_insufficient` or `kb_ingest_by_contribution` (`CT4`).'
+
+  /api/client-extraction/sources/{document_id}/claim:
+    post:
+      summary: Acquire an exclusive short-TTL extraction claim lease on a staged document (AE5)
+      operationId: claimClientExtractionSource
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id: {type: string, nullable: true}
+                lease_seconds: {type: number, default: 300.0}
+      responses:
+        '200':
+          description: Lease granted with single-use `claim_token`, `lease_expires_at`, and `content_hash`.
+          content:
+            application/json:
+              schema: {type: object}
+        '400':
+          description: '`invalid_lease_seconds`.'
+        '403':
+          description: '`scope_insufficient` or `kb_ingest_by_contribution` (`CT4`).'
+        '404':
+          description: Document not found in personal KB.
+        '409':
+          description: Document already extracted or actively claimed by another client.
+
+  /api/client-extraction/sources/{document_id}/renew:
+    post:
+      summary: Extend an active extraction claim lease (AE5)
+      operationId: renewClientExtractionClaim
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_token]
+              properties:
+                claim_token: {type: string}
+                lease_seconds: {type: number, default: 300.0}
+      responses:
+        '200':
+          description: Updated `lease_expires_at`.
+          content:
+            application/json:
+              schema: {type: object}
+        '400':
+          description: '`invalid_lease_seconds`.'
+        '409':
+          description: Invalid or expired `claim_token`.
+
+  /api/client-extraction/spec:
+    get:
+      summary: Return client extraction schema, ontology types, and AsciiDoc constraints (AE5)
+      operationId: getClientExtractionSpec
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Specification for `agent-extract-v1`.
+          content:
+            application/json:
+              schema: {type: object}
+
+  /api/client-extraction/sources/{document_id}:
+    get:
+      summary: Read nonce-framed raw source chunk or line slice for client extraction (AE5/AED9)
+      description: >-
+        Returns stored raw content wrapped inside a random-nonce `<untrusted_source_document nonce="..." document_id="..." sha256="...">`
+        envelope with colliding boundary tags neutralized, plus `expected_content_hash` and paging metadata (default 32000 chars).
+      operationId: getClientExtractionSource
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: claim_token
+          in: query
+          required: false
+          schema: {type: string}
+        - name: offset
+          in: query
+          required: false
+          schema: {type: integer, default: 0}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: line_offset
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: line_limit
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: full_content
+          in: query
+          required: false
+          schema: {type: boolean, default: true}
+      responses:
+        '200':
+          description: Framed untrusted source content and `expected_content_hash`.
+          content:
+            application/json:
+              schema: {type: object}
+        '403':
+          description: '`scope_insufficient` or `kb_ingest_by_contribution` (`CT4`).'
+        '404':
+          description: Document not found in personal KB.
+        '409':
+          description: Claim lease mismatch or expired.
+
+  /api/client-extraction/sources/{document_id}/submit:
+    post:
+      summary: Validate and atomically commit client-extracted graph, summary, AsciiDoc detail, and Option B embeddings (AE5/AED9/AED7)
+      description: >-
+        Enforces strict Pydantic validation (`extra='forbid'`, `strict=True`), `claim_token` + `expected_content_hash` lock,
+        summary lint (`evaluate_summary_verdict`), AsciiDoc sanitization (`sanitize_rendered_detail` / `render_to_html`),
+        ontology invariants (`passes_hard_invariants`, `PROVISIONAL_TYPE_PATTERN`), evidence span grounding, and
+        precomputed server embeddings before committing atomically (`extraction_origin='agent_client'`).
+      operationId: submitClientExtraction
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_token, expected_content_hash]
+              properties:
+                claim_token: {type: string}
+                expected_content_hash: {type: string}
+                dry_run: {type: boolean, default: false}
+                payload:
+                  $ref: '#/components/schemas/ClientExtractionPayload'
+      responses:
+        '200':
+          description: 'Extraction validated (`dry_run: true`) or committed atomically (`committed: true`).'
+          content:
+            application/json:
+              schema: {type: object}
+        '400':
+          description: '`invalid_dry_run`.'
+        '403':
+          description: '`scope_insufficient`, `kb_ingest_by_contribution` (`CT4`), or provider embedding policy error.'
+        '409':
+          description: '`content_hash_mismatch` or lease mismatch.'
+        '422':
+          description: Deterministic schema, summary, AsciiDoc, ontology, or evidence span validation errors.
+
 components:
   parameters:
     ConsoleThemeQuery:
@@ -3524,8 +5283,9 @@ components:
       scheme: bearer
       bearerFormat: token
       description: >-
-        Standard Bearer authorization header. Value must be an access token
-        obtained via /oauth/token or configured inject/session tokens.
+        Standard Bearer authorization header. Value should be an OAuth 2.1 access token
+        obtained via /oauth/token (legacy manual/env tokens emit Deprecation: true and
+        Link: </settings/mcp>; rel="successor-version" headers).
     SessionHeader:
       type: apiKey
       in: header
@@ -3538,6 +5298,48 @@ components:
       description: Same-Origin HttpOnly session cookie.
 
   schemas:
+    Feed:
+      type: object
+      properties:
+        id: {type: integer}
+        url: {type: string}
+        site_url: {type: [string, 'null']}
+        title: {type: string}
+        folder: {type: string, description: Empty for no folder.}
+        format: {type: [string, 'null'], enum: [rss, atom, json, null]}
+        websub_hub: {type: [string, 'null']}
+        last_polled_at: {type: [number, 'null']}
+        last_success_at: {type: [number, 'null']}
+        next_poll_at: {type: [number, 'null']}
+        last_status: {type: [integer, 'null']}
+        last_error: {type: [string, 'null']}
+        failure_count: {type: integer}
+        created_at: {type: number}
+        items: {type: integer}
+        unread: {type: integer}
+    FeedItem:
+      type: object
+      properties:
+        id: {type: integer}
+        feed_id: {type: integer}
+        feed_title: {type: string}
+        feed_folder: {type: string}
+        url: {type: [string, 'null']}
+        title: {type: string}
+        author: {type: [string, 'null']}
+        summary: {type: [string, 'null']}
+        content: {type: [string, 'null'], description: Only with content=1. Render it on the usercontent origin only.}
+        categories: {type: array, items: {type: string}, description: Raw tags of the feed.}
+        published_at: {type: [number, 'null']}
+        modified_at: {type: [number, 'null']}
+        fetched_at: {type: number}
+        unread: {type: boolean}
+        starred: {type: boolean}
+        linked_kb_id: {type: [integer, 'null']}
+        linked_doc_id: {type: [string, 'null']}
+        text: {type: string, description: Plain text of the summary or of the content.}
+        linked: {type: [object, 'null'], description: kb_id and document_id of the ingested document.}
+        timeline_item_id: {type: [string, 'null'], description: The timeline item of the account with the same address.}
     McpTelemetryRecord:
       type: object
       properties:
@@ -3605,9 +5407,9 @@ components:
           description: Target audience identifier (e.g., claire-mcp or claire-web).
         scope:
           type: string
-          enum: [owner, readonly]
-          description: Requested scope.
-          example: owner
+          enum: [owner, write, readonly]
+          description: Requested scope (`readonly` or `write` for OAuth 2.1; `readonly` for RFC 8693 exchange).
+          example: readonly
         actor_token:
           type: string
           description: Token representing the acting party (delegation scenarios).
@@ -3621,7 +5423,6 @@ components:
       type: object
       required:
         - access_token
-        - issued_token_type
         - token_type
         - expires_in
       properties:
@@ -3637,13 +5438,13 @@ components:
           const: Bearer
         expires_in:
           type: integer
-          description: Token lifetime in seconds (e.g., 604800 for 7 days).
-          example: 604800
+          description: Token lifetime in seconds (e.g., 2592000 for 30d OAuth 2.1 access tokens).
+          example: 2592000
         scope:
           type: string
-          enum: [owner, readonly]
+          enum: [owner, write, readonly]
           description: Effective scope granted.
-          example: owner
+          example: readonly
         refresh_token:
           type: string
           description: Optional refresh token if token rotation is chained.
@@ -3671,6 +5472,56 @@ components:
           type: string
           format: uri
 
+    FederationNote:
+      type: object
+      description: An own note of the federation client (FEDERATION.md Section 25).
+      properties:
+        id: {type: string}
+        url: {type: string, description: '`{origin}/ap/objects/{id}`'}
+        in_reply_to: {type: [string, 'null']}
+        content: {type: string, description: The plain text that the owner gave.}
+        summary: {type: [string, 'null']}
+        sensitive: {type: boolean}
+        language: {type: [string, 'null']}
+        tags: {type: array, items: {type: string}}
+        mentions: {type: array, items: {type: string}}
+        published_at: {type: number}
+        updated_at: {type: number}
+        edited_at: {type: [number, 'null']}
+        likes: {type: integer}
+        announces: {type: integer}
+        quotes: {type: integer, description: Number of approved quotes of the note.}
+        quote_policy: {type: string, enum: [public, followers, manual, nobody]}
+        quote:
+          type: [object, 'null']
+          description: The object that the note quotes (FEDERATION.md Section 26).
+          properties:
+            iri: {type: string}
+            state: {type: string, enum: [pending, approved, refused, revoked]}
+    FederationQuoteRequest:
+      type: object
+      description: A request of a remote actor to quote an own object (FEDERATION.md Section 26).
+      properties:
+        id: {type: string}
+        state: {type: string, enum: [pending, approved, refused, revoked]}
+        object:
+          type: object
+          properties:
+            id: {type: string}
+            url: {type: string}
+            kind: {type: string, enum: [note, document, gone]}
+            text: {type: string}
+        quoting_object: {type: string, description: Address of the quoting object on its server.}
+        quoting_actor: {type: string}
+        authorization: {type: [string, 'null'], description: 'Public address of the authorization of an approved request: `{origin}/ap/quote-authorizations/{id}`.'}
+        created_at: {type: number}
+        updated_at: {type: number}
+    FederationItemInteraction:
+      type: object
+      properties:
+        item_id: {type: string}
+        favourited: {type: boolean}
+        boosted: {type: boolean}
     StandardError:
       type: object
       required: [error]
@@ -3798,7 +5649,7 @@ components:
 
     AccountSelf:
       type: object
-      required: [public_id, username, display_name, role, scope, status, has_password]
+      required: [public_id, username, display_name, role, scope, status, has_password, profile_public]
       properties:
         public_id:
           type: string
@@ -3820,6 +5671,29 @@ components:
           enum: [setup_required, active, suspended, deleting, purged]
         has_password:
           type: boolean
+        profile_public:
+          type: integer
+          enum: [0, 1]
+          description: 1 when the profile is public. The default is 0.
+        locale:
+          type: ['string', 'null']
+          enum: [en, ko, null]
+          description: Stored interface language of the account. Null is automatic negotiation.
+        effective_locale:
+          type: string
+          enum: [en, ko]
+          description: Interface language of this request (account, cookie, Accept-Language, CLAIRE_LANG, then en).
+        entity_language:
+          type: ['string', 'null']
+          enum: [en, ko, ja, zh, null]
+          description: Language of the entity names that the account sees in graph, node, document, and search responses. Null shows the stored main labels.
+        personal_source_public:
+          type: boolean
+          description: True when a reader other than the account sees the sources of the documents of its personal knowledge base. The default is true.
+        extraction_mode:
+          type: string
+          enum: [provider, client]
+          description: Default extraction mode for the account (`provider` uses server LLM; `client` stages raw sources for connected `agent_client` extraction).
 
     AccountSummary:
       type: object
@@ -3940,4 +5814,104 @@ components:
                 type: number
               sunset_at:
                 type: ['number', 'null']
+
+    ClientSourceSpan:
+      type: object
+      additionalProperties: false
+      properties:
+        quote:
+          type: ['string', 'null']
+        start:
+          type: ['integer', 'null']
+        end:
+          type: ['integer', 'null']
+
+    ClientExtractedEntity:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        aliases:
+          type: array
+          items: {type: string}
+        observations:
+          type: array
+          items: {type: string}
+        proposed_type:
+          type: ['string', 'null']
+        entity_id:
+          type: ['string', 'null']
+        evidence:
+          type: ['array', 'null']
+          items:
+            $ref: '#/components/schemas/ClientSourceSpan'
+
+    ClientExtractedRelation:
+      type: object
+      additionalProperties: false
+      required: [source, target, type]
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+        type:
+          type: string
+        fact:
+          type: ['string', 'null']
+        proposed_type:
+          type: ['string', 'null']
+        confidence:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.9
+        valid_at:
+          type: ['string', 'null']
+        invalid_at:
+          type: ['string', 'null']
+        source_id:
+          type: ['string', 'null']
+        target_id:
+          type: ['string', 'null']
+        evidence:
+          type: ['array', 'null']
+          items:
+            $ref: '#/components/schemas/ClientSourceSpan'
+
+    ClientExtractionPayload:
+      type: object
+      additionalProperties: false
+      required: [summary, detail]
+      properties:
+        schema_version:
+          type: string
+          default: agent-extract-v1
+        summary:
+          type: string
+        detail:
+          type: string
+        key_claims:
+          type: array
+          items: {type: string}
+        entities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientExtractedEntity'
+        relations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientExtractedRelation'
+        evidence:
+          type: ['array', 'null']
+          items:
+            $ref: '#/components/schemas/ClientSourceSpan'
+        focus:
+          type: ['string', 'null']
+        lang:
+          type: ['string', 'null']
 

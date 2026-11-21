@@ -620,6 +620,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return 404, {"error": "document_not_found"}
                 if document["hidden"]:
                     return 409, {"error": "document_not_public"}
+                if "extraction_status" in document.keys() and str(document["extraction_status"] or "extracted") != "extracted":
+                    return 409, {"error": "document_not_extracted"}
                 if not (document["detail"] or "").strip() and not (document["detail_html"] or "").strip():
                     return 409, {"error": "document_has_no_body"}
                 # The public page of the document is its share page. This call commits, so it comes before the transaction of the object and the task.

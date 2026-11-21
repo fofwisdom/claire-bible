@@ -66,6 +66,13 @@ def hide_document_source(document: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _excluded_document_ids(conn: sqlite3.Connection, *, include_hidden: bool, kb_id: int | None) -> set[str]:
+    """Return hidden and pending document IDs that non-owner views must exclude."""
+    if include_hidden:
+        return set()
+    return dbm.hidden_document_ids(conn, kb_id=kb_id) | dbm.pending_document_ids(conn, kb_id=kb_id)
+
+
 def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int | None = 0, entity_language: str | None = None) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
@@ -75,7 +82,7 @@ def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int
     """
     ents = dbm.all_entities(conn, kb_id=kb_id)
     rels = dbm.all_relations(conn, kb_id=kb_id)
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
+    hidden_doc_ids = _excluded_document_ids(conn, include_hidden=include_hidden, kb_id=kb_id)
 
     visible_nodes = []
     visible_ent_ids = set()
@@ -203,7 +210,7 @@ def node_detail(
     if ent is None:
         return None
 
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
+    hidden_doc_ids = _excluded_document_ids(conn, include_hidden=include_hidden, kb_id=kb_id)
     if not include_hidden and hidden_doc_ids and ent.sources:
         valid_sources = [s for s in ent.sources if s not in hidden_doc_ids]
         if not valid_sources:
@@ -283,7 +290,8 @@ def document_detail(
     row = dbm.get_document_row(conn, document_id, kb_id=kb_id)
     if row is None:
         return None
-    if not include_hidden and bool(row["hidden"]):
+    doc_status = str(row["extraction_status"] or "extracted") if "extraction_status" in row.keys() else "extracted"
+    if not include_hidden and (bool(row["hidden"]) or doc_status == "pending"):
         return None
     ents = dbm.document_entities(conn, document_id, kb_id=kb_id)
     nodes = []
@@ -580,7 +588,7 @@ def synthesis_context(
     """
     blocks: list[str] = []
     names: list[str] = []
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
+    hidden_doc_ids = _excluded_document_ids(conn, include_hidden=include_hidden, kb_id=kb_id)
     for eid in entity_ids:
         ent = dbm.get_entity(conn, eid, kb_id=kb_id)
         if ent is None:
@@ -641,14 +649,14 @@ def synthesize(
 
 def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True, kb_id: int | None = 0) -> dict[str, int]:
     """테마 DB의 기본 지표 요약(문서 수, 엔티티 수, 관계 수)."""
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, kb_id=kb_id)
     where_parts: list[str] = []
     params: list[Any] = []
     if kb_id is not None:
         where_parts.append("kb_id = ?")
         params.append(kb_id)
-    if not include_hidden and hidden_doc_ids:
-        where_parts.append("id NOT IN (SELECT document_id FROM doc_flags WHERE flag='hidden')")
+    if not include_hidden:
+        where_parts.append("coalesce(hidden, 0) = 0")
+        where_parts.append("coalesce(extraction_status, 'extracted') != 'pending'")
     where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
     doc_count = conn.execute(f"SELECT count(*) FROM documents{where_clause}", params).fetchone()[0]
 

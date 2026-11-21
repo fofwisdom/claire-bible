@@ -317,6 +317,7 @@ async def _settle_status(
     service_pool: Any = None,
     theme_mgr: Any = None,
     extra_rows: list[list[Any]] | None = None,
+    is_staged: bool = False,
     **kwargs: Any,
 ) -> None:
     """완료 처리:
@@ -426,6 +427,8 @@ async def _settle_status(
             markup = None
         await _safe_send_or_edit(summary, reply_markup=markup)
     elif has_error or is_stt_failed or is_detail_failed or is_summary_failed or is_duplicate:
+        await _safe_send_or_edit(summary)
+    elif is_staged:
         await _safe_send_or_edit(summary)
     else:
         markup = None
@@ -587,6 +590,21 @@ _REFETCH_FULL_FLAG_RE = re.compile(
 _REFETCH_FLAG_RE = re.compile(
     r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch)|-r)(?:\s+|$)",
 )
+_FORCE_PROVIDER_FLAG_RE = re.compile(
+    r"(?:\s+|^)[-–—―]{1,2}(?i:force[-_]provider)(?:\s+|$)",
+)
+
+
+def parse_force_provider_flag(text: str | None) -> tuple[str, bool]:
+    """Extract and strip --force-provider from message or caption text."""
+    t = (text or "").strip()
+    if not t:
+        return "", False
+    m = _FORCE_PROVIDER_FLAG_RE.search(t)
+    if not m:
+        return t, False
+    cleaned = (t[:m.start()] + " " + t[m.end():]).strip()
+    return cleaned, True
 
 
 def parse_regenerate_flags(text: str) -> tuple[str, bool, bool, str | None]:
@@ -1021,6 +1039,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_detail_failed: bool = False,
         is_summary_failed: bool = False,
         is_duplicate: bool = False,
+        is_staged: bool = False,
         retry_doc_id: str | None = None,
         kb_id: int = 0,
         extra_rows: list[list[Any]] | None = None,
@@ -1036,6 +1055,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_detail_failed=is_detail_failed,
             is_summary_failed=is_summary_failed,
             is_duplicate=is_duplicate,
+            is_staged=is_staged,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
             kb_id=kb_id,
@@ -1146,6 +1166,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         doc_work=None,
         has_effort: str | None = None,
         has_refetch_full: bool = False,
+        force_provider: bool = False,
         kind_label: str = "",
         uid: int | None = None,
         cid: int | None = None,
@@ -1167,6 +1188,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         has_error = False
         is_stt_failed = False
         is_duplicate = False
+        is_staged = False
         did = None
         contribute_rows: list[list[Any]] = []
 
@@ -1180,6 +1202,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 chat_id=cid,
                 effort=has_effort,
                 full_content=has_refetch_full,
+                force_provider=force_provider,
             )
 
         try:
@@ -1203,6 +1226,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_summary_failed = not getattr(report, "summary_rendered", True)
             has_error = bool(report.error) or is_detail_failed or is_summary_failed
             is_duplicate = bool(report.duplicate)
+            is_staged = bool(getattr(report, "staged", False))
             emoji = _status_emoji(
                 report.error,
                 report.duplicate,
@@ -1212,17 +1236,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             )
             did = report.document_id
             log.info(
-                "Ingest completed: doc_id=%s, title=%r, error=%s, detail_error=%s, duplicate=%s, cands=%d",
+                "Ingest completed: doc_id=%s, title=%r, error=%s, detail_error=%s, duplicate=%s, staged=%s, cands=%d",
                 report.document_id,
                 report.title,
                 report.error,
                 getattr(report, "detail_error", None),
                 report.duplicate,
+                is_staged,
                 len(report.candidates),
             )
         except Exception as e:  # noqa: BLE001
             log.exception("Unhandled error in _execute_ingest: %s", e)
-            summary, cands, emoji, is_stt_failed, is_detail_failed, is_summary_failed, has_error, is_duplicate, did = (
+            summary, cands, emoji, is_stt_failed, is_detail_failed, is_summary_failed, has_error, is_duplicate, is_staged, did = (
                 _t("bot.error.processing", error=e),
                 [],
                 "👎",
@@ -1230,6 +1255,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 False,
                 False,
                 True,
+                False,
                 False,
                 None,
             )
@@ -1246,6 +1272,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_detail_failed=is_detail_failed,
             is_summary_failed=is_summary_failed,
             is_duplicate=is_duplicate,
+            is_staged=is_staged,
             retry_doc_id=did,
             kb_id=target_theme.id,
             extra_rows=contribute_rows,
@@ -1366,7 +1393,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         payload, sealed_focus = parse_message_focus(text)
         if sealed_focus:
             await _reply_focus_sealed(update.message)
-        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
+        payload_fp_clean, has_force_provider = parse_force_provider_flag(payload)
+        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
 
         # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
         target_doc_id = None
@@ -1587,6 +1615,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "payload": payload_to_ingest,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
+                "force_provider": has_force_provider,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1604,6 +1633,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             payload=payload_to_ingest,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
+            force_provider=has_force_provider,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1631,8 +1661,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if is_multi:
             theme_mgr.reload()
 
+        caption_clean, has_force_provider = parse_force_provider_flag(caption)
         composite_url, sealed_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
-            caption, theme_mgr if is_multi else None
+            caption_clean or None, theme_mgr if is_multi else None
         )
         if sealed_focus:
             await _reply_focus_sealed(msg)
@@ -1677,6 +1708,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         chat_id=cid,
                         effort=has_effort,
                         full_content=has_refetch_full,
+                        force_provider=has_force_provider,
                     )
                 return target_svc.ingest(
                     kept,
@@ -1688,6 +1720,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     file_name=name,
                     effort=has_effort,
                     full_content=has_refetch_full,
+                    force_provider=has_force_provider,
                 )
             pending_ingest[token] = {
                 "orig_msg": msg,
@@ -1723,6 +1756,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     chat_id=cid,
                     effort=has_effort,
                     full_content=has_refetch_full,
+                    force_provider=has_force_provider,
                 )
             return target_svc.ingest(
                 kept,
@@ -1734,6 +1768,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 file_name=name,
                 effort=has_effort,
                 full_content=has_refetch_full,
+                force_provider=has_force_provider,
             )
         await _execute_ingest(
             status,
@@ -1771,7 +1806,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         payload, sealed_focus = parse_message_focus(raw_clean_theme)
         if sealed_focus:
             await _reply_focus_sealed(update.message)
-        payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
+        payload_fp_clean, has_force_provider = parse_force_provider_flag(payload)
+        payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
         payload_to_ingest = payload_clean or payload
         msg = update.message
         kind = classify_input(payload_to_ingest)
@@ -1796,6 +1832,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "payload": payload_to_ingest,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
+                "force_provider": has_force_provider,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1813,6 +1850,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             payload=payload_to_ingest,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
+            force_provider=has_force_provider,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1894,6 +1932,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 doc_work=item.get("doc_work"),
                 has_effort=item.get("has_effort"),
                 has_refetch_full=item.get("has_refetch_full", False),
+                force_provider=item.get("force_provider", False),
                 kind_label=item.get("kind_label", ""),
                 uid=item.get("uid"),
                 cid=item.get("cid"),
@@ -2231,7 +2270,10 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
                 if scope not in ("owner", "write", "readonly"):
                     return ("error", _t("bot.token.invalid_scope", scope=scope))
-                created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
+                try:
+                    created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
+                except PermissionError as exc:
+                    return ("error", str(exc))
                 return ("created", created)
             elif subcmd in ("revoke", "delete", "rm"):
                 if len(args) < 2:
@@ -2245,11 +2287,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         res = await asyncio.to_thread(_token_action)
         action_type = res[0]
 
+        deprecation_line = "\n<i>Deprecated: manual tokens will be retired; use OAuth 2.1 in /settings/mcp.</i>"
+
         if action_type == "list":
             tokens = res[1]
             if not tokens:
                 await msg.reply_text(
-                    _t("bot.token.none"),
+                    _t("bot.token.none") + deprecation_line,
                     parse_mode="HTML",
                 )
                 return
@@ -2263,6 +2307,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 lines.append(_t("bot.token.list_item", id=t["id"], name=_h(t["name"]), scope=_h(t["scope"]), masked=masked))
             lines.append("\n" + _t("bot.token.hint_create"))
             lines.append(_t("bot.token.hint_revoke"))
+            lines.append(deprecation_line.strip())
             await msg.reply_text("\n".join(lines), parse_mode="HTML")
 
         elif action_type == "created":
@@ -2272,6 +2317,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             mcp_url = f"{base_url}/mcp"
             text = (
                 _t("bot.token.created", id=created["id"], name=_h(created["name"]), scope=_h(created["scope"]), token=_h(raw_token), mcp_url=_h(mcp_url))
+                + deprecation_line
             )
             await msg.reply_text(text, parse_mode="HTML")
 

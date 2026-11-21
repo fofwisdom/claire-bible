@@ -37,6 +37,13 @@
   }
   function byId(id) { return document.getElementById(id); }
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function tJs(key, fallback) {
+    if (window.ClaireI18n && typeof window.ClaireI18n.t === "function") {
+      var val = window.ClaireI18n.t(key);
+      if (val && val !== key) return val;
+    }
+    return fallback !== undefined ? fallback : key;
+  }
 
   /* ── Theme selector (#console-theme-select) ─────────────────────────────────────── */
 
@@ -551,11 +558,11 @@
     byId("pref-mcp-stats").innerHTML = [
       ["Streamable HTTP", "stateless · JSON 응답"],
       [MCP_TOOLS.length + "종", "도구 (kb 필수 · 기여 포함)"],
-      ["3채널", "상시 토큰 · 텔레그램 세션 · OAuth 2.1"],
+      [tJs("console.js.synd.mcp.stat_channels_val", "OAuth 2.1"), tJs("console.js.synd.mcp.stat_channels_desc", "OAuth 2.1 (primary) · Legacy tokens (deprecated)")],
       ["+" + proposedOn.length, "제안 도구 (미리보기)"]
     ].map(function (p) { return '<div class="pref-stat"><b>' + escapeHtml(p[0]) + "</b><span>" + escapeHtml(p[1]) + "</span></div>"; }).join("");
 
-    byId("pref-mcp-snippet-cli").textContent = "claude mcp add --transport http claire " + ep + " \\\n  --header \"Authorization: Bearer cb_…\"";
+    byId("pref-mcp-snippet-cli").textContent = 'curl -fsS -X POST "' + ep + '" \\\n  -H "Authorization: Bearer cb_…" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'';
     byId("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { type: "http", url: ep, headers: { Authorization: "Bearer cb_…" } } } }, null, 2);
 
     byId("pref-mcp-tools-tbody").innerHTML = MCP_TOOLS.map(function (t) {
@@ -585,6 +592,17 @@
       renderMcpPanel();
     });
     var panel = byId("panel-mcp");
+    function syncGrantButtons() {
+      var allBtn = byId("pref-mcp-revoke-all");
+      if (!allBtn) return;
+      allBtn.disabled = !panel.querySelector("[data-oauth-revoke-grant]");
+    }
+    function renderGrantsEmptyRow() {
+      var tbody = byId("pref-mcp-grants-tbody");
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">' + escapeHtml(tJs("console.js.synd.mcp.grants_empty", "This account has approved no OAuth 2.1 clients.")) + "</td></tr>";
+    }
+    syncGrantButtons();
     panel.addEventListener("change", function (e) {
       var name = e.target.getAttribute && e.target.getAttribute("data-mcp-proposed");
       if (!name) return;
@@ -596,10 +614,51 @@
     });
     panel.addEventListener("click", function (e) {
       var copy = e.target.closest("[data-copy-target]");
-      if (!copy) return;
-      var text = byId(copy.getAttribute("data-copy-target")).textContent;
-      if (!navigator.clipboard) { showToast(text); return; }
-      navigator.clipboard.writeText(text).then(function () { showToast("엔드포인트를 복사했습니다"); }, function () { showToast(text); });
+      if (copy) {
+        var text = byId(copy.getAttribute("data-copy-target")).textContent;
+        if (!navigator.clipboard) { showToast(text); return; }
+        navigator.clipboard.writeText(text).then(function () { showToast("엔드포인트를 복사했습니다"); }, function () { showToast(text); });
+        return;
+      }
+      var revokeBtn = e.target.closest("[data-oauth-revoke-grant]");
+      if (revokeBtn) {
+        var grantId = revokeBtn.getAttribute("data-oauth-revoke-grant");
+        if (!grantId) return;
+        revokeBtn.disabled = true;
+        fetch("/api/me/oauth/grants?grant_id=" + encodeURIComponent(grantId), { method: "DELETE", credentials: "same-origin", headers: { "Accept": "application/json" } })
+          .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then(function () {
+            var row = revokeBtn.closest("tr");
+            if (row && row.parentNode) row.parentNode.removeChild(row);
+            if (!panel.querySelector("[data-oauth-revoke-grant]")) renderGrantsEmptyRow();
+            syncGrantButtons();
+            showToast(tJs("console.js.synd.mcp.revoke_one_done", "The OAuth grant was revoked."));
+          })
+          .catch(function () {
+            revokeBtn.disabled = false;
+            showToast(tJs("console.js.synd.mcp.revoke_failed", "Failed to revoke the OAuth grant."));
+          });
+        return;
+      }
+      var revokeAllBtn = e.target.closest("#pref-mcp-revoke-all, [data-oauth-revoke-all]");
+      if (revokeAllBtn) {
+        if (!panel.querySelector("[data-oauth-revoke-grant]")) {
+          syncGrantButtons();
+          return;
+        }
+        revokeAllBtn.disabled = true;
+        fetch("/api/me/oauth/grants?all=1", { method: "DELETE", credentials: "same-origin", headers: { "Accept": "application/json" } })
+          .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then(function () {
+            renderGrantsEmptyRow();
+            syncGrantButtons();
+            showToast(tJs("console.js.synd.mcp.revoke_all_done", "All OAuth grants were revoked."));
+          })
+          .catch(function () {
+            syncGrantButtons();
+            showToast(tJs("console.js.synd.mcp.revoke_failed", "Failed to revoke the OAuth grant."));
+          });
+      }
     });
   }
 

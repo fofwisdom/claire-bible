@@ -301,18 +301,25 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/.well-known/oauth-authorization-server",
         "/oauth/authorize",
         "/oauth/authorize/poll",
+        "/device",
         "/login",
         "/invite/{code}",
         "/accounts",
         "/auth/oidc/{id}/start",
         "/auth/oidc/{id}/callback",
         "/invite/complete",
+        "/clients/{client_id}/manifest.json",
+        "/clients/{client_id}/bundle.tar.gz",
+        "/clients/{client_id}/files/{relpath:path}",
     }
     public_post = {
         "/oauth/register",
         "/oauth/authorize",
         "/oauth/authorize/telegram-push",
         "/oauth/token",
+        "/oauth/revoke",
+        "/oauth/device_authorization",
+        "/device",
         "/login",
         "/logout",
         "/api/locale",
@@ -351,6 +358,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/syndication/dispatches",
         "/syndication/dispatches",
         "/syndication",
+        "/api/client-extraction/spec",
     }
     read_post = {"/search", "/mcp", "/share"}
     # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
@@ -369,11 +377,19 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/syndication/dispatch",
         "/api/federation/publish",
         "/api/federation/retract",
+        "/api/client-extraction/stage",
+        "/api/client-extraction/sources/{document_id}/claim",
+        "/api/client-extraction/sources/{document_id}/renew",
+        "/api/client-extraction/sources/{document_id}/submit",
     }
     write_methods = {
         ("DELETE", "/contributions/{number}"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),
+        ("GET", "/api/client-extraction/sources"),
+        ("HEAD", "/api/client-extraction/sources"),
+        ("GET", "/api/client-extraction/sources/{document_id}"),
+        ("HEAD", "/api/client-extraction/sources/{document_id}"),
     }
     owner_post = {
         "/api/auto-rule/dry-run",
@@ -405,6 +421,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/setup",
         "/api/auth/reauth",
         "/api/me/password",
+        "/api/me/oauth/grants",
     }
     owner_methods = {
         ("PUT", "/api/me/pair-review/items/{item_id}/verdict"),
@@ -443,6 +460,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/api/me/identities"),
         ("HEAD", "/api/me/identities"),
         ("DELETE", "/api/me/identities/oidc/{id}"),
+        *((method, "/api/me/oauth/grants") for method in ("GET", "HEAD", "DELETE")),
         # 통합 콘솔 settings/ 영역 (D1–D3)
         *(
             (method, path)
@@ -557,7 +575,9 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, p) for p in ("/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}") for m in ("GET", "HEAD")),
         ("POST", "/api/admin/federation/journal/{entry_id}/replay"),
         ("POST", "/api/admin/server/mode"),
+        ("POST", "/api/admin/server/client-delivery"),
         ("POST", "/api/admin/server/legacy-hosts/sunset"),
+        ("POST", "/admin/server"),
         ("POST", "/api/admin/federation"),
         ("PATCH", "/api/admin/accounts"),
         ("GET", "/api/admin/usernames/retired"),

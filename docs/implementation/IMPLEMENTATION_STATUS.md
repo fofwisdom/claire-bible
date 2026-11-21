@@ -137,7 +137,7 @@ Limits:
 ### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 
 1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
-2. `evaluate_summary_verdict`를 부르는 코드가 없다. 유일한 호출자였던 `AntigravityProvider`는 `AE8`에서 삭제되었다(2026-11-21).
+2. `diagnose_google_block` has no caller after the host-cli provider `AntigravityProvider` was deleted in `AE8` (2026-11-21). Note that `evaluate_summary_verdict` is called by `src/claire/ingest/client_extraction.py` (`_validate_summary`) during `agent_client` extraction validation.
 3. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
 4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
 5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
@@ -168,7 +168,7 @@ Limits:
 4. `robots_txt_route`·`sitemap_xml_route`의 테마 호스트 분기(`get_kb_by_fqdn`)는 실제로 맞지 않는다. `HostRouter`가 옛 테마 호스트를 먼저 보낸다.
 5. sitemap 캐시는 문서를 숨겨도 지워지지 않고 TTL(기본 900초)을 기다린다. 한 테마의 오류와 공유 토큰 생성 중 `sqlite3.OperationalError`는 무시되어 일부만 담긴 sitemap이 정상처럼 보인다(C2).
 6. `KnowledgeBaseManager.get_kb(None)`은 관리자 기본 테마가 없으면 `is_personal` 테마나 테마 0으로 대체한다.
-7. MCP: 텔레메트리에 `client_id`가 없고, OAuth 토큰 목록·폐기 경로와 자격증명별 호출 한도가 없다. `claire token create`의 클라이언트 예시는 `server-everything`이다(MCP_SUPPORT.md MP1–MP4).
+7. MCP: `mcp_telemetry` does not record `client_id`, and there is no per-credential call rate limit (`API_AND_MCP_GUIDE.md`, `TELEMETRY.md`). (OAuth 2.1 grant list/revoke routes `/api/me/oauth/grants` and `/oauth/revoke`, as well as `claire token` `mcp_client_config`, are now implemented.)
 
 ### 4.7 운영, 텔레메트리, 데이터 ([`TELEMETRY.md`](TELEMETRY.md), [`OPERATIONS.md`](OPERATIONS.md), [`FEDERATION.md`](FEDERATION.md))
 

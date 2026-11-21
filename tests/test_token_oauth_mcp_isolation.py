@@ -245,9 +245,22 @@ def test_oauth_authorize_unregistered_client_and_redirect_uri_mismatch(tmp_path:
         assert resp_js.status_code == 400
         assert resp_js.json()["error"] == "invalid_request"
 
-        # 4. Valid GET authorize returns consent form with same-origin Referrer-Policy header
+        # 4. Unauthenticated GET authorize redirects 303 -> /login?tx=... with Referrer-Policy: same-origin
+        resp_unauth = client.get(
+            f"/oauth/authorize?response_type=code&client_id={client_id}&redirect_uri=https://app.example.com/callback&code_challenge=xyz&code_challenge_method=S256",
+            follow_redirects=False,
+        )
+        assert resp_unauth.status_code == 303
+        assert resp_unauth.headers.get("location", "").startswith("/login?tx=")
+        assert resp_unauth.headers.get("referrer-policy") == "same-origin"
+
+        # 5. Authenticated GET authorize returns 200 consent form with same-origin Referrer-Policy header
+        conn = dbm.connect(config.db_file)
+        tok = accounts_store.create_account_session(conn, account_id=1, scope="owner")
+        conn.close()
         resp_valid = client.get(
-            f"/oauth/authorize?response_type=code&client_id={client_id}&redirect_uri=https://app.example.com/callback&code_challenge=xyz&code_challenge_method=S256"
+            f"/oauth/authorize?response_type=code&client_id={client_id}&redirect_uri=https://app.example.com/callback&code_challenge=xyz&code_challenge_method=S256",
+            cookies={"claire_session": tok},
         )
         assert resp_valid.status_code == 200
         assert resp_valid.headers.get("referrer-policy") == "same-origin"

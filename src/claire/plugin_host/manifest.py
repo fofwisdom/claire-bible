@@ -8,15 +8,16 @@ from __future__ import annotations
 import re
 import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..ingest.hosts import is_valid_pattern
-from . import MANIFEST_VERSIONS, PLUGIN_TYPES
+from . import MANIFEST_VERSIONS, PLUGIN_TYPES, TYPE_AGENT_CLIENT, TYPE_INGEST_ADAPTER
 
 MANIFEST_FILE = "plugin.toml"
 
 ID_RE = re.compile(r"^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")
+CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 ENTRY_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SOURCE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -28,12 +29,33 @@ EXECUTABLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 MATURITIES = ("experimental", "stable", "deprecated")
 ENTRY_KINDS = ("fetcher", "web_adapter")
 PROVIDER_KINDS = ("stt", "vlm")
+ALLOWED_REQUIRED_SCOPES: tuple[str, ...] = ("readonly", "write")
 
-_TOP_KEYS = {
-    "manifest", "id", "type", "revision", "core_commit", "api", "entry", "license",
+_AGENT_CLIENT_DISALLOWED_SUFFIXES: tuple[str, ...] = (
+    ".py",
+    ".pyc",
+    ".pyo",
+    ".so",
+    ".dll",
+    ".dylib",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".exe",
+)
+
+_COMMON_TOP_KEYS = {
+    "manifest", "id", "type", "revision", "core_commit", "api", "license",
     "maturity", "maintainers", "text", "provides", "permissions", "requires",
 }
-_REQUIRED_TOP = _TOP_KEYS - {"maintainers", "provides", "permissions", "requires"}
+_COMMON_REQUIRED = {"manifest", "id", "type", "revision", "core_commit", "api", "license", "maturity", "text"}
+_INGEST_TOP_KEYS = _COMMON_TOP_KEYS | {"entry"}
+_INGEST_REQUIRED = _COMMON_REQUIRED | {"entry"}
+_AGENT_CLIENT_TOP_KEYS = _COMMON_TOP_KEYS | {"client_id", "required_scopes", "files"}
+_AGENT_CLIENT_REQUIRED = _COMMON_REQUIRED | {"client_id", "required_scopes", "files"}
 _PROVIDE_KEYS = {"kind", "name", "priority", "hosts", "source_types"}
 _PERMISSION_KEYS = {"network", "private_network", "network_modules", "executables", "providers"}
 _REQUIRE_KEYS = {"distributions", "executables"}
@@ -112,21 +134,28 @@ class Manifest:
     revision: int
     core_commit: str
     api: int
-    entry: str
     license: str
     maturity: str
     maintainers: tuple[str, ...]
     text: dict[str, dict[str, str]]
     provides: tuple[Provide, ...]
+    entry: str | None = None
+    client_id: str | None = None
+    required_scopes: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
     permissions: Permissions = field(default_factory=Permissions)
     requires: Requires = field(default_factory=Requires)
 
     @property
     def entry_module(self) -> str:
+        if self.entry is None:
+            raise ValueError(f"plugin {self.id!r} ({self.type}) has no Python entry")
         return self.entry.split(":", 1)[0]
 
     @property
     def entry_function(self) -> str:
+        if self.entry is None:
+            raise ValueError(f"plugin {self.id!r} ({self.type}) has no Python entry")
         return self.entry.split(":", 1)[1]
 
     def text_for(self, locale: str) -> dict[str, str]:
@@ -134,7 +163,7 @@ class Manifest:
         return self.text.get(locale) or self.text["en"]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "manifest": self.manifest,
             "id": self.id,
             "type": self.type,
@@ -150,6 +179,11 @@ class Manifest:
             "permissions": self.permissions.to_dict(),
             "requires": self.requires.to_dict(),
         }
+        if self.type == TYPE_AGENT_CLIENT or self.client_id is not None:
+            data["client_id"] = self.client_id
+            data["required_scopes"] = list(self.required_scopes)
+            data["files"] = list(self.files)
+        return data
 
 
 def _check_keys(where: str, data: dict[str, Any], allowed: set[str], required: set[str] = frozenset()) -> None:
@@ -182,7 +216,7 @@ def _strings(where: str, value: Any, pattern: re.Pattern[str] | None = None) -> 
         raise ManifestError(f"{where}: has a duplicate value")
     if pattern is not None:
         for v in value:
-            if not pattern.match(v):
+            if not pattern.fullmatch(v):
                 raise ManifestError(f"{where}: value {v!r} is not valid")
     return tuple(value)
 
@@ -195,26 +229,74 @@ def _hosts(where: str, value: Any) -> tuple[str, ...]:
     return hosts
 
 
+def _validate_bundle_file_path(rel: str) -> str:
+    if not rel or not rel.strip():
+        raise ManifestError("files: bundle file path must not be empty")
+    if "\\" in rel or any(ord(ch) < 32 or ord(ch) == 127 for ch in rel):
+        raise ManifestError(f"files: invalid characters in path {rel!r}")
+    if rel.startswith("/") or rel.endswith("/"):
+        raise ManifestError(f"files: path {rel!r} must be a normalized relative POSIX path without leading or trailing slash")
+    parts = rel.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ManifestError(f"files: path {rel!r} contains disallowed segment")
+    if PurePosixPath(rel).as_posix() != rel:
+        raise ManifestError(f"files: path {rel!r} is not normalized POSIX")
+    if rel == MANIFEST_FILE or "__pycache__" in parts or parts[0] == "tests":
+        raise ManifestError(f"files: path {rel!r} is not allowed in agent_client bundle")
+    if rel.lower().endswith(_AGENT_CLIENT_DISALLOWED_SUFFIXES):
+        raise ManifestError(f"files: executable or Python hook file {rel!r} is not allowed in agent_client bundle")
+    return rel
+
+
 def parse_manifest(data: dict[str, Any]) -> Manifest:
     """Make a ``Manifest`` from the TOML data. Raise ``ManifestError``."""
-    _check_keys("manifest", data, _TOP_KEYS, _REQUIRED_TOP)
+    if "type" not in data:
+        raise ManifestError("manifest: missing key 'type'")
+    plugin_type = _str("type", data["type"])
+    if plugin_type not in PLUGIN_TYPES:
+        raise ManifestError(f"type: {plugin_type!r} is not a known plugin type")
+    if plugin_type == TYPE_AGENT_CLIENT:
+        if "entry" in data:
+            raise ManifestError("entry: agent_client manifests must not declare 'entry'")
+        _check_keys("manifest", data, _AGENT_CLIENT_TOP_KEYS, _AGENT_CLIENT_REQUIRED)
+    else:
+        _check_keys("manifest", data, _INGEST_TOP_KEYS, _INGEST_REQUIRED)
+
     version = _int("manifest", data["manifest"])
     if version not in MANIFEST_VERSIONS:
         raise ManifestError(f"manifest: version {version} is not supported (supported: {list(MANIFEST_VERSIONS)})")
     plugin_id = _str("id", data["id"])
-    if not ID_RE.match(plugin_id):
+    if not ID_RE.fullmatch(plugin_id):
         raise ManifestError("id: must be <publisher>.<name> (publisher [a-z][a-z0-9]*, name snake_case)")
-    plugin_type = _str("type", data["type"])
-    if plugin_type not in PLUGIN_TYPES:
-        raise ManifestError(f"type: {plugin_type!r} is not a known plugin type")
     revision = _int("revision", data["revision"], minimum=1)
     core_commit = _str("core_commit", data["core_commit"])
-    if not COMMIT_RE.match(core_commit):
+    if not COMMIT_RE.fullmatch(core_commit):
         raise ManifestError("core_commit: must be the full 40-character commit hash in lowercase")
     api = _int("api", data["api"], minimum=1)
-    entry = _str("entry", data["entry"])
-    if not ENTRY_RE.match(entry):
-        raise ManifestError("entry: must be <module>:<function>")
+
+    entry: str | None = None
+    client_id: str | None = None
+    required_scopes: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
+    if plugin_type == TYPE_INGEST_ADAPTER:
+        entry = _str("entry", data["entry"])
+        if not ENTRY_RE.fullmatch(entry):
+            raise ManifestError("entry: must be <module>:<function>")
+    else:
+        client_id = _str("client_id", data["client_id"])
+        if not CLIENT_ID_RE.fullmatch(client_id):
+            raise ManifestError("client_id: must match ^[a-z0-9][a-z0-9-]{1,31}$")
+        required_scopes = _strings("required_scopes", data["required_scopes"])
+        if not required_scopes:
+            raise ManifestError("required_scopes: must not be empty")
+        for scope in required_scopes:
+            if scope not in ALLOWED_REQUIRED_SCOPES:
+                raise ManifestError(f"required_scopes: {scope!r} must be one of {list(ALLOWED_REQUIRED_SCOPES)}")
+        raw_files = _strings("files", data["files"])
+        if not raw_files:
+            raise ManifestError("files: must not be empty")
+        files = tuple(_validate_bundle_file_path(rel) for rel in raw_files)
+
     license_expr = _str("license", data["license"])
     maturity = _str("maturity", data["maturity"])
     if maturity not in MATURITIES:
@@ -235,6 +317,8 @@ def parse_manifest(data: dict[str, Any]) -> Manifest:
     provides_raw = data.get("provides", [])
     if not isinstance(provides_raw, list):
         raise ManifestError("provides: must be an array of tables")
+    if plugin_type == TYPE_AGENT_CLIENT and provides_raw:
+        raise ManifestError("provides: agent_client manifests must not declare provides")
     provides: list[Provide] = []
     for index, item in enumerate(provides_raw):
         where = f"provides[{index}]"
@@ -245,7 +329,7 @@ def parse_manifest(data: dict[str, Any]) -> Manifest:
         if kind not in ENTRY_KINDS:
             raise ManifestError(f"{where}.kind: must be one of {list(ENTRY_KINDS)}")
         name = _str(f"{where}.name", item["name"])
-        if not ENTRY_NAME_RE.match(name):
+        if not ENTRY_NAME_RE.fullmatch(name):
             raise ManifestError(f"{where}.name: must be snake_case")
         hosts = _hosts(f"{where}.hosts", item["hosts"])
         if not hosts:
@@ -281,6 +365,17 @@ def parse_manifest(data: dict[str, Any]) -> Manifest:
         executables=_strings("permissions.executables", perm_raw.get("executables", []), EXECUTABLE_RE),
         providers=providers,
     )
+    if plugin_type == TYPE_AGENT_CLIENT:
+        if permissions.network:
+            raise ManifestError("permissions.network: agent_client manifests must not request network access")
+        if permissions.private_network:
+            raise ManifestError("permissions.private_network: agent_client manifests must not request private_network access")
+        if permissions.network_modules:
+            raise ManifestError("permissions.network_modules: agent_client manifests must not request network_modules")
+        if permissions.executables:
+            raise ManifestError("permissions.executables: agent_client manifests must not request executables")
+        if permissions.providers:
+            raise ManifestError("permissions.providers: agent_client manifests must not request providers")
 
     req_raw = data.get("requires", {})
     if not isinstance(req_raw, dict):
@@ -299,6 +394,9 @@ def parse_manifest(data: dict[str, Any]) -> Manifest:
         core_commit=core_commit,
         api=api,
         entry=entry,
+        client_id=client_id,
+        required_scopes=required_scopes,
+        files=files,
         license=license_expr,
         maturity=maturity,
         maintainers=maintainers,

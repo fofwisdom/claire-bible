@@ -32,7 +32,7 @@
       <table class="pref-table">
         <thead><tr><th>${t:console.synd.mcp.col_channel}</th><th>${t:console.synd.mcp.col_issue}</th><th>${t:console.synd.mcp.col_scope}</th><th>${t:console.synd.mcp.col_lifetime}</th><th>${t:console.synd.mcp.col_revoke}</th><th>${t:console.synd.mcp.col_clients}</th></tr></thead>
         <tbody>
-          <tr><td><strong>${t:console.synd.mcp.ch_token}</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · ${t:console.synd.mcp.ch_token_issue} <code>/token</code></td><td>owner · write · readonly</td><td>${t:console.synd.mcp.ch_token_lifetime}</td><td>${t:console.synd.mcp.ch_token_revoke} (<code class="pref-mono">/tokens/revoke</code>)</td><td>Claude Desktop · Cursor · Claude Code</td></tr>
+          <tr><td><strong>${t:console.synd.mcp.ch_token}</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · ${t:console.synd.mcp.ch_token_issue} <code>/token</code></td><td>owner · write · readonly</td><td>${t:console.synd.mcp.ch_token_lifetime}</td><td>${t:console.synd.mcp.ch_token_revoke} (<code class="pref-mono">/tokens/revoke</code>)</td><td>Antigravity · Cursor · MCP Clients</td></tr>
           <tr><td><strong>${t:console.synd.mcp.ch_telegram}</strong></td><td><code>/web</code> · <code>/webro</code></td><td>${t:console.synd.mcp.ch_telegram_scope}</td><td>${t:console.synd.mcp.ch_telegram_lifetime}</td><td>${t:console.synd.mcp.ch_telegram_revoke}</td><td>${t:console.synd.mcp.ch_telegram_clients}</td></tr>
           <tr><td><strong>OAuth 2.1</strong></td><td>${th:console.synd.mcp.ch_oauth_issue}</td><td>${th:console.synd.mcp.ch_oauth_scope}</td><td>${t:console.synd.mcp.ch_oauth_lifetime}</td><td>${t:console.synd.mcp.ch_oauth_revoke}</td><td>${t:console.synd.mcp.ch_oauth_clients}</td></tr>
         </tbody>
@@ -41,6 +41,18 @@
 
     <h3>${t:console.synd.mcp.tokens_title}</h3>
     <p class="pref-desc" id="pref-mcp-tokens-note">${t:console.synd.mcp.tokens_note_before} <a href="$tokens_href" id="pref-mcp-tokens-link">$tokens_label</a>. ${t:console.synd.mcp.tokens_note_after}</p>
+    <p class="pref-notice" role="status">$deprecation_notice_html</p>
+
+    <div id="pref-mcp-grants-card" class="pref-table-wrap" style="margin:12px 0">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button type="button" class="pref-btn" id="pref-mcp-revoke-all" data-oauth-revoke-all="1">${t:console.oauth.revoke_all}</button>
+      </div>
+      <table class="pref-table">
+        <thead><tr><th>${t:console.oauth.col_client_name}</th><th>${t:console.synd.mcp.col_scope}</th><th>${t:console.admin.tokens.col_registered}</th><th>${t:console.oauth.col_last_used}</th><th>${t:console.admin.tokens.col_expires}</th><th>${t:console.oauth.col_actions}</th></tr></thead>
+        <tbody id="pref-mcp-grants-tbody">$oauth_grants_rows</tbody>
+      </table>
+      <p class="hint" style="margin-top:6px"><code class="pref-mono">GET / DELETE /api/me/oauth/grants</code> · <code class="pref-mono">POST /oauth/revoke</code> · <code class="pref-mono">/device</code></p>
+    </div>
 
     <details class="pref-disclosure">
       <summary>${t:console.synd.mcp.connect_title}</summary>
@@ -91,4 +103,6 @@
       <pre id="pref-mcp-toolslist" class="pref-code" style="margin-top:8px"></pre>
     </details>
   </div>
+
+  $agent_clients_delivery_html
 </section>

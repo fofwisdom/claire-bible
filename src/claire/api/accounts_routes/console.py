@@ -21,7 +21,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ... import ids, ui_chrome
-from ...i18n import SUPPORTED_LOCALES, get_locale, t
+from ...i18n import SUPPORTED_LOCALES, get_locale, interpolate, t
 from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store.provider_keys import DECRYPTION_AUDIT_DAYS
 from ...store import accounts as accounts_store
@@ -57,6 +57,13 @@ from .common import icon_html, open_auth_db
 
 # 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
 FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})
+
+def _tokens_deprecation_banner_html() -> str:
+    """Render the deprecation banner pointing operators and users to OAuth 2.1 in /settings/mcp."""
+    mcp_link = '<a href="/settings/mcp">/settings/mcp</a>'
+    message = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": mcp_link})
+    return f'<p class="proto-note" data-deprecated="tokens" role="status"><span data-icon="warning"></span> {message}</p>'
+
 
 ADMIN_INDEX_PATH = "/admin"
 SETTINGS_INDEX_PATH = "/settings"
@@ -618,8 +625,10 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             if client_trs
             else f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.admin.tokens.clients_empty"))}</td></tr>'
         )
+        notice_banner = _tokens_deprecation_banner_html()
         body = (
-            f'<section class="card" id="admin-tokens-manager-card" aria-label="{escape(t("console.admin.tokens.manager_label"))}">'
+            notice_banner
+            + f'<section class="card" id="admin-tokens-manager-card" aria-label="{escape(t("console.admin.tokens.manager_label"))}">'
             '<div id="admin-tokens-host" data-admin-panel-host="tokens">'
             f'<p class="hint">{escape(t("console.admin.tokens.loading"))}</p>'
             "</div>"
@@ -1214,19 +1223,20 @@ def _settings_keys_body(
 
 
 def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
-    """호출자 계정에 발급된 OAuth 토큰이 있는 클라이언트만 고른다(``oauth_tokens.account_id``). 토큰 값은 읽지 않는다."""
+    """Select active OAuth clients with grants belonging to the caller account (oauth_tokens.account_id), never exposing token secrets."""
     conn = open_db(ctx)
     try:
         rows = conn.execute(
-            "SELECT c.client_id, c.client_name, c.redirect_uris, MIN(t.created_at), MAX(t.expires_at), COUNT(t.token) "
+            "SELECT c.client_id, c.client_name, c.redirect_uris, MIN(t.created_at), MAX(t.expires_at), COUNT(t.token), "
+            "GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.granted_scope, ''), t.scope, 'readonly')), MAX(t.last_used_at) "
             "FROM oauth_tokens t JOIN oauth_clients c ON c.client_id = t.client_id "
-            "WHERE t.account_id = ? GROUP BY c.client_id ORDER BY MIN(t.created_at) DESC",
+            "WHERE t.account_id = ? AND t.rotated_at IS NULL AND t.revoked_at IS NULL GROUP BY c.client_id ORDER BY MIN(t.created_at) DESC",
             (account_id,),
         ).fetchall()
     finally:
         conn.close()
     clients: list[dict[str, Any]] = []
-    for client_id, client_name, redirect_uris_raw, first_issued, last_expiry, token_count in rows:
+    for client_id, client_name, redirect_uris_raw, first_issued, last_expiry, token_count, scopes_raw, last_used_at in rows:
         redirect_uris = json.loads(redirect_uris_raw)
         if not isinstance(redirect_uris, list):
             raise ValueError(f"oauth_clients.redirect_uris is not a JSON list for client {client_id!r}")
@@ -1238,6 +1248,8 @@ def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[d
                 "first_issued_at": first_issued,
                 "expires_at": last_expiry,
                 "token_count": int(token_count),
+                "scope": str(scopes_raw or "readonly"),
+                "last_used_at": last_used_at,
             }
         )
     return clients
@@ -1245,6 +1257,7 @@ def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[d
 
 def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
     clients = _settings_own_oauth_clients(ctx, account.id)
+    notice_banner = _tokens_deprecation_banner_html()
     trs = "".join(
         "<tr>"
         f"<td><strong>{escape(c['client_name'])}</strong></td>"
@@ -1257,7 +1270,8 @@ def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Accou
     )
     tbody = trs or f'<tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
     body = (
-        f'<section class="console-subcard" id="settings-tokens-manager-card" aria-label="{escape(t("console.settings.tokens.manager_label"))}">'
+        notice_banner
+        + f'<section class="console-subcard" id="settings-tokens-manager-card" aria-label="{escape(t("console.settings.tokens.manager_label"))}">'
         '<div id="settings-tokens-host" data-settings-panel-host="tokens">'
         f'<p class="hint">{escape(t("console.settings.tokens.loading"))}</p>'
         "</div>"
@@ -1284,6 +1298,7 @@ def _render_console_section(
     extra_bootstrap: dict[str, Any] | None = None,
     extra_scripts_html: str = "",
     notice: str | None = None,
+    settings: Any = None,
 ) -> Response:
     assert principal.account_id is not None
     theme_lookup = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -1329,6 +1344,7 @@ def _render_console_section(
                 selected_theme=selected_theme,
                 owned_themes=owned_themes,
                 theme_query=validated_theme_query,
+                settings=settings,
             )
         else:
             # P3-a: Group 1 본문(account, keys, themes, tokens).
@@ -1507,6 +1523,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             principal=principal,
             raw_theme=raw_theme,
             notice=request.query_params.get("notice") if spec.slug == "account" else None,
+            settings=getattr(request.app.state, "settings", None),
         )
 
     async def admin_mcp_telemetry_api(request: Request) -> Response:

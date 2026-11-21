@@ -14,6 +14,7 @@ import time
 from collections import deque
 from contextvars import ContextVar
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -35,6 +36,16 @@ from .principal import Principal, PRINCIPAL_STATE_KEY
 
 current_principal: ContextVar[Principal | None] = ContextVar("current_principal", default=None)
 current_mcp_principal = current_principal
+
+
+def require_mcp_write_scope(principal: Principal | None = None) -> dict[str, str] | None:
+    """Verify that the active MCP principal holds write or owner scope for write tools."""
+    resolved = principal if principal is not None else current_principal.get()
+    if resolved is None or resolved.account_id is None:
+        return {"error": "account_required"}
+    if resolved.scope not in ("owner", "write"):
+        return {"error": "scope_insufficient", "required_scope": "write"}
+    return None
 
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
@@ -387,10 +398,52 @@ def get_mcp_tools_metadata() -> list[dict[str, Any]]:
             "read_only": False,
             "parameters": ["documents", "theme", "remote_knowledge_base"],
         },
+        {
+            "name": "stage_source",
+            "description": "Stage full raw source content in the personal knowledge base without server LLM extraction (scope write)",
+            "read_only": False,
+            "parameters": ["url_or_text", "url", "text", "title", "source_type", "full_content", "mode", "kb"],
+        },
+        {
+            "name": "list_staged_sources",
+            "description": "List staged documents waiting in the personal knowledge base extraction queue (scope write)",
+            "read_only": True,
+            "parameters": ["status", "limit", "kb"],
+        },
+        {
+            "name": "claim_staged_source",
+            "description": "Acquire an exclusive short-TTL claim lease on a staged document (scope write)",
+            "read_only": False,
+            "parameters": ["document_id", "client_id", "lease_seconds", "kb"],
+        },
+        {
+            "name": "renew_staged_claim",
+            "description": "Extend an active claim lease on a staged document (scope write)",
+            "read_only": False,
+            "parameters": ["document_id", "claim_token", "lease_seconds", "kb"],
+        },
+        {
+            "name": "get_extraction_spec",
+            "description": "Return active ontology types, domain/range constraints, AsciiDoc lint rules, and strict JSON payload schema",
+            "read_only": True,
+            "parameters": [],
+        },
+        {
+            "name": "get_staged_source",
+            "description": "Fetch staged source text wrapped in nonce-bound untrusted_source_document tags with char or line paging (scope write)",
+            "read_only": True,
+            "parameters": ["document_id", "claim_token", "offset", "limit", "full_content", "line_offset", "line_limit", "kb"],
+        },
+        {
+            "name": "submit_client_extraction",
+            "description": "Validate and atomically commit client-extracted graph, summary, AsciiDoc detail, and Option B embeddings (scope write)",
+            "read_only": False,
+            "parameters": ["document_id", "claim_token", "expected_content_hash", "payload", "dry_run", "kb"],
+        },
     ]
 
 
-def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
+def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, svc: Any = None, service_pool: Any = None):
     """`/mcp` 엔드포인트에 물릴 Starlette ASGI 앱을 생성한다."""
     tm = theme_mgr if theme_mgr is not None else theme_manager
     if tm is None and getattr(s, "multi_theme", False):
@@ -832,6 +885,249 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             return _timed_call("stats", lambda c: dbm.counts(c, kb_id=resolved_tid), conn)
         finally:
             conn.close()
+
+    def _resolve_personal_kb_for_extraction(kb: str | int | None = None) -> tuple[int, int] | dict[str, Any]:
+        """Enforce CT4 personal KB ownership and reject explicit shared or foreign KB targets."""
+        principal = current_principal.get()
+        if principal is None or principal.account_id is None:
+            return {"error": "account_required"}
+        personal_id: int | None = None
+        if theme_mgr is not None:
+            try:
+                personal_id = theme_mgr.personal_kb_for(int(principal.account_id)).id
+            except KnowledgeBaseNotFound:
+                personal_id = None
+        elif int(principal.account_id) == dbm.ADMIN_ACCOUNT_ID:
+            personal_id = 0
+        if personal_id is None:
+            return {"error": "personal_kb_not_found"}
+        if kb is not None and str(kb).strip():
+            target_id = _kb_id(kb)
+            if target_id == "kb_required" or target_id is None:
+                return {"error": "theme not found"}
+            if int(target_id) != int(personal_id):
+                return {"error": "kb_ingest_by_contribution"}
+        return int(principal.account_id), int(personal_id)
+
+    def _active_service_pool() -> Any:
+        nonlocal service_pool
+        if service_pool is None:
+            from ..ingest.service import IngestServicePool
+
+            service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
+        return service_pool
+
+    @mcp.tool()
+    async def stage_source(
+        url_or_text: str | None = None,
+        url: str | None = None,
+        text: str | None = None,
+        title: str | None = None,
+        source_type: str | None = None,
+        full_content: bool = True,
+        mode: str | None = None,
+        kb: str | int | None = None,
+    ) -> dict[str, Any]:
+        """Stage untruncated raw content in the caller personal knowledge base for agent extraction (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        source_payload = url_or_text or url or text or ""
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                kb_settings = theme_mgr.get_settings_for_kb(personal_id, s) if theme_mgr is not None else s
+                return ce.stage_source(
+                    conn,
+                    kb_id=personal_id,
+                    account_id=account_id,
+                    url_or_text=source_payload,
+                    title=title,
+                    source_type=source_type,
+                    full_content=full_content,
+                    mode=mode,
+                    settings=kb_settings,
+                    data_dir=Path(s.data_dir) if getattr(s, "data_dir", None) else None,
+                )
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+            finally:
+                conn.close()
+
+        return _timed_call("stage_source", _work)
+
+    @mcp.tool()
+    async def list_staged_sources(status: str | None = "pending", limit: int = 50, kb: str | int | None = None) -> dict[str, Any]:
+        """List staged sources in the caller personal knowledge base (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return ce.list_staged_sources(conn, kb_id=personal_id, account_id=account_id, status=status, limit=limit)
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+            finally:
+                conn.close()
+
+        return _timed_call("list_staged_sources", _work)
+
+    @mcp.tool()
+    async def claim_staged_source(document_id: str, client_id: str | None = None, lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS, kb: str | int | None = None) -> dict[str, Any]:
+        """Claim an exclusive short-TTL lease on a pending staged document (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return ce.claim_staged_source(conn, kb_id=personal_id, account_id=account_id, document_id=document_id, client_id=client_id, lease_seconds=lease_seconds)
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+            finally:
+                conn.close()
+
+        return _timed_call("claim_staged_source", _work)
+
+    @mcp.tool()
+    async def renew_staged_claim(document_id: str, claim_token: str, lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS, kb: str | int | None = None) -> dict[str, Any]:
+        """Renew an active lease on a pending staged document (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return ce.renew_staged_claim(conn, kb_id=personal_id, account_id=account_id, document_id=document_id, claim_token=claim_token, lease_seconds=lease_seconds)
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+            finally:
+                conn.close()
+
+        return _timed_call("renew_staged_claim", _work)
+
+    @mcp.tool()
+    async def get_extraction_spec() -> dict[str, Any]:
+        """Return active ontology specification, validation rules, and strict JSON payload schema."""
+        principal = current_principal.get()
+        if principal is None or principal.account_id is None:
+            return {"error": "account_required"}
+        from ..ingest import client_extraction as ce
+
+        return _timed_call("get_extraction_spec", ce.get_extraction_spec)
+
+    @mcp.tool()
+    async def get_staged_source(
+        document_id: str,
+        claim_token: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+        full_content: bool = True,
+        line_offset: int | None = None,
+        line_limit: int | None = None,
+        kb: str | int | None = None,
+    ) -> dict[str, Any]:
+        """Fetch staged source text wrapped in nonce-bound untrusted_source_document tags (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return ce.get_staged_source(
+                    conn,
+                    kb_id=personal_id,
+                    account_id=account_id,
+                    document_id=document_id,
+                    claim_token=claim_token,
+                    offset=offset,
+                    limit=limit,
+                    full_content=full_content,
+                    line_offset=line_offset,
+                    line_limit=line_limit,
+                )
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+            finally:
+                conn.close()
+
+        return _timed_call("get_staged_source", _work)
+
+    @mcp.tool()
+    async def submit_client_extraction(
+        document_id: str,
+        claim_token: str,
+        expected_content_hash: str,
+        payload: dict[str, Any],
+        dry_run: bool = False,
+        kb: str | int | None = None,
+    ) -> dict[str, Any]:
+        """Validate and atomically commit client extraction payload with Option B AED7 embeddings (scope write)."""
+        scope_err = require_mcp_write_scope()
+        if scope_err is not None:
+            return scope_err
+        resolved = _resolve_personal_kb_for_extraction(kb)
+        if isinstance(resolved, dict):
+            return resolved
+        account_id, personal_id = resolved
+        principal = current_principal.get()
+        from ..ingest import client_extraction as ce
+
+        def _work() -> dict[str, Any]:
+            try:
+                kb_settings = theme_mgr.get_settings_for_kb(personal_id, s) if theme_mgr is not None else s
+                theme_svc = _active_service_pool().get_service(personal_id) if not dry_run else None
+                return ce.submit_client_extraction(
+                    s.db_file,
+                    kb_id=personal_id,
+                    account_id=account_id,
+                    document_id=document_id,
+                    claim_token=claim_token,
+                    expected_content_hash=expected_content_hash,
+                    payload=payload,
+                    dry_run=dry_run,
+                    theme_svc=theme_svc,
+                    kb_settings=kb_settings,
+                    root_settings=s,
+                    root_provider=getattr(svc, "provider", None),
+                    credential_id=principal.credential_id if principal else None,
+                    credential_kind=principal.channel if principal else None,
+                )
+            except ce.ClientExtractionError as exc:
+                return exc.to_response_dict()
+
+        return _timed_call("submit_client_extraction", _work)
 
     port = getattr(s, "inject_port", 8765)
     hosts = {"localhost", "127.0.0.1", f"localhost:{port}", f"127.0.0.1:{port}"}

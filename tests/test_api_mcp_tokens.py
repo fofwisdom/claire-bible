@@ -301,6 +301,17 @@ def test_cli_cmd_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     assert "token is ready" in out
     assert "CLI Test Agent" in out
     assert "cb_" in out
+    assert "Claude" not in out
+
+    # 2b. JSON output uses neutral mcp_client_config without retired Claude key (AED8)
+    res_json = cmd_token(SimpleNamespace(token_action="create", name="Agent Client JSON", scope="readonly", expires_in=None, json=True))
+    assert res_json == 0
+    import json
+
+    created_payload = json.loads(capsys.readouterr().out)
+    assert "claude_desktop_config" not in created_payload
+    assert created_payload["mcp_client_config"]["mcpServers"]["claire-bible"]["url"] == "http://127.0.0.1:8765/mcp"
+    assert created_payload["mcp_client_config"]["mcpServers"]["claire-bible"]["headers"]["Authorization"].startswith("Bearer cb_")
 
     # 3. List active tokens
     res = cmd_token(SimpleNamespace(token_action="list", all=False, json=True))

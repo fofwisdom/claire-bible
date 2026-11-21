@@ -2201,9 +2201,13 @@ def cmd_ingest(args) -> int:
         print(f"[{theme.icon} Theme for the ingest: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    provider = get_provider(s)
-    vstore = make_vector_store(conn, s.vector_backend)
-    print(f"(provider={provider.name})")
+    target_kb_id = theme.id if theme else getattr(s, "kb_id", 0)
+    account_id = getattr(s, "account_id", None)
+    force_provider = bool(getattr(args, "force_provider", False))
+    client_staging = (not force_provider) and (dbm.resolve_extraction_mode(conn, account_id=account_id, kb_id=target_kb_id) == "client")
+    provider = None if client_staging else get_provider(s)
+    vstore = None if client_staging else make_vector_store(conn, s.vector_backend, kb_id=target_kb_id)
+    print("(mode=client-staging)" if client_staging else f"(provider={provider.name})")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -2213,6 +2217,9 @@ def cmd_ingest(args) -> int:
         format=getattr(args, "format", None),
         effort=effort,
         full_content=full_content,
+        kb_id=target_kb_id,
+        account_id=account_id,
+        force_provider=force_provider,
     )
     print(report.telegram_summary())
     # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
@@ -2223,13 +2230,14 @@ def cmd_ingest(args) -> int:
             print(f"ACTION: Contribute to this theme: {contribute_command(notice['document'], notice['theme'])}")
 
     # 링크 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
-    if report.candidates and args.expand:
+    if report.candidates and args.expand and not client_staging:
         print(f"\n[expand] Ingesting {len(report.candidates)} candidates…")
         for url in report.candidates:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
-                         effort=effort, full_content=full_content)  # 2홉 방지
+                         effort=effort, full_content=full_content,
+                         kb_id=target_kb_id, account_id=account_id, force_provider=force_provider)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] Candidate URLs (use --expand to ingest them):")
@@ -2383,19 +2391,34 @@ def cmd_reingest(args) -> int:
             else:
                 print(f"[{stage}]", flush=True)
 
+    force_provider = bool(getattr(args, "force_provider", False))
+    target_kb_id = theme.id if theme else getattr(s, "kb_id", 0)
+    account_id = getattr(s, "account_id", None)
+
     if matched_targets:
-        print("claire reingest: [new ingest starts] Refetch of the sources and rebuild of the knowledge graph...", flush=True)
-        res = svc.regenerate_components(
-            target=target,
-            doc_id=doc_id,
-            refetch=not full_content,
-            refetch_full=full_content,
-            all_components=True,
-            force=True,
-            effort=effort,
-            format=fmt,
-            on_progress=_on_progress,
-        )
+        if svc.is_client_staging(force_provider=force_provider):
+            staged_results = []
+            for m in matched_targets:
+                payload_url = m.get("url") or m.get("canonical_url")
+                if not payload_url:
+                    staged_results.append({"document_id": m["id"], "title": m.get("title"), "status": "error", "error": "no URL payload to refetch; pass --force-provider for server extraction"})
+                else:
+                    r = svc.refresh_document(m["id"], payload_url, format=fmt, on_progress=_on_progress, force_provider=False)
+                    staged_results.append({"document_id": m["id"], "title": m.get("title"), **r})
+            res = {"count": len(staged_results), "targets": staged_results}
+        else:
+            print("claire reingest: [new ingest starts] Refetch of the sources and rebuild of the knowledge graph...", flush=True)
+            res = svc.regenerate_components(
+                target=target,
+                doc_id=doc_id,
+                refetch=not full_content,
+                refetch_full=full_content,
+                all_components=True,
+                force=True,
+                effort=effort,
+                format=fmt,
+                on_progress=_on_progress,
+            )
         if is_json:
             import json
             print(json.dumps(res, ensure_ascii=False, indent=2))
@@ -2420,8 +2443,9 @@ def cmd_reingest(args) -> int:
 
         conn2 = dbm.connect(s.db_file)
         dbm.init_db(conn2)
-        provider = get_provider(s)
-        vstore = make_vector_store(conn2, s.vector_backend)
+        client_staging = (not force_provider) and (dbm.resolve_extraction_mode(conn2, account_id=account_id, kb_id=target_kb_id) == "client")
+        provider = None if client_staging else get_provider(s)
+        vstore = None if client_staging else make_vector_store(conn2, s.vector_backend, kb_id=target_kb_id)
         try:
             report = ingest(
                 query_target,
@@ -2434,6 +2458,9 @@ def cmd_reingest(args) -> int:
                 format=fmt,
                 effort=effort,
                 full_content=full_content,
+                kb_id=target_kb_id,
+                account_id=account_id,
+                force_provider=force_provider,
             )
             if is_json:
                 import json
@@ -4269,15 +4296,17 @@ def cmd_token(args) -> int:
     s = get_settings()
     store = get_token_store(data_dir=s.data_dir)
     action = getattr(args, "token_action", None) or "list"
+    deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/settings/mcp)."
 
     if action in ("list", "ls"):
         include_revoked = bool(getattr(args, "all", False))
         tokens = store.list_api_tokens(include_revoked=include_revoked)
         if getattr(args, "json", False):
-            print(json.dumps({"tokens": tokens}, ensure_ascii=False, indent=2))
+            print(json.dumps({"tokens": tokens, "deprecated": True, "deprecation_notice": deprecation_notice, "retired": store.is_retired()}, ensure_ascii=False, indent=2))
             return 0
 
         if not tokens:
+            print(f"[DEPRECATED] {deprecation_notice}")
             print("No API/MCP token. Make one with 'claire token create <name>'.")
             return 0
 
@@ -4312,6 +4341,7 @@ def cmd_token(args) -> int:
             masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
             print(f"{tid:<4} {name:<22} {scope:<12} {status:<8} {exp_str:<18} {masked}")
         print("=" * 88)
+        print(f"[DEPRECATED] {deprecation_notice}")
         print("※ New token: claire token create <name> [--scope owner|write|readonly] [--expires-in DAYS]")
         print("※ Revoke a token: claire token revoke <ID or token>")
         return 0
@@ -4319,7 +4349,7 @@ def cmd_token(args) -> int:
     elif action in ("create", "new", "add"):
         name = str(getattr(args, "name", "") or "").strip()
         if not name:
-            print("Error: Give the token name. Example: claire token create 'Claude Desktop'")
+            print("Error: Give the token name. Example: claire token create 'Agent Client'")
             return 1
 
         scope = str(getattr(args, "scope", "readonly") or "readonly").strip().lower()
@@ -4330,23 +4360,27 @@ def cmd_token(args) -> int:
         expires_in = getattr(args, "expires_in", None)
         expires_in_days = int(expires_in) if expires_in is not None and int(expires_in) > 0 else None
 
-        created = store.create_api_token(name=name, scope=scope, expires_in_days=expires_in_days)
+        try:
+            created = store.create_api_token(name=name, scope=scope, expires_in_days=expires_in_days)
+        except PermissionError as exc:
+            print(f"Error: {exc}")
+            return 1
         raw_token = created["token"]
         base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
         mcp_url = f"{base_url}/mcp"
 
         data = {
             "ok": True,
+            "deprecated": True,
+            "deprecation_notice": deprecation_notice,
             "token": created,
             "mcp_url": mcp_url,
-            "claude_desktop_config": {
+            "mcp_client_config": {
                 "mcpServers": {
                     "claire-bible": {
-                        "command": "npx",
-                        "args": ["-y", "@modelcontextprotocol/server-everything"],
-                        "env": {
-                            "CLAIRE_URL": mcp_url,
-                            "CLAIRE_TOKEN": raw_token,
+                        "url": mcp_url,
+                        "headers": {
+                            "Authorization": f"Bearer {raw_token}",
                         },
                     }
                 }
@@ -4358,6 +4392,7 @@ def cmd_token(args) -> int:
             return 0
 
         print("🔑 API and MCP token is ready")
+        print(f"[DEPRECATED] {deprecation_notice}")
         print("=" * 70)
         print(f"• Token ID       : #{created['id']}")
         print(f"• Name           : {created['name']}")
@@ -4366,7 +4401,7 @@ def cmd_token(args) -> int:
         print(f"• Expires        : {exp_text}")
         print(f"• Secret token   : {raw_token}")
         print("-" * 70)
-        print("📋 MCP setup for Claude Desktop / Cursor:")
+        print("📋 MCP setup for Agent Client:")
         print(f"   Endpoint URL   : {mcp_url}")
         print(f'   Header         : "Authorization": "Bearer {raw_token}"')
         print("-" * 70)
@@ -5897,6 +5932,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not use link expansion for this document")
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
+    pi.add_argument("--force-provider", action="store_true", help="extract with server provider even when account extraction_mode is client")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
@@ -5919,6 +5955,7 @@ def build_parser() -> argparse.ArgumentParser:
     pri.add_argument("--no-expand", action="store_true", help="do not use link expansion for this document")
     pri.add_argument("--untombstone", action="store_true",
                      help="lift and delete tombstone registry if target was previously purged, unblocking re-ingestion")
+    pri.add_argument("--force-provider", action="store_true", help="extract with server provider even when account extraction_mode is client")
     pri.add_argument("--apply", action="store_true", help="execute actual re-ingest operation (default: dry-run inspection)")
     pri.add_argument("--dry-run", action="store_true", help="simulate re-ingest inspection without modifying database (default)")
     pri.add_argument("--yes", "-y", action="store_true", help="confirm re-ingest operation without interactive prompt")
@@ -6267,7 +6304,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a new persistent API and MCP access token",
         description="Create a persistent API and MCP access token for always-on access.",
     )
-    ptok_create.add_argument("name", help="name or description of the token (e.g., 'Claude Desktop', 'Cursor')")
+    ptok_create.add_argument("name", help="name or description of the token (e.g., 'Agent Client', 'Antigravity')")
     ptok_create.add_argument("--scope", choices=["owner", "write", "readonly"], default="readonly",
                              help="permission scope: readonly (default), write (the tools of the account: read, ingest, publish, contribute), owner")
     ptok_create.add_argument("--expires-in", type=int, default=None, dest="expires_in",

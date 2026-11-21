@@ -142,6 +142,12 @@ KB_ROUTES = [
     ("POST", "/reingest", "write", "write"),
     ("POST", "/reingest-stream", "write", "write"),
     ("POST", "/syndication/dispatch", "write", "write"),
+    ("POST", "/api/client-extraction/stage", "write", "write"),
+    ("GET|HEAD", "/api/client-extraction/sources", "write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/claim", "write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/renew", "write", "write"),
+    ("GET|HEAD", "/api/client-extraction/sources/{document_id}", "write", "write"),
+    ("POST", "/api/client-extraction/sources/{document_id}/submit", "write", "write"),
 ]
 STEP_UP_ROUTES = {("DELETE", "/"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}")}
 

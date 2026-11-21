@@ -12,7 +12,9 @@ PLUGIN_API_LEVELS: tuple[int, ...] = (1,)
 MANIFEST_VERSIONS: tuple[int, ...] = (1,)
 
 # Plugin types and their type folders. The type folder has the name of the type (PL-D3).
-PLUGIN_TYPES: tuple[str, ...] = ("ingest_adapter",)
+TYPE_INGEST_ADAPTER = "ingest_adapter"
+TYPE_AGENT_CLIENT = "agent_client"
+PLUGIN_TYPES: tuple[str, ...] = (TYPE_INGEST_ADAPTER, TYPE_AGENT_CLIENT)
 
 # The publisher of project plugins (§6.1 rule 1).
 PROJECT_PUBLISHER = "claire"
@@ -47,3 +49,29 @@ STATES: tuple[str, ...] = (
     STATE_FAILED,
     STATE_REMOVED,
 )
+
+from .files import PluginFileError
+
+__all__ = [
+    "MANIFEST_VERSIONS",
+    "ORIGIN_PLUGIN_FOLDER",
+    "ORIGIN_PROJECT",
+    "PLUGIN_API_LEVELS",
+    "PLUGIN_TYPES",
+    "PROJECT_PUBLISHER",
+    "PluginFileError",
+    "STATE_CHANGED",
+    "STATE_DISABLED",
+    "STATE_ENABLED",
+    "STATE_FAILED",
+    "STATE_INCOMPATIBLE",
+    "STATE_INVALID",
+    "STATE_MISSING_REQUIREMENT",
+    "STATE_NEW",
+    "STATE_OVERLAP",
+    "STATE_REMOVED",
+    "STATE_UNLOCKED",
+    "STATES",
+    "TYPE_AGENT_CLIENT",
+    "TYPE_INGEST_ADAPTER",
+]

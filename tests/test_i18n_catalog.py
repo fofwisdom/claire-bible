@@ -49,3 +49,13 @@ def test_interpolation_is_safe_and_plural_keys_resolve() -> None:
     assert json.loads(json.dumps(catalog.interpolate("{x}", {"x": "{y}", "y": "no"}))) == "{y}"
     assert tn("doc.count", 1) == "1 document" and tn("doc.count", 3) == "3 documents"
     assert tn("doc.count", 1, locale="ko") == "1개 문서"
+
+
+def test_catalogs_exclude_retired_client_names() -> None:
+    retired = ("claude", "chatgpt", "codex", "server-everything", "server-fetch")
+    for locale in SUPPORTED_LOCALES:
+        entries = catalog.load_catalog(locale)
+        for key, value in entries.items():
+            lowered = value.lower()
+            for term in retired:
+                assert term not in lowered, f"{locale}.json[{key}] contains retired term {term!r}"

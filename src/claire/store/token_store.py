@@ -60,6 +60,7 @@ class TokenStore:
         self._last_loaded_mtime: float = -1.0
         self._pending_last_used: dict[int, float] = {}
         self._last_flush_time: float = time.time()
+        self._retired: bool = False
 
         self._ensure_storage_dir()
         self.load(force=True)
@@ -99,6 +100,7 @@ class TokenStore:
                 self._tokens_by_token = {}
                 self._tokens_by_id = {}
                 self._last_loaded_mtime = -1.0
+                self._retired = False
                 return []
 
             try:
@@ -114,6 +116,7 @@ class TokenStore:
                     data = json.loads(raw_content)
 
                 raw_tokens = data.get("tokens", []) if isinstance(data, dict) else []
+                self._retired = bool(data.get("retired", False)) if isinstance(data, dict) else False
                 converted = False
                 tokens_list: list[dict[str, Any]] = []
                 by_token: dict[str, dict[str, Any]] = {}
@@ -209,6 +212,7 @@ class TokenStore:
         self._ensure_storage_dir()
         payload = {
             "version": 1,
+            "retired": self._retired,
             "updated_at": time.time(),
             "tokens": sorted(self._tokens_list, key=lambda x: x["id"]),
         }
@@ -231,6 +235,25 @@ class TokenStore:
         self._pending_last_used.clear()
         self._last_flush_time = time.time()
 
+    def is_retired(self) -> bool:
+        """Return True when manual persistent tokens are retired."""
+        if os.environ.get("CLAIRE_MANUAL_TOKENS_RETIRED", "").strip().lower() in ("1", "true", "yes"):
+            return True
+        with self._lock:
+            self._maybe_reload_from_disk()
+            return self._retired
+
+    def set_retired(self, retired: bool = True) -> None:
+        """Persist the manual persistent token retirement flag."""
+        with self._lock:
+            p_lock = self._acquire_process_lock()
+            try:
+                self.load(force=True)
+                self._retired = bool(retired)
+                self._save_unlocked()
+            finally:
+                self._release_process_lock(p_lock)
+
     def create_api_token(
         self,
         name: str,
@@ -242,6 +265,8 @@ class TokenStore:
         account_id: int = ADMIN_ACCOUNT_ID,
     ) -> dict[str, Any]:
         """Create a new persistent access token and save atomically."""
+        if self.is_retired():
+            raise PermissionError("Manual API tokens are retired; use OAuth 2.1 (/settings/mcp).")
         if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
             raise ValueError(f"Invalid account_id: {account_id!r}.")
         name_clean = str(name or "").strip()
@@ -402,7 +427,7 @@ class TokenStore:
 
     def validate_api_token(self, token: str) -> dict[str, Any] | None:
         """Validate token hot-path. 100% in-memory with zero database or file locks."""
-        if not token or len(token) < 16:
+        if not token or len(token) < 16 or self.is_retired():
             return None
 
         with self._lock:
@@ -436,8 +461,11 @@ class TokenStore:
             }
 
     def _maybe_reload_from_disk(self) -> bool:
-        """Check file mtime and reload if modified on disk."""
+        """Check file mtime and reload if modified or removed on disk."""
         if not self.storage_path.is_file():
+            if self._last_loaded_mtime >= 0:
+                self.load(force=True)
+                return True
             return False
         try:
             mtime = self.storage_path.stat().st_mtime
@@ -456,7 +484,7 @@ class TokenStore:
         try:
             p_lock = self._acquire_process_lock()
             try:
-                self.load(force=False)
+                self.load(force=True)
                 for tid, l_used in list(self._pending_last_used.items()):
                     if tid in self._tokens_by_id:
                         self._tokens_by_id[tid]["last_used_at"] = l_used

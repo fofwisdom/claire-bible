@@ -220,60 +220,44 @@ Claire Bible은 시스템 소유자(Owner), 쓰기(Write), 읽기 전용(Readonl
 ---
 
 ## MCP (Model Context Protocol) 연동
- 
- 외부 LLM 클라이언트(Claude Desktop, Cursor 등)에서 지식베이스를 조회할 수 있도록 `/mcp` HTTP 엔드포인트를 제공한다.
- 
- - **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
- - **인증**:
-   - `Authorization: Bearer <PERSISTENT_TOKEN>` (CLI `claire token create`, WebUI [🔑 API/MCP 키], 텔레그램 `/token` 발급 영구 토큰)
-   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>` (텔레그램 `/web`, `/webro` 발급 세션)
-   - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더) 반환
- - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
- 
- ### Claude Desktop 설정 (`claude_desktop_config.json`)
- 
- ```json
- {
-   "mcpServers": {
-     "claire": {
-       "url": "https://claire.example.com/mcp",
-       "headers": {
-         "Authorization": "Bearer <PERSISTENT_TOKEN>"
-       }
-     }
-   }
- }
- ```
- 
- ### Cursor 설정 (`.cursor/mcp.json`)
- 
- ```json
- {
-   "mcpServers": {
-     "claire": {
-       "url": "https://claire.example.com/mcp",
-       "headers": {
-         "Authorization": "Bearer <PERSISTENT_TOKEN>"
-       }
-     }
-   }
- }
- ```
- 
- ### Google Antigravity 설정 (`~/.gemini/config/mcp_config.json` 또는 `.agents/mcp_config.json`)
- 
- ```json
- {
-   "mcpServers": {
-     "claire-bible": {
-       "serverUrl": "https://claire.example.com/mcp",
-       "headers": {
-         "Authorization": "Bearer <PERSISTENT_TOKEN>"
-       }
-     }
-   }
- }
- ```
+
+외부 AI 에이전트(Google Antigravity, Cursor 등 OAuth 2.1 / Streamable HTTP 클라이언트)에서 지식베이스를 조회하고 개인 지식베이스에 클라이언트 추출을 수행할 수 있도록 `/mcp` HTTP 엔드포인트를 제공한다.
+
+- **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
+- **인증**:
+  - **OAuth 2.1 (`AE2a`/`AE2b`, 권장)**: `S256` PKCE 브라우저 흐름(`/oauth/authorize`, `scope` `readonly` / `write`) 또는 헤드리스 RFC 8628 Device Grant(`/oauth/device_authorization`, `/device`). `/settings/mcp`에서 인가된 클라이언트 조회·폐기(`/api/me/oauth/grants`, `/oauth/revoke`) 및 `agent_client` 번들(`claire.antigravity` 등) 배포 링크를 관리한다.
+  - **상시 토큰 / 세션 (`Deprecated`, `AE3`)**: 기존 수동 Bearer 토큰(`cb_...`, `env:*`)은 `Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더를 반환하며, `CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `api_tokens.json` `retired: true` 시 중단된다. 세션 토큰(`X-Session` / 동일 출처 쿠키)도 지원된다.
+  - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750 / RFC 9728)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer`) 반환.
+- **제공 툴셋 (19종)**:
+  - 읽기 10종(`kb` 필수, `CT23`): `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
+  - 기여·신디케이션 2종: `kb_candidates` (읽기), `kb_submit` (`write` 스코프)
+  - 클라이언트 주도 추출 7종(`AE5`, `write` 스코프·개인 KB 전용 `CT4`): `stage_source`, `list_staged_sources`, `claim_staged_source`, `renew_staged_claim`, `get_extraction_spec`, `get_staged_source`, `submit_client_extraction`
+
+### Google Antigravity (`claire.antigravity` 번들 및 OAuth 2.1)
+
+`/settings/mcp` 또는 `clients` 전달 경로(`/clients/antigravity/bundle.tar.gz`)에서 배포하는 참조 `agent_client` 번들(`plugins/agent_client/claire.antigravity/`)은 OAuth 2.1 기반 `mcp_config.json.tmpl`, `rules/AGENTS.md`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`를 포함한다:
+
+```json
+{
+  "mcpServers": {
+    "claire": {
+      "url": "https://claire.example.com/mcp"
+    }
+  }
+}
+```
+
+### Cursor (`.cursor/mcp.json`, OAuth 2.1 또는 레거시 토큰)
+
+```json
+{
+  "mcpServers": {
+    "claire": {
+      "url": "https://claire.example.com/mcp"
+    }
+  }
+}
+```
  
  자세한 REST API 엔드포인트 호출 및 MCP 툴셋/OAuth 2.1 연동 상세 가이드는 [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md)를 참고한다. robots.txt, sitemap.xml, 공유 페이지 메타데이터, GA4 태그는 [PUBLIC_SITE.md](PUBLIC_SITE.md)에 있다.
  
@@ -292,17 +276,21 @@ Claire Bible은 시스템 소유자(Owner), 쓰기(Write), 읽기 전용(Readonl
 
 ## 서브도메인 역할 호스트와 레거시 호스트 308 리다이렉트
 
-P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) 체계로 전환되었다. 개별 테마 전용 FQDN 입력은 폐지되었으며, 기존에 등록되었던 테마 FQDN은 `legacy_hosts` 테이블을 통해 정본 URI 경로로 308 Permanent Redirect된다.
+P2부터 단일 FQDN 및 역할 호스트(`app`, `usercontent`, `media`, `prototype`, `clients`) 체계로 전환되었다. 개별 테마 전용 FQDN 입력은 폐지되었으며, 기존에 등록되었던 테마 FQDN은 `legacy_hosts` 테이블을 통해 정본 URI 경로로 308 Permanent Redirect된다.
 
 ### 역할 호스트 아키텍처
 1. **역할 분리**:
    - `app`: 메인 웹 애플리케이션 및 API (`CLAIRE_FQDN` 기준). 세션 쿠키(`__Host-claire_session`)를 보유한다.
    - `usercontent`: 샌드박스 HTML 렌더링 origin (`CLAIRE_USERCONTENT_FQDN`). 쿠키가 없는 격리 도메인이다.
    - `media`: 미디어 스트리밍 origin (`CLAIRE_MEDIA_FQDN`). 1시간 열람 capability 서명 URL 기반.
+   - `clients` (`AE1b`, `src/claire/api/clients_host.py`): 활성 `agent_client` 플러그인 번들(`manifest.json`, `bundle.tar.gz`, `files/<relpath>`) 전달 전용 무쿠키 origin이다. `Cookie`와 `Set-Cookie` 헤더를 모두 제거하며, 응답에 `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY`, `X-Robots-Tag: noindex, nofollow`를 강제한다. 전달 방식(`server_settings.agent_client_delivery_mode`, 기본 `uri_path`, `/admin/server` 및 `POST /api/admin/server/client-delivery`로 전환)에 따라:
+     - `uri_path`: `app` origin 아래 `/clients/<client_id>/manifest.json`, `/clients/<client_id>/bundle.tar.gz`, `/clients/<client_id>/files/<relpath>`로 전달한다.
+     - `fqdn`: `CLAIRE_FQDN`에서 도출한 무쿠키 origin(`clients.<registrable_domain>` 또는 개발 환경 `<ipv4>:8770` `DEV_CLIENTS_PORT`) 루트(`/<client_id>/...` 및 `/clients/<client_id>/...`)로 전달한다. 다른 모드 경로는 404를 반환한다.
+     - 인증은 Bearer 토큰 또는 번들·파일·계정·만료시각(`60`초 `BUNDLE_TOKEN_TTL`)에 바인딩된 HMAC 서명 쿼리 `?t=<account_id>.<exp>.<sig>`만 허용한다.
    - `prototype`: 관리자용 정적 시각 프로토타입 origin (RD20). 환경 변수나 설정이 없다. 이름은 코드가 `CLAIRE_FQDN`에서 계산한다(`src/claire/api/prototype_host.py`의 `prototype_authority`): 운영은 `prototype.` + `CLAIRE_FQDN`의 등록 도메인이다. 등록 도메인은 `publicsuffixlist` 패키지에 든 Public Suffix List 사본으로 구한다(실행 중 목록을 내려받지 않는다). 예: `cb.netspheres.org` → `prototype.netspheres.org`, `claire.example.co.kr` → `prototype.example.co.kr`. `CLAIRE_FQDN`이 IP 주소, `localhost`, 한 레이블이거나 등록 도메인이 없으면 이 역할이 없다. 계산된 이름이 다른 역할 호스트와 같아도 없다. 개발은 app IPv4의 고정 포트 8769다(`DEV_PROTOTYPE_PORT`, 예: `http://127.0.0.1:8769/`). `GET`·`HEAD /`만 목업 데이터 페이지(`src/claire/templates/prototype/federation_client_prototype.html`)를 주고 그 밖의 모든 경로와 메서드는 404다. 쿠키를 읽지도 쓰지도 않고, API 경로와 서버 데이터가 없다. 응답 헤더: `X-Robots-Tag: noindex, nofollow`, `X-Frame-Options: DENY`, `Content-Security-Policy`(`default-src 'none'`, inline script·style만 허용, `connect-src 'none'`, `frame-ancestors 'none'`). 계산된 이름이 아닌 호스트는 전처럼 421이다.
 2. **도메인 설정**:
-   - 운영 환경에서는 모든 역할 호스트가 등록 도메인(`CLAIRE_SITE_DOMAIN`)의 서브도메인이어야 한다. 계산된 `prototype` 호스트는 이 검사에 들지 않는다.
-   - 개발 환경에서는 `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT` 포트 기반 authority로 분리된다. `prototype`은 고정 포트 8769이고, `docker-compose.dev.yml`이 이 포트를 같은 컨테이너 포트로 연결한다.
+   - 운영 환경에서는 모든 역할 호스트가 등록 도메인(`CLAIRE_SITE_DOMAIN`)의 서브도메인이어야 한다. 계산된 `prototype`·`clients` 호스트는 `CLAIRE_FQDN` 등록 도메인에서 도출한다.
+   - 개발 환경에서는 `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT` 포트 기반 authority로 분리된다. `prototype`은 고정 포트 `8769`, `clients`는 고정 포트 `8770`이고, `docker-compose.dev.yml`이 이 포트를 같은 컨테이너 포트로 연결한다.
    - `usercontent`·`media`·`prototype` origin은 `CLAIRE_CORS_ALLOWED_ORIGINS`에 넣을 수 없다(기동 거부).
 3. **HostRouter 라우팅**:
    - `HostRouter`가 인입된 `Host` 헤더를 보고 역할을 판별하여 적절한 하위 앱으로 분기한다.

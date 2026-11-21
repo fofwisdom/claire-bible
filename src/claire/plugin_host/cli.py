@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import ORIGIN_PROJECT, PLUGIN_API_LEVELS, PLUGIN_TYPES, PROJECT_PUBLISHER, STATE_ENABLED
+from . import ORIGIN_PROJECT, PLUGIN_API_LEVELS, PLUGIN_TYPES, PROJECT_PUBLISHER, STATE_ENABLED, TYPE_INGEST_ADAPTER
 from .manifest import ID_RE, ManifestError, publisher_of
 
 EXIT_OK, EXIT_ARGS, EXIT_PRECONDITION = 0, 2, 4
@@ -135,7 +135,7 @@ def check_plugin_folder(folder: Path) -> list[str]:
             problems.append(f"core_commit {m.core_commit[:8]} is not an ancestor of HEAD")
     except (OSError, subprocess.SubprocessError):
         pass
-    if item.problem is None:
+    if item.problem is None and m.type == TYPE_INGEST_ADAPTER:
         status = PluginStatus(id=m.id, origin=origin, path=item.path, plugin_type=item.plugin_type, manifest=m, digest=item.digest, state=STATE_ENABLED)
         try:
             register_plugin(status)
@@ -177,6 +177,12 @@ def cmd_lock(args: Any) -> int:
         if plugin.manifest is None or plugin.digest is None:
             refused.append(f"{plugin.folder_name}: {plugin.problem}")
             continue
+        if plugin.problem and plugin.problem != "the project plugin is not in project.lock" and not plugin.problem.startswith("lock: "):
+            refused.append(f"{plugin.manifest.id}: {plugin.problem}")
+            continue
+        if plugin.manifest.id in items:
+            refused.append(f"{plugin.manifest.id}: duplicate project plugin id")
+            continue
         if publisher_of(plugin.manifest.id) != PROJECT_PUBLISHER:
             refused.append(f"{plugin.manifest.id}: the project plugin folder holds only the publisher {PROJECT_PUBLISHER!r}")
             continue
@@ -198,7 +204,7 @@ def cmd_new(args: Any) -> int:
     from .service import running_core_commit
 
     plugin_id = args.plugin_id
-    if not ID_RE.match(plugin_id):
+    if not ID_RE.fullmatch(plugin_id):
         return _fail(args, EXIT_ARGS, "the id must be <publisher>.<name> (publisher [a-z][a-z0-9]*, name snake_case)")
     if args.type not in PLUGIN_TYPES:
         return _fail(args, EXIT_ARGS, f"unknown plugin type {args.type!r}")
@@ -268,7 +274,7 @@ def add_parser(sub: Any) -> None:
     """Add ``plugin`` and its subcommands to the ``claire`` parser."""
     p = sub.add_parser(
         "plugin",
-        help="list, check, and switch plugins (ingest adapters); run plugin commands",
+        help="list, check, and switch plugins (ingest adapters and agent clients); run plugin commands",
         description="Plugins of this server: the project plugin folder <app root>/plugins and the plugin folder CLAIRE_PLUGINS_DIR. See docs/implementation/INGESTION.md section 2.",
     )
     ps = p.add_subparsers(dest="plugin_action", required=True)

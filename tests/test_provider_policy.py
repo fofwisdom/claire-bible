@@ -80,7 +80,7 @@ def _settings(tmp_path, **kwargs) -> Settings:
 
 
 def _ctx(source="byok", *, features=(), max_effort="low", api_key=MEMBER_KEY, provider="gemini",
-         credential_key=None, effort="medium") -> ProviderContext:
+         credential_key=None, effort="medium", embed_model="embed-test") -> ProviderContext:
     if source == "none":
         provider, api_key = "none", ""
     return ProviderContext(
@@ -89,7 +89,7 @@ def _ctx(source="byok", *, features=(), max_effort="low", api_key=MEMBER_KEY, pr
         source=source,
         provider=provider,
         model="gemini-test",
-        embed_model="embed-test",
+        embed_model=embed_model,
         effort=effort,
         credential_key=credential_key or ("byok:abcd1234" if source == "byok" else "tier"),
         tier=ServerTier(provider="gemini" if source == "tier" else "none", features=frozenset(features),
@@ -584,7 +584,7 @@ def test_member_key_rejection_raises_without_fallback(tmp_path, fake_genai, monk
     from claire.ontology.base import Document
 
     monkeypatch.setattr(gp._time, "sleep", lambda *_: None)
-    p = _gemini(tmp_path, _ctx("byok"), fake_genai)
+    p = _gemini(tmp_path, _ctx("byok", embed_model="gemini-embedding-2"), fake_genai)
     p.client.interactions.create.side_effect = _Err(400, f"API key not valid. key={MEMBER_KEY}")
     doc = Document(id="d", title="t", raw_text="body", source_type="text")
     with pytest.raises(ProviderKeyRejected) as exc:
@@ -606,7 +606,7 @@ def test_member_quota_exhaustion_is_rejected_not_retried(tmp_path, fake_genai, m
     import claire.extract.gemini_provider as gp
 
     monkeypatch.setattr(gp._time, "sleep", lambda *_: None)
-    p = _gemini(tmp_path, _ctx("byok"), fake_genai)
+    p = _gemini(tmp_path, _ctx("byok", embed_model="gemini-embedding-2"), fake_genai)
     calls = {"n": 0}
 
     def fn():
@@ -642,7 +642,7 @@ def test_error_messages_are_scrubbed(tmp_path, fake_genai, monkeypatch):
 
 
 def test_usage_hooks_wrap_llm_and_embedding_calls(tmp_path, fake_genai):
-    p = _gemini(tmp_path, _ctx("tier", api_key=ADMIN_KEY), fake_genai)
+    p = _gemini(tmp_path, _ctx("tier", api_key=ADMIN_KEY, embed_model="gemini-embedding-2"), fake_genai)
     hooks = _Hooks()
     p.usage_hooks = hooks
     p.client.interactions.create.return_value = SimpleNamespace(

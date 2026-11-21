@@ -29,8 +29,9 @@ from . import (
     STATE_OVERLAP,
     STATE_REMOVED,
     STATE_UNLOCKED,
+    TYPE_AGENT_CLIENT,
 )
-from .files import PluginFileError, folder_digest
+from .files import PluginFileError, check_no_executable_files, folder_digest_detail
 from .importcheck import check_folder
 from .lock import LockError, LockItem, read_lock
 from .manifest import Manifest, ManifestError, publisher_of, read_manifest
@@ -46,6 +47,7 @@ class Discovered:
     plugin_type: str
     manifest: Manifest | None = None
     digest: str | None = None
+    files_sha256: dict[str, str] = field(default_factory=dict)
     problem: str | None = None  # reason of the state ``invalid`` found by discovery
     lock_item: LockItem | None = None
 
@@ -68,10 +70,11 @@ class PluginStatus:
     reason: str | None = None
     overlap_group: tuple[str, ...] = ()
     record: dict[str, Any] | None = None
+    files_sha256: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self, *, locale: str = "en") -> dict[str, Any]:
         m = self.manifest
-        return {
+        data: dict[str, Any] = {
             "id": self.id,
             "origin": self.origin,
             "path": str(self.path) if self.path else None,
@@ -79,6 +82,7 @@ class PluginStatus:
             "state": self.state,
             "reason": self.reason,
             "digest": self.digest,
+            "files_sha256": dict(self.files_sha256),
             "revision": m.revision if m else None,
             "core_commit": m.core_commit if m else None,
             "api": m.api if m else None,
@@ -93,6 +97,11 @@ class PluginStatus:
             "overlap_group": list(self.overlap_group),
             "record": self.record,
         }
+        if m is not None and (m.type == TYPE_AGENT_CLIENT or m.client_id is not None):
+            data["client_id"] = m.client_id
+            data["required_scopes"] = list(m.required_scopes)
+            data["files"] = list(m.files)
+        return data
 
 
 @dataclass
@@ -120,7 +129,7 @@ def _scan_root(root: Path, origin: str, out: Discovery, *, check_owner: bool) ->
             item = Discovered(folder_name=folder.name, origin=origin, path=folder, plugin_type=type_dir.name)
             out.plugins.append(item)
             try:
-                item.digest = folder_digest(folder, check_owner=check_owner, read_only_mount=read_only)
+                item.digest, all_hashes = folder_digest_detail(folder, check_owner=check_owner, read_only_mount=read_only)
             except (PluginFileError, OSError) as exc:
                 item.problem = f"files: {exc}"
                 continue
@@ -134,6 +143,17 @@ def _scan_root(root: Path, origin: str, out: Discovery, *, check_owner: bool) ->
                 item.problem = f"the id {m.id!r} is not the folder name {folder.name!r}"
             elif m.type != type_dir.name:
                 item.problem = f"the type {m.type!r} is not the type folder {type_dir.name!r}"
+            elif m.type == TYPE_AGENT_CLIENT:
+                missing = [rel for rel in m.files if rel not in all_hashes]
+                if missing:
+                    item.problem = f"files: declared bundle file {missing[0]!r} is missing or not a regular file"
+                    continue
+                try:
+                    check_no_executable_files(folder, m.files)
+                except PluginFileError as exc:
+                    item.problem = f"files: {exc}"
+                    continue
+                item.files_sha256 = {rel: all_hashes[rel] for rel in m.files}
 
 
 def discover(project_folder: Path, plugin_folder: Path) -> Discovery:
@@ -167,7 +187,7 @@ def discover(project_folder: Path, plugin_folder: Path) -> Discovery:
             elif item.manifest.id in project_ids:
                 item.problem = "a project plugin has the same id"
         if item.problem is None:
-            findings = check_folder(item.path, network_modules=item.manifest.permissions.network_modules, executables=item.manifest.permissions.executables)
+            findings = check_folder(item.path, network_modules=item.manifest.permissions.network_modules, executables=item.manifest.permissions.executables, plugin_type=item.manifest.type)
             if findings:
                 item.problem = "import check: " + "; ".join(f.text() for f in findings[:5])
     return out
@@ -187,6 +207,8 @@ def overlap_pairs(manifests: list[Manifest]) -> dict[str, set[str]]:
 
 
 def _overlap(a: Manifest, b: Manifest) -> bool:
+    if a.type == TYPE_AGENT_CLIENT and b.type == TYPE_AGENT_CLIENT:
+        return a.client_id is not None and a.client_id == b.client_id
     for pa in a.provides:
         for pb in b.provides:
             if pa.kind == pb.kind and pa.name == pb.name:
@@ -198,6 +220,10 @@ def _overlap(a: Manifest, b: Manifest) -> bool:
 
 def overlap_hosts(a: Manifest, b: Manifest) -> list[str]:
     shared: set[str] = set()
+    if a.type == TYPE_AGENT_CLIENT and b.type == TYPE_AGENT_CLIENT:
+        if a.client_id is not None and a.client_id == b.client_id:
+            shared.add(f"client_id:{a.client_id}")
+        return sorted(shared)
     for pa in a.provides:
         for pb in b.provides:
             if pa.kind == pb.kind and pa.name == pb.name:
@@ -258,6 +284,7 @@ def compute_states(discovery: Discovery, records: PluginRecords | None) -> list[
             digest=item.digest,
             state=STATE_INVALID,
             record=record.to_dict() if record else None,
+            files_sha256=dict(item.files_sha256),
         )
         statuses.append(status)
         if item.id in ids_seen:

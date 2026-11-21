@@ -108,7 +108,9 @@ def sync_entity_space_embeddings(
     kb_id: int = 0,
     primary_vec: list[float] | None = None,
     primary_pin: EmbedPin | None = None,
+    target_vec: list[float] | None = None,
     write_active: bool = True,
+    fail_on_target_error: bool = False,
 ) -> None:
     """Apply AED7 live dual-embed across active_space_id (unless eos_retired) and shadow target_space_id."""
     active_sid, target_sid = read_kb_embedding_spaces(conn, kb_id)
@@ -137,7 +139,7 @@ def sync_entity_space_embeddings(
             except EmbeddingModelMismatch as exc:
                 log.warning("entity %s active space embed skipped: %s", ent.id, exc)
 
-    if has_target and provider is not None:
+    if has_target and (target_vec is not None or provider is not None):
         info = read_embedding_space(conn, target_sid)
         if info is not None:
             t_prov, t_model, t_dim = info.provider, info.model, info.dim
@@ -146,13 +148,19 @@ def sync_entity_space_embeddings(
                 t_prov, t_model, t_dim, _ = parse_space_id(target_sid)
             except ValueError:
                 return
-        if frame_text is None:
-            frame_text = format_entity_frame(ent)
         try:
-            target_vec = _call_provider_embed(provider, frame_text, title=ent.name, model=t_model, dim=t_dim or DEFAULT_EMBED_DIM)
-            if target_vec:
-                vstore.put(ent.id, target_vec, model=t_model, kb_id=kb_id, embed_provider=t_prov, space_id=target_sid)
+            eff_target_vec = target_vec
+            if eff_target_vec is None:
+                if frame_text is None:
+                    frame_text = format_entity_frame(ent)
+                eff_target_vec = _call_provider_embed(provider, frame_text, title=ent.name, model=t_model, dim=t_dim or DEFAULT_EMBED_DIM)
+            if eff_target_vec:
+                vstore.put(ent.id, eff_target_vec, model=t_model, kb_id=kb_id, embed_provider=t_prov, space_id=target_sid)
+            elif fail_on_target_error:
+                raise RuntimeError(f"target space dual-embed returned no vector for entity {ent.id}")
         except Exception as exc:  # noqa: BLE001
+            if fail_on_target_error:
+                raise
             log.warning("entity %s shadow target dual-embed (%s) skipped: %s", ent.id, target_sid, exc)
 
 
@@ -388,6 +396,8 @@ def resolve_or_create(
     embed_model: str | None = None,
     embed_provider: str | None = None,
     provider: Any = None,
+    target_vec: list[float] | None = None,
+    fail_on_target_error: bool = False,
 ) -> ResolutionResult:
     """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
 
@@ -411,7 +421,7 @@ def resolve_or_create(
                 kb_id=kb_id,
             )
             if has_shadow_target and eff_provider is not None:
-                sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True)
+                sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True, fail_on_target_error=fail_on_target_error)
             return ResolutionResult(cand_m, False, decision=dec)
 
     # 2) Gate 1: 새 별칭이 기존 name 또는 기존 alias 와 일치 (임베딩 불필요)
@@ -426,7 +436,7 @@ def resolve_or_create(
                     kb_id=kb_id,
                 )
                 if has_shadow_target and eff_provider is not None:
-                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True)
+                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True, fail_on_target_error=fail_on_target_error)
                 return ResolutionResult(cand_m, False, decision=dec)
 
     # 2.5) Gate 1: 약어 ↔ 풀네임 결정론적 수렴 (임베딩 불필요, quota 0)
@@ -450,7 +460,7 @@ def resolve_or_create(
                     kb_id=kb_id,
                 )
                 if has_shadow_target and eff_provider is not None:
-                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True)
+                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True, fail_on_target_error=fail_on_target_error)
                 return ResolutionResult(cand_m, False, decision=dec)
 
     # 3) Gate 3: miss → 이제서야 임베딩 1회 생성 (EOS-retired active space skips embedding call per C2)
@@ -557,7 +567,7 @@ def resolve_or_create(
                 kb_id=kb_id,
             )
             if has_shadow_target and eff_provider is not None:
-                sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True)
+                sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True, fail_on_target_error=fail_on_target_error)
             return ResolutionResult(
                 cand_m, False, relational_candidates, multihop_candidates,
                 decision=_finish(dec, ordered[idx + 1:]), candidate_snapshots=candidate_snapshots,
@@ -602,7 +612,7 @@ def resolve_or_create(
                     kb_id=kb_id,
                 )
                 if has_shadow_target and eff_provider is not None:
-                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True)
+                    sync_entity_space_embeddings(conn, vstore, eff_provider, cand_m, kb_id=kb_id, write_active=True, fail_on_target_error=fail_on_target_error)
                 return ResolutionResult(
                     cand_m, False, relational_candidates, multihop_candidates,
                     decision=_finish(dec, borderline_ordered[idx + 1:]), candidate_snapshots=candidate_snapshots,
@@ -627,8 +637,8 @@ def resolve_or_create(
         provisional=provisional,
     )
     dbm.upsert_entity(conn, ent, kb_id=kb_id)
-    if has_shadow_target and eff_provider is not None:
-        sync_entity_space_embeddings(conn, vstore, eff_provider, ent, kb_id=kb_id, primary_vec=embedding, primary_pin=ident, write_active=True)
+    if has_shadow_target and (target_vec is not None or eff_provider is not None):
+        sync_entity_space_embeddings(conn, vstore, eff_provider, ent, kb_id=kb_id, primary_vec=embedding, primary_pin=ident, target_vec=target_vec, write_active=True, fail_on_target_error=fail_on_target_error)
     elif embedding and ident.model:
         try:
             vstore.put(ent.id, embedding, model=ident.model, kb_id=kb_id, embed_provider=ident.provider or None)

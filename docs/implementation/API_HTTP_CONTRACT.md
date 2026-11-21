@@ -9,7 +9,14 @@
 | `GET` | `/health` | `public` | 서비스 liveness 및 DB 연결 검사 (`{"ok": true}`) |
 | `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "server": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 (`owner`·`collaborator` 요청에는 현재 활성 적재 프로바이더의 선택 가능 사고 수준 메타 `ingest_effort`를 포함한다) |
-| `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급. 토큰 교환은 계정에 귀속된 세션 토큰만 받는다([API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md) §2.5) |
+| `POST` | `/oauth/register` | `public` | OAuth 2.1 동적 클라이언트 등록 (RFC 7591) |
+| `GET`/`POST` | `/oauth/authorize` | `public` | OAuth 2.1 `S256` PKCE 인가·동의 화면(`/login?tx=` 경유, `write` 스코프는 단계 인증 요구) |
+| `POST` | `/oauth/token` | `public` | OAuth 2.1 토큰 엔드포인트 (`authorization_code` PKCE `S256`, `refresh_token` 회전·재사용 시 패밀리 전체 폐기, `urn:ietf:params:oauth:grant-type:device_code`, RFC 8693 `token-exchange`, [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md) §2.5, §3.1) |
+| `POST` | `/oauth/revoke` | `public` | RFC 7009 OAuth 토큰 폐기 |
+| `POST` | `/oauth/device_authorization` | `public` | RFC 8628 Device Authorization 요청 (`device_code`, `user_code`) |
+| `GET`/`HEAD`/`POST` | `/device` | `public` | RFC 8628 제로 JS 브라우저 기기 코드 검증·승인 화면(`ABCD-EFGH`) |
+| `GET`/`HEAD` | `/api/me/oauth/grants` | `owner` | 본인 계정의 활성 OAuth 2.1 인가 목록 조회 |
+| `POST`/`DELETE` | `/api/me/oauth/grants` | `owner` | 특정 `grant_id`·`client_id` 또는 `revoke_all`로 본인 OAuth 인가 폐기 (쿠키 채널은 same-origin 필수) |
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
 | `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회. 정렬은 `fetched_at` 내림차순, 같으면 `id` 내림차순. 파라미터가 없으면 기존과 같이 최신 300건을 돌려주고, 응답에 `next_before`(다음 페이지 커서, 마지막 페이지면 `null`)와 `total`(커서를 뺀 필터 일치 건수)만 추가된다. 선택 파라미터: `limit`(1–300, 기본 300), `before=<fetched_at>:<id>`(이전 응답의 `next_before`), `pinned=0\|1`, `hidden=0\|1`, `q`(제목 또는 최신 추출 요약의 부분 일치, 200자 이하), `detail=missing\|mismatched`, `id`(반복 가능, 100개 이하). 잘못된 값은 `400`. `anonymous` 범위는 모든 페이지와 모든 필터에서 숨김 문서를 받지 않는다. |
 | `GET` | `/document` | `read` | 특정 문서 상세 및 본문 조회. `nodes[]`의 각 항목은 `id`, `label`, `group`, `observations`, `aliases` (엔티티 별칭 목록)를 포함한다. `extraction_provider`·`extraction_model`은 최근 추출의 프로바이더와 모델이고 추출 행이 없으면 `null`이다. 응답은 `detail`, `detail_html` 등 기존 필드는 엄격히 유지된다 |
@@ -19,11 +26,19 @@
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
-| `GET` | `/tokens` | `owner` | 발급된 API 및 MCP 상시 토큰 목록 조회 (마스킹) |
-| `POST` | `/tokens` | `owner` | 신규 API 및 MCP 상시 토큰 생성 |
-| `POST` | `/tokens/revoke` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
-| `DELETE` | `/tokens` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
-| `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
+| `GET` | `/tokens` | `owner` | [Deprecated, `AE3`] 발급된 레거시 상시 토큰 목록 조회 (마스킹, `Deprecation: true` · `Link: </settings/mcp>; rel="successor-version"` 헤더) |
+| `POST` | `/tokens` | `owner` | [Deprecated, `AE3`] 신규 레거시 상시 토큰 생성 (`CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `retired: true` 시 `410 manual_tokens_retired`) |
+| `POST` | `/tokens/revoke` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
+| `DELETE` | `/tokens` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
+| `POST` | `/mcp` | `read` | Model Context Protocol Streamable / Stateless JSON-RPC 2.0 엔드포인트 (19종 도구; 쓰기 도구는 `write` 스코프 필요) |
+| `GET`/`HEAD` | `/clients/{client_id}/{manifest.json,bundle.tar.gz,files/{relpath:path}}` | `public` (핸들러 내 Bearer 또는 60초 HMAC `?t=` 검증) | `agent_client` 정적 번들 전달 (`AE1b`). `uri_path` 모드는 `app`에서, `fqdn` 모드는 무쿠키 `clients` 호스트(`clients.<registrable_domain>` / `:8770`)에서 `CSP: default-src 'none'; sandbox` 헤더와 함께 제공 |
+| `POST` | `/api/client-extraction/stage` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 개인 KB에 원문 스테이징 (`full_content=True` 기본) |
+| `GET`/`HEAD` | `/api/client-extraction/sources` | `write` (`CT4` 개인 KB) | 스테이징된 문서 목록 조회 (`status=pending\|all`, `limit`) |
+| `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` (`CT4` 개인 KB) | 추출 임대 획득 (`lease_seconds` 기본 300초, 일회용 `claim_token` 발급) |
+| `POST` | `/api/client-extraction/sources/{document_id}/renew` | `write` (`CT4` 개인 KB) | 활성 추출 임대 연장 (`claim_token`, `lease_seconds`) |
+| `GET`/`HEAD` | `/api/client-extraction/spec` | `read` | 활성 온톨로지, AsciiDoc 제약 및 `"agent-extract-v1"` 제출 스키마 명세 |
+| `GET`/`HEAD` | `/api/client-extraction/sources/{document_id}` | `write` (`CT4` 개인 KB) | nonce-bound `<untrusted_source_document>` 프레이밍 원문 조각·줄 슬라이스 반환 |
+| `POST` | `/api/client-extraction/sources/{document_id}/submit` | `write` (`CT4` 개인 KB) | `dry_run` 및 4계층 검증·옵션 B 서버 임베딩 계산 후 원자적 커밋 (`extraction_origin="agent_client"`, 실패 시 `422` / `409`) |
 
 ## 2. 계정 경로 (P1)
 
@@ -45,8 +60,8 @@
 | `GET` | `/admin/accounts` | `admin` | 200 HTML (통합 콘솔, §2.2) | 404 |
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
-| `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
-| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`), `personal_source_public`(`true`·`false`) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language`, 400 `invalid_personal_source_public` |
+| `GET` | `/api/me` | `owner` | 200 계정 정보 (`extraction_mode` 포함) | 404 |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`), `personal_source_public`(`true`·`false`), `extraction_mode`(`provider`·`client`) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language`, 400 `invalid_personal_source_public`, 400 `invalid_extraction_mode` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
 
 ### 2.1 단계 인증 응답 규약
@@ -64,6 +79,8 @@
 |---|---|---|---|---|
 | `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?kb=` |
 | `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
+| `POST` | `/admin/server` | `admin` | `agent_client_delivery_mode` 양식 저장 후 303 `/admin/server` (same-origin + 단계 인증) | 400 `custom_host_or_path_disallowed`·`invalid_delivery_mode`·`clients_host_unavailable`; 401 `reauth_required`; 403 `step_up_requires_session`·`forbidden`; 404 |
+| `POST` | `/api/admin/server/client-delivery` | `admin` | 본문 `{"agent_client_delivery_mode": "uri_path" \| "fqdn"}` -> 200 `{"agent_client_delivery_mode", "agent_client_delivery"}`, `admin_audit` `server.client_delivery.update` (same-origin + 단계 인증) | 400 `custom_host_or_path_disallowed`·`invalid_delivery_mode`·`clients_host_unavailable`; 401 `reauth_required`; 403 `step_up_requires_session`·`forbidden`; 404 |
 | `GET` | `/api/admin/plugins` | `admin` | 200 `{"core_commit", "project_plugin_folder", "plugin_folder", "initialized", "unknown_folders", "plugins": [{"id", "origin": "project" \| "plugin_folder" \| null, "type", "state", "reason", "digest", "revision", "core_commit", "api", "maturity", "license", "maintainers", "name", "description", "provides", "permissions", "requires", "overlap_group", "overlap": [{"id", "hosts", "enabled"}], "record"}], "process_reports"}` | 404 비관리자 |
 | `PUT` | `/api/admin/plugins/{id}` | `admin` | Body `{"enabled": true, "digest": "sha256:…", "replace": ["<id>", …]}` 또는 `{"enabled": false}`(다른 키는 400). 200 `{"id", "enabled", "replaced"}`, `admin_audit` `plugin.enable`·`plugin.disable`(교체된 플러그인마다 `replaced_by`). 켜기만 단계 인증(§2.1) | 400 `invalid_request`, `digest_required`, `replace_not_allowed`; 401 `reauth_required`; 403 `step_up_requires_session`, `forbidden`(다른 origin); 404 비관리자·`not_found`; 409 `plugin_changed`(`digest`), `plugin_overlap`(`enabled`, `hosts`: `replace`는 겹침 그룹의 켜진 플러그인과 정확히 같아야 한다), `plugin_not_loadable`(`state`, `reason`), `plugin_store_not_started` |
 | `DELETE` | `/api/admin/plugins/{id}` | `admin` | 200 `{"id", "deleted": true}`: `removed` 플러그인의 레코드만 지운다. `admin_audit` `plugin.delete_record` | 403 `forbidden`; 404; 409 `plugin_folder_exists` |

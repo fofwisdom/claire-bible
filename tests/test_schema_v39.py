@@ -16,7 +16,7 @@ def test_v39_fresh_schema_and_seeded_spaces(tmp_path: Path) -> None:
     """Verify fresh database initializes schema v39 with embedding_spaces registry and composite PK on embeddings."""
     conn = _connect(tmp_path / "claire.db")
     dbm.init_db(conn)
-    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION == 39
+    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION >= 39
 
     spaces = {r["space_id"]: dict(r) for r in conn.execute("SELECT * FROM embedding_spaces").fetchall()}
     assert "google:gemini-embedding-001:3072:v1_param" in spaces
@@ -53,7 +53,7 @@ def test_v38_to_v39_migration_preserves_vectors_and_rebuilds_pk(tmp_path: Path) 
 
     conn = _connect(db_file)
     dbm.init_db(conn)
-    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 39
+    assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION >= 39
     active_sid, target_sid = read_kb_embedding_spaces(conn, 0)
     assert active_sid == "google:gemini-embedding-001:3:v1_param"
     assert target_sid == ""

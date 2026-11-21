@@ -56,6 +56,8 @@ SERVER_MODES: frozenset[str] = frozenset({"single", "network"})
 FederationState = Literal["off", "on"]
 FEDERATION_STATES: frozenset[str] = frozenset({"off", "on"})
 FEDERATION_SETTING_KEY = "federation"
+ExtractionMode = Literal["provider", "client"]
+EXTRACTION_MODES: frozenset[str] = dbm.EXTRACTION_MODES
 
 # v15 이관이 만드는 관리자 행. v15 이전 자격증명과 테마는 모두 이 계정의 것이다(§8.3, §8.4).
 # 값(1)의 정의는 v15 이관과 자격증명 쓰기 함수가 있는 `store.db`에 하나만 둔다.
@@ -66,7 +68,7 @@ SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public"
+    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -100,6 +102,8 @@ class Account:
     entity_language: str | None = None
     # v37: a reader other than the account sees the sources of the documents of its personal knowledge base.
     personal_source_public: bool = True
+    # v40 (AE4): per-account extraction mode ('provider' uses server LLM; 'client' stages raw content for Agent Client extraction).
+    extraction_mode: ExtractionMode = "provider"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,8 +121,9 @@ class CredentialBinding:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public,
+        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode,
     ) = tuple(row)
+    mode_value: ExtractionMode = "client" if str(extraction_mode or "provider") == "client" else "provider"
     return Account(
         id=int(account_id),
         public_id=int(public_id),
@@ -134,6 +139,7 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         locale=None if locale is None else str(locale),  # type: ignore[arg-type]  # the column CHECK admits 'en' and 'ko' only
         entity_language=None if entity_language is None else str(entity_language),
         personal_source_public=bool(personal_source_public),
+        extraction_mode=mode_value,
     )
 
 
@@ -443,6 +449,18 @@ class AccountStore:
             raise ValueError("invalid_personal_source_public")
         when = time.time() if now is None else now
         cur = self.conn.execute("UPDATE accounts SET personal_source_public=?, updated_at=? WHERE id=?", (1 if value else 0, when, account_id))
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountNotFound(account_id)
+        self.conn.commit()
+        return self.get(account_id)
+
+    def update_extraction_mode(self, account_id: int, extraction_mode: str, *, now: float | None = None) -> Account:
+        """Set the account extraction_mode ('provider' or 'client'). Raise ValueError('invalid_extraction_mode') on other values."""
+        if not isinstance(extraction_mode, str) or extraction_mode not in EXTRACTION_MODES:
+            raise ValueError("invalid_extraction_mode")
+        when = time.time() if now is None else now
+        cur = self.conn.execute("UPDATE accounts SET extraction_mode=?, updated_at=? WHERE id=?", (extraction_mode, when, account_id))
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)
@@ -866,17 +884,29 @@ def validate_session_binding(
 
 
 def validate_oauth_binding(conn: sqlite3.Connection, token: str) -> CredentialBinding | None:
-    """`store.db.validate_oauth_token`에 계정 귀속을 더한다. ``authenticated_at``은 None."""
+    """Validate an active OAuth access token and return its account binding (with ``authenticated_at=None``)."""
     if not token or len(token) < 20:
         return None
+    now = time.time()
     row = conn.execute(
-        "SELECT scope, account_id FROM oauth_tokens WHERE token=? AND expires_at>=?",
-        (token, time.time()),
+        "SELECT COALESCE(NULLIF(granted_scope, ''), scope, 'readonly') AS effective_scope, account_id, last_used_at "
+        "FROM oauth_tokens WHERE token=? AND expires_at>=? AND rotated_at IS NULL AND revoked_at IS NULL",
+        (token, now),
     ).fetchone()
     if row is None or row["account_id"] is None:
         return None
+    last_used = row["last_used_at"]
+    if last_used is None or (now - float(last_used)) >= 1.0:
+        try:
+            conn.execute("UPDATE oauth_tokens SET last_used_at=? WHERE token=?", (now, token))
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "readonly" not in str(exc).lower():
+                raise
+    tokens = str(row["effective_scope"] or "readonly").split()
+    normalized_scope = "write" if "write" in tokens else "readonly"
     return CredentialBinding(
-        scope=str(row["scope"]),
+        scope=normalized_scope,
         account_id=int(row["account_id"]),
         authenticated_at=None,
         credential_id=_credential_id(token),

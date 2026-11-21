@@ -24,6 +24,7 @@ from urllib.parse import quote
 from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .clients_host import clients_authority
 from .prototype_host import prototype_authority
 from .security import (
     _is_test_domain_host,
@@ -45,7 +46,7 @@ __all__ = [
     "not_found_app",
 ]
 
-HostRole = Literal["app", "usercontent", "media", "prototype", "legacy"]
+HostRole = Literal["app", "usercontent", "media", "prototype", "clients", "legacy"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,8 @@ class HostRoles:
     site_domain: str | None
     # 정적 프로토타입 호스트(RD20). 설정이 아니라 app 호스트에서 계산한다(``prototype_host.prototype_authority``). None이면 역할이 없다.
     prototype: str | None = None
+    # Isolated fixed bundle delivery host for agent clients. Computed from site_domain/app host; None when unavailable.
+    clients: str | None = None
 
     @classmethod
     def from_settings(cls, settings: Any, *, environment: str, app_authority: str) -> HostRoles:
@@ -137,10 +140,20 @@ class HostRoles:
             if (prototype.split(":", 1)[0] if dns_mode else prototype) in other_hosts:
                 prototype = None
 
-        roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain, prototype=prototype)
+        clients = clients_authority(app, environment, site_domain=site_domain)
+        if clients is not None:
+            taken_hosts = {value.split(":", 1)[0] if dns_mode else value for _, value in present}
+            if prototype is not None:
+                taken_hosts.add(prototype.split(":", 1)[0] if dns_mode else prototype)
+            if (clients.split(":", 1)[0] if dns_mode else clients) in taken_hosts:
+                clients = None
+
+        roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain, prototype=prototype, clients=clients)
         role_origins = {roles.origin(name) for name, _ in present[1:]}
         if prototype is not None:
             role_origins.add(roles.origin("prototype"))
+        if clients is not None:
+            role_origins.add(roles.origin("clients"))
         for raw_origin in _split_origins(getattr(settings, "cors_allowed_origins", "") or ""):
             try:
                 _, _, normalized = _parse_url(raw_origin, environment=environment, origin_only=True)
@@ -151,7 +164,7 @@ class HostRoles:
         return roles
 
     def role_of(self, authority: str) -> HostRole | None:
-        """app·usercontent·media·prototype 중 하나, 아니면 None(레거시 여부는 ``LegacyHostDirectory``가 본다)."""
+        """Return the matching role name or None."""
         if authority == self.app:
             return "app"
         if self.usercontent is not None and authority == self.usercontent:
@@ -160,11 +173,13 @@ class HostRoles:
             return "media"
         if self.prototype is not None and authority == self.prototype:
             return "prototype"
+        if self.clients is not None and authority == self.clients:
+            return "clients"
         return None
 
-    def origin(self, role: Literal["app", "usercontent", "media", "prototype"]) -> str | None:
+    def origin(self, role: Literal["app", "usercontent", "media", "prototype", "clients"]) -> str | None:
         """``{scheme}://{authority}``. 설정되지 않은 역할이면 None. CSP·링크가 쓴다."""
-        authority = {"app": self.app, "usercontent": self.usercontent, "media": self.media, "prototype": self.prototype}.get(role)
+        authority = {"app": self.app, "usercontent": self.usercontent, "media": self.media, "prototype": self.prototype, "clients": self.clients}.get(role)
         return None if authority is None else f"{self.scheme}://{authority}"
 
 
@@ -272,6 +287,7 @@ class HostRouter:
         usercontent: ASGIApp | None = None,
         media: ASGIApp | None = None,
         prototype: ASGIApp | None = None,
+        clients: ASGIApp | None = None,
         now: Callable[[], float] | None = None,
     ) -> None:
         self.app = app
@@ -280,6 +296,7 @@ class HostRouter:
         self.usercontent = usercontent
         self.media = media
         self.prototype = prototype
+        self.clients = clients
         self.now = now
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -301,8 +318,8 @@ class HostRouter:
         if role == "app":
             await self.app(scope, receive, send)
             return
-        if role in ("usercontent", "media", "prototype"):
-            sub = {"usercontent": self.usercontent, "media": self.media, "prototype": self.prototype}[role]
+        if role in ("usercontent", "media", "prototype", "clients"):
+            sub = {"usercontent": self.usercontent, "media": self.media, "prototype": self.prototype, "clients": self.clients}[role]
             if sub is None:
                 await _plain(421, "Misdirected Request")(scope, receive, send)
                 return

@@ -302,7 +302,7 @@ def personal_document_iri(actor_iri: str, document_id: str) -> str:
 
 def personal_article(conn: sqlite3.Connection, *, kb_id: int, document_id: str, actor_iri: str, origin: str) -> dict[str, Any] | None:
     """The ``Article`` of one document of the personal knowledge base ``kb_id`` with its ``claire:Extraction``, for a ``claire:Contribution`` of its account (design Section 12.1 rule 2), without ``@context``. The document is its own root and has no ``origin``. None when the document is not there or has no extraction that the wire contract can have."""
-    row = conn.execute("SELECT id, title, canonical_url, content_hash, raw_text, detail, detail_format, detail_html, fetched_at FROM documents WHERE id=? AND kb_id=?", (document_id, int(kb_id))).fetchone()
+    row = conn.execute("SELECT id, title, canonical_url, content_hash, raw_text, detail, detail_format, detail_html, fetched_at FROM documents WHERE id=? AND kb_id=? AND COALESCE(extraction_status, 'extracted')='extracted'", (document_id, int(kb_id))).fetchone()
     if row is None:
         return None
     extraction = _wire_extraction(conn, int(kb_id), str(row["id"]))
@@ -357,7 +357,7 @@ def _visible_document(conn: sqlite3.Connection, kb_id: int, contribution: dict[s
     if contribution["state"] != "visible" or not contribution["document_id"]:
         return None
     return conn.execute(
-        "SELECT id, title, canonical_url, content_hash, raw_text, detail, detail_format, detail_html FROM documents WHERE id=? AND kb_id=? AND COALESCE(hidden, 0)=0",
+        "SELECT id, title, canonical_url, content_hash, raw_text, detail, detail_format, detail_html FROM documents WHERE id=? AND kb_id=? AND COALESCE(hidden, 0)=0 AND COALESCE(extraction_status, 'extracted')='extracted'",
         (contribution["document_id"], int(kb_id)),
     ).fetchone()
 

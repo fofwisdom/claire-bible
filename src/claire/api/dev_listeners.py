@@ -28,8 +28,8 @@ Listener = tuple[str, int]
 _ROLE_HOST_FIELDS = ("usercontent_fqdn", "media_fqdn")
 
 
-def dev_listeners(settings: Any, *, prototype: str | None = None) -> tuple[Listener, ...]:
-    """설정에서 listen할 ``(host, port)`` 목록을 계산한다. 첫 항목은 항상 app 리스너다. ``prototype``은 계산된 prototype 역할 authority다."""
+def dev_listeners(settings: Any, *, prototype: str | None = None, clients: str | None = None) -> tuple[Listener, ...]:
+    """Compute development listen addresses. The first entry is always the app listener; prototype and clients are optional computed role hosts."""
     host = str(getattr(settings, "inject_host", ""))
     port = int(getattr(settings, "inject_port"))
     listeners: list[Listener] = [(host, port)]
@@ -38,6 +38,8 @@ def dev_listeners(settings: Any, *, prototype: str | None = None) -> tuple[Liste
     authorities = [str(getattr(settings, field, "") or "") for field in _ROLE_HOST_FIELDS]
     if prototype:
         authorities.append(prototype)
+    if clients:
+        authorities.append(clients)
     for authority in authorities:
         role_port = _same_ipv4_port(authority, host)
         if role_port is not None and (host, role_port) not in listeners:

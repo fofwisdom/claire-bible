@@ -8,6 +8,7 @@ fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 from __future__ import annotations
 
 import concurrent.futures
+import copy
 import json
 import re
 import sqlite3
@@ -122,6 +123,11 @@ class IngestReport:
     model_lineage: dict[str, Any] = field(default_factory=dict)
     # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7): see ``claire.campaign``.
     notices: list[dict[str, Any]] = field(default_factory=list)
+    staged: bool = False
+    extraction_status: str = "extracted"
+    content_hash: str | None = None
+    raw_chars: int = 0
+    message: str | None = None
 
     def notice_lines(self, *, locale: str | None = "en") -> list[str]:
         """The texts of the campaign notices. ``locale`` None: the active locale."""
@@ -134,6 +140,14 @@ class IngestReport:
             return f"❌ 적재 실패: {self.error}"
         if self.duplicate:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
+        if self.staged:
+            head = "📥 원문 임시 저장 (Agent Client 추출 대기)"
+            parts = [f"{head}: {self.title or self.document_id}"]
+            if self.message:
+                parts.append(self.message)
+            if self.raw_chars:
+                parts.append(f"문자 수: {self.raw_chars:,}")
+            return "\n".join(parts)
 
         is_stt_failed = bool(
             self.stt_error
@@ -262,12 +276,83 @@ class IngestReport:
         return "\n".join(parts)
 
 
+STAGED_INGEST_MESSAGE = "Raw content saved; queued for Agent Client extraction"
+
+
+def _fetch_settings_for_staging(settings_obj: Any) -> Any:
+    """Disable server VLM and STT flags so client staging never invokes server models."""
+    if settings_obj is None:
+        return None
+    if hasattr(settings_obj, "model_copy"):
+        return settings_obj.model_copy(update={"enable_vlm_transcription": False, "enable_video_transcription": False})
+    try:
+        cloned = copy.copy(settings_obj)
+        setattr(cloned, "enable_vlm_transcription", False)
+        setattr(cloned, "enable_video_transcription", False)
+        return cloned
+    except Exception:
+        return settings_obj
+
+
+def stage_raw(
+    payload: str,
+    *,
+    conn: sqlite3.Connection,
+    fetch_fn: Callable[[str], Document] | None = None,
+    data_dir: Path | None = None,
+    source: str = "cli",
+    user_id: int | None = None,
+    chat_id: int | None = None,
+    inbox_kind: str | None = None,
+    file_ref: str | None = None,
+    file_name: str | None = None,
+    inbox_id: int | None = None,
+    prefetched: Document | None = None,
+    focus: str | None = None,
+    full_content: bool = True,
+    kb_id: int | None = None,
+    theme_label: str | None = None,
+    settings: Any = None,
+    provider_context: Any = None,
+    account_id: int | None = None,
+) -> IngestReport:
+    """Fetch, normalize, and stage untruncated raw content without invoking any server LLM provider."""
+    return _ingest_core(
+        payload,
+        conn=conn,
+        provider=None,
+        vstore=None,
+        fetch_fn=fetch_fn,
+        expand_max=0,
+        data_dir=data_dir,
+        source=source,
+        user_id=user_id,
+        chat_id=chat_id,
+        inbox_kind=inbox_kind,
+        file_ref=file_ref,
+        file_name=file_name,
+        inbox_id=inbox_id,
+        prefetched=prefetched,
+        auto_expand=False,
+        format=None,
+        focus=focus,
+        effort=None,
+        full_content=bool(full_content),
+        kb_id=kb_id,
+        theme_label=theme_label,
+        settings=settings,
+        provider_context=provider_context,
+        account_id=account_id,
+        stage_only=True,
+    )
+
+
 def ingest(
     payload: str,
     *,
     conn: sqlite3.Connection,
-    provider: Provider,
-    vstore: VectorStore,
+    provider: Provider | None = None,
+    vstore: VectorStore | None = None,
     fetch_fn: Callable[[str], Document] | None = None,
     expand_max: int = 0,
     data_dir: Path | None = None,
@@ -288,16 +373,134 @@ def ingest(
     theme_label: str | None = None,
     settings: Any = None,
     provider_context: Any = None,
+    account_id: int | None = None,
+    force_provider: bool = False,
 ) -> IngestReport:
-    """단건 적재. ``settings``는 테마 소유 계정 컨텍스트를 입힌 사본(``IngestService.s``)이다.
+    """Ingest a payload; stage raw content with zero server LLM calls when the account extraction_mode is client."""
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
+    job_settings = resolve_job_settings(settings, provider)
+    ctx = provider_context if provider_context is not None else context_of(job_settings)
+    effective_account_id = account_id if account_id is not None else getattr(ctx, "account_id", None)
+    account_mode = dbm.resolve_extraction_mode(conn, account_id=effective_account_id, kb_id=tid)
+    stage_only = (account_mode == "client") and not force_provider
+    # AED9: client staging always preserves untruncated raw content so the external client does not lose source text.
+    effective_full_content = True if stage_only else full_content
+    return _ingest_core(
+        payload,
+        conn=conn,
+        provider=provider,
+        vstore=vstore,
+        fetch_fn=fetch_fn,
+        expand_max=expand_max,
+        data_dir=data_dir,
+        source=source,
+        user_id=user_id,
+        chat_id=chat_id,
+        inbox_kind=inbox_kind,
+        file_ref=file_ref,
+        file_name=file_name,
+        inbox_id=inbox_id,
+        prefetched=prefetched,
+        auto_expand=auto_expand,
+        format=format,
+        focus=focus,
+        effort=effort,
+        full_content=effective_full_content,
+        kb_id=tid,
+        theme_label=theme_label,
+        settings=settings,
+        provider_context=provider_context,
+        account_id=effective_account_id,
+        stage_only=stage_only,
+    )
 
-    ``provider_context``(없으면 ``settings``의 컨텍스트)가 멤버이면 문서를 만들기 전에 문서 수·저장 용량 한도를 본다.
-    LLM 단계의 정책 오류는 원문을 보존한 채 ``raw_inbox`` 오류(``code: …``)로 남긴다(A1, 설계 §10.2).
-    """
+
+def _complete_server_extraction(
+    *,
+    conn: sqlite3.Connection,
+    provider: Provider,
+    vstore: VectorStore,
+    doc: Document,
+    report: IngestReport,
+    inbox_id: int,
+    tid: int,
+    data_dir: Path | None,
+    source: str,
+    expand_max: int,
+    auto_expand: bool,
+    format: str | None,
+    focus: str | None,
+    effort: str | None,
+    full_content: bool,
+    job_settings: Any,
+    run_watch_and_expand: bool,
+) -> IngestReport:
+    """Run server-side extraction, graph storage, optional watch/expand, and mark the document extracted."""
+    if data_dir is not None:
+        try:
+            from ..store.raw import save_artifact
+
+            save_artifact(data_dir, doc.id, doc.raw_text)
+        except Exception:  # noqa: BLE001
+            pass
+    _download_doc_images(conn, doc, data_dir, kb_id=tid)
+    try:
+        ok, err = extract_resolve_store(conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content, kb_id=tid, settings=job_settings)
+    except ProviderPolicyError as e:
+        ok, err = False, error_text(e)
+    if not ok:
+        report.error = err
+        dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, kb_id=tid)
+        return report
+    dbm.mark_document_extraction_status(conn, doc.id, "extracted", kb_id=tid, clear_claim=True)
+    report.extraction_status = "extracted"
+    if run_watch_and_expand:
+        if not doc.partial and not source.startswith(("expand:", "recover", "replay", "refresh", "research")):
+            emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
+            ensure_watch_classification(conn, provider, doc, kb_id=tid)
+        if expand_max > 0 and not doc.partial:
+            if auto_expand:
+                dbm.enqueue_expand(conn, doc.id, kb_id=tid)
+            else:
+                from ..expand.proposal import find_candidates
+
+                report.candidates = find_candidates(conn, doc, limit=expand_max, kb_id=tid)
+    dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id, kb_id=tid)
+    return report
+
+
+def _ingest_core(
+    payload: str,
+    *,
+    conn: sqlite3.Connection,
+    provider: Provider | None,
+    vstore: VectorStore | None,
+    fetch_fn: Callable[[str], Document] | None,
+    expand_max: int,
+    data_dir: Path | None,
+    source: str,
+    user_id: int | None,
+    chat_id: int | None,
+    inbox_kind: str | None,
+    file_ref: str | None,
+    file_name: str | None,
+    inbox_id: int | None,
+    prefetched: Document | None,
+    auto_expand: bool,
+    format: str | None,
+    focus: str | None,
+    effort: str | None,
+    full_content: bool,
+    kb_id: int | None,
+    theme_label: str | None,
+    settings: Any,
+    provider_context: Any,
+    account_id: int | None,
+    stage_only: bool,
+) -> IngestReport:
     report = IngestReport()
     report.full_content = full_content
-    report.effort = effort
-    # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
+    report.effort = None if stage_only else effort
     if fetch_fn is None:
         fetch_fn = default_fetch
 
@@ -305,10 +508,8 @@ def ingest(
     tlabel = theme_label or ("기본 지식베이스" if tid == 0 else "")
     job_settings = resolve_job_settings(settings, provider)
     ctx = provider_context if provider_context is not None else context_of(job_settings)
+    del account_id
 
-    # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).
-    # inbox_id 가 주어지면(자동복구 재적재) 새 행을 만들지 않고 기존 행을 재사용 =
-    # 재시도가 inbox 행을 폭증시키지 않고 같은 행의 status 만 갱신(멱등).
     if inbox_id is None:
         kind = inbox_kind or _guess_kind(payload)
         inbox_id = dbm.log_inbox(
@@ -353,12 +554,11 @@ def ingest(
 
         set_progress_callback(_active_progress_hook)
         try:
-
+            fetch_settings_scope = _fetch_settings_for_staging(job_settings) if stage_only else settings
             try:
-                # prefetched: 링크 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
                 if prefetched is None:
-                    emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
-                    with bound_fetch_settings(settings):
+                    emit_progress("원문 가져오는 중…")
+                    with bound_fetch_settings(fetch_settings_scope):
                         try:
                             doc = fetch_fn(payload, full_content=full_content)
                         except TypeError:
@@ -372,28 +572,33 @@ def ingest(
                 dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                 return report
 
+            if not doc.content_hash:
+                from .normalize import content_hash as compute_content_hash
+
+                doc.content_hash = compute_content_hash(doc.raw_text or doc.title or "")
+
+            raw_chars_val = len(doc.raw_text or "")
+            if doc.meta is None:
+                doc.meta = {}
             if full_content:
-                if doc.meta is None:
-                    doc.meta = {}
                 doc.meta["full_content"] = True
-            if effort:
-                if doc.meta is None:
-                    doc.meta = {}
+            if effort and not stage_only:
                 doc.meta["applied_effort"] = effort
 
-            if doc.source_type in ("pdf", "odt"):
+            if not stage_only and doc.source_type in ("pdf", "odt"):
                 from ..extract.classifier import reconcile_pdf_metadata
 
                 try:
                     reconcile_pdf_metadata(doc, job_settings, provider=provider)
                 except ProviderPolicyError:
-                    # 정책 오류(키 없음·예산 소진)는 원문 보존을 막지 않는다. 추출 단계가 같은 오류로 raw_inbox에 남긴다.
                     pass
 
             report.source_type = doc.source_type
             report.partial = doc.partial
             report.title = doc.title
             report.focus = focus
+            report.content_hash = doc.content_hash
+            report.raw_chars = raw_chars_val
             if doc.meta:
                 if "has_transcript" in doc.meta:
                     report.has_transcript = bool(doc.meta.get("has_transcript"))
@@ -458,18 +663,13 @@ def ingest(
                 if "caption_language" in doc.meta:
                     report.caption_language = doc.meta.get("caption_language")
             if focus and focus.strip():
-                if doc.meta is None:
-                    doc.meta = {}
                 doc.meta["focus"] = focus.strip()
 
-            # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
             if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash, kb_id=tid):
                 report.error = "tombstoned: document was previously purged"
                 dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                 return report
 
-            # 직접 PDF URL이 이미 VMware 비디오 문서의 Presentation 출처로 포함됐으면
-            # 동일 원문을 독립 문서로 다시 만들지 않는다.
             if doc.source_type == "pdf" and doc.canonical_url:
                 bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url, kb_id=tid)
                 if bundled_id:
@@ -480,10 +680,11 @@ def ingest(
 
             _link_existing_presentation_documents(conn, doc, kb_id=tid)
 
-            # dedup ① 내용 완전 동일(content_hash 일치)
+            # Dedup 1: exact content_hash match.
             existing = dbm.find_document_by_hash(conn, doc.content_hash, kb_id=tid)
             if existing:
                 existing_row = dbm.get_document_row(conn, existing, kb_id=tid)
+                existing_status = str(existing_row["extraction_status"] or "extracted") if existing_row is not None and "extraction_status" in existing_row.keys() else "extracted"
                 same_canonical = bool(
                     existing_row
                     and doc.canonical_url
@@ -498,20 +699,50 @@ def ingest(
                         old_meta = {}
                     old_presentation_state = _presentation_state(old_meta)
                     preserve_presentation_history(old_meta, doc)
-                if not _store_doc_attachments_or_report(
-                    conn, inbox_id, doc, existing, data_dir, report, kb_id=tid
-                ):
+                if not _store_doc_attachments_or_report(conn, inbox_id, doc, existing, data_dir, report, kb_id=tid):
                     return report
                 if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
                     dbm.update_document_meta(conn, existing, doc.meta, kb_id=tid)
                     report.document_id = existing
                     report.updated = True
                     report.duplicate = False
-                    dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, kb_id=tid)
+                    if stage_only and existing_status == "pending":
+                        report.staged = True
+                        report.extraction_status = "pending"
+                        report.message = STAGED_INGEST_MESSAGE
+                        dbm.update_inbox(conn, inbox_id, status="staged", document_id=existing, kb_id=tid)
+                    else:
+                        dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, kb_id=tid)
                     return report
-                # 사용자가 새 focus(초점)를 명시적으로 지정한 경우:
-                # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
-                if focus and focus.strip():
+                if not stage_only and existing_status in ("pending", "failed"):
+                    if provider is None or vstore is None:
+                        raise RuntimeError("provider and vstore are required for server extraction")
+                    doc_obj = dbm.get_document(conn, existing, kb_id=tid) or doc
+                    doc_obj.meta = doc.meta or doc_obj.meta
+                    report.document_id = existing
+                    report.updated = True
+                    report.duplicate = False
+                    report.title = doc_obj.title or doc.title
+                    return _complete_server_extraction(
+                        conn=conn,
+                        provider=provider,
+                        vstore=vstore,
+                        doc=doc_obj,
+                        report=report,
+                        inbox_id=inbox_id,
+                        tid=tid,
+                        data_dir=data_dir,
+                        source=source,
+                        expand_max=expand_max,
+                        auto_expand=auto_expand,
+                        format=format,
+                        focus=focus,
+                        effort=effort,
+                        full_content=full_content,
+                        job_settings=job_settings,
+                        run_watch_and_expand=True,
+                    )
+                if not stage_only and focus and focus.strip():
                     doc_obj = dbm.get_document(conn, existing, kb_id=tid)
                     if doc_obj:
                         dbm.set_document_focus(conn, existing, focus.strip(), kb_id=tid)
@@ -531,12 +762,14 @@ def ingest(
 
                 report.document_id = existing
                 report.duplicate = True
+                report.extraction_status = existing_status
+                if stage_only and existing_status == "pending":
+                    report.staged = True
+                    report.message = STAGED_INGEST_MESSAGE
                 dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing, kb_id=tid)
                 return report
 
-            # dedup ② 같은 canonical_url 인데 content_hash 가 다름 → 같은 자료의 *내용 갱신*.
-            #   새 문서를 만들지(중복 노드) 않고, 건너뛰지도(갱신 유실) 않고, 기존 문서를 in-place
-            #   갱신한다(엔티티 sources 연결 보존 = refresh_document 과 같은 의미).
+            # Dedup 2: same canonical_url with changed content_hash updates in-place.
             same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url, kb_id=tid)
             if same_url:
                 doc.id = same_url
@@ -547,50 +780,71 @@ def ingest(
                     except Exception:
                         old_meta = {}
                     preserve_presentation_history(old_meta, doc)
-                if not _store_doc_attachments_or_report(
-                    conn, inbox_id, doc, same_url, data_dir, report, kb_id=tid
-                ):
+                if not _store_doc_attachments_or_report(conn, inbox_id, doc, same_url, data_dir, report, kb_id=tid):
                     return report
                 dbm.update_document_content(
                     conn, same_url, title=doc.title, raw_text=doc.raw_text,
                     content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-                    source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid)
+                    source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid,
+                    extraction_status=("pending" if stage_only else None),
+                    raw_chars=raw_chars_val,
+                    clear_claim=True,
+                )
                 report.document_id = same_url
                 report.updated = True
-                if data_dir is not None:
-                    try:
-                        from ..store.raw import save_artifact
+                if stage_only:
+                    if data_dir is not None:
+                        try:
+                            from ..store.raw import save_artifact
 
-                        save_artifact(data_dir, same_url, doc.raw_text)
-                    except Exception:  # noqa: BLE001
-                        pass
-                _download_doc_images(conn, doc, data_dir, kb_id=tid)
-                try:
-                    ok, err = extract_resolve_store(
-                        conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
-                        full_content=full_content, kb_id=tid, settings=job_settings)
-                except ProviderPolicyError as e:
-                    ok, err = False, error_text(e)
-                if not ok:
-                    report.error = err
-                    dbm.update_inbox(conn, inbox_id, status="error",
-                                     document_id=same_url, error=err, kb_id=tid)
+                            save_artifact(data_dir, same_url, doc.raw_text)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _download_doc_images(conn, doc, data_dir, kb_id=tid)
+                    report.staged = True
+                    report.extraction_status = "pending"
+                    report.message = STAGED_INGEST_MESSAGE
+                    dbm.update_inbox(conn, inbox_id, status="staged", document_id=same_url, kb_id=tid)
                     return report
-                dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url, kb_id=tid)
-                return report
+                if provider is None or vstore is None:
+                    raise RuntimeError("provider and vstore are required for server extraction")
+                return _complete_server_extraction(
+                    conn=conn,
+                    provider=provider,
+                    vstore=vstore,
+                    doc=doc,
+                    report=report,
+                    inbox_id=inbox_id,
+                    tid=tid,
+                    data_dir=data_dir,
+                    source=source,
+                    expand_max=expand_max,
+                    auto_expand=auto_expand,
+                    format=format,
+                    focus=focus,
+                    effort=effort,
+                    full_content=full_content,
+                    job_settings=job_settings,
+                    run_watch_and_expand=False,
+                )
 
-            # dedup ③ 근사 중복(near-duplicate). content_hash·canonical_url 을 비껴간 "같은 글
-            #   다른 입구"(arxiv 버전 접미사, 동적요소 차이 등)를 MinHash 유사도로 잡는다.
-            #   보수적(데이터 보존): 충분히 긴 비-partial 문서만, 높은 임계 → 별개 글 오병합 방지.
+            # Dedup 3: near-duplicate MinHash check.
             near = dbm.near_duplicate_document(conn, doc, kb_id=tid)
             if near:
                 near_id, score = near
+                near_row = dbm.get_document_row(conn, near_id, kb_id=tid)
+                near_status = str(near_row["extraction_status"] or "extracted") if near_row is not None and "extraction_status" in near_row.keys() else "extracted"
                 report.document_id = near_id
                 report.duplicate = True
+                report.extraction_status = near_status
+                if near_status == "pending":
+                    report.staged = True
+                    report.message = STAGED_INGEST_MESSAGE
                 dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id, kb_id=tid)
                 return report
 
-            emit_progress("구조화 추출·그래프 적재 중…")
+            if not stage_only:
+                emit_progress("구조화 추출·그래프 적재 중…")
             if ctx is not None and not getattr(ctx, "is_admin", True):
                 from ..accounts import server_tier
 
@@ -600,55 +854,53 @@ def ingest(
                     report.error = error_text(e)
                     dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                     return report
-            if not _store_doc_attachments_or_report(
-                conn, inbox_id, doc, doc.id, data_dir, report, kb_id=tid
-            ):
+            if not _store_doc_attachments_or_report(conn, inbox_id, doc, doc.id, data_dir, report, kb_id=tid):
                 return report
-            dbm.insert_document(conn, doc, kb_id=tid)
+            dbm.insert_document(
+                conn,
+                doc,
+                kb_id=tid,
+                extraction_status=("pending" if stage_only else "extracted"),
+                raw_chars=raw_chars_val,
+            )
             report.document_id = doc.id
 
-            # [Layer 2] fetched 원본 텍스트를 gzip artifact 로 보관(재추출용).
-            if data_dir is not None:
-                try:
-                    from ..store.raw import save_artifact
+            if stage_only:
+                if data_dir is not None:
+                    try:
+                        from ..store.raw import save_artifact
 
-                    save_artifact(data_dir, doc.id, doc.raw_text)
-                except Exception:  # noqa: BLE001
-                    pass  # 보관 실패가 본 파이프라인을 막지 않도록
-            _download_doc_images(conn, doc, data_dir, kb_id=tid)
-
-            # 추출 → 해소 → 관계 (ingest/refresh 공용)
-            try:
-                ok, err = extract_resolve_store(
-                    conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
-                    full_content=full_content, kb_id=tid, settings=job_settings)
-            except ProviderPolicyError as e:
-                # 판정·임베딩 도중의 예산 소진 등. 문서(원문)는 이미 저장됐다(A1).
-                ok, err = False, error_text(e)
-            if not ok:
-                report.error = err
-                dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, kb_id=tid)
+                        save_artifact(data_dir, doc.id, doc.raw_text)
+                    except Exception:  # noqa: BLE001
+                        pass
+                _download_doc_images(conn, doc, data_dir, kb_id=tid)
+                report.staged = True
+                report.extraction_status = "pending"
+                report.message = STAGED_INGEST_MESSAGE
+                dbm.update_inbox(conn, inbox_id, status="staged", document_id=doc.id, kb_id=tid)
                 return report
 
-            # 주기 재확인(watch) 판단(LLM, 비용 1콜) — 1차 신규 적재에만. 링크 확장 자식/research 문서/
-            # 복구·갱신 재적재는 제외(부적절·낭비). 실패는 조용히(watch 미판단으로 남음).
-            if not doc.partial and not source.startswith(
-                    ("expand:", "recover", "replay", "refresh", "research")):
-                emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
-                ensure_watch_classification(conn, provider, doc, kb_id=tid)
-
-            # 링크 확장. auto_expand(자동 확장)면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
-            # 아니면 확장 제안: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
-            if expand_max > 0 and not doc.partial:
-                if auto_expand:
-                    dbm.enqueue_expand(conn, doc.id, kb_id=tid)
-                else:
-                    from ..expand.proposal import find_candidates
-
-                    report.candidates = find_candidates(conn, doc, limit=expand_max, kb_id=tid)
-
-            dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id, kb_id=tid)
-            return report
+            if provider is None or vstore is None:
+                raise RuntimeError("provider and vstore are required for server extraction")
+            return _complete_server_extraction(
+                conn=conn,
+                provider=provider,
+                vstore=vstore,
+                doc=doc,
+                report=report,
+                inbox_id=inbox_id,
+                tid=tid,
+                data_dir=data_dir,
+                source=source,
+                expand_max=expand_max,
+                auto_expand=auto_expand,
+                format=format,
+                focus=focus,
+                effort=effort,
+                full_content=full_content,
+                job_settings=job_settings,
+                run_watch_and_expand=True,
+            )
 
         finally:
             set_progress_callback(prev_cb)

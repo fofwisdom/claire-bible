@@ -80,6 +80,9 @@ def _authorize_url(client_id: str, state: str) -> str:
 
 def test_oauth_authorize_escapes_registered_client_name_and_state(ctx) -> None:
     settings, _ = ctx
+    conn = dbm.connect(settings.db_file)
+    session_token = dbm.create_session(conn, scope="owner")
+    conn.close()
     with _client(settings) as client:
         reg = client.post(
             "/oauth/register",
@@ -88,6 +91,11 @@ def test_oauth_authorize_escapes_registered_client_name_and_state(ctx) -> None:
         assert reg.status_code == 201
         client_id = reg.json()["client_id"]
 
+        unauth = client.get(_authorize_url(client_id, XSS_STATE), follow_redirects=False)
+        assert unauth.status_code == 303
+        assert unauth.headers["location"].startswith("/login?tx=")
+
+        client.cookies.set("claire_session", session_token)
         resp = client.get(_authorize_url(client_id, XSS_STATE))
         assert resp.status_code == 200
         body = resp.text
@@ -96,24 +104,24 @@ def test_oauth_authorize_escapes_registered_client_name_and_state(ctx) -> None:
         assert XSS_STATE not in body
         assert "<img src=x" not in body
         assert 'value="&quot;&gt;&lt;img src=x onerror=1&gt;"' in body
-        # 인라인 스크립트의 JS 리터럴은 HTML 이스케이프 대신 \u003c 형태로 들어간다
-        assert '"\\"\\u003e\\u003cimg src=x onerror=1\\u003e"' in body
+        assert re.findall(r"<script", body, flags=re.I) == []
 
 
 def test_oauth_authorize_script_literals_cannot_close_script(ctx) -> None:
     settings, _ = ctx
     evil = "</script><script>alert(3)</script>\u2028&"
+    conn = dbm.connect(settings.db_file)
+    session_token = dbm.create_session(conn, scope="owner")
+    conn.close()
     with _client(settings) as client:
+        client.cookies.set("claire_session", session_token)
         resp = client.get(_authorize_url("claire_mcp_" + evil, evil))
         assert resp.status_code == 200
         body = resp.text
         assert "</script><script>alert(3)" not in body
-        # 인라인 <script> 블록은 정확히 하나, 그 안에 원문 `</script` 없음
-        scripts = re.findall(r"<script>(.*?)</script>", body, flags=re.S)
-        assert len(scripts) == 1
-        assert "\\u003c/script\\u003e" in scripts[0]
-        assert "\u2028" not in scripts[0]  # HTML 속성 안의 U+2028은 무해, 스크립트 안에서만 금지
-        assert "\\u2028" in scripts[0] and "\\u0026" in scripts[0]
+        # Zero-JS OAuth consent page emits no <script> tags at all
+        assert re.findall(r"<script", body, flags=re.I) == []
+        assert "&lt;/script&gt;&lt;script&gt;alert(3)&lt;/script&gt;" in body
 
 
 def test_oauth_authorize_post_error_page_escapes(ctx) -> None:

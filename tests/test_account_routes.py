@@ -194,6 +194,7 @@ def test_me_read_and_display_name_update(client, settings):
         "effective_locale": "en",
         "entity_language": None,
         "personal_source_public": True,
+        "extraction_mode": "provider",
     }
     assert isinstance(me["public_id"], str)
 

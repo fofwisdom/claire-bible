@@ -289,8 +289,8 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
 | `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않는다. |
 | `CLAIRE_GRAPH_BUNDLE_API_URL` | `""` | Compose 내부 URL | Telegram이 그래프 번들 생성을 위임할 API URL. 비어 있으면 `CLAIRE_SUPPORT_BUNDLE_API_URL`을 쓰고, 둘 다 비면 같은 프로세스에서 직접 만든다. |
-| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[레거시 / 자동 이관] Owner 쓰기 토큰 (폐기 예정)**. 정적 환경변수 통제 방식이 폐기되었으며, 기동 시 독립 자격증명 파일(`data/auth/api_tokens.json`)로 자동 이관된다. 비워두더라도 첫 기동 시 기본 Owner 토큰(`cb_...`)이 파일에 자동 생성되어 즉시 정상 가동된다. 동적 관리는 `claire token` 또는 WebUI [🔑 API/MCP 키]를 이용한다. |
-| `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[레거시 / 자동 이관] Readonly 조회 토큰 (폐기 예정)**. 기동 시 독립 자격증명 파일(`data/auth/api_tokens.json`)로 자동 이관된다. 에이전트 연동용 상시 토큰은 `claire token create --scope readonly`로 발급 및 관리한다. |
+| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Owner 토큰. 정적 환경변수 통제에서 분리되어 기동 시 `data/auth/api_tokens.json`으로 이관되며, 직접 사용 시 `Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 웹 콘솔 `/settings/mcp` OAuth 2.1 사용을 권장한다. |
+| `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Readonly 조회 토큰. 기동 시 `data/auth/api_tokens.json`으로 이관되며, 사용 시 `Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 `/settings/mcp` OAuth 2.1(`readonly` 스코프)을 권장한다. |
 | `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 한다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능하다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구한다. |
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용된다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |

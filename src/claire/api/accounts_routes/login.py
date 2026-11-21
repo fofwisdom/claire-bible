@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import time
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import quote, urlsplit
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -20,9 +22,10 @@ from ...accounts.username_policy import UsernameRejected, normalize_username
 from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
+from ...store import db as dbm
 from ..namespace import account_home_path
 from ..principal import request_principal
-from ..security import read_json_body
+from ..security import clear_oauth_tx_cookie, read_json_body, read_oauth_tx_cookie
 from .common import (
     SESSION_CHANNELS,
     AccountsContext,
@@ -30,6 +33,7 @@ from .common import (
     client_ip,
     cookie_session_token,
     error_list,
+    escape,
     forbidden,
     json_error,
     open_auth_db,
@@ -58,6 +62,7 @@ class LoginOutcome:
     session_token: str | None = None
     retry_after: float | None = None
     redirect_path: str = "/"
+    account_id: int | None = None
 
 
 def throttle_name(raw: str) -> str:
@@ -112,15 +117,41 @@ def perform_login(
             conn.close()
     finally:
         auth.close()
-    return LoginOutcome("ok", session_token=token, redirect_path=redirect_path)
+    return LoginOutcome("ok", session_token=token, redirect_path=redirect_path, account_id=candidate)
+
+
+def _enabled_idp_links_html(ctx: AccountsContext, *, tx_id: str = "", next_path: str = "") -> str:
+    """Render zero-JS sign-in links for enabled external identity providers while keeping tx or device next state."""
+    data_dir = ctx.data_dir or ctx.auth_db_file.parent.parent
+    providers = [p for p in auth_db.load_idp_providers(data_dir, include_secrets=False) if p.enabled]
+    if not providers:
+        return ""
+    suffix = ""
+    if tx_id:
+        suffix = f"?tx={quote(tx_id, safe='')}"
+    elif next_path:
+        suffix = f"?next={quote(next_path, safe='')}"
+    links = "".join(
+        f'<a class="idp-btn" href="/auth/oidc/{quote(p.id, safe="")}/start{suffix}">{escape(t("console.js.admin.idp.continue_with", name=p.display_name))}</a>'
+        for p in providers
+    )
+    return f'<div class="card idp-links">{links}</div>'
 
 
 def _login_page(*, username: str = "", message: str | None = None, status_code: int = 200,
-                headers: dict[str, str] | None = None) -> Response:
+                headers: dict[str, str] | None = None, tx_id: str = "", oauth_client_name: str = "", next_path: str = "", idp_links_html: str = "") -> Response:
+    banner_html = ""
+    if oauth_client_name:
+        banner_html = f'<p class="notice" role="status">{escape(t("auth.login.oauth_banner", client=oauth_client_name))}</p>'
+    hidden_parts: list[str] = []
+    if tx_id:
+        hidden_parts.append(f'<input type="hidden" name="tx" value="{escape(tx_id)}">')
+    if next_path:
+        hidden_parts.append(f'<input type="hidden" name="next" value="{escape(next_path)}">')
     return render_template(
         "login.html",
         text={"username": username},
-        markup={"errors": error_list([message] if message else [])},
+        markup={"errors": error_list([message] if message else []), "oauth_tx_banner": banner_html, "oauth_tx_input": "".join(hidden_parts), "idp_links": idp_links_html},
         status_code=status_code,
         headers=headers,
     )
@@ -160,9 +191,62 @@ def perform_reauth(
         conn.close()
 
 
+def safe_device_next(raw_next: str | None) -> str:
+    """Validate optional /device post-login redirect target."""
+    val = str(raw_next or "").strip()
+    if not val or len(val) > 512:
+        return ""
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in val):
+        return ""
+    parsed = urlsplit(val)
+    if parsed.scheme or parsed.netloc or parsed.path != "/device":
+        return ""
+    return val
+
+
+def _resolve_oauth_client_name(ctx: AccountsContext, request: Request, tx: str) -> str:
+    """Resolve active OAuth client label only when tx matches the browser oauth_tx cookie."""
+    if not tx:
+        return ""
+    cookie_tx = read_oauth_tx_cookie(request.scope)
+    if not cookie_tx or not hmac.compare_digest(cookie_tx, tx):
+        return ""
+    conn = open_db(ctx)
+    try:
+        pending = dbm.get_oauth_pending_request(conn, tx)
+    finally:
+        conn.close()
+    if pending is None:
+        return ""
+    return str(pending.get("client_name") or pending.get("client_id") or "")
+
+
 def routes(ctx: AccountsContext) -> list[Route]:
-    async def login_get(_request: Request) -> Response:
-        return _login_page()
+    async def login_get(request: Request) -> Response:
+        tx = request.query_params.get("tx", "").strip()
+        next_path = safe_device_next(request.query_params.get("next"))
+        if not tx:
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx, next_path=next_path)
+            return _login_page(next_path=next_path, idp_links_html=idp_html)
+        cookie_tx = read_oauth_tx_cookie(request.scope)
+        if not cookie_tx or not hmac.compare_digest(cookie_tx, tx):
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx)
+            return _login_page(message=t("auth.login.oauth_tx_invalid"), status_code=400, idp_links_html=idp_html)
+
+        def _load_pending() -> dict | None:
+            conn = open_db(ctx)
+            try:
+                return dbm.get_oauth_pending_request(conn, tx)
+            finally:
+                conn.close()
+
+        pending = await asyncio.to_thread(_load_pending)
+        if pending is None:
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx)
+            return _login_page(message=t("auth.login.oauth_tx_invalid"), status_code=400, idp_links_html=idp_html)
+        client_label = str(pending.get("client_name") or pending.get("client_id") or "")
+        idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx, tx_id=tx, next_path=next_path)
+        return _login_page(tx_id=tx, oauth_client_name=client_label, next_path=next_path, idp_links_html=idp_html)
 
     async def login_post(request: Request) -> Response:
         if not same_origin(request):
@@ -170,8 +254,19 @@ def routes(ctx: AccountsContext) -> list[Route]:
         form = await request.form()
         raw_username = form.get("username")
         password = form.get("password")
+        raw_tx = form.get("tx")
+        tx = raw_tx.strip() if isinstance(raw_tx, str) else request.query_params.get("tx", "").strip()
+        raw_next = form.get("next")
+        next_path = safe_device_next(raw_next if isinstance(raw_next, str) else request.query_params.get("next"))
+        if tx:
+            cookie_tx = read_oauth_tx_cookie(request.scope)
+            if not cookie_tx or not hmac.compare_digest(cookie_tx, tx):
+                idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx)
+                return _login_page(username=raw_username if isinstance(raw_username, str) else "", message=t("auth.login.oauth_tx_invalid"), status_code=403, idp_links_html=idp_html)
         if not isinstance(raw_username, str) or not isinstance(password, str):
-            return _login_page(message=t(LOGIN_FAILED_KEY), status_code=400)
+            client_label = await asyncio.to_thread(_resolve_oauth_client_name, ctx, request, tx)
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx, tx_id=tx, next_path=next_path)
+            return _login_page(message=t(LOGIN_FAILED_KEY), status_code=400, tx_id=tx, oauth_client_name=client_label, next_path=next_path, idp_links_html=idp_html)
         outcome = await asyncio.to_thread(
             perform_login,
             ctx,
@@ -181,17 +276,44 @@ def routes(ctx: AccountsContext) -> list[Route]:
             replace_token=cookie_session_token(request),
         )
         if outcome.kind == "throttled":
+            client_label = await asyncio.to_thread(_resolve_oauth_client_name, ctx, request, tx)
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx, tx_id=tx, next_path=next_path)
             return _login_page(
                 username=raw_username,
                 message=t(LOGIN_THROTTLED_KEY),
                 status_code=429,
                 headers={"Retry-After": str(retry_after_seconds(outcome.retry_after))},
+                tx_id=tx,
+                oauth_client_name=client_label,
+                next_path=next_path,
+                idp_links_html=idp_html,
             )
         if outcome.kind == "failed":
-            return _login_page(username=raw_username, message=t(LOGIN_FAILED_KEY), status_code=401)
-        if outcome.session_token is None:
+            client_label = await asyncio.to_thread(_resolve_oauth_client_name, ctx, request, tx)
+            idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx, tx_id=tx, next_path=next_path)
+            return _login_page(username=raw_username, message=t(LOGIN_FAILED_KEY), status_code=401, tx_id=tx, oauth_client_name=client_label, next_path=next_path, idp_links_html=idp_html)
+        if outcome.session_token is None or outcome.account_id is None:
             raise RuntimeError("login succeeded without a session token")
-        response = Response(status_code=303, headers={"Location": outcome.redirect_path, "Cache-Control": "no-store"})
+        location = next_path or outcome.redirect_path
+        if tx:
+            cookie_tx = read_oauth_tx_cookie(request.scope)
+            if not cookie_tx or not hmac.compare_digest(cookie_tx, tx):
+                idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx)
+                return _login_page(username=raw_username, message=t("auth.login.oauth_tx_invalid"), status_code=403, idp_links_html=idp_html)
+
+            def _bind_tx() -> bool:
+                conn = open_db(ctx)
+                try:
+                    return dbm.bind_oauth_pending_request_account(conn, tx, outcome.account_id)  # type: ignore[arg-type]
+                finally:
+                    conn.close()
+
+            bound = await asyncio.to_thread(_bind_tx)
+            if not bound:
+                idp_html = await asyncio.to_thread(_enabled_idp_links_html, ctx)
+                return _login_page(username=raw_username, message=t("auth.login.oauth_tx_invalid"), status_code=400, idp_links_html=idp_html)
+            location = f"/oauth/authorize?tx={quote(tx, safe='')}"
+        response = Response(status_code=303, headers={"Location": location, "Cache-Control": "no-store"})
         set_session_cookie(response, ctx, outcome.session_token)
         return response
 
@@ -209,8 +331,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     conn.close()
 
             await asyncio.to_thread(_delete)
-        response = Response(status_code=303, headers={"Location": LOGIN_PATH, "Cache-Control": "no-store"})
+        response = Response(status_code=303, headers={"Location": LOGIN_PATH, "Cache-Control": "no-store", "Clear-Site-Data": '"cookies", "storage", "cache"'})
         clear_session_cookie(response, ctx)
+        clear_oauth_tx_cookie(response, ctx.config)
         return response
 
     async def reauth_post(request: Request) -> Response:

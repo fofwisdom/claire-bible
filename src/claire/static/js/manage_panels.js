@@ -19,6 +19,11 @@
     return window.ClaireI18n ? window.ClaireI18n.t(key, params) : key;
   }
 
+  function trFallback(key, fallback, params) {
+    const val = trKey(key, params);
+    return (val && val !== key) ? val : fallback;
+  }
+
   if (typeof window.esc !== 'function') window.esc = esc;
   if (typeof window.jsArg !== 'function') window.jsArg = jsArg;
 
@@ -61,7 +66,7 @@
   const _provState = { container: null, opts: {}, config: null };
   const _limitState = { container: null, opts: {}, config: null };
   const _themeState = { container: null, opts: {}, themes: [] };
-  const _tokenState = { container: null, opts: {}, tokens: [], newCreatedToken: null };
+  const _tokenState = { container: null, opts: {}, tokens: [], newCreatedToken: null, retired: false, deprecationNotice: '' };
 
   function findTheme(themeRef) {
     const themes = _themeState.themes || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themes) || [];
@@ -1706,6 +1711,11 @@
   }
 
   async function createApiToken() {
+    const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /settings/mcp.';
+    if (_tokenState.retired) {
+      renderTokenManagerDOM(trFallback("console.js.panels.tokens.retired_notice", retiredFallback), false);
+      return;
+    }
     const nameInput = document.getElementById('new-token-name');
     const scopeSelect = document.getElementById('new-token-scope');
     const expirySelect = document.getElementById('new-token-expiry');
@@ -1722,6 +1732,11 @@
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, scope: scope, expires_in_days: expDays > 0 ? expDays : null }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
+        if (r.status === 410) {
+          _tokenState.retired = true;
+          renderTokenManagerDOM(err.detail || trFallback("console.js.panels.tokens.retired_notice", retiredFallback), false);
+          return;
+        }
         renderTokenManagerDOM(trKey("console.js.panels.tokens.issue_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
@@ -1778,6 +1793,13 @@
 
     let h = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2>';
     h += '<p class="al">' + esc(trKey("console.js.panels.tokens.desc")) + '</p>';
+    const isRetired = Boolean(_tokenState.retired);
+    if (isRetired) {
+      const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /settings/mcp.';
+      const retiredText = trFallback("console.js.panels.tokens.retired_notice", retiredFallback);
+      const retiredHtml = retiredText.indexOf('/settings/mcp') !== -1 ? esc(retiredText).replace('/settings/mcp', '<a href="/settings/mcp">/settings/mcp</a>') : (esc(retiredText) + ' <a href="/settings/mcp">/settings/mcp</a>');
+      h += '<div id="tokens-retired-banner" data-tokens-retired="true" role="status" style="padding:8px 10px;border-radius:6px;background:rgba(207,34,46,0.1);color:var(--err,#cf222e);font-size:12px;margin-bottom:12px;border:1px solid var(--err,#cf222e);"><span data-icon="warning"></span> ' + retiredHtml + '</div>';
+    }
     const scopeNotices = _tokenState.scopeNotices || [];
     if (scopeNotices.length) {
       h += '<div role="status" style="padding:8px 10px;border-radius:6px;background:rgba(243,156,18,0.1);color:var(--warn,#9a6700);font-size:12px;margin-bottom:12px;border:1px solid var(--warn,#9a6700);"><span data-icon="warning"></span> ' + esc(trKey("console.js.panels.tokens.scope_notice")) + '<ul style="margin:4px 0 0;padding-left:18px;">' + scopeNotices.map(n => '<li>' + esc(n.name) + ' (#' + esc(String(n.id)) + ')</li>').join('') + '</ul></div>';
@@ -1788,7 +1810,7 @@
       const rawVal = activeNewToken.token || '';
       const mcpOrigin = window.location.origin;
       const mcpUrl = `${mcpOrigin}/mcp`;
-      const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-everything'], env: { CLAIRE_URL: mcpUrl, CLAIRE_TOKEN: rawVal } } } }, null, 2);
+      const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${rawVal}` } } } }, null, 2);
       h += '<div style="background:rgba(26,127,55,0.08);border:2px solid var(--accent2,#1a7f37);border-radius:8px;padding:12px;margin-bottom:16px;">';
       h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);"><span data-icon="check-circle"></span> ' + esc(trKey("console.js.panels.tokens.minted_title")) + '</h3>';
       h += '<p style="margin:0 0 8px 0;font-size:12px;">' + esc(trKey("console.js.panels.tokens.minted_hint")) + '</p>';
@@ -1801,18 +1823,20 @@
       h += '</div>';
     }
 
-    h += '<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;">';
+    const disabledAttr = isRetired ? ' disabled aria-disabled="true"' : '';
+    const cardOpacity = isRetired ? 'opacity:0.65;' : '';
+    h += `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;${cardOpacity}">`;
     h += '<h3 style="margin:0 0 10px 0;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.tokens.new_title")) + '</h3>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;">';
     h += '<div>';
     h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.name_label")) + '</label>';
-    h += '<input type="text" id="new-token-name" placeholder="' + esc(trKey("console.js.panels.tokens.name_placeholder")) + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
+    h += '<input type="text" id="new-token-name"' + disabledAttr + ' placeholder="' + esc(trKey("console.js.panels.tokens.name_placeholder")) + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
     h += '</div>';
 
     h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
     h += '<div style="flex:1;min-width:130px;">';
     h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.scope_label")) + '</label>';
-    h += '<select id="new-token-scope" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
+    h += '<select id="new-token-scope"' + disabledAttr + ' style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
     h += '<option value="readonly" selected>' + esc(trKey("console.js.panels.tokens.scope_readonly")) + '</option>';
     h += '<option value="write">' + esc(trKey("console.js.panels.tokens.scope_write")) + '</option>';
     h += '<option value="owner">' + esc(trKey("console.js.panels.tokens.scope_owner")) + '</option>';
@@ -1821,7 +1845,7 @@
 
     h += '<div style="flex:1;min-width:130px;">';
     h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.expiry_label")) + '</label>';
-    h += '<select id="new-token-expiry" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
+    h += '<select id="new-token-expiry"' + disabledAttr + ' style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
     h += '<option value="0" selected>' + esc(trKey("console.js.panels.tokens.expiry_none")) + '</option>';
     h += '<option value="30">' + esc(trKey("console.js.panels.tokens.expiry_30")) + '</option>';
     h += '<option value="90">' + esc(trKey("console.js.panels.tokens.expiry_90")) + '</option>';
@@ -1830,7 +1854,7 @@
     h += '</div>';
     h += '</div>';
 
-    h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()"><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.issue")) + '</button>';
+    h += '<button type="button" id="create-api-token-btn"' + disabledAttr + ' class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:' + (isRetired ? 'not-allowed' : 'pointer') + ';" onclick="createApiToken()"><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.issue")) + '</button>';
     h += '</div>';
     h += '</div>';
 
@@ -1909,12 +1933,16 @@
     const target = _tokenState.container;
     if (!target) return;
     target.innerHTML = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.tokens.loading")) + '</p>';
+    _tokenState.retired = false;
+    _tokenState.deprecationNotice = '';
     try {
       const url = resolveRootUrl(_tokenState.opts, 'tokens');
       const r = await fetch(url);
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
       _tokenState.tokens = data.tokens || [];
+      _tokenState.retired = Boolean(data.retired);
+      _tokenState.deprecationNotice = data.deprecation_notice || '';
       // The server sends each scope notice once (design Section 6.6 rule 2). Keep it for the next renders of this page.
       if (Array.isArray(data.scope_notices) && data.scope_notices.length) _tokenState.scopeNotices = data.scope_notices;
       const initialMsg = (_tokenState.opts && _tokenState.opts.initialMsg) || undefined;

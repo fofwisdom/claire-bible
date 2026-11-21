@@ -201,7 +201,7 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
 def _over_threshold(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, done: set[str], include_uploads: bool, documents: list[str] | None, score: Any, settings: dict[str, float], document_keys: dict[str, set[tuple[str, str]]]) -> list[tuple[sqlite3.Row, float]]:
     """The visible documents of the personal knowledge base with a score at or over ``auto_match_threshold`` and a stored extraction, without the documents of ``done``, the documents with the flag "never contribute", the pasted texts, and (unless ``include_uploads``) the uploaded files. The checks of the target come after this step."""
     blocked = kb_collab.contribution_blocks(conn, account_id)
-    sql = "SELECT id, title, url, canonical_url, content_hash, source_type FROM documents WHERE kb_id=? AND hidden=0"
+    sql = "SELECT id, title, url, canonical_url, content_hash, source_type FROM documents WHERE kb_id=? AND hidden=0 AND coalesce(extraction_status, 'extracted') != 'pending'"
     args: list[Any] = [int(personal_kb_id)]
     if documents is not None:
         if not documents:

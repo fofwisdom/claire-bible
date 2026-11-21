@@ -20,12 +20,15 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
 _RETIRED_SUPPORT_RECOVERY_TARGET = 11
+EXTRACTION_MODES: frozenset[str] = frozenset({"provider", "client"})
+DOCUMENT_EXTRACTION_STATUSES: frozenset[str] = frozenset({"pending", "extracted", "failed"})
+DEFAULT_STAGED_CLAIM_TTL_SECONDS: float = 300.0
 logger = logging.getLogger(__name__)
 
 # v15 이관이 만드는 관리자 계정(설계 §8.2–§8.4). `store.accounts.ADMIN_ACCOUNT_ID`가 이 값을 다시 내보낸다.
@@ -98,7 +101,12 @@ CREATE TABLE IF NOT EXISTS documents (
     last_watched_at REAL,
     watch_reason TEXT,
     pinned INTEGER DEFAULT 0,
-    hidden INTEGER DEFAULT 0
+    hidden INTEGER DEFAULT 0,
+    extraction_status TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed')),
+    claim_token TEXT,
+    lease_expires_at REAL,
+    claimed_by_client_id TEXT,
+    raw_chars INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -274,6 +282,7 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
     code_challenge TEXT NOT NULL,
     code_challenge_method TEXT DEFAULT 'S256',
     scope TEXT DEFAULT 'readonly',
+    granted_scope TEXT DEFAULT 'readonly',
     expires_at REAL NOT NULL
 );
 
@@ -282,8 +291,14 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     refresh_token TEXT UNIQUE,
     client_id TEXT NOT NULL,
     scope TEXT DEFAULT 'readonly',
+    granted_scope TEXT DEFAULT 'readonly',
+    token_family_id TEXT,
     created_at REAL NOT NULL,
-    expires_at REAL NOT NULL
+    expires_at REAL NOT NULL,
+    refresh_expires_at REAL,
+    rotated_at REAL,
+    revoked_at REAL,
+    last_used_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);
 
@@ -300,6 +315,36 @@ CREATE TABLE IF NOT EXISTS oauth_auth_requests (
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS oauth_pending_requests (
+    tx_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    client_name TEXT,
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+    scope TEXT NOT NULL DEFAULT 'readonly',
+    state TEXT,
+    account_id INTEGER,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    consumed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_device_codes (
+    device_code TEXT PRIMARY KEY,
+    user_code TEXT UNIQUE NOT NULL,
+    client_id TEXT NOT NULL,
+    client_name TEXT,
+    scope TEXT NOT NULL DEFAULT 'readonly',
+    status TEXT NOT NULL DEFAULT 'pending',
+    account_id INTEGER,
+    interval INTEGER NOT NULL DEFAULT 5,
+    last_poll_at REAL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_device_codes_user ON oauth_device_codes(user_code);
 
 -- [자동 확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
 -- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
@@ -863,6 +908,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v37_personal_source_public(conn)
     _migrate_v38_pair_review_backfill(conn)
     _migrate_v39_embedding_spaces(conn)
+    _migrate_v40_oauth_v21(conn)
+    _migrate_v40_client_staging(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1778,6 +1825,84 @@ def _migrate_v39_embedding_spaces(conn: sqlite3.Connection) -> None:
                 conn.execute("UPDATE knowledge_bases SET active_space_id=? WHERE id=?", (sid, kb_id_val))
 
 
+def _migrate_v40_oauth_v21(conn: sqlite3.Connection) -> None:
+    """v40 schema: OAuth 2.1 scope persistence, refresh rotation family, pending login tx, and RFC 8628 device codes."""
+    if _table_exists(conn, "oauth_codes"):
+        _ensure_column(conn, "oauth_codes", "granted_scope", "TEXT DEFAULT 'readonly'")
+        conn.execute(
+            "UPDATE oauth_codes SET granted_scope=COALESCE(NULLIF(granted_scope, ''), NULLIF(scope, ''), 'readonly') "
+            "WHERE granted_scope IS NULL OR granted_scope=''"
+        )
+    if _table_exists(conn, "oauth_tokens"):
+        _ensure_column(conn, "oauth_tokens", "granted_scope", "TEXT DEFAULT 'readonly'")
+        _ensure_column(conn, "oauth_tokens", "token_family_id", "TEXT")
+        _ensure_column(conn, "oauth_tokens", "refresh_expires_at", "REAL")
+        _ensure_column(conn, "oauth_tokens", "rotated_at", "REAL")
+        _ensure_column(conn, "oauth_tokens", "revoked_at", "REAL")
+        _ensure_column(conn, "oauth_tokens", "last_used_at", "REAL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(token_family_id)")
+        conn.execute(
+            "UPDATE oauth_tokens SET granted_scope=COALESCE(NULLIF(granted_scope, ''), NULLIF(scope, ''), 'readonly') "
+            "WHERE granted_scope IS NULL OR granted_scope=''"
+        )
+        conn.execute(
+            "UPDATE oauth_tokens SET token_family_id=lower(hex(randomblob(16))) "
+            "WHERE token_family_id IS NULL OR token_family_id=''"
+        )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_pending_requests (
+            tx_id TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            client_name TEXT,
+            redirect_uri TEXT NOT NULL,
+            code_challenge TEXT NOT NULL,
+            code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+            scope TEXT NOT NULL DEFAULT 'readonly',
+            state TEXT,
+            account_id INTEGER,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            consumed_at REAL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_device_codes (
+            device_code TEXT PRIMARY KEY,
+            user_code TEXT UNIQUE NOT NULL,
+            client_id TEXT NOT NULL,
+            client_name TEXT,
+            scope TEXT NOT NULL DEFAULT 'readonly',
+            status TEXT NOT NULL DEFAULT 'pending',
+            account_id INTEGER,
+            interval INTEGER NOT NULL DEFAULT 5,
+            last_poll_at REAL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_oauth_device_codes_user ON oauth_device_codes(user_code)")
+
+
+def _migrate_v40_client_staging(conn: sqlite3.Connection) -> None:
+    """Apply the v40 client-staging columns on accounts and documents without losing existing rows."""
+    if _table_exists(conn, "accounts"):
+        _ensure_column(conn, "accounts", "extraction_mode", "TEXT NOT NULL DEFAULT 'provider' CHECK (extraction_mode IN ('provider', 'client'))")
+        conn.execute("UPDATE accounts SET extraction_mode='provider' WHERE extraction_mode IS NULL OR extraction_mode NOT IN ('provider', 'client')")
+    if _table_exists(conn, "documents"):
+        _ensure_column(conn, "documents", "content_hash", "TEXT")
+        _ensure_column(conn, "documents", "extraction_status", "TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed'))")
+        _ensure_column(conn, "documents", "claim_token", "TEXT")
+        _ensure_column(conn, "documents", "lease_expires_at", "REAL")
+        _ensure_column(conn, "documents", "claimed_by_client_id", "TEXT")
+        _ensure_column(conn, "documents", "raw_chars", "INTEGER")
+        conn.execute("UPDATE documents SET extraction_status='extracted' WHERE extraction_status IS NULL OR extraction_status NOT IN ('pending', 'extracted', 'failed')")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_extraction_status ON documents(kb_id, extraction_status)")
+
+
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
     """v36 schema (SCHEMA_VERSIONING.md "v36"): the columns of the human verdict in ``same_subject_shadow`` (``verdict``, ``verdict_note``, ``verdict_at``, ``verdict_by``). A table of v35 gets them with NULL values; no row changes. Idempotent (A3); it runs at each start."""
     if not _table_exists(conn, "same_subject_shadow"):
@@ -2582,17 +2707,21 @@ def _document_minhash_json(doc: Document) -> str | None:
     return json.dumps(sig) if sig else None
 
 
-def insert_document(conn: sqlite3.Connection, doc: Document, kb_id: int = 0) -> None:
+def insert_document(conn: sqlite3.Connection, doc: Document, kb_id: int = 0, *, extraction_status: str = "extracted", raw_chars: int | None = None) -> None:
+    status_val = str(extraction_status or "extracted")
+    if status_val not in DOCUMENT_EXTRACTION_STATUSES:
+        raise ValueError(f"invalid extraction_status: {extraction_status!r}")
+    char_count = len(doc.raw_text or "") if raw_chars is None else int(raw_chars)
     conn.execute(
         """INSERT OR REPLACE INTO documents
         (id,kb_id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
-         source_type,content_hash,lang,partial,meta,minhash,seen)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+         source_type,content_hash,lang,partial,meta,minhash,seen,extraction_status,raw_chars)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)""",
         (
             doc.id, kb_id, doc.url, doc.canonical_url, doc.title, doc.author,
             doc.published_at, doc.fetched_at, doc.raw_text, doc.source_type,
             doc.content_hash, doc.lang, int(doc.partial), json.dumps(doc.meta),
-            _document_minhash_json(doc),
+            _document_minhash_json(doc), status_val, char_count,
         ),
     )
     conn.commit()
@@ -2816,6 +2945,7 @@ def _documents_filter(
         params.append(kb_id)
     if not include_hidden:
         where.append("hidden = 0")
+        where.append("coalesce(extraction_status, 'extracted') != 'pending'")
     if since is not None:
         where.append("fetched_at >= ?")
         params.append(since)
@@ -2871,7 +3001,8 @@ def documents_timeline(
     params.append(limit)
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
-        f"pinned, hidden, (detail IS NOT NULL AND trim(detail) != '') AS has_detail, "
+        f"pinned, hidden, coalesce(extraction_status, 'extracted') AS extraction_status, "
+        f"(detail IS NOT NULL AND trim(detail) != '') AS has_detail, "
         f"coalesce(detail_format, 'adoc') AS detail_format FROM documents {where_sql} "
         f"{DOCUMENTS_ORDER_SQL} LIMIT ?",
         params,
@@ -2900,6 +3031,15 @@ def hidden_document_ids(conn: sqlite3.Connection, kb_id: int | None = None) -> s
         rows = conn.execute("SELECT id FROM documents WHERE hidden=1 AND kb_id=?", (kb_id,)).fetchall()
     else:
         rows = conn.execute("SELECT id FROM documents WHERE hidden=1").fetchall()
+    return {row["id"] for row in rows}
+
+
+def pending_document_ids(conn: sqlite3.Connection, kb_id: int | None = None) -> set[str]:
+    """Return IDs of documents whose extraction_status is pending."""
+    if kb_id is not None:
+        rows = conn.execute("SELECT id FROM documents WHERE extraction_status='pending' AND kb_id=?", (kb_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM documents WHERE extraction_status='pending'").fetchall()
     return {row["id"] for row in rows}
 
 
@@ -2970,6 +3110,246 @@ def get_document(conn: sqlite3.Connection, document_id: str, kb_id: int | None =
         lang=row["lang"], partial=bool(row["partial"]),
         meta=json.loads(row["meta"] or "{}"),
     )
+
+
+def resolve_extraction_mode(conn: sqlite3.Connection, *, account_id: int | None = None, kb_id: int | None = None) -> str:
+    """Return the extraction mode ('provider' or 'client') for an account or its personal KB."""
+    if not _table_exists(conn, "accounts") or "extraction_mode" not in _column_names(conn, "accounts"):
+        return "provider"
+    row: sqlite3.Row | None = None
+    if account_id is not None:
+        row = conn.execute("SELECT extraction_mode FROM accounts WHERE id=?", (int(account_id),)).fetchone()
+    elif kb_id is not None and _table_exists(conn, "knowledge_bases") and "account_id" in _column_names(conn, "knowledge_bases"):
+        row = conn.execute("SELECT a.extraction_mode FROM knowledge_bases kb JOIN accounts a ON a.id = kb.account_id WHERE kb.id=? AND coalesce(kb.is_personal, 0)=1", (int(kb_id),)).fetchone()
+    if row is None:
+        return "provider"
+    mode = str(row["extraction_mode"] or "provider").strip().lower()
+    return mode if mode in EXTRACTION_MODES else "provider"
+
+
+def _staging_kb_scope(conn: sqlite3.Connection, *, kb_id: int | None = None, account_id: int | None = None) -> tuple[int | None, bool]:
+    """Resolve the permitted personal KB id for account-scoped or KB-scoped staging calls."""
+    if account_id is None:
+        return kb_id, False
+    if not _table_exists(conn, "knowledge_bases") or "account_id" not in _column_names(conn, "knowledge_bases"):
+        return None, True
+    row = conn.execute("SELECT id FROM knowledge_bases WHERE account_id=? AND coalesce(is_personal, 0)=1", (int(account_id),)).fetchone()
+    if row is None:
+        return None, True
+    personal_kb_id = int(row["id"])
+    if kb_id is not None and int(kb_id) != personal_kb_id:
+        return None, True
+    return personal_kb_id, False
+
+
+def mark_document_extraction_status(conn: sqlite3.Connection, document_id: str, status: str, *, kb_id: int | None = None, clear_claim: bool = True) -> bool:
+    """Set documents.extraction_status and optionally clear lease claim fields."""
+    status_val = str(status or "")
+    if status_val not in DOCUMENT_EXTRACTION_STATUSES:
+        raise ValueError(f"invalid extraction_status: {status!r}")
+    assignments = ["extraction_status=?"]
+    params: list[Any] = [status_val]
+    if clear_claim:
+        assignments.extend(["claim_token=NULL", "lease_expires_at=NULL", "claimed_by_client_id=NULL"])
+    where = "WHERE id=?"
+    params.append(document_id)
+    if kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(int(kb_id))
+    cur = conn.execute(f"UPDATE documents SET {', '.join(assignments)} {where}", tuple(params))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_staged_documents(conn: sqlite3.Connection, *, kb_id: int | None = None, account_id: int | None = None, status: str | None = "pending", limit: int = 50, now: float | None = None) -> list[dict[str, Any]]:
+    """List staged documents in FIFO order with active lease status."""
+    if status is not None and status not in DOCUMENT_EXTRACTION_STATUSES:
+        raise ValueError(f"invalid extraction_status: {status!r}")
+    scoped_kb_id, impossible = _staging_kb_scope(conn, kb_id=kb_id, account_id=account_id)
+    if impossible:
+        return []
+    stamp = time.time() if now is None else float(now)
+    capped_limit = max(1, min(int(limit or 50), 500))
+    where: list[str] = []
+    params: list[Any] = []
+    if scoped_kb_id is not None:
+        where.append("kb_id=?")
+        params.append(int(scoped_kb_id))
+    if status is not None:
+        where.append("coalesce(extraction_status, 'extracted')=?")
+        params.append(status)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    params.append(capped_limit)
+    rows = conn.execute(f"SELECT id, kb_id, url, canonical_url, title, author, published_at, fetched_at, source_type, content_hash, lang, partial, raw_chars, length(raw_text) AS raw_text_len, coalesce(extraction_status, 'extracted') AS extraction_status, claim_token, lease_expires_at, claimed_by_client_id FROM documents {where_sql} ORDER BY coalesce(fetched_at, 0) ASC, rowid ASC LIMIT ?", tuple(params)).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        is_claimed = bool(row["claim_token"] and row["lease_expires_at"] is not None and float(row["lease_expires_at"]) > stamp)
+        raw_chars_val = int(row["raw_chars"]) if row["raw_chars"] is not None else int(row["raw_text_len"] or 0)
+        out.append({
+            "id": row["id"],
+            "document_id": row["id"],
+            "kb_id": int(row["kb_id"]),
+            "url": row["url"],
+            "canonical_url": row["canonical_url"],
+            "title": row["title"],
+            "author": row["author"],
+            "published_at": row["published_at"],
+            "fetched_at": row["fetched_at"],
+            "source_type": row["source_type"],
+            "content_hash": row["content_hash"],
+            "lang": row["lang"],
+            "partial": bool(row["partial"]),
+            "raw_chars": raw_chars_val,
+            "extraction_status": row["extraction_status"],
+            "claimed": is_claimed,
+            "claimed_by_client_id": row["claimed_by_client_id"] if is_claimed else None,
+            "lease_expires_at": float(row["lease_expires_at"]) if is_claimed and row["lease_expires_at"] is not None else None,
+        })
+    return out
+
+
+def claim_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: int | None = None, account_id: int | None = None, client_id: str | None = None, lease_seconds: float = DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None) -> dict[str, Any] | None:
+    """Atomically claim a pending document lease or reclaim an expired lease."""
+    ttl = float(lease_seconds)
+    if ttl <= 0:
+        raise ValueError("lease_seconds must be positive")
+    scoped_kb_id, impossible = _staging_kb_scope(conn, kb_id=kb_id, account_id=account_id)
+    if impossible:
+        return None
+    stamp = time.time() if now is None else float(now)
+    expires_at = stamp + ttl
+    token = secrets.token_urlsafe(24)
+    where = "id=? AND extraction_status='pending' AND (claim_token IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)"
+    params: list[Any] = [token, expires_at, client_id, document_id, stamp]
+    if scoped_kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(int(scoped_kb_id))
+    cur = conn.execute(f"UPDATE documents SET claim_token=?, lease_expires_at=?, claimed_by_client_id=? WHERE {where}", tuple(params))
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    q = "SELECT id, kb_id, url, canonical_url, title, source_type, content_hash, raw_chars, length(raw_text) AS raw_text_len, fetched_at, extraction_status, claim_token, lease_expires_at, claimed_by_client_id FROM documents WHERE id=? AND claim_token=?"
+    q_params: list[Any] = [document_id, token]
+    if scoped_kb_id is not None:
+        q += " AND kb_id=?"
+        q_params.append(int(scoped_kb_id))
+    row = conn.execute(q, tuple(q_params)).fetchone()
+    if row is None:
+        return None
+    raw_chars_val = int(row["raw_chars"]) if row["raw_chars"] is not None else int(row["raw_text_len"] or 0)
+    return {
+        "id": row["id"],
+        "document_id": row["id"],
+        "kb_id": int(row["kb_id"]),
+        "url": row["url"],
+        "canonical_url": row["canonical_url"],
+        "title": row["title"],
+        "source_type": row["source_type"],
+        "content_hash": row["content_hash"],
+        "raw_chars": raw_chars_val,
+        "fetched_at": row["fetched_at"],
+        "extraction_status": row["extraction_status"],
+        "claim_token": row["claim_token"],
+        "lease_expires_at": float(row["lease_expires_at"]),
+        "claimed_by_client_id": row["claimed_by_client_id"],
+    }
+
+
+def renew_staged_document_claim(conn: sqlite3.Connection, document_id: str, claim_token: str, *, kb_id: int | None = None, account_id: int | None = None, lease_seconds: float = DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None) -> dict[str, Any] | None:
+    """Extend an active claim lease when the claim_token matches and has not expired."""
+    ttl = float(lease_seconds)
+    if ttl <= 0:
+        raise ValueError("lease_seconds must be positive")
+    if not claim_token:
+        return None
+    scoped_kb_id, impossible = _staging_kb_scope(conn, kb_id=kb_id, account_id=account_id)
+    if impossible:
+        return None
+    stamp = time.time() if now is None else float(now)
+    expires_at = stamp + ttl
+    where = "id=? AND extraction_status='pending' AND claim_token=? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?"
+    params: list[Any] = [expires_at, document_id, claim_token, stamp]
+    if scoped_kb_id is not None:
+        where += " AND kb_id=?"
+        params.append(int(scoped_kb_id))
+    cur = conn.execute(f"UPDATE documents SET lease_expires_at=? WHERE {where}", tuple(params))
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    q = "SELECT id, kb_id, extraction_status, claim_token, lease_expires_at, claimed_by_client_id FROM documents WHERE id=? AND claim_token=?"
+    q_params: list[Any] = [document_id, claim_token]
+    if scoped_kb_id is not None:
+        q += " AND kb_id=?"
+        q_params.append(int(scoped_kb_id))
+    row = conn.execute(q, tuple(q_params)).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "document_id": row["id"],
+        "kb_id": int(row["kb_id"]),
+        "extraction_status": row["extraction_status"],
+        "claim_token": row["claim_token"],
+        "lease_expires_at": float(row["lease_expires_at"]),
+        "claimed_by_client_id": row["claimed_by_client_id"],
+    }
+
+
+def get_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: int | None = None, account_id: int | None = None, claim_token: str | None = None, offset: int = 0, max_chars: int | None = None, allow_non_pending: bool = False, now: float | None = None) -> dict[str, Any] | None:
+    """Return full or sliced staged document content for the owning account."""
+    scoped_kb_id, impossible = _staging_kb_scope(conn, kb_id=kb_id, account_id=account_id)
+    if impossible:
+        return None
+    row = get_document_row(conn, document_id, kb_id=scoped_kb_id)
+    if row is None:
+        return None
+    status = str(row["extraction_status"] or "extracted")
+    if not allow_non_pending and status != "pending":
+        return None
+    stamp = time.time() if now is None else float(now)
+    is_claimed = bool(row["claim_token"] and row["lease_expires_at"] is not None and float(row["lease_expires_at"]) > stamp)
+    if claim_token is not None:
+        if not is_claimed or row["claim_token"] != claim_token:
+            return None
+    full_text = str(row["raw_text"] or "")
+    raw_chars_val = int(row["raw_chars"]) if row["raw_chars"] is not None else len(full_text)
+    start = max(0, int(offset or 0))
+    if max_chars is not None:
+        limit_chars = max(0, int(max_chars))
+        chunk = full_text[start:start + limit_chars]
+        end_pos = start + len(chunk)
+        has_more = end_pos < len(full_text)
+        next_offset: int | None = end_pos if has_more else None
+    else:
+        chunk = full_text[start:]
+        has_more = False
+        next_offset = None
+    return {
+        "id": row["id"],
+        "document_id": row["id"],
+        "kb_id": int(row["kb_id"]),
+        "url": row["url"],
+        "canonical_url": row["canonical_url"],
+        "title": row["title"],
+        "author": row["author"],
+        "published_at": row["published_at"],
+        "fetched_at": row["fetched_at"],
+        "source_type": row["source_type"],
+        "content_hash": row["content_hash"],
+        "lang": row["lang"],
+        "partial": bool(row["partial"]),
+        "meta": json.loads(row["meta"] or "{}"),
+        "extraction_status": status,
+        "raw_text": chunk,
+        "raw_chars": raw_chars_val,
+        "offset": start,
+        "returned_chars": len(chunk),
+        "next_offset": next_offset,
+        "has_more": has_more,
+        "claimed": is_claimed,
+        "claimed_by_client_id": row["claimed_by_client_id"] if is_claimed else None,
+        "lease_expires_at": float(row["lease_expires_at"]) if is_claimed and row["lease_expires_at"] is not None else None,
+    }
 
 
 # --- entities ---
@@ -3830,8 +4210,49 @@ def validate_session(
 
 # --- OAuth 2.1 Storage & Validation ---
 
-OAUTH_ACCESS_TOKEN_TTL: float = 30 * 86400.0  # 30일
-OAUTH_REFRESH_TOKEN_TTL: float = 365 * 86400.0  # 1년
+OAUTH_ACCESS_TOKEN_TTL: float = 30 * 86400.0  # 30 days
+OAUTH_REFRESH_TOKEN_TTL: float = 365 * 86400.0  # 1 year
+OAUTH_SCOPES: tuple[str, ...] = ("readonly", "write")
+_DEVICE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def parse_oauth_scope(raw_scope: str | None) -> str:
+    """Validate and normalize an OAuth scope string into canonical order."""
+    tokens = str(raw_scope or "").strip().split()
+    if not tokens:
+        return "readonly"
+    seen: set[str] = set()
+    for tok in tokens:
+        if tok not in OAUTH_SCOPES:
+            raise ValueError(f"Unsupported OAuth scope: {tok}")
+        seen.add(tok)
+    ordered = [s for s in OAUTH_SCOPES if s in seen]
+    return " ".join(ordered)
+
+
+def is_oauth_scope_subset(requested_scope: str, granted_scope: str) -> bool:
+    """Return True if every requested OAuth capability fits inside the granted scope."""
+    req = set(parse_oauth_scope(requested_scope).split())
+    granted = set(parse_oauth_scope(granted_scope).split())
+    if "write" in granted:
+        return req <= {"readonly", "write"}
+    return req <= granted
+
+
+def _token_grant_id(token: str, family_id: str | None) -> str:
+    if family_id:
+        return str(family_id)
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+    return f"tok:{digest}"
+
+
+def _update_oauth_last_used(conn: sqlite3.Connection, token: str, now: float) -> None:
+    try:
+        conn.execute("UPDATE oauth_tokens SET last_used_at=? WHERE token=?", (now, token))
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        if "readonly" not in str(exc).lower():
+            raise
 
 
 def register_oauth_client(
@@ -3877,18 +4298,18 @@ def create_oauth_code(
     code_challenge_method: str = "S256",
     scope: str = "readonly",
     *,
+    account_id: int = ADMIN_ACCOUNT_ID,
     ttl: float = 300.0,
 ) -> str:
-    """일회용 인가 코드(Authorization Code) 생성 (수명 5분)."""
+    """Create a single-use OAuth authorization code (5-minute TTL)."""
+    canonical_scope = parse_oauth_scope(scope)
     code = secrets.token_urlsafe(32)
     now = time.time()
-    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
         """INSERT INTO oauth_codes
-        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at, account_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, now + ttl,
-         ADMIN_ACCOUNT_ID),
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, granted_scope, expires_at, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, canonical_scope, canonical_scope, now + ttl, int(account_id)),
     )
     conn.commit()
     return code
@@ -3900,18 +4321,21 @@ def consume_oauth_code(
     client_id: str,
     redirect_uri: str,
 ) -> dict[str, Any] | None:
-    """인가 코드 단일 소비(Atomic Consumption). 유효하면 정보 반환 후 즉시 삭제."""
+    """Atomically consume a single-use OAuth authorization code."""
     now = time.time()
     row = conn.execute(
-        """SELECT client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at, account_id
+        """SELECT client_id, redirect_uri, code_challenge, code_challenge_method, scope, granted_scope, expires_at, account_id
         FROM oauth_codes WHERE code=? AND client_id=? AND redirect_uri=? AND expires_at>=?""",
         (code, client_id, redirect_uri, now),
     ).fetchone()
     if row is None:
         return None
-    data = dict(row)
-    conn.execute("DELETE FROM oauth_codes WHERE code=?", (code,))
+    cur = conn.execute("DELETE FROM oauth_codes WHERE code=?", (code,))
     conn.commit()
+    if cur.rowcount != 1:
+        return None
+    data = dict(row)
+    data["granted_scope"] = data.get("granted_scope") or data.get("scope") or "readonly"
     return data
 
 
@@ -3920,19 +4344,22 @@ def create_oauth_token(
     client_id: str,
     scope: str = "readonly",
     *,
+    account_id: int = ADMIN_ACCOUNT_ID,
+    token_family_id: str | None = None,
     access_ttl: float = OAUTH_ACCESS_TOKEN_TTL,
     refresh_ttl: float = OAUTH_REFRESH_TOKEN_TTL,
 ) -> tuple[str, str]:
-    """OAuth Access Token 및 Refresh Token 발급 및 영구 격리 저장."""
+    """Issue and persist an OAuth access token and refresh token pair."""
+    canonical_scope = parse_oauth_scope(scope)
     access_token = secrets.token_urlsafe(32)
     refresh_token = secrets.token_urlsafe(32)
+    family_id = token_family_id or secrets.token_urlsafe(24)
     now = time.time()
-    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
         """INSERT INTO oauth_tokens
-        (token, refresh_token, client_id, scope, created_at, expires_at, account_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (access_token, refresh_token, client_id, scope, now, now + access_ttl, ADMIN_ACCOUNT_ID),
+        (token, refresh_token, client_id, scope, granted_scope, token_family_id, created_at, expires_at, refresh_expires_at, rotated_at, revoked_at, last_used_at, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)""",
+        (access_token, refresh_token, client_id, canonical_scope, canonical_scope, family_id, now, now + access_ttl, now + refresh_ttl, int(account_id)),
     )
     conn.commit()
     return access_token, refresh_token
@@ -3943,49 +4370,116 @@ def refresh_oauth_token(
     refresh_token: str,
     client_id: str | None = None,
     *,
+    requested_scope: str | None = None,
     access_ttl: float = OAUTH_ACCESS_TOKEN_TTL,
 ) -> tuple[str, str, str] | None:
-    """Refresh Token 회전(Rotation) 및 신규 Access/Refresh Token 발급."""
+    """Rotate a refresh token, revoke the token family on reuse, and enforce scope non-escalation."""
     now = time.time()
-    query = "SELECT token, refresh_token, client_id, scope, expires_at FROM oauth_tokens WHERE refresh_token=?"
-    params: list[Any] = [refresh_token]
-    if client_id:
-        query += " AND client_id=?"
-        params.append(client_id)
-    row = conn.execute(query, params).fetchone()
+    row = conn.execute(
+        """SELECT token, refresh_token, client_id, scope, granted_scope, token_family_id, expires_at, refresh_expires_at, rotated_at, revoked_at, account_id
+        FROM oauth_tokens WHERE refresh_token=?""",
+        (refresh_token,),
+    ).fetchone()
     if row is None:
+        return None
+    if client_id and row["client_id"] != client_id:
+        return None
+    family_id = row["token_family_id"]
+    if row["revoked_at"] is not None:
+        return None
+    if row["rotated_at"] is not None:
+        if family_id:
+            conn.execute("UPDATE oauth_tokens SET revoked_at=? WHERE token_family_id=? AND revoked_at IS NULL", (now, family_id))
+        else:
+            conn.execute("UPDATE oauth_tokens SET revoked_at=? WHERE refresh_token=? AND revoked_at IS NULL", (now, refresh_token))
+        conn.commit()
+        return None
+    refresh_exp = row["refresh_expires_at"]
+    if refresh_exp is not None and float(refresh_exp) < now:
+        return None
+
+    base_scope = parse_oauth_scope(row["granted_scope"] or row["scope"] or "readonly")
+    effective_scope = base_scope
+    if requested_scope is not None and str(requested_scope).strip():
+        candidate_scope = parse_oauth_scope(requested_scope)
+        if not is_oauth_scope_subset(candidate_scope, base_scope):
+            raise ValueError("invalid_scope")
+        effective_scope = candidate_scope
+
+    cur = conn.execute(
+        """UPDATE oauth_tokens
+        SET rotated_at=?
+        WHERE token=? AND rotated_at IS NULL AND revoked_at IS NULL""",
+        (now, row["token"]),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
         return None
 
     new_access = secrets.token_urlsafe(32)
     new_refresh = secrets.token_urlsafe(32)
-    # 같은 행을 회전하므로 account_id는 발급 때 값이 그대로 남는다.
-    cur = conn.execute(
-        """UPDATE oauth_tokens
-        SET token=?, refresh_token=?, expires_at=?
-        WHERE refresh_token=?""",
-        (new_access, new_refresh, now + access_ttl, refresh_token),
+    resolved_family = family_id or secrets.token_urlsafe(24)
+    resolved_refresh_exp = float(refresh_exp) if refresh_exp is not None else (now + OAUTH_REFRESH_TOKEN_TTL)
+    acct_id = int(row["account_id"]) if row["account_id"] is not None else ADMIN_ACCOUNT_ID
+    conn.execute(
+        """INSERT INTO oauth_tokens
+        (token, refresh_token, client_id, scope, granted_scope, token_family_id, created_at, expires_at, refresh_expires_at, rotated_at, revoked_at, last_used_at, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)""",
+        (new_access, new_refresh, row["client_id"], effective_scope, effective_scope, resolved_family, now, now + access_ttl, resolved_refresh_exp, now, acct_id),
     )
     conn.commit()
-    if cur.rowcount != 1:
-        return None
-    return new_access, new_refresh, str(row["scope"])
+    return new_access, new_refresh, effective_scope
 
 
 def validate_oauth_token(
     conn: sqlite3.Connection,
     token: str,
 ) -> str | None:
-    """OAuth Access Token 검증. 유효한 경우 scope 문자열(예: 'readonly') 반환."""
+    """Validate an active OAuth access token and return its effective scope string."""
     if not token or len(token) < 20:
         return None
     now = time.time()
     row = conn.execute(
-        "SELECT scope, expires_at FROM oauth_tokens WHERE token=? AND expires_at>=?",
+        "SELECT COALESCE(NULLIF(granted_scope, ''), scope, 'readonly') AS effective_scope, last_used_at "
+        "FROM oauth_tokens WHERE token=? AND expires_at>=? AND rotated_at IS NULL AND revoked_at IS NULL",
         (token, now),
     ).fetchone()
     if row is None:
         return None
-    return str(row["scope"])
+    if row["last_used_at"] is None or (now - float(row["last_used_at"])) >= 1.0:
+        _update_oauth_last_used(conn, token, now)
+    return str(row["effective_scope"])
+
+
+def revoke_oauth_token(
+    conn: sqlite3.Connection,
+    token_value: str,
+    *,
+    client_id: str | None = None,
+    account_id: int | None = None,
+) -> bool:
+    """Revoke an OAuth access token or refresh token and its entire token family (RFC 7009)."""
+    raw = str(token_value or "").strip()
+    if not raw:
+        return False
+    row = conn.execute(
+        "SELECT token, client_id, account_id, token_family_id, revoked_at FROM oauth_tokens WHERE token=? OR refresh_token=?",
+        (raw, raw),
+    ).fetchone()
+    if row is None:
+        return False
+    if client_id is not None and row["client_id"] != client_id:
+        return False
+    if account_id is not None and row["account_id"] != account_id:
+        return False
+    now = time.time()
+    family_id = row["token_family_id"]
+    if family_id:
+        cur = conn.execute("UPDATE oauth_tokens SET revoked_at=? WHERE token_family_id=? AND revoked_at IS NULL", (now, family_id))
+    else:
+        cur = conn.execute("UPDATE oauth_tokens SET revoked_at=? WHERE token=? AND revoked_at IS NULL", (now, row["token"]))
+    conn.commit()
+    return cur.rowcount > 0 or row["revoked_at"] is not None
 
 
 def create_oauth_auth_request(
@@ -4032,8 +4526,10 @@ def get_oauth_auth_request(
 def approve_oauth_auth_request(
     conn: sqlite3.Connection,
     nonce: str,
+    *,
+    account_id: int = ADMIN_ACCOUNT_ID,
 ) -> str | None:
-    """텔레그램 봇 또는 웹 승인 버튼에 의한 인가 요청 승인 -> 인가 코드(code) 발급 및 저장."""
+    """Approve a pending Telegram OAuth request and issue a single-use authorization code."""
     req = get_oauth_auth_request(conn, nonce)
     if not req or req["approved"]:
         return None
@@ -4044,11 +4540,11 @@ def approve_oauth_auth_request(
         code_challenge=req["code_challenge"],
         code_challenge_method=req["code_challenge_method"],
         scope=req["scope"],
+        account_id=account_id,
     )
-    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
         "UPDATE oauth_auth_requests SET approved=1, code=?, account_id=? WHERE nonce=?",
-        (code, ADMIN_ACCOUNT_ID, nonce),
+        (code, int(account_id), nonce),
     )
     conn.commit()
     return code
@@ -4058,10 +4554,327 @@ def deny_oauth_auth_request(
     conn: sqlite3.Connection,
     nonce: str,
 ) -> bool:
-    """인가 요청 거부 -> 요청 삭제."""
+    """Reject a pending Telegram OAuth request and delete the nonce record."""
     cur = conn.execute("DELETE FROM oauth_auth_requests WHERE nonce=?", (nonce,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# --- OAuth 2.1 Browser TX Handoff, Device Codes, and Grant Manager ---
+
+
+def create_oauth_pending_request(
+    conn: sqlite3.Connection,
+    *,
+    client_id: str,
+    client_name: str | None,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str = "S256",
+    scope: str = "readonly",
+    state: str | None = None,
+    account_id: int | None = None,
+    ttl: float = 600.0,
+) -> str:
+    """Create a 10-minute pending browser OAuth transaction for /login?tx=... handoff."""
+    tx_id = secrets.token_urlsafe(24)
+    now = time.time()
+    canonical_scope = parse_oauth_scope(scope)
+    conn.execute(
+        """INSERT INTO oauth_pending_requests
+        (tx_id, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, scope, state, account_id, created_at, expires_at, consumed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+        (tx_id, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, canonical_scope, state, account_id, now, now + ttl),
+    )
+    conn.commit()
+    return tx_id
+
+
+def get_oauth_pending_request(
+    conn: sqlite3.Connection,
+    tx_id: str,
+) -> dict[str, Any] | None:
+    """Return an active unconsumed pending OAuth transaction, or None if missing, expired, or consumed."""
+    if not tx_id:
+        return None
+    now = time.time()
+    row = conn.execute(
+        """SELECT tx_id, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, scope, state, account_id, created_at, expires_at
+        FROM oauth_pending_requests WHERE tx_id=? AND expires_at>=? AND consumed_at IS NULL""",
+        (tx_id, now),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def bind_oauth_pending_request_account(
+    conn: sqlite3.Connection,
+    tx_id: str,
+    account_id: int,
+) -> bool:
+    """Attach the authenticated account ID to a pending OAuth transaction after login."""
+    if not tx_id:
+        return False
+    now = time.time()
+    cur = conn.execute(
+        "UPDATE oauth_pending_requests SET account_id=? WHERE tx_id=? AND expires_at>=? AND consumed_at IS NULL",
+        (int(account_id), tx_id, now),
+    )
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def consume_oauth_pending_request(
+    conn: sqlite3.Connection,
+    tx_id: str,
+    *,
+    account_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Atomically mark a pending OAuth transaction as consumed once approval or denial finishes."""
+    if not tx_id:
+        return None
+    now = time.time()
+    row = conn.execute(
+        """SELECT tx_id, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, scope, state, account_id, created_at, expires_at
+        FROM oauth_pending_requests WHERE tx_id=? AND expires_at>=? AND consumed_at IS NULL""",
+        (tx_id, now),
+    ).fetchone()
+    if row is None:
+        return None
+    if account_id is not None and row["account_id"] is not None and int(row["account_id"]) != int(account_id):
+        return None
+    cur = conn.execute(
+        "UPDATE oauth_pending_requests SET consumed_at=? WHERE tx_id=? AND consumed_at IS NULL AND expires_at>=?",
+        (now, tx_id, now),
+    )
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    return dict(row)
+
+
+def _generate_device_user_code() -> str:
+    chars = "".join(secrets.choice(_DEVICE_CODE_ALPHABET) for _ in range(8))
+    return f"{chars[:4]}-{chars[4:]}"
+
+
+def normalize_device_user_code(raw: str) -> str:
+    """Normalize user-entered device codes into uppercase ABCD-EFGH form."""
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", str(raw or "").strip().upper())
+    if len(cleaned) == 8:
+        return f"{cleaned[:4]}-{cleaned[4:]}"
+    return str(raw or "").strip().upper()
+
+
+def create_oauth_device_code(
+    conn: sqlite3.Connection,
+    *,
+    client_id: str,
+    client_name: str | None,
+    scope: str = "readonly",
+    interval: int = 5,
+    ttl: float = 600.0,
+) -> tuple[str, str]:
+    """Create an RFC 8628 device authorization pair (device_code, user_code)."""
+    canonical_scope = parse_oauth_scope(scope)
+    device_code = secrets.token_urlsafe(32)
+    now = time.time()
+    for _ in range(5):
+        user_code = _generate_device_user_code()
+        exists = conn.execute("SELECT 1 FROM oauth_device_codes WHERE user_code=?", (user_code,)).fetchone()
+        if exists is None:
+            break
+    else:
+        raise RuntimeError("Failed to allocate unique device user_code")
+    conn.execute(
+        """INSERT INTO oauth_device_codes
+        (device_code, user_code, client_id, client_name, scope, status, account_id, interval, last_poll_at, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?, ?)""",
+        (device_code, user_code, client_id, client_name, canonical_scope, int(interval), now, now + ttl),
+    )
+    conn.commit()
+    return device_code, user_code
+
+
+def get_oauth_device_code(
+    conn: sqlite3.Connection,
+    device_code: str,
+) -> dict[str, Any] | None:
+    """Fetch a device authorization record by device_code."""
+    row = conn.execute(
+        """SELECT device_code, user_code, client_id, client_name, scope, status, account_id, interval, last_poll_at, created_at, expires_at
+        FROM oauth_device_codes WHERE device_code=?""",
+        (device_code,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_oauth_device_code_by_user_code(
+    conn: sqlite3.Connection,
+    user_code: str,
+) -> dict[str, Any] | None:
+    """Fetch a device authorization record by normalized user_code."""
+    normalized = normalize_device_user_code(user_code)
+    row = conn.execute(
+        """SELECT device_code, user_code, client_id, client_name, scope, status, account_id, interval, last_poll_at, created_at, expires_at
+        FROM oauth_device_codes WHERE user_code=?""",
+        (normalized,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def touch_oauth_device_code_poll(
+    conn: sqlite3.Connection,
+    device_code: str,
+    *,
+    bump_interval: int | None = None,
+) -> None:
+    """Record the latest poll timestamp and optionally increase the polling interval."""
+    now = time.time()
+    if bump_interval is not None:
+        conn.execute(
+            "UPDATE oauth_device_codes SET last_poll_at=?, interval=? WHERE device_code=?",
+            (now, int(bump_interval), device_code),
+        )
+    else:
+        conn.execute("UPDATE oauth_device_codes SET last_poll_at=? WHERE device_code=?", (now, device_code))
+    conn.commit()
+
+
+def decide_oauth_device_code(
+    conn: sqlite3.Connection,
+    user_code: str,
+    *,
+    account_id: int,
+    decision: str,
+) -> bool:
+    """Approve or deny a pending non-expired device authorization by user_code."""
+    if decision not in ("approved", "denied"):
+        raise ValueError(f"Unsupported device decision: {decision}")
+    normalized = normalize_device_user_code(user_code)
+    now = time.time()
+    cur = conn.execute(
+        "UPDATE oauth_device_codes SET status=?, account_id=? WHERE user_code=? AND status='pending' AND expires_at>=?",
+        (decision, int(account_id), normalized, now),
+    )
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def consume_oauth_device_code(
+    conn: sqlite3.Connection,
+    device_code: str,
+) -> dict[str, Any] | None:
+    """Atomically consume an approved non-expired device code for token issuance."""
+    now = time.time()
+    row = conn.execute(
+        """SELECT device_code, user_code, client_id, client_name, scope, status, account_id, expires_at
+        FROM oauth_device_codes WHERE device_code=? AND status='approved' AND expires_at>=?""",
+        (device_code, now),
+    ).fetchone()
+    if row is None:
+        return None
+    cur = conn.execute(
+        "UPDATE oauth_device_codes SET status='consumed' WHERE device_code=? AND status='approved' AND expires_at>=?",
+        (device_code, now),
+    )
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    return dict(row)
+
+
+def list_account_oauth_grants(
+    conn: sqlite3.Connection,
+    account_id: int,
+    *,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
+    """List OAuth client grants belonging to an account without exposing token secrets."""
+    now = time.time()
+    where_clause = "WHERE t.account_id=? AND t.rotated_at IS NULL"
+    params: list[Any] = [int(account_id)]
+    if not include_inactive:
+        where_clause += " AND t.revoked_at IS NULL AND t.expires_at>=?"
+        params.append(now)
+    rows = conn.execute(
+        f"""SELECT t.token, t.token_family_id, t.client_id, c.client_name, c.redirect_uris,
+        COALESCE(NULLIF(t.granted_scope, ''), t.scope, 'readonly') AS effective_scope,
+        t.created_at, t.expires_at, t.last_used_at, t.revoked_at
+        FROM oauth_tokens t
+        LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+        {where_clause}
+        ORDER BY t.created_at DESC""",
+        params,
+    ).fetchall()
+    grants: list[dict[str, Any]] = []
+    for row in rows:
+        raw_ruris = row["redirect_uris"]
+        try:
+            ruris = json.loads(raw_ruris) if isinstance(raw_ruris, str) else []
+        except Exception:
+            ruris = [str(raw_ruris)] if raw_ruris else []
+        grants.append(
+            {
+                "grant_id": _token_grant_id(str(row["token"]), row["token_family_id"]),
+                "client_id": row["client_id"],
+                "client_name": row["client_name"] or row["client_id"],
+                "redirect_uris": ruris,
+                "scope": str(row["effective_scope"]),
+                "granted_scope": str(row["effective_scope"]),
+                "created_at": row["created_at"],
+                "expires_at": row["expires_at"],
+                "last_used_at": row["last_used_at"],
+                "revoked_at": row["revoked_at"],
+            }
+        )
+    return grants
+
+
+def revoke_account_oauth_grants(
+    conn: sqlite3.Connection,
+    account_id: int,
+    *,
+    grant_id: str | None = None,
+    client_id: str | None = None,
+) -> int:
+    """Revoke one OAuth grant, all grants for a client, or all grants owned by an account."""
+    now = time.time()
+    if grant_id:
+        target = str(grant_id).strip()
+        if target.startswith("tok:"):
+            rows = conn.execute(
+                "SELECT token, token_family_id FROM oauth_tokens WHERE account_id=? AND revoked_at IS NULL",
+                (int(account_id),),
+            ).fetchall()
+            matched_tokens = [str(r["token"]) for r in rows if _token_grant_id(str(r["token"]), r["token_family_id"]) == target]
+            if not matched_tokens:
+                return 0
+            ph = ",".join("?" for _ in matched_tokens)
+            cur = conn.execute(
+                f"UPDATE oauth_tokens SET revoked_at=? WHERE account_id=? AND token IN ({ph}) AND revoked_at IS NULL",
+                (now, int(account_id), *matched_tokens),
+            )
+            conn.commit()
+            return cur.rowcount
+        cur = conn.execute(
+            "UPDATE oauth_tokens SET revoked_at=? WHERE account_id=? AND token_family_id=? AND revoked_at IS NULL",
+            (now, int(account_id), target),
+        )
+        conn.commit()
+        return cur.rowcount
+    if client_id:
+        cur = conn.execute(
+            "UPDATE oauth_tokens SET revoked_at=? WHERE account_id=? AND client_id=? AND revoked_at IS NULL",
+            (now, int(account_id), str(client_id).strip()),
+        )
+        conn.commit()
+        return cur.rowcount
+    cur = conn.execute(
+        "UPDATE oauth_tokens SET revoked_at=? WHERE account_id=? AND revoked_at IS NULL",
+        (now, int(account_id)),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 # --- API and MCP Persistent Access Tokens (Decoupled File Store) ---
@@ -4238,7 +5051,7 @@ def list_public_sitemap_documents(
     (만약 DB가 readonly 모드라면 기존 유효 토큰만 반환한다.)
     """
     now = time.time()
-    doc_query = "SELECT id, fetched_at, published_at FROM documents WHERE hidden = 0"
+    doc_query = "SELECT id, fetched_at, published_at FROM documents WHERE hidden = 0 AND coalesce(extraction_status, 'extracted') != 'pending'"
     doc_params: list[Any] = []
     if kb_id is not None:
         doc_query += " AND kb_id = ?"
@@ -4910,7 +5723,7 @@ def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = Non
 
 def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0, kb_id: int | None = None) -> list[str]:
     """detail 이 비어있는 문서 id(최신순). 백필 대상."""
-    q = "SELECT id FROM documents WHERE (detail IS NULL OR detail='')"
+    q = "SELECT id FROM documents WHERE (detail IS NULL OR detail='') AND coalesce(extraction_status, 'extracted') != 'pending'"
     params: list[Any] = []
     if kb_id is not None:
         q += " AND kb_id=?"
@@ -4935,7 +5748,7 @@ def documents_needing_detail_format(
     fmt = "adoc"
     q = (
         "SELECT id FROM documents WHERE (detail IS NULL OR trim(detail)='' "
-        "OR lower(coalesce(detail_format, 'adoc')) != ?)"
+        "OR lower(coalesce(detail_format, 'adoc')) != ?) AND coalesce(extraction_status, 'extracted') != 'pending'"
     )
     params: list[Any] = [fmt]
     if kb_id is not None:
@@ -5373,6 +6186,9 @@ def update_document_content(
     source_type: str | None = None, partial: bool | None = None,
     meta: dict | None = None,
     kb_id: int | None = None,
+    extraction_status: str | None = None,
+    raw_chars: int | None = None,
+    clear_claim: bool = False,
 ) -> None:
     """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존.
 
@@ -5380,9 +6196,10 @@ def update_document_content(
     from ..ingest.normalize import minhash_signature
 
     sig = minhash_signature((title or "") + " " + (raw_text or ""))
-    cols = ["title=?", "raw_text=?", "content_hash=?", "fetched_at=?", "minhash=?"]
+    char_count = len(raw_text or "") if raw_chars is None else int(raw_chars)
+    cols = ["title=?", "raw_text=?", "content_hash=?", "fetched_at=?", "minhash=?", "raw_chars=?"]
     vals: list = [title, raw_text, content_hash, fetched_at,
-                  json.dumps(sig) if sig else None]
+                  json.dumps(sig) if sig else None, char_count]
     if source_type is not None:
         cols.append("source_type=?")
         vals.append(source_type)
@@ -5392,6 +6209,14 @@ def update_document_content(
     if meta is not None:
         cols.append("meta=?")
         vals.append(json.dumps(meta))
+    if extraction_status is not None:
+        status_val = str(extraction_status)
+        if status_val not in DOCUMENT_EXTRACTION_STATUSES:
+            raise ValueError(f"invalid extraction_status: {extraction_status!r}")
+        cols.append("extraction_status=?")
+        vals.append(status_val)
+    if clear_claim:
+        cols.extend(["claim_token=NULL", "lease_expires_at=NULL", "claimed_by_client_id=NULL"])
     where = "WHERE id=?"
     vals.append(doc_id)
     if kb_id is not None:
@@ -5784,7 +6609,7 @@ def counts(
             q = "SELECT COUNT(*) c FROM documents WHERE 1=1"
             params: list[Any] = []
             if not include_hidden:
-                q += " AND hidden=0"
+                q += " AND hidden=0 AND coalesce(extraction_status, 'extracted') != 'pending'"
             if kb_id is not None:
                 q += " AND kb_id=?"
                 params.append(kb_id)

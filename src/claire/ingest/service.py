@@ -35,6 +35,7 @@ from ..store.vectors import make_vector_store
 from .fetchers.base import bound_fetch_settings
 from .pipeline import (
     IngestReport,
+    _fetch_settings_for_staging,
     _guess_kind,
     error_text,
     extract_resolve_store,
@@ -368,6 +369,17 @@ class IngestService:
             return "기본 지식베이스"
         return f"테마 #{self.kb_id}"
 
+    def is_client_staging(self, *, force_provider: bool = False) -> bool:
+        """Return True when this service resolves to client extraction mode without a force_provider override."""
+        if force_provider:
+            return False
+        conn = dbm.connect(self.s.db_file)
+        try:
+            dbm.init_db(conn)
+            return dbm.resolve_extraction_mode(conn, account_id=getattr(self, "account_id", None), kb_id=self.kb_id) == "client"
+        finally:
+            conn.close()
+
     def ingest(
         self,
         payload: str,
@@ -384,19 +396,18 @@ class IngestService:
         format: str | None = None,
         effort: str | None = None,
         full_content: bool = False,
+        force_provider: bool = False,
     ) -> IngestReport:
-        """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
-
-        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(링크 확장의 중복 fetch 방지).
-        """
-        # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
+        """Ingest one item; stage raw content with zero server LLM calls when the account uses client extraction mode."""
         tlabel = self.get_theme_label()
-        if effort:
+        client_staging = self.is_client_staging(force_provider=force_provider)
+        if effort and not client_staging:
             effort = validate_ingest_effort(self.s, effort, ctx=getattr(self, "provider_context", None), allow_mock_standard=True)
         with ExitStack() as stack:
             try:
                 stack.enter_context(self.job_scope())
-                self._reserve_ingest(source)
+                if not client_staging:
+                    self._reserve_ingest(source)
             except Exception as exc:  # noqa: BLE001 — 예산·동시 작업 상한, 원장 장애 모두 원문 보존 후 실패
                 return self._reject_ingest(
                     exc, payload, source=source, inbox_id=inbox_id, inbox_kind=inbox_kind,
@@ -408,7 +419,7 @@ class IngestService:
                 payload, source=source, expand_max=expand_max, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name, inbox_id=inbox_id,
                 prefetched=prefetched, format=format, effort=effort,
-                full_content=full_content, tlabel=tlabel,
+                full_content=full_content, tlabel=tlabel, force_provider=force_provider,
             )
 
     def _ingest_now(
@@ -428,6 +439,7 @@ class IngestService:
         effort: str | None,
         full_content: bool,
         tlabel: str,
+        force_provider: bool = False,
     ) -> IngestReport:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -448,6 +460,8 @@ class IngestService:
                 format=fmt, effort=effort, full_content=full_content,
                 kb_id=tid, theme_label=tlabel,
                 settings=self.s, provider_context=getattr(self, "provider_context", None),
+                account_id=getattr(self, "account_id", None),
+                force_provider=force_provider,
             )
         finally:
             conn.close()
@@ -466,12 +480,15 @@ class IngestService:
         full_content: bool = False,
         inbox_id: int | None = None,
         format: str | None = None,
+        force_provider: bool = False,
     ) -> IngestReport:
         """첨부 파일과 외부 하이퍼링크를 단일 지식 문서로 통합 복합 적재."""
+        client_staging = self.is_client_staging(force_provider=force_provider)
         with ExitStack() as stack:
             try:
                 stack.enter_context(self.job_scope())
-                self._reserve_ingest(source)
+                if not client_staging:
+                    self._reserve_ingest(source)
             except Exception as exc:  # noqa: BLE001
                 return self._reject_ingest(
                     exc, url, source=source, inbox_id=inbox_id, inbox_kind="composite",
@@ -480,8 +497,8 @@ class IngestService:
             stack.enter_context(_reserved_ingest())
             return self._ingest_composite_now(
                 file_path, file_name, url, source=source, expand_max=expand_max, user_id=user_id,
-                chat_id=chat_id, effort=effort, full_content=full_content,
-                inbox_id=inbox_id, format=format,
+                chat_id=chat_id, effort=effort, full_content=(True if client_staging else full_content),
+                inbox_id=inbox_id, format=format, force_provider=force_provider, client_staging=client_staging,
             )
 
     def _ingest_composite_now(
@@ -498,6 +515,8 @@ class IngestService:
         full_content: bool,
         inbox_id: int | None,
         format: str | None,
+        force_provider: bool = False,
+        client_staging: bool = False,
     ) -> IngestReport:
         import json
         from .composite import compose_composite_document, fetch_composite_components
@@ -528,10 +547,11 @@ class IngestService:
         finally:
             conn.close()
 
+        fetch_cfg = _fetch_settings_for_staging(self.s) if client_staging else self.s
         try:
             emit_progress("원문 및 첨부 파일 수집 중…")
             file_doc, url_doc, file_bytes = fetch_composite_components(
-                Path(file_path), file_name, url, self.s, full_content=full_content
+                Path(file_path), file_name, url, fetch_cfg, full_content=full_content
             )
         except Exception as e:
             conn2 = dbm.connect(self.s.db_file)
@@ -545,7 +565,7 @@ class IngestService:
             return rep
 
         composite_doc = compose_composite_document(
-            file_doc, url_doc, file_name, settings=self.s, file_bytes=file_bytes
+            file_doc, url_doc, file_name, settings=fetch_cfg, file_bytes=file_bytes
         )
 
         return self.ingest(
@@ -562,6 +582,7 @@ class IngestService:
             format=format,
             effort=effort,
             full_content=full_content,
+            force_provider=force_provider,
         )
 
     @_service_job()
@@ -698,6 +719,7 @@ class IngestService:
         *,
         format: str | None = None,
         on_progress: Callable[[str, str], None] | None = None,
+        force_provider: bool = False,
     ) -> dict:
         """[복원] 한 문서를 원본 payload 로 재fetch→재추출하여 in-place 갱신.
 
@@ -708,6 +730,7 @@ class IngestService:
         if not document_id:
             return {"status": "error", "document_id": document_id,
                     "error": "document_id required"}
+        client_staging = self.is_client_staging(force_provider=force_provider)
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
@@ -722,7 +745,14 @@ class IngestService:
                 on_progress("원문 재수집 (Refetching from payload)...", payload[:40])
 
             try:
-                doc = default_fetch(payload)
+                if client_staging:
+                    with bound_fetch_settings(_fetch_settings_for_staging(self.s)):
+                        try:
+                            doc = default_fetch(payload, full_content=True)
+                        except TypeError:
+                            doc = default_fetch(payload)
+                else:
+                    doc = default_fetch(payload)
             except Exception as e:  # noqa: BLE001
                 return {"status": "error", "document_id": document_id, "error": error_text(e)}
 
@@ -757,6 +787,11 @@ class IngestService:
                 _download_doc_images(conn, doc, self.s.data_dir, kb_id=self.kb_id)
                 dbm.update_document_meta(conn, document_id, doc.meta, kb_id=self.kb_id)
                 imgs = (doc.meta or {}).get("images")
+                if client_staging or str(old["extraction_status"] or "extracted") == "pending":
+                    return {"status": "nochange", "document_id": document_id,
+                            "old_len": old_len, "new_len": len(doc.raw_text),
+                            "detail_updated": False,
+                            "images": len(imgs or [])}
                 fmt = format or self.s.render_format
                 detail_updated = ensure_document_detail(
                     conn, self.provider, doc, force=True, format=fmt, kb_id=self.kb_id,
@@ -784,13 +819,19 @@ class IngestService:
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
                 content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-                source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=self.kb_id)
+                source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=self.kb_id,
+                extraction_status=("pending" if client_staging else None),
+                raw_chars=len(doc.raw_text or ""),
+                clear_claim=True)
             try:
                 from ..store.raw import save_artifact
 
                 save_artifact(self.s.data_dir, document_id, doc.raw_text)
             except Exception:  # noqa: BLE001
                 pass
+            if client_staging:
+                return {"status": "staged", "document_id": document_id,
+                        "old_len": old_len, "new_len": len(doc.raw_text)}
 
             fmt = format or self.s.render_format
             report = IngestReport(document_id=document_id)
@@ -802,6 +843,7 @@ class IngestService:
                 ok, err = False, error_text(e)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
+            dbm.mark_document_extraction_status(conn, document_id, "extracted", kb_id=self.kb_id, clear_claim=True)
             return {"status": "done", "document_id": document_id,
                     "old_len": old_len, "new_len": len(doc.raw_text),
                     "entities_created": report.entities_created,
@@ -930,7 +972,7 @@ class IngestService:
                 ids = [d["id"] for d in table_docs][::-1]
             else:
                 rows = dbm.documents_timeline(conn, limit or 1000000, kb_id=self.kb_id)
-                ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
+                ids = [r["id"] for r in rows if (r["extraction_status"] if "extraction_status" in r.keys() else "extracted") != "pending"][::-1]  # oldest first
                 if limit:
                     ids = ids[:limit]
             if rebuild:
@@ -1212,7 +1254,8 @@ class IngestService:
                         target_ids.append(did)
             elif missing_summary:
                 rows = conn.execute(
-                    "SELECT id FROM documents ORDER BY id DESC"
+                    "SELECT id FROM documents WHERE kb_id=? AND coalesce(extraction_status, 'extracted') != 'pending' ORDER BY id DESC",
+                    (self.kb_id,),
                 ).fetchall()
                 for r in rows:
                     did = r["id"]
@@ -1876,6 +1919,7 @@ class IngestService:
             except ProviderPolicyError as e:
                 ok, err = False, error_text(e)
             if ok:
+                dbm.mark_document_extraction_status(conn, document_id, "extracted", kb_id=self.kb_id, clear_claim=True)
                 dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id, kb_id=self.kb_id)
             else:
                 report.error = err

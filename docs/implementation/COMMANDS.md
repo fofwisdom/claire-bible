@@ -265,22 +265,24 @@ v15로 올릴 때 한 계정에 기본 테마(`is_personal=1`)가 둘 이상이�
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
-* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--force-provider]`
 * **주요 옵션**:
   * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 링크 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
+  * `--force-provider`: 계정의 `extraction_mode`가 `client`인 경우에도 원문만 스테이징하지 않고 서버 LLM 프로바이더로 즉시 추출(`AE4`).
 
 #### `reingest <target>`
 기존 문서 또는 URL을 다시 수집하여 엔티티, 관계, 임베딩, 요약, 상세(detail)를 완전히 재적재한다.
-* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
+* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--force-provider] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
 * **주요 옵션**:
   * `target`: 재적재 대상 문서 ID, URL, 공유 링크(`/p?s=token`), 검색어, 또는 신규 적재 페이로드.
   * `-t <theme>`, `--theme <theme>`: 대상 테마 지정 (ID, 시퀀스, 또는 레이블).
   * `--full`, `--full-content`: 원문 길이 제한 없이 전체 무절단 수집.
   * `--effort <level>`: LLM 사고/추론 레벨 지정 (`none`, `minimal`, `low`, `medium`, `high`, `max`).
+  * `--force-provider`: 계정의 `extraction_mode`가 `client`여도 서버 프로바이더로 즉시 재추출(`AE4`; URL 없는 기존 문서는 이 플래그를 지정해 서버 추출).
   * `--untombstone`: 대상 문서가 이전에 소각(Purge)되어 툼스톤이 등록된 경우, 툼스톤을 원자적으로 해제하고 재적재 허용.
   * `--apply`: 실제 재적재 실행 (기본값: Dry-Run 진단 리포트 출력).
   * `--dry-run`: 변경 없이 시뮬레이션 진단만 출력 (기본값).
@@ -576,9 +578,9 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
 * `claire auth [--scope {owner,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
-* `claire token [list|create|revoke]`: 환경변수에 의존하지 않고 SQLite 데이터베이스 기반으로 API 및 MCP 상시 이용 Bearer 접근 토큰을 관리 (별칭: `api-key`, `key`).
-  * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 조회 (별칭: `ls`). `-a` 지정 시 폐기 및 만료 토큰 포함.
-  * `claire token create <name> [--scope {owner,write,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
+* `claire token [list|create|revoke]`: 독립 자격증명 파일(`data/auth/api_tokens.json`) 기반 레거시 API·MCP 상시 Bearer 토큰 관리 (`AE3`에서 지원 중단 예고, 별칭: `api-key`, `key`; 신규 클라이언트는 웹 콘솔 `/settings/mcp`의 OAuth 2.1 권장).
+  * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 및 지원 중단 안내 출력 (별칭: `ls`). `-a` 지정 시 폐기·만료 토큰 포함.
+  * `claire token create <name> [--scope {owner,write,readonly}] [--expires-in DAYS] [--json]`: 상시 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 안내 예시 이름은 `"Agent Client"`를 쓰며 `mcp_client_config` JSON(`url` + `Authorization` 헤더)과 지원 중단 안내(`deprecated: true`)를 출력한다. `CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `api_tokens.json` `"retired": true` 상태에서는 생성이 거부된다.
   * `claire token revoke <target> [--json]`: 토큰 즉시 폐기 (별칭: `delete`, `rm`). `target`은 토큰 ID 또는 토큰 접두사/전체값. 폐기 즉시 모든 API/MCP 통신 차단.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
@@ -928,17 +930,17 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 
 ### 3.19 플러그인 (`plugin`)
 
-적재 어댑터 플러그인의 상태 조회, 켜기·끄기, 기여자용 점검. 현재 동작: [INGESTION.md](INGESTION.md) §2.2. 모든 하위 명령은 `--json`(`AgentOutput`)을 받는다.
+적재 어댑터(`ingest_adapter`) 및 에이전트 클라이언트(`agent_client`, `AE1a`/`AE7`) 플러그인의 상태 조회, 켜기·끄기, 기여자용 점검. 현재 동작: [INGESTION.md](INGESTION.md) §2.2. 모든 하위 명령은 `--json`(`AgentOutput`)을 받는다.
 
 | 명령 | 설명 |
 | :--- | :--- |
 | `claire plugin list` | 두 폴더(프로젝트 플러그인 폴더, 플러그인 폴더)의 모든 플러그인과 상태, 버전(`r<리비전> @ <추종 커밋 8자>`), 알 수 없는 폴더 |
-| `claire plugin show <id>` | 매니페스트, 다이제스트, 레코드, 겹침 그룹 |
+| `claire plugin show <id>` | 매니페스트(`client_id`, `required_scopes`, `files`, `files_sha256` 포함), 다이제스트, 레코드, 겹침 그룹 |
 | `claire plugin enable <id> --digest <sha256:…> [--replace <id> …]` | 호스트 운영자 경로. 콘솔과 같은 검사(다이제스트 일치, 겹침 그룹의 켜진 플러그인을 `--replace`에 정확히 나열)와 감사 기록. 거부되면 종료 코드 4(인자 누락 2) |
 | `claire plugin disable <id>` | 끄기 |
-| `claire plugin check [<folder>]` | 기여자용: 매니페스트, 다이제스트, lock, 프로젝트 플러그인과의 겹침(프로젝트 플러그인만 실패), import 검사, 추종 커밋이 `HEAD`의 조상인지, `register(ctx)`와 `[[provides]]` 일치. 서버 상태는 쓰지 않는다 |
+| `claire plugin check [<folder>]` | 기여자용: 매니페스트, 다이제스트, lock, 프로젝트 플러그인과의 겹침(프로젝트 플러그인만 실패), AST import 검사(`agent_client`의 `claire*`/네트워크/프로세스 차단 및 비실행 파일 검증 포함), 추종 커밋이 `HEAD`의 조상인지, `register(ctx)`와 `[[provides]]` 일치(`ingest_adapter`). 서버 상태는 쓰지 않는다 |
 | `claire plugin lock` | `plugins/project.lock`을 쓴다. `HEAD`의 lock과 다이제스트가 다르면 리비전이 `HEAD`보다 커야 한다(아니면 종료 코드 4) |
-| `claire plugin new <id> --type ingest_adapter` | `plugins/ingest_adapter/_template`을 복사한다. `claire.` id는 프로젝트 플러그인 폴더로, 그 밖은 플러그인 폴더로. 추종 커밋은 실행 중인 코어의 커밋. 컨테이너에서는 플러그인 폴더가 읽기 전용이라 종료 코드 4 |
+| `claire plugin new <id> --type {ingest_adapter,agent_client}` | `plugins/<type>/_template`을 복사한다(`ingest_adapter` 템플릿 기본 제공; `agent_client`는 템플릿 폴더가 있을 때 생성하며 없으면 종료 코드 4). `claire.` id는 프로젝트 플러그인 폴더로, 그 밖은 플러그인 폴더로. 추종 커밋은 실행 중인 코어의 커밋. 컨테이너에서는 플러그인 폴더가 읽기 전용이라 종료 코드 4 |
 | `claire plugin run <id> <command> [arguments]` | 켜진 플러그인의 명령. 켜지지 않았으면 종료 코드 4 |
 
 ---
@@ -949,7 +951,7 @@ The Telegram ingest reply has the same action as the inline button "Contribute t
 
 ### 4.1 `claire search`
 * **`--no-summary` (완전 구현)**: LLM 추론 비용과 응답 지연을 방지하기 위해 사용되며, FTS 및 벡터 검색 결과의 원시 텍스트 청크만 즉시 출력한다.
-* **다국어 교차 검색 (부분 지원)**: 영어/한국어 혼용 질의는 엔티티 `norm_name` 및 Gemini 임베딩 모델(`gemini-embedding-001`)의 다국어 투영 공간을 통해 처리되나, 한자/일본어 등 CJK 확장 언어에 대한 형태소 분절은 FTS5 단순 토크나이저에 의존한다.
+* **다국어 교차 검색 (부분 지원)**: 영어/한국어 혼용 질의는 엔티티 `norm_name` 및 Gemini 임베딩 모델(`gemini-embedding-2` 기본, 레거시 `gemini-embedding-001` 2028-05-14 EOS)의 다국어 투영 공간을 통해 처리되나, 한자/일본어 등 CJK 확장 언어에 대한 형태소 분절은 FTS5 단순 토크나이저에 의존한다.
 
 ### 4.2 `claire regenerate` 및 `CLAIRE_GEMINI_EFFORT`
 * **`--effort` 지원 범위 (조건부 적용)**:

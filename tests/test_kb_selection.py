@@ -17,6 +17,7 @@ from claire import ids
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.ingest.service import IngestService
+from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 
 OWNER_TOKEN = "owner-" + ("k" * 32)
@@ -60,15 +61,28 @@ def _number(kb) -> str:
     return ids.format_public_id(kb.number)
 
 
+def _oauth_headers(settings: Settings, scope: str = "readonly") -> dict[str, str]:
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        access_token, _ = dbm.create_oauth_token(conn, client_id="test_kb_selection", scope=scope, account_id=dbm.ADMIN_ACCOUNT_ID)
+    finally:
+        conn.close()
+    return {"Authorization": f"Bearer {access_token}"}
+
+
 def test_old_names_give_the_same_result_as_without_them(kb_env):
-    client, _settings, _tm, other = kb_env
-    plain = _titles(client.get("/documents", headers=OWNER_HEADERS))
+    client, settings, _tm, other = kb_env
+    # Static env tokens send a Deprecation header (AE3). Use an OAuth token to test old theme names.
+    headers = _oauth_headers(settings)
+    plain_resp = client.get("/documents", headers=headers)
+    plain = _titles(plain_resp)
     assert plain == ["Personal"]
+    assert "deprecation" not in plain_resp.headers
     for variant in (
-        client.get(f"/documents?theme={_number(other)}", headers=OWNER_HEADERS),
-        client.get(f"/documents?theme={other.id}", headers=OWNER_HEADERS),
-        client.get("/documents?theme=Other%20knowledge%20base", headers=OWNER_HEADERS),
-        client.get("/documents", headers={**OWNER_HEADERS, "X-Claire-Theme": _number(other)}),
+        client.get(f"/documents?theme={_number(other)}", headers=headers),
+        client.get(f"/documents?theme={other.id}", headers=headers),
+        client.get("/documents?theme=Other%20knowledge%20base", headers=headers),
+        client.get("/documents", headers={**headers, "X-Claire-Theme": _number(other)}),
     ):
         assert _titles(variant) == plain
         assert "deprecation" not in variant.headers

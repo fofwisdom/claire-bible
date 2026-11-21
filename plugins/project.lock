@@ -2,6 +2,11 @@
 # docs/implementation/INGESTION.md section 2.2
 
 [[plugin]]
+id = "claire.antigravity"
+revision = 1
+digest = "sha256:b1aeb2c8ada8242cb0c8aa2088e53cc739ad67fa3f0ea648640f3a0ee500e776"
+
+[[plugin]]
 id = "claire.discourse"
 revision = 2
 digest = "sha256:bc962392017d9321d27f5753219bc0de2c57f8de194a73361d9c708b9461f5d8"

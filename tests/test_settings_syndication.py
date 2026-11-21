@@ -294,3 +294,20 @@ def test_js_bundle_scopes_storage_and_excludes_operator_data():
     # 패널 슬러그마다 초기화 함수가 있어야 한다.
     for slug in SECTION_PANEL_IDS:
         assert re.search(rf"\b{slug}: init\w+", src), slug
+
+
+def test_settings_mcp_client_bundles_panel_is_localized(env):
+    en_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"})
+    assert en_resp.status_code == 200
+    assert "Agent Client Bundles" in en_resp.text
+    assert "Bundle endpoint" in en_resp.text
+    assert "Antigravity · Cursor · MCP Clients" in en_resp.text
+    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
+        assert retired not in en_resp.text, retired
+
+    ko_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
+    assert ko_resp.status_code == 200
+    assert "에이전트 클라이언트 번들" in ko_resp.text
+    assert "번들 엔드포인트" in ko_resp.text
+    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
+        assert retired not in ko_resp.text, retired
