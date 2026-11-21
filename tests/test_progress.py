@@ -9,9 +9,9 @@ import sys
 import pytest
 
 from claire import cli
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
-from claire.progress import ProgressReporter, track_batch_progress
+from claire.core.progress import ProgressReporter, track_batch_progress
 from claire.status import build_queue_dashboard, build_status_text
 from claire.store import db as dbm
 

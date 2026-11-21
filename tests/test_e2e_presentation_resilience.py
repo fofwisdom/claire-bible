@@ -12,7 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire_bible.web.app import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.core.ports import get_slide_renderer
 from claire.store import db as dbm
 

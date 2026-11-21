@@ -46,7 +46,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import ids
+from ...core import ids
 from ...knowledge_federation import actors as kf_actors
 from ...knowledge_federation import remote_documents, remote_kbs
 from ...accounts import federation_readiness

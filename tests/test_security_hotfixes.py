@@ -18,7 +18,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import shared_html
 from claire.ontology.base import Document
 from claire.store import db as dbm

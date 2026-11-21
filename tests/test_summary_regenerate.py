@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.prompts import clean_plain_summary
 from claire.extract.provider import ExtractionResult, MockProvider
 from claire.ingest.service import IngestService

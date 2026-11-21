@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...config import get_settings
+from ...core.config import get_settings
 from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import content_hash

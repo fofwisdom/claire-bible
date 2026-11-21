@@ -17,8 +17,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .. import ids
-from ..config import ROOT, Settings, get_settings
+from ..core import ids
+from ..core.config import ROOT, Settings, get_settings
 from . import db as dbm
 from . import themes as _themes_store
 

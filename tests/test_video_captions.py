@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.fetchers.base import FetchError
 from claire.ingest.fetchers.captions import (
     acquire_caption,

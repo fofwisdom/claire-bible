@@ -18,7 +18,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.api.accounts_routes import console_syndication_panels as panels
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service

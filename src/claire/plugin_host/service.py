@@ -45,7 +45,7 @@ class SwitchResult:
 
 def _settings(settings: Any) -> Any:
     if settings is None:
-        from ..config import get_settings
+        from ..core.config import get_settings
 
         return get_settings()
     return settings

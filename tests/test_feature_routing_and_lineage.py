@@ -11,13 +11,13 @@ from typing import Any
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.jev import JevShadow
 from claire.extract.provider import ExtractedEntity, ExtractedRelation, ExtractionResult, FeatureRoutedProvider, MockProvider, RelationJudgement, get_provider
 from claire.extract.resolver import resolve_or_create
 from claire.ingest.pipeline import IngestReport, extract_resolve_store
 from claire.ontology.base import Document, Entity
-from claire.provider_manager import ProviderManager
+from claire.core.provider_manager import ProviderManager
 from claire.store import auth_db, provider_keys
 from claire.store import db as dbm
 from claire.store.secrets import SecretDecryptionError, SecretService, clear_volatile_user_seals, generate_user_seal, reset_secret_service

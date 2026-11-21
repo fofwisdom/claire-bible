@@ -32,7 +32,7 @@ PACKAGE_ROOT = "claire_plugins"
 
 def project_plugin_folder() -> Path:
     """``<app root>/plugins`` (§5)."""
-    from ..config import ROOT
+    from ..core.config import ROOT
 
     return Path(ROOT) / "plugins"
 
@@ -40,7 +40,7 @@ def project_plugin_folder() -> Path:
 def plugin_folder(settings: Any = None) -> Path:
     """``CLAIRE_PLUGINS_DIR`` (§5)."""
     if settings is None:
-        from ..config import get_settings
+        from ..core.config import get_settings
 
         settings = get_settings()
     return Path(settings.plugins_dir)
@@ -48,7 +48,7 @@ def plugin_folder(settings: Any = None) -> Path:
 
 def server_db_file(settings: Any = None) -> Path:
     if settings is None:
-        from ..config import get_settings
+        from ..core.config import get_settings
 
         settings = get_settings()
     return Path(settings.db_file)
@@ -322,7 +322,7 @@ class PluginRuntime:
         if text == self._last_report:
             return
         try:
-            from ..config import get_settings
+            from ..core.config import get_settings
 
             run_dir = Path(get_settings().data_dir) / "run"
             run_dir.mkdir(parents=True, exist_ok=True)

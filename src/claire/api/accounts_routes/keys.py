@@ -30,7 +30,7 @@ from ...accounts.provider_policy import (
     split_gemini_model_and_effort,
 )
 from ...i18n import t
-from ...secret_scrub import register_secret, scrub_text
+from ...core.secret_scrub import register_secret, scrub_text
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import provider_keys
@@ -94,7 +94,7 @@ def _clean_api_key(value: Any) -> str | None:
 
 def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
     """The effective model and effort of the server providers for each feature slot: the defaults of a key without model preferences."""
-    from ...provider_manager import ProviderManager
+    from ...core.provider_manager import ProviderManager
 
     data_dir = ctx.data_dir or ctx.db_file.parent
     cfg: dict[str, Any] = {}
@@ -135,7 +135,7 @@ def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
 
 def _validate_byok_prefs(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Validate the optional model preferences of a key: a known model and a known effort. There is no administrator baseline (owner decision 2026-11-19)."""
-    from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_base_models, list_gemini_models
+    from ...core.provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_base_models, list_gemini_models
 
     allowed_gen = set(list_gemini_models()) | set(list_gemini_base_models())
     allowed_embed = set(DEFAULT_GEMINI_EMBED_MODELS)
@@ -365,7 +365,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         items = await asyncio.to_thread(list_meta, ctx, principal.account_id)
         payload: dict[str, Any] = {"keys": items}
         if str(request.query_params.get("include_policy") or "").lower() in ("1", "true", "yes"):
-            from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_models
+            from ...core.provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_models
 
             defaults = await asyncio.to_thread(_admin_defaults, ctx)
             prefs = await asyncio.to_thread(get_member_prefs, ctx, principal.account_id)

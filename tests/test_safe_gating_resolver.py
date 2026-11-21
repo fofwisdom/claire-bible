@@ -267,7 +267,7 @@ def test_pipeline_decision_stream_and_heatmap_integration(tmp_path):
 def test_rollback_resolution_api_route(tmp_path):
     from starlette.testclient import TestClient
     from claire.api import server
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestService
 
     db_path = tmp_path / "claire.db"
@@ -375,7 +375,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
     from types import SimpleNamespace
     from starlette.testclient import TestClient
     from claire.api import server
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.extract.provider import emit_progress
 
     class StreamingTestService:
@@ -461,7 +461,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
 def test_get_resolution_decisions_global_api_route(tmp_path):
     from starlette.testclient import TestClient
     from claire.api import server
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestService
 
     db_path = tmp_path / "claire.db"

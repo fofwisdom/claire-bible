@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 
 from claire.api.server import create_app
 from claire.cli import main
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.extract.provider import MockProvider
 from claire.ingest.normalize import content_hash
 from claire.ingest.pipeline import ingest

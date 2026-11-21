@@ -9,7 +9,7 @@ import json
 import pytest
 
 from claire.cli import _ThemeLoopState, _theme_services_for_cycle
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService

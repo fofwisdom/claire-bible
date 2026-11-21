@@ -21,9 +21,9 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from claire import secret_scrub
+from claire.core import secret_scrub
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import provider_keys

@@ -14,9 +14,9 @@ from starlette.testclient import TestClient
 
 from tests.kb_paths import step_up_headers
 
-from claire import ids
+from claire.core import ids
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm

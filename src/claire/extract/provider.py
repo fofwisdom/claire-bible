@@ -597,7 +597,7 @@ class UnavailableProvider:
         def _fail(*_args, **_kwargs):
             if self.error is not None:
                 raise_policy_error(self.error)
-            from ..config import ProviderUnavailableError
+            from ..core.config import ProviderUnavailableError
 
             raise ProviderUnavailableError(f"LLM 프로바이더를 쓸 수 없다: {self.reason}")
 

@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from claire import secret_scrub
+from claire.core import secret_scrub
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract import gemini_provider
 from claire.extract.provider import MockProvider
 from claire.store import accounts as accounts_store

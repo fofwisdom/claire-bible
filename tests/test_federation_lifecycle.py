@@ -406,7 +406,7 @@ def test_requeue_sets_recent_handed_off_tasks_to_pending(env):
 
 def test_cli_requeue_counts_without_apply_and_changes_with_apply(env, monkeypatch, capsys):
     from claire import cli
-    from claire.config import get_settings
+    from claire.core.config import get_settings
 
     conn = _connect(env.settings)
     try:

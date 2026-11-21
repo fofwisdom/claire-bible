@@ -27,8 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from . import ids
-from .config import get_settings
+from .core import ids
+from .core.config import get_settings
 from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
 
@@ -680,7 +680,8 @@ def cmd_themes(args) -> int:
     """``claire theme``: the themes (collections of knowledge bases with one subject): list, run the judgement, and adjust (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2, 8.3, 13.4)."""
     import json
 
-    from . import ids, theme_judgement
+    from . import theme_judgement
+    from .core import ids
     from .store import themes as themes_store
     from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
@@ -791,7 +792,8 @@ def cmd_contribute(args) -> int:
     """``claire contribute``: the contributions of the admin account to shared knowledge bases and themes, its reputation, its automatic rule, and the flag "never contribute" (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.6, 8.7, 9.1, 9.2, 9.9)."""
     import json
 
-    from . import auto_contribution, contributions, ids, reputation
+    from . import auto_contribution, contributions, reputation
+    from .core import ids
     from .ingest.service import run_waiting_merge_jobs
     from .store import kb_collab
     from .store import themes as themes_store
@@ -1484,7 +1486,7 @@ def cmd_replay_failed(args) -> int:
 def cmd_recover_run(args) -> int:
     """[자동복구] error inbox 중 재시도 도래분을 1회 재적재(게이팅·지수백오프)."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     conn = dbm.connect(s.db_file)
@@ -1688,7 +1690,7 @@ def _theme_services_for_cycle(
 
 def _with_current_limits(settings: Any) -> Any:
     """Return the settings with the values of data/ingest_limits.json as they are now. A loop daemon calls this at each cycle, so a change in the WebUI applies without a restart of the daemon."""
-    from .ingest_limit_manager import get_ingest_limit_manager
+    from .core.ingest_limit_manager import get_ingest_limit_manager
 
     limits = get_ingest_limit_manager(settings.data_dir).get_settings_dict()
     return settings.model_copy(update=limits)
@@ -1696,7 +1698,7 @@ def _with_current_limits(settings: Any) -> Any:
 
 def _limits_fingerprint(theme_settings: Any) -> tuple:
     """The limit values of the theme settings. When one changes, the loop makes the theme service again."""
-    from .ingest_limit_manager import DEFAULT_INGEST_LIMITS_CONFIG
+    from .core.ingest_limit_manager import DEFAULT_INGEST_LIMITS_CONFIG
 
     return tuple((k, getattr(theme_settings, k, None)) for k in DEFAULT_INGEST_LIMITS_CONFIG["limits"])
 
@@ -1835,7 +1837,7 @@ def cmd_refresh_mark(args) -> int:
 def cmd_refresh_run(args) -> int:
     """갱신 큐 1회 처리."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     conn = dbm.connect(s.db_file)
@@ -1942,7 +1944,7 @@ def _notify_expansion(results: list[dict]) -> None:
 def cmd_expand_run(args) -> int:
     """자동 확장 큐 1회 처리."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     conn = dbm.connect(s.db_file)
@@ -2476,7 +2478,7 @@ def cmd_reingest(args) -> int:
 def cmd_reextract(args) -> int:
     """저장된 raw_text 로 전체 또는 표(Table) 포함 문서를 재추출(프롬프트 변경 반영, 예: 한글화, 표 보존)."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     svc = IngestService(s)
@@ -2517,7 +2519,7 @@ def cmd_reextract(args) -> int:
 def cmd_backfill_detail(args) -> int:
     """detail(가독 렌더)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변)."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     svc = IngestService(s)
@@ -2559,7 +2561,7 @@ def cmd_backfill_detail(args) -> int:
 def cmd_backfill_summary(args) -> int:
     """요약(summary)이 비어있거나 누락된 기존 문서의 요약을 채운다 — 비파괴적."""
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s = get_settings()
     conn = dbm.connect(s.db_file)
@@ -2588,7 +2590,7 @@ def cmd_regenerate(args) -> int:
     import json
 
     from .ingest.service import IngestService
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     s, theme = get_effective_settings(args)
     svc = IngestService(s)
@@ -2892,7 +2894,7 @@ def cmd_format_migrate(args) -> int:
             return 2
 
     svc = IngestService(s)
-    from .progress import track_batch_progress
+    from .core.progress import track_batch_progress
 
     try:
         with track_batch_progress(f"Format migration ({fmt_label})", status["target_docs"]) as reporter:
@@ -3313,7 +3315,7 @@ def cmd_presentation(args) -> int:
     import json
     import sys
     from .core.ports import get_slide_renderer
-    from .presentation import PresentationService
+    from .extract.presentation_service import PresentationService
 
     action = getattr(args, "action", "generate")
     s, theme = get_effective_settings(args)
@@ -5287,7 +5289,7 @@ def cmd_entity_batch_labels(args) -> int:
 
 
 def cmd_providers(args) -> int:
-    from .provider_manager import get_provider_manager
+    from .core.provider_manager import get_provider_manager
 
     s = get_settings()
     pm = get_provider_manager(s.data_dir)

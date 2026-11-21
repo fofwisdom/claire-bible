@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from ..secret_scrub import scrub_exception, scrub_text
+from ..core.secret_scrub import scrub_exception, scrub_text
 
 logger = logging.getLogger(__name__)
 

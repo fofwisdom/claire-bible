@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.ports import get_slide_renderer
-from ..extract.prompts import PRESENTATION_PROMPT_VERSION
+from .prompts import PRESENTATION_PROMPT_VERSION
 from ..ontology.base import Document
 from ..store import db as dbm
 
@@ -44,7 +44,7 @@ class PresentationService:
     def _base_settings(self) -> Any:
         if self.settings is not None:
             return self.settings
-        from ..config import get_settings  # 설정 없이 만든 서비스 = 호스트 운영자(CLI) 경로
+        from ..core.config import get_settings  # 설정 없이 만든 서비스 = 호스트 운영자(CLI) 경로
 
         return get_settings()
 
@@ -74,7 +74,7 @@ class PresentationService:
     def _provider_for_context(self, ctx: Any) -> Any:
         """컨텍스트 사본으로 프로바이더를 만든다. 멤버는 ``presentation`` 기능 게이트와 원장 훅을 거친다."""
         from ..accounts.provider_policy import require_feature, settings_for_context
-        from ..extract.provider import get_provider
+        from .provider import get_provider
 
         base = self._base_settings()
         if ctx.is_admin:
@@ -224,7 +224,7 @@ class PresentationService:
                 ),
             )
         except Exception as exc:
-            from ..secret_scrub import scrub_exception
+            from ..core.secret_scrub import scrub_exception
 
             dbm.update_document_presentation_status(
                 conn,
@@ -415,7 +415,7 @@ class PresentationService:
                 compile_duration_ms=duration_ms,
             )
         except Exception as exc:
-            from ..secret_scrub import scrub_exception
+            from ..core.secret_scrub import scrub_exception
 
             dbm.update_document_presentation_status(
                 conn,

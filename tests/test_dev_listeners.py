@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from claire.api.dev_listeners import dev_listeners
-from claire.config import Settings
+from claire.core.config import Settings
 
 
 @pytest.fixture(autouse=True)

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 

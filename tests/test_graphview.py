@@ -541,7 +541,7 @@ def test_render_graph_html_default():
 
 
 def test_render_graph_html_custom_settings():
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     settings = Settings(
         GITHUB_REPOSITORY="custom-team/my-kb",
@@ -561,7 +561,7 @@ def test_render_graph_html_custom_settings():
 
 def test_drawerfooter_knowledge_manager_and_github_icon_layout():
     """drawerfooter 내 좌측 지식 관리자 표기 및 우측 끝 GitHub 아이콘 배치 검증."""
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     # 1. CSS 규칙 검증: drawerfooter justify-content:space-between, drawermanager, repolink 우측 정렬
     html = render_graph_html()

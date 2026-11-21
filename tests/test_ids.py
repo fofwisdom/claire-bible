@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from claire import ids
+from claire.core import ids
 
 SALT = bytes(range(32))
 # 2026-11-02T00:00:00Z

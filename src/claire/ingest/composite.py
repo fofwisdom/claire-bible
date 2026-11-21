@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..config import Settings, get_settings
+from ..core.config import Settings, get_settings
 from ..ontology.base import Document, SourceAttachment
 from .fetchers.textfile import fetch_file
 from .normalize import content_hash

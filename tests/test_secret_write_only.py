@@ -36,7 +36,7 @@ import pytest
 import zstandard as zstd
 from starlette.testclient import TestClient
 
-from claire import secret_scrub
+from claire.core import secret_scrub
 from claire.accounts.provider_policy import ProviderContext, ProviderNotAllowed, ProviderNotConfigured, classify_provider
 from claire.api import server
 from claire.graph_bundle import create_graph_bundle

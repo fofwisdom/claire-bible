@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 from claire import cli
 from claire.api import security, server
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.ingest.normalize import content_hash
 from claire.ingest.pipeline import IngestReport, ingest
@@ -72,7 +72,7 @@ def test_cli_reingest_dry_run_and_apply(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
 
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     conn = dbm.connect(db_file)
@@ -165,7 +165,7 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
 
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
     settings = get_settings()
 

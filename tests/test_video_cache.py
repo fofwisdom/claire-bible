@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.ingest.fetchers.video import fetch_video
 from claire.store.video_cache import (
     compute_video_cache_keys,

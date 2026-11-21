@@ -23,7 +23,7 @@ def _plain(html_text: str) -> str:
 
     return _html.unescape(_re.sub(r"<[^>]+>", "", html_text))
 
-from .config import get_settings
+from .core.config import get_settings
 from .i18n import SUPPORTED_LOCALES, resolve_bot_locale, use_locale
 from .i18n import t as _t
 from .store import db as dbm
@@ -148,12 +148,12 @@ def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
     최대 5MB 크기의 회전 로그 3개를 유지하며 claire.telegram 로거에 부착한다.
     프로바이더 오류 문자열에 섞인 키가 기록되지 않도록 로그 스크러버를 먼저 설치한다(설계 §11.3).
     """
-    from .secret_scrub import install_log_scrubber
+    from .core.secret_scrub import install_log_scrubber
 
     install_log_scrubber()
     try:
         if data_dir is None:
-            from .config import get_settings
+            from .core.config import get_settings
             data_dir = get_settings().data_dir
         log_dir = Path(data_dir) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -437,7 +437,7 @@ async def _settle_status(
                 from pathlib import Path
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-                from .config import get_settings
+                from .core.config import get_settings
 
                 cfg = (
                     kwargs.get("settings")
@@ -1066,7 +1066,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
     def _contribute_to_theme(theme_ref: str, document_id: str) -> str:
         """Contribute one document of the personal knowledge base of the bot account to one theme, run the merge jobs, and return the reply text with the state of each target (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.7 rule 2 and 9.2). The caller runs it in a worker thread, in the locale of the update."""
-        from . import contributions, ids
+        from . import contributions
+        from .core import ids
         from .ingest.service import run_waiting_merge_jobs
         from .store import kb_collab
         from .store import themes as themes_store
@@ -1366,7 +1367,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if not raw_text:
             return
 
-        from .config import extract_own_share_token
+        from .core.config import extract_own_share_token
 
         is_multi = bool(getattr(s, "multi_theme", False))
         explicit_kb_id = None

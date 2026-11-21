@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from claire.secret_scrub import register_secret, scrub_text
+from claire.core.secret_scrub import register_secret, scrub_text
 from claire.store.secrets import clear_volatile_user_seals, generate_user_seal, register_volatile_user_seal
 
 if TYPE_CHECKING:

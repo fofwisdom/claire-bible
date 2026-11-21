@@ -481,7 +481,7 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
-    from ..config import get_settings
+    from ..core.config import get_settings
     settings = get_settings()
     is_full = full_content or bool((doc.meta or {}).get("full_content"))
     if is_full:

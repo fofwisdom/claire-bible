@@ -23,12 +23,12 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from claire import secret_scrub
+from claire.core import secret_scrub
 from claire.accounts import provider_policy as policy
 from claire.accounts import server_tier
 from claire.api import server
-from claire import ids
-from claire.config import Settings
+from claire.core import ids
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
@@ -207,7 +207,7 @@ def _assert_policy(r, status: int, code: str) -> None:
 
 @pytest.fixture
 def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
-    import claire.research as research_mod
+    import claire.retrieval.research as research_mod
 
     calls: list[Any] = []
 
@@ -295,7 +295,7 @@ def test_synthesize_allowed_when_tier_feature_on(tmp_path, synth_calls):
 
 
 def test_presentation_authoring_denied_for_member_without_feature(env, monkeypatch):
-    from claire.presentation import PresentationService
+    from claire.extract.presentation_service import PresentationService
 
     async def _never(*_a: Any, **_k: Any) -> dict:
         raise AssertionError("presentation authoring reached")
@@ -354,7 +354,7 @@ def test_policy_error_response_format(exc_type, status):
 def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
     caplog.set_level(logging.DEBUG)
     secret_scrub.register_secret(CANARY)
-    from claire.presentation import PresentationService
+    from claire.extract.presentation_service import PresentationService
 
     async def _boom(*_a: Any, **_k: Any) -> dict:
         raise RuntimeError(f"upstream rejected key {CANARY} and {CANARY_SHAPED}")

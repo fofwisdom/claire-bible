@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from tests.kb_paths import kb_url, seed
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 
 OWNER_TOKEN = "owner-" + ("o" * 32)

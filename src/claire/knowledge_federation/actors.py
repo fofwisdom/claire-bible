@@ -26,7 +26,7 @@ from typing import Any
 
 import nh3
 
-from .. import ids
+from ..core import ids
 from ..store import accounts as accounts_store
 from ..store import federation as federation_store
 from ..store import kb_collab

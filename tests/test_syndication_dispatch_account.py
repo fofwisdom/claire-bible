@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from tests.kb_paths import kb_url, seed
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager

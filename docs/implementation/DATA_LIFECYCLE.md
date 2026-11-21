@@ -21,7 +21,7 @@ Code: `src/claire/store/raw.py`.
 
 ## 2. Lifecycle policy
 
-- **[code] Settings.** `CLAIRE_DATA_LIFECYCLE` (`purgeable` or `append-only`, default `purgeable`, other values are refused) and `CLAIRE_ALLOW_PURGE` (boolean, default true), in `src/claire/config.py`.
+- **[code] Settings.** `CLAIRE_DATA_LIFECYCLE` (`purgeable` or `append-only`, default `purgeable`, other values are refused) and `CLAIRE_ALLOW_PURGE` (boolean, default true), in `src/claire/core/config.py`.
 - **[code] Rule.** `Settings.is_purge_allowed` is true when the lifecycle is `purgeable` **or** `CLAIRE_ALLOW_PURGE` is true. Thus purge is blocked only when the lifecycle is `append-only` and `CLAIRE_ALLOW_PURGE` is false.
 - **[code] Effect.** When purge is blocked, `claire purge` prints the policy and exits with code 1, and `POST /purge` and `POST /document/purge` return 403. `claire preflight` shows the lifecycle and whether purge is allowed.
 

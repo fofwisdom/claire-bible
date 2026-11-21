@@ -8,7 +8,7 @@ from pathlib import Path
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract.provider import MockProvider
 from claire.ingest.service import IngestService
 from claire.store import db as dbm

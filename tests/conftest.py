@@ -38,7 +38,7 @@ def _isolate_limit_manager_files(tmp_path_factory: pytest.TempPathFactory, monke
     """
     from pathlib import Path
 
-    import claire.ingest_limit_manager as ilm
+    import claire.core.ingest_limit_manager as ilm
 
     monkeypatch.setattr(ilm, "ENV_ROOT", tmp_path_factory.mktemp("env-root"))
     repo_data = (ilm.ROOT / "data").resolve()
@@ -91,7 +91,7 @@ def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatc
     """
     from pathlib import Path
 
-    from claire.config import ROOT
+    from claire.core.config import ROOT
     from claire.plugin_host import runtime as rt
 
     repo_db = (Path(ROOT) / "data" / "claire.db").resolve()
@@ -122,6 +122,6 @@ def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatc
 def _clear_settings_cache_after_test() -> Iterator[None]:
     """A test that changes environment variables and fills the ``get_settings`` cache must not leak those settings into the next test of the same worker (monkeypatch restores the variables, but not the cache)."""
     yield
-    from claire.config import get_settings
+    from claire.core.config import get_settings
 
     get_settings.cache_clear()

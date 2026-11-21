@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from ...config import ProviderUnavailableError, find_ffmpeg_executable, get_settings
+from ...core.config import ProviderUnavailableError, find_ffmpeg_executable, get_settings
 from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider

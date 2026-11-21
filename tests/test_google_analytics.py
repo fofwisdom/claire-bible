@@ -15,7 +15,7 @@ from starlette.routing import Route
 
 from bible.web.metadata import render_ga_tag
 from claire.api import security
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import GRAPH_HTML, render_graph_html, shared_html
 from claire.store import db as dbm
 

@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.ingest.active import (
     _COMPLETED_RETENTION_SEC,

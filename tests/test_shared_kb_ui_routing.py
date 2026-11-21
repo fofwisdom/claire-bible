@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.api import server
 from claire.api.accounts_routes import admin as admin_routes
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import themes as themes_store

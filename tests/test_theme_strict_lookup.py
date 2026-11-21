@@ -27,7 +27,7 @@ from tests.kb_paths import step_up_request
 from claire import cli
 from claire.api.mcp_tools import build_mcp_app
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService, IngestServicePool
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseNotFound
@@ -68,7 +68,7 @@ def strict_env(tmp_path):
 
 
 def _num(kb) -> str:
-    from claire import ids
+    from claire.core import ids
 
     return ids.format_public_id(kb.number)
 

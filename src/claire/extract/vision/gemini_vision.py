@@ -22,7 +22,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
     def __init__(self, settings: Any = None) -> None:
         super().__init__(settings)
         from ...accounts.provider_policy import context_of
-        from ...config import get_settings
+        from ...core.config import get_settings
 
         s = settings or get_settings()
         ctx = context_of(s)
@@ -31,7 +31,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
             # 멤버는 컨텍스트 키만 쓴다(관리자 키로 넘어가지 않는다).
             self.api_key = ctx.api_key
             if self.api_key:
-                from ...secret_scrub import register_secret
+                from ...core.secret_scrub import register_secret
 
                 register_secret(self.api_key)
         else:

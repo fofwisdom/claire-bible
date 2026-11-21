@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from httpx import HTTPError, HTTPStatusError, RequestError, Response, TimeoutException
 
-from ..config import ProviderUnavailableError, Settings, find_ffmpeg_executable
+from ..core.config import ProviderUnavailableError, Settings, find_ffmpeg_executable
 from ..extract.provider import emit_progress
 from ..extract.table_budget import slice_document_text
 from ..extract.transcript.factory import get_transcript_provider

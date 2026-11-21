@@ -44,7 +44,7 @@ def resolve_app_root(
         return explicit.resolve(strict=False)
 
     module_path = Path(module_file or __file__).resolve(strict=False)
-    source_root = module_path.parents[2]
+    source_root = module_path.parents[3]
     if (source_root / "pyproject.toml").is_file():
         return source_root
 
@@ -1135,7 +1135,7 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             is_match = True
         elif getattr(s, "multi_theme", False):
             try:
-                from .store.knowledge_base import get_kb_manager
+                from ..store.knowledge_base import get_kb_manager
 
                 tm = get_kb_manager(s)
                 if tm.has_registered_fqdn(host):

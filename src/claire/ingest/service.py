@@ -24,9 +24,9 @@ from ..accounts.provider_policy import (
     settings_for_context,
     validate_ingest_effort,
 )
-from ..config import Settings
+from ..core.config import Settings
 from ..extract.provider import UnavailableProvider, get_provider
-from ..secret_scrub import scrub_exception
+from ..core.secret_scrub import scrub_exception
 from ..store import auth_db as _auth_db
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
@@ -108,7 +108,7 @@ def _scrub_optional(text: Any) -> Any:
     """``None``은 그대로, 나머지는 비밀을 지운 문자열(설계 §11.3)."""
     if text is None:
         return None
-    from ..secret_scrub import scrub_text
+    from ..core.secret_scrub import scrub_text
 
     return scrub_text(text)
 

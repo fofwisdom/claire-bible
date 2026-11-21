@@ -21,7 +21,7 @@ from starlette.testclient import TestClient
 
 from claire.api import security
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store import legacy_hosts as lh
 from claire.store.knowledge_base import (

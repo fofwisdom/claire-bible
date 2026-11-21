@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from claire.config import Settings, resolve_app_root
+from claire.core.config import Settings, resolve_app_root
 
 
 def test_app_root_uses_source_checkout_when_pyproject_exists(tmp_path):
-    module = tmp_path / "src/claire/config.py"
+    module = tmp_path / "src/claire/core/config.py"
     (tmp_path / "pyproject.toml").write_text("[project]\nname='test'\n")
 
     assert resolve_app_root(
@@ -25,7 +25,7 @@ def test_app_root_uses_source_checkout_when_pyproject_exists(tmp_path):
 def test_app_root_uses_explicit_container_path_for_installed_wheel(tmp_path):
     installed_module = (
         tmp_path
-        / ".venv/lib/python3.11/site-packages/claire/config.py"
+        / ".venv/lib/python3.11/site-packages/claire/core/config.py"
     )
 
     assert resolve_app_root(
@@ -38,7 +38,7 @@ def test_app_root_uses_explicit_container_path_for_installed_wheel(tmp_path):
 def test_app_root_does_not_treat_site_packages_parent_as_project_root(tmp_path):
     installed_module = (
         tmp_path
-        / ".venv/lib/python3.11/site-packages/claire/config.py"
+        / ".venv/lib/python3.11/site-packages/claire/core/config.py"
     )
     runtime_cwd = tmp_path / "runtime"
 
@@ -261,7 +261,7 @@ def test_slicing_config_custom_values(monkeypatch, tmp_path):
 
 
 def test_ingest_limits_file_wins_over_exported_variable(monkeypatch, tmp_path):
-    from claire.ingest_limit_manager import IngestLimitManager
+    from claire.core.ingest_limit_manager import IngestLimitManager
 
     monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
     IngestLimitManager(data_dir=tmp_path, auto_migrate=False).update_config({"limits": {"raw_char_budget": 111, "auto_expand": False}})
@@ -325,8 +325,8 @@ def test_preferred_languages_config(monkeypatch):
 
 def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):
     """The Web UI (providers.json) sets the models. An environment variable and a ``.env`` line do not."""
-    from claire.config import MODEL_FIELDS
-    from claire.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
+    from claire.core.config import MODEL_FIELDS
+    from claire.core.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
 
     # A providers.json without models: no value of the file hides an environment value.
     config = json.loads(json.dumps(DEFAULT_PROVIDERS_CONFIG))

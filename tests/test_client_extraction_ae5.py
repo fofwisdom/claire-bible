@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 
 from claire.accounts.provider_policy import ProviderKeyRejected
 from claire.api import server, usercontent
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import UnavailableProvider
 from claire.ingest import client_extraction as ce
 from claire.ingest.pipeline import stage_raw

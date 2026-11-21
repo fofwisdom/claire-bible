@@ -357,7 +357,7 @@ def test_e2e_server_serves_the_context_and_the_vocabulary_page(tmp_path) -> None
     from starlette.testclient import TestClient
 
     from claire.api.server import create_app
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.knowledge_federation import vocabulary
 
     (tmp_path / "data").mkdir()

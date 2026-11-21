@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.api.mcp_tools import build_mcp_app
 from claire.api.server import create_app
 from claire.cli import cmd_doc_title, cmd_purge, cmd_regenerate, get_effective_settings
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService, IngestServicePool
 from claire.ontology.base import Document
 from claire.store import db as dbm

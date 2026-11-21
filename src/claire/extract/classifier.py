@@ -7,11 +7,11 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..config import Settings
+    from ..core.config import Settings
     from ..ontology.base import Document
     from .provider import Provider
 
-from ..config import get_settings
+from ..core.config import get_settings
 
 logger = logging.getLogger("claire.classifier")
 
@@ -176,7 +176,7 @@ def classify_paper(
     provider: Provider | None = None,
 ) -> PaperClassificationResult:
     """Classify document as academic paper using configured provider without heuristic fallback."""
-    from ..config import ProviderUnavailableError, get_settings
+    from ..core.config import ProviderUnavailableError, get_settings
 
     s = settings or get_settings()
     prov = provider or get_lowest_effort_provider(s)

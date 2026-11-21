@@ -96,7 +96,7 @@ def parse_raw_transcript_lines(raw_text: str, offset_sec: float = 0.0) -> list[T
 def get_audio_duration_sec(audio_file: Path, ffmpeg_bin: str = "ffmpeg") -> float:
     """ffprobe 또는 ffmpeg를 사용해 오디오 길이(초)를 측정한다."""
     try:
-        from ...config import find_ffmpeg_executable
+        from ...core.config import find_ffmpeg_executable
 
         ff_exec = find_ffmpeg_executable(ffmpeg_bin)
         ffprobe_exec = None
@@ -133,7 +133,7 @@ def get_audio_duration_sec(audio_file: Path, ffmpeg_bin: str = "ffmpeg") -> floa
 
     # ffmpeg -i stderr 파싱 폴백
     try:
-        from ...config import find_ffmpeg_executable
+        from ...core.config import find_ffmpeg_executable
 
         ff_exec = find_ffmpeg_executable(ffmpeg_bin) or "ffmpeg"
         res = subprocess.run(
@@ -162,7 +162,7 @@ def split_audio_into_chunks(
     tmp_dir: Path | None = None,
 ) -> list[tuple[Path, float]]:
     """오디오 파일을 지정된 시간 단위(기본 15분)로 분할하여 (청크파일경로, 오프셋초) 목록 반환."""
-    from ...config import find_ffmpeg_executable
+    from ...core.config import find_ffmpeg_executable
 
     ff_exec = find_ffmpeg_executable(ffmpeg_bin) or "ffmpeg"
     total_sec = get_audio_duration_sec(audio_path, ffmpeg_bin=ff_exec)
@@ -289,7 +289,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
                 )
             raise ValueError("GEMINI_API_KEY is not configured for GeminiTranscriptProvider")
         if self._is_member():
-            from ...secret_scrub import register_secret
+            from ...core.secret_scrub import register_secret
 
             register_secret(api_key)
         return genai.Client(api_key=api_key)

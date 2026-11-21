@@ -46,7 +46,7 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
 from ...store import themes as themes_store
-from ... import ids
+from ...core import ids
 from ...i18n import get_locale, t
 from .common import (
     FORM_PAGE_REFERRER_POLICY,

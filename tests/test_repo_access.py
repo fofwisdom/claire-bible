@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from claire.cli import cmd_preflight, cmd_repo
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.status import build_status_text
 
 

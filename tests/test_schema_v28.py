@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-from claire import ids
+from claire.core import ids
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store import themes as themes_store

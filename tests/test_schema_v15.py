@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from claire import ids
+from claire.core import ids
 from claire.store import db as dbm
 
 
@@ -275,7 +275,7 @@ def test_create_session_only_replaces_same_account_same_scope() -> None:
 def test_theme_registry_account_id(tmp_path: Path) -> None:
     import json
 
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
     # §13.1: themes.json 항목에 account_id가 없으면 v15 이전 관리자 테마(1)다.

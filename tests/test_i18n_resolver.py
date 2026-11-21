@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.i18n import InvalidLocale, get_locale, negotiate_locale, parse_accept_language, parse_explicit_locale, resolve_bot_locale, resolve_cli_locale, resolve_cli_locale_with_source, resolve_web_locale, resolve_web_locale_with_source, set_locale, use_locale
 
 

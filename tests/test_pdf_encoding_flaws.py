@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.ingest.fetchers.pdf import (
     PdfExtractResult,
     detect_pdf_encoding_flaws,

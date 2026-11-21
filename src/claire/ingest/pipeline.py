@@ -29,7 +29,7 @@ from ..ontology.registry import (
 )
 from ..store import db as dbm
 from ..store.graph import GraphStore
-from ..secret_scrub import scrub_exception, scrub_text
+from ..core.secret_scrub import scrub_exception, scrub_text
 from ..store.vectors import VectorStore, is_kb_active_space_eos, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
 from .active import active_job, clear_active_ingest, set_active_ingest, update_active_ingest
 from .fetchers.base import bound_fetch_settings
@@ -65,7 +65,7 @@ def resolve_job_settings(settings: Any = None, provider: Any = None) -> Any:
     bound = _FETCH_SETTINGS.get()
     if bound is not None:
         return bound
-    from ..config import get_settings
+    from ..core.config import get_settings
 
     return get_settings()
 

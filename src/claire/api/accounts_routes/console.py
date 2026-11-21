@@ -21,7 +21,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import ids
+from ...core import ids
 from ...core.ports import get_web_ui_renderer
 from ...i18n import SUPPORTED_LOCALES, get_locale, interpolate, t
 from ...ontology.label_language import ENTITY_LANGUAGES

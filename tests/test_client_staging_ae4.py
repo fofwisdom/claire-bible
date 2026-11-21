@@ -15,7 +15,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.contributions import ContributionError, contribute_direct, curate
 from claire.extract.provider import MockProvider
 from claire.ingest import pipeline

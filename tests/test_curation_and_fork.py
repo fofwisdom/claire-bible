@@ -11,7 +11,7 @@ import pytest
 
 from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _graph, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
-from claire import ids
+from claire.core import ids
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store import themes as themes_store

@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 
 from claire import cli
 from claire.api import server
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract import decisions_prelabel
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store

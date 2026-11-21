@@ -15,7 +15,7 @@ import sqlite3
 import time
 from typing import Any, Callable
 
-from .. import ids
+from ..core import ids
 from . import db as dbm
 
 KNOWLEDGE_TYPES = ("real", "fictional")

@@ -24,7 +24,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.token_store import reset_token_stores

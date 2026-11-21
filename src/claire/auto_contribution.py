@@ -22,7 +22,8 @@ import sqlite3
 import time
 from typing import Any
 
-from . import contributions, ids, reputation, theme_judgement
+from . import contributions, reputation, theme_judgement
+from .core import ids
 from .store import db as dbm
 from .store import kb_collab
 from .store import themes as themes_store

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.provider import MockProvider
 from claire_bible.web.pages import GRAPH_HTML

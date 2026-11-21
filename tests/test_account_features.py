@@ -27,7 +27,8 @@ from tests.kb_paths import kb_number
 import zstandard as zstd
 from starlette.testclient import TestClient
 
-from claire import account_backup, secret_scrub, telegram_api
+from claire import account_backup, telegram_api
+from claire.core import secret_scrub
 from claire.api import server
 from claire.ontology.base import Document, Entity
 from claire.store import accounts as accounts_store

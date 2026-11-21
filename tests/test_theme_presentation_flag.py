@@ -17,7 +17,7 @@ from tests.kb_paths import kb_list, kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager

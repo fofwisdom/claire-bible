@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.decision import (
     HeatmapMatrixData,
     ResolutionDecision,
@@ -280,7 +280,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     from unittest.mock import MagicMock
     from starlette.testclient import TestClient
     from claire.api import server
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.active import clear_active_ingest, set_active_ingest
     from claire.ontology.base import Document
     from claire.store import db as dbm

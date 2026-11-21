@@ -26,11 +26,11 @@ from claire.accounts.provider_policy import (
     ProviderNotAllowed,
     ServerTier,
 )
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider, UnavailableProvider
 from claire.ingest.service import IngestService, IngestServicePool
 from claire.ontology.base import Document
-from claire.secret_scrub import _reset_for_tests, register_secret
+from claire.core.secret_scrub import _reset_for_tests, register_secret
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.provider_keys import ActiveKey
@@ -526,7 +526,7 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
 
 
 def test_presentation_uses_theme_owner_context(world, admin_built, fake_genai, member_keys):
-    from claire.presentation.service import PresentationService
+    from claire.extract.presentation_service import PresentationService
 
     conn = dbm.connect(world.db_file)
     conn.execute(

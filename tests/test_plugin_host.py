@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.plugin_host import runtime as rt
 from claire.plugin_host.discovery import compute_states, discover, overlap_groups, overlap_pairs
 from claire.plugin_host.files import PluginFileError, folder_digest

@@ -30,11 +30,11 @@
 | `src/claire/accounts/server_tier.py` | 서버 등급 로드/저장/검증, 사용량 확인, 동시성 슬롯, 사용량 훅 | `load_server_tier`, `save_server_tier`, `check_ingest_allowed`, `check_tokens_available`, `check_theme_quota`, `check_document_quota`, `job_slot`, `usage_hooks_for`, `record_usage` |
 | `src/claire/store/provider_keys.py` | 멤버 BYOK API 키 암호화 저장소, 시험 호출 검증 | `ProviderKeyMeta`, `ActiveKey`, `put_key`, `load_active_key`, `verify_key`, `delete_key` |
 | `src/claire/store/usage_ledger.py` | auth.db의 account_usage UTC 일/월별 원장 집계 | `UsageSnapshot`, `utc_period`, `utc_day`, `get_usage`, `record_tokens`, `try_reserve_ingest`, `tokens_remaining` |
-| `src/claire/secret_scrub.py` | API 키 등 비밀 누출 방지 및 로그/예외 마스킹 | `register_secret`, `scrub_text`, `scrub_exception`, `SecretScrubFilter`, `install_log_scrubber` |
+| `src/claire/core/secret_scrub.py` | API 키 등 비밀 누출 방지 및 로그/예외 마스킹 | `register_secret`, `scrub_text`, `scrub_exception`, `SecretScrubFilter`, `install_log_scrubber` |
 | `src/claire/store/vectors.py` | 테마별 임베딩 모델 고정 및 검색 필터링 | `EmbedPin`, `EmbeddingModelMismatch`, `read_embed_pin`, `replace_theme_embeddings`, `VectorStore.search` |
 | `src/claire/store/knowledge_base.py` | 테마 메타데이터 및 임베딩 고정 필드 보존 | `KnowledgeBaseInfo`, `embed_provider`, `embed_model` |
-| `src/claire/config.py` | 전역 프로바이더 설정 및 사용 가능 판정 | `Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`, `provider_unavailable_reason`, `is_production`, `ProviderUnavailableError`, `PROVIDER_UNAVAILABLE` |
-| `src/claire/provider_manager.py` | data/providers.json 읽기·쓰기, 환경변수 마이그레이션, WebUI 연결 검증 | `ProviderManager`, `DEFAULT_PROVIDERS_CONFIG`, `MIGRATED_ENV_VARS`, `SUPPORTED_ACTIVE_PROVIDERS`, `get_settings_dict`, `migrate_from_env_if_needed`, `test_connection` |
+| `src/claire/core/config.py` | 전역 프로바이더 설정 및 사용 가능 판정 | `Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`, `provider_unavailable_reason`, `is_production`, `ProviderUnavailableError`, `PROVIDER_UNAVAILABLE` |
+| `src/claire/core/provider_manager.py` | data/providers.json 읽기·쓰기, 환경변수 마이그레이션, WebUI 연결 검증 | `ProviderManager`, `DEFAULT_PROVIDERS_CONFIG`, `MIGRATED_ENV_VARS`, `SUPPORTED_ACTIVE_PROVIDERS`, `get_settings_dict`, `migrate_from_env_if_needed`, `test_connection` |
 | `src/claire/extract/provider.py` | LLM 프로토콜과 팩토리 | `Provider`(Protocol), `MockProvider`, `UnavailableProvider`, `get_provider` |
 | `src/claire/extract/gemini_provider.py` | Gemini API, 자격 지문별 호출 락, 키 거부 판정 | `GeminiProvider`, `_call`, `_call_state`, `_CALL_LOCK`, `_LAST_CALL`, `_is_key_rejection`, `_is_retryable`, `_is_daily_quota` |
 | `src/claire/extract/classifier.py` | 저비용 분류용 프로바이더 선택 | `get_lowest_effort_provider`, `parse_effort_score` |

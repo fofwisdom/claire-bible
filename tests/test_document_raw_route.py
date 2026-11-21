@@ -7,7 +7,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.token_store import get_token_store

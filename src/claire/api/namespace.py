@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .. import ids
+from ..core import ids
 from ..accounts.username_policy import USERNAME_RE
 from ..store import accounts as accounts_store
 from ..store import db as dbm

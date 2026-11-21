@@ -31,7 +31,7 @@ from starlette.responses import (
 from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import kb_access
+from ..accounts import kb_access
 from ..store import accounts as accounts_store
 from ..store.accounts import ServerMode
 from ..store import db as dbm

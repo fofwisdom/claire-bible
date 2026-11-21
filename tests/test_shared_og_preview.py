@@ -13,7 +13,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from bible.web.metadata import (
     extract_knowledge_node_tags,
     render_open_graph_tags,

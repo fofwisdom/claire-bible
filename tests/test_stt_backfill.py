@@ -131,7 +131,7 @@ def test_cli_stt_backfill_dry_run_and_apply(tmp_path, monkeypatch, capsys):
     conn.close()
 
     monkeypatch.setenv("CLAIRE_DB_PATH", str(test_db))
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     # 1. Dry run (기본)

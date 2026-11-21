@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.decision import ResolutionDecision, attach_resolution_meta
 from claire.extract.prompts import judge_same_entity_prompt
 from claire.extract.provider import ExtractedEntity, ExtractedRelation, ExtractionResult, MergeCandidate, MockProvider

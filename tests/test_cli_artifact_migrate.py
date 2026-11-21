@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from claire.cli import build_parser, cmd_artifact_migrate
-from claire.config import get_settings
+from claire.core.config import get_settings
 
 
 def test_cli_parser_artifact_migrate():

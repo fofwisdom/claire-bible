@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from claire import ids, reputation
+from claire import reputation
+from claire.core import ids
 from claire.knowledge_federation import handlers, journal, known_servers, vocabulary
 from claire.store import accounts as accounts_store
 from claire.store import themes as themes_store

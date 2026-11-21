@@ -20,7 +20,7 @@ from claire.api.security import (
     is_cloudflare_ip,
     wrap_web_app,
 )
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 
 OWNER_TOKEN = "owner-" + ("o" * 32)

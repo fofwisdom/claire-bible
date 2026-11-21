@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from claire.cli import build_parser
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm

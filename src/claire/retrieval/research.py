@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import sqlite3
 
-from .expand.gate import QUALITY_MIN, RELEVANCE_MIN
-from .store import db as dbm
+from ..expand.gate import QUALITY_MIN, RELEVANCE_MIN
+from ..store import db as dbm
 
 
 def build_context(conn: sqlite3.Connection, node_id: str | None = None,
@@ -22,7 +22,7 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
     parts: list[str] = []
     focus = ""
     if node_id:
-        from .store.queries import synthesis_context
+        from ..store.queries import synthesis_context
 
         ctx, names = synthesis_context(conn, [node_id], kb_id=kb_id)
         if ctx:
@@ -49,7 +49,7 @@ def contextual_research(settings, provider, *, query: str,
 
     반환 dict: {query, context_focus, report, sources, relevance, quality, interpretation, reason, added, verdict, ingest?} — 게이트 미달이어도 보고서는 반환해 사용자가 읽을 수 있게 한다(추가만 보류).
     """
-    from .extract.provider import set_progress_callback
+    from ..extract.provider import set_progress_callback
 
     def _p(stage: str, msg: str) -> None:
         if progress:
@@ -140,10 +140,10 @@ def _research_doc_text(query: str, focus: str, interpretation: str,
 
 def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
                        query: str, text: str) -> dict:
-    from .ingest.normalize import content_hash
-    from .ingest.pipeline import ingest as run_ingest
-    from .ontology.base import Document
-    from .store.vectors import make_vector_store
+    from ..ingest.normalize import content_hash
+    from ..ingest.pipeline import ingest as run_ingest
+    from ..ontology.base import Document
+    from ..store.vectors import make_vector_store
 
     doc = Document(
         title=f"조사: {query[:60]}",

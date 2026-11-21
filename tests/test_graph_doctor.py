@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from claire.cli import cmd_doctor
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 

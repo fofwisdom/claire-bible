@@ -9,7 +9,7 @@ mock provider 훅:
 
 from __future__ import annotations
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.expand.automatic import build_candidates
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod

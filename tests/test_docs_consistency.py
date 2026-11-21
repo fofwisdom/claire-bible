@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from claire.config import Settings
-from claire.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
+from claire.core.config import Settings
+from claire.core.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"

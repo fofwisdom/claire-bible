@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import ExtractedEntity, ExtractedRelation, ExtractionResult
 from claire.extract.table_budget import count_tables, has_tables
 from claire.ingest.service import IngestService

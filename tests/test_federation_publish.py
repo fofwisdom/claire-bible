@@ -405,7 +405,7 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
         probe.bind(("127.0.0.1", 0))
         port = int(probe.getsockname()[1])
     base = f"http://127.0.0.1:{port}"
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     (tmp_path / "vault").mkdir()
     # The page reads the document list, so this test needs the full settings object.

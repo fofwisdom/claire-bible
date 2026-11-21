@@ -24,7 +24,7 @@ from claire.accounts.provider_policy import (
     ProviderNotConfigured,
     ServerTier,
 )
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store.provider_keys import ActiveKey, ProviderKeyError
 
 ADMIN_KEY = "AIzaADMINadminADMINadminADMINadmin0001"

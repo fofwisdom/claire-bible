@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.accounts import invites
 from claire.accounts.invites import (
     InvitationInfo,

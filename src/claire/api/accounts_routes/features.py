@@ -35,7 +35,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
-from ...secret_scrub import register_secret, scrub_text
+from ...core.secret_scrub import register_secret, scrub_text
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import telegram_bots
@@ -77,7 +77,7 @@ BACKUP_SCHEDULES = ("off", "daily", "weekly")
 def _settings(ctx: AccountsContext) -> Any:
     if ctx.settings is not None:
         return ctx.settings
-    from ...config import get_settings
+    from ...core.config import get_settings
 
     return get_settings()
 
@@ -228,7 +228,7 @@ def _knowledge_bases_by_id(ctx: AccountsContext, kb_ids: list[int]) -> list[Any]
 
 
 def _theme_ref(theme: Any) -> str:
-    from ... import ids
+    from ...core import ids
 
     number = getattr(theme, "number", None)
     return ids.format_public_id(number) if number is not None else str(theme.id)

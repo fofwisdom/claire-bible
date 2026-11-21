@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.transcript.base import TranscriptResult, TranscriptSegment
 from claire.ingest.fetchers.video import VideoFetcher, is_video_or_audio_url, resolve_media_title
 from claire.ingest.router import classify, fetch

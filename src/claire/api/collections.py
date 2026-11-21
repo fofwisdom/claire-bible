@@ -15,7 +15,7 @@ from typing import Any
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 
-from .. import ids
+from ..core import ids
 
 __all__ = [
     "DEFAULT_LIMIT",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...config import get_settings
+from ...core.config import get_settings
 from .base import TranscriptProvider
 from .mock_stt import MockTranscriptProvider
 
@@ -23,7 +23,7 @@ class UnavailableTranscriptProvider:
             from ..provider import raise_policy_error
 
             raise_policy_error(self.error)
-        from ...config import ProviderUnavailableError
+        from ...core.config import ProviderUnavailableError
 
         raise ProviderUnavailableError(f"STT 프로바이더를 쓸 수 없다: {self.reason}")
 

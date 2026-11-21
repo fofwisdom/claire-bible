@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService

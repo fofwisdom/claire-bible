@@ -676,7 +676,7 @@ def real_app(tmp_path: Path):
     from starlette.testclient import TestClient
 
     from claire.api.server import create_app
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"

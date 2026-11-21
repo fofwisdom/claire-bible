@@ -1,8 +1,8 @@
 """원문 슬라이싱 구성 및 .env 환경설정 동적 반영 단위 테스트."""
 
 import pytest
-from claire import ingest_limit_manager
-from claire.config import Settings, get_settings
+from claire.core import ingest_limit_manager
+from claire.core.config import Settings, get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.table_budget import (
     extract_tables_from_text,

@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from claire.cli import cmd_format_migrate
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 

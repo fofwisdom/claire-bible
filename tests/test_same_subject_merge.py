@@ -10,7 +10,7 @@ mock provider 훅(judge_gate, extract/provider.py):
 
 from __future__ import annotations
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.expand.proposal import find_candidates
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod
@@ -119,7 +119,7 @@ def test_merge_mode_value_is_refused(monkeypatch, tmp_path):
     import pytest
     from pydantic import ValidationError
 
-    from claire.ingest_limit_manager import IngestLimitManager
+    from claire.core.ingest_limit_manager import IngestLimitManager
 
     with pytest.raises(ValidationError, match="same_subject_merge must be 'off' or 'shadow'"):
         _mem(monkeypatch, tmp_path).model_validate({"same_subject_merge": "on"})

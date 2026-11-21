@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.composite import (
     compose_composite_document,
     fetch_composite_components,

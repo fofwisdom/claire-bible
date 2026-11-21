@@ -44,7 +44,7 @@ class TokenStore:
             self.storage_path = (Path(data_dir) / "auth" / API_TOKENS_FILENAME).resolve()
         else:
             try:
-                from ..config import get_settings
+                from ..core.config import get_settings
                 base_data_dir = get_settings().data_dir
             except Exception:
                 base_data_dir = Path("data")
@@ -552,7 +552,7 @@ def get_token_store(
             key = str((Path(data_dir) / "auth" / API_TOKENS_FILENAME).resolve())
         else:
             try:
-                from ..config import get_settings
+                from ..core.config import get_settings
                 base_data_dir = get_settings().data_dir
             except Exception:
                 base_data_dir = Path("data")

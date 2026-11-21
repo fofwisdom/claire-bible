@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract.prompts import (
     render_detail_prompt,
     render_detail_prompt_adoc,

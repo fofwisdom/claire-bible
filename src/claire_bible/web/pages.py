@@ -58,7 +58,7 @@ def shared_html(doc: dict, settings: Any = None, *, base_url: str = "", share_to
         resolved_base_url = base_url
         site_name = "Claire Bible"
     elif settings is None:
-        from claire.config import get_settings
+        from claire.core.config import get_settings
 
         s = get_settings()
         ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
@@ -87,7 +87,7 @@ def shared_html(doc: dict, settings: Any = None, *, base_url: str = "", share_to
 def render_graph_html(settings: Any = None, *, include_private: bool = True, theme: Any | None = None, host: str | None = None, request: Any | None = None, bootstrap: dict[str, str] | None = None, account_id: int | None = None) -> str:
     """Hydrate settings, themes, and locale data into the workspace graph HTML."""
     if settings is None:
-        from claire.config import get_settings
+        from claire.core.config import get_settings
 
         s = get_settings()
     else:
@@ -240,7 +240,7 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
 
 def _theme_zero_number(settings: Any) -> str | None:
     """Return the external decimal number string for knowledge base 0, or None."""
-    from claire import ids
+    from claire.core import ids
     from claire.store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
     try:
@@ -253,7 +253,7 @@ def _theme_zero_number(settings: Any) -> str | None:
 def _render_syndication_bundle(bundle_html: str, settings: Any = None, *, include_private: bool = True, theme: Any | None = None, host: str | None = None, auth_scope: str = "owner", request: Any | None = None) -> str:
     """Populate settings, themes, and account tokens for the Syndication HTML bundle."""
     if settings is None:
-        from claire.config import get_settings
+        from claire.core.config import get_settings
 
         s = get_settings()
     else:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 
-from .config import Settings
+from .core.config import Settings
 from .store import db as dbm
 from .store.raw import raw_disk_usage
 

@@ -6,7 +6,7 @@ import httpx
 import pytest
 from unittest.mock import MagicMock, patch
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.vision.base import VisionTranscriptProvider, VisionTranscriptResult
 from claire.extract.vision.factory import get_vision_provider
 from claire.extract.vision.mock_vision import MockVisionProvider

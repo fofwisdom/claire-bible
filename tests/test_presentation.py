@@ -16,9 +16,9 @@ from bible.slides import (
     find_asciidoctor_executable,
     prepare_presentation_adoc_for_compile,
 )
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.core.ports import get_slide_renderer
-from claire.presentation import PresentationService
+from claire.extract.presentation_service import PresentationService
 from claire.store import db as dbm
 
 
@@ -926,7 +926,7 @@ def test_sanitize_presentation_assets_rewrites_images_and_injects_base():
 def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
     """Verify /images/{filename} and /p/images/{filename} correctly serve image files."""
     from claire.api.server import create_app
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     img_dir = tmp_path / "images"
     img_dir.mkdir(parents=True, exist_ok=True)

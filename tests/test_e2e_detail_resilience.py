@@ -10,7 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import IngestReport
 from claire.ingest.service import IngestService

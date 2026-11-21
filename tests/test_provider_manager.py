@@ -9,8 +9,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
-from claire.provider_manager import (
+from claire.core.config import Settings
+from claire.core.provider_manager import (
     DEFAULT_PROVIDERS_CONFIG,
     MIGRATED_ENV_VARS,
     ProviderManager,
@@ -340,7 +340,7 @@ def test_providers_cli(capsys):
 
 
 def test_provider_capability_checks_and_locks(tmp_path: Path, monkeypatch):
-    import claire.provider_manager as pm_mod
+    import claire.core.provider_manager as pm_mod
 
     pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
 
@@ -417,7 +417,7 @@ def test_server_scope_locks_embedding_selection_and_documents_purpose(tmp_path: 
 def test_gemini_enumerated_effort_models_probe_and_sync(tmp_path: Path, monkeypatch):
     import sys
     from types import SimpleNamespace
-    import claire.provider_manager as pm_mod
+    import claire.core.provider_manager as pm_mod
 
     pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
     models = pm_mod.list_gemini_models()
@@ -451,7 +451,7 @@ def test_gemini_enumerated_effort_models_probe_and_sync(tmp_path: Path, monkeypa
     assert updated["lineage_summary"]["effective_slots"]["render_detail"]["effort"] == "high"
 
     # Verify FeatureRoutedProvider dispatches summarize_document and render_detail to separate slots.
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.extract.provider import FeatureRoutedProvider
     from claire.ontology.base import Document
 

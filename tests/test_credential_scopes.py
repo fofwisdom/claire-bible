@@ -26,11 +26,11 @@ from starlette.testclient import TestClient
 from tests.kb_paths import kb_list, step_up_request
 from tests.test_oidc_core import _make_jwt, _rsa_to_jwk
 
-from claire import kb_access
+from claire.accounts import kb_access
 from claire.api import security
 from claire.api.oidc import ExternalIdentity, IdpProviderMeta, OidcClient
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import kb_collab

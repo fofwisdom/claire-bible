@@ -17,7 +17,7 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire_bible/web/pages.py` | Request and database page assembly | `shared_html`, `render_graph_html`, `render_syndication_html` |
 | `src/claire/store/knowledge_base.py` | GA ID of a theme | `validate_ga_measurement_id`, `KnowledgeBaseManager.has_any_ga_enabled` |
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
-| `src/claire/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
+| `src/claire/core/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
 
 Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`.
 

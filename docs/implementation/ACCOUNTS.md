@@ -28,7 +28,7 @@
 | `src/claire/store/provider_keys.py` | 멤버 BYOK API 키 암호화 저장소, 시험 호출 검증 | `ProviderKeyMeta`, `ActiveKey`, `put_key`, `load_active_key`, `verify_key`, `delete_key` |
 | `src/claire/accounts/username_policy.py` | DB 없이 판정하는 USERNAME 규칙 | `validate_username`, `normalize_username`, `RESERVED_USERNAMES`, `server_reserved_labels`, `UsernameRejected` |
 | `src/claire/accounts/invites.py` | Crockford Base32 8자리 초대 코드 생성, 정규화, 매개변수 유효성 검증 | `InvitationInfo`, `normalize_invite_code`, `validate_invite_code_syntax`, `generate_invite_code`, `validate_invite_params`, `InviteError` |
-| `src/claire/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
+| `src/claire/core/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |

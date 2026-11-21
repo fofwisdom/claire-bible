@@ -13,8 +13,8 @@ digest = "sha256:bc962392017d9321d27f5753219bc0de2c57f8de194a73361d9c708b9461f5d
 
 [[plugin]]
 id = "claire.hoyolab"
-revision = 3
-digest = "sha256:dec1da225d552920e0bc19d6bc23b0ed75a66bf56c94615b16a627fae554c8c2"
+revision = 4
+digest = "sha256:744453e29de73326a6ffb9233cc0ca28dca1313338cbaccee64833cc22d32549"
 
 [[plugin]]
 id = "claire.law_go_kr"
@@ -33,13 +33,13 @@ digest = "sha256:dd539589ba72a783ccd6e8738cff05527b3a4f1391574401df9de5253613b7d
 
 [[plugin]]
 id = "claire.uttu"
-revision = 2
-digest = "sha256:9370e6b0c0fd019e6daeb4f5728922c49572dd023bc439d9ec134b696d8e446e"
+revision = 3
+digest = "sha256:1c8aa4d0c51b6243b1723b032d1689040b079fa6be3786873e0406e3b7555991"
 
 [[plugin]]
 id = "claire.vmware_explore"
-revision = 2
-digest = "sha256:1af4f55f9c304da5380fdb03c486449b76b4c64ab10dc7feb662dc64ccb67e71"
+revision = 3
+digest = "sha256:a472eaaa67f8d17670afe766e74f79431a9a0855a5912dd709974fd07bdaeee5"
 
 [[plugin]]
 id = "claire.xcom"
@@ -48,5 +48,5 @@ digest = "sha256:ce45cda7c49e2c18dfa1831a02ee77ddba381706e3a9c01664a1b19e76e11e9
 
 [[plugin]]
 id = "claire.youtube"
-revision = 2
-digest = "sha256:3b8ed29a8b1b5faf3bc34d86c6209ba3a337ab174683ed507a43b64222a65e5e"
+revision = 3
+digest = "sha256:aa57105a8123ac1b3501d72e00e01b71248588930057e7729324775ed7b0dd20"

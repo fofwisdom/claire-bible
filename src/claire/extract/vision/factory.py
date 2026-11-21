@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...config import get_settings
+from ...core.config import get_settings
 from .base import VisionTranscriptProvider
 from .mock_vision import MockVisionProvider
 
@@ -22,7 +22,7 @@ class UnavailableVisionProvider(VisionTranscriptProvider):
             from ..provider import raise_policy_error
 
             raise_policy_error(self.error)
-        from ...config import ProviderUnavailableError
+        from ...core.config import ProviderUnavailableError
 
         raise ProviderUnavailableError(f"VLM 프로바이더를 쓸 수 없다: {self.reason}")
 

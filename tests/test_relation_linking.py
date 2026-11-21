@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.extract.prompts import judge_relationship_prompt
 from claire.extract.provider import (
     ExtractedEntity,

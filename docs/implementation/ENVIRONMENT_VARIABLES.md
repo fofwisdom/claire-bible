@@ -20,7 +20,7 @@ graph TD
     end
 
     subgraph App_Container [컨테이너 / 런타임 계층]
-        CBManuscript -->|env_file 주입| AppEnv["Pydantic Settings (src/claire/config.py)"]
+        CBManuscript -->|env_file 주입| AppEnv["Pydantic Settings (src/claire/core/config.py)"]
         AppEnv --> CoreAPI["API Server (serve-api)"]
         AppEnv --> Bot["Telegram Bot (bot)"]
         AppEnv --> Workers["Background Loops (refresh/recover/expand)"]
@@ -455,5 +455,5 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 ## 6. 참고문헌
 
 [^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../tests/test_video_captions.py) (2026-09-04 확인).
-[^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/config.py`](../../src/claire/config.py), [`src/claire/ingest/fetchers/presentation.py`](../../src/claire/ingest/fetchers/presentation.py), [`plugins/ingest_adapter/claire.vmware_explore/adapter.py`](../../plugins/ingest_adapter/claire.vmware_explore/adapter.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
+[^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/core/config.py`](../../src/claire/core/config.py), [`src/claire/ingest/fetchers/presentation.py`](../../src/claire/ingest/fetchers/presentation.py), [`plugins/ingest_adapter/claire.vmware_explore/adapter.py`](../../plugins/ingest_adapter/claire.vmware_explore/adapter.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^support-build-env]: Claire Bible 구현 근거: [`Dockerfile`](../../Dockerfile), [`docker-compose.yml`](../../docker-compose.yml), [`ops/cb_manuscript.py`](../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../src/claire/support_bundle.py) (2026-09-11 확인).

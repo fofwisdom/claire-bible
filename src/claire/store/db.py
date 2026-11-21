@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
+from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
 SCHEMA_VERSION = 40
@@ -7689,7 +7689,7 @@ def scan_truncation_status(
         hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
 
         # 2. 산문(Prose) 상한 검사
-        from ..config import get_settings
+        from ..core.config import get_settings
 
         settings = get_settings()
         budget = settings.pdf_max_extract_chars if src_type == "pdf" else settings.raw_char_budget
@@ -7786,7 +7786,7 @@ def backfill_truncation_metadata(
             hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
             tables, prose_parts = extract_tables_from_text(raw_text)
             prose_len = sum(len(p) for p in prose_parts)
-            from ..config import get_settings
+            from ..core.config import get_settings
 
             settings = get_settings()
             budget = settings.pdf_max_extract_chars if src_type == "pdf" else settings.raw_char_budget

@@ -21,7 +21,7 @@ from starlette.testclient import TestClient
 
 from bible.web.metadata import render_open_graph_tags
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import shared_html
 from claire.store import db as dbm
 

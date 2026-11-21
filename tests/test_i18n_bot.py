@@ -17,7 +17,7 @@ import telegram
 from starlette.testclient import TestClient
 
 from claire import notify, telegram_bot
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.i18n import get_locale, t
 from claire.store import db as dbm
 from claire.store.accounts import AccountStore

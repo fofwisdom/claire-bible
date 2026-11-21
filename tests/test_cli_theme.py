@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from claire import cli
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store.knowledge_base import KnowledgeBaseManager
 
 

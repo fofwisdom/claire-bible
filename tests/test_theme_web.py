@@ -4,7 +4,7 @@ from pathlib import Path
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import render_graph_html
 from tests.single_mode import complete_admin_setup
 

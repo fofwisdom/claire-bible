@@ -218,7 +218,7 @@ class ResolutionResult(tuple):
 
 def _get_tier_thresholds() -> tuple[float, float, float, float, bool]:
     try:
-        from ..config import get_settings
+        from ..core.config import get_settings
 
         s = get_settings()
         return (

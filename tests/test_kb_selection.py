@@ -13,9 +13,9 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager

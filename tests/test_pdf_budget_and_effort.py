@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.classifier import (
     classify_paper,
     get_free_or_default_provider,
@@ -28,7 +28,7 @@ def test_pdf_budget_in_fetch_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     """fetch_file()에서 .pdf 파일은 raw_char_budget이 아닌 pdf_max_extract_chars 한도로 보존되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "40000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     # 25,000자 텍스트 생성
@@ -51,7 +51,7 @@ def test_pdf_budget_in_fetch_web(monkeypatch: pytest.MonkeyPatch):
     """fetch_web()에서 PDF 웹 문서는 pdf_max_extract_chars 한도로 보존되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "40000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     pdf_text = "B" * 30000
@@ -77,7 +77,7 @@ def test_pdf_budget_in_fetch_web_query_url(monkeypatch: pytest.MonkeyPatch):
     """URL에 .pdf 확장자가 없는 쿼리 스트링 URL(예: KDB fileView)도 source_type='pdf' 및 50,000자 예산이 적용되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "20000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     # 45,000자 대형 연구 보고서 텍스트
@@ -131,7 +131,7 @@ def test_pdf_extract_stream_full_page_and_true_orig_chars(monkeypatch: pytest.Mo
     monkeypatch.setattr(pypdf, "PdfReader", lambda stream: FakeMultiPageReader())
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "30000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     title, full_text, links, anchors, err, imgs = extract_pdf_bytes(b"%PDF-dummy")
@@ -162,7 +162,7 @@ def test_doc_to_prompt_pdf_limit(monkeypatch: pytest.MonkeyPatch):
     """_doc_to_prompt()에서 PDF 문서는 pdf_max_extract_chars 한도로 프롬프트에 투입되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
     monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "20000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     # 35,000자 PDF 문서
@@ -192,7 +192,7 @@ def test_truncation_scan_pdf_budget(monkeypatch: pytest.MonkeyPatch):
     """db.scan_truncation_status에서 PDF 문서는 pdf_max_extract_chars를 기준으로 판정하는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "20000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     conn = sqlite3.connect(":memory:")

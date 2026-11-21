@@ -18,9 +18,10 @@ import pytest
 from tests.kb_paths import kb_number
 from starlette.testclient import TestClient
 
-from claire import secret_scrub, telegram_api
+from claire import telegram_api
+from claire.core import secret_scrub
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document, Entity
 from claire.store import accounts as accounts_store
 from claire.store import auth_db

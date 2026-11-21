@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from claire import cli
-from claire.config import Settings, extract_own_share_token, get_settings
+from claire.core.config import Settings, extract_own_share_token, get_settings
 from claire.extract.provider import ExtractionResult
 from claire.ingest.fetchers.textfile import fetch_file, fetch_text
 from claire.ingest.fetchers.web import fetch_web

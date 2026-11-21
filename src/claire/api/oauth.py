@@ -27,7 +27,7 @@ import httpx
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from ..config import get_settings
+from ..core.config import get_settings
 from ..core.ports import get_web_ui_renderer
 from ..i18n import get_locale, t
 from ..notify import push_locale

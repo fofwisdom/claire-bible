@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from claire.cli import main
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 
@@ -33,7 +33,7 @@ def test_e2e_tombstone_lifecycle_untombstone_and_cli_guard(tmp_path: Path, monke
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
 
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     article_url = "https://www.hoyolab.com/article/46898605"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from claire.config import ProviderUnavailableError, Settings
+from claire.core.config import ProviderUnavailableError, Settings
 from claire.extract.provider import MockProvider, UnavailableProvider, get_provider
 from claire.extract.transcript.factory import UnavailableTranscriptProvider, get_transcript_provider
 from claire.extract.transcript.mock_stt import MockTranscriptProvider

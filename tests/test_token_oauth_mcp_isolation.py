@@ -42,7 +42,7 @@ from claire.api.security import (
     CORSPolicyMiddleware,
     WebRuntimeConfig,
 )
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm

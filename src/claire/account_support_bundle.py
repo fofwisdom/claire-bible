@@ -22,8 +22,8 @@ from typing import Any
 
 import zstandard as zstd
 
-from . import ids
-from .config import Settings, get_settings
+from .core import ids
+from .core.config import Settings, get_settings
 from .store import db as dbm
 from .store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,

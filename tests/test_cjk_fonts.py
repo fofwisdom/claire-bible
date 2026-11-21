@@ -10,7 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import GRAPH_HTML, render_graph_html, shared_html
 
 OWNER_TOKEN = "owner-" + ("o" * 32)

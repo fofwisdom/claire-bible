@@ -11,7 +11,7 @@ import re
 import shutil
 from pathlib import Path
 
-from ...config import ProviderUnavailableError, get_settings
+from ...core.config import ProviderUnavailableError, get_settings
 from .adoc_text import adoc_cell, adoc_table
 from ...extract.table_budget import (
     slice_document_text,

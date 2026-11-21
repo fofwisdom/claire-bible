@@ -15,7 +15,7 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
     import json
 
     import httpx
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import _create_support_bundle_for_delivery
 
     archive = tmp_path / "support_bundle_api.tar.zst"
@@ -498,7 +498,7 @@ def test_ingest_report_telegram_summary_summary_failure():
 async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
     """정상 적재 완료 시 retry_doc_id가 주어지면 '📖 문서 열람 (Reader)' 버튼이 부착되는지 검증."""
     from pathlib import Path
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     from claire.store import db as dbm
     from claire.ontology.base import Document
 
@@ -566,7 +566,7 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
     """svc.ingest가 report.error를 반환할 때 has_error가 정상 바인딩되어 UnboundLocalError 없이 _settle된다."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestReport
     from claire.telegram_bot import build_app
 
@@ -618,7 +618,7 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
 async def test_on_ingest_handles_ingest_report_error(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestReport
     from claire.telegram_bot import build_app
 
@@ -669,7 +669,7 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
 async def test_on_support_help():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
@@ -698,7 +698,7 @@ async def test_on_support_help():
 async def test_on_support_unknown_subcommand():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app
 
     settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
@@ -722,7 +722,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.support_bundle import SupportBundleInfo
     from claire.telegram_bot import build_app
 
@@ -787,7 +787,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
 async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.support_bundle import SupportBundleInfo
     from claire.telegram_bot import build_app
 
@@ -846,7 +846,7 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
 async def test_on_support_bundle_validation_error(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app
 
     settings = Settings(
@@ -876,7 +876,7 @@ async def test_on_support_bundle_validation_error(tmp_path):
 async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app
 
     monkeypatch.setattr(
@@ -928,7 +928,7 @@ async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
 async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.support_bundle import SupportBundleInfo
     from claire.telegram_bot import build_app
 
@@ -989,7 +989,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
 async def test_on_support_unallowed_user(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app
 
     settings = Settings(
@@ -1042,7 +1042,7 @@ async def test_telegram_app_error_handler(tmp_path: Path):
     """build_app에 등록된 _error_handler가 예외를 포착하여 telegram.log에 기록하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.telegram_bot import build_app, log, setup_telegram_logging
 
     log_file = setup_telegram_logging(tmp_path)
@@ -1088,7 +1088,7 @@ async def test_telegram_app_error_handler(tmp_path: Path):
 def test_parse_message_theme_multi_vs_single(tmp_path: Path):
     """parse_message_theme이 CLAIRE_MULTI_THEME에 따라 올바르게 동작하는지 검증."""
     from unittest.mock import MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import parse_message_theme
 
@@ -1132,7 +1132,7 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
     """CLAIRE_MULTI_THEME=False 상태에서 /theme 명령 수신 시 안내 메시지 응답 검증."""
     from unittest.mock import AsyncMock, MagicMock
     from types import SimpleNamespace
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestService
     from claire.telegram_bot import build_app
 
@@ -1168,7 +1168,7 @@ async def test_ingest_cancellation(tmp_path: Path):
     """테마 선택 프롬프트에서 취소 버튼 클릭 시 정상적으로 취소되는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
@@ -1229,7 +1229,7 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
     """명령어에 #1 등 명시적 테마 태그가 포함된 경우 테마 선택 질문을 건너뛰고 직행하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ingest.service import IngestReport
     from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
@@ -1287,7 +1287,7 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
 
 async def test_settle_status_theme_resolution(tmp_path: Path):
     """_settle_status 가 kb_id 및 cross-theme fallback 에 따라 올바른 테마 DB에 공유 토큰을 생성하는지 검증."""
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
@@ -1379,7 +1379,7 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
     """on_message 에서 doc_... 수신 시 활성 테마에 없으면 다른 테마 DB를 자동 검색하여 전환하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
@@ -1444,7 +1444,7 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
     """on_callback rg: 시 다른 테마에 존재하는 문서를 감지하여 해당 테마 서비스로 재생성을 디스패치하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
@@ -1511,7 +1511,7 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
     """on_callback 이 rg:summ: 콜백을 수신했을 때 요약 재생성을 정상적으로 위임하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
@@ -1576,7 +1576,7 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
     """on_failed 및 on_retry 가 테마별 실패 항목 및 재시도를 정상 지원하는지 검증."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store import db as dbm
     from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
@@ -1643,7 +1643,7 @@ async def test_on_callback_oauth_approve_and_deny(tmp_path: Path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
 
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store import db as dbm
     from claire.telegram_bot import build_app
 
@@ -1729,7 +1729,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     """계정 봇: 허용 목록 밖 사용자는 무시하고, 운영자 전용 명령·콜백을 거부하고, 다른 계정 테마를 내보내지 않는다."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store import db as dbm
     from claire.store.telegram_bots import TelegramBotProfile
     from claire.store.knowledge_base import KnowledgeBaseManager

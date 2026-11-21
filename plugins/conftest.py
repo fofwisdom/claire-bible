@@ -19,7 +19,7 @@ def _isolate_data_folder(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     """A plugin test never writes into the data folder of the repository (video cache, raw artifacts): the global settings point to a temporary data folder. A test that sets CLAIRE_DB_PATH itself keeps its value."""
     import os
 
-    from claire.config import get_settings
+    from claire.core.config import get_settings
 
     if not os.environ.get("CLAIRE_DB_PATH"):
         from claire.store import db as dbm

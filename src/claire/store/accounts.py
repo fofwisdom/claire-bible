@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .. import ids
+from ..core import ids
 from ..accounts import username_policy
 from ..accounts.username_policy import UsernameRejected
 from ..i18n.locales import SUPPORTED_LOCALE_SET, LocaleCode

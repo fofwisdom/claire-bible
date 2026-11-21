@@ -12,7 +12,8 @@ import pytest
 from tests.kb_paths import seed
 from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
 
-from claire import campaign, contributions, ids, reputation, theme_judgement
+from claire import campaign, contributions, reputation, theme_judgement
+from claire.core import ids
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store import themes as themes_store

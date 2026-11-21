@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from claire.cli import cmd_ingest
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.prompts import doc_to_prompt
 from claire.extract.provider import ExtractionResult, MockProvider
 from claire.ingest.pipeline import IngestReport, extract_resolve_store, ingest
@@ -79,7 +79,7 @@ def test_telegram_flags_no_truncate_alias():
 def test_prompts_doc_to_prompt_full_content_bypass(monkeypatch: pytest.MonkeyPatch):
     """doc_to_prompt에서 full_content=True인 경우 20,000자 상한을 건너뛰고 35,000자 전문이 보존되는지 검증."""
     monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "20000")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     long_body = "제1조(목적) 인공지능 발전과 신뢰 기반 조성... " * 1200  # ~36,000자

@@ -13,7 +13,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from .. import ids, theme_judgement
+from .. import theme_judgement
+from ..core import ids
 from ..store import themes as themes_store
 from . import access, remote_kbs, vocabulary
 

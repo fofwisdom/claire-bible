@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.extract.resolver import resolve_or_create
 from claire.ontology.base import Entity
 from claire.retrieval.query import search

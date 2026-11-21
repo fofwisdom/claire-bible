@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract.transcript.base import TranscriptResult, TranscriptSegment
 from claire.extract.transcript.factory import get_transcript_provider
 from claire.extract.transcript.gemini_stt import (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from claire import notify
-from claire.config import Settings
+from claire.core.config import Settings
 
 
 def test_notify_noop_when_unset():

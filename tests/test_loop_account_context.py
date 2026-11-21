@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from claire import cli
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.ingest.active import (
     active_job,

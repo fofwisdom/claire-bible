@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from claire import kb_access
+from claire.accounts import kb_access
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseNotFound

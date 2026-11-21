@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.ingest.pipeline import ingest
 from claire.store import db as dbm
 

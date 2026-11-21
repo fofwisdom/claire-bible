@@ -65,7 +65,7 @@ def test_fetch_video_disabled_stt(monkeypatch):
     )
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
     monkeypatch.setenv("CLAIRE_YTDLP_EXTRACTOR_ARGS", "")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     doc = fetch_video("https://www.vmware.com/explore/video/6403821753112")
@@ -104,7 +104,7 @@ def test_fetch_video_with_mock_stt(monkeypatch):
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
     monkeypatch.setenv("CLAIRE_STT_PROVIDER", "mock")
     monkeypatch.setenv("CLAIRE_YTDLP_EXTRACTOR_ARGS", "")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     doc = fetch_video("https://www.vmware.com/explore/video/6403821753112")
@@ -141,7 +141,7 @@ def test_fetch_video_uploader_channel_isolation(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setitem(sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=MockYDL))
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     doc = fetch_video("https://www.youtube.com/watch?v=mock12345")

@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 import claire.extract.jev as jev_mod
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.jev import (
     JevClient,
     JevError,

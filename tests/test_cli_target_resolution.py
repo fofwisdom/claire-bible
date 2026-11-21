@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from claire.cli import build_parser, cmd_doc_title, cmd_watch
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 
@@ -109,7 +109,7 @@ def test_resolve_single_document_target_guard(tmp_path):
 
 def test_cli_watch_and_doc_title_smart_targets(tmp_path, monkeypatch, capsys):
     """watch 및 doc-title 명령어에서 URL로 대상 지정 및 단건 갱신 검증."""
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     conn, db_file = _setup_test_db(tmp_path)

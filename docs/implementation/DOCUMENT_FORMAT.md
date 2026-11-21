@@ -8,7 +8,7 @@ This document tells what the code does now. Use file paths and function names as
 
 The readable body of a document (`documents.detail`) is AsciiDoc. No other body format exists.
 
-- **[code]** `Settings.render_format` (`CLAIRE_RENDER_FORMAT`) accepts `adoc` and `asciidoc`, and stores `adoc`. The old values `md` and `markdown` do not stop startup: `_parse_render_format` in `src/claire/config.py` writes one warning and uses `adoc`. Other values fail validation.
+- **[code]** `Settings.render_format` (`CLAIRE_RENDER_FORMAT`) accepts `adoc` and `asciidoc`, and stores `adoc`. The old values `md` and `markdown` do not stop startup: `_parse_render_format` in `src/claire/core/config.py` writes one warning and uses `adoc`. Other values fail validation.
 - **[code]** The `--format` option of `ingest`, `reingest`, `reextract`, `backfill-detail`, `reprocess`, `regenerate`, `format-status`, `format-migrate`, and `video-reprocess` has the one choice `adoc` (`src/claire/cli.py`).
 - **[code]** `documents.detail_format` has the column default `'adoc'`. An empty value reads as `adoc` (`get_document_detail_format` in `src/claire/store/db.py`). `set_document_detail` always writes `adoc`; its `format` argument is kept for the callers.
 - **[code]** `format-status` and `format-migrate` still exist. They count and select bodies whose `detail_format` is not `adoc`, or bodies that are missing (`documents_needing_detail_format`).

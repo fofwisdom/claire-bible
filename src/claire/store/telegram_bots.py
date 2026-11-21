@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Iterable, Literal
 
-from claire.secret_scrub import register_secret
+from claire.core.secret_scrub import register_secret
 
 if TYPE_CHECKING:
     from claire.store.secrets import SecretService

@@ -8,7 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 
 OWNER_TOKEN = "owner-token-secret-12345678901234"

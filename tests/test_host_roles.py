@@ -285,7 +285,7 @@ def test_development_test_domain_applies_dns_role_rules(tmp_path):
 
 
 def test_config_reads_role_host_environment(tmp_path, monkeypatch):
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     monkeypatch.setenv("CLAIRE_SITE_DOMAIN", "example.com")
     monkeypatch.setenv("CLAIRE_USERCONTENT_FQDN", "usercontent.example.com")
@@ -344,7 +344,7 @@ async def test_static_assets_pass_host_router_and_security_headers(tmp_path):
 @pytest.mark.asyncio
 async def test_create_app_serves_static_only_through_host_router(tmp_path):
     from claire.api.server import create_app
-    from claire.config import Settings
+    from claire.core.config import Settings
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"

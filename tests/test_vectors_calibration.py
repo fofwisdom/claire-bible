@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from argparse import Namespace
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.extract.frame import format_entity_frame
 from claire.extract.resolver import ResolutionResult, resolve_or_create
 from claire.ontology.base import Entity

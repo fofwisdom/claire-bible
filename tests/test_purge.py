@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from claire.cli import build_parser, cmd_audit, cmd_purge
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.extract.provider import MockProvider
 from claire.ingest.normalize import content_hash
 from claire.ingest.pipeline import IngestReport, extract_resolve_store, ingest
@@ -56,7 +56,7 @@ def test_config_data_lifecycle_settings(monkeypatch):
 
 def test_purge_blocked_in_append_only_mode(tmp_path, monkeypatch, capsys):
     """append-only 모드에서는 purge 명령어가 정책에 의해 차단되는지 검증."""
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     db_file = tmp_path / "claire.db"
@@ -255,7 +255,7 @@ def test_audit_and_doctor_diagnostics(tmp_path, monkeypatch):
 
 def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     """CLI purge 명령에서 URL, 도메인, 공유링크, 키워드 자동 식별 및 경고/소각 검증."""
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     db_file = tmp_path / "claire.db"
@@ -607,7 +607,7 @@ def test_untombstone_cli_and_purge_alias(tmp_path, monkeypatch):
     conn.close()
 
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
-    from claire.config import get_settings
+    from claire.core.config import get_settings
     get_settings.cache_clear()
 
     # 1. purge --untombstone

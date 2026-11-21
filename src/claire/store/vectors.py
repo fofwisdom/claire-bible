@@ -238,7 +238,7 @@ def resolve_embed_identity(provider: Any, settings: Any = None) -> EmbedPin:
         model = _str_attr(settings, "gemini_embed_model")
     if not model:
         try:
-            from ..config import get_settings
+            from ..core.config import get_settings
 
             model = _str_attr(get_settings(), "gemini_embed_model")
         except Exception:  # noqa: BLE001
@@ -745,7 +745,7 @@ class VectorStore:
         active_sid, kb_target_sid = read_kb_embedding_spaces(self.conn, tid)
         eff_target_sid = str(target_space_id or kb_target_sid or "").strip()
         try:
-            from ..config import get_settings
+            from ..core.config import get_settings
 
             settings = get_settings()
             t1 = float(getattr(settings, "sim_tier_auto_merge", 0.93))

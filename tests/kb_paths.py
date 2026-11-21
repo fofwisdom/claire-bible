@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from claire import ids
+from claire.core import ids
 from claire.store import db as dbm
 
 

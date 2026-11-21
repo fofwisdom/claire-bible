@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
 if TYPE_CHECKING:
-    from claire.config import Settings
+    from claire.core.config import Settings
     from claire.store.secrets import SecretService
 
 ProviderClass = Literal["api-key", "mock", "unregistered"]
@@ -437,7 +437,7 @@ def _load_member_key(
     등록된 키가 활성 상태가 아니거나(rejected·unverified) 복호화에 실패하면 서버 등급으로 폴백하지 않고 ``ProviderKeyRejected``(C2).
     키가 아예 없을 때만 None(서버 등급으로 간다).
     """
-    from claire.secret_scrub import scrub_exception
+    from claire.core.secret_scrub import scrub_exception
     from claire.store import auth_db as _auth_db
     from claire.store import provider_keys as _provider_keys
 

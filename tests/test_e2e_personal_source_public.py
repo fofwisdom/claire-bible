@@ -19,7 +19,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document, Entity
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
@@ -175,7 +175,7 @@ def test_e2e_sources_of_a_personal_knowledge_base_follow_the_account_setting(env
 
 
 def _shared_number(env: SimpleNamespace) -> str:
-    from claire import ids
+    from claire.core import ids
 
     return ids.format_public_id((1 << 56) | 2)
 

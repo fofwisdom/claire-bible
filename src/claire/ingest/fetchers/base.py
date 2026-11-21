@@ -40,7 +40,7 @@ def fetch_settings(settings: Any = None, fallback: Any = None) -> Any:
     if bound is not None:
         return bound
     if fallback is None:
-        from ...config import get_settings as fallback
+        from ...core.config import get_settings as fallback
 
     return fallback()
 

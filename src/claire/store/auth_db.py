@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from .. import ids
+from ..core import ids
 from ..accounts.invites import (
     InvitationInfo,
     InviteError,

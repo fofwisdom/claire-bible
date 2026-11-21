@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pypdf
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.ingest.fetchers.pdf import (
     PdfExtractResult,
     extract_pdf_bytes,

@@ -12,7 +12,7 @@
    - 파일 기반 상태: `data/jobs/*.json` 작업 기록, `providers.json`, `ingest_limits.json`, 텔레메트리
    - 이런 상태를 응답에 내보낼 때는 테마 권한으로 걸러야 한다. 예: `server.py`의 `_visible_active_jobs`(§4.3)
 2. **[코드] 새 쿼리는 반드시 `kb_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `kb_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
-   - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
+   - 집행: `tests/test_kb_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `extract/presentation_service.py`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `kb_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `kb_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
 3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `KnowledgeBaseManager.get_kb(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `KnowledgeBaseNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_personal=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
 4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_kb`·`update_kb`·`delete_kb`는 `RuntimeError`, HTTP `POST /kb`, `PATCH /`, `DELETE /`는 403)를 잠근다. `reset_kb`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `knowledge_bases` 테이블에서 읽어 일관된 코드 경로로 동작한다.
@@ -102,7 +102,7 @@
 
 - **개인**(`is_personal=1`, `account_id`=계정, `knowledge_type` NULL): 계정마다 하나(CT1). 공개 또는 비공개. 소유자만 쓴다.
 - **공유**(`is_personal=0`, `account_id` NULL, 항상 공개, `knowledge_type`은 `real`·`fictional`): 소유자가 없다. `define_kb(..., knowledge_type=..., account_id=창립자)`가 만들고 창립자는 `created_by_account_id`와 첫 `moderator` 멤버십이 된다(CT8). `POST /kb`는 `knowledge_type`이 없으면 400 `knowledge_type_required`다. 개수 한도는 없다(CT3, 등급의 `max_themes`는 쓰지 않는다). 레이블은 겹쳐도 된다.
-- **권한 판정**은 함수 하나다: `claire.kb_access.decide`(§6.2 표 전체, §6.5, §6.6). 서버는 `_kb_decide`·`_require_kb`로만 쓴다. 익명은 404, 권한 없는 계정은 403 `kb_capability_required`다. 숨긴 문서는 공유 지식 베이스에서 `review` 권한자만, 개인 지식 베이스에서 그 계정만 본다.
+- **권한 판정**은 함수 하나다: `claire.accounts.kb_access.decide`(§6.2 표 전체, §6.5, §6.6). 서버는 `_kb_decide`·`_require_kb`로만 쓴다. 익명은 404, 권한 없는 계정은 403 `kb_capability_required`다. 숨긴 문서는 공유 지식 베이스에서 `review` 권한자만, 개인 지식 베이스에서 그 계정만 본다.
 - **Route capabilities and credential scopes (CT-2, design Sections 6.6 to 6.9)**:
   - Each entry of `api.security.ROUTE_POLICY` declares two values: the access level (the minimum scope of the credential) and the capability in the selected knowledge base. `_request_capability` reads the capability of the route; no handler selects it. `tests/test_credential_scopes.py` has the table of all routes that act on a knowledge base; a route that is not in the table fails the test.
   - Capabilities of a route: `none` (no knowledge base), `read`, `share` (make a share link), `write` (a write into the personal knowledge base of the account of the credential: ingest, re-ingest, publish, dispatch), and the capabilities of design Section 6.2 (`review`, `curate`, `maintain`, `settings`, `remove`, `delete`, and the others).

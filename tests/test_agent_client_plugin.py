@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from claire import plugin_sdk
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.plugin_host import ORIGIN_PROJECT, PLUGIN_API_LEVELS, PLUGIN_TYPES, STATE_CHANGED, STATE_DISABLED, STATE_ENABLED, STATE_INVALID, STATE_NEW, STATE_OVERLAP, STATE_UNLOCKED, TYPE_AGENT_CLIENT, TYPE_INGEST_ADAPTER
 from claire.plugin_host import manifest as manifest_mod
 from claire.plugin_host import runtime as rt

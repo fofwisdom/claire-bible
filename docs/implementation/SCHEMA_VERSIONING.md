@@ -114,7 +114,7 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
 
 - **[코드] 버전 상수**: v17 도입 당시 `SCHEMA_VERSION`은 17이었다(현재 값은 아래 "v18" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v17_federation`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
-  - 테이블 `federation_followers`: `(public_id INTEGER UNIQUE NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, actor_iri TEXT NOT NULL, inbox_iri TEXT NOT NULL, shared_inbox_iri TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY (account_id, actor_iri))`. `public_id`는 시간 정렬 번호(`claire.ids`)이고 컬렉션 커서다.
+  - 테이블 `federation_followers`: `(public_id INTEGER UNIQUE NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, actor_iri TEXT NOT NULL, inbox_iri TEXT NOT NULL, shared_inbox_iri TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY (account_id, actor_iri))`. `public_id`는 시간 정렬 번호(`claire.core.ids`)이고 컬렉션 커서다.
   - 인덱스 `idx_federation_followers_actor`(`actor_iri`): 원격 액터의 `Delete`·`Update`가 계정과 무관하게 행을 찾는다. 옛 설계 초안에는 없던 인덱스다.
   - 테이블 `federation_tombstones`: `(public_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('actor', 'object')), gone_at REAL NOT NULL)`. USERNAME이 없고(K4) `accounts` 외래 키도 없다. 퍼지 뒤에도 행이 남아야 하기 때문이다.
   - 테이블 `federation_domain_blocks`: `(domain TEXT PRIMARY KEY, created_at REAL NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id), note TEXT NOT NULL DEFAULT '')`. `domain`은 소문자 ASCII(punycode)다.

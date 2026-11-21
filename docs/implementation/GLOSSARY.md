@@ -157,7 +157,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 자동 방식 | **자동 확장** | Automatic Expansion | `auto_expand`, `expand/automatic.py`, 원천값 `expand:<부모 id>` | LLM이 링크를 선별하고 확장 게이트를 통과한 링크를 독립 문서로 적재한다. 끄면 확장 제안이 남는다 |
 | 버튼 제안 방식 | **확장 제안** | Expansion Proposal | `expand/proposal.py`, 원천값 `expand-proposal` | 자동 확장이 꺼져 있을 때 텔레그램 버튼으로 후보 링크를 제안한다 |
 | 적재 관문 | **확장 게이트** | Expansion Gate | `expand/gate.py`, `judge_gate` | 관련성(0.7)·품질(0.6) 임계. 자동 확장과 맥락 조사가 함께 쓴다 |
-| 대상 조사 | **맥락 조사** | Contextual Research | `research.py`, `contextual_research` | 사용자가 고른 대상을 맥락 안의 의미로 웹 조사한다. 링크 확장이 아니다 |
+| 대상 조사 | **맥락 조사** | Contextual Research | `retrieval/research.py`, `contextual_research` | 사용자가 고른 대상을 맥락 안의 의미로 웹 조사한다. 링크 확장이 아니다 |
 | watch 문서 | **주기 재확인** | Watch | `watch_enabled`, `watch_interval_days`, `refresh_queue` (reason `watch`) | 등록 문서를 주기마다 다시 가져온다. "주기 크롤링", "주기 갱신"은 옛 이름이다 |
 | 유사 문서 정리 | **근사 중복 병합** | Near-Duplicate Merge | `dedup-scan`, `dedup-merge` | 본문 유사도로 찾은 중복 문서를 대표 문서로 합친다. 동일 주제 출처 병합과 다르다 |
 | 같은 주제 자식 문서 | **동일 주제 출처 병합** | Same-Subject Source Merge | `same_subject`, `same_subject_merge`, `same_subject_shadow` | 링크 확장의 자식 문서를 새 문서로 만들지 않고 부모 문서의 추가 출처로 붙인다. 지금은 꺼져 있고, 모드 `shadow`는 판정만 기록한다 ([EXPANSION.md](EXPANSION.md) §3) |

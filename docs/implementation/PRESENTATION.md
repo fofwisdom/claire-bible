@@ -11,7 +11,7 @@ A presentation is a reveal.js slide deck of one document. It has two stages:
 1. **Composition.** The LLM writes a new AsciiDoc deck with speaker notes from the body of the document. This stage costs LLM tokens.
 2. **Compilation.** `asciidoctor-revealjs` converts the deck to one HTML file. This stage does not call the LLM.
 
-**[code]** `PresentationService` in `src/claire/presentation/service.py` runs the two stages through `SlideRendererPort` (`src/claire/core/ports.py`, backed by `src/bible/slides/`): `compose_presentation`, `compile_presentation`, and `get_or_create_presentation` (composition only when no valid deck exists, then compilation). The mechanical split of the body into slides does not exist; compilation without a composed deck fails.
+**[code]** `PresentationService` in `src/claire/extract/presentation_service.py` runs the two stages through `SlideRendererPort` (`src/claire/core/ports.py`, backed by `src/bible/slides/`): `compose_presentation`, `compile_presentation`, and `get_or_create_presentation` (composition only when no valid deck exists, then compilation). The mechanical split of the body into slides does not exist; compilation without a composed deck fails.
 
 ## 2. Storage
 

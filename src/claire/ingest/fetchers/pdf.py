@@ -12,7 +12,7 @@ import pypdf
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
-from ...config import get_settings
+from ...core.config import get_settings
 from .base import fetch_settings
 
 logger = logging.getLogger("claire.ingest.pdf")

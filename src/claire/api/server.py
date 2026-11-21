@@ -41,22 +41,22 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
-from .. import ids
+from ..core import ids
 from ..accounts import provider_policy as policy
 from ..accounts import server_tier
-from ..config import Settings, get_settings
+from ..core.config import Settings, get_settings
 from ..i18n import get_locale
 from ..i18n import t as _t
 from ..i18n.catalog import LOCALES_DIR
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
-from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
+from ..core.secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import contributions
 from .. import theme_judgement
 from .. import reputation
 from .. import auto_contribution
-from .. import kb_access
+from ..accounts import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
 from ..store import kb_collab
@@ -3322,7 +3322,7 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
-        from ..provider_manager import get_provider_manager
+        from ..core.provider_manager import get_provider_manager
 
         pm = get_provider_manager(s.data_dir)
         cfg = pm.get_sanitized_config()
@@ -3342,7 +3342,7 @@ def create_app(
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
         body = await _json_object(request)
-        from ..provider_manager import get_provider_manager
+        from ..core.provider_manager import get_provider_manager
 
         pm = get_provider_manager(s.data_dir)
         try:
@@ -3385,7 +3385,7 @@ def create_app(
         provider_name = str(body.get("provider") or "").strip().lower()
         if not provider_name:
             raise HTTPException(status_code=400, detail="provider is required")
-        from ..provider_manager import get_provider_manager
+        from ..core.provider_manager import get_provider_manager
 
         pm = get_provider_manager(s.data_dir)
         override = body.get("config") if isinstance(body.get("config"), dict) else None
@@ -3395,7 +3395,7 @@ def create_app(
     async def providers_check_route(request: Request) -> JSONResponse:
         _require_admin_browser_session(request)
         body = await _json_object(request)
-        from ..provider_manager import get_provider_manager
+        from ..core.provider_manager import get_provider_manager
 
         pm = get_provider_manager(s.data_dir)
         live = bool(body.get("live", False))
@@ -3412,7 +3412,7 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
-        from ..ingest_limit_manager import get_ingest_limit_manager
+        from ..core.ingest_limit_manager import get_ingest_limit_manager
 
         curr_settings = (
             getattr(getattr(request, "app", None), "state", None)
@@ -3432,7 +3432,7 @@ def create_app(
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
         body = await _json_object(request)
-        from ..ingest_limit_manager import get_ingest_limit_manager
+        from ..core.ingest_limit_manager import get_ingest_limit_manager
 
         curr_settings = (
             getattr(getattr(request, "app", None), "state", None)
@@ -5351,7 +5351,7 @@ def create_app(
         return JSONResponse(await _run_expensive(_synthesize_job))
 
     async def research_route(request: Request) -> StreamingResponse:
-        from ..research import contextual_research
+        from ..retrieval.research import contextual_research
 
         body = await _json_object(request)
         # 요청 테마의 설정(kb_id)으로 맥락을 읽고 적재한다
@@ -6158,7 +6158,7 @@ def create_app(
 
     async def presentation_page(request: Request) -> Response:
         from starlette.responses import FileResponse, HTMLResponse
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         token = request.query_params.get("s", "").strip()
         doc_id = request.query_params.get("id", "").strip()
@@ -6243,7 +6243,7 @@ def create_app(
         )
 
     async def document_presentation_get_route(request: Request) -> JSONResponse:
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         doc_id = request.query_params.get("id", "").strip()
         if not doc_id:
@@ -6274,7 +6274,7 @@ def create_app(
             conn.close()
 
     async def document_presentation_generate_route(request: Request) -> JSONResponse:
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         doc_id = request.query_params.get("id", "").strip()
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
@@ -6373,7 +6373,7 @@ def create_app(
             conn.close()
 
     async def document_presentation_compose_route(request: Request) -> JSONResponse:
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         doc_id = request.query_params.get("id", "").strip()
         focus = request.query_params.get("focus")
@@ -6437,7 +6437,7 @@ def create_app(
             conn.close()
 
     async def document_presentation_compile_route(request: Request) -> JSONResponse:
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         doc_id = request.query_params.get("id", "").strip()
         theme_val = request.query_params.get("theme", "night")
@@ -6488,7 +6488,7 @@ def create_app(
             conn.close()
 
     async def document_presentation_adoc_route(request: Request) -> Response:
-        from ..presentation import PresentationService
+        from ..extract.presentation_service import PresentationService
 
         doc_id = request.query_params.get("id", "").strip()
         if not doc_id:

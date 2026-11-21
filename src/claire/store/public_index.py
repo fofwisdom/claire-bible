@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
-from .. import ids
+from ..core import ids
 
 
 @dataclass(frozen=True, slots=True)

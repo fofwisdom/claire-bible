@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from claire import ids
+from claire.core import ids
 from claire.store import db as dbm
 from claire.store import federation as fed
 

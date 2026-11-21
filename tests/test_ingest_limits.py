@@ -9,8 +9,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
-from claire.config import Settings, get_settings
-from claire.ingest_limit_manager import (
+from claire.core.config import Settings, get_settings
+from claire.core.ingest_limit_manager import (
     DEFAULT_INGEST_LIMITS_CONFIG,
     MIGRATED_LIMIT_ENV_VARS,
     IngestLimitManager,

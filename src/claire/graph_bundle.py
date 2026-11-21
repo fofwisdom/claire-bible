@@ -27,9 +27,9 @@ from typing import Any
 
 import zstandard as zstd
 
-from .config import ROOT, Settings, get_settings
+from .core.config import ROOT, Settings, get_settings
 from .graph_bundle_review import count_review_tables, export_review_evidence
-from . import ids
+from .core import ids
 from .store import accounts as accounts_store
 from .store import db as dbm
 from .store import kb_collab

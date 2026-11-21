@@ -2,7 +2,7 @@
 
 Tables of version 17: ``federation_followers``, ``federation_tombstones``, ``federation_domain_blocks``. Tables of version 18: ``federation_objects``, ``federation_outbox``. The migrations are in ``store.db``.
 
-- The follower key is ``(account_id, actor_iri)``. ``public_id`` is a time-ordered number (``claire.ids``) and is the collection cursor.
+- The follower key is ``(account_id, actor_iri)``. ``public_id`` is a time-ordered number (``claire.core.ids``) and is the collection cursor.
 - A tombstone has no USERNAME and no foreign key to ``accounts``, because the row must stay after the purge.
 - A blocked domain is lowercase ASCII (punycode). A block of a domain also applies to its subdomains.
 - A published object is one document of one theme. Its ``public_id`` is the object ID and the outbox cursor. A deleted object is a tombstone, and its row is deleted in the same transaction.
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
 
-from .. import ids
+from ..core import ids
 
 __all__ = [
     "DomainBlock",

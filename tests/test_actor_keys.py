@@ -81,7 +81,7 @@ def test_e2e_migrate_command_upgrades_v4_and_keeps_stored_keys(monkeypatch, tmp_
     monkeypatch.setenv("CLAIRE_APP_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAIRE_DB_PATH", str(tmp_path / "data" / "claire.db"))
     monkeypatch.setenv("CLAIRE_PROVIDER", "mock")
-    from claire.config import get_settings
+    from claire.core.config import get_settings
 
     get_settings.cache_clear()
     try:

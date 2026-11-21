@@ -32,7 +32,7 @@ def theme(world):  # noqa: F811
         row = themes_store.get_theme(conn, row["id"])
     finally:
         conn.close()
-    from claire import ids
+    from claire.core import ids
 
     return SimpleNamespace(id=row["id"], number=ids.format_public_id(row["number"]), towns=towns, towns_base=f"/kb/{towns['number']}")
 

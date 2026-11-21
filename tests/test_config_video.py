@@ -1,7 +1,7 @@
 """비디오 전사 환경변수 및 설정 단위 테스트."""
 
 import pytest
-from claire.config import Settings, find_ffmpeg_executable
+from claire.core.config import Settings, find_ffmpeg_executable
 
 
 def test_config_video_defaults(monkeypatch):

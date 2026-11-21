@@ -44,7 +44,7 @@ This document tells what the code does now. Anchors are file paths and symbol na
 5. Gate 4: the System 2 judge, at most `MAX_JUDGE = 3` calls for each entity. `judge_same` merges (stage `borderline_llm_judge`). `judge_different` keeps the candidate as a relational candidate. Over the limit, the outcome is `judge_cap`. Without a judge function, the outcome is `no_judge`.
 6. No merge: a new entity, stage `no_match`, decision `CREATE_NEW`.
 
-Thresholds come from settings `sim_tier_auto_merge` (0.93), `sim_tier_borderline` (0.72), `sim_tier_relational` (0.70), `sim_tier_multihop` (0.55), and `vector_adaptive_centering` (`_get_tier_thresholds`). Values in parentheses are the defaults in `src/claire/config.py`.
+Thresholds come from settings `sim_tier_auto_merge` (0.93), `sim_tier_borderline` (0.72), `sim_tier_relational` (0.70), `sim_tier_multihop` (0.55), and `vector_adaptive_centering` (`_get_tier_thresholds`). Values in parentheses are the defaults in `src/claire/core/config.py`.
 
 ### 2.3 Candidate trace [code]
 

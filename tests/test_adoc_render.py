@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.prompts import (
     render_detail_prompt,
 )

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from ... import ids
+from ...core import ids
 from ...i18n import interpolate, t
 from ...store import accounts as accounts_store
 from ...store import db as dbm

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from claire import cli
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.ingest.normalize import content_hash
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document

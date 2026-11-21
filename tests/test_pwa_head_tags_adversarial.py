@@ -23,7 +23,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.api.accounts_routes.common import render_template
-from claire.config import Settings
+from claire.core.config import Settings
 from bible.web.favicon import (
     FAVICON_PLACEHOLDER,
     PWA_REGISTER_SCRIPT_PATH,

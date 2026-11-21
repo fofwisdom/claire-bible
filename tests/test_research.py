@@ -5,8 +5,8 @@ MockProvider 훅: '조사불가' 포함 쿼리 → INSUFFICIENT, '모호' 포함
 
 from __future__ import annotations
 
-from claire.config import Settings
-from claire.research import build_context, contextual_research
+from claire.core.config import Settings
+from claire.retrieval.research import build_context, contextual_research
 from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity
 from claire.store import db as dbm

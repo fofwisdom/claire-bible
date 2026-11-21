@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .. import ids
+from ..core import ids
 from . import federation_client as client_store
 
 __all__ = [

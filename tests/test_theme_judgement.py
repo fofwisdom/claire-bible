@@ -13,7 +13,7 @@ import pytest
 
 from claire import contributions
 from claire import theme_judgement as tj
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import normalize_name
 from claire.store import db as dbm
 from claire.store import themes as themes_store
@@ -364,6 +364,6 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
 
 
 def ids_number(kb) -> str:
-    from claire import ids
+    from claire.core import ids
 
     return ids.format_public_id(kb.number)

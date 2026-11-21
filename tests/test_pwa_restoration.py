@@ -15,9 +15,9 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire_bible.web.pages import render_graph_html
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store

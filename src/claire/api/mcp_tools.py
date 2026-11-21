@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .. import ids
+from ..core import ids
 from ..ontology.base import normalize_name
 from ..store import db as dbm
 from ..store.queries import (
@@ -492,7 +492,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
 
     def _sees_hidden(kb_id: int) -> bool:
         """Hidden documents (a pending or hidden contribution has a hidden copy): in a personal knowledge base only for its account; in a shared knowledge base only for a reviewer (shared knowledge base design Section 6.2 ``review``)."""
-        from .. import kb_access
+        from ..accounts import kb_access
         from ..store import kb_collab
 
         principal = current_principal.get()

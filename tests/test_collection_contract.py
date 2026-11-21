@@ -9,7 +9,7 @@ import pytest
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 
-from claire import ids
+from claire.core import ids
 from claire.api import collections
 
 

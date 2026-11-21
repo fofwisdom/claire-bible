@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .accounts.provider_policy import FEATURE_SLOTS, enumerate_gemini_model_variants, split_gemini_model_and_effort
+from ..accounts.provider_policy import FEATURE_SLOTS, enumerate_gemini_model_variants, split_gemini_model_and_effort
 from .config import ROOT
 
 log = logging.getLogger("claire.provider")

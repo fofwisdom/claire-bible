@@ -42,7 +42,7 @@ from ...store import auth_db
 from ...store import db as dbm
 from ...store import themes as themes_store
 from ...store.secrets import get_secret_service
-from ... import ids
+from ...core import ids
 from ..namespace import account_home_path
 from ..oidc import (
     ExternalIdentity,

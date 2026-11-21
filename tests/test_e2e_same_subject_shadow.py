@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 
 from claire import cli
 from claire.api.server import create_app
-from claire.config import Settings, get_settings
+from claire.core.config import Settings, get_settings
 from claire.ingest import pipeline as pipemod
 from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService

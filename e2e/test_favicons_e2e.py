@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from claire.config import Settings
+from claire.core.config import Settings
 from bible.web.favicon import (
     APPLICATION_NAME,
     FAVICON_ICO_PATH,

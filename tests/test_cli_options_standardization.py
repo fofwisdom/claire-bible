@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from claire import cli
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 import ops.cb_manuscript as cb

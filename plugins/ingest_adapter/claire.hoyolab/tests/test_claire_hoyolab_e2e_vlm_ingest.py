@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 
@@ -65,7 +65,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
     mock_client.get_post.return_value = mock_post_payload
 
     with patch(f"{MOD}.HoYoLabClient", return_value=mock_client), patch(
-        "claire.config.get_settings", return_value=settings
+        "claire.core.config.get_settings", return_value=settings
     ):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-test")
@@ -224,7 +224,7 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
 
     with patch(f"{MOD}.HoYoLabClient", return_value=mock_client), \
          patch("claire.extract.provider.MockProvider.extract", return_value=mock_extraction), \
-         patch("claire.config.get_settings", return_value=settings):
+         patch("claire.core.config.get_settings", return_value=settings):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-lore-test")
 

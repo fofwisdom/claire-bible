@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from ...config import get_settings
+from ...core.config import get_settings
 from .base import FetchError, fetch_settings
 from .http_policy import BROWSER_USER_AGENT
 

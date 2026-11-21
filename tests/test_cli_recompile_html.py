@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from claire import cli
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 

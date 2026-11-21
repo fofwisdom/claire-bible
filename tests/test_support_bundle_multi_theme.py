@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 import zstandard as zstd
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager

@@ -36,8 +36,8 @@ from typing import Any, Iterator
 
 import zstandard as zstd
 
-from . import ids
-from .config import Settings, get_settings
+from .core import ids
+from .core.config import Settings, get_settings
 from .store import db as dbm
 
 logger = logging.getLogger(__name__)

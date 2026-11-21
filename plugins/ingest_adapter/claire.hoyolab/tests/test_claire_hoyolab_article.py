@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.plugin_sdk import FetchError, WebAdapterResult
 from claire.ingest.registry import registry
 from claire.ingest.router import classify, fetch

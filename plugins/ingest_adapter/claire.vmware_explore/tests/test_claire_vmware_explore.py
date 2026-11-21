@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document, SourceAttachment
 from claire.plugin_sdk import PresentationExtract, PresentationFetchError
 from claire.plugin_sdk.testing import load_plugin

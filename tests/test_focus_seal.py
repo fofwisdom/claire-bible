@@ -12,7 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.store import db as dbm
 

@@ -174,7 +174,7 @@ class KfWorld:
     ACCOUNTS = {"admin": 1, "ann": 2, "ben": 3}
 
     def __init__(self, tmp_path: Path, origin: str) -> None:
-        from claire.config import Settings
+        from claire.core.config import Settings
         from claire.store.knowledge_base import KnowledgeBaseManager
         from claire.store.token_store import get_token_store
 

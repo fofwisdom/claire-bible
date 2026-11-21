@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .secret_scrub import register_secret, scrub_text
+from .core.secret_scrub import register_secret, scrub_text
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
 

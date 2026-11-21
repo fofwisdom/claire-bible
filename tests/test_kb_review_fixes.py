@@ -69,7 +69,7 @@ def test_reviewer_does_not_approve_its_own_contribution(world) -> None:  # noqa:
 
 
 def kb_collab_number(public_id: int) -> str:
-    from claire import ids
+    from claire.core import ids
 
     return ids.format_public_id(public_id)
 

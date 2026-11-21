@@ -21,7 +21,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import ids
+from ...core import ids
 from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 from ...store import federation_notes as notes_store

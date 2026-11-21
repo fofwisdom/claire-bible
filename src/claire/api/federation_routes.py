@@ -34,7 +34,7 @@ from starlette.routing import BaseRoute, Route
 from ..store import accounts as accounts_store
 from ..store import actor_keys
 from ..store import auth_db
-from .. import ids
+from ..core import ids
 from ..store import db as dbm
 from .. import media_proxy
 from ..store import client_db

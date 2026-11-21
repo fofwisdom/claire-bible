@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from claire import ids
-from claire.config import Settings
+from claire.core import ids
+from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store.knowledge_base import (
     THEME_FQDN_RETIRED_MESSAGE,

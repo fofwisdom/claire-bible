@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 
 from claire import cli
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager

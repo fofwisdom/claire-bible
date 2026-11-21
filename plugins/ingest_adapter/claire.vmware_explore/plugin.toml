@@ -2,7 +2,7 @@
 manifest = 1
 id = "claire.vmware_explore"
 type = "ingest_adapter"
-revision = 2
+revision = 3
 core_commit = "9b28e063c7cc7dd98706d8112466695015ce8b5d"
 api = 1
 entry = "adapter:register"

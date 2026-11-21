@@ -33,7 +33,7 @@ def test_mock_transcript_provider(tmp_path):
 
 
 def test_factory_fallback(monkeypatch):
-    from claire.config import Settings
+    from claire.core.config import Settings
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
     s = Settings()
     prov = get_transcript_provider(s)

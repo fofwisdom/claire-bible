@@ -4,7 +4,7 @@ from starlette.testclient import TestClient
 from tests.kb_paths import kb_list, kb_number, kb_url, seed, step_up_request
 
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store.knowledge_base import KnowledgeBaseManager
 

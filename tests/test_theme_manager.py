@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 import pytest
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseInfo, KnowledgeBaseNotFound
 
 

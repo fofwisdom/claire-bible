@@ -10,7 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db, db as dbm
 from claire.store.secrets import reset_secret_service

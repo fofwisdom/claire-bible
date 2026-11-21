@@ -37,7 +37,7 @@ _PUT_KEYS = {"enabled", "digest", "replace"}
 def _settings(ctx: AccountsContext) -> Any:
     if ctx.settings is not None:
         return ctx.settings
-    from ...config import get_settings
+    from ...core.config import get_settings
 
     return get_settings()
 

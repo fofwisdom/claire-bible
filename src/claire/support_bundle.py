@@ -27,7 +27,7 @@ from typing import Any
 
 import zstandard as zstd
 
-from .config import ROOT, Settings, get_settings
+from .core.config import ROOT, Settings, get_settings
 from .store import db as dbm
 from .store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,

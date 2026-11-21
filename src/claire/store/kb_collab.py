@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .. import ids
+from ..core import ids
 from . import db as dbm
 
 ROLES = ("member", "collaborator", "moderator")

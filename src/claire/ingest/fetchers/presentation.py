@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from ...config import Settings
+from ...core.config import Settings
 from ...ontology.base import Document, SourceAttachment
 from ..normalize import content_hash
 from .base import FetchError

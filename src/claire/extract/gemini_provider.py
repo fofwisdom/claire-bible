@@ -165,7 +165,7 @@ def _usage_tokens(resp) -> tuple[int, int]:
 
 def _scrub_exception_inplace(err: BaseException, extra: tuple[str, ...] = ()) -> BaseException:
     """예외의 메시지(args)와 흔한 문자열 속성에서 비밀을 지운다. 예외 종류와 객체는 그대로 둔다(§11.3)."""
-    from ..secret_scrub import scrub_text
+    from ..core.secret_scrub import scrub_text
 
     try:
         err.args = tuple(scrub_text(a, extra) if isinstance(a, str) else a for a in err.args)
@@ -185,7 +185,7 @@ def _scrub_exception_inplace(err: BaseException, extra: tuple[str, ...] = ()) ->
 def _member_error(err: BaseException, extra: tuple[str, ...] = ()):
     """멤버 컨텍스트에서 키 거부·할당량 소진을 ``ProviderKeyRejected``로 바꾼다. 해당 없으면 None(폴백하지 않는다, C2)."""
     from ..accounts.provider_policy import ProviderKeyRejected
-    from ..secret_scrub import scrub_text
+    from ..core.secret_scrub import scrub_text
 
     if _is_key_rejection(err):
         return ProviderKeyRejected(
@@ -327,7 +327,7 @@ class GeminiProvider:
                         "gemini: no API key for this account",
                         remedy="/me에서 API 키를 등록하거나 관리자에게 서버 등급을 요청한다.",
                     )
-                from ..secret_scrub import register_secret
+                from ..core.secret_scrub import register_secret
 
                 register_secret(api_key)
         self._api_key = api_key or ""
@@ -485,7 +485,7 @@ class GeminiProvider:
     def _resolve_embed_settings(self) -> Any:
         settings = getattr(self, "settings", None)
         if settings is None:
-            from ..config import get_settings
+            from ..core.config import get_settings
 
             settings = get_settings()
         return settings

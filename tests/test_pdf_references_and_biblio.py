@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.ingest.fetchers.pdf import (
     PdfExtractResult,

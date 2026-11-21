@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from claire import secret_scrub
+from claire.core import secret_scrub
 from claire.api import server
 from claire.api.principal import STEP_UP_WINDOW_SECONDS
 from claire.store import accounts as accounts_store

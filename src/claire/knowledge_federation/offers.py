@@ -27,7 +27,7 @@ import secrets
 import sqlite3
 from typing import Any
 
-from .. import ids
+from ..core import ids
 from ..store import federation as federation_store
 from ..store import kb_collab
 from . import access, actors, collections, grants, known_servers, outbox, remote_kbs, vocabulary

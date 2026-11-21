@@ -19,8 +19,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .config import Settings, get_settings
-from .secret_scrub import scrub_text
+from .core.config import Settings, get_settings
+from .core.secret_scrub import scrub_text
 from .store import auth_db
 from .store import db as dbm
 from .store import telegram_bots

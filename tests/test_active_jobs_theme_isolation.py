@@ -11,9 +11,9 @@ from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.ingest.active import clear_active_ingest, set_active_ingest
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager

@@ -16,9 +16,10 @@ from starlette.testclient import TestClient
 
 from tests.kb_paths import seed
 
-from claire import contributions, ids
+from claire import contributions
+from claire.core import ids
 from claire.api.server import create_app
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract import provider as provider_module
 from claire.ingest.normalize import content_hash
 from claire.store import accounts as accounts_store

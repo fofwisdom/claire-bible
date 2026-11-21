@@ -10,7 +10,7 @@ from pathlib import Path
 
 from starlette.testclient import TestClient
 
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.store import db as dbm
 
 ADOC_BODY = """== 개요

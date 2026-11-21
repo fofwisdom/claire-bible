@@ -13,7 +13,7 @@ This document tells what the code does now. The extraction is in [EXTRACTION.md]
 | 확장 제안 / expansion proposal | `src/claire/expand/proposal.py`, source `expand-proposal` |
 | 확장 게이트 / expansion gate | `src/claire/expand/gate.py`, provider method `judge_gate`, telemetry call type `judge_gate` |
 | 동일 주제 출처 병합 / same-subject source merge | setting `same_subject_merge`, judgement field `same_subject`, table `same_subject_shadow`, meta `extra_sources` |
-| 맥락 조사 / contextual research (not link expansion; it uses the expansion gate) | `src/claire/research.py` |
+| 맥락 조사 / contextual research (not link expansion; it uses the expansion gate) | `src/claire/retrieval/research.py` |
 
 Schema v35 changed the stored source names: `onehop:<parent id>` became `expand:<parent id>`, and `telegram-expand` became `expand-proposal` (`_migrate_v35_expansion_source_names` in `src/claire/store/db.py`). The telemetry rows with call type `judge_research` became `judge_gate` (`_migrate_gate_call_type` in `src/claire/store/telemetry.py`). [code]
 
@@ -90,7 +90,7 @@ Documents that earlier merges made keep their `extra_sources`. A document with `
 ## 6. Known limits
 
 - [code] `CLAIRE_EXPAND_CHAR_BUDGET` and `CLAIRE_RESEARCH_CONTEXT_BUDGET` exist in `Settings`, in the limit manager, and in the WebUI, but no code reads them. The lengths are fixed in the code:
-  - `build_parent_context` (`expand/automatic.py`) and `build_context` (`research.py`) keep 2000 characters of the document detail (or of the raw text).
+  - `build_parent_context` (`expand/automatic.py`) and `build_context` (`retrieval/research.py`) keep 2000 characters of the document detail (or of the raw text).
   - `IngestService.expand_document` gives the judge 4000 characters of the fetched child.
   - `extract/prompts.py` cuts again: `research_prompt` keeps 8000 characters of the context, `judge_gate_prompt` keeps 6000 of the context and 8000 of the report, `select_followups_prompt` keeps 6000 of the context.
 - [code] Automatic expansion is on by default (`auto_expand=True`, `expand_max=5`). Members need the tier feature `expand` or their own key. Shared knowledge bases are not expanded.

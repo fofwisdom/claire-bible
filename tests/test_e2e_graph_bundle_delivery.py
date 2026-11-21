@@ -29,7 +29,7 @@ import zstandard as zstd
 from starlette.testclient import TestClient
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.graph_bundle import (
     GraphBundleInfo,
     get_graph_bundle,

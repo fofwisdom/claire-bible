@@ -22,7 +22,7 @@ from starlette.testclient import TestClient
 from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.ingest.active import (
     _COMPLETED_RETENTION_SEC,

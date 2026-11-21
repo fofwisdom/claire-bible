@@ -37,10 +37,10 @@ import pytest
 import zstandard as zstd
 from starlette.testclient import TestClient
 
-from claire import ids
+from claire.core import ids
 from tests.kb_paths import seed
 from claire.api import server
-from claire.config import Settings
+from claire.core.config import Settings
 from claire.graph_bundle import create_graph_bundle, import_graph_bundle
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store

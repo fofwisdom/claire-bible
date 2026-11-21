@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from claire.config import get_settings
+from claire.core.config import get_settings
 from claire.ingest.fetchers.base import FetchError
 from claire.ingest.fetchers.captions import CaptionAcquisition, format_chapters
 from pathlib import Path as _Path

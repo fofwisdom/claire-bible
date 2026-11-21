@@ -22,7 +22,8 @@ from typing import Any, Literal
 
 import httpx
 
-from .. import auto_contribution, contributions, ids, theme_judgement
+from .. import auto_contribution, contributions, theme_judgement
+from ..core import ids
 from ..api import federation_routes
 from ..api.federation_internal import SERVICE_KEY_BYTES, service_key_path
 from ..api.security import WebRuntimeConfig
