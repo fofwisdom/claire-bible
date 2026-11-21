@@ -25,7 +25,7 @@ def test_app_root_uses_source_checkout_when_pyproject_exists(tmp_path):
 def test_app_root_uses_explicit_container_path_for_installed_wheel(tmp_path):
     installed_module = (
         tmp_path
-        / ".venv/lib/python3.11/site-packages/claire/core/config.py"
+        / ".venv/lib/python3.15/site-packages/claire/core/config.py"
     )
 
     assert resolve_app_root(
@@ -38,7 +38,7 @@ def test_app_root_uses_explicit_container_path_for_installed_wheel(tmp_path):
 def test_app_root_does_not_treat_site_packages_parent_as_project_root(tmp_path):
     installed_module = (
         tmp_path
-        / ".venv/lib/python3.11/site-packages/claire/core/config.py"
+        / ".venv/lib/python3.15/site-packages/claire/core/config.py"
     )
     runtime_cwd = tmp_path / "runtime"
 

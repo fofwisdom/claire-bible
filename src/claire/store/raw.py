@@ -10,16 +10,14 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-import io
 import logging
 import os
 import shutil
 import tempfile
 import threading
+from compression import zstd
 from pathlib import Path
 from typing import Any
-
-import zstandard
 
 from ..ingest.fetchers.http_policy import BROWSER_USER_AGENT
 from ..ontology.base import Document, SourceAttachment
@@ -29,10 +27,10 @@ logger = logging.getLogger(__name__)
 _tls = threading.local()
 
 
-def _get_compressor(level: int = 3, write_checksum: bool = True) -> zstandard.ZstdCompressor:
-    """스레드 로컬 zstd 압축기 인스턴스를 반환한다.
+def _get_compressor(level: int = 3, write_checksum: bool = True) -> zstd.ZstdCompressor:
+    """Return the zstd compressor of this thread for one level and checksum flag.
 
-    C-API 컨텍스트(ZSTD_CCtx) 재사용을 통해 반복 생성에 따른 힙 할당 및 GC 오버헤드를 제거하며, 스레드 로컬 격리(threading.local)를 통해 libzstd C-API 다중 스레드 동시 접근 크래시(SIGSEGV)를 방어한다.
+    Each thread keeps its compressors (threading.local), so threads never share one context and a thread does not make a new context for each call. A compressor is ready for a new frame after ``compress(data, mode=FLUSH_FRAME)``.
     """
     compressors = getattr(_tls, "compressors", None)
     if compressors is None:
@@ -41,21 +39,15 @@ def _get_compressor(level: int = 3, write_checksum: bool = True) -> zstandard.Zs
     key = (level, write_checksum)
     c = compressors.get(key)
     if c is None:
-        c = zstandard.ZstdCompressor(level=level, write_checksum=write_checksum)
+        c = zstd.ZstdCompressor(options={zstd.CompressionParameter.compression_level: level, zstd.CompressionParameter.checksum_flag: write_checksum})
         compressors[key] = c
     return c
 
 
-def _get_decompressor() -> zstandard.ZstdDecompressor:
-    """스레드 로컬 zstd 압축 해제기 인스턴스를 반환한다.
-
-    C-API 컨텍스트(ZSTD_DCtx) 재사용을 통해 반복 생성 오버헤드를 제거하고 스레드 안전성(thread-safety)을 보장한다.
-    """
-    d = getattr(_tls, "decompressor", None)
-    if d is None:
-        d = zstandard.ZstdDecompressor()
-        _tls.decompressor = d
-    return d
+def _compress(payload: bytes, level: int = 3) -> bytes:
+    """Compress ``payload`` to one zstd frame. The frame header has the content size, and the frame ends with a checksum."""
+    compressor = _get_compressor(level=level)
+    return compressor.compress(payload, mode=zstd.ZstdCompressor.FLUSH_FRAME)
 
 
 def _sync_dir(dir_path: Path) -> None:
@@ -107,7 +99,7 @@ def save_artifact(data_dir: Path, doc_id: str, text: str, level: int = 3) -> str
 
     원자적 저장 절차:
       1. 대상 디렉토리에 .tmp- 접두어로 임시 파일 생성
-      2. _get_compressor(level=level)로 압축 바이트 작성 (스레드 로컬 C-API 컨텍스트 재사용)
+      2. _compress(payload, level)로 압축 바이트 작성 (스레드 로컬 컨텍스트 재사용)
       3. stream.flush() 및 os.fsync() 호출 (데이터 블록 디스크 플러시)
       4. os.replace()로 <doc_id>.txt.zst에 원자적 치환
       5. 부모 디렉토리 fsync 방어적 호출 (_sync_dir)
@@ -116,9 +108,8 @@ def save_artifact(data_dir: Path, doc_id: str, text: str, level: int = 3) -> str
     """
     artifacts = _artifacts_dir(data_dir)
     destination = artifacts / f"{doc_id}.txt.zst"
-    compressor = _get_compressor(level=level)
     payload = (text or "").encode("utf-8")
-    compressed = compressor.compress(payload)
+    compressed = _compress(payload, level)
 
     fd, temp_name = tempfile.mkstemp(
         prefix=f".tmp-{doc_id}-",
@@ -147,7 +138,7 @@ def save_artifact(data_dir: Path, doc_id: str, text: str, level: int = 3) -> str
 def load_artifact(data_dir: Path, doc_id: str) -> str | None:
     """추출 원본 텍스트를 Dual-Read 프로토콜로 로드한다.
 
-    1순위: <doc_id>.txt.zst 확인 -> _get_decompressor().decompress(...) 성공 시 반환 손상/zstandard.ZstdError/EOFError/OSError/UnicodeDecodeError 발생 시 경고 로깅 후 2순위로 투명 폴백 2순위: <doc_id>.txt.gz 확인 -> gzip.open(..., "rt", encoding="utf-8")로 읽어 반환 둘 다 없으면 None 반환
+    1순위: <doc_id>.txt.zst 확인 -> zstd.decompress(...) 성공 시 반환 손상/ZstdError/EOFError/OSError/UnicodeDecodeError 발생 시 경고 로깅 후 2순위로 투명 폴백 2순위: <doc_id>.txt.gz 확인 -> gzip.open(..., "rt", encoding="utf-8")로 읽어 반환 둘 다 없으면 None 반환
     """
     artifacts = _artifacts_dir(data_dir)
     zst_path = artifacts / f"{doc_id}.txt.zst"
@@ -155,14 +146,8 @@ def load_artifact(data_dir: Path, doc_id: str) -> str | None:
 
     if zst_path.exists():
         try:
-            decompressor = _get_decompressor()
-            raw_bytes = zst_path.read_bytes()
-            try:
-                decompressed = decompressor.decompress(raw_bytes)
-            except zstandard.ZstdError:
-                decompressed = decompressor.stream_reader(io.BytesIO(raw_bytes)).read()
-            return decompressed.decode("utf-8")
-        except (zstandard.ZstdError, EOFError, OSError, ValueError, UnicodeDecodeError) as e:
+            return zstd.decompress(zst_path.read_bytes()).decode("utf-8")
+        except (zstd.ZstdError, EOFError, OSError, ValueError, UnicodeDecodeError) as e:
             logger.warning(
                 "Failed to decompress zstd artifact for doc_id=%s (%s: %s). Falling back to legacy .gz",
                 doc_id,
@@ -213,8 +198,6 @@ def migrate_artifacts(
     bytes_before = 0
     bytes_after = 0
 
-    compressor = _get_compressor(level=level)
-    decompressor = _get_decompressor()
     migrated_since_last_sync = 0
 
     try:
@@ -232,11 +215,7 @@ def migrate_artifacts(
                 already_zst += 1
                 if apply:
                     try:
-                        raw_bytes = zst_path.read_bytes()
-                        try:
-                            _ = decompressor.decompress(raw_bytes)
-                        except zstandard.ZstdError:
-                            _ = decompressor.stream_reader(io.BytesIO(raw_bytes)).read()
+                        zstd.decompress(zst_path.read_bytes())
                         gz_path.unlink(missing_ok=True)
                         migrated_since_last_sync += 1
                         if batch_fsync_interval > 0 and migrated_since_last_sync >= batch_fsync_interval:
@@ -261,11 +240,8 @@ def migrate_artifacts(
                 orig_sha256 = hashlib.sha256(raw_payload).hexdigest()
 
                 # B. zstd 압축 및 라운드트립 해시 검증
-                compressed_bytes = compressor.compress(raw_payload)
-                try:
-                    roundtrip_bytes = decompressor.decompress(compressed_bytes)
-                except zstandard.ZstdError:
-                    roundtrip_bytes = decompressor.stream_reader(io.BytesIO(compressed_bytes)).read()
+                compressed_bytes = _compress(raw_payload, level)
+                roundtrip_bytes = zstd.decompress(compressed_bytes)
                 roundtrip_sha256 = hashlib.sha256(roundtrip_bytes).hexdigest()
 
                 if orig_sha256 != roundtrip_sha256:

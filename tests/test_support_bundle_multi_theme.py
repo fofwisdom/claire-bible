@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 
 from claire.core.config import Settings
 from claire.ontology.base import Document, Entity, Relation
@@ -63,9 +63,8 @@ def _seed_doc(
 
 
 def _read_tar_zst(archive_path: Path) -> dict[str, bytes]:
-    dctx = zstd.ZstdDecompressor()
     with open(archive_path, "rb") as f_in:
-        with dctx.stream_reader(f_in) as reader:
+        with zstd.ZstdFile(f_in, "rb") as reader:
             with tarfile.open(fileobj=reader, mode="r|") as tar:
                 members: dict[str, bytes] = {}
                 for member in tar:

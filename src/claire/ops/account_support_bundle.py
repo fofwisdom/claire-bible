@@ -17,10 +17,10 @@ import secrets
 import sqlite3
 import tarfile
 import time
+from compression import zstd
 from datetime import datetime, timezone
 from typing import Any
 
-import zstandard as zstd
 
 from ..core import ids
 from ..core.config import Settings, get_settings
@@ -341,8 +341,7 @@ def create_account_support_bundle(
     tmp_path = archive_path.with_name(f".{archive_path.name}.tmp")
     try:
         with open(tmp_path, "wb") as raw_out:
-            cctx = zstd.ZstdCompressor(level=10)
-            with cctx.stream_writer(raw_out) as compressed:
+            with zstd.ZstdFile(raw_out, "wb", level=10) as compressed:
                 with tarfile.open(fileobj=compressed, mode="w|") as tar:
                     _add_json(tar, f"{root}/account/summary.json", summary)
                     _add_json(tar, f"{root}/account/themes.json", _theme_inventory(s, themes))

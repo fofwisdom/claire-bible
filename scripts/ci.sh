@@ -22,8 +22,10 @@ export TMPDIR="$ci_tmp"
 echo "[ci] 1/4 진입점 구문 검사"
 bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
-# The container image uses Python 3.11 (Dockerfile FROM python:3.11-slim). A newer local Python accepts syntax that 3.11 rejects (for example PEP 701 f-strings), and the api container then restarts without end. Compile all sources with 3.11.
-uv run --no-project --python 3.11 python -I -c '
+# The Dockerfile gives the Python version of the container image (FROM python:X.Y.Z-slim). The syntax check and the tests below use exactly this version, not the Python of the host: a different Python can accept syntax that the image rejects, and the api container then restarts without end.
+image_python="$(sed -nE 's/^FROM python:([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' Dockerfile | head -n 1)"
+[ -n "$image_python" ] || { echo "CI Error: no Python version in the FROM line of Dockerfile"; exit 1; }
+uv run --no-project --python "$image_python" python -I -c '
 import pathlib, sys
 errors = 0
 for root in ("src", "ops", "scripts"):
@@ -32,7 +34,7 @@ for root in ("src", "ops", "scripts"):
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
         except SyntaxError as exc:
             errors += 1
-            print(f"CI Error: Python 3.11 syntax: {path}:{exc.lineno}: {exc.msg}")
+            print(f"CI Error: Python {sys.version.split()[0]} syntax: {path}:{exc.lineno}: {exc.msg}")
 sys.exit(1 if errors else 0)
 '
 
@@ -89,9 +91,7 @@ echo "[ci] 3/4 uv.lock 일관성 검사 (pyproject 와 동기인지)"
 uv lock --check
 
 echo "[ci] 4/4 테스트"
-image_python="$(sed -nE 's/^FROM python:([0-9]+\.[0-9]+).*/\1/p' Dockerfile | head -n 1)"
-[ -n "$image_python" ] || { echo "CI Error: no Python version in the FROM line of Dockerfile"; exit 1; }
-# The tests use the Python version and the extras of the container image (Dockerfile: FROM python:X.Y-slim, uv sync --extra stealth --extra audio --extra ko). Some modules exist only with these extras (scrapling, numpy from kiwipiepy). --exact removes packages that the lock file does not have, so a package that was installed by hand cannot make a test pass. A local .venv with a newer Python hides errors that only 3.11 has (for example PermissionError from Path.is_file on a directory that the process cannot read).
+# The tests use the Python version and the extras of the container image (Dockerfile: FROM python:X.Y.Z-slim, uv sync --extra stealth --extra audio --extra ko). Some modules exist only with these extras (scrapling, numpy from kiwipiepy). --exact removes packages that the lock file does not have, so a package that was installed by hand cannot make a test pass. A local .venv with a different Python hides errors that only the Python of the image has.
 # Fast feedback: the tests run in parallel on all CPUs (pytest-xdist), the tests that failed in the last run go first (--ff), and the run stops after 10 failures (--maxfail). A test that runs longer than 180 seconds fails with its stack (--timeout), so a test that hangs cannot stop the run without end. One cause (for example a full disk) often fails many tests, and a full run then only adds time. --basetemp keeps the directory path short (see TMPDIR above). The 10 slowest tests are shown at the end.
 PYTHONPATH=. uv run --exact --python "$image_python" --extra dev --extra stealth --extra audio --extra ko pytest -q -n auto --ff --maxfail=10 --timeout=180 --basetemp="$ci_tmp/p" --durations=10 "${pytest_skip[@]}"
 

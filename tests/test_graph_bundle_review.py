@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 
 import claire.ops.graph_bundle_review as review_mod
 from claire.extract.provider import MockProvider
@@ -171,7 +171,7 @@ def _extract(archive: Path, dest: Path) -> tuple[dict[str, Any], Path]:
     manifest: dict[str, Any] | None = None
     db_path = dest / "graph_export.db"
     with open(archive, "rb") as f_in:
-        with zstd.ZstdDecompressor().stream_reader(f_in) as reader:
+        with zstd.ZstdFile(f_in, "rb") as reader:
             with tarfile.open(fileobj=reader, mode="r|") as tar:
                 for member in tar:
                     f = tar.extractfile(member)

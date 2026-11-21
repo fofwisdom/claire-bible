@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import zstandard as zstd
+from compression import zstd
 
 from claire.ops import loop_runtime
 from claire.store import auth_db, client_db
@@ -114,7 +114,7 @@ def _seed(data_dir: Path, now: float) -> StubSettings:
 
 def _members(path: Path) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
-    with open(path, "rb") as handle, zstd.ZstdDecompressor().stream_reader(handle) as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
+    with open(path, "rb") as handle, zstd.ZstdFile(handle, "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
         for member in tar:
             data = tar.extractfile(member)
             if data is not None:

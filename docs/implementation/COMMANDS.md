@@ -75,6 +75,7 @@
    uv sync --extra dev --extra stealth --extra audio --extra ko
    ./cb-manuscript dev init    # .env·.env.dev가 없을 때 한 번(§2.1 init)
    ```
+   - Python 버전은 3.15.2다. `Dockerfile`의 `FROM python:3.15.2-slim`이 기준이고, `pyproject.toml`은 `requires-python = ">=3.15"`이며, `scripts/ci.sh`와 GitHub 워크플로도 같은 버전을 쓴다. 호스트에 이 버전이 없으면 uv가 내려받는다(uv 0.13.9에서 확인. 0.12.20은 3.15.2를 모른다). `cb-manuscript`만 호스트의 `python3`(표준 라이브러리만)로 돈다.
    - `uv sync`는 지정하지 않은 extra를 지운다. 이미지와 같은 extra(`stealth`·`audio`·`ko`)를 함께 주어야 전체 테스트(`PYTHONPATH=. uv run --extra dev pytest -q`)가 scrapling·kiwipiepy·numpy를 찾는다. `--extra dev`만 주면 그 테스트들이 `ModuleNotFoundError`로 실패한다.
 2. 개발 서버 (`.env.dev`의 `CB_API_BIND`·`CB_API_PORT`·`CB_DATA_DIR`과 같은 값을 준다)
    ```bash

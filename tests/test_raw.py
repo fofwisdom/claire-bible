@@ -16,7 +16,6 @@ from claire.store import db as dbm
 from claire.store.raw import (
     _MAX_IMAGE_BYTES,
     _get_compressor,
-    _get_decompressor,
     artifact_paths,
     download_images,
     load_artifact,
@@ -143,6 +142,21 @@ def test_corrupted_zst_fallback_to_gzip(tmp_path: Path):
     # load_artifact 호출 시 손상된 zst 예외를 잡고 gz 로 폴백
     loaded = load_artifact(tmp_path, "fallback_doc")
     assert loaded == "fallback valid content from gzip"
+
+
+def test_artifacts_of_the_zstandard_package_stay_readable(tmp_path: Path):
+    """Files that the zstandard package 0.25.0 wrote (before the move to compression.zstd) load without change, and a new file has the same bytes as the old one-shot frame."""
+    text = "옛 라이브러리가 쓴 원문 raw text"
+    one_shot = bytes.fromhex("28b52ffd242a510100ec989b20eb9dbcec9db4ebb88ceb9faceba6aceab08020ec93b420ec9b90ebacb8207261772074657874e2bec7e5")
+    stream_without_content_size = bytes.fromhex("28b52ffd0058510100ec989b20eb9dbcec9db4ebb88ceb9faceba6aceab08020ec93b420ec9b90ebacb8207261772074657874")
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    (art_dir / "old_one_shot.txt.zst").write_bytes(one_shot)
+    (art_dir / "old_stream.txt.zst").write_bytes(stream_without_content_size)
+
+    assert load_artifact(tmp_path, "old_one_shot") == text
+    assert load_artifact(tmp_path, "old_stream") == text
+    assert Path(save_artifact(tmp_path, "new_doc", text)).read_bytes() == one_shot
 
 
 def test_atomic_write_and_legacy_cleanup(tmp_path: Path):
@@ -353,34 +367,28 @@ def test_download_images_network_error_is_caught(monkeypatch, tmp_path: Path):
 
 
 def test_thread_local_context_caching_and_isolation():
-    """스레드 로컬 zstd 컨텍스트가 단일 스레드 내에서는 재사용되고, 다른 스레드 간에는 격리되는지 검증."""
+    """스레드 로컬 zstd 압축 컨텍스트가 단일 스레드 내에서는 재사용되고, 다른 스레드 간에는 격리되는지 검증."""
     import concurrent.futures
 
     c1 = _get_compressor(3)
     c2 = _get_compressor(3)
-    d1 = _get_decompressor()
-    d2 = _get_decompressor()
 
     # 동일 스레드 내에서는 인스턴스가 100% 동일하게 캐싱 재사용되어야 함
     assert c1 is c2
-    assert d1 is d2
 
     # 레벨이 다른 경우 별도 인스턴스 생성
     c_lvl5 = _get_compressor(5)
     assert c_lvl5 is not c1
 
-    # 별도 스레드에서는 스레드 안전성을 위해 별개의 C-API 컨텍스트를 소유해야 함
+    # 별도 스레드에서는 스레드 안전성을 위해 별개의 컨텍스트를 소유해야 함
     def worker():
-        other_c = _get_compressor(3)
-        other_d = _get_decompressor()
-        return id(other_c), id(other_d)
+        return id(_get_compressor(3))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future = executor.submit(worker)
-        other_c_id, other_d_id = future.result()
+        other_c_id = future.result()
 
     assert id(c1) != other_c_id
-    assert id(d1) != other_d_id
 
 
 def test_concurrent_save_and_load_artifact(tmp_path: Path):

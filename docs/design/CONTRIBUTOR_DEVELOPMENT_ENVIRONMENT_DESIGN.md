@@ -56,7 +56,7 @@ The same day the owner decided the order of the remaining checks of the knowledg
 | Certificate trust | The Claire image adds the files of `/extra-certs` (from `./certs`) to the system trust store at the start (`scripts/docker-entrypoint.sh:4-17`), and `SSL_CERT_FILE` names that store (`docker-compose.yml:11-14`, `Dockerfile:46-49`). |
 | Test stacks | DrFed (`tests/drfed/`, `tests/drfed_stack.py`) and Garage (`tests/garage_stack.py`): a private certificate authority for each start (`_write_certificates`), a TLS gateway (nginx), a DNS service (dnsmasq) with a wildcard name, the address ranges `172.31.251.0/24` and `172.31.252.0/24`. Gate variables `CB_DRFED_TEST=1` and `CB_GARAGE_TEST=1`. In the DrFed stack, the Claire process runs on the host, and the sidecar container uses the Unix socket in the data folder of that process; the sidecar trusts the authority with `DENO_CERT` (`tests/drfed/docker-compose.yml:71-99`). |
 | E2E | `scripts/e2e.sh`: a detached systemd user service with `MemoryMax=2400M` and `RuntimeMaxSec=1200`, and a time limit of 600 seconds for each Playwright process; the results are in `data/e2e-runs/`. Playwright starts its own server on port 8766 (`e2e/playwright.config.js:7`). |
-| CI | `scripts/ci.sh`: syntax with Python 3.11, the Compose models, the mounts of the sidecar, `deno task test` when `deno` is installed, `uv lock --check`, and pytest with the extras of the image. The repository has no hosted CI (no `.github/`). |
+| CI | `scripts/ci.sh`: syntax with the Python of the image (3.15.2), the Compose models, the mounts of the sidecar, `deno task test` when `deno` is installed, `uv lock --check`, and pytest with the extras of the image. The repository has no hosted CI (no `.github/`). |
 | Provider | In development, a provider that cannot be used becomes `mock` (`src/claire/config.py:1049-1053`); the default of `CLAIRE_PROVIDER` is `mock` (`config.py:470`). The tests of the knowledge federation use the mock provider (KNOWLEDGE_FEDERATION.md §12.10, §13.9). |
 
 ---
@@ -123,7 +123,7 @@ flowchart LR
 
 | Part | Function |
 | :--- | :--- |
-| Toolbox image (`claire-bible-toolbox`) | Python 3.11 with the extras of the image and `dev`, uv, Deno 2.9.8 with the cached dependencies of the sidecar, Node.js with the Playwright version of `e2e/package-lock.json` and its Chromium, and the Docker CLI with Compose for the model checks of `scripts/ci.sh` (no Docker daemon and no Docker socket in the container **[unverified: `docker compose config` without a daemon]**). Its Python environment and its `node_modules` are in the image; the checkout is mounted at `/src`. It runs with the user ID and group ID of the host user. |
+| Toolbox image (`claire-bible-toolbox`) | Python 3.15.2 with the extras of the image and `dev`, uv, Deno 2.9.8 with the cached dependencies of the sidecar, Node.js with the Playwright version of `e2e/package-lock.json` and its Chromium, and the Docker CLI with Compose for the model checks of `scripts/ci.sh` (no Docker daemon and no Docker socket in the container **[unverified: `docker compose config` without a daemon]**). Its Python environment and its `node_modules` are in the image; the checkout is mounted at `/src`. It runs with the user ID and group ID of the host user. |
 | Core project (`claire-devnet`) | `certs` (a one-shot job: the private certificate authority and the server certificate), `dns` (dnsmasq), `gateway` (nginx: TLS and the reverse proxy rules), `access` (the proxy for the browser of the host, Section 6.7) |
 | Server projects (`claire-devnet-a`, `claire-devnet-b`) | The services of `docker-compose.yml` (api, the workers, bot, fedify) with the overlay `compose.server.yml`: named volumes, no host ports, the networks of the development network, the certificate authority, memory limits. Thus the development network uses the same service definitions as production. |
 | Networks | `devnet-edge`: internal, with no route out; the gateway, the DNS, the sidecars, the Claire services, and the toolbox for the tests. `devnet-out`: a route to the internet for the Claire services (ingestion of web pages) and for the DNS; never for a sidecar. |
@@ -213,7 +213,7 @@ The rule of COMMANDS.md §1.1 stays for the owner: daily work with uv on the hos
 
 | Task | Owner today | Contributor | Note |
 | :--- | :--- | :--- | :--- |
-| Run one test while code changes | `uv run pytest …` on the host | `./cb-manuscript dev toolbox pytest …`, or uv on the host when Python 3.11 is installed | The toolbox does not change the `.venv` of the checkout |
+| Run one test while code changes | `uv run pytest …` on the host | `./cb-manuscript dev toolbox pytest …`, or uv on the host (uv installs Python 3.15.2 when the host does not have it) | The toolbox does not change the `.venv` of the checkout |
 | Full tests as in CI | `bash scripts/ci.sh` | `./cb-manuscript dev toolbox bash scripts/ci.sh` | Same Python version and extras |
 | Tests of the sidecar | `deno task test` on the host | `./cb-manuscript dev toolbox deno task test` | Same Deno version as the image |
 | Playwright | `bash scripts/e2e.sh run` (systemd) | `CLAIRE_E2E_RUNNER=docker bash scripts/e2e.sh run` | Section 8.3 |
@@ -239,7 +239,7 @@ Commands of the common environment (`ops/cb_manuscript.py`, `dev` prefix). They 
 
 ### 8.1 pytest
 
-`./cb-manuscript dev toolbox pytest …` runs pytest in the toolbox with Python 3.11 and the extras of the image. `TMPDIR` is in the container, not in `/tmp` of the host. The tests do not read the `.env` of the checkout (F9).
+`./cb-manuscript dev toolbox pytest …` runs pytest in the toolbox with Python 3.15.2 and the extras of the image. `TMPDIR` is in the container, not in `/tmp` of the host. The tests do not read the `.env` of the checkout (F9).
 
 ### 8.2 Deno
 
@@ -302,7 +302,7 @@ Rules that exist now and that the contributor documents state:
 8. **Clean room** (KNOWLEDGE_FEDERATION_DESIGN.md Section 4.2): no code, template, schema, test, or documentation text of the projects of that list; ForgeFed and the FEPs (CC0) can be followed.
 9. **Dependencies:** the latest release; the pins are written in the implementation documents.
 10. **Migrations** complete themselves at the start; operators do not manage the database.
-11. **Code:** Python 3.11 syntax (the image); no hard wrap of code lines; commit messages in English.
+11. **Code:** Python 3.15 syntax (the image), but `ops/cb_manuscript.py` keeps to the syntax of the oldest Python of the host tools; no hard wrap of code lines; commit messages in English.
 
 ---
 

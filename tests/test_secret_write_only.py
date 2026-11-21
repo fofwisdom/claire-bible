@@ -33,7 +33,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 from starlette.testclient import TestClient
 
 from claire.core import secret_scrub
@@ -358,9 +358,8 @@ def test_canary_key_not_in_support_and_graph_bundles(tmp_path: Path) -> None:
     # 1. Graph bundle verification
     gb_info = create_graph_bundle(settings, kb_id=0)
     assert gb_info.filepath.is_file()
-    dctx = zstd.ZstdDecompressor()
     with open(gb_info.filepath, "rb") as fh:
-        decompressed_gb = dctx.decompress(fh.read(), max_output_size=100 * 1024 * 1024)
+        decompressed_gb = zstd.decompress(fh.read())
     with tarfile.open(fileobj=io.BytesIO(decompressed_gb), mode="r:") as tar:
         for member in tar.getmembers():
             f = tar.extractfile(member)
@@ -373,7 +372,7 @@ def test_canary_key_not_in_support_and_graph_bundles(tmp_path: Path) -> None:
     sb_info = create_support_bundle(settings, days=1)
     assert sb_info.filepath.is_file()
     with open(sb_info.filepath, "rb") as fh:
-        decompressed_data = dctx.decompress(fh.read(), max_output_size=100 * 1024 * 1024)
+        decompressed_data = zstd.decompress(fh.read())
     with tarfile.open(fileobj=io.BytesIO(decompressed_data), mode="r:") as tar:
         for member in tar.getmembers():
             assert "master.key" not in member.name

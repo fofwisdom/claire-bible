@@ -20,12 +20,12 @@ import subprocess
 import tarfile
 import tempfile
 import time
+from compression import zstd
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import zstandard as zstd
 
 from ..core.config import ROOT, Settings, get_settings
 from ..store import db as dbm
@@ -1302,9 +1302,8 @@ def create_support_bundle(
             )
 
     # Zstandard 압축 스트림으로 tarfile 생성
-    cctx = zstd.ZstdCompressor(level=3)
     with open(archive_path, "wb") as f_out:
-        with cctx.stream_writer(f_out) as zstd_writer:
+        with zstd.ZstdFile(f_out, "wb", level=3) as zstd_writer:
             with tarfile.open(fileobj=zstd_writer, mode="w|") as tar:
                 # 1. 시스템 진단 정보
                 sys_diag = {
@@ -1314,7 +1313,7 @@ def create_support_bundle(
                     "machine": platform.machine(),
                     "cpu_count": os.cpu_count(),
                     "sqlite_version": sqlite3.sqlite_version,
-                    "zstd_version": zstd.ZSTD_VERSION,
+                    "zstd_version": zstd.zstd_version_info,
                     "disk_usage": {},
                 }
                 try:

@@ -54,7 +54,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 
 ### 3.3 Archive
 
-- **[code] Format.** A tar stream compressed by zstd level 3 (`zstd.ZstdCompressor(level=3)`), file `support_bundle_<UTC time>_<id8>.tar.zst` in `data/support_bundles/`. `BUNDLE_FORMAT_VERSION` is 3.
+- **[code] Format.** A tar stream compressed by zstd level 3 (`compression.zstd.ZstdFile` with `level=3`), file `support_bundle_<UTC time>_<id8>.tar.zst` in `data/support_bundles/`. `BUNDLE_FORMAT_VERSION` is 3.
 - **[code] Members** (root `support_bundle_<id8>/`):
   - `manifest.json` (no download token in it)
   - `diagnostics/`: `system.json`, `config_sanitized.json`, `mcp.json`, `storage.json`, `build.json`, `collector_warnings.json`, `services.json`, `runtime_config.json`

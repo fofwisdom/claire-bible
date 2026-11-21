@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 
 from tests.kb_paths import kb_number
-import zstandard as zstd
+from compression import zstd
 from starlette.testclient import TestClient
 
 from claire.ops import account_backup
@@ -270,7 +270,7 @@ def test_telegram_register_update_delete_and_isolation(env, fake_telegram):
 
 def _read_tar_zst(data: bytes) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
-    with zstd.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
+    with zstd.ZstdFile(io.BytesIO(data), "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
         for member in tar:
             f = tar.extractfile(member)
             if f is not None:

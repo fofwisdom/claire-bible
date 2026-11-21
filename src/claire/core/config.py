@@ -258,11 +258,8 @@ class ProviderUnavailableError(RuntimeError):
 
 
 def _is_executable_file(path: Path) -> bool:
-    """True when ``path`` is a file that the process can run. A path in a directory that the process cannot read (for example /root/.local/bin when the process is not root) is not a candidate: on Python 3.11 ``Path.is_file`` raises ``PermissionError`` for such a path."""
-    try:
-        return path.is_file() and os.access(path, os.X_OK)
-    except OSError:
-        return False
+    """True when ``path`` is a file that the process can run. A path in a directory that the process cannot read (for example /root/.local/bin when the process is not root) is not a candidate: ``Path.is_file`` returns False for such a path."""
+    return path.is_file() and os.access(path, os.X_OK)
 
 
 def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:

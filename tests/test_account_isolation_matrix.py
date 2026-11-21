@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 from starlette.testclient import TestClient
 
 from claire.core import ids
@@ -425,8 +425,7 @@ def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Pa
     assert bundle_info.relations_count == 1
 
     # Inspect exported DB archive to verify Bob data was excluded
-    dctx = zstd.ZstdDecompressor()
-    decompressed = dctx.decompress(bundle_info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed = zstd.decompress(bundle_info.filepath.read_bytes())
     with tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:") as tar:
         db_member = next(m for m in tar.getmembers() if m.name.endswith(".db"))
         extracted_db = tmp_path / "alice_exported.db"
@@ -504,8 +503,7 @@ def test_support_bundle_redactions_and_auth_exclusion(test_environment, tmp_path
     bundle_info = create_support_bundle(env.settings, days=1, target="doc_alice_sec")
 
     # 4. Decompress and inspect bundle contents
-    dctx = zstd.ZstdDecompressor()
-    decompressed = dctx.decompress(bundle_info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed = zstd.decompress(bundle_info.filepath.read_bytes())
     with tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:") as tar:
         names = tar.getnames()
 

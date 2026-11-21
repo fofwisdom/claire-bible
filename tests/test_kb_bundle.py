@@ -11,7 +11,7 @@ import sqlite3
 import tarfile
 from pathlib import Path
 
-import zstandard as zstd
+from compression import zstd
 
 from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
@@ -31,7 +31,7 @@ def _open_bundle(client, token: str, into: Path) -> tuple[dict, sqlite3.Connecti
     response = client.get(f"/graph/bundle?token={token}")
     assert response.status_code == 200, response.text
     into.mkdir(parents=True, exist_ok=True)
-    with zstd.ZstdDecompressor().stream_reader(io.BytesIO(response.content)) as reader:
+    with zstd.ZstdFile(io.BytesIO(response.content), "rb") as reader:
         with tarfile.open(fileobj=reader, mode="r|") as tar:
             tar.extractall(path=into, filter="data")
     manifest = json.loads(next(into.rglob("manifest.json")).read_text(encoding="utf-8"))

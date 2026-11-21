@@ -28,13 +28,13 @@ import sqlite3
 import tarfile
 import tempfile
 import time
+from compression import zstd
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-import zstandard as zstd
 
 from ..core import ids
 from ..core.config import Settings, get_settings
@@ -430,7 +430,7 @@ def create_account_backup(
                 tmp_archive = archive.with_name(f".{archive.name}.tmp")
                 try:
                     with open(tmp_archive, "wb") as raw_out:
-                        with zstd.ZstdCompressor(level=10).stream_writer(raw_out) as compressed:
+                        with zstd.ZstdFile(raw_out, "wb", level=10) as compressed:
                             with tarfile.open(fileobj=compressed, mode="w|") as tar:
                                 _add_bytes(tar, "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8"))
                                 for member in files:
@@ -577,8 +577,7 @@ def _safe_extract(archive: Path, dest: Path) -> dict[str, Any]:
     """manifest에 적힌 일반 파일만 꺼낸다. 경로 이탈·링크·여분 파일·해시 불일치는 거부한다."""
     allowed: dict[str, Path] = {}
     manifest: dict[str, Any] | None = None
-    dctx = zstd.ZstdDecompressor()
-    with open(archive, "rb") as raw_in, dctx.stream_reader(raw_in) as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
+    with open(archive, "rb") as raw_in, zstd.ZstdFile(raw_in, "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
         for member in tar:
             name = member.name
             if not member.isfile() or name.startswith("/") or ".." in Path(name).parts:

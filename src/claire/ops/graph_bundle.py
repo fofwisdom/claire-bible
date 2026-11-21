@@ -20,12 +20,12 @@ import sqlite3
 import tarfile
 import tempfile
 import time
+from compression import zstd
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import zstandard as zstd
 
 from ..core.config import ROOT, Settings, get_settings
 from .graph_bundle_review import count_review_tables, export_review_evidence
@@ -876,9 +876,8 @@ def create_graph_bundle(
 
         # Compress bundle archive with zstandard level 3
         root_arcname = f"graph_bundle_{bundle_id}"
-        cctx = zstd.ZstdCompressor(level=3)
         with open(archive_path, "wb") as f_out:
-            with cctx.stream_writer(f_out) as zstd_writer:
+            with zstd.ZstdFile(f_out, "wb", level=3) as zstd_writer:
                 with tarfile.open(fileobj=zstd_writer, mode="w|") as tar:
                     _add_tar_bytes(tar, f"{root_arcname}/manifest.json", manifest_bytes)
                     with open(export_db_path, "rb") as f_in_db:
@@ -950,9 +949,8 @@ def import_graph_bundle(
         tmp_dir = Path(tmp_dir_str)
 
         # Decompress archive
-        dctx = zstd.ZstdDecompressor()
         with open(bundle_file, "rb") as f_in:
-            with dctx.stream_reader(f_in) as zstd_reader:
+            with zstd.ZstdFile(f_in, "rb") as zstd_reader:
                 with tarfile.open(fileobj=zstd_reader, mode="r|") as tar:
                     tar.extractall(path=tmp_dir)
 

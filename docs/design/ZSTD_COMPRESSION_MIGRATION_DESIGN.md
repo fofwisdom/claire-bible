@@ -23,10 +23,10 @@ The change of format must not lose one document, and old files must stay readabl
 ## Rejected alternatives
 
 - **Stay with gzip.** Rejected: slow decompression in frequent operations.
-- **Streaming compression for all files.** Rejected: for files below about 10 MB the one-shot call was 1.2 to 3.5 times faster. Streaming is only the fallback for frames without a content size.
+- **Streaming compression for all files.** Rejected: for files below about 10 MB the one-shot call was 1.2 to 3.5 times faster. The one-shot read also accepts frames without a content size.
 - **A global compressor object.** Rejected: not thread-safe.
 
 ## Limits for later changes
 
 - A new artifact format must keep the dual read of all older formats until a migration removed them.
-- The `zstandard` package is a self-contained wheel. It must not add a system library to the container image.
+- Zstandard support comes from the Python standard library (`compression.zstd`). It must not add a compiled package or a system library to the container image.

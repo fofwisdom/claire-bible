@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 from starlette.testclient import TestClient
 
 from claire.api import server
@@ -248,8 +248,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert api_info.expires_at == pytest.approx(info.expires_at, abs=1e-6)
 
     # zstd 압축 해제 및 tar 파일 내용 검증
-    dctx = zstd.ZstdDecompressor()
-    decompressed_data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed_data = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed_data), mode="r:")
     names = tar.getnames()
 
@@ -334,8 +333,7 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     assert info.target_matched_by == "share_token"
 
     # 번들 아카이브 내 tracked_document 검증
-    dctx = zstd.ZstdDecompressor()
-    decompressed_data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed_data = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed_data), mode="r:")
     names = tar.getnames()
 
@@ -427,8 +425,7 @@ def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
     assert info.target_matched_by == "raw_inbox"
     assert info.target_resolution_status == "failed_inbox"
 
-    dctx = zstd.ZstdDecompressor()
-    data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    data = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
     files = {name: tar.extractfile(name).read() for name in tar.getnames() if tar.getmember(name).isfile()}
     resolution_name = next(name for name in files if name.endswith("target_resolution.json"))
@@ -451,8 +448,7 @@ def test_support_bundle_uses_embedded_build_commit(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_BUILD_COMMIT", revision)
 
     info = create_support_bundle(s)
-    dctx = zstd.ZstdDecompressor()
-    data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    data = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
     manifest_name = next(name for name in tar.getnames() if name.endswith("manifest.json"))
     manifest = json.loads(tar.extractfile(manifest_name).read())
@@ -703,8 +699,7 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
     archive_path = Path(bundle_info.filepath)
     assert archive_path.is_file()
 
-    dctx = zstd.ZstdDecompressor()
-    decompressed_data = dctx.decompress(archive_path.read_bytes(), max_output_size=50_000_000)
+    decompressed_data = zstd.decompress(archive_path.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed_data), mode="r:")
     names = tar.getnames()
     root = f"support_bundle_{bundle_info.bundle_id[-8:]}"
@@ -800,8 +795,7 @@ def test_support_bundle_includes_active_ingest_snapshot(tmp_path: Path):
     )
 
     info = create_support_bundle(s)
-    dctx = zstd.ZstdDecompressor()
-    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
     names = tar.getnames()
 
@@ -840,8 +834,7 @@ def test_support_bundle_uses_embedded_build_commit_file(tmp_path: Path, monkeypa
     monkeypatch.setattr("claire.ops.support_bundle.ROOT", tmp_path)
 
     info = create_support_bundle(s)
-    dctx = zstd.ZstdDecompressor()
-    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
     names = tar.getnames()
 
@@ -874,8 +867,7 @@ def test_support_bundle_no_false_positive_for_multitheme_database(tmp_path: Path
     s.multi_theme = True
 
     info = create_support_bundle(s)
-    dctx = zstd.ZstdDecompressor()
-    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    decompressed = zstd.decompress(info.filepath.read_bytes())
     tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
     names = tar.getnames()
 

@@ -3,7 +3,7 @@ name: "${CB_PROJECT_NAME:-claire-bible-dev}"
 x-claire-dev-service: &claire-dev-service
   # 개발 스택은 `up`마다 이미지를 다시 빌드한다(레이어 캐시로 변경이 없으면 즉시 끝난다).
   # 오래된 claire-bible:dev 이미지가 pyproject.toml·uv.lock보다 뒤처진 채 남아
-  # 새 의존성(예: zstandard)이 없는 컨테이너가 뜨는 일을 막는다.
+  # 새 의존성이 없는 컨테이너가 뜨는 일을 막는다.
   # 소스는 마운트하지 않는다. 이미지가 claire를 site-packages에 설치하므로 ./src 마운트는
   # 실행 코드에 닿지 않고, 컨테이너가 저장소에 __pycache__만 남긴다. 현재 코드는 매번
   # 다시 빌드해 반영한다. 평소 개발은 uv로 한다(docs/implementation/COMMANDS.md 개발 절차).

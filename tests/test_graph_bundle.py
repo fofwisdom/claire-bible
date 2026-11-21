@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 
 from claire.cli import build_parser
 from claire.ops.graph_bundle import (
@@ -204,12 +204,11 @@ def test_table_filtering_and_sanitization(tmp_path: Path) -> None:
     info = create_graph_bundle(settings, kb_id=0)
 
     # Decompress bundle archive
-    dctx = zstd.ZstdDecompressor()
     extracted_db_path = tmp_path / "extracted_graph_export.db"
     manifest_data = None
 
     with open(info.filepath, "rb") as f_in:
-        with dctx.stream_reader(f_in) as zstd_reader:
+        with zstd.ZstdFile(f_in, "rb") as zstd_reader:
             with tarfile.open(fileobj=zstd_reader, mode="r|") as tar:
                 for member in tar:
                     if member.name.endswith("manifest.json"):

@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import zstandard as zstd
+from compression import zstd
 from starlette.testclient import TestClient
 
 from claire.api import server
@@ -205,11 +205,10 @@ def test_e2e_graph_bundle_api_export_and_verification(tmp_path: Path):
         assert len(downloaded_bytes) == bundle_meta["size_bytes"]
 
         # 4. Decompress and inspect archive structure
-        dctx = zstd.ZstdDecompressor()
         extract_dir = tmp_path / "extracted_bundle"
         extract_dir.mkdir(parents=True, exist_ok=True)
         with io.BytesIO(downloaded_bytes) as raw_stream:
-            with dctx.stream_reader(raw_stream) as zstd_reader:
+            with zstd.ZstdFile(raw_stream, "rb") as zstd_reader:
                 with tarfile.open(fileobj=zstd_reader, mode="r|") as tar:
                     tar.extractall(path=extract_dir)
 
