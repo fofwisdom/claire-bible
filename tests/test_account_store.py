@@ -60,7 +60,8 @@ def test_lookup(conn: sqlite3.Connection) -> None:
     assert [a.id for a in store.list_accounts()] == [1, 2]
     assert store.find_by_username("bob").id == 2
     assert store.find_by_username("bo") is None
-    assert store.find_by_username("BOB") is None
+    assert store.find_by_username("BOB").id == 2
+    assert store.find_by_username("BOB").username == "bob"
 
 
 def test_admin_missing_raises() -> None:
@@ -239,3 +240,72 @@ def test_session_credential_id_survives_rotation(conn: sqlite3.Connection) -> No
     exchanged = dbm.exchange_session_token(conn, tok)
     assert exchanged is not None
     assert acc.validate_session_binding(conn, exchanged[1]).credential_id == before
+
+
+def test_case_preserving_setup_member_and_case_insensitive_collision(conn: sqlite3.Connection) -> None:
+    store = acc.AccountStore(conn)
+    admin = store.complete_setup(1, username="FounderRoot", display_name="Founder Root", now=100.0)
+    assert admin.username == "FounderRoot"
+    assert store.find_by_username("founderroot").id == 1
+
+    member = store.create_member(username="NASA", display_name="Space Agency", now=101.0)
+    assert member.username == "NASA"
+    assert store.find_by_username("nasa").username == "NASA"
+
+    with pytest.raises(UsernameRejected) as exc:
+        store.create_member(username="nasa", display_name="Duplicate", now=102.0)
+    assert exc.value.reason == "taken"
+
+
+def test_change_username_hold_expiry_early_release_and_federation_outbox(conn: sqlite3.Connection) -> None:
+    store = acc.AccountStore(conn)
+    store.complete_setup(1, username="Boss", display_name="Boss", now=100.0)
+    store.set_setting("mode", "network", updated_by=1)
+    store.set_federation_state("on", updated_by=1)
+
+    alice = store.create_member(username="Alice", display_name="Alice", profile_public=True, now=101.0)
+    bob = store.create_member(username="Bob", display_name="Bob", profile_public=False, now=101.0)
+    tok = acc.create_account_session(conn, account_id=alice.id)
+
+    unchanged = store.change_username(alice.id, "Alice", now=200.0)
+    assert unchanged.changed is False
+
+    case_only = store.change_username(alice.id, "ALICE", now=201.0)
+    assert case_only.changed is True and case_only.case_only is True and case_only.account.username == "ALICE"
+    assert case_only.federation_update_queued is True
+    assert store.list_retired_usernames(now=201.0) == []
+
+    renamed = store.change_username(alice.id, "AliceDev", now=300.0)
+    assert renamed.changed is True and renamed.case_only is False and renamed.previous_username == "ALICE"
+    assert renamed.account.username == "AliceDev"
+    assert renamed.retired_until == pytest.approx(300.0 + acc.USERNAME_RENAME_HOLD_SECONDS)
+    assert renamed.federation_update_queued is True
+
+    # Outbox queued update_actor for public federated user.
+    tasks = conn.execute("SELECT kind, object_public_id, status FROM federation_outbox WHERE account_id=? ORDER BY id", (alice.id,)).fetchall()
+    assert [r[0] for r in tasks] == ["update_actor", "update_actor"]
+
+    # Private account rename does not queue update_actor.
+    bob_renamed = store.change_username(bob.id, "Bobby", now=305.0)
+    assert bob_renamed.federation_update_queued is False
+    assert conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=?", (bob.id,)).fetchone()[0] == 0
+
+    # Previous handle is held for 7 days.
+    assert store.is_username_retired("Alice", now=300.0 + 3600.0) is True
+    with pytest.raises(UsernameRejected) as exc:
+        store.create_member(username="alice", display_name="Impostor", now=300.0 + 3600.0)
+    assert exc.value.reason == "retired"
+
+    # Early admin release unlocks handle while keeping active account and live session intact.
+    preview = store.preview_release_username("Alice", now=400.0)
+    assert preview["reason"] == "rename" and preview["residual_sessions"] == 0
+    assert store.release_username("ALICE", released_by=1, now=401.0) is True
+    assert acc.validate_session_binding(conn, tok) is not None
+    assert store.get(alice.id).status == "active"
+    assert store.create_member(username="alice", display_name="New Alice", now=402.0).username == "alice"
+
+    # After 7 days, hold expires automatically without admin release.
+    expiry = 305.0 + acc.USERNAME_RENAME_HOLD_SECONDS
+    assert store.is_username_retired("bob", now=expiry) is False
+    assert store.list_retired_usernames(now=expiry) == []
+    assert store.create_member(username="Bob", display_name="New Bob", now=expiry).username == "Bob"

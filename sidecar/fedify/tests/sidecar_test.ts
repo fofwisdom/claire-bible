@@ -406,3 +406,80 @@ Deno.test("runKnowledgeReads and runKnowledgeExchange update heartbeat loop stat
     error_at: null,
   });
 });
+
+Deno.test("webfinger resolves handles case-insensitively and preserves stored preferredUsername display case", async () => {
+  const { fake, get } = setup();
+  const baseActor = fixture("actor").response;
+  const aliceRecord = { ...baseActor, username: "Alice", profile_url: `${ORIGIN}/@Alice/` };
+  fake.overrides.set("GET /internal/federation/v1/actors/by-username/AlIcE", {
+    status: 200,
+    response: aliceRecord,
+  });
+  fake.overrides.set(`GET /internal/federation/v1/actors/${ALICE}`, {
+    status: 200,
+    response: aliceRecord,
+  });
+
+  const mixed = await get(webfinger("AlIcE@claire.example.com"), JRD);
+  assert.equal(mixed.status, 200);
+  assert.equal(mixed.json?.subject, "acct:AlIcE@claire.example.com");
+  assert.equal(link(mixed.json, "self")?.href, ALICE_URL);
+  assert.equal(link(mixed.json, "http://webfinger.net/rel/profile-page")?.href, `${ORIGIN}/@Alice/`);
+
+  const byActor = await get(`/.well-known/webfinger?resource=${encodeURIComponent(ALICE_URL)}`, JRD);
+  assert.equal(byActor.status, 200);
+  assert.ok(((byActor.json?.aliases ?? []) as string[]).includes("acct:Alice@claire.example.com"));
+
+  const serverMixed = await get(webfinger("CLAIRE@claire.example.com"), JRD);
+  assert.equal(serverMixed.status, 200);
+  assert.equal(link(serverMixed.json, "self")?.href, SERVER_URL);
+});
+
+Deno.test("update_actor after username rename keeps immutable actor id and delivers new preferredUsername and url", async () => {
+  const { fake, sidecar } = setup();
+  const baseActor = fixture("actor").response as Record<string, unknown>;
+  const renamedActor = {
+    ...baseActor,
+    username: "AliceDev",
+    updated_at: 1800000500.0,
+    profile_url: `${ORIGIN}/@AliceDev/`,
+  };
+  const follower = (fixture("followers").response.items as unknown[])[1];
+  const deliveries: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init);
+    deliveries.push(JSON.parse(await req.text()));
+    return new Response(null, { status: 202 });
+  };
+  try {
+    fake.overrides.set(`GET /internal/federation/v1/actors/${ALICE}`, { status: 200, response: renamedActor });
+    fake.overrides.set(`GET /internal/federation/v1/actors/${ALICE}/followers?limit=80`, {
+      status: 200,
+      response: { public_id: ALICE, total: 1, items: [follower], next_max_id: null },
+    });
+    fake.overrides.set("GET /internal/federation/v1/outbox-tasks?limit=10", {
+      status: 200,
+      response: {
+        tasks: [{ id: 88, kind: "update_actor", actor_public_id: ALICE, object_public_id: null, created_at: 1800000500.0, lease_until: 1800000900.0 }],
+      },
+    });
+    fake.overrides.set("POST /internal/federation/v1/outbox-tasks/88/ack", {
+      status: 200,
+      response: { id: 88, status: "handed_off" },
+    });
+
+    await sidecar.processOutboxTasks();
+    assert.deepEqual(fake.acks, ["88 handed_off null"]);
+    assert.equal(deliveries.length, 1);
+    const activity = deliveries[0];
+    assert.equal(activity.type, "Update");
+    assert.equal(activity.actor, ALICE_URL);
+    const person = activity.object as Record<string, unknown>;
+    assert.equal(person.id, ALICE_URL);
+    assert.equal(person.preferredUsername, "AliceDev");
+    assert.equal(person.url, `${ORIGIN}/@AliceDev/`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

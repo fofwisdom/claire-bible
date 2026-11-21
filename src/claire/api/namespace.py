@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -72,7 +73,7 @@ class PathRejected(Exception):
 
 
 class PathRedirect(Exception):
-    """정규 표기로 308 리다이렉트할 경로(대문자 USERNAME, 끝 슬래시 누락). ``location``은 query를 포함한 상대 경로다."""
+    """Redirect path to canonical trailing-slash form. ``location`` is a relative path with query."""
 
     def __init__(self, location: str) -> None:
         super().__init__(location)
@@ -85,13 +86,13 @@ class NamespaceMissing(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ParsedPrefix:
-    """1단계 구문 분리 결과. DB를 보지 않았으므로 계정·테마가 실제로 있는지는 모른다."""
+    """First-stage syntax split result before database lookup."""
 
-    prefix: str                 # 떼어 낸 접두(예: "/@alice/themes/116412345678901234"). 없으면 ""
-    username: str | None        # 소문자로 정규화한 USERNAME. ``/@`` 접두가 없으면 None
-    theme_number: int | None    # ``/themes/{번호}`` 접두의 번호(옛 링크: 308만 한다). 없으면 None
-    inner_path: str             # 남은 경로. 비어 있으면 "/"
-    kb_number: int | None = None  # ``/kb/{번호}`` 접두의 번호(루트에서만). 공유 지식 베이스를 고정한다(설계 §7)
+    prefix: str                 # Parsed prefix (for example, "/@Alice/themes/116412345678901234"), or "".
+    username: str | None        # Requested ASCII username (display case preserved), or None.
+    theme_number: int | None    # Theme number from ``/themes/{number}``, or None.
+    inner_path: str             # Remaining path, defaulting to "/".
+    kb_number: int | None = None  # Knowledge base number from ``/kb/{number}`` at root, or None.
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,12 +181,12 @@ def _location(path: str, query_string: bytes) -> str:
 
 
 def parse_request_path(path: str, raw_path: bytes | None, query_string: bytes = b"") -> ParsedPrefix:
-    """§6.1 문법과 §6.4 정규화를 적용한다. DB를 읽지 않는다.
+    """Apply request path syntax rules and canonical trailing-slash redirects without reading the DB.
 
-    - ``raw_path``는 ``b"?"`` 앞까지만 본다. ``%2F``·``%2f``, ``.``·``..`` 세그먼트, 빈 세그먼트(``//``)는 ``PathRejected(400)``.
-    - ``/@`` 뒤 이름이 문법(§8.1-1)에 맞지 않으면 ``PathRejected(404)``. 대문자는 ``PathRedirect``(소문자).
-    - ``/themes/`` 뒤가 숫자가 아니거나 앞자리 0이면 ``PathRejected(404)``. ``/themes``(정확히)는 접두가 아니다.
-    - HTML 셸 기준 경로(``/@u``, ``/@u/themes/{n}``, ``/themes/{n}``)의 끝 슬래시 누락은 ``PathRedirect``.
+    - Inspect ``raw_path`` before ``b"?"``; reject ``%2F`` / ``%2f``, ``.`` / ``..`` segments, and empty segments (``//``) with ``PathRejected(400)``.
+    - Reject ``/@{username}`` values that fail username syntax with ``PathRejected(404)``. Letter casing stays intact without case-only redirects.
+    - Reject non-numeric or zero-prefixed ``/themes/`` numbers with ``PathRejected(404)``. Exact ``/themes`` is not a prefix.
+    - Missing trailing slashes on HTML shell base paths (``/@u``, ``/@u/themes/{n}``, ``/themes/{n}``) raise ``PathRedirect``.
     """
     path = path or "/"
     if not path.startswith("/"):
@@ -205,11 +206,10 @@ def parse_request_path(path: str, raw_path: bytes | None, query_string: bytes = 
         end = rest.find("/", 2)
         name = rest[2:] if end < 0 else rest[2:end]
         rest = "" if end < 0 else rest[end:]
-        lowered = name.lower() if name.isascii() else name
-        if not _valid_username(lowered):
+        if not _valid_username(name):
             raise PathRejected(404, "username syntax")
-        username = lowered
-        redirect = lowered != name or rest == ""
+        username = name
+        redirect = rest == ""
 
     number: int | None = None
     number_text = ""
@@ -449,8 +449,9 @@ class NamespaceResolverMiddleware:
             return self._kb_path(mode, parsed, principal, query_string, any_surface=any_surface)
         if parsed.username is not None:
             if mode == "single":
-                # KNOWLEDGE_FEDERATION_DESIGN.md Section 15: in single mode ``/@{username}/…`` is the namespace of the admin. Each other name gets 404. Rule S9 (no USERNAME in single mode) is withdrawn.
-                if self._single_mode_username() != parsed.username:
+                # In single mode, only the active admin username resolves (case-insensitively).
+                single_user = self._single_mode_username()
+                if single_user is None or single_user.lower() != parsed.username.lower():
                     return _not_found()
             owner = directory.account_by_username(parsed.username)
             if owner is None or owner.status != "active":
@@ -577,7 +578,7 @@ class _Snapshot:
     admin: Account | None = None
     by_id: dict[int, Account] | None = None
     by_username: dict[str, Account] | None = None
-    tombstones: dict[str, bool] | None = None
+    tombstones: dict[str, tuple[bool, float | None]] | None = None
     themes_by_number: dict[int, Any] | None = None
 
 
@@ -621,12 +622,17 @@ class SqliteNamespaceDirectory:
             if "server_settings" in tables:
                 mode = store.server_mode()
             accounts = store.list_accounts() if "accounts" in tables else []
-            tombstones: dict[str, bool] = {}
+            tombstones: dict[str, tuple[bool, float | None]] = {}
             if "username_tombstones" in tables:
-                for row in conn.execute(
-                    "SELECT username, was_public FROM username_tombstones WHERE released_at IS NULL"
-                ).fetchall():
-                    tombstones[str(row[0])] = bool(row[1])
+                tombstone_cols = _table_columns(conn, "username_tombstones")
+                if "reusable_after" in tombstone_cols:
+                    rows = conn.execute("SELECT username, was_public, reusable_after FROM username_tombstones WHERE released_at IS NULL").fetchall()
+                    for row in rows:
+                        tombstones[str(row[0]).lower()] = (bool(row[1]), None if row[2] is None else float(row[2]))
+                else:
+                    rows = conn.execute("SELECT username, was_public FROM username_tombstones WHERE released_at IS NULL").fetchall()
+                    for row in rows:
+                        tombstones[str(row[0]).lower()] = (bool(row[1]), None)
             themes: dict[int, Any] = {}
             if "knowledge_bases" in tables and "number" in _table_columns(conn, "knowledge_bases"):
                 for row in conn.execute("SELECT * FROM knowledge_bases WHERE number IS NOT NULL").fetchall():
@@ -642,7 +648,7 @@ class SqliteNamespaceDirectory:
             mode=mode,
             admin=next((a for a in accounts if a.role == "admin"), None),
             by_id={a.id: a for a in accounts},
-            by_username={a.username: a for a in accounts if a.username is not None},
+            by_username={a.username.lower(): a for a in accounts if a.username is not None},
             tombstones=tombstones,
             themes_by_number=themes,
         )
@@ -669,7 +675,9 @@ class SqliteNamespaceDirectory:
         return admin
 
     def account_by_username(self, username: str) -> Account | None:
-        return (self._current().by_username or {}).get(username)
+        if not username.isascii():
+            return None
+        return (self._current().by_username or {}).get(username.lower())
 
     def account(self, account_id: int) -> Account:
         account = (self._current().by_id or {}).get(account_id)
@@ -678,7 +686,15 @@ class SqliteNamespaceDirectory:
         return account
 
     def tombstone_was_public(self, username: str) -> bool | None:
-        return (self._current().tombstones or {}).get(username)
+        if not username.isascii():
+            return None
+        entry = (self._current().tombstones or {}).get(username.lower())
+        if entry is None:
+            return None
+        was_public, reusable_after = entry
+        if reusable_after is not None and time.time() >= reusable_after:
+            return None
+        return was_public
 
     def theme_by_number(self, number: int) -> Any | None:
         return (self._current().themes_by_number or {}).get(number)

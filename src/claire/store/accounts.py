@@ -37,9 +37,12 @@ __all__ = [
     "MEMBER_INVITES_SETTING_KEY",
     "SERVER_MODES",
     "ServerMode",
+    "USERNAME_RENAME_HOLD_SECONDS",
+    "UsernameChangeResult",
     "UsernameRejected",
     "create_account_session",
     "delete_session",
+    "is_username_unique_violation",
     "mark_session_authenticated",
     "preview_release_username",
     "release_username",
@@ -47,6 +50,8 @@ __all__ = [
     "validate_oauth_binding",
     "validate_session_binding",
 ]
+
+USERNAME_RENAME_HOLD_SECONDS = 7 * 86400.0
 
 AccountRole = Literal["admin", "member"]
 AccountStatus = Literal["setup_required", "active", "suspended", "deleting", "purged"]
@@ -120,6 +125,29 @@ class CredentialBinding:
     authenticated_at: float | None
     # 감사용 식별자. 세션은 ``nonce``의 SHA-256 앞 16자 같은 비가역 값이며 토큰 값이 아니다.
     credential_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class UsernameChangeResult:
+    """Result of an account username change operation."""
+
+    account: Account
+    previous_username: str
+    changed: bool
+    case_only: bool
+    retired_until: float | None
+    federation_update_queued: bool
+
+
+def is_username_unique_violation(exc: sqlite3.IntegrityError) -> bool:
+    """Return True when the SQLite IntegrityError comes from the username unique constraint or case-insensitive index."""
+    message = str(exc)
+    return "accounts.username" in message or "idx_accounts_username_ci" in message
+
+
+def _normalize_lookup(username: str) -> str | None:
+    """Return lowercase ASCII username for lookups, or None for non-ASCII input."""
+    return username.lower() if username.isascii() else None
 
 
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
@@ -274,9 +302,12 @@ class AccountStore:
         return _row_to_account(row)
 
     def find_by_username(self, username: str) -> Account | None:
-        """정규화한 이름으로 정확히 일치하는 계정. 부분 일치는 하지 않는다."""
+        """Find an account by exact case-insensitive ASCII username."""
+        norm = _normalize_lookup(username)
+        if norm is None:
+            return None
         row = self.conn.execute(
-            f"SELECT {_ACCOUNT_COLUMNS} FROM accounts WHERE username=?", (username,)
+            f"SELECT {_ACCOUNT_COLUMNS} FROM accounts WHERE lower(username)=?", (norm,)
         ).fetchone()
         return None if row is None else _row_to_account(row)
 
@@ -347,12 +378,24 @@ class AccountStore:
             }
         return refs
 
-    def is_username_retired(self, username: str) -> bool:
-        """``username_tombstones``에 있고 ``released_at``이 NULL이면 True."""
+    def is_username_retired(self, username: str, *, now: float | None = None) -> bool:
+        """Return True when the username has an active hold in ``username_tombstones``."""
+        norm = _normalize_lookup(username)
+        if norm is None:
+            return False
+        when = time.time() if now is None else now
         row = self.conn.execute(
-            "SELECT 1 FROM username_tombstones WHERE username=? AND released_at IS NULL", (username,)
+            "SELECT 1 FROM username_tombstones WHERE lower(username)=? AND released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?)",
+            (norm, when),
         ).fetchone()
         return row is not None
+
+    def release_expired_tombstone(self, norm_username: str, *, when: float, released_by: int | None = None) -> None:
+        """Mark expired rename tombstones for ``norm_username`` as released."""
+        self.conn.execute(
+            "UPDATE username_tombstones SET released_at=?, released_by=?, was_public=0 WHERE lower(username)=? AND released_at IS NULL AND reusable_after IS NOT NULL AND reusable_after <= ?",
+            (when, released_by, norm_username, when),
+        )
 
     # --- 서버 설정 ------------------------------------------------------
     def get_setting(self, key: str) -> str | None:
@@ -443,29 +486,31 @@ class AccountStore:
         when = time.time() if now is None else now
         current = self.get(account_id)
         self._require_setup_pending(current)
-        if self.is_username_retired(username):
+        norm_name = username_policy.normalize_username(username)
+        if self.is_username_retired(norm_name, now=when):
             raise UsernameRejected("retired")
-        taken = self.find_by_username(username)
+        taken = self.find_by_username(norm_name)
         if taken is not None and taken.id != account_id:
             raise UsernameRejected("taken")
+        self.release_expired_tombstone(norm_name, when=when, released_by=account_id)
         try:
-            # 상태·역할·이름 미설정·퇴역 아님을 모두 WHERE에 넣는다. 동시 요청은 SQLite 쓰기 직렬화로 하나만 rowcount=1을 얻는다.
+            # Put role, status, null username, and active tombstone checks in WHERE so only one concurrent setup wins.
             cur = self.conn.execute(
                 "UPDATE accounts SET username=?, display_name=?, status='active', activated_at=?, updated_at=? "
                 "WHERE id=? AND role='admin' AND status='setup_required' AND username IS NULL "
-                "AND NOT EXISTS (SELECT 1 FROM username_tombstones WHERE username=? AND released_at IS NULL)",
-                (username, display_name, when, when, account_id, username),
+                "AND NOT EXISTS (SELECT 1 FROM username_tombstones WHERE lower(username)=? AND released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?))",
+                (username, display_name, when, when, account_id, norm_name, when),
             )
         except sqlite3.IntegrityError as exc:
             self.conn.rollback()
-            if str(exc) == "UNIQUE constraint failed: accounts.username":
+            if is_username_unique_violation(exc):
                 raise UsernameRejected("taken") from exc
             raise
         if cur.rowcount != 1:
             self.conn.rollback()
-            # 검사와 UPDATE 사이에 다른 요청이 먼저 바꿨다. 무엇이 바뀌었는지 다시 읽어 사유를 정한다.
+            # Re-read the account and tombstones to report the exact reason if a concurrent request changed state.
             self._require_setup_pending(self.get(account_id))
-            if self.is_username_retired(username):
+            if self.is_username_retired(norm_name, now=when):
                 raise UsernameRejected("retired")
             raise AccountStateError(f"account {account_id}: setup could not be completed")
         self.conn.commit()
@@ -649,13 +694,14 @@ class AccountStore:
         _clear_account_credentials(self.conn, account_id)
 
         if current.username:
+            retired_norm = username_policy.normalize_username(current.username)
             self.conn.execute(
-                "INSERT INTO username_tombstones (username, account_id, was_public, retired_at, released_at, released_by) "
-                "VALUES (?, ?, ?, ?, NULL, NULL) "
+                "INSERT INTO username_tombstones (username, account_id, was_public, retired_at, released_at, released_by, reusable_after) "
+                "VALUES (?, ?, ?, ?, NULL, NULL, NULL) "
                 "ON CONFLICT(username) DO UPDATE SET "
                 "account_id=excluded.account_id, was_public=excluded.was_public, retired_at=excluded.retired_at, "
-                "released_at=NULL, released_by=NULL",
-                (current.username, current.id, 1 if current.profile_public else 0, when),
+                "released_at=NULL, released_by=NULL, reusable_after=NULL",
+                (retired_norm, current.id, 1 if current.profile_public else 0, when),
             )
 
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
@@ -707,25 +753,32 @@ class AccountStore:
         *,
         auth_conn: sqlite3.Connection | None = None,
         data_dir: Path | str | None = None,
+        now: float | None = None,
     ) -> dict[str, Any]:
-        """초기화 대상 잔여 항목(410 표식, 예약 초대 등) 미리보기 데이터 반환."""
-        norm_name = username.strip().lower()
+        """Return preview data for releasing a retired username."""
+        norm_name = _normalize_lookup(username.strip())
+        if norm_name is None:
+            raise LookupError(f"username {username!r} is not retired or already released")
+        when = time.time() if now is None else now
         row = self.conn.execute(
-            "SELECT username, account_id, was_public, retired_at, released_at, released_by "
-            "FROM username_tombstones WHERE username=? AND released_at IS NULL",
-            (norm_name,),
+            "SELECT username, account_id, was_public, retired_at, released_at, released_by, reusable_after "
+            "FROM username_tombstones WHERE lower(username)=? AND released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?)",
+            (norm_name, when),
         ).fetchone()
         if row is None:
             raise LookupError(f"username {username!r} is not retired or already released")
 
         account_id = int(row["account_id"])
         was_public = bool(row["was_public"])
+        reusable_after = None if row["reusable_after"] is None else float(row["reusable_after"])
+        acc_row = self.conn.execute("SELECT status FROM accounts WHERE id=?", (account_id,)).fetchone()
+        is_purged_account = acc_row is None or str(acc_row["status"]) == "purged"
 
         reserved_invitations = 0
         if auth_conn is not None:
             try:
                 inv_row = auth_conn.execute(
-                    "SELECT COUNT(*) FROM invitations WHERE reserved_username=?",
+                    "SELECT COUNT(*) FROM invitations WHERE lower(reserved_username)=?",
                     (norm_name,),
                 ).fetchone()
                 if inv_row is not None:
@@ -734,36 +787,39 @@ class AccountStore:
                 pass
 
         public_directory_entries = 0
-        try:
-            p_row = self.conn.execute(
-                "SELECT COUNT(*) FROM public_directory_counters WHERE account_id=?",
-                (account_id,),
-            ).fetchone()
-            if p_row is not None:
-                public_directory_entries = int(p_row[0])
-        except sqlite3.OperationalError:
-            pass
-
         residual_sessions = 0
-        try:
-            s_row = self.conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE account_id=?", (account_id,)).fetchone()
-            if s_row is not None:
-                residual_sessions = int(s_row[0])
-        except sqlite3.OperationalError:
-            pass
-
         residual_oauth_tokens = 0
-        try:
-            o_row = self.conn.execute("SELECT COUNT(*) FROM oauth_tokens WHERE account_id=?", (account_id,)).fetchone()
-            if o_row is not None:
-                residual_oauth_tokens = int(o_row[0])
-        except sqlite3.OperationalError:
-            pass
+        if is_purged_account:
+            try:
+                p_row = self.conn.execute(
+                    "SELECT COUNT(*) FROM public_directory_counters WHERE account_id=?",
+                    (account_id,),
+                ).fetchone()
+                if p_row is not None:
+                    public_directory_entries = int(p_row[0])
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                s_row = self.conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE account_id=?", (account_id,)).fetchone()
+                if s_row is not None:
+                    residual_sessions = int(s_row[0])
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                o_row = self.conn.execute("SELECT COUNT(*) FROM oauth_tokens WHERE account_id=?", (account_id,)).fetchone()
+                if o_row is not None:
+                    residual_oauth_tokens = int(o_row[0])
+            except sqlite3.OperationalError:
+                pass
 
         return {
-            "username": norm_name,
+            "username": str(row["username"]),
             "account_id": account_id,
             "retired_at": float(row["retired_at"]),
+            "reusable_after": reusable_after,
+            "reason": "rename" if reusable_after is not None else "purge",
             "was_public": was_public,
             "has_410_marker": was_public,
             "reserved_invitations": reserved_invitations,
@@ -780,49 +836,55 @@ class AccountStore:
         auth_conn: sqlite3.Connection | None = None,
         now: float | None = None,
     ) -> bool:
-        """username_tombstones의 released_at, released_by 업데이트 및 410 표식 해제."""
+        """Release a retired username early and remove purged account leftovers."""
         when = time.time() if now is None else now
-        norm_name = username.strip().lower()
+        norm_name = _normalize_lookup(username.strip())
+        if norm_name is None:
+            return False
         row = self.conn.execute(
-            "SELECT account_id FROM username_tombstones WHERE username=? AND released_at IS NULL",
-            (norm_name,),
+            "SELECT account_id FROM username_tombstones WHERE lower(username)=? AND released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?)",
+            (norm_name, when),
         ).fetchone()
         if row is None:
             return False
 
         account_id = int(row["account_id"])
+        acc_row = self.conn.execute("SELECT status FROM accounts WHERE id=?", (account_id,)).fetchone()
+        is_purged_account = acc_row is None or str(acc_row["status"]) == "purged"
 
         self.conn.execute(
             "UPDATE username_tombstones SET released_at=?, released_by=?, was_public=0 "
-            "WHERE username=? AND released_at IS NULL",
-            (when, released_by, norm_name),
+            "WHERE lower(username)=? AND released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?)",
+            (when, released_by, norm_name, when),
         )
 
         if auth_conn is not None:
             try:
                 auth_conn.execute(
-                    "UPDATE invitations SET reserved_username=NULL WHERE reserved_username=?",
+                    "UPDATE invitations SET reserved_username=NULL WHERE lower(reserved_username)=?",
                     (norm_name,),
                 )
                 auth_conn.commit()
             except sqlite3.OperationalError:
                 pass
 
-        _clear_account_credentials(self.conn, account_id)
-
-        self.conn.execute(
-            "DELETE FROM accounts WHERE username=? AND status='purged'",
-            (norm_name,),
-        )
+        if is_purged_account:
+            _clear_account_credentials(self.conn, account_id)
+            self.conn.execute(
+                "DELETE FROM accounts WHERE lower(username)=? AND status='purged'",
+                (norm_name,),
+            )
 
         self.conn.commit()
         return True
 
-    def list_retired_usernames(self) -> list[dict[str, Any]]:
-        """퇴역 상태(released_at IS NULL)인 USERNAME 목록을 반환한다."""
+    def list_retired_usernames(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        """Return active retired usernames where ``released_at`` is NULL and any hold has not expired."""
+        when = time.time() if now is None else now
         rows = self.conn.execute(
-            "SELECT username, account_id, was_public, retired_at "
-            "FROM username_tombstones WHERE released_at IS NULL ORDER BY retired_at DESC"
+            "SELECT username, account_id, was_public, retired_at, reusable_after "
+            "FROM username_tombstones WHERE released_at IS NULL AND (reusable_after IS NULL OR reusable_after > ?) ORDER BY retired_at DESC",
+            (when,),
         ).fetchall()
         return [
             {
@@ -830,6 +892,8 @@ class AccountStore:
                 "account_id": int(r["account_id"]),
                 "was_public": bool(r["was_public"]),
                 "retired_at": float(r["retired_at"]),
+                "reusable_after": None if r["reusable_after"] is None else float(r["reusable_after"]),
+                "reason": "rename" if r["reusable_after"] is not None else "purge",
             }
             for r in rows
         ]
@@ -840,15 +904,99 @@ class AccountStore:
         *,
         account_id: int | None = None,
         server_reserved: frozenset[str] = frozenset(),
+        now: float | None = None,
     ) -> str:
-        """username 문법, 예약어, 서버 예약, 퇴역(retired), 중복(taken)을 종합 검증한다."""
-        norm_name = username_policy.validate_username(username, server_reserved=server_reserved)
-        if self.is_username_retired(norm_name):
+        """Validate username syntax, reserved words, server labels, retirement, and uniqueness."""
+        display_name = username_policy.validate_username(username, server_reserved=server_reserved)
+        norm_name = username_policy.normalize_username(display_name)
+        if self.is_username_retired(norm_name, now=now):
             raise UsernameRejected("retired")
         taken = self.find_by_username(norm_name)
         if taken is not None and (account_id is None or taken.id != account_id):
             raise UsernameRejected("taken")
-        return norm_name
+        return display_name
+
+    def change_username(
+        self,
+        account_id: int,
+        new_username: str,
+        *,
+        server_reserved: frozenset[str] = frozenset(),
+        now: float | None = None,
+    ) -> UsernameChangeResult:
+        """Change an active account username, apply a 7-day hold for full renames, and queue federation updates."""
+        display_name = username_policy.validate_username(new_username, server_reserved=server_reserved)
+        new_norm = username_policy.normalize_username(display_name)
+        started_tx = not self.conn.in_transaction
+        if started_tx:
+            self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            current = self.get(account_id)
+            if current.status != "active" or current.username is None:
+                raise AccountStateError(f"account {account_id}: username can only be changed when active and initialized")
+            when = max(time.time(), current.updated_at + 0.001) if now is None else float(now)
+            if display_name == current.username:
+                if started_tx:
+                    self.conn.commit()
+                return UsernameChangeResult(
+                    account=current,
+                    previous_username=current.username,
+                    changed=False,
+                    case_only=True,
+                    retired_until=None,
+                    federation_update_queued=False,
+                )
+            old_norm = username_policy.normalize_username(current.username)
+            case_only = new_norm == old_norm
+            retired_until: float | None = None
+            if not case_only:
+                if self.is_username_retired(new_norm, now=when):
+                    raise UsernameRejected("retired")
+                taken = self.find_by_username(new_norm)
+                if taken is not None and taken.id != account_id:
+                    raise UsernameRejected("taken")
+                self.release_expired_tombstone(new_norm, when=when, released_by=account_id)
+                retired_until = when + USERNAME_RENAME_HOLD_SECONDS
+                self.conn.execute(
+                    "INSERT INTO username_tombstones (username, account_id, was_public, retired_at, released_at, released_by, reusable_after) "
+                    "VALUES (?, ?, ?, ?, NULL, NULL, ?) "
+                    "ON CONFLICT(username) DO UPDATE SET "
+                    "account_id=excluded.account_id, was_public=excluded.was_public, retired_at=excluded.retired_at, "
+                    "released_at=NULL, released_by=NULL, reusable_after=excluded.reusable_after",
+                    (old_norm, account_id, 1 if current.profile_public else 0, when, retired_until),
+                )
+            try:
+                cur = self.conn.execute(
+                    "UPDATE accounts SET username=?, updated_at=? WHERE id=? AND status='active'",
+                    (display_name, when, account_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                if is_username_unique_violation(exc):
+                    raise UsernameRejected("taken") from exc
+                raise
+            if cur.rowcount != 1:
+                raise AccountStateError(f"account {account_id}: could not update username")
+            federation_update_queued = False
+            if self.federation_state() == "on" and current.profile_public:
+                from . import federation as federation_store
+
+                federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
+                federation_update_queued = True
+            updated = self.get(account_id)
+            if started_tx:
+                self.conn.commit()
+            return UsernameChangeResult(
+                account=updated,
+                previous_username=current.username,
+                changed=True,
+                case_only=case_only,
+                retired_until=retired_until,
+                federation_update_queued=federation_update_queued,
+            )
+        except BaseException:
+            if started_tx and self.conn.in_transaction:
+                self.conn.rollback()
+            raise
 
     def create_member(
         self,
@@ -859,19 +1007,27 @@ class AccountStore:
         now: float | None = None,
         server_reserved: frozenset[str] = frozenset(),
     ) -> Account:
-        """신규 멤버 계정을 생성한다. 퇴역/중복 시 UsernameRejected."""
+        """Create a new active member account. Raise UsernameRejected if retired or taken."""
         when = time.time() if now is None else now
-        norm_name = self.validate_username(username, server_reserved=server_reserved)
+        display_name_val = self.validate_username(username, server_reserved=server_reserved, now=when)
+        norm_name = username_policy.normalize_username(display_name_val)
+        self.release_expired_tombstone(norm_name, when=when)
         salt = self.id_salt()
 
         def _insert(public_id: int) -> None:
             self.conn.execute(
                 "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
                 "VALUES (?, ?, 'member', 'active', ?, ?, ?, ?, ?)",
-                (public_id, norm_name, display_name, 1 if profile_public else 0, when, when, when),
+                (public_id, display_name_val, display_name, 1 if profile_public else 0, when, when, when),
             )
 
-        ids.insert_with_timestamp_id(self.conn, table="accounts", column="public_id", salt=salt, insert=_insert)
+        try:
+            ids.insert_with_timestamp_id(self.conn, table="accounts", column="public_id", salt=salt, insert=_insert)
+        except sqlite3.IntegrityError as exc:
+            self.conn.rollback()
+            if is_username_unique_violation(exc):
+                raise UsernameRejected("taken") from exc
+            raise
         self.conn.commit()
         created = self.find_by_username(norm_name)
         assert created is not None

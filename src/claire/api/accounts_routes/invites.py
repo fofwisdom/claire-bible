@@ -305,7 +305,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 headers=html_headers,
             )
 
-        if info.reserved_username and username.lower() != info.reserved_username.lower():
+        if info.reserved_username and (not username.isascii() or username.lower() != info.reserved_username.lower()):
             return _validation_error(
                 "reserved_username_mismatch",
                 f"This invitation is reserved for username '{info.reserved_username}'",
@@ -321,7 +321,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         finally:
             conn.close()
 
-        if username.lower() in taken_usernames:
+        if username.isascii() and username.lower() in taken_usernames:
             return _validation_error("username_taken", "Username is already taken", t("auth.username.taken"))
 
         try:
@@ -347,6 +347,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     salt = dbm.read_id_salt(c_conn)
                     now_ts = time.time()
                     now_ms_val = int(now_ts * 1000)
+                    account_store = accounts_store.AccountStore(c_conn)
+                    if account_store.is_username_retired(username, now=now_ts):
+                        raise UsernameRejected("retired")
+                    account_store.release_expired_tombstone(username.lower(), when=now_ts)
                     account_holder: dict[str, int] = {}
 
                     def _insert_account(candidate_public_id: int) -> None:
@@ -395,8 +399,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if wants_json:
                     return JSONResponse({"error": f"invitation_{exc.reason}", "reason": exc.reason}, status_code=410, headers={"Cache-Control": "no-store"})
                 return HTMLResponse(_render_inactive_html(exc.reason), status_code=410, headers=html_headers)
+            except UsernameRejected as exc:
+                if exc.reason == "retired":
+                    return _validation_error("username_retired", "Username is retired", t("auth.username.retired"))
+                return _validation_error(f"username_{exc.reason}", str(exc), t(f"auth.username.{exc.reason}"))
             except sqlite3.IntegrityError as exc:
-                if "accounts.username" in str(exc):
+                if accounts_store.is_username_unique_violation(exc):
                     return _validation_error("username_taken", "Username is already taken", t("auth.username.taken"))
                 raise
             auth_db.set_password(auth_conn, account_id, password, username=username)

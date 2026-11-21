@@ -412,7 +412,11 @@ def _render_admin_accounts_html(
     for r in retired:
         uname = str(r.get("username", ""))
         ret_at = format_ts(r.get("retired_at"))
-        reason = str(r.get("reason") or "-")
+        reusable_after = r.get("reusable_after")
+        if reusable_after is not None:
+            reason = t("console.admin.accounts.retired.reason_rename", until=format_ts(reusable_after))
+        else:
+            reason = t("console.admin.accounts.retired.reason_purge")
         retired_trs.append(
             f'<tr data-retired-username="{escape(uname)}">'
             f'<td><code class="pref-mono">{escape(uname)}</code></td>'
@@ -748,7 +752,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if not raw_username or not isinstance(raw_username, str):
             return json_error(400, "username_required")
 
-        username = raw_username.strip().lower()
+        stripped_username = raw_username.strip()
+        if not stripped_username.isascii():
+            return json_error(404, "username_not_retired")
+        username = stripped_username.lower()
         apply_val = body.get("apply", request.query_params.get("apply", False))
         apply = apply_val is True or str(apply_val).lower() == "true"
 

@@ -43,7 +43,7 @@
       <form class="card" method="post" action="/setup" autocomplete="on">
         <label for="username">${t:auth.field.username}</label>
         <input id="username" name="username" type="text" value="$username" required
-               minlength="3" maxlength="30" pattern="[a-z][a-z0-9_]{2,29}"
+               minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{2,29}"
                autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="username-hint">
         <p class="hint" id="username-hint">${t:auth.setup.username_hint}</p>
 

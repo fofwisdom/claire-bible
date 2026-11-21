@@ -1115,7 +1115,7 @@ export class Sidecar {
         return await this.#person(ctx, result.record);
       })
       .mapHandle(async (_ctx, username) => {
-        if (username === SERVER_ACTOR_USERNAME) return SERVER_ACTOR_ID;
+        if (username.toLowerCase() === SERVER_ACTOR_USERNAME) return SERVER_ACTOR_ID;
         return (await this.#api.actorByUsername(username))?.public_id ?? null;
       })
       .setKeyPairsDispatcher((_ctx, identifier) => this.#keyPairs(identifier));

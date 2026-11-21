@@ -172,7 +172,7 @@ def perform_reauth(
     auth = open_auth_db(ctx)
     try:
         account = accounts_store.AccountStore(conn).get(account_id)
-        key_name = account.username if account.username is not None else f"#account:{account.id}"
+        key_name = account.username.lower() if account.username is not None else f"#account:{account.id}"
         if not auth_db.has_password(auth, account_id):
             # 검증할 것이 없으므로 시도로 세지 않는다. 세션 주인 자신의 계정이라 숨길 것도 없다.
             return ReauthOutcome("no_password")

@@ -87,7 +87,7 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
-| `GET` | `/.well-known/webfinger?resource=acct:{username}@{handle_host}` | JRD. `subject` is the `acct:` URI. The `self` link (type `application/activity+json`) is the actor ID. The link `http://webfinger.net/rel/profile-page` is `{origin}/@{username}/`. |
+| `GET` | `/.well-known/webfinger?resource=acct:{username}@{handle_host}` | JRD. Lookup ignores ASCII letter case on `{username}`. `subject` is the requested `acct:` URI, the `self` link (type `application/activity+json`) is `{origin}/ap/actors/{public_id}`, and `http://webfinger.net/rel/profile-page` uses the stored display case `{origin}/@{accounts.username}/`. |
 | `GET` | `/.well-known/nodeinfo` | Link to `{origin}/nodeinfo/2.1` |
 | `GET` | `/nodeinfo/2.1` | `software.name` `claire-bible`, `software.version`, `protocols` `["activitypub"]`, `openRegistrations` `false`, `usage.users.total` = number of federation actors, `localPosts` 0, `localComments` 0 |
 | `GET` | `/ap/actors/{public_id}` | Actor document of type `Person` |
@@ -116,9 +116,9 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | :--- | :--- |
 | `id` | `{origin}/ap/actors/{public_id}` |
 | `type` | `Person` |
-| `preferredUsername` | `accounts.username` |
+| `preferredUsername` | `accounts.username` (preserves stored display case) |
 | `name` | `accounts.display_name` |
-| `url` | `{origin}/@{username}/` |
+| `url` | `{origin}/@{accounts.username}/` |
 | `inbox` | `{origin}/ap/actors/{public_id}/inbox` |
 | `endpoints.sharedInbox` | `{origin}/ap/inbox` |
 | `publicKey` | RSA 2048 public key. The key ID is `{actor ID}#main-key`. |
@@ -133,7 +133,7 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 ### 4.2 Server Actor
 
 - Path `/ap/actors/server`, type `Application`, `preferredUsername` `claire`, `name` = the handle host, `manuallyApprovesFollowers` `true`.
-- The WebFinger handle is `acct:claire@{handle_host}`. `claire` is in `RESERVED_USERNAMES`, so no account can have this USERNAME.
+- The WebFinger handle is `acct:claire@{handle_host}` (WebFinger lookup is case-insensitive). `claire` is in `RESERVED_USERNAMES`, so no account can have this USERNAME.
 - The server actor has its own key pairs (`actor_keys.account_id` 0).
 - Claire has no actor record for `server`: `GET /internal/federation/v1/actors/server` returns 404. The sidecar makes the document from `config` and the keys.
 
@@ -257,7 +257,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | :--- | :--- | :--- |
 | `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag` |
 | `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`), `knowledge_self_check` (`checked_at`, `failed_paths`, `signed.result`), `loops` (`knowledge_reads`, `knowledge_exchange`). Response: `contract_version`, `federation`. |
-| `GET` | `/actors/by-username/{username}` | Actor record, or 404. The lookup changes the USERNAME to lowercase. |
+| `GET` | `/actors/by-username/{username}` | Actor record, or 404. Lookup ignores ASCII letter case (rejects non-ASCII) and returns the stored `username` display case and `profile_url`. |
 | `GET` | `/actors/{public_id}` | Actor record, 404, or 410 `{"error": "gone", "gone_at"}` for a purged actor (Section 8.5) |
 | `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `server`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
 | `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor: the exception is a purged actor with a `delete_actor` task that waits. 400 `invalid_request` for a query that is not valid. |
@@ -599,7 +599,7 @@ A change of `profile_public` to 0, a suspension, and `federation` `off` make the
 - A hidden document makes no task. Claire does not show the object while the document is hidden (Section 5.8).
 - A task of an account that is not an actor now waits (Section 5.8).
 
-**Display name.** `AccountStore.update_display_name` makes an `update_actor` task in the transaction of the change, when the name is different, federation is active, and the account is an actor. The sidecar sends `Update` with the actor document.
+**Display name and USERNAME.** `AccountStore.update_display_name` and `AccountStore.change_username` enqueue an `update_actor` task in the transaction of the change when the value changes, federation is active, and `profile_public` is 1. The sidecar keeps the immutable actor ID (`/ap/actors/{public_id}`) and sends `Update(Person)` with the updated `preferredUsername`, `name`, and `url`. For full USERNAME renames, the previous handle is held in `username_tombstones` for 7 days (`reusable_after`), while WebFinger immediately resolves the new handle and rejects the old one.
 
 **Purge.** `AccountStore.purge` calls `purge_account_federation` in the transaction of the purge, before the themes of the account are deleted:
 

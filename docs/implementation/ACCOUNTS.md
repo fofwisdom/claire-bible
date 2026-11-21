@@ -21,8 +21,8 @@
 
 | 파일 | 역할 | 주요 기호 |
 | :--- | :--- | :--- |
-| `src/claire/store/db.py` | v15 스키마와 이관, 기존 자격증명 발급 함수의 계정 기록 | `_migrate_v15_accounts`, `_check_single_default_theme_per_account`, `_ensure_id_salt`, `ADMIN_ACCOUNT_ID`, `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS` |
-| `src/claire/store/accounts.py` | 계정 조회·설정 완료, 수명주기 전이, 세션 발급·검증, 퇴역 이름 정보 초기화, 서버 설정 | `AccountStore`, `Account`, `CredentialBinding`, `CREDENTIAL_ACCEPTING_STATUSES`, `MEMBER_INVITES_SETTING_KEY`, `usernames_by_ids`, `member_invites_enabled`, `set_member_invites_enabled`, `create_account_session`, `validate_session_binding`, `validate_oauth_binding`, `suspend_account`, `resume_account`, `schedule_account_deletion`, `cancel_account_deletion`, `purge_account`, `preview_release_username`, `release_username` |
+| `src/claire/store/db.py` | v15·v41 스키마와 이관, 기존 자격증명 발급 함수의 계정 기록 | `_migrate_v15_accounts`, `_migrate_v41_username_case_and_rename`, `_check_single_default_theme_per_account`, `_ensure_id_salt`, `ADMIN_ACCOUNT_ID`, `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS` |
+| `src/claire/store/accounts.py` | 계정 조회·설정 완료·USERNAME 변경, 수명주기 전이, 세션 발급·검증, 퇴역 이름 정보 초기화, 서버 설정 | `AccountStore`, `Account`, `UsernameChangeResult`, `USERNAME_RENAME_HOLD_SECONDS`, `CredentialBinding`, `CREDENTIAL_ACCEPTING_STATUSES`, `MEMBER_INVITES_SETTING_KEY`, `usernames_by_ids`, `member_invites_enabled`, `set_member_invites_enabled`, `create_account_session`, `validate_session_binding`, `validate_oauth_binding`, `suspend_account`, `resume_account`, `schedule_account_deletion`, `cancel_account_deletion`, `purge_account`, `preview_release_username`, `release_username`, `is_username_unique_violation` |
 | `src/claire/store/auth_db.py` | auth.db 스키마, scrypt 비밀번호, 초대 영속화, 실패 제한, 감사 기록 | `connect_auth_db`, `check_password_policy`, `set_password`, `verify_password`, `begin_login_attempt`, `settle_login_success`, `check_login_throttle`, `record_login_failure`, `record_admin_audit`, `SCRYPT_MAX_CONCURRENCY` |
 | `src/claire/store/secrets.py` | AES-256-GCM 마스터 키 비밀 서비스 및 HMAC 파생 | `SecretService`, `CLAIRE_SECRET_KEY` |
 | `src/claire/store/provider_keys.py` | 멤버 BYOK API 키 암호화 저장소, 시험 호출 검증 | `ProviderKeyMeta`, `ActiveKey`, `put_key`, `load_active_key`, `verify_key`, `delete_key` |
@@ -34,7 +34,7 @@
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
 | `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `server.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
 | `src/claire/api/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*`·`/moderation/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
-| `src/bible/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·프로필 공개 스위치·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
+| `src/bible/static/js/console_account.js` | `/settings/account` 화면의 USERNAME·표시 이름·프로필 공개 스위치·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password`, `POST /api/me/username` 호출 |
 | `src/bible/static/js/console_invites.js` | `/settings/invites` 화면 컨트롤러(초대 발급, 목록/더 보기, 가입 링크 복사 및 fallback, 즉시 폐기). `/admin/*` 링크·`console_admin.js`·`console.js.admin.*` 없음 | `/api/invites` 호출 |
 | `src/bible/static/js/console_admin.js` | `/admin/*` 및 `/moderation/{oversight,themes}` 화면 컨트롤러와 단계 인증 모달. 관리자 섹션 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
 | `src/bible/static/js/console_kb.js` | `/settings/kb` 및 `/moderation/kb`·`/moderation/kb/{kb_number}` 화면 컨트롤러 | `/kb*`, `/submissions*`, `/api/auto-rule*`, `/api/reputation`, `/api/mutual-collaborations*` 호출 |
@@ -43,14 +43,14 @@
 
 ## 2. 계정 모델과 상태
 
-**[코드]** 테이블 정의는 `_migrate_v15_accounts`에 있다. 열은 설계 §13.1과 같다: `id`, `public_id`(UNIQUE), `username`(UNIQUE, NULL 허용), `role`(`admin`·`member` CHECK), `status`, `display_name`, `profile_public`, `created_at`, `activated_at`, `delete_after`, `updated_at`. v19(`_migrate_v19_account_locale`)가 `locale`(`en`·`ko`·NULL CHECK, NULL은 자동 협상)을 더했다.
+**[코드]** 테이블 정의는 `_migrate_v15_accounts`와 `_migrate_v41_username_case_and_rename`에 있다. 열은 설계 §13.1과 같다: `id`, `public_id`(UNIQUE), `username`(NULL 허용, `idx_accounts_username_ci`로 대소문자 비구별 UNIQUE), `role`(`admin`·`member` CHECK), `status`, `display_name`, `profile_public`, `created_at`, `activated_at`, `delete_after`, `updated_at`. v19(`_migrate_v19_account_locale`)가 `locale`(`en`·`ko`·NULL CHECK, NULL은 자동 협상)을 더했다.
 
 | 항목 | 현재 동작 | 근거 |
 | :--- | :--- | :--- |
 | 상태 값 | `setup_required`, `active`, `suspended`, `deleting`, `purged`를 타입(`AccountStatus`)으로 정의한다. DB는 `status`에 CHECK를 두지 않는다 | [코드] `src/claire/store/accounts.py` |
 | 상태 전이 | ① `setup_required → active`: 최초 관리자 설정 완료 시(`complete_setup`)<br>② `active ↔ suspended`: 관리자의 정지 및 재개. 정지 시 세션·API 토큰·OAuth 토큰이 즉시 거부된다<br>③ `active / suspended → deleting`: 계정 삭제 예약(`delete_after` 유예 시각 설정)<br>④ `deleting → active`: 삭제 예약 취소(`cancel_account_deletion`)<br>⑤ `deleting / suspended → purged`: 계정 영구 소각(`purge_account`). DB 행 cascade 삭제 및 참조 카운트 0 디스크 산출물 GC. USERNAME은 `username_tombstones`에 퇴역 기록 | [코드] `AccountStore`, `tests/test_username_release.py` |
 | 자격증명을 받는 상태 | `setup_required`, `active`(`CREDENTIAL_ACCEPTING_STATUSES`). 그 밖의 상태(`suspended`, `deleting`, `purged`)이거나 계정 행이 없으면 자격증명을 "없는 자격증명"과 똑같이 다루어 접근을 즉시 차단하고 토큰 갱신을 거부한다 | [코드] `_bind_account`, `tests/test_principal.py`, `tests/test_token_oauth_mcp_isolation.py` |
-| USERNAME 불변 | 트리거 `accounts_username_immutable`이 NULL이 아닌 `username`의 변경을 `ABORT`한다 | [코드] `tests/test_schema_v15.py` |
+| USERNAME 변경과 NULL 방지 | v41(`_migrate_v41_username_case_and_rename`)부터 `accounts_username_immutable`을 제거하고 `accounts_username_not_null` 트리거(`OLD.username IS NOT NULL AND NEW.username IS NULL`만 `ABORT`)와 대소문자 비구별 유니크 인덱스 `idx_accounts_username_ci`를 쓴다. 활성 계정은 `POST /api/me/username`(단계 인증 필수)로 USERNAME을 바꿀 수 있다 | [코드] `tests/test_schema_v15.py`, `tests/test_schema_v41.py`, `tests/test_account_store.py` |
 | 표시 이름 | 64자 이하, 유니코드 범주 `Cc`·`Cf`·`Zl`·`Zp` 문자 거부, 앞뒤 공백을 자르지 않는다 | [코드] `common.validate_display_name` |
 | `public_id` | 관리자 행은 `legacy_timestamp_id("accounts", unix_ms=ADMIN_LEGACY_PUBLIC_ID_UNIX_MS, row_id=1)`. 상수는 2026-11-02T00:00Z의 밀리초다. JSON에서는 10진 문자열이다 | [코드] [결정] 설계 §16.3 (c) |
 | `id_salt` | `server_settings.id_salt`(32바이트 hex)가 없을 때만 만든다. 길이가 다르거나 hex가 아니면 이관이 실패한다 | [코드] `_ensure_id_salt` |
@@ -58,15 +58,15 @@
 
 ## 3. USERNAME 규칙
 
-**[코드]** `validate_username`(`src/claire/accounts/username_policy.py`)이 아래 순서로 판정하고, 정규화한 이름을 반환하거나 `UsernameRejected(reason)`를 낸다.
+**[코드]** `validate_username`(`src/claire/accounts/username_policy.py`)이 아래 순서로 판정하고, 입력한 대소문자를 보존한 이름을 반환하거나 `UsernameRejected(reason)`를 낸다. DB·조회·로그인·유일성·예약어 검사는 ASCII 소문자 정규화 값으로 대소문자 구별 없이 처리한다.
 
-1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
-2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로·클라이언트 번들 호스트용 `settings`, `moderation`, `syndication`, `prototype`, `clients`와 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `moderation`, `syndication`, `prototype`, `clients`는 루트 고유 기능 경로(`/settings/*`, `/moderation/*`, `/syndication`, 옛 `/prototype/syndication`, `/clients/*` 및 `clients.<registrable_domain>`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1, `AE1b`). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
-4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
-5. **서버 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.server_hosts`). 포트는 뗀다.
+1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 비교용으로 `lower()`를 계산하며 공백을 자르지 않는다. DB에는 사용자가 입력한 원문 대소문자 표기를 저장하고, `/@{username}/...` 라우팅도 대소문자만 다른 요청을 리디렉트하지 않고 `200 OK`로 직접 응답한다(끝 슬래시 누락만 308).
+2. **문법**: 원문에 대해 `^[A-Za-z][A-Za-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
+3. **예약 이름**: 소문자 정규화 값이 `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로·클라이언트 번들 호스트용 `settings`, `moderation`, `syndication`, `prototype`, `clients`와 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `moderation`, `syndication`, `prototype`, `clients`는 루트 고유 기능 경로(`/settings/*`, `/moderation/*`, `/syndication`, 옛 `/prototype/syndication`, `/clients/*` 및 `clients.<registrable_domain>`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1, `AE1b`). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
+4. **예약 조각**: 소문자 정규화 값을 `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `Kim_Admin`은 막히고 `Badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
+5. **서버 예약**: 소문자 정규화 값이 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.server_hosts`). 포트는 뗀다.
 
-- **[코드]** `retired`(`username_tombstones`에 있고 `released_at`이 NULL)와 `taken`(다른 계정이 사용)은 `AccountStore`와 `/setup` 입력 검사가 판정한다.
+- **[코드]** `retired`(`username_tombstones`에 있고 `released_at IS NULL`이며 `reusable_after IS NULL OR reusable_after > now`)와 `taken`(다른 계정이 대소문자 무관하게 사용)은 `AccountStore`, `/setup`, `/invite/{code}`, `/invite/complete`, `POST /api/me/username`이 판정한다. 만료된 이름 변경 보호(`reusable_after <= now`)는 다음 가입·이름 변경 시 자동 해제된다.
 - **[코드]** 사유 코드는 `/setup` 화면에만 보인다. 익명으로 이름 사용 가능 여부를 묻는 API는 없다.
 
 ## 4. Principal과 자격증명 귀속
@@ -120,7 +120,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`, `POST /api/me/username`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
@@ -145,12 +145,19 @@
 - **[코드] `PATCH /api/admin/accounts`**: 관리자 단계 인증(`require_recent_auth`, 최근 15분 내 인증) 필수.
   - 계정 정지(`suspend`), 재개(`resume`), 삭제 예약(`delete`), 삭제 예약 취소(`cancel_delete`), 즉시 소각(`purge`), 비밀번호 재설정 링크 발급(`reset_password_link`)을 수행한다.
   - 정지·삭제 시 해당 계정의 활성 세션과 토큰이 즉시 차단/무효화된다.
-- **[코드] `GET /api/admin/usernames/retired`**: 퇴역 상태(`released_at IS NULL`)인 USERNAME 목록(`username`, `account_id`, `was_public`, `retired_at`)을 반환한다.
+- **[코드] `GET /api/admin/usernames/retired`**: 활성 퇴역·이름 변경 보호 상태(`released_at IS NULL AND (reusable_after IS NULL OR reusable_after > now)`)인 USERNAME 목록(`username`, `account_id`, `was_public`, `retired_at`, `reusable_after`, `reason`)을 반환한다.
 - **[코드] `POST /api/admin/usernames/release`**: 관리자 단계 인증 필수. 퇴역 USERNAME 정보 초기화(미리보기 및 실행, §5.7).
 
-### 5.5 `/me`, `/api/me`, `/api/me/password`
+### 5.5 `/me`, `/api/me`, `/api/me/password`, `/api/me/username`
 
 - **[코드]** 모두 규칙 `_any("owner")`. `write`·`readonly` 자격증명은 404다.
+- **[코드] `POST /api/me/username`**: 규칙 `_any("owner", "none")`. `require_recent_auth`(§5.3)를 통과한 세션만 허용한다(아니면 401 `reauth_required` / 403 `step_up_requires_session`). 본문은 정확히 `{"username": str}`만 받는다.
+  - 유효성·예약어·퇴역·중복(대소문자 무관)에 걸리면 400 `username_rejected` (`reason`, `message`)를 반환한다. 활성 계정이 아니면 409 `account_not_active`다.
+  - **대소문자만 변경**: 퇴역 기록이나 보호 기간을 남기지 않고 저장 표기만 갱신한다.
+  - **다른 이름으로 변경**: 이전 이름(소문자)을 `username_tombstones`에 7일(`USERNAME_RENAME_HOLD_SECONDS`, `reusable_after = now + 7d`) 동안 잠근다. 공개 프로필 계정이었으면 이전 주소 `/@{old}/`는 7일 동안 `410 Gone`(비공개였으면 `404`), 7일 뒤 자동 만료된다.
+  - **연합 동기화**: 서버 `federation == "on"`이고 `profile_public`이 1인 활성 계정이면 같은 트랜잭션에 `update_actor` 아웃박스 작업을 넣어 사이드카가 바뀐 `preferredUsername`과 `profile_url`을 포함한 `Update(Person)`을 전송한다(액터 URI `/ap/actors/{public_id}`는 불변).
+  - **감사 기록**: 변경이 발생하면 `admin_audit`에 `action="account.username_change"`, `detail={"case_only", "federation_update_queued"}`를 남긴다(K4에 따라 USERNAME 문자열은 기록하지 않음).
+  - **응답(200)**: `{"ok": true, "changed", "username", "previous_username", "case_only", "retired_until", "federation_update_queued", "home_url", "account"}`.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale, entity_language, personal_source_public, extraction_mode}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다. `extraction_mode`는 계정의 추출 모드(`"provider"` 또는 `"client"`, 기본값 `"provider"`)다.
 - **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`, `entity_language`, `personal_source_public`, `extraction_mode`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. `extraction_mode`는 `"provider"` 또는 `"client"`만 받고 그 밖의 값은 400 `invalid_extraction_mode`이다(`AE4`). 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(§5.9).
@@ -219,19 +226,20 @@
 
 **[코드]** `src/claire/store/accounts.py`, `src/claire/api/accounts_routes/admin.py`.
 
-- **퇴역 상태 (`username_tombstones`)**:
-  - 계정이 영구 소각(`purged`)되면 USERNAME이 `username_tombstones`에 등록되고 `released_at`은 `NULL`로 유지된다.
-  - 퇴역된 이름은 다른 사용자가 재가입에 사용할 수 없으며, 시도 시 `UsernameRejected("retired")`로 거부된다.
-  - 소각된 계정이 이전에 공개 프로필(`was_public=1`)이었으면 `/@{name}` 접근 시 410 Gone(삭제된 계정 안내)을 응답하고, 비공개였으면 404 Not Found를 응답한다.
+- **퇴역·이름 변경 보호 상태 (`username_tombstones`)**:
+  - 계정이 영구 소각(`purged`)되면 USERNAME이 `username_tombstones`에 `reusable_after = NULL`로 등록되고 `released_at`은 `NULL`로 유지된다(관리자가 해제하기 전까지 영구 잠금).
+  - 계정이 `POST /api/me/username`으로 다른 USERNAME으로 바꾸면 이전 이름(소문자)이 `reusable_after = retired_at + 7일`로 잠기며, 7일이 지나면 자동으로 만료되어 재사용할 수 있다. 관리자는 만료 전에도 `POST /api/admin/usernames/release`로 조기 해제할 수 있다.
+  - 보호·퇴역 기간 동안 해당 이름은 다른 계정의 신규 가입·이름 변경에서 `UsernameRejected("retired")`로 거부된다.
+  - 퇴역·보호 기록의 `was_public=1`이면 `/@{name}/` 접근 시 410 Gone을 응답하고, 비공개(`was_public=0`)였거나 보호 기간이 만료되었으면 404 Not Found를 응답한다.
 - **디스크 가비지 컬렉션 (Disk GC)**:
   - 계정이 `purged`될 때 DB 외래 키 cascade 삭제에 더해, 다른 계정이나 테마에서 더 이상 참조하지 않는 디스크 산출물(참조 카운트 확인 뒤 아티팩트 `data/raw/artifacts/`, 파일 `data/raw/files/`, 이미지 `data/images/`, 프레젠테이션 컴파일 HTML·캐시, 그래프 번들 아카이브)을 안전하게 삭제한다.
   - 연합 액터였던 계정은 소각할 때 액터 tombstone(410)을 남기고, 팔로워가 있으면 `Delete(Person)` 작업을 만든다. 사이드카가 응답하지 않으면 소각 요청은 409 `federation_sidecar_unavailable`로 대기하며, `skip_federated_delete: true`로 건너뛸 수 있다([`FEDERATION.md`](FEDERATION.md) 8.5절).
 - **정보 초기화 API (`POST /api/admin/usernames/release`)**:
   - **단계 인증 필수**: 관리자 세션이면서 최근 15분 이내 인증(`require_recent_auth`)된 경우에만 실행 가능하다.
   - **미리보기 기본 (`apply=false`, 기본값)**:
-    삭제 대상 잔여 항목(410 표식 여부, 초대 테이블의 예약 잔여, 잔여 자격증명 등)을 집계하여 미리보기 데이터를 반환하며, 실제 변경은 수행하지 않는다.
+    삭제 대상 잔여 항목(410 표식 여부, `reason`: `"rename"` | `"purge"`, `reusable_after`, 초대 테이블의 예약 잔여, 그리고 소각 계정인 경우 잔여 자격증명 등)을 집계하여 미리보기 데이터를 반환하며, 실제 변경은 수행하지 않는다.
   - **실행 (`apply=true`)**:
-    `username_tombstones`에 `released_at`과 `released_by`를 기록하고 `was_public=0`으로 전환(410 표식 해제). 초대 테이블의 `reserved_username` 예약 잔여를 해제하고, 관련 세션·자격증명을 파기하며, `status='purged'`인 accounts 행을 정리한다.
+    `username_tombstones`에 `released_at`과 `released_by`를 기록하고 `was_public=0`으로 전환(410 표식 해제)하며, 초대 테이블의 `reserved_username`(대소문자 무관) 예약 잔여를 해제한다. 대상 계정이 `purged`(또는 미존재)인 경우에만 관련 세션·자격증명과 `status='purged'` accounts 행을 정리하며, 이름 변경으로 보호된 활성 계정의 세션·자격증명·계정 행은 건드리지 않는다.
 - **재가입 시 격리**:
   - 정보 초기화 후 해당 USERNAME으로 신규 가입하는 사용자는 완전히 새로운 `account_id`와 `public_id`를 발급받으며, 이전 계정의 데이터나 권한이 새 계정으로 승계되지 않는다.
 - **CLI 명령**:
@@ -336,7 +344,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, USERNAME 행, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환 및 `client` 모드 활성 시 `/settings/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`), 인터페이스 언어·개체 언어, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | USERNAME 행 및 USERNAME 변경 양식(`#settings-username`), 표시 이름, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환 및 `client` 모드 활성 시 `/settings/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`), 인터페이스 언어·개체 언어, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/username`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/invites` | 1 내 계정 · 워크스페이스 | 모든 `owner` 계정(관리자 및 멤버)용 초대 코드 관리 화면(`console_invites.js`, `ALL_MODES`). 싱글 모드 또는 `member_invites_enabled=False`인 비관리자에게는 `#invites-issue-section`에 안내문만 표시하고, 발급 가능 시 생성 양식(`#invites-create-form`: 선택형 사용 횟수 `1`/`3`/`5`, 선택형 만기 `30분`/`1시간`/`6시간`/`1일`/`7일`, 메모; `reserved_username` 입력은 UI에 두지 않음)을 표시한다. 상태 배너(`#invites-result`) 아래 맨 끝 카드로 `#invites-list-section`을 배치하며 코드별 상태 배지, 사용 횟수, 만기일, 가입 이용자 목록, 가입 링크 복사(`[data-invite-copy]`), 활성 코드 즉시 폐기(`[data-invite-revoke]`)를 제공한다. 비관리자는 본인 발급 코드만 조회·폐기하고 관리자는 전체를 관리하며, 비관리자 응답에는 `/admin/*`·`console_admin.js`·`console.js.admin.*`이 없다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 목록 응답도 소유자에게 번들마다 같은 `download_url`을 준다(서포트 번들은 `telemetry.db`의 행, 데이터 번들은 모드 `0600` sidecar가 토큰을 가진다). 그래서 목록의 각 행에 "링크 복사"가 번들이 만료될 때까지 있다. 목록에는 그 밖의 토큰 필드가 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. 토큰을 sidecar에 두기 전에 만든 데이터 번들은 행에 링크가 없다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
@@ -434,6 +442,7 @@ Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
 | `action` | 언제 | `detail` |
 | :--- | :--- | :--- |
 | `account.setup` | `/setup` 확정 | `channel`, `credential_id`, `password_saved` |
+| `account.username_change` | `/api/me/username` 변경 | `case_only`, `federation_update_queued` |
 | `account.password_change` | `/api/me/password` 성공 | `other_sessions_revoked` |
 | `account.provider_key_put` | `PUT /api/me/keys` 성공 | `provider` |
 | `account.provider_key_delete` | `DELETE /api/me/keys` 성공 | `provider`, `deleted` |

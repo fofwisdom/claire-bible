@@ -75,7 +75,8 @@ def test_fresh_database_declares_v15_objects() -> None:
         "username_tombstones",
         "server_settings",
         "idx_accounts_single_admin",
-        "accounts_username_immutable",
+        "accounts_username_not_null",
+        "idx_accounts_username_ci",
         "idx_knowledge_bases_account_personal",
     } <= names
     assert "users" not in names  # v28 retires the v14 table users (no reader)
@@ -173,12 +174,15 @@ def test_multiple_default_themes_fail_migration_without_changes(
 
 
 def test_username_is_immutable_once_set() -> None:
+    """Verify usernames can be updated while remaining case-insensitively unique and non-null."""
     conn = _memory_database()
+    conn.execute("UPDATE accounts SET username='Alice' WHERE id=1")
     conn.execute("UPDATE accounts SET username='alice' WHERE id=1")
-    conn.execute("UPDATE accounts SET username='alice' WHERE id=1")  # 같은 값은 허용
-    with pytest.raises(sqlite3.IntegrityError, match="username is immutable"):
-        conn.execute("UPDATE accounts SET username='bob' WHERE id=1")
-    with pytest.raises(sqlite3.IntegrityError, match="username is immutable"):
+    conn.execute("UPDATE accounts SET username='AliceDev' WHERE id=1")
+    conn.execute("INSERT INTO accounts (id, public_id, username, role, status, created_at, updated_at) VALUES (2, 2002, 'Bob', 'member', 'active', 1.0, 1.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE accounts SET username='alicedev' WHERE id=2")
+    with pytest.raises(sqlite3.IntegrityError, match="username cannot be cleared"):
         conn.execute("UPDATE accounts SET username=NULL WHERE id=1")
 
 

@@ -383,3 +383,14 @@ The retired v12 recovery is described above. Other stores have their own version
   - 열 `documents.content_hash`, `documents.extraction_status` (`TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed'))`), `documents.claim_token`, `documents.lease_expires_at`, `documents.claimed_by_client_id`, `documents.raw_chars` 및 인덱스 `idx_documents_kb_extraction_status(kb_id, extraction_status)`.
 - **[코드] 데이터 이관**: v39 이하의 기존 `oauth_codes`·`oauth_tokens` 행은 `granted_scope`가 비어 있을 때 `scope`로 백필하고, `token_family_id`가 없는 기존 토큰은 고유 패밀리 ID를 부여한다. 기존 `accounts.extraction_mode`가 비어 있거나 허용 값 밖인 행은 `'provider'`로, 기존 `documents.extraction_status`가 비어 있거나 허용 값 밖인 행은 `'extracted'`로 정규화한다.
 - **[테스트]** `tests/test_schema_v40.py`, `tests/test_oauth_flow.py`, `tests/test_client_staging_ae4.py`.
+
+## v41 (USERNAME 대소문자 보존·비구별 인덱스 및 7일 보호 이름 변경)
+
+확인 기준: 계정 관리 개선 구현 (2026-11-21).
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 41`.
+- **[코드] 추가·변경 객체**(`_migrate_v41_username_case_and_rename`, 멱등):
+  - 트리거 `accounts_username_immutable` 제거 및 트리거 `accounts_username_not_null` 생성(`OLD.username IS NOT NULL AND NEW.username IS NULL`만 `ABORT`).
+  - 유니크 인덱스 `idx_accounts_username_ci ON accounts(lower(username)) WHERE username IS NOT NULL` 생성.
+  - 테이블 `username_tombstones`에 열 `reusable_after REAL` 추가 및 인덱스 `idx_username_tombstones_lower ON username_tombstones(lower(username))` 생성.
+- **[테스트]** `tests/test_schema_v41.py`.

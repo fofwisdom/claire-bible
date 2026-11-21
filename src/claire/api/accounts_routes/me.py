@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ...accounts.username_policy import UsernameRejected
 from ...i18n import InvalidLocale, LocaleCode, get_locale, parse_explicit_locale, resolve_web_locale, set_locale
 from ...ontology.label_language import parse_entity_language
 from ...store import accounts as accounts_store
@@ -38,11 +39,12 @@ from .common import (
     same_origin,
     validate_display_name,
 )
-from .setup import password_reason_text
+from .setup import password_reason_text, username_reason_text
 
 ME_PATH = "/me"
 ME_API_PATH = "/api/me"
 ME_PASSWORD_PATH = "/api/me/password"
+ME_USERNAME_PATH = "/api/me/username"
 LOCALE_API_PATH = "/api/locale"
 SETTINGS_ACCOUNT_PATH = "/settings/account"
 
@@ -173,6 +175,57 @@ def apply_locale_choice(ctx: AccountsContext, request: Request, response: Respon
 
 
 @dataclass(frozen=True, slots=True)
+class UsernameChangeOutcome:
+    """Result of processing a username change request."""
+
+    kind: Literal["ok", "rejected", "not_active"]
+    reason: str | None = None
+    username: str = ""
+    previous_username: str = ""
+    changed: bool = False
+    case_only: bool = False
+    retired_until: float | None = None
+    federation_update_queued: bool = False
+
+
+def perform_username_change(ctx: AccountsContext, *, account_id: int, raw_username: str) -> UsernameChangeOutcome:
+    """Validate and apply an account username change and record an audit entry without the username string."""
+    conn = open_db(ctx)
+    auth = open_auth_db(ctx)
+    try:
+        store = accounts_store.AccountStore(conn)
+        try:
+            result = store.change_username(account_id, raw_username, server_reserved=ctx.server_reserved)
+        except UsernameRejected as exc:
+            return UsernameChangeOutcome("rejected", reason=exc.reason)
+        except accounts_store.AccountStateError:
+            return UsernameChangeOutcome("not_active")
+        if result.changed:
+            auth_db.record_admin_audit(
+                auth,
+                actor_account_id=account_id,
+                action="account.username_change",
+                target_account_id=account_id,
+                detail={
+                    "case_only": result.case_only,
+                    "federation_update_queued": result.federation_update_queued,
+                },
+            )
+        return UsernameChangeOutcome(
+            kind="ok",
+            username=result.account.username or "",
+            previous_username=result.previous_username,
+            changed=result.changed,
+            case_only=result.case_only,
+            retired_until=result.retired_until,
+            federation_update_queued=result.federation_update_queued,
+        )
+    finally:
+        auth.close()
+        conn.close()
+
+
+@dataclass(frozen=True, slots=True)
 class PasswordChangeOutcome:
     kind: Literal["ok", "throttled", "invalid_password", "rejected", "not_active"]
     reason: str | None = None
@@ -195,7 +248,7 @@ def perform_password_change(
         account = accounts_store.AccountStore(conn).get(account_id)
         if account.status != "active":
             return PasswordChangeOutcome("not_active")
-        key_name = account.username if account.username is not None else f"#account:{account.id}"
+        key_name = account.username.lower() if account.username is not None else f"#account:{account.id}"
         if auth_db.has_password(auth, account_id):
             decision = auth_db.begin_login_attempt(auth, username=key_name, ip=ip)
             if not decision.allowed:
@@ -376,10 +429,51 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(409, "account_not_active")
         return JSONResponse({"ok": True, "other_sessions_revoked": outcome.other_sessions_revoked})
 
+    async def me_username(request: Request) -> Response:
+        principal = request_principal(request)
+        denied = require_recent_auth(principal)
+        if denied is not None:
+            return denied
+        body = await read_json_body(request)
+        if set(body) != {"username"} or not isinstance(body.get("username"), str):
+            return json_error(400, "invalid_request", fields=["username"])
+        if principal.account_id is None:
+            raise RuntimeError("/api/me/username requires an account principal")
+        outcome = await asyncio.to_thread(
+            perform_username_change,
+            ctx,
+            account_id=principal.account_id,
+            raw_username=body["username"],
+        )
+        if outcome.kind == "rejected":
+            return json_error(
+                400,
+                "username_rejected",
+                reason=outcome.reason,
+                message=username_reason_text(outcome.reason),
+            )
+        if outcome.kind == "not_active":
+            return json_error(409, "account_not_active")
+        account_data = await asyncio.to_thread(me_payload, ctx, principal)
+        return JSONResponse(
+            {
+                "ok": True,
+                "changed": outcome.changed,
+                "username": outcome.username,
+                "previous_username": outcome.previous_username,
+                "case_only": outcome.case_only,
+                "retired_until": outcome.retired_until,
+                "federation_update_queued": outcome.federation_update_queued,
+                "home_url": f"/@{outcome.username}/",
+                "account": account_data,
+            }
+        )
+
     return [
         Route(ME_PATH, me_page, methods=["GET"]),
         Route(ME_API_PATH, me_get, methods=["GET"]),
         Route(ME_API_PATH, me_patch, methods=["PATCH"]),
         Route(ME_PASSWORD_PATH, me_password, methods=["POST"]),
+        Route(ME_USERNAME_PATH, me_username, methods=["POST"]),
         Route(LOCALE_API_PATH, locale_post, methods=["POST"]),
     ]

@@ -754,7 +754,7 @@ def create_invitation(
         dur = float(expires_at) - ts
         expires_at_val = float(expires_at)
 
-    norm_reserved = reserved_username.strip().lower() if reserved_username else None
+    norm_reserved = reserved_username.strip() if reserved_username and reserved_username.strip() else None
     validate_invite_params(max_uses, dur, norm_reserved)
 
     code_val = code if code is not None else generate_invite_code()

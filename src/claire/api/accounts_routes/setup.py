@@ -56,6 +56,12 @@ def password_reason_text(reason: str | None) -> str:
     return t(key, min_password_length=auth_db.MIN_PASSWORD_LENGTH) if key else ""
 
 
+def username_reason_text(reason: str | None) -> str:
+    """Return the localized error message for a username rejection reason."""
+    key = USERNAME_REASON_KEYS.get(reason or "")
+    return t(key) if key else ""
+
+
 def _is_setup_principal(principal: Principal) -> bool:
     return (
         principal.account_id == accounts_store.ADMIN_ACCOUNT_ID

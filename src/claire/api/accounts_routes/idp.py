@@ -790,7 +790,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         finally:
             conn.close()
 
-        if username.lower() in taken_usernames:
+        if username.isascii() and username.lower() in taken_usernames:
             return json_error(400, "username_taken", detail="Username is already taken")
 
         try:
@@ -806,6 +806,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     salt = dbm.read_id_salt(c_conn)
                     now_ts = time.time()
                     now_ms_val = int(now_ts * 1000)
+                    account_store = accounts_store.AccountStore(c_conn)
+                    if account_store.is_username_retired(username, now=now_ts):
+                        raise UsernameRejected("retired")
+                    account_store.release_expired_tombstone(username.lower(), when=now_ts)
                     account_holder: dict[str, int] = {}
 
                     def _insert_account(candidate_public_id: int) -> None:
@@ -851,7 +855,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             inv = auth_db.get_invitation_by_id(auth_conn, payload["invitation_id"])
             if inv is None:
                 return not_found()
-            if inv.reserved_username and username.lower() != inv.reserved_username.lower():
+            if inv.reserved_username and (not username.isascii() or username.lower() != inv.reserved_username.lower()):
                 return json_error(400, "reserved_username_mismatch", detail=f"This invitation is reserved for username '{inv.reserved_username}'")
             try:
                 account_id = auth_db.redeem_invitation_atomic(
@@ -866,8 +870,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return json_error(410, f"invitation_{exc.reason}", reason=exc.reason)
             except InviteNotFoundError:
                 return not_found()
+            except UsernameRejected as exc:
+                if exc.reason == "retired":
+                    return json_error(400, "username_retired", detail="Username is retired")
+                return json_error(400, f"username_{exc.reason}", detail=str(exc))
             except sqlite3.IntegrityError as exc:
-                if "accounts.username" in str(exc):
+                if accounts_store.is_username_unique_violation(exc):
                     return json_error(400, "username_taken", detail="Username is already taken")
                 raise
         finally:

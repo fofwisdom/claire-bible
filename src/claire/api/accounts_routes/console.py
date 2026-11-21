@@ -1162,6 +1162,22 @@ def _settings_account_body(
     notice_key = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
     notice_text = t(notice_key) if notice_key else ""
     notice_html = f'<p class="pref-notice" data-account-notice="{escape(notice or "")}" role="status">{escape(notice_text)}</p>' if notice_text else ""
+    username_form_html = ""
+    if account.username:
+        username_step_attr = f' data-reauth-mode="{"password" if has_password else "session"}"'
+        username_form_html = (
+            f'<form class="console-subcard" id="settings-username" data-settings-form="username"{username_step_attr} aria-label="{escape(t("console.settings.account.username_title"))}">'
+            f"<h2><span data-icon='id'></span> {escape(t('console.settings.account.username_title'))}</h2>"
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("auth.field.username"))}'
+            f'<input name="username" type="text" class="pref-input" value="{escape(account.username)}" minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{{2,29}}" required autocomplete="username" autocapitalize="none" spellcheck="false"/>'
+            "</label>"
+            f'<p class="hint">{escape(t("console.settings.account.username_rules"))}</p>'
+            f'<p class="hint">{escape(t("console.settings.account.username_hold_hint"))}</p>'
+            f'<p class="hint">{escape(t("console.settings.account.username_federation_hint"))}</p>'
+            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
+            '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+            "</form>"
+        )
     body = (
         f"{notice_html}"
         f'<section class="console-subcard" id="settings-account-info" aria-label="{escape(t("console.settings.account.info_title"))}">'
@@ -1170,6 +1186,7 @@ def _settings_account_body(
         f"{profile_toggle_html}"
         f"{source_toggle_html}"
         "</section>"
+        f"{username_form_html}"
         f'<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="{escape(t("console.settings.account.display_name"))}">'
         f"<h2><span data-icon='tag'></span> {escape(t('console.settings.account.display_name'))}</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.display_name"))}<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'

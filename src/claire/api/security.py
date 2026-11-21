@@ -757,6 +757,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/api/me"): _any("owner", "none"),
     ("PATCH", "/api/me"): _any("owner", "none"),
     ("POST", "/api/me/password"): _any("owner", "none"),
+    ("POST", "/api/me/username"): _any("owner", "none"),
     # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
     ("GET", "/api/me/keys"): _any("owner", "none"),
     ("HEAD", "/api/me/keys"): _any("owner", "none"),

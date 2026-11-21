@@ -11,7 +11,7 @@ from typing import Literal
 
 RejectReason = Literal["syntax", "reserved", "retired", "taken"]
 
-USERNAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,29}$")
+USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,29}$")
 
 # §8.1-2 정확히 일치하는 예약 이름.
 RESERVED_USERNAMES: frozenset[str] = frozenset(
@@ -81,19 +81,19 @@ def server_reserved_labels(hosts: Iterable[str]) -> frozenset[str]:
 
 
 def validate_username(raw: str, *, server_reserved: frozenset[str] = frozenset()) -> str:
-    """정규화한 USERNAME을 반환하거나 ``UsernameRejected("syntax" | "reserved")``를 낸다.
+    """Validate the username and return it with its display case, or raise ``UsernameRejected("syntax" | "reserved")``.
 
-    순서: 정규화(§8.1-1) → 문법(``USERNAME_RE``, ``__`` 연속·``_``로 끝남 거부) → 예약 이름(§8.1-2) → 예약 조각(§8.1-3: 조각이 예약 이름이거나 ``admin``으로 시작) → 서버 예약(§8.1-4, 정확히 일치).
+    Order: normalize to lowercase ASCII -> check syntax (``USERNAME_RE``, no ``__``, no trailing ``_``) -> check reserved names -> check reserved fragments -> check server-reserved labels.
     """
-    name = normalize_username(raw)
-    # ``$``는 끝의 개행 앞에서도 맞으므로 fullmatch로 검사한다.
-    if USERNAME_RE.fullmatch(name) is None or "__" in name or name.endswith("_"):
+    lowered = normalize_username(raw)
+    # Use fullmatch so ``$`` does not match before a trailing newline.
+    if USERNAME_RE.fullmatch(raw) is None or "__" in lowered or lowered.endswith("_"):
         raise UsernameRejected("syntax")
-    if name in RESERVED_USERNAMES:
+    if lowered in RESERVED_USERNAMES:
         raise UsernameRejected("reserved")
-    for fragment in username_fragments(name):
+    for fragment in username_fragments(lowered):
         if fragment in RESERVED_USERNAMES or fragment.startswith(_RESERVED_FRAGMENT_PREFIX):
             raise UsernameRejected("reserved")
-    if name in server_reserved:
+    if lowered in server_reserved:
         raise UsernameRejected("reserved")
-    return name
+    return raw

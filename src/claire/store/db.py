@@ -20,7 +20,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -910,6 +910,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v39_embedding_spaces(conn)
     _migrate_v40_oauth_v21(conn)
     _migrate_v40_client_staging(conn)
+    _migrate_v41_username_case_and_rename(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -983,14 +984,6 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_single_admin ON accounts(role) WHERE role = 'admin'"
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS accounts_username_immutable
-        BEFORE UPDATE OF username ON accounts
-        WHEN OLD.username IS NOT NULL AND NEW.username IS NOT OLD.username
-        BEGIN SELECT RAISE(ABORT, 'username is immutable'); END
-        """
     )
     conn.execute(
         """
@@ -1903,6 +1896,17 @@ def _migrate_v40_client_staging(conn: sqlite3.Connection) -> None:
         _ensure_column(conn, "documents", "raw_chars", "INTEGER")
         conn.execute("UPDATE documents SET extraction_status='extracted' WHERE extraction_status IS NULL OR extraction_status NOT IN ('pending', 'extracted', 'failed')")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kb_extraction_status ON documents(kb_id, extraction_status)")
+
+
+def _migrate_v41_username_case_and_rename(conn: sqlite3.Connection) -> None:
+    """Apply the v41 schema changes for case-insensitive usernames and 7-day rename holds."""
+    conn.execute("DROP TRIGGER IF EXISTS accounts_username_immutable")
+    if _table_exists(conn, "accounts"):
+        conn.execute("CREATE TRIGGER IF NOT EXISTS accounts_username_not_null BEFORE UPDATE OF username ON accounts WHEN OLD.username IS NOT NULL AND NEW.username IS NULL BEGIN SELECT RAISE(ABORT, 'username cannot be cleared'); END")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_username_ci ON accounts(lower(username)) WHERE username IS NOT NULL")
+    if _table_exists(conn, "username_tombstones"):
+        _ensure_column(conn, "username_tombstones", "reusable_after", "REAL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_username_tombstones_lower ON username_tombstones(lower(username))")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

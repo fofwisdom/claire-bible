@@ -28,7 +28,7 @@ COLLECTION_KEYS = {("GET", "/kb"), ("HEAD", "/kb"), ("GET", "/themes"), ("HEAD",
 
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
-       "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
+       "/me", "/api/me", "/api/me/password", "/api/me/username", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",

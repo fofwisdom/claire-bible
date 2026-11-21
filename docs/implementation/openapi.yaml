@@ -3335,7 +3335,7 @@ paths:
               properties:
                 username:
                   type: string
-                  description: Lowercased before the rule check; non-ASCII is rejected first.
+                  description: Display case is preserved; rule, reserved-word, and uniqueness checks ignore ASCII case and reject non-ASCII characters first.
                 display_name:
                   type: string
                   maxLength: 64
@@ -3348,7 +3348,7 @@ paths:
                 ack:
                   type: string
                   enum: ['1']
-                  description: Required confirmation checkbox (username is immutable and public in network mode).
+                  description: Required confirmation checkbox (username is public at /@USERNAME in single and network modes and can be changed later in Account Settings).
       responses:
         '303':
           description: >-
@@ -4695,6 +4695,96 @@ paths:
             Retry-After:
               schema:
                 type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /api/me/username:
+    post:
+      summary: Change own username (step-up required)
+      description: >-
+        Requires a session re-authenticated within the last 15 minutes.
+        Preserves ASCII letter case for display while validating and matching
+        uniqueness case-insensitively. Case-only updates update the stored
+        display casing without creating a tombstone; changing to a different
+        username holds the previous lowercase handle for 7 days and enqueues an
+        update_actor task when federation is active and the profile is public.
+      operationId: changeMyUsername
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+        - SessionHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                  pattern: '^[A-Za-z][A-Za-z0-9_]{2,29}$'
+      responses:
+        '200':
+          description: Username updated or unchanged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, changed, username, previous_username, case_only, federation_update_queued, home_url, account]
+                properties:
+                  ok:
+                    type: boolean
+                  changed:
+                    type: boolean
+                  username:
+                    type: string
+                  previous_username:
+                    type: string
+                  case_only:
+                    type: boolean
+                  retired_until:
+                    type: ['number', 'null']
+                  federation_update_queued:
+                    type: boolean
+                  home_url:
+                    type: string
+                  account:
+                    $ref: '#/components/schemas/AccountSelf'
+        '400':
+          description: >-
+            `invalid_request`, or `username_rejected` with `reason`
+            (syntax, reserved, retired, taken) and `message`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '401':
+          description: '`reauth_required`; body also has `reauth: /api/auth/reauth`.'
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              description: 'Session realm="claire", error="reauth_required"'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`step_up_requires_session` (bearer) or cross-origin request.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner-scope credential.
+        '409':
+          description: '`account_not_active`'
           content:
             application/json:
               schema:

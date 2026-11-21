@@ -321,13 +321,14 @@ def test_two_stage_prefix_parsing():
     assert (root_pin.prefix, root_pin.inner_path) == (f"/themes/{N_ADMIN_DEFAULT}", "/")
     # ``%40alice``는 디코딩된 path가 ``@alice``이므로 같은 규칙을 탄다.
     assert parse_request_path("/@alice/graph", b"/%40alice/graph").username == "alice"
+    mixed = parse_request_path("/@Alice/graph", None)
+    assert (mixed.username, mixed.prefix, mixed.inner_path) == ("Alice", "/@Alice", "/graph")
 
 
 @pytest.mark.parametrize(
     ("path", "query", "location"),
     [
-        ("/@Alice/graph", b"", "/@alice/graph"),
-        ("/@ALICE", b"doc=1", "/@alice/?doc=1"),
+        ("/@ALICE", b"doc=1", "/@ALICE/?doc=1"),
         ("/@alice", b"", "/@alice/"),
         (f"/@alice/themes/{N_ALICE_PUBLIC}", b"x=1&y=2", f"/@alice/themes/{N_ALICE_PUBLIC}/?x=1&y=2"),
         (f"/themes/{N_ADMIN_DEFAULT}", b"", f"/themes/{N_ADMIN_DEFAULT}/"),
@@ -355,11 +356,13 @@ async def test_middleware_maps_rejections_and_redirects(app_factory):
     app = app_factory()
     assert (await _call(app, "/a/b", raw_path=b"/a%2Fb")).status == 400
     assert (await _call(app, f"/@{ADMIN_NAME}/graph", raw_path=f"/@{ADMIN_NAME}/graph?url=https://x.test/a".encode(), token=OWNER_TOKEN)).status == 200
+    mixed_ok = await _call(app, f"/@{ADMIN_NAME.upper()}/graph", raw_path=f"/@{ADMIN_NAME.upper()}/graph".encode(), token=OWNER_TOKEN)
+    assert mixed_ok.status == 200 and mixed_ok.json()["ns"]["username"] == ADMIN_NAME
     # Single mode: a root path of the personal knowledge base gets 308 to ``/@{username}/…`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
     root_path = await _call(app, "/graph", raw_path=b"/graph?url=https://x.test/a", token=OWNER_TOKEN)
     assert root_path.status == 308 and root_path.headers["location"] == f"/@{ADMIN_NAME}/graph"
-    redirect = await _call(app, "/@Alice/", query="doc=1")
-    assert redirect.status == 308 and redirect.headers["location"] == "/@alice/?doc=1"
+    redirect = await _call(app, f"/@{ADMIN_NAME.upper()}", query="doc=1")
+    assert redirect.status == 308 and redirect.headers["location"] == f"/@{ADMIN_NAME.upper()}/?doc=1"
     assert (await _call(app, "/themes/0123/")).status == 404
 
 
@@ -557,7 +560,26 @@ async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, 
     assert (await _call(app, "/@nobody_here/", token=OWNER_TOKEN)).status == 404
     assert (await _call(app, "/@dave/", token=OWNER_TOKEN)).status == 404  # active가 아님
     assert (await _call(app, "/@zed/", token=OWNER_TOKEN)).status == 410  # 공개였던 퇴역 이름
+    assert (await _call(app, "/@ZED/", token=OWNER_TOKEN)).status == 410
     assert (await _call(app, "/@yan/", token=OWNER_TOKEN)).status == 404  # 비공개였던 퇴역 이름
+
+    # Mixed-case display handle responds 200 across case variants with stored casing in ResolvedNamespace.
+    world.execute("UPDATE accounts SET username='AliceDev' WHERE id=?", (world.alice,))
+    for variant in ("/@AliceDev/", "/@alicedev/", "/@ALICEDEV/"):
+        resp = await _call(app, variant, token=OWNER_TOKEN)
+        assert resp.status == 200
+        assert resp.json()["ns"]["username"] == "AliceDev"
+        assert resp.json()["ns"]["prefix"] == "/@AliceDev"
+
+    # Active rename hold returns 410; expired hold returns 404 without manual release.
+    world.execute(
+        "INSERT INTO username_tombstones (username, account_id, was_public, retired_at, released_at, released_by, reusable_after) VALUES "
+        "('heldname', ?, 1, 1.0, NULL, NULL, ?), "
+        "('expiredname', ?, 1, 1.0, NULL, NULL, ?)",
+        (world.alice, time.time() + 3600.0, world.alice, time.time() - 10.0),
+    )
+    assert (await _call(app, "/@heldname/", token=OWNER_TOKEN)).status == 410
+    assert (await _call(app, "/@expiredname/", token=OWNER_TOKEN)).status == 404
 
 
 @pytest.mark.asyncio

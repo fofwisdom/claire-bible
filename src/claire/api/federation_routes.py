@@ -718,7 +718,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def actor_by_username(request: Request) -> Response:
         store = _open_store()
         try:
-            account = _find_actor(store, username=request.path_params["username"].lower())
+            account = _find_actor(store, username=request.path_params["username"])
         finally:
             store.conn.close()
         return _not_found() if account is None else _json(_record(account))

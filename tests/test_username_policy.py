@@ -100,13 +100,16 @@ def test_syntax_rejected(raw):
 
 def test_uppercase_input_is_normalized():
     assert normalize_username("KimLee") == "kimlee"
-    assert validate_username("KimLee") == "kimlee"
-    assert validate_username("K" * 30) == "k" * 30
+    assert validate_username("KimLee") == "KimLee"
+    assert validate_username("K" * 30) == "K" * 30
 
 
 def test_uppercase_reserved_is_rejected_after_normalization():
     assert _reason("ADMIN") == "reserved"
     assert _reason("Kim_Admin") == "reserved"
+    with pytest.raises(UsernameRejected) as exc:
+        validate_username("Example", server_reserved=server_reserved_labels(["example.com"]))
+    assert exc.value.reason == "reserved"
 
 
 def test_normalize_does_not_trim():

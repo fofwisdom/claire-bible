@@ -57,6 +57,7 @@
 
   function errorText(status, body) {
     if (body && body.error === "password_rejected" && body.message) return body.message;
+    if (body && body.error === "username_rejected" && body.message) return body.message;
     if (body && body.error === "key_verification_unavailable") {
       return tr("console.js.account.error.key_verification_unavailable");
     }
@@ -438,6 +439,60 @@
   // --- form handlers ---
 
   var handlers = {
+    "username": function (form) {
+      var input = form.elements.namedItem("username");
+      var value = input ? input.value : "";
+      var submit = function () {
+        return request("POST", "/api/me/username", { username: value });
+      };
+      return submit().then(function (r) {
+        if (!r.ok && r.status === 401 && r.body && r.body.error === "reauth_required" && form.getAttribute("data-reauth-mode") === "password") {
+          return openStepUpDialog({
+            text: tr("console.js.account.stepup.username_text"),
+            confirm: tr("console.js.account.stepup.username_confirm")
+          }).then(function (confirmed) {
+            if (!confirmed) return null;
+            return submit();
+          });
+        }
+        return r;
+      }).then(function (r) {
+        if (!r) return;
+        if (!r.ok || !r.body) {
+          show(form, errorText(r.status, r.body), true);
+          return;
+        }
+        if (input && r.body.username) input.value = String(r.body.username);
+        var dd = document.querySelector("[data-account-field='username']");
+        if (dd && r.body.username) dd.textContent = "@" + String(r.body.username);
+        if (r.body.previous_username && r.body.username && r.body.previous_username !== r.body.username) {
+          var prevPrefix = "/@" + String(r.body.previous_username) + "/";
+          var nextPrefix = "/@" + String(r.body.username) + "/";
+          document.querySelectorAll("a[href]").forEach(function (a) {
+            var href = a.getAttribute("href");
+            if (href && href.indexOf(prevPrefix) === 0) {
+              a.setAttribute("href", nextPrefix + href.slice(prevPrefix.length));
+            }
+          });
+        }
+        if (r.body.changed && document.getElementById("settings-federation-status")) {
+          request("GET", "/api/federation/status").then(function (fr) {
+            if (fr.ok && fr.body) renderFederationStatus(fr.body);
+          });
+        }
+        if (!r.body.changed) {
+          show(form, tr("console.js.account.username.unchanged"), false);
+        } else if (!r.body.case_only && r.body.federation_update_queued) {
+          show(form, tr("console.js.account.username.saved_retired_federated", { previous: "@" + String(r.body.previous_username) }), false);
+        } else if (!r.body.case_only) {
+          show(form, tr("console.js.account.username.saved_retired", { previous: "@" + String(r.body.previous_username) }), false);
+        } else if (r.body.federation_update_queued) {
+          show(form, tr("console.js.account.username.saved_federated"), false);
+        } else {
+          show(form, tr("console.js.account.username.saved"), false);
+        }
+      });
+    },
     "display-name": function (form) {
       var value = form.elements.namedItem("display_name").value;
       return request("PATCH", "/api/me", { display_name: value }).then(function (r) {
@@ -558,7 +613,8 @@
   // --- Step-up dialog (Fedify sidecar design Section 8.4). With federation on, the server refuses the profile_public change 0 -> 1 without recent authentication. ---
 
   // Resolves to true after POST /api/auth/reauth succeeds, and to false when the user closes the dialog.
-  function openStepUpDialog() {
+  function openStepUpDialog(options) {
+    var opts = options || {};
     return new Promise(function (resolve) {
       var dialog = document.createElement("dialog");
       dialog.className = "console-step-up";
@@ -571,7 +627,7 @@
       title.textContent = tr("console.js.account.stepup.title");
       var text = document.createElement("p");
       text.className = "hint";
-      text.textContent = tr("console.js.account.stepup.text");
+      text.textContent = opts.text || tr("console.js.account.stepup.text");
       var label = document.createElement("label");
       label.textContent = tr("console.js.account.stepup.password");
       var field = document.createElement("input");
@@ -590,7 +646,7 @@
       confirm.type = "submit";
       confirm.className = "pref-btn pref-btn-accent";
       confirm.setAttribute("data-step-up-confirm", "");
-      confirm.textContent = tr("console.js.account.stepup.confirm");
+      confirm.textContent = opts.confirm || tr("console.js.account.stepup.confirm");
       var cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "pref-btn";

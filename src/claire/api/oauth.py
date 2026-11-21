@@ -126,7 +126,7 @@ def _verify_step_up_password(config: WebRuntimeConfig, conn: sqlite3.Connection,
     auth.row_factory = sqlite3.Row
     try:
         acc = accounts_store.AccountStore(conn).get(int(account_id))
-        key_name = acc.username if acc.username is not None else f"#account:{acc.id}"
+        key_name = acc.username.lower() if acc.username is not None else f"#account:{acc.id}"
         if not auth_db.has_password(auth, account_id):
             return t("auth.oauth.step_up_invalid")
         decision = auth_db.begin_login_attempt(auth, username=key_name, ip=ip)
