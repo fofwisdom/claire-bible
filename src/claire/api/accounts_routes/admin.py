@@ -40,6 +40,7 @@ from .common import (
 
 ADMIN_ACCOUNTS_PATH = "/admin/accounts"
 ADMIN_ACCOUNTS_API_PATH = "/api/admin/accounts"
+ADMIN_ACCOUNTS_SIGNUP_TRACE_API_PATH = "/api/admin/accounts/signup-trace"
 ADMIN_USERNAMES_RETIRED_PATH = "/api/admin/usernames/retired"
 ADMIN_USERNAMES_RELEASE_PATH = "/api/admin/usernames/release"
 
@@ -119,6 +120,142 @@ def list_account_summaries(ctx: AccountsContext) -> list[dict[str, Any]]:
         conn.close()
 
 
+def build_signup_trace(ctx: AccountsContext) -> dict[str, Any]:
+    """Build the full signup origin and multi-hop invitation lineage graph for every account."""
+    conn = open_db(ctx)
+    auth = open_auth_db(ctx)
+    try:
+        store = accounts_store.AccountStore(conn)
+        accounts = store.list_accounts()
+        redemptions = auth_db.list_all_completed_redemptions(auth)
+        acc_by_id = {a.id: a for a in accounts}
+        all_ids = sorted(set(acc_by_id) | {int(r["account_id"]) for r in redemptions} | {int(r["issuer_account_id"]) for r in redemptions})
+        retired_names = store.retired_usernames_by_account_ids([aid for aid in all_ids if aid not in acc_by_id or acc_by_id[aid].username is None])
+    finally:
+        auth.close()
+        conn.close()
+
+    redemption_by_account: dict[int, dict[str, Any]] = {}
+    for r in redemptions:
+        aid = int(r["account_id"])
+        if aid not in redemption_by_account:
+            redemption_by_account[aid] = r
+
+    all_id_set = set(all_ids)
+
+    def _ref(aid: int) -> dict[str, Any]:
+        acc = acc_by_id.get(aid)
+        if acc is not None:
+            return {
+                "public_id": str(acc.public_id),
+                "username": acc.username,
+                "retired_username": retired_names.get(aid) if acc.username is None else None,
+                "display_name": acc.display_name,
+                "status": acc.status,
+                "role": acc.role,
+            }
+        return {
+            "public_id": f"deleted:{aid}",
+            "username": None,
+            "retired_username": retired_names.get(aid),
+            "display_name": "",
+            "status": "released",
+            "role": "member",
+        }
+
+    parent_by_id: dict[int, int | None] = {}
+    children_by_parent: dict[int | None, list[int]] = {}
+    for aid in all_ids:
+        r = redemption_by_account.get(aid)
+        issuer_id = int(r["issuer_account_id"]) if r is not None else None
+        parent_id = issuer_id if (issuer_id is not None and issuer_id in all_id_set and issuer_id != aid) else None
+        parent_by_id[aid] = parent_id
+        children_by_parent.setdefault(parent_id, []).append(aid)
+
+    def _sort_key(aid: int) -> tuple[int, float, int]:
+        acc = acc_by_id.get(aid)
+        role_rank = 0 if (acc is not None and acc.role == "admin") else 1
+        joined = float(redemption_by_account[aid]["joined_at"]) if aid in redemption_by_account else (float(acc.created_at) if acc is not None else 0.0)
+        return (role_rank, joined, aid)
+
+    for siblings in children_by_parent.values():
+        siblings.sort(key=_sort_key)
+
+    def _compute_path(aid: int) -> list[dict[str, Any]]:
+        chain_ids: list[int] = []
+        seen: set[int] = set()
+        curr: int | None = aid
+        while curr is not None and curr not in seen and curr in all_id_set:
+            seen.add(curr)
+            chain_ids.append(curr)
+            curr = parent_by_id.get(curr)
+        chain_ids.reverse()
+        steps: list[dict[str, Any]] = []
+        for step_id in chain_ids:
+            ref = _ref(step_id)
+            r = redemption_by_account.get(step_id)
+            steps.append({
+                "public_id": ref["public_id"],
+                "username": ref["username"],
+                "retired_username": ref["retired_username"],
+                "status": ref["status"],
+                "role": ref["role"],
+                "invite_code": r["invite_code"] if r is not None else None,
+                "signup_method": r["method"] if r is not None else None,
+            })
+        return steps
+
+    flat_nodes: list[dict[str, Any]] = []
+
+    def _build_node(aid: int, visiting: set[int]) -> dict[str, Any]:
+        acc = acc_by_id.get(aid)
+        r = redemption_by_account.get(aid)
+        parent_id = parent_by_id.get(aid)
+        path = _compute_path(aid)
+        origin = "invite" if r is not None else ("initial_setup" if (acc is not None and acc.role == "admin") else "direct")
+        child_nodes: list[dict[str, Any]] = []
+        next_visiting = visiting | {aid}
+        for child_id in children_by_parent.get(aid, []):
+            if child_id not in next_visiting:
+                child_nodes.append(_build_node(child_id, next_visiting))
+        descendant_count = sum(1 + int(c["descendant_count"]) for c in child_nodes)
+        joined_ts = float(r["joined_at"]) if r is not None else (float(acc.activated_at or acc.created_at) if acc is not None else 0.0)
+        base = {
+            **_ref(aid),
+            "origin": origin,
+            "depth": len(path) - 1,
+            "invited_by": _ref(parent_id) if parent_id is not None else None,
+            "invite_code": r["invite_code"] if r is not None else None,
+            "invite_public_id": r["invitation_public_id"] if r is not None else None,
+            "invite_note": r["note"] if r is not None else "",
+            "signup_method": r["method"] if r is not None else None,
+            "joined_at": joined_ts,
+            "invitee_count": len(child_nodes),
+            "descendant_count": descendant_count,
+            "path": path,
+        }
+        flat_nodes.append(dict(base))
+        return {**base, "children": child_nodes}
+
+    roots = [_build_node(rid, set()) for rid in children_by_parent.get(None, [])]
+    seen_flat = {n["public_id"] for n in flat_nodes}
+    for aid in all_ids:
+        pub = str(acc_by_id[aid].public_id) if aid in acc_by_id else f"deleted:{aid}"
+        if pub not in seen_flat:
+            roots.append(_build_node(aid, set()))
+
+    return {
+        "summary": {
+            "total_accounts": len(accounts),
+            "invited_accounts": sum(1 for n in flat_nodes if n["origin"] == "invite"),
+            "max_depth": max((int(n["depth"]) for n in flat_nodes), default=0),
+            "root_count": len(roots),
+        },
+        "roots": roots,
+        "accounts": flat_nodes,
+    }
+
+
 def _admin_card(item: dict[str, Any]) -> str:
     rows = [
         (t("console.admin.accounts.field.number"), item["public_id"]),
@@ -133,12 +270,92 @@ def _admin_card(item: dict[str, Any]) -> str:
     return f'<section class="card" aria-label="{escape(t("console.admin.accounts.admin_card"))}"><h2>{escape(t("console.admin.accounts.admin_card"))}</h2><dl>{body}</dl></section>'
 
 
+def _trace_handle(step: dict[str, Any]) -> str:
+    if step.get("username"):
+        return f"@{step['username']}"
+    if step.get("retired_username"):
+        return f"@{step['retired_username']}"
+    return f"#{step.get('public_id', '?')}"
+
+
+def _render_trace_nodes_html(nodes: list[dict[str, Any]], *, is_root_list: bool = True) -> str:
+    if not nodes:
+        return ""
+    ul_attrs = ' id="admin-signup-trace-tree" class="signup-trace-tree" style="list-style:none;margin:12px 0 0;padding-left:0"' if is_root_list else ' style="list-style:none;margin:8px 0 0 18px;padding-left:12px;border-left:1px solid var(--border)"'
+    items_html: list[str] = []
+    for node in nodes:
+        handle = _trace_handle(node)
+        path_labels = [_trace_handle(step) for step in node.get("path", [])]
+        path_text = " → ".join(path_labels)
+        invite_code = str(node.get("invite_code") or "")
+        method = str(node.get("signup_method") or "")
+        origin = str(node.get("origin") or "direct")
+        status = str(node.get("status") or "")
+        role = str(node.get("role") or "member")
+
+        badges = f'<span class="badge">{escape(account_role_text(role))}</span>'
+        if status != "active":
+            badges += f' <span class="badge">{escape(account_status_text(status))}</span>'
+
+        if origin == "invite" and invite_code:
+            method_key = "console.admin.accounts.trace.method_oidc" if method == "oidc" else "console.admin.accounts.trace.method_password"
+            origin_html = f'<span class="claire-tag ok">{escape(t("console.admin.accounts.trace.origin_invite"))}</span> <code class="pref-mono">{escape(invite_code)}</code> <span style="color:var(--muted);font-size:12px">({escape(t(method_key))})</span>'
+        elif origin == "initial_setup":
+            origin_html = f'<span class="claire-tag">{escape(t("console.admin.accounts.trace.origin_initial_setup"))}</span>'
+        else:
+            origin_html = f'<span class="claire-tag">{escape(t("console.admin.accounts.trace.origin_direct"))}</span>'
+
+        counts_html = ""
+        invitee_count = int(node.get("invitee_count", 0))
+        descendant_count = int(node.get("descendant_count", 0))
+        if invitee_count > 0 or descendant_count > 0:
+            counts_html = f' <span style="color:var(--muted);font-size:12px">· {escape(t("console.admin.accounts.trace.invitees"))}: {invitee_count}, {escape(t("console.admin.accounts.trace.descendants"))}: {descendant_count}</span>'
+
+        children_html = _render_trace_nodes_html(node.get("children", []), is_root_list=False)
+        items_html.append(
+            f'<li data-trace-account-id="{escape(str(node.get("public_id", "")))}" data-trace-username="{escape(handle.lstrip("@"))}" data-trace-invite-code="{escape(invite_code)}" data-trace-depth="{int(node.get("depth", 0))}" data-trace-path="{escape(path_text)}" style="margin:6px 0">'
+            f'<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">'
+            f'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+            f'<strong>{escape(handle)}</strong> <code class="pref-mono">{escape(str(node.get("public_id", "")))}</code> {badges} {origin_html}{counts_html}'
+            f"</div>"
+            f'<div style="color:var(--muted);font-size:12px;margin-top:4px">{escape(t("console.admin.accounts.trace.path_label"))}: {escape(path_text)}</div>'
+            f"</div>"
+            f"{children_html}"
+            f"</li>"
+        )
+    return f"<ul{ul_attrs}>{''.join(items_html)}</ul>"
+
+
+def _render_signup_trace_section(signup_trace: dict[str, Any]) -> str:
+    summary = signup_trace.get("summary") or {}
+    roots = signup_trace.get("roots") or []
+    tree_html = _render_trace_nodes_html(roots, is_root_list=True) if roots else f'<p id="admin-signup-trace-tree" style="color:var(--muted)">{escape(t("console.admin.accounts.trace.empty"))}</p>'
+    return f"""
+      <section class="card" id="admin-signup-trace-section" aria-label="{escape(t("console.admin.accounts.trace.label"))}">
+        <h2><span data-icon="users"></span> {t_code("console.admin.accounts.trace.title", endpoint="/api/admin/accounts/signup-trace")}</h2>
+        <p class="hint">{escape(t("console.admin.accounts.trace.hint"))}</p>
+        <div class="pref-stat-row" id="admin-signup-trace-stats">
+          <div class="pref-stat"><b>{int(summary.get("total_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_total"))}</span></div>
+          <div class="pref-stat"><b>{int(summary.get("invited_accounts", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_invited"))}</span></div>
+          <div class="pref-stat"><b>{int(summary.get("max_depth", 0))}</b><span>{escape(t("console.admin.accounts.trace.stat_max_depth"))}</span></div>
+        </div>
+        <div style="margin-top:10px">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;max-width:340px">{escape(t("console.admin.accounts.trace.filter_label"))}
+            <input type="search" id="admin-signup-trace-filter" class="pref-input" placeholder="{escape(t("console.admin.accounts.trace.filter_placeholder"))}"/>
+          </label>
+        </div>
+        {tree_html}
+        <p id="admin-signup-trace-empty" style="color:var(--muted);margin-top:8px" hidden>{escape(t("console.admin.accounts.trace.no_matches"))}</p>
+      </section>"""
+
+
 def _render_admin_accounts_html(
     *,
     mode: str,
     items: list[dict[str, Any]],
     retired: list[dict[str, Any]],
     tier_dict: dict[str, Any],
+    signup_trace: dict[str, Any],
 ) -> str:
     admin_items = [i for i in items if i["role"] == "admin"]
     member_items = [i for i in items if i["role"] != "admin"]
@@ -236,6 +453,7 @@ def _render_admin_accounts_html(
           </table>
         </div>
       </section>
+      {_render_signup_trace_section(signup_trace)}
       <section class="card" id="admin-retired-usernames-section" aria-label="{escape(t("console.admin.accounts.retired.label"))}">
         <h2><span data-icon="restore"></span> {t_code("console.admin.accounts.retired.title", endpoint="/api/admin/usernames/*")}</h2>
         <p class="hint">{escape(t("console.admin.accounts.retired.hint"))}</p>
@@ -299,6 +517,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 
             items = list_account_summaries(ctx)
+            signup_trace = build_signup_trace(ctx)
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
@@ -313,6 +532,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 items=items,
                 retired=retired,
                 tier_dict=tier_dict,
+                signup_trace=signup_trace,
             )
             return _render_console_section(
                 ctx,
@@ -329,6 +549,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         items = await asyncio.to_thread(list_account_summaries, ctx)
         return JSONResponse({"accounts": items})
+
+    async def admin_accounts_signup_trace_api(request: Request) -> Response:
+        if not is_admin(request_principal(request)):
+            return not_found()
+        trace = await asyncio.to_thread(build_signup_trace, ctx)
+        return JSONResponse(trace, headers={"Cache-Control": "no-store"})
 
     async def admin_accounts_patch(request: Request) -> Response:
         principal = request_principal(request)
@@ -562,6 +788,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ADMIN_ACCOUNTS_PATH, admin_accounts_page, methods=["GET"]),
         Route(ADMIN_ACCOUNTS_API_PATH, admin_accounts_api, methods=["GET"]),
         Route(ADMIN_ACCOUNTS_API_PATH, admin_accounts_patch, methods=["PATCH"]),
+        Route(ADMIN_ACCOUNTS_SIGNUP_TRACE_API_PATH, admin_accounts_signup_trace_api, methods=["GET"]),
         Route(ADMIN_USERNAMES_RETIRED_PATH, admin_retired_usernames_api, methods=["GET"]),
         Route(ADMIN_USERNAMES_RELEASE_PATH, admin_release_username_api, methods=["POST"]),
     ]

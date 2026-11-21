@@ -797,10 +797,20 @@ def _settings_invites_render(
         issue_inner = (
             '<form id="invites-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
             f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.max_uses"))}'
-            '<input type="number" name="max_uses" class="pref-input" min="1" max="5" value="1" style="width:90px" required/>'
+            '<select name="max_uses" class="pref-input" style="width:90px" required>'
+            '<option value="1" selected>1</option>'
+            '<option value="3">3</option>'
+            '<option value="5">5</option>'
+            "</select>"
             "</label>"
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.reserved_username"))}'
-            f'<input type="text" name="reserved_username" class="pref-input" placeholder="{escape(t("console.settings.invites.reserved_placeholder"))}" style="width:150px"/>'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.expires_in"))}'
+            '<select name="expires_in" class="pref-input" style="width:120px" required>'
+            f'<option value="1800">{escape(t("console.settings.invites.exp_30m"))}</option>'
+            f'<option value="3600">{escape(t("console.settings.invites.exp_1h"))}</option>'
+            f'<option value="21600">{escape(t("console.settings.invites.exp_6h"))}</option>'
+            f'<option value="86400">{escape(t("console.settings.invites.exp_1d"))}</option>'
+            f'<option value="604800" selected>{escape(t("console.settings.invites.exp_7d"))}</option>'
+            "</select>"
             "</label>"
             f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.settings.invites.note"))}'
             f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.settings.invites.note_placeholder"))}" style="width:180px"/>'
@@ -824,21 +834,23 @@ def _settings_invites_render(
             f'<th>{escape(t("console.common.status"))}</th>'
             f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
             f'<th>{escape(t("console.settings.invites.col_issuer"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_reserved"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_expires"))}</th>'
             f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_joined_users"))}</th>'
             f'<th>{escape(t("console.common.manage"))}</th>'
         )
-        col_count = 7
+        col_count = 8
     else:
         header_cells = (
             f'<th>{escape(t("console.settings.invites.col_code"))}</th>'
             f'<th>{escape(t("console.common.status"))}</th>'
             f'<th>{escape(t("console.settings.invites.col_usage"))}</th>'
-            f'<th>{escape(t("console.settings.invites.col_reserved"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_expires"))}</th>'
             f'<th>{escape(t("console.settings.invites.col_note"))}</th>'
+            f'<th>{escape(t("console.settings.invites.col_joined_users"))}</th>'
             f'<th>{escape(t("console.common.manage"))}</th>'
         )
-        col_count = 6
+        col_count = 7
 
     initial_msg = t("console.settings.invites.loading") if mode == "network" else t("console.settings.invites.single_list_empty")
     list_section = (

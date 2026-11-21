@@ -643,6 +643,14 @@ def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
     adm_on = client.get("/settings/invites", headers=console_env.admin_owner)
     assert adm_on.status_code == 200
     assert 'id="invites-create-form"' in adm_on.text
+    assert '<select name="max_uses"' in adm_on.text
+    assert '<option value="1" selected>1</option>' in adm_on.text
+    assert '<option value="3">3</option>' in adm_on.text
+    assert '<option value="5">5</option>' in adm_on.text
+    assert '<select name="expires_in"' in adm_on.text
+    for exp_val in ("1800", "3600", "21600", "86400", "604800"):
+        assert f'<option value="{exp_val}"' in adm_on.text
+    assert 'name="reserved_username"' not in adm_on.text
     assert adm_on.text.index('id="invites-result"') < adm_on.text.index('id="invites-list-section"')
     adm_boot = _read_bootstrap(adm_on.text)
     assert adm_boot["is_admin"] is True

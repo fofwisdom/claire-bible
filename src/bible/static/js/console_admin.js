@@ -262,6 +262,52 @@
         }
       });
     }
+
+    var traceFilter = document.getElementById("admin-signup-trace-filter");
+    var traceTree = document.getElementById("admin-signup-trace-tree");
+    var traceEmpty = document.getElementById("admin-signup-trace-empty");
+    if (traceFilter && traceTree) {
+      var applyTraceFilter = function () {
+        var q = String(traceFilter.value || "").trim().toLowerCase();
+        var rootLis = Array.prototype.filter.call(traceTree.children, function (el) {
+          return el.tagName === "LI";
+        });
+        var visitNode = function (li) {
+          var childUl = null;
+          for (var i = 0; i < li.children.length; i++) {
+            if (li.children[i].tagName === "UL") {
+              childUl = li.children[i];
+              break;
+            }
+          }
+          var childMatch = false;
+          if (childUl) {
+            for (var j = 0; j < childUl.children.length; j++) {
+              if (childUl.children[j].tagName === "LI" && visitNode(childUl.children[j])) {
+                childMatch = true;
+              }
+            }
+          }
+          var hay = (
+            (li.getAttribute("data-trace-username") || "") + " " +
+            (li.getAttribute("data-trace-invite-code") || "") + " " +
+            (li.getAttribute("data-trace-path") || "") + " " +
+            (li.getAttribute("data-trace-account-id") || "") + " " +
+            (li.firstElementChild ? (li.firstElementChild.textContent || "") : "")
+          ).toLowerCase();
+          var selfMatch = !q || hay.indexOf(q) !== -1;
+          var visible = selfMatch || childMatch;
+          li.hidden = !visible;
+          return visible;
+        };
+        var anyVisible = false;
+        for (var k = 0; k < rootLis.length; k++) {
+          if (visitNode(rootLis[k])) anyVisible = true;
+        }
+        if (traceEmpty) traceEmpty.hidden = anyVisible;
+      };
+      traceFilter.addEventListener("input", applyTraceFilter);
+    }
   }
 
   function initIdpSection(bootstrap) {

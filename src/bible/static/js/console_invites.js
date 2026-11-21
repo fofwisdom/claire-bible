@@ -85,7 +85,7 @@
       return (th.textContent || "").trim();
     });
     var isAdmin = Boolean(bootstrap.is_admin);
-    var colCount = headerLabels.length || (isAdmin ? 7 : 6);
+    var colCount = headerLabels.length || (isAdmin ? 8 : 7);
     var loadedItems = [];
     var nextUrl = "";
 
@@ -93,6 +93,29 @@
       var label = headerLabels[idx] || "";
       var attr = label ? ' data-label="' + escHtml(label) + '"' : "";
       return "<td" + attr + ">" + inner + "</td>";
+    }
+
+    function formatExpiresAt(ts) {
+      if (ts == null) return "—";
+      var num = Number(ts);
+      if (!Number.isFinite(num) || num <= 0) return "—";
+      var d = new Date(num * 1000);
+      if (isNaN(d.getTime())) return "—";
+      return d.toLocaleString(document.documentElement.lang || undefined);
+    }
+
+    function joinedUsersHtml(code, joinedUsers) {
+      if (!Array.isArray(joinedUsers) || joinedUsers.length === 0) return "—";
+      var itemsHtml = joinedUsers.map(function (u) {
+        var handle = u.username ? ("@" + String(u.username)) : (u.retired_username ? ("@" + String(u.retired_username)) : (u.public_id ? ("#" + String(u.public_id)) : "—"));
+        var attrName = u.username ? String(u.username) : (u.retired_username ? String(u.retired_username) : "");
+        var methodKey = (u.method === "oidc") ? "console.js.invites.method.oidc" : "console.js.invites.method.password";
+        var methodLabel = u.method ? tr(methodKey) : "";
+        var statusNote = (u.status && u.status !== "active") ? (' <span class="badge">' + escHtml(u.status === "purged" ? tr("console.js.invites.joined_purged") : String(u.status)) + "</span>") : "";
+        var meta = methodLabel ? (' <span style="color:var(--muted);font-size:11px">(' + escHtml(methodLabel) + ")</span>") : "";
+        return '<div class="invite-joined-user" data-joined-username="' + escHtml(attrName) + '"><span>' + escHtml(handle) + "</span>" + meta + statusNote + "</div>";
+      }).join("");
+      return '<div class="invite-joined-users" data-invite-joined-users="' + escHtml(code) + '" style="display:flex;flex-direction:column;gap:2px">' + itemsHtml + "</div>";
     }
 
     function renderRows() {
@@ -104,7 +127,7 @@
         var code = String(inv.code || "");
         var inviteUrl = inv.url ? String(inv.url) : (window.location.origin + "/invite/" + encodeURIComponent(code));
         var usesText = String(inv.uses_count == null ? 0 : inv.uses_count) + " / " + String(inv.max_uses == null ? 1 : inv.max_uses);
-        var reservedText = inv.reserved_username ? String(inv.reserved_username) : "—";
+        var expiresText = formatExpiresAt(inv.expires_at);
         var noteText = (inv.note != null && String(inv.note).trim() !== "") ? String(inv.note) : "—";
         var canRevoke = inv.status === "active" && inv.can_revoke !== false;
         var copyBtn = '<button type="button" class="pref-btn" data-invite-copy="' + escHtml(code) + '" data-invite-url="' + escHtml(inviteUrl) + '">' + escHtml(tr("console.js.invites.copy")) + "</button>";
@@ -120,8 +143,9 @@
           var issuerText = inv.issuer_username ? String(inv.issuer_username) : (inv.is_mine ? tr("console.js.invites.issuer_me") : (inv.created_by ? "#" + String(inv.created_by) : "—"));
           cells.push(escHtml(issuerText));
         }
-        cells.push(escHtml(reservedText));
+        cells.push(escHtml(expiresText));
         cells.push(escHtml(noteText));
+        cells.push(joinedUsersHtml(code, inv.joined_users));
         cells.push(actionsInner);
 
         var tds = cells.map(function (inner, idx) {
@@ -273,10 +297,10 @@
         var fd = new FormData(form);
         var rawMax = parseInt(String(fd.get("max_uses") || "1"), 10);
         var maxUses = Number.isFinite(rawMax) ? rawMax : 1;
-        var reservedUsername = String(fd.get("reserved_username") || "").trim();
+        var rawExp = parseInt(String(fd.get("expires_in") || "604800"), 10);
+        var expiresIn = Number.isFinite(rawExp) ? rawExp : 604800;
         var note = String(fd.get("note") || "").trim();
-        var payload = { max_uses: maxUses, note: note };
-        if (reservedUsername) payload.reserved_username = reservedUsername;
+        var payload = { max_uses: maxUses, expires_in: expiresIn, note: note };
 
         fetch("/api/invites", {
           method: "POST",

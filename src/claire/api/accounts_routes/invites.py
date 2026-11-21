@@ -435,15 +435,20 @@ def routes(ctx: AccountsContext) -> list[Route]:
         auth_conn = open_auth_db(ctx)
         try:
             items, total_count = auth_db.list_invitations(auth_conn, query, created_by=created_by_filter)
+            redemptions_by_inv = auth_db.list_completed_redemptions_by_invitations(auth_conn, [int(it["id"]) for it in items])
         finally:
             auth_conn.close()
+
+        all_account_ids: set[int] = {int(it["created_by"]) for it in items if it.get("created_by") is not None}
+        for rlist in redemptions_by_inv.values():
+            for r in rlist:
+                all_account_ids.add(int(r["account_id"]))
 
         c_conn = open_db(ctx)
         try:
             store = accounts_store.AccountStore(c_conn)
             member_invites_enabled = store.member_invites_enabled()
-            account_ids = {int(it["created_by"]) for it in items if it.get("created_by") is not None}
-            usernames_by_id = store.usernames_by_ids(account_ids)
+            account_refs = store.account_refs_by_ids(all_account_ids)
         finally:
             c_conn.close()
 
@@ -452,7 +457,21 @@ def routes(ctx: AccountsContext) -> list[Route]:
             is_mine = it["created_by"] == principal.account_id
             it["is_mine"] = is_mine
             it["can_revoke"] = it["status"] == "active" and (caller_is_admin or is_mine)
-            it["issuer_username"] = usernames_by_id.get(int(it["created_by"])) if it.get("created_by") is not None else None
+            issuer_ref = account_refs.get(int(it["created_by"])) if it.get("created_by") is not None else None
+            it["issuer_username"] = (issuer_ref["username"] or issuer_ref["retired_username"]) if issuer_ref is not None else None
+            joined_users: list[dict[str, Any]] = []
+            for r in redemptions_by_inv.get(int(it["id"]), []):
+                ref = account_refs.get(int(r["account_id"]))
+                joined_users.append({
+                    "public_id": ref["public_id"] if ref is not None else None,
+                    "username": ref["username"] if ref is not None else None,
+                    "retired_username": ref["retired_username"] if ref is not None else None,
+                    "display_name": ref["display_name"] if ref is not None else None,
+                    "status": ref["status"] if ref is not None else "unknown",
+                    "method": r["method"],
+                    "joined_at": r["joined_at"],
+                })
+            it["joined_users"] = joined_users
 
         base_url = f"{ctx.config.public_origin}/api/invites"
         if not query.page:
@@ -464,7 +483,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         data["member_invites_enabled"] = member_invites_enabled
         data["can_issue"] = caller_is_admin or member_invites_enabled
 
-        etag = collection_etag([f"total:{total_count}", f"policy:{int(member_invites_enabled)}:{int(data['can_issue'])}", *(f"{it['public_id']}:{it.get('status')}:{it.get('uses_count')}" for it in items)])
+        etag = collection_etag([f"total:{total_count}", f"policy:{int(member_invites_enabled)}:{int(data['can_issue'])}", *(f"{it['public_id']}:{it.get('status')}:{it.get('uses_count')}:{len(it.get('joined_users', []))}" for it in items)])
         headers = collection_cache_headers(anonymous=False, etag=etag)
         headers["Cache-Control"] = "no-store"
         return JSONResponse(data, headers=headers)
@@ -578,6 +597,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 "created_by": info.created_by,
                 "is_mine": True,
                 "can_revoke": True,
+                "joined_users": [],
             },
             status_code=201,
             headers={"Cache-Control": "no-store"},

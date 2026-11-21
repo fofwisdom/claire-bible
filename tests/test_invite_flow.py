@@ -975,3 +975,65 @@ def test_concurrent_invite_signup_duplicate_username_returns_400_and_rolls_back(
         assert inv_info.uses_count == 1
     finally:
         auth_conn.close()
+
+
+def test_invite_tracks_all_joined_users_password_and_oidc(settings: _Settings):
+    from claire.api.accounts_routes.common import build_context
+    from claire.api.accounts_routes.idp import create_signup_token
+    from claire.api.security import WebRuntimeConfig
+
+    admin_session = _setup_admin(settings)
+    _set_mode(settings, "network")
+    issuer_id, issuer_session = _setup_member(settings, "track_issuer")
+    _, other_session = _setup_member(settings, "track_other")
+    _set_member_invites_enabled(settings, True)
+    client = _make_client(settings)
+
+    create_res = client.request("POST", "/api/invites", session=issuer_session, json={"max_uses": 3, "note": "multi-joiners"})
+    assert create_res.status_code == 201
+    created = create_res.json()
+    assert created["joined_users"] == []
+    code = created["code"]
+    pub_id = created["public_id"]
+
+    r1 = client.request("POST", f"/invite/{code}", json={"username": "joiner_pw1", "display_name": "Joiner PW1", "password": MEMBER_PASSWORD})
+    assert r1.status_code == 201
+    r2 = client.request("POST", f"/invite/{code}", json={"username": "joiner_pw2", "display_name": "Joiner PW2", "password": MEMBER_PASSWORD})
+    assert r2.status_code == 201
+
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
+    try:
+        inv = auth_db.get_invitation_by_id(auth_conn, int(pub_id))
+        assert inv is not None
+        inv_db_id = inv.id
+    finally:
+        auth_conn.close()
+
+    ctx = build_context(settings, WebRuntimeConfig.from_settings(settings))
+    oidc_token = create_signup_token(
+        ctx,
+        invitation_id=inv_db_id,
+        provider_id="google",
+        iss="https://accounts.google.com",
+        sub="joiner_oidc_sub",
+        email="joiner_oidc@example.com",
+        display_name="Joiner OIDC",
+    )
+    r3 = client.request("POST", "/invite/complete", headers={"Accept": "application/json"}, json={"token": oidc_token, "username": "joiner_sso", "display_name": "Joiner OIDC"})
+    assert r3.status_code == 200
+
+    for caller_session in (issuer_session, admin_session):
+        listed = client.request("GET", "/api/invites?page=true", session=caller_session)
+        assert listed.status_code == 200
+        item = next(it for it in listed.json()["orderedItems"] if it["code"] == code)
+        assert item["created_by"] == issuer_id
+        assert item["uses_count"] == 3
+        assert item["status"] == "exhausted"
+        joined = item["joined_users"]
+        assert [u["username"] for u in joined] == ["joiner_pw1", "joiner_pw2", "joiner_sso"]
+        assert [u["method"] for u in joined] == ["local", "local", "oidc"]
+        assert all(u["status"] == "active" and isinstance(u["public_id"], str) and u["public_id"].isdigit() for u in joined)
+
+    other_list = client.request("GET", "/api/invites?page=true", session=other_session)
+    assert other_list.status_code == 200
+    assert all(it["code"] != code for it in other_list.json()["orderedItems"])

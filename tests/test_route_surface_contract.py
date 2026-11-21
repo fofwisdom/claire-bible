@@ -62,7 +62,7 @@ SYSTEM = {
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
     "/oauth/token", "/oauth/revoke", "/oauth/device_authorization", "/device", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",
-    "/admin/accounts", "/api/admin/accounts",
+    "/admin/accounts", "/api/admin/accounts", "/api/admin/accounts/signup-trace",
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
     # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2)
@@ -102,7 +102,7 @@ ADMIN_KEYS = {
     ("POST", "/providers/check"),
     ("POST", "/support/bundle"),
     *SYSTEM_KEYS,
-    *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/server", "/api/admin/server") for m in ("GET", "HEAD")),
+    *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/api/admin/accounts/signup-trace", "/admin/server", "/api/admin/server") for m in ("GET", "HEAD")),
     ("POST", "/admin/server"),
     ("PATCH", "/api/admin/accounts"),
     ("GET", "/api/admin/usernames/retired"),

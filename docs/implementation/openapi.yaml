@@ -3962,6 +3962,25 @@ paths:
         '404':
           description: Not the server admin with owner scope.
 
+  /api/admin/accounts/signup-trace:
+    get:
+      summary: Trace full account signup paths and invite lineage (admin only)
+      operationId: getSignupTrace
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Full signup origin and multi-hop invitation lineage tree (`Cache-Control: no-store`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupTraceResponse'
+        '404':
+          description: Not the server admin with owner scope.
+
   /api/invites:
     get:
       summary: List invite codes (network mode only; admin sees all, member sees own)
@@ -6421,9 +6440,28 @@ components:
         theme_count:
           type: integer
 
+    InviteJoinedUser:
+      type: object
+      required: [public_id, username, retired_username, display_name, status, method, joined_at]
+      properties:
+        public_id:
+          type: ['string', 'null']
+        username:
+          type: ['string', 'null']
+        retired_username:
+          type: ['string', 'null']
+        display_name:
+          type: ['string', 'null']
+        status:
+          type: string
+        method:
+          type: string
+        joined_at:
+          type: number
+
     InviteItem:
       type: object
-      required: [id, public_id, code, code_masked, url, status, uses_count, max_uses, created_by, issuer_username, created_at, expires_at, revoked_at, revoked_by, reserved_username, note, redeemed_account_ids, is_mine, can_revoke]
+      required: [id, public_id, code, code_masked, url, status, uses_count, max_uses, created_by, issuer_username, created_at, expires_at, revoked_at, revoked_by, reserved_username, note, redeemed_account_ids, joined_users, is_mine, can_revoke]
       properties:
         id:
           type: integer
@@ -6462,6 +6500,10 @@ components:
           type: array
           items:
             type: integer
+        joined_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/InviteJoinedUser'
         is_mine:
           type: boolean
         can_revoke:
@@ -6511,7 +6553,7 @@ components:
 
     InviteCreateResponse:
       type: object
-      required: [public_id, code, url, max_uses, uses_count, expires_at, created_at, reserved_username, note, status, created_by, is_mine, can_revoke]
+      required: [public_id, code, url, max_uses, uses_count, expires_at, created_at, reserved_username, note, status, created_by, is_mine, can_revoke, joined_users]
       properties:
         public_id:
           type: string
@@ -6540,6 +6582,119 @@ components:
           type: boolean
         can_revoke:
           type: boolean
+        joined_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/InviteJoinedUser'
+
+    SignupTraceAccountRef:
+      type: object
+      required: [public_id, username, retired_username, display_name, status, role]
+      properties:
+        public_id:
+          type: string
+        username:
+          type: ['string', 'null']
+        retired_username:
+          type: ['string', 'null']
+        display_name:
+          type: string
+        status:
+          type: string
+        role:
+          type: string
+
+    SignupTraceStep:
+      type: object
+      required: [public_id, username, retired_username, status, role, invite_code, signup_method]
+      properties:
+        public_id:
+          type: string
+        username:
+          type: ['string', 'null']
+        retired_username:
+          type: ['string', 'null']
+        status:
+          type: string
+        role:
+          type: string
+        invite_code:
+          type: ['string', 'null']
+        signup_method:
+          type: ['string', 'null']
+
+    SignupTraceNode:
+      type: object
+      required: [public_id, username, retired_username, display_name, status, role, origin, depth, invited_by, invite_code, invite_public_id, invite_note, signup_method, joined_at, invitee_count, descendant_count, path]
+      properties:
+        public_id:
+          type: string
+        username:
+          type: ['string', 'null']
+        retired_username:
+          type: ['string', 'null']
+        display_name:
+          type: string
+        status:
+          type: string
+        role:
+          type: string
+        origin:
+          type: string
+          enum: [initial_setup, invite, direct]
+        depth:
+          type: integer
+        invited_by:
+          oneOf:
+            - $ref: '#/components/schemas/SignupTraceAccountRef'
+            - type: 'null'
+        invite_code:
+          type: ['string', 'null']
+        invite_public_id:
+          type: ['string', 'null']
+        invite_note:
+          type: string
+        signup_method:
+          type: ['string', 'null']
+        joined_at:
+          type: number
+        invitee_count:
+          type: integer
+        descendant_count:
+          type: integer
+        path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignupTraceStep'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignupTraceNode'
+
+    SignupTraceResponse:
+      type: object
+      required: [summary, roots, accounts]
+      properties:
+        summary:
+          type: object
+          required: [total_accounts, invited_accounts, max_depth, root_count]
+          properties:
+            total_accounts:
+              type: integer
+            invited_accounts:
+              type: integer
+            max_depth:
+              type: integer
+            root_count:
+              type: integer
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignupTraceNode'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignupTraceNode'
 
     ThemeCollectionRoot:
       type: object

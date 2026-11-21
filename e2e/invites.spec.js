@@ -244,9 +244,11 @@ async function issueInviteViaUI(page, opts) {
   const o = opts || {};
   const form = page.locator('#invites-issue-section form');
   await expect(form).toBeVisible();
-  await form.locator('input[name="max_uses"]').fill(String(o.maxUses != null ? o.maxUses : 1));
-  const reservedInput = form.locator('input[name="reserved_username"]');
-  if (await reservedInput.count()) await reservedInput.fill(o.reservedUsername || '');
+  await form.locator('select[name="max_uses"]').selectOption(String(o.maxUses != null ? o.maxUses : 1));
+  if (o.expiresIn != null) {
+    await form.locator('select[name="expires_in"]').selectOption(String(o.expiresIn));
+  }
+  await expect(form.locator('[name="reserved_username"]')).toHaveCount(0);
   const noteInput = form.locator('input[name="note"]');
   if (await noteInput.count()) await noteInput.fill(o.note != null ? o.note : '');
   const resPromise = page.waitForResponse((r) => r.url().includes('/api/invites') && r.request().method() === 'POST');
@@ -521,7 +523,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
 
       await assertBottomPlacement(page, { requireIssueSection: true });
 
-      const second = await issueInviteViaUI(page, { maxUses: 2, note: 't1-second' });
+      const second = await issueInviteViaUI(page, { maxUses: 3, note: 't1-second' });
       const secondRow = inviteRowByText(page, 't1-second');
       await expect(secondRow).toContainText(second.code);
       await assertRowStatus(secondRow, 'active');
@@ -729,10 +731,10 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       expect(postJsonRevoked.status()).toBe(410);
       expect((await postJsonRevoked.json()).error).toBe('invitation_revoked');
 
-      const adminTarget = await issueInviteViaUI(memberPage, { maxUses: 2, note: 't1-member-a-for-admin-revoke' });
+      const adminTarget = await issueInviteViaUI(memberPage, { maxUses: 3, note: 't1-member-a-for-admin-revoke' });
       await gotoInvitesPage(adminPage);
       const adminTargetRow = inviteRowByText(adminPage, 't1-member-a-for-admin-revoke');
-      await expect(adminTargetRow).toContainText('0 / 2');
+      await expect(adminTargetRow).toContainText('0 / 3');
       await revokeInviteInUI(adminPage, adminTargetRow);
       await assertRowStatus(inviteRowByText(adminPage, 't1-member-a-for-admin-revoke'), 'revoked');
       const getAdminRevoked = await probePage.goto(`${isolatedOrigin}/invite/${adminTarget.code}`, { waitUntil: 'domcontentloaded' });
@@ -795,10 +797,20 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await reloadInvitesPage(adminPage);
       await expect(inviteRowByText(adminPage, nullApiJson.code)).not.toContainText(/\b(None|null|undefined)\b/);
 
-      // 4. reserved_username match, mismatch & max_uses > 1 rejection.
+      // 4. Selectable max_uses (1/3/5), selectable expires_in (30m/1h/6h/1d/7d), and no reserved_username UI field.
+      const maxUsesOpts = await adminPage.locator('#invites-create-form select[name="max_uses"] option').evaluateAll((els) => els.map((el) => el.value));
+      expect(maxUsesOpts).toEqual(['1', '3', '5']);
+      const expiresOpts = await adminPage.locator('#invites-create-form select[name="expires_in"] option').evaluateAll((els) => els.map((el) => el.value));
+      expect(expiresOpts).toEqual(['1800', '3600', '21600', '86400', '604800']);
+      await expect(adminPage.locator('#invites-create-form [name="reserved_username"]')).toHaveCount(0);
+      const exp30m = await issueInviteViaUI(adminPage, { maxUses: 3, expiresIn: 1800, note: 't2-exp-30m' });
+      expect(Math.round(exp30m.expires_at - exp30m.created_at)).toBe(1800);
+
       const reservedBadMax = await adminCtx.request.post('/api/invites', { headers: { Origin: isolatedOrigin }, data: { max_uses: 2, reserved_username: 'e2e_reserved_bad' } });
       expect(reservedBadMax.status()).toBe(400);
-      const reservedInv = await issueInviteViaUI(adminPage, { maxUses: 1, reservedUsername: 'e2e_reserved_ok', note: 't2-reserved' });
+      const reservedApi = await adminCtx.request.post('/api/invites', { headers: { Origin: isolatedOrigin }, data: { max_uses: 1, reserved_username: 'e2e_reserved_ok', note: 't2-reserved' } });
+      expect(reservedApi.status()).toBe(201);
+      const reservedInv = await reservedApi.json();
       await anonPage2.goto(reservedInv.url, { waitUntil: 'domcontentloaded' });
       await expect(anonPage2.locator('#username')).toHaveValue('e2e_reserved_ok');
       await expect(anonPage2.locator('#username')).toHaveAttribute('readonly', '');
@@ -827,7 +839,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       expect((await adminCtx.request.post('/api/invites', { headers: { Origin: isolatedOrigin }, data: { max_uses: 1, expires_in: 2592001 } })).status()).toBe(400);
 
       // 7. Browser HTML form validation error rendering preserves remaining uses.
-      const htmlErrInv = await issueInviteViaUI(adminPage, { maxUses: 2, note: 't2-html-err' });
+      const htmlErrInv = await issueInviteViaUI(adminPage, { maxUses: 3, note: 't2-html-err' });
       const errPage = await anonCtx.newPage();
       await errPage.goto(htmlErrInv.url, { waitUntil: 'domcontentloaded' });
       await errPage.locator('#username').fill('e2e_member_a');
@@ -855,7 +867,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       expect(shortPwHtml).not.toMatch(/\bauth\.(?:password|username)\.[a-z_]+\b/);
 
       await reloadInvitesPage(adminPage);
-      await expect(inviteRowByText(adminPage, 't2-html-err')).toContainText('0 / 2');
+      await expect(inviteRowByText(adminPage, 't2-html-err')).toContainText('0 / 3');
       expect(adminErrors).toEqual([]);
     } finally {
       if (anonCtx) await anonCtx.close();
@@ -881,7 +893,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await loginViaForm(memBPage, 'e2e_member_b', MEMBER_PASSWORD);
 
       await gotoInvitesPage(memAPage);
-      const invA = await issueInviteViaUI(memAPage, { maxUses: 2, note: 't2-a-only' });
+      const invA = await issueInviteViaUI(memAPage, { maxUses: 3, note: 't2-a-only' });
 
       // 1. Member B cannot see or revoke Member A's invite by code or public_id.
       await gotoInvitesPage(memBPage);
@@ -1031,7 +1043,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await setMemberInvitesEnabled(adminPage, true);
       await loginViaForm(memBPage, 'e2e_member_b', MEMBER_PASSWORD);
       await gotoInvitesPage(memBPage);
-      const invB = await issueInviteViaUI(memBPage, { maxUses: 2, note: 't3-pair-2' });
+      const invB = await issueInviteViaUI(memBPage, { maxUses: 3, note: 't3-pair-2' });
       const copied = await copyInviteLink(memBPage, inviteRowByText(memBPage, 't3-pair-2'));
 
       anonCtx = await newIsolatedContext(browser, { locale: 'en-US' });
@@ -1045,7 +1057,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       anonCtx = null;
 
       await reloadInvitesPage(memBPage);
-      await expect(inviteRowByText(memBPage, 't3-pair-2')).toContainText('1 / 2');
+      await expect(inviteRowByText(memBPage, 't3-pair-2')).toContainText('1 / 3');
 
       await setMemberInvitesEnabled(adminPage, false);
       expect((await memBCtx.request.post('/api/invites', { headers: { Origin: isolatedOrigin }, data: { max_uses: 1, note: 't3-blocked-b' } })).status()).toBe(403);
@@ -1172,15 +1184,14 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
     try {
       await setMemberInvitesEnabled(adminPage, false);
       await gotoInvitesPage(adminPage);
-      const inv = await issueInviteViaUI(adminPage, { maxUses: 1, reservedUsername: 'e2e_s1_collab', note: 'Collab onboarding' });
+      const inv = await issueInviteViaUI(adminPage, { maxUses: 1, note: 'Collab onboarding' });
       const copied = await copyInviteLink(adminPage, inviteRowByText(adminPage, 'Collab onboarding'));
 
       collabCtx = await newIsolatedContext(browser, { locale: 'en-US' });
       const collabPage = await collabCtx.newPage();
       const collabErrors = watchErrors(collabPage);
       await collabPage.goto(copied, { waitUntil: 'domcontentloaded' });
-      await expect(collabPage.locator('#username')).toHaveValue('e2e_s1_collab');
-      await expect(collabPage.locator('#username')).toHaveAttribute('readonly', '');
+      await collabPage.locator('#username').fill('e2e_s1_collab');
       await collabPage.locator('#display_name').fill('Collaborator S1');
       await collabPage.locator('#password').fill(MEMBER_PASSWORD);
       await Promise.all([collabPage.waitForURL(/\/@e2e_s1_collab\/?/), collabPage.locator(`form[action="/invite/${inv.code}"] button[type="submit"]`).click()]);
@@ -1214,7 +1225,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await setMemberInvitesEnabled(adminPage, true);
       await loginViaForm(memAPage, 'e2e_member_a', MEMBER_PASSWORD);
       await gotoInvitesPage(memAPage);
-      const s2Inv = await issueInviteViaUI(memAPage, { maxUses: 2, note: 'S2 peer' });
+      const s2Inv = await issueInviteViaUI(memAPage, { maxUses: 3, note: 'S2 peer' });
       const copied = await copyInviteLink(memAPage, inviteRowByText(memAPage, 'S2 peer'));
 
       peerCtx = await newIsolatedContext(browser, { locale: 'en-US' });
@@ -1236,7 +1247,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await assertRowStatus(peerOwnRow, 'active');
 
       await reloadInvitesPage(memAPage);
-      await expect(inviteRowByText(memAPage, 'S2 peer')).toContainText('1 / 2');
+      await expect(inviteRowByText(memAPage, 'S2 peer')).toContainText('1 / 3');
       await revokeInviteInUI(memAPage, inviteRowByText(memAPage, 'S2 peer'));
       await assertRowStatus(inviteRowByText(memAPage, 'S2 peer'), 'revoked');
       expect(peerErrors).toEqual([]);
@@ -1345,7 +1356,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
       await expectNoRawKeys(page, '#console-main');
 
-      const s5Inv = await issueInviteViaUI(page, { maxUses: 2, note: 's5-mobile-ko' });
+      const s5Inv = await issueInviteViaUI(page, { maxUses: 3, note: 's5-mobile-ko' });
       await assertBottomPlacement(page, { requireIssueSection: true });
       const row = inviteRowByText(page, 's5-mobile-ko');
       await assertRowStatus(row, 'active');
@@ -1356,6 +1367,93 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       expect((await fetchInvitesApi(adminCtx)).orderedItems.find((it) => it.code === s5Inv.code).status).toBe('revoked');
       expect(errors).toEqual([]);
     } finally {
+      await adminCtx.close();
+    }
+  });
+
+  test('S6: Invitee tracking per invite code & full admin signup path trace', async ({ browser }) => {
+    const adminCtx = await newIsolatedContext(browser, { storageState: adminStorageState, clipboard: true, locale: 'en-US' });
+    const adminPage = await adminCtx.newPage();
+    const adminErrors = watchErrors(adminPage);
+    const memACtx = await newIsolatedContext(browser, { locale: 'en-US' });
+    const memAPage = await memACtx.newPage();
+    const memAErrors = watchErrors(memAPage);
+    let u1Ctx = null;
+    let u2Ctx = null;
+    try {
+      await setMemberInvitesEnabled(adminPage, true);
+      await gotoInvitesPage(adminPage);
+      const multiInv = await issueInviteViaUI(adminPage, { maxUses: 3, note: 's6-multi-track' });
+      const copiedUrl = await copyInviteLink(adminPage, inviteRowByText(adminPage, 's6-multi-track'));
+
+      u1Ctx = await newIsolatedContext(browser, { locale: 'en-US' });
+      const u1Page = await u1Ctx.newPage();
+      await u1Page.goto(copiedUrl, { waitUntil: 'domcontentloaded' });
+      await u1Page.locator('#username').fill('e2e_s6_u1');
+      await u1Page.locator('#display_name').fill('S6 Joiner One');
+      await u1Page.locator('#password').fill(MEMBER_PASSWORD);
+      await Promise.all([u1Page.waitForURL(/\/@e2e_s6_u1\/?/), u1Page.locator(`form[action="/invite/${multiInv.code}"] button[type="submit"]`).click()]);
+
+      u2Ctx = await newIsolatedContext(browser, { locale: 'en-US' });
+      const u2Page = await u2Ctx.newPage();
+      await u2Page.goto(copiedUrl, { waitUntil: 'domcontentloaded' });
+      await u2Page.locator('#username').fill('e2e_s6_u2');
+      await u2Page.locator('#display_name').fill('S6 Joiner Two');
+      await u2Page.locator('#password').fill(MEMBER_PASSWORD);
+      await Promise.all([u2Page.waitForURL(/\/@e2e_s6_u2\/?/), u2Page.locator(`form[action="/invite/${multiInv.code}"] button[type="submit"]`).click()]);
+
+      await gotoInvitesPage(adminPage);
+      const multiRow = inviteRowByText(adminPage, 's6-multi-track');
+      const joinedCell = multiRow.locator(`[data-invite-joined-users="${multiInv.code}"]`);
+      await expect(joinedCell).toContainText('@e2e_s6_u1');
+      await expect(joinedCell).toContainText('@e2e_s6_u2');
+
+      await loginViaForm(memAPage, 'e2e_member_a', MEMBER_PASSWORD);
+      await gotoInvitesPage(memAPage);
+      const s2Row = inviteRowByText(memAPage, 'S2 peer');
+      await expect(s2Row.locator('[data-invite-joined-users]')).toContainText('@e2e_s2_peer');
+      expect((await memACtx.request.get('/api/admin/accounts/signup-trace')).status()).toBe(404);
+
+      await adminPage.goto('/admin/accounts', { waitUntil: 'domcontentloaded' });
+      await expect(adminPage.locator('#admin-signup-trace-section')).toBeVisible();
+      await expect(adminPage.locator('#admin-signup-trace-tree')).toBeVisible();
+      await expectNoRawKeys(adminPage, '#console-main');
+      const bodyText = await adminPage.locator('#console-main').innerText();
+      expect(/[\uAC00-\uD7A3]/.test(bodyText)).toBe(false);
+
+      const peerTraceItem = adminPage.locator('#admin-signup-trace-tree li[data-trace-username="e2e_s2_peer"]');
+      await expect(peerTraceItem).toBeVisible();
+      await expect(peerTraceItem).toHaveAttribute('data-trace-depth', '2');
+      await expect(peerTraceItem).toContainText('@e2eadmin → @e2e_member_a → @e2e_s2_peer');
+
+      const u1TraceItem = adminPage.locator('#admin-signup-trace-tree li[data-trace-username="e2e_s6_u1"]');
+      await expect(u1TraceItem).toBeVisible();
+
+      const filterInput = adminPage.locator('#admin-signup-trace-filter');
+      await filterInput.fill('e2e_s2_peer');
+      await expect(peerTraceItem).toBeVisible();
+      await expect(adminPage.locator('#admin-signup-trace-tree li[data-trace-username="e2e_member_a"]')).toBeVisible();
+      await expect(u1TraceItem).toBeHidden();
+
+      await filterInput.fill('no_such_trace_user_xyz');
+      await expect(adminPage.locator('#admin-signup-trace-empty')).toBeVisible();
+      await filterInput.fill('');
+      await expect(u1TraceItem).toBeVisible();
+
+      const traceApiRes = await adminCtx.request.get('/api/admin/accounts/signup-trace');
+      expect(traceApiRes.status()).toBe(200);
+      const traceJson = await traceApiRes.json();
+      const peerNode = traceJson.accounts.find((a) => a.username === 'e2e_s2_peer');
+      expect(peerNode).toBeTruthy();
+      expect(peerNode.depth).toBe(2);
+      expect(peerNode.path.map((s) => s.username)).toEqual(['e2eadmin', 'e2e_member_a', 'e2e_s2_peer']);
+
+      expect(adminErrors).toEqual([]);
+      expect(memAErrors).toEqual([]);
+    } finally {
+      if (u1Ctx) await u1Ctx.close();
+      if (u2Ctx) await u2Ctx.close();
+      await memACtx.close();
       await adminCtx.close();
     }
   });

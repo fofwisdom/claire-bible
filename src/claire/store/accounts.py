@@ -309,6 +309,44 @@ class AccountStore:
         rows = self.conn.execute(f"SELECT id, username FROM accounts WHERE id IN ({placeholders})", unique_ids).fetchall()
         return {int(r[0]): (None if r[1] is None else str(r[1])) for r in rows}
 
+    def retired_usernames_by_account_ids(self, account_ids: list[int] | set[int] | tuple[int, ...]) -> dict[int, str]:
+        """Batch-resolve ``account_id -> most recent retired username`` from ``username_tombstones``."""
+        unique_ids = sorted({int(aid) for aid in account_ids})
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = self.conn.execute(f"SELECT account_id, username FROM username_tombstones WHERE account_id IN ({placeholders}) ORDER BY retired_at DESC, username DESC", unique_ids).fetchall()
+        retired: dict[int, str] = {}
+        for row in rows:
+            aid = int(row[0])
+            if aid not in retired and row[1] is not None:
+                retired[aid] = str(row[1])
+        return retired
+
+    def account_refs_by_ids(self, account_ids: list[int] | set[int] | tuple[int, ...]) -> dict[int, dict[str, Any]]:
+        """Batch-resolve summary references for accounts including retired username fallback when purged."""
+        unique_ids = sorted({int(aid) for aid in account_ids})
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = self.conn.execute(f"SELECT id, public_id, username, display_name, status, role FROM accounts WHERE id IN ({placeholders})", unique_ids).fetchall()
+        missing_name_ids = [int(r["id"]) for r in rows if r["username"] is None]
+        retired_names = self.retired_usernames_by_account_ids(missing_name_ids)
+        refs: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            aid = int(row["id"])
+            uname = None if row["username"] is None else str(row["username"])
+            refs[aid] = {
+                "id": aid,
+                "public_id": str(row["public_id"]),
+                "username": uname,
+                "retired_username": retired_names.get(aid) if uname is None else None,
+                "display_name": str(row["display_name"] or ""),
+                "status": str(row["status"]),
+                "role": str(row["role"]),
+            }
+        return refs
+
     def is_username_retired(self, username: str) -> bool:
         """``username_tombstones``에 있고 ``released_at``이 NULL이면 True."""
         row = self.conn.execute(

@@ -632,6 +632,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/accounts"): _system("admin", "none"),
     ("HEAD", "/api/admin/accounts"): _system("admin", "none"),
     ("PATCH", "/api/admin/accounts"): _system("admin", "none"),
+    ("GET", "/api/admin/accounts/signup-trace"): _system("admin", "none"),
+    ("HEAD", "/api/admin/accounts/signup-trace"): _system("admin", "none"),
     ("GET", "/api/admin/usernames/retired"): _system("admin", "none"),
     ("HEAD", "/api/admin/usernames/retired"): _system("admin", "none"),
     ("POST", "/api/admin/usernames/release"): _system("admin", "none"),

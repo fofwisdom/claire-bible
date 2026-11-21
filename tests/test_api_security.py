@@ -565,6 +565,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for path in (
                 "/admin/accounts",
                 "/api/admin/accounts",
+                "/api/admin/accounts/signup-trace",
                 "/admin/server",
                 "/api/admin/server",
                 "/api/admin/federation",

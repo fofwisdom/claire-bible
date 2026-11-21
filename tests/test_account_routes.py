@@ -132,7 +132,7 @@ def test_admin_accounts_hidden_from_everyone_but_the_admin(client, settings):
     _activate_admin(settings)
     member_id = _add_member(settings)
     member_session = _session(settings, member_id)
-    for path in ("/admin/accounts", "/api/admin/accounts"):
+    for path in ("/admin/accounts", "/api/admin/accounts", "/api/admin/accounts/signup-trace"):
         assert client.request("GET", path).status_code == 404
         assert client.request("GET", path, bearer=READONLY_TOKEN).status_code == 404
         assert client.request("GET", path, session=_session(settings, scope="readonly")).status_code == 404
@@ -530,3 +530,117 @@ def test_cookie_patch_without_same_origin_is_forbidden(client, settings):
     )
     assert no_origin.status_code == 403
     assert client.request("GET", "/api/me", session=token).json()["display_name"] == "관리자"
+
+
+def test_admin_signup_trace_multi_hop_and_purged_intermediate(client, settings):
+    _activate_admin(settings)
+    admin_session = _session(settings)
+
+    conn = _db(settings)
+    try:
+        store = accounts_store.AccountStore(conn)
+        store.set_setting("mode", "network", updated_by=1)
+        store.set_member_invites_enabled(True, updated_by=1)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Admin -> alice -> (bob, dave); bob -> carol
+    inv_a = client.request("POST", "/api/invites", session=admin_session, json={"max_uses": 1, "note": "root-to-alice"})
+    assert inv_a.status_code == 201
+    code_a = inv_a.json()["code"]
+    assert client.request("POST", f"/invite/{code_a}", json={"username": "alice", "display_name": "Alice", "password": PASSWORD}).status_code == 201
+
+    conn = _db(settings)
+    try:
+        alice_acc = accounts_store.AccountStore(conn).find_by_username("alice")
+        assert alice_acc is not None
+        alice_id = alice_acc.id
+    finally:
+        conn.close()
+    alice_session = _session(settings, alice_id)
+
+    inv_b = client.request("POST", "/api/invites", session=alice_session, json={"max_uses": 2, "note": "alice-to-team"})
+    assert inv_b.status_code == 201
+    code_b = inv_b.json()["code"]
+    assert client.request("POST", f"/invite/{code_b}", json={"username": "bob", "display_name": "Bob", "password": PASSWORD}).status_code == 201
+    assert client.request("POST", f"/invite/{code_b}", json={"username": "dave", "display_name": "Dave", "password": PASSWORD}).status_code == 201
+
+    conn = _db(settings)
+    try:
+        bob_acc = accounts_store.AccountStore(conn).find_by_username("bob")
+        assert bob_acc is not None
+        bob_id = bob_acc.id
+    finally:
+        conn.close()
+    bob_session = _session(settings, bob_id)
+
+    inv_c = client.request("POST", "/api/invites", session=bob_session, json={"max_uses": 1, "note": "bob-to-carol"})
+    assert inv_c.status_code == 201
+    code_c = inv_c.json()["code"]
+    assert client.request("POST", f"/invite/{code_c}", json={"username": "carol", "display_name": "Carol", "password": PASSWORD}).status_code == 201
+
+    # Purge intermediate inviter alice; full lineage must survive via username_tombstones.
+    conn = _db(settings)
+    try:
+        accounts_store.AccountStore(conn).purge(alice_id, data_dir=settings.data_dir, skip_federated_delete=True)
+    finally:
+        conn.close()
+
+    # Non-admin member cannot read the full signup trace.
+    assert client.request("GET", "/api/admin/accounts/signup-trace", session=bob_session).status_code == 404
+
+    trace_res = client.request("GET", "/api/admin/accounts/signup-trace", session=admin_session)
+    assert trace_res.status_code == 200
+    assert trace_res.headers.get("cache-control") == "no-store"
+    data = trace_res.json()
+
+    assert data["summary"]["total_accounts"] == 5
+    assert data["summary"]["invited_accounts"] == 4
+    assert data["summary"]["max_depth"] == 3
+    assert data["summary"]["root_count"] == 1
+
+    by_handle = {(n["username"] or n["retired_username"]): n for n in data["accounts"]}
+    assert by_handle[USERNAME]["origin"] == "initial_setup"
+    assert by_handle[USERNAME]["depth"] == 0
+    assert by_handle[USERNAME]["invitee_count"] == 1
+    assert by_handle[USERNAME]["descendant_count"] == 4
+
+    alice_node = by_handle["alice"]
+    assert alice_node["status"] == "purged"
+    assert alice_node["username"] == "alice"
+    assert alice_node["invitee_count"] == 2
+    assert alice_node["descendant_count"] == 3
+    assert alice_node["invite_code"] == code_a
+
+    carol_node = by_handle["carol"]
+    assert carol_node["depth"] == 3
+    assert carol_node["origin"] == "invite"
+    assert carol_node["invite_code"] == code_c
+    assert carol_node["signup_method"] == "local"
+    assert [step["username"] or step["retired_username"] for step in carol_node["path"]] == [USERNAME, "alice", "bob", "carol"]
+
+    page = client.request("GET", "/admin/accounts", session=admin_session)
+    assert page.status_code == 200
+    assert 'id="admin-signup-trace-section"' in page.text
+    assert 'id="admin-signup-trace-tree"' in page.text
+    assert 'id="admin-signup-trace-filter"' in page.text
+    assert f'@{USERNAME} → @alice → @bob → @carol' in page.text
+    assert code_c in page.text
+    assert " onsubmit=" not in page.text and " onclick=" not in page.text
+
+    # Even after release_username deletes alice's accounts row, tombstone lineage survives intact.
+    conn = _db(settings)
+    auth = _auth(settings)
+    try:
+        assert accounts_store.AccountStore(conn).release_username("alice", released_by=1, auth_conn=auth) is True
+    finally:
+        auth.close()
+        conn.close()
+
+    after_release = client.request("GET", "/api/admin/accounts/signup-trace", session=admin_session).json()
+    rel_by_handle = {(n["username"] or n["retired_username"]): n for n in after_release["accounts"]}
+    assert rel_by_handle["alice"]["status"] == "released"
+    assert rel_by_handle["alice"]["username"] is None
+    assert rel_by_handle["alice"]["retired_username"] == "alice"
+    assert [step["username"] or step["retired_username"] for step in rel_by_handle["carol"]["path"]] == [USERNAME, "alice", "bob", "carol"]

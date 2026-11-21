@@ -502,6 +502,8 @@ CREATE TABLE IF NOT EXISTS invitation_redemptions (
 );
 CREATE INDEX IF NOT EXISTS idx_redemptions_invitation
     ON invitation_redemptions(invitation_id, status);
+CREATE INDEX IF NOT EXISTS idx_redemptions_account
+    ON invitation_redemptions(account_id, status);
 CREATE TABLE IF NOT EXISTS oidc_states (
     key TEXT PRIMARY KEY, provider_id TEXT NOT NULL,
     state TEXT NOT NULL, nonce TEXT NOT NULL, code_verifier TEXT NOT NULL,
@@ -1168,6 +1170,69 @@ def list_invitations(
         })
 
     return items, total_count
+
+
+def list_completed_redemptions_by_invitations(
+    conn: sqlite3.Connection,
+    invitation_ids: list[int] | set[int] | tuple[int, ...],
+) -> dict[int, list[dict[str, Any]]]:
+    """Return completed invitation redemptions grouped by invitation_id in chronological order."""
+    unique_ids = sorted({int(iid) for iid in invitation_ids})
+    if not unique_ids:
+        return {}
+    placeholders = ",".join("?" for _ in unique_ids)
+    rows = conn.execute(
+        f"SELECT id, invitation_id, account_id, method, started_at, finished_at FROM invitation_redemptions WHERE invitation_id IN ({placeholders}) AND status = 'completed' AND account_id IS NOT NULL ORDER BY COALESCE(finished_at, started_at) ASC, id ASC",
+        unique_ids,
+    ).fetchall()
+    grouped: dict[int, list[dict[str, Any]]] = {iid: [] for iid in unique_ids}
+    for row in rows:
+        iid = int(row["invitation_id"])
+        grouped.setdefault(iid, []).append({
+            "redemption_id": int(row["id"]),
+            "invitation_id": iid,
+            "account_id": int(row["account_id"]),
+            "method": str(row["method"]),
+            "joined_at": float(row["finished_at"] if row["finished_at"] is not None else row["started_at"]),
+        })
+    return grouped
+
+
+def list_all_completed_redemptions(
+    conn: sqlite3.Connection,
+    *,
+    secret_service: SecretService | None = None,
+) -> list[dict[str, Any]]:
+    """Return all completed invitation redemptions joined with decrypted invitation metadata."""
+    sec = secret_service or get_secret_service()
+    rows = conn.execute(
+        "SELECT r.id AS redemption_id, r.invitation_id, r.account_id, r.method, r.started_at, r.finished_at, i.public_id AS invitation_public_id, i.created_by AS issuer_account_id, i.code_ciphertext, i.code_nonce, i.key_version, i.reserved_username, i.note FROM invitation_redemptions r JOIN invitations i ON i.id = r.invitation_id WHERE r.status = 'completed' AND r.account_id IS NOT NULL ORDER BY COALESCE(r.finished_at, r.started_at) ASC, r.id ASC"
+    ).fetchall()
+    code_cache: dict[int, str] = {}
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        iid = int(row["invitation_id"])
+        code_str = code_cache.get(iid)
+        if code_str is None:
+            try:
+                raw_code = sec.decrypt(row["code_ciphertext"], row["code_nonce"], aad=f"invitation|{row['invitation_public_id']}", key_version=row["key_version"])
+            except SecretDecryptionError:
+                raw_code = sec.decrypt(row["code_ciphertext"], row["code_nonce"], aad=f"invitation|{iid}", key_version=row["key_version"])
+            code_str = raw_code.decode("utf-8")
+            code_cache[iid] = code_str
+        results.append({
+            "redemption_id": int(row["redemption_id"]),
+            "invitation_id": iid,
+            "invitation_public_id": ids.format_public_id(row["invitation_public_id"]),
+            "invite_code": code_str,
+            "issuer_account_id": int(row["issuer_account_id"]),
+            "account_id": int(row["account_id"]),
+            "method": str(row["method"]),
+            "joined_at": float(row["finished_at"] if row["finished_at"] is not None else row["started_at"]),
+            "reserved_username": row["reserved_username"],
+            "note": row["note"] or "",
+        })
+    return results
 
 
 def prune_stale_redemptions(
