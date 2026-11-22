@@ -2708,6 +2708,11 @@ def wrap_web_app(
     data_dir = getattr(settings, "data_dir", None)
     if data_dir is None:
         return secured
+    # The edge listener (CB_EDGE=1) is outside the public middleware: each one then reads the peer address that the edge saw.
+    if getattr(settings, "edge_listener", False) is True:
+        from .edge_listener import EdgePeerMiddleware, edge_socket_path
+
+        secured = EdgePeerMiddleware(secured, edge_socket_path(data_dir))
     from .federation_internal import ListenerRouter, create_internal_federation_app, federation_socket_path
 
     from .federation_routes import federation_internal_routes

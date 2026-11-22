@@ -180,6 +180,16 @@ location ^~ /nodeinfo/            { proxy_pass http://claire_fedify; proxy_http_
 location ^~ /ap/                  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
 ```
 
+### edge 서비스 (선택)
+
+운영 서버에서 `CB_EDGE=1`을 쓰면 위 네 경로 규칙이 저장소의 `edge` 서비스 안으로 들어간다([FEDERATION.md](FEDERATION.md) §10.1). 외부 reverse proxy의 규칙은 하나로 줄어든다.
+
+- 서버의 모든 호스트(앱 호스트와 역할 호스트)의 모든 요청을 `http://CB_API_BIND:CB_API_PORT`로 보낸다. `Host`는 요청의 값 그대로 보낸다.
+- `CB_FEDIFY_PORT`는 쓰지 않는다(호스트에 열리지 않는다). Claire host firewall은 `CB_API_PORT`의 source만 reverse proxy의 고정 LAN IP로 허용하면 된다.
+- 본문·서명 헤더를 바꾸지 않는 규칙과 연합 경로에 캐시를 두지 않는 규칙은 외부 proxy에 그대로 적용된다. CDN과 WAF의 차단도 edge가 없애 주지 않는다(아래 표).
+- `CLAIRE_CLOUDFLARE_IPS_ONLY`, `CLAIRE_TRUSTED_PROXIES`는 edge가 본 피어 주소(외부 reverse proxy의 주소)를 기준으로 edge가 없을 때와 같게 동작한다.
+- 이미 운영 중인 서버에서 켤 때는 `./cb-manuscript update`와 외부 proxy 규칙 교체를 같은 작업 창에서 한다. 사이드카 포트가 닫히므로 예전 경로 규칙이 남아 있으면 502가 난다. 되돌리려면 `CB_EDGE=0`으로 `update`하고 경로 규칙을 다시 넣는다.
+
 ### 연합 준비 검사 실패 대응
 
 준비 검사(`./cb-manuscript app server check --federation --json` 또는 콘솔 `/admin/federation`)는 실패한 요청에 누가 응답했는지를 코드로 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 아래 표는 코드별 원인과 고칠 곳이다. Cloudflare 항목의 근거는 Cloudflare 공식 문서다. Sophos WAF 항목은 Sophos 커뮤니티 글에서 온 것이며 이 저장소에서 확인하지 않았다[미검증]. 이 저장소의 테스트는 두 제품을 실행하지 않는다.

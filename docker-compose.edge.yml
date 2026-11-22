@@ -1,0 +1,12 @@
+# Overlay of the edge service (CB_EDGE=1, docs/implementation/FEDERATION.md Section 10.1). `cb-manuscript` adds this file with the Compose profile `edge`.
+# The edge has the host port of Claire. Thus api and fedify have no host port: a request reaches them only through the edge.
+# CLAIRE_EDGE_LISTENER=1 makes the api process open the edge listener on data/run/edge.sock.
+
+services:
+  api:
+    ports: !reset []
+    environment:
+      CLAIRE_EDGE_LISTENER: "1"
+
+  fedify:
+    ports: !reset []

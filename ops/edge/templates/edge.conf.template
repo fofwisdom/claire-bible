@@ -1,0 +1,27 @@
+# The server of the edge service. The entrypoint of the image puts the values of the environment variables in this file.
+#   CLAIRE_EDGE_PORT        Listen port in the container.
+#   CLAIRE_EDGE_APP_HOST    The authority of the public origin of Claire (CLAIRE_FQDN).
+#   CLAIRE_EDGE_API_SOCKET  The Unix socket of the edge listener of Claire.
+#   CLAIRE_EDGE_FEDIFY      Host and port of the sidecar.
+#   CLAIRE_EDGE_RESOLVER    The DNS server that gives the address of the sidecar at each request (the resolver of Docker).
+
+resolver ${CLAIRE_EDGE_RESOLVER} valid=10s ipv6=off;
+
+upstream claire_api {
+    server unix:${CLAIRE_EDGE_API_SOCKET};
+    keepalive 16;
+    # Claire closes an idle connection after 5 seconds. The edge closes it earlier, so that it does not send a request on a closed connection.
+    keepalive_timeout 3s;
+}
+
+# The federation paths of the app host go to the sidecar. The same paths of each other host go to Claire, which gives 404.
+map $http_host $claire_federation_upstream {
+    default claire_api;
+    "${CLAIRE_EDGE_APP_HOST}" "${CLAIRE_EDGE_FEDIFY}";
+}
+
+server {
+    listen ${CLAIRE_EDGE_PORT};
+    set $claire_api_upstream claire_api;
+    include claire/routes.conf;
+}

@@ -7407,7 +7407,21 @@ def run_api() -> int:
             internal_sock = open_federation_socket(internal_path)
         except OSError as exc:
             print(f"internal federation listener failed {internal_path}: {exc}", flush=True)
-    if internal_sock is None and len(listeners) == 1:
+    # The edge listener (CLAIRE_EDGE_LISTENER=1, api/edge_listener.py). The edge service has no other way to Claire, so a failure here stops the start.
+    edge_path = None
+    edge_sock: socket.socket | None = None
+    if getattr(s, "edge_listener", False) is True:
+        from .edge_listener import edge_socket_path
+
+        edge_path = edge_socket_path(s.data_dir)
+        try:
+            edge_sock = open_federation_socket(edge_path)
+        except OSError as exc:
+            print(f"edge listener failed {edge_path}: {exc}", flush=True)
+            if internal_sock is not None:
+                internal_sock.close()
+            return 1
+    if internal_sock is None and edge_sock is None and len(listeners) == 1:
         uvicorn.run(app, host=s.inject_host, port=s.inject_port, **uvicorn_options)
         return 0
 
@@ -7417,6 +7431,8 @@ def run_api() -> int:
     try:
         if internal_sock is not None:
             sockets.append(internal_sock)
+        if edge_sock is not None:
+            sockets.append(edge_sock)
         for host, port in listeners:
             sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
             sockets.append(sock)
@@ -7445,6 +7461,8 @@ def run_api() -> int:
                 logging.getLogger("uvicorn.error").info("Uvicorn running on http://%s:%d", bound_host, bound_port)
         if internal_sock is not None:
             logging.getLogger("uvicorn.error").info("Internal federation listener on unix:%s", internal_path)
+        if edge_sock is not None:
+            logging.getLogger("uvicorn.error").info("Edge listener on unix:%s", edge_path)
         try:
             server.run(sockets=sockets)
         except KeyboardInterrupt:
@@ -7455,6 +7473,11 @@ def run_api() -> int:
         if internal_sock is not None:
             try:
                 internal_path.unlink()
+            except OSError:
+                pass
+        if edge_sock is not None and edge_path is not None:
+            try:
+                edge_path.unlink()
             except OSError:
                 pass
     return 0 if server.started else 1

@@ -1,7 +1,7 @@
 # Federation Go-Live: GF1 to GF17 on a Server Behind a CDN and a WAF
 
 - **Document Identifier**: `DESIGN-FEDERATION-GO-LIVE-20261122`
-- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is not implemented. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD3 (Section 12) are locked (2026-11-22). No open questions remain.
+- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is implemented (2026-11-22); the current behavior is in FEDERATION.md Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD3 (Section 12) are locked (2026-11-22). No open questions remain.
 - **Date**: 2026-11-22
 - **Base commit**: `171257c`
 - **Related Documents**:
@@ -284,7 +284,7 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 | E2E: attribution | A real Claire process and a real sidecar process behind a small intermediary in the test process, on the development origin `http://127.0.0.1:{port}/`. Fault modes of the intermediary: a challenge answer with `cf-mitigated`; 403 for `application/activity+json`; a removed `/ap` prefix; a cache that gives an old answer with the marker; a changed `Host`; an answer of the Claire listener for `/ap/kb`. Each mode gives its code in `claire server check --federation --json`. No Docker. |
 | E2E: console | `e2e/federation_admin.spec.js` shows the party and the action text of a failed item |
 | E2E: outside probe | The script against the same local server prints the expected lines |
-| E2E: edge (GQ2 A) | The edge container with the routing file, behind a gate variable as the DrFed tests; the gateway of the development network includes the same file |
+| E2E: edge (GQ2 A) | The edge container with the routing file, behind a gate variable as the DrFed tests (`CB_EDGE_TEST=1`); the gateway of the development network includes the same file when that network exists |
 | E2E: traffic (GQ3 A) | Inside the existing DrFed scenarios: a follow and a delivery change the counters, GF19 and GF20 pass |
 
 ---
@@ -333,7 +333,7 @@ KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4
 | :--- | :--- | :--- |
 | GL1 (implemented) | R1, R2, R3: answer records, the Claire marker header, GF8 and GF6 path and `Host` verification, the probes of R2, the path record, GF18, contract 1.13, catalog keys, the outside probe script | Each fault mode of Section 11 gives its code and party; the probes send the headers of R2 (a test reads the headers at the intermediary); GF18 fails for a private address of the public host and passes for a global address |
 | GL2 (implemented) | R5: counters, GF19, GF20 | The DrFed scenario changes the counters; no delivery: GF20 does not apply. Not done: the DrFed scenario was not run (it needs Docker and the gate `CB_DRFED_TEST=1`); the counters have tests of the sidecar code and of the checks |
-| GL3 (GD2, not implemented) | R4: edge service, overlay, `CB_EDGE` in `cb-manuscript`, Unix socket listener for the edge, shared routing file with the gateway | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `CB_EDGE=0` gives the current topology |
+| GL3 (GD2, implemented) | R4: edge service, overlay, `CB_EDGE` in `cb-manuscript`, Unix socket listener for the edge, shared routing file with the gateway | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `CB_EDGE=0` gives the current topology |
 | GL4 | Steps L0 to L6 (owner) | Section 10 |
 
 Choices made in the code of GL1 and GL2 (the implementation document has the details):
@@ -345,6 +345,16 @@ Choices made in the code of GL1 and GL2 (the implementation document has the det
 5. The sidecar compares the path and the decoded query parameters of a self-check request, not the percent-encoding of the query.
 6. The sidecar resolves the public host with `Deno.resolveDns`, which does not read the hosts file. Claire uses the system resolver.
 7. The traffic counters also count the deliveries of the knowledge federation, which do not go through Fedify.
+
+Choices made in the code of GL3:
+
+1. The edge is for production only: `cb-manuscript` refuses `CB_EDGE=1` in development, because the development stack has host ports for the role hosts and the prototype role. The edge needs `CB_FEDERATION=1`.
+2. Section 8.4 said that the edge sets `X-Forwarded-For`. The code uses a separate header, `X-Claire-Edge-Peer`, and Claire puts its value in the peer address of the request. The `X-Forwarded-For` of the external reverse proxy then goes to Claire without a change, and the trusted-proxy rule works as without the edge.
+3. Section 8.3 rule 1 (an unknown `Host` gets no answer) is not in the edge: the edge does not know the legacy hosts, which are in the database. Claire refuses an unknown host, as without the edge. The federation rules apply only to the `Host` of the app.
+4. Section 8.3 rule 2 (a rate limit for `POST` below `/ap/`) is not in the edge. The peer of the edge is the external reverse proxy, so a limit for each peer address is one limit for all servers; a correct key and the values need the data of KA5.
+5. Section 8.3 rule 3: the edge has no body limit on the paths of Claire, because Claire has its own limits.
+6. Section 8.5 said that the text of `answered_by_claire` changes in edge mode. The code has one text for the two modes: the check does not know if the edge runs.
+7. The completion criterion "GF1 to GF17 pass on the development network through the edge" was done with the edge image in front of a real Claire process and a real sidecar process on one host (the gate `CB_EDGE_TEST=1`). The development network of two servers does not exist yet (phases DE1 to DE5), and its gateway does not yet include the routing file.
 
 Documents to change with the code: FEDERATION.md §7.2, §9, §10, §12; KNOWLEDGE_FEDERATION.md §17; EXTERNAL_ACCESS.md (Appendix A as recipes; the edge with GQ2 A); COMMANDS.md (the help names GF1 to GF20); the status line of this document.
 

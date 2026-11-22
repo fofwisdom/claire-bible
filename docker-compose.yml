@@ -137,3 +137,36 @@ services:
         bind:
           create_host_path: false
     stop_grace_period: 20s
+
+  # Edge service (docs/implementation/FEDERATION.md Section 10.1). It starts only when the Compose profile `edge` is active: `cb-manuscript` adds the profile and docker-compose.edge.yml when CB_EDGE=1.
+  # The edge has the reverse proxy rules of the server in one tested file (ops/edge/claire/routes.conf). The external reverse proxy sends all requests of all hosts of the server to this one port.
+  # The federation paths of the app host go to the service `fedify`. All other requests go to Claire through the Unix socket data/run/edge.sock.
+  # The values of the env file do not go into this container: it gets only the authority of the public origin. The only mount is the socket directory.
+  edge:
+    profiles: ["edge"]
+    image: "${CB_EDGE_IMAGE:-claire-bible-edge}:${CB_IMAGE_TAG:-local}"
+    build:
+      context: ops/edge
+    restart: unless-stopped
+    user: "${CB_UID:-1000}:${CB_GID:-1000}"
+    environment:
+      TZ: "${TZ:-}"
+      CLAIRE_EDGE_PORT: "8080"
+      CLAIRE_EDGE_APP_HOST: "${CB_EDGE_APP_HOST:-}"
+      CLAIRE_EDGE_API_SOCKET: "/data/run/edge.sock"
+      CLAIRE_EDGE_FEDIFY: "fedify:8790"
+      CLAIRE_EDGE_RESOLVER: "127.0.0.11"
+    ports:
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_API_PORT:?CB_API_PORT is required}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: "${CB_DATA_DIR:-./data}/run"
+        target: /data/run
+        bind:
+          create_host_path: false
+    stop_grace_period: 20s

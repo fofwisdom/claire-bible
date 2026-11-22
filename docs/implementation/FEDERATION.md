@@ -13,6 +13,7 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | WebFinger, NodeInfo, actor document, server actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
+| Edge service: one upstream for the external reverse proxy, with the rules of Section 10 in the repository (`CB_EDGE=1`, production only) | Implemented (unit GL3, 2026-11-22). Section 10.1 |
 | Server switch `federation`, readiness checks GF1 to GF20 | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
@@ -66,6 +67,7 @@ flowchart LR
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
 | `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check, knowledge self-check (`/ap/self-check`), loop states |
 | `sidecar/fedify/src/probes.ts` | Answer attribution of a self-check request, path record of the public host, traffic counters |
+| `ops/edge/`, `docker-compose.edge.yml`, `src/claire/api/edge_listener.py` | Edge service (optional, Section 10.1): the image with the reverse proxy rules, the Compose overlay, and the edge listener of Claire |
 | `sidecar/fedify/src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 
 ## 3. Actor Rule
@@ -716,9 +718,9 @@ deno run --frozen --cached-only --allow-net --allow-read=/data,/app --allow-writ
 
 ### 9.4 Start Sequence
 
-1. Set `CB_FEDERATION=1` (and `CB_FEDIFY_PORT` if necessary) in the env file.
+1. Set `CB_FEDERATION=1` (and `CB_FEDIFY_PORT` if necessary) in the env file. With the edge service, set also `CB_EDGE=1` (Section 10.1).
 2. Run `./cb-manuscript update` or `./cb-manuscript up`. `claire migrate` (a step of `install` and `update`) makes the service key.
-3. Configure the reverse proxy (Section 10).
+3. Configure the reverse proxy: the path rules of Section 10, or with the edge service one rule that sends all requests to `CB_API_BIND:CB_API_PORT` (Section 10.1).
 4. Run `./cb-manuscript app server check --federation --json`.
 5. Set the switch with `POST /api/admin/federation`. Read the first item of Section 12 before this step.
 
@@ -739,6 +741,44 @@ The repository has no reverse proxy configuration. The operator configures the p
 - The rules apply to the app host only (`CLAIRE_FQDN`).
 - The inbox paths get `POST` requests from remote servers. The proxy must send the body and the headers `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, and `Host` without a change. The `Host` value must be the app host, because the signature includes it.
 - The sidecar has no request rate limit. A rate limit is a function of the reverse proxy.
+
+### 10.1 Edge Service (Unit GL3)
+
+The edge service is an option for production. It has the rules of this section in the repository, so the external reverse proxy needs no path rule. Design: [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) Section 8 (owner decision GD2).
+
+```mermaid
+flowchart LR
+    P["External reverse proxy (TLS)"] -->|"all hosts, all paths: CB_API_BIND:CB_API_PORT"| E["edge (nginx, port 8080)"]
+    E -->|"federation paths of the app host"| S["fedify:8790"]
+    E -->|"all other requests: Unix socket data/run/edge.sock"| A["Claire api (edge listener)"]
+```
+
+**Switch.** `CB_EDGE` in the env file is exactly `0` or `1`. `cb-manuscript` refuses another value, the value `1` in development (the development stack has host ports for the role hosts and the prototype role, which the edge does not serve), and the value `1` without `CB_FEDERATION=1`. With `CB_EDGE=1`, `cb-manuscript` adds the Compose profile `edge` and the file `docker-compose.edge.yml` to each Compose command, and gives Compose the authority of the public origin in `CB_EDGE_APP_HOST` (from `CLAIRE_FQDN`, or from `CLAIRE_PUBLIC_URL` of an old env file).
+
+**Compose.**
+
+- Service `edge` in `docker-compose.yml`, profile `edge`. Image `CB_EDGE_IMAGE` (default `claire-bible-edge`) with the tag `CB_IMAGE_TAG`; build context `ops/edge/`; base image `nginx:1.30.7-alpine` (the stable release on 2026-11-22; license BSD 2-clause). The service starts after `api` is healthy.
+- The edge publishes `CB_API_BIND:CB_API_PORT` to its port 8080. `docker-compose.edge.yml` removes the host ports of `api` and `fedify` (`ports: !reset []`) and sets `CLAIRE_EDGE_LISTENER=1` for `api`. `CB_FEDIFY_PORT` then has no function.
+- User `CB_UID:CB_GID`, as `fedify`. The only mount is `{data}/run` at `/data/run` (`create_host_path: false`). `/tmp` is a tmpfs: the process writes its configuration, its PID file, and its temporary files there. The service has no `env_file`.
+
+**Rules of the edge** (`ops/edge/claire/routes.conf`, the one reference file of the rules of this section; `tests/test_edge_listener.py` reads it):
+
+- The four federation rules of the table above go to `fedify:8790` when the `Host` of the request is the authority of the public origin (`CLAIRE_EDGE_APP_HOST`). For each other host the same paths go to Claire, which gives 404. All other paths go to Claire.
+- The edge sends the path, the query, the `Host`, the body, and all request headers without a change (`proxy_pass` has no URI part). It adds `X-Claire-Edge-Peer` with the address of its peer. On the federation paths it removes `Forwarded` and the `X-Forwarded-*` headers and has a body limit of 1 MiB (`INBOX_BODY_LIMIT_BYTES`); a larger body gets 413 from the edge.
+- On the paths of Claire the edge has no body limit (Claire has its own limits), does not buffer requests and answers (NDJSON, event streams), and has a read timeout of 300 seconds. The forwarded headers of the external reverse proxy go to Claire without a change.
+- The edge writes no access log (Claire writes the safe access log), has no cache, no rate limit, and no TLS. It resolves the name `fedify` at each request with the resolver of Docker, so a new sidecar container needs no restart of the edge.
+
+**Edge listener of Claire** (`src/claire/api/edge_listener.py`, `CLAIRE_EDGE_LISTENER=1`):
+
+- The `api` process opens a third listener on `{data_dir}/run/edge.sock` (mode 0660). A bind failure stops the start, because the edge has no other way to Claire.
+- A connection on a Unix socket has no peer address. `EdgePeerMiddleware` selects the requests of this listener by the socket that accepted the connection (ASGI `scope["server"]`), puts the address of `X-Claire-Edge-Peer` in the ASGI `client` value, and removes the header. It is outside all other middleware of the public application. Thus the Cloudflare filter, the trusted proxies of the login rate limits, and the access log read the address that the edge saw: the same address as without the edge.
+- A request on the edge listener without exactly one valid address in the header gets 400. On each other listener the header is not read.
+
+**External reverse proxy with the edge.** One rule: all requests of all hosts of the server go to `http://CB_API_BIND:CB_API_PORT`, with the `Host` of the request. The rules for the body, the signature headers, and the cache (above) still apply to it, and so do the faults of a CDN or a WAF (Section 7.2.1): the edge removes only the path rules from the work of the operator.
+
+**Change on a server that runs.** Set `CB_EDGE=1` and run `./cb-manuscript update`; in the same window, replace the path rules of the external reverse proxy with the one rule (the port of the sidecar is closed, so an old path rule gives 502). Return: `CB_EDGE=0`, `./cb-manuscript update`, and the path rules again.
+
+**Limits.** The edge is one more hop for each request of each user. It was run with a real Claire process and a real sidecar process on one host (`tests/test_edge_listener.py`, gate `CB_EDGE_TEST=1`), not through `cb-manuscript` on a production host, and not behind a CDN.
 
 ## 11. Security Notes
 
@@ -811,6 +851,7 @@ These facts are true for the code now. They are choices that the implementation 
 | `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, outbox task lease and acknowledgement, object record and its public conditions, outbox collection, and two end-to-end runs with a real `api` process: follow events through the socket, and publish on the public listener with the handoff on the socket |
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
 | `tests/test_federation_readiness.py` | GF1 to GF20, answer attribution, admin API, CLI |
+| `tests/test_edge_listener.py` | Unit GL3: the edge listener with a real Claire process (the peer address of `X-Claire-Edge-Peer` reaches the Cloudflare filter; 400 without one valid address; no meaning on the TCP listener), the switch `CB_EDGE` of `cb-manuscript`, the rule files, the Compose model with the profile `edge` and the overlay, and with `CB_EDGE_TEST=1` the edge image in front of a real Claire process and a real sidecar process: GF1 to GF20, the federation paths of another host, 413 at the edge, and the outside probe |
 | `tests/test_federation_go_live.py` | Units GL1 and GL2 end to end: a real Claire process and a real sidecar process behind an intermediary in the test process (the public origin). Each fault of the intermediary gives its code in `claire server check --federation --json`: a CDN challenge, a CDN block of the `profile` parameter, a WAF that refuses `application/activity+json`, a removed path prefix, a path to the wrong upstream, a changed `Host`, and a cache with an old answer. The outside probe script runs against the same origin |
 | `sidecar/fedify/tests/probes_test.ts` | Address classes, the path record, the traffic counters with their 24-hour window, the meter provider |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
