@@ -29,6 +29,12 @@
     var name = /^https?:\/\//.test(String(url || "")) ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(label) + "</a>" : esc(label);
     return name + ' <span class="claire-tag">' + esc(t("console.js.kb.curate_remote_tag", { server: server })) + "</span>";
   }
+  // The tab that the query names (?tab=<id>), when it is one of the tabs of the page.
+  function tabFromQuery(tabs, first) {
+    var wanted = "";
+    try { wanted = new URLSearchParams(root.location.search).get("tab") || ""; } catch (_) { wanted = ""; }
+    return tabs.indexOf(wanted) !== -1 ? wanted : first;
+  }
   function dateText(seconds) { return seconds ? new Date(Number(seconds) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—"; }
   // The state of a grant of the role collaborator across servers: active, ended (the end time is past), or revoked.
   function grantStateTag(state) { return '<span class="claire-tag ' + (state === "active" ? "ok" : (state === "revoked" ? "danger" : "warn")) + '">' + esc(t("console.js.kb.grant_state." + state)) + "</span>"; }
@@ -36,7 +42,8 @@
   function canWithdraw(c) { return !!c && !c.approved && c.state !== "rejected" && c.state !== "removed"; }
 
   function renderSettingsKb(host, bs) {
-    var activeTab = "personal";
+    // ?tab=<id> selects the first tab (the entry address of a notification, docs/design/PWA_NOTIFICATION_DESIGN.md PN4 rule 5).
+    var activeTab = tabFromQuery(["personal", "subs", "rule", "rep", "mem"], "personal");
     var account = (bs && bs.account) || {};
     // The path of the personal knowledge base of the account: "/@user/" in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2); "/" only for an account without a USERNAME.
     var homeHref = account.username ? "/@" + encodeURIComponent(account.username) + "/" : "/";
@@ -461,7 +468,7 @@
   function renderSettingsKbManage(host, bs) {
     var currentNum = String((bs && bs.kb_number) || "");
     var isAdmin = !!(bs && bs.is_admin);
-    var activeTab = "queue";
+    var activeTab = tabFromQuery(["queue", "content", "curate", "people", "settings", "log"], "queue");
     var selectedPending = null;
     var selectedSource = "";
     var bound = false;

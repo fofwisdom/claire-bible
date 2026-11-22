@@ -385,7 +385,7 @@ def ingest(
     stage_only = (account_mode == "client") and not force_provider
     # AED9: client staging always preserves untruncated raw content so the external client does not lose source text.
     effective_full_content = True if stage_only else full_content
-    return _ingest_core(
+    report = _ingest_core(
         payload,
         conn=conn,
         provider=provider,
@@ -413,6 +413,14 @@ def ingest(
         account_id=effective_account_id,
         stage_only=stage_only,
     )
+    if stage_only and report.document_id and not report.error and getattr(report, "message", "") == STAGED_INGEST_MESSAGE:
+        # A person, a feed, or the Telegram bot started this ingest, and the source now waits for an agent client: tell the account (PWA_NOTIFICATION_DESIGN.md kind ``agent_source_staged``). ``stage_raw`` (the agent stages its own source) does not come here.
+        main_file = next((row[2] for row in conn.execute("PRAGMA database_list").fetchall() if row[1] == "main" and row[2]), None)
+        if main_file:
+            from ..notifications import events as notification_events
+
+            notification_events.agent_source_staged(main_file, kb_id=int(tid))
+    return report
 
 
 def _complete_server_extraction(

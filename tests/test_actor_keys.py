@@ -66,7 +66,7 @@ def test_migration_from_v4_adds_actor_keys_and_is_idempotent(tmp_path):
 
     c = adb.connect_auth_db(path)
     try:
-        assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+        assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(adb.AUTH_DB_SCHEMA_VERSION)
         columns = [r[1] for r in c.execute("PRAGMA table_info(actor_keys)")]
         assert columns == ["account_id", "alg", "public_jwk", "private_ciphertext", "private_nonce", "key_version", "created_at"]
         before = _schema(c)
@@ -98,7 +98,7 @@ def test_e2e_migrate_command_upgrades_v4_and_keeps_stored_keys(monkeypatch, tmp_
         assert cli.main(["migrate"]) == 0
         c = adb.connect_auth_db(path)
         try:
-            assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+            assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(adb.AUTH_DB_SCHEMA_VERSION)
             assert ak.load_actor_keys(c, 7, svc) == stored
         finally:
             c.close()

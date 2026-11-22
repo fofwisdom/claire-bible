@@ -52,6 +52,7 @@ docs/
 │   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md  # → THEMES.md
 │   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md  # → INGESTION.md
 │   ├── PER_ACCOUNT_FEATURES_DESIGN.md     # PA1–PA4 → ACCOUNTS.md
+│   ├── PWA_NOTIFICATION_DESIGN.md         # 연계 요청 알림과 웹 푸시 PN1–PN6 → NOTIFICATIONS.md
 │   ├── PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md  # → PUBLIC_SITE.md, 남은 색인 항목은 구상(ideas/PUBLIC_SITE_INDEXING_IDEAS.md)
 │   ├── PREFERRED_LANGUAGES_DESIGN.md      # → EXTRACTION.md
 │   ├── QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md  # → PROVIDERS.md, EXTRACTION.md
@@ -80,6 +81,7 @@ docs/
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
 │   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0–KF6): 어휘, JSON-LD 컨텍스트, 와이어 계약, 알려진 서버, KB 액터·큐레이션·교차 기여·준비 검사
 │   ├── EXPANSION.md         # 링크 확장과 동일 주제 출처 병합
+│   ├── NOTIFICATIONS.md        # 연계 요청 알림: 알림 종류와 이벤트, 웹 푸시 발송, 종 목록, /settings/notifications, 서비스 워커
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름
 │   ├── PRESENTATION.md         # 프레젠테이션 저작·컴파일·뷰어·테마별 스위치

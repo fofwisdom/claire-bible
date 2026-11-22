@@ -67,6 +67,7 @@ from ...accounts.provider_policy import MEMBER_KEY_PROVIDERS, ServerTier
 from ...store import auth_db
 from ...store import usage_ledger
 from . import features as feature_routes
+from . import notifications as notification_routes
 from . import keys as keys_routes
 from .admin import account_role_text, account_status_text
 from .common import icon_html, open_auth_db
@@ -165,6 +166,13 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         icon="bot",
+    ),
+    ConsoleSectionSpec(
+        slug="notifications",
+        path="/settings/notifications",
+        area="settings",
+        group_id="workspace",
+        icon="bell",
     ),
     ConsoleSectionSpec(
         slug="bundles",
@@ -943,6 +951,13 @@ def _build_settings_account_section(
         if admin_viewer:
             raise RuntimeError("/settings/tokens must redirect the admin to /admin/tokens")
         body, extra = _settings_tokens_body(ctx, account=account)
+    elif spec.slug == "notifications":
+        # The session of the page marks the devices that this browser session subscribed (PWA_NOTIFICATION_DESIGN.md PN4 rule 3).
+        return SettingsSectionRender(
+            body_html=notification_routes.settings_notifications_body(ctx, account=account, session_ref=principal.credential_id if principal.channel == "cookie" else None),
+            extra_bootstrap={},
+            extra_scripts_html='<script src="/static/js/console_notifications.js" defer></script>',
+        )
     elif spec.slug in FEATURE_SETTINGS_SLUGS:
         if spec.slug == "telegram":
             body = feature_routes.settings_telegram_body(ctx, account=account)

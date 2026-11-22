@@ -487,6 +487,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/settings/mcp",
                 "/settings/webmcp",
                 "/settings/telegram",
+                "/settings/notifications",
                 "/settings/bundles",
                 "/settings/backups",
                 "/settings/federation",
@@ -517,6 +518,13 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("PATCH", "/api/federation/objects/{object_id}"),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
+        # Notifications and Web Push of the account (PWA_NOTIFICATION_DESIGN.md PN5)
+        *((method, path) for path in ("/api/me/notifications", "/api/me/push") for method in ("GET", "HEAD")),
+        ("POST", "/api/me/notifications/read"),
+        ("POST", "/api/me/push/subscriptions"),
+        ("DELETE", "/api/me/push/subscriptions"),
+        ("PUT", "/api/me/push/kinds/{kind}"),
+        ("POST", "/api/me/push/test"),
         *(
             (method, path)
             for path in ("/api/me/support-bundles", "/api/me/data-bundles", "/api/me/backups")

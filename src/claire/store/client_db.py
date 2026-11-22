@@ -18,6 +18,7 @@ Versions:
 - 6 (FP4-9Q, 2026-11-15): the quote columns of ``federation_notes`` and ``federation_quote_authorizations`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rules 5 and 6, 6.6 rule 5, and 7.1).
 - 7: the column ``linked_theme_id`` becomes ``linked_kb_id`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1).
 - 8 (2026-11-18): ``federation_account_settings`` goes. The retention of received posts is a right of the server admin only (owner decision); the retention run uses the server value for each account.
+- 9 (PN1, 2026-11-22): ``notifications``, ``push_subscriptions``, ``push_queue``, ``notification_push_off``, and ``notification_scan_seen`` (PWA_NOTIFICATION_DESIGN.md PN1; functions in ``store/notifications.py``).
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 8
+CLIENT_SCHEMA_VERSION = 9
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -117,6 +118,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v5(conn)
     _migrate_v6(conn)
     _migrate_v8_drop_account_settings(conn)
+    _migrate_v9(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -397,6 +399,70 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_quote_authorizations_account ON federation_quote_authorizations(account_id, state, id)")
 
 
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    # Notifications and Web Push (PWA_NOTIFICATION_DESIGN.md PN1). A notification stores the kind and its parameters; the text comes from the catalog at the read or the send.
+    # group_key: while a row of the same account, kind, and group is not read, a new event changes that row (count, params_json, updated_at) and makes no second row. The partial unique index holds this rule.
+    # pushed_at: the last time that the sender sent the row to a push service (the 60 s rule of PN3).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            params_json TEXT NOT NULL DEFAULT '{}',
+            target_path TEXT NOT NULL,
+            group_key TEXT,
+            count INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            read_at REAL,
+            pushed_at REAL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_account ON notifications(account_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(account_id) WHERE read_at IS NULL")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_group ON notifications(account_id, kind, group_key) WHERE read_at IS NULL AND group_key IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_updated ON notifications(updated_at)")
+    # One browser of one account (RFC 8030). endpoint is the capability URL of the push service; p256dh and auth are the keys of the browser for the message encryption (RFC 8291).
+    # session_ref is the credential identifier of the session that made the subscription: the sender deletes a subscription whose session is gone (PN3 rule 7).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            session_ref TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            last_success_at REAL,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_push_subscriptions_account ON push_subscriptions(account_id, id)")
+    # One message that waits for one subscription. A row goes when the send is done or is given up.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS push_queue (
+            notification_id INTEGER NOT NULL,
+            subscription_id INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at REAL NOT NULL,
+            PRIMARY KEY (notification_id, subscription_id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_push_queue_due ON push_queue(next_attempt_at)")
+    # The kinds for which the account turned Web Push off. A kind without a row sends Web Push (PN1 rule 3).
+    conn.execute("CREATE TABLE IF NOT EXISTS notification_push_off (account_id INTEGER NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (account_id, kind))")
+    # The items of claire.db that a scan told about (PN2 rule 5). scope 'contribution': the contributions that wait for review. The first scan of a scope records the items that exist and writes the key ``notification_scan:<scope>`` to client_meta.
+    conn.execute("CREATE TABLE IF NOT EXISTS notification_scan_seen (scope TEXT NOT NULL, item_id INTEGER NOT NULL, PRIMARY KEY (scope, item_id))")
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits.
 
@@ -411,6 +477,10 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_notes WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_quote_authorizations WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM push_queue WHERE notification_id IN (SELECT id FROM notifications WHERE account_id=?) OR subscription_id IN (SELECT id FROM push_subscriptions WHERE account_id=?)", (account_id, account_id))
+    conn.execute("DELETE FROM notifications WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM push_subscriptions WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM notification_push_off WHERE account_id=?", (account_id,))
 
 
 def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int) -> bool:

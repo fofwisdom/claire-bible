@@ -26,6 +26,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...collaboration import contributions, reputation
+from ...notifications import events as notification_events
 from ...store import kb_collab
 from . import access, actors, grants, journal, known_servers, offers, outbox, remote_documents, remote_kbs, vocabulary
 
@@ -191,6 +192,13 @@ def offer_contribution(ctx: journal.HandlerContext, entry: journal.JournalEntry,
     known_servers.note_server(ctx.conn, entry.actor_domain, source="remote_contribution", now=ctx.now)
 
 
+def _notify(ctx: journal.HandlerContext, event: Any, **values: Any) -> None:
+    """Call a notification event for the database file of ``ctx.conn``. The handler runs in a savepoint of the journal: the route that calls the journal holds the event until the journal committed (``events.after_commit``). Call this as the last step of a handler."""
+    main_file = next((row[2] for row in ctx.conn.execute("PRAGMA database_list").fetchall() if row[1] == "main" and row[2]), None)
+    if main_file:
+        event(main_file, **values)
+
+
 def _offer_answer(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any], *, accepted: bool) -> None:
     """The knowledge base actor of another server answered an offer of an account of this server. Only the actor that got the offer can answer it. Refusal ``offer_not_found``.
 
@@ -204,6 +212,9 @@ def _offer_answer(ctx: journal.HandlerContext, entry: journal.JournalEntry, acti
         raise journal.HandlerRefusal("offer_not_found")
     if reason == vocabulary.AUTOMATIC_NOT_ACCEPTED and found["automatic"]:
         remote_kbs.note_automatic_not_accepted(ctx.conn, entry.actor_domain)
+    if found.get("decided_at") == ctx.now:
+        # This activity made the decision (a repeated answer changes nothing): tell the account that sent the offer (PWA_NOTIFICATION_DESIGN.md kind ``kf_offer_answered``).
+        _notify(ctx, notification_events.kf_offer_answered, account_id=found.get("account_id"), kb_iri=entry.actor, accepted=accepted)
 
 
 def accept_offer(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
@@ -227,12 +238,17 @@ def grant(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: di
     )
     if stored == "limit":
         raise journal.HandlerRefusal("grant_limit")
+    if stored == "stored":
+        _notify(ctx, notification_events.kf_grant, account_id=account_id, kb_iri=entry.actor, given=True)
 
 
 def revoke(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
     """The knowledge base actor ends a grant at once (design Section 12.2 rule 3). Only the actor that gave the grant can revoke it. Refusal ``grant_not_found``."""
+    before = ctx.conn.execute("SELECT account_id, revoked_at FROM kf_received_grants WHERE grant_iri=? AND kb_iri=?", (str(activity["object"]), entry.actor)).fetchone()
     if not grants.receive_revoke(ctx.conn, iri=str(activity["object"]), kb_iri=entry.actor, now=ctx.now):
         raise journal.HandlerRefusal("grant_not_found")
+    if before is not None and before[1] is None:
+        _notify(ctx, notification_events.kf_grant, account_id=int(before[0]), kb_iri=entry.actor, given=False)
 
 
 HANDLERS: dict[str, journal.Handler] = {

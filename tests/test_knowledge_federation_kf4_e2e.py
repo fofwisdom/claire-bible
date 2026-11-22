@@ -104,6 +104,19 @@ def remote_targets(world: KfWorld, name: str, number: str) -> list[dict]:
     return [target for item in submission.json()["items"] for target in item["targets"] if target.get("remote")]
 
 
+def _notifications(server, account_id: int) -> list[tuple[str, str, str]]:
+    """The notifications of one account on one server, the oldest first: kind, entry address, and variant."""
+    import json
+
+    from claire.store import client_db
+
+    conn = client_db.connect_client_existing(client_db.client_db_path(server.settings.db_file), readonly=True)
+    try:
+        return [(str(r[0]), str(r[1]), json.loads(r[2]).get("variant", "")) for r in conn.execute("SELECT kind, target_path, params_json FROM notifications WHERE account_id=? ORDER BY id", (account_id,))]
+    finally:
+        conn.close()
+
+
 def test_kf4_contribution_across_servers_with_approval_then_a_grant_then_a_revoke(servers, no_llm) -> None:  # noqa: F811
     a, b = servers
     ben_actor = actor_of(a, BEN)
@@ -160,6 +173,8 @@ def test_kf4_contribution_across_servers_with_approval_then_a_grant_then_a_revok
     assert approved.status_code == 200 and approved.json()["contribution"]["state"] == "visible", approved.text
     assert b.db(lambda conn: {row[0] for row in conn.execute("SELECT name FROM entities WHERE kb_id=?", (cities["id"],))}) == {"Korea", "Seoul", "Busan"} and no_llm == []
     assert sidecar_delivers(b, a) == [("accept_offer", "processed")]
+    # The account that sent the offer gets a notification with the entry address of its submissions (PWA_NOTIFICATION_DESIGN.md kind kf_offer_answered).
+    assert _notifications(a, BEN) == [("kf_offer_answered", "/settings/kb?tab=subs", "accepted")]
     # Criterion: the submission page on A shows the decision.
     (target,) = remote_targets(a, "ben", submission_1)
     result_iri = f"{kb_actor}/documents/{pending['number']}"
@@ -184,6 +199,7 @@ def test_kf4_contribution_across_servers_with_approval_then_a_grant_then_a_revok
     assert listed_grants.status_code == 200, (listed_grants.status_code, listed_grants.text[:300])
     assert [g["id"] for g in listed_grants.json()["grants"]] == [grant["id"]]
     assert sidecar_delivers(b, a) == [("grant", "processed")]
+    assert _notifications(a, BEN)[-1] == ("kf_grant", "/settings/kb?tab=mem", "given")
     (received,) = a.client.get("/api/kb/remote-grants", headers=a.headers("ben")).json()["grants"]
     assert (received["grant"], received["knowledge_base"], received["server"], received["remote_id"], received["label"], received["state"]) == (grant["grant"], kb_actor, "b.example", remote_id, "Cities", "active")
     assert a.client.get("/api/kb/remote-grants", headers=a.headers("ann")).json()["grants"] == []

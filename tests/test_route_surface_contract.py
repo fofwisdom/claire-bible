@@ -34,6 +34,8 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
+       # Notifications and Web Push of the account (PWA_NOTIFICATION_DESIGN.md PN5)
+       "/api/me/notifications", "/api/me/notifications/read", "/api/me/push", "/api/me/push/subscriptions", "/api/me/push/kinds/{kind}", "/api/me/push/test",
        "/api/federation/status", "/api/federation/followers", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
        # Federation client (FP4-5)
        "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/api/federation/timeline/{item_id}/context", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
@@ -77,7 +79,7 @@ SYSTEM = {
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
     "/admin/plugins", "/api/admin/plugins", "/api/admin/plugins/{id}",
-    "/settings/telegram", "/settings/bundles", "/settings/backups", "/settings/federation",
+    "/settings/telegram", "/settings/notifications", "/settings/bundles", "/settings/backups", "/settings/federation",
     "/settings", "/settings/account", "/settings/invites", "/settings/keys", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/settings/tokens",
     "/moderation", "/moderation/kb", "/moderation/kb/{kb_number:int}", "/moderation/oversight", "/moderation/themes",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",

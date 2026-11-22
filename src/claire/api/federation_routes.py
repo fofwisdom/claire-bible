@@ -45,6 +45,7 @@ from ..store import federation_quotes as quotes_store
 from ..store.secrets import get_secret_service
 from ..i18n import catalog as i18n_catalog
 from ..i18n.resolver import resolve_bot_locale
+from ..notifications import events as notification_events
 from .collections import parse_collection_query
 
 __all__ = [
@@ -879,7 +880,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             if account is None:
                 return rejected("not_an_actor")
             # The follower key is (account_id, actor_iri). A repeated ``Follow`` keeps the row and gives the same decision.
-            federation_store.upsert_follower(conn, account_id=account.id, actor_iri=event.actor.iri, inbox_iri=event.actor.inbox, shared_inbox_iri=event.actor.shared_inbox, salt=store.id_salt(), now=now())
+            _follower, new_follower = federation_store.upsert_follower(conn, account_id=account.id, actor_iri=event.actor.iri, inbox_iri=event.actor.inbox, shared_inbox_iri=event.actor.shared_inbox, salt=store.id_salt(), now=now())
+            if new_follower:
+                notification_events.ap_follower(settings.db_file, account_id=account.id, actor_iri=event.actor.iri)
             return InboxEventResponse(decision="accepted", reply="accept", reason=None)
         # ``Undo(Follow)``: a paused account also loses the follower. Pause keeps followers, but it must not keep one that left.
         account = store.find_by_public_id(int(target))
@@ -903,8 +906,11 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             found = client_store.following_for_response(client, account.id, following_id, event.actor.iri)
             if found is None:
                 return ignored
-            client_store.set_following_state(client, found.id, "accepted" if event.type == "Accept" else "rejected", now=now())
+            answer_state = "accepted" if event.type == "Accept" else "rejected"
+            client_store.set_following_state(client, found.id, answer_state, now=now())
             client.commit()
+            if found.state != answer_state:
+                notification_events.ap_follow_answered(settings.db_file, account_id=account.id, actor_iri=event.actor.iri, accepted=event.type == "Accept")
         finally:
             client.close()
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
@@ -976,8 +982,10 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         def _apply() -> InboxEventResponse:
             store = accounts_store.AccountStore(dbm.connect_existing(settings.db_file))
             try:
-                decision = _decide(store, origin, event)
-                store.conn.commit()
+                # The events of the decision make their notifications after the commit (PWA_NOTIFICATION_DESIGN.md PN2 rule 2).
+                with notification_events.after_commit():
+                    decision = _decide(store, origin, event)
+                    store.conn.commit()
                 return decision
             finally:
                 store.conn.close()
@@ -1041,6 +1049,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         window = float(client_store.get_reading_settings(store.conn)["auto_reply_hours"]) * 3600.0
         actor_ids = set(_actor_account_ids(store))
         notices: list[TimelineNotice] = []
+        told: list[int] = []
         for iri in dict.fromkeys(event.mentioned):
             public_id = _local_actor_public_id(origin, iri)
             account = None if public_id is None else store.find_by_public_id(int(public_id))
@@ -1050,6 +1059,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 locale = resolve_bot_locale(owner_locale=account.locale, language_code=None, settings_lang=getattr(settings, "ui_lang", None))
                 text = i18n_catalog.t("federation.auto_reply.text", locale=locale)
                 notices.append(TimelineNotice(actor_public_id=str(account.public_id), content=f"<p>{_html.escape(text)}</p>", language=locale))
+                told.append(account.id)
+        if told:
+            notification_events.ap_private_message(settings.db_file, account_ids=told, actor_iri=event.actor.iri)
         return notices
 
     def _decide_timeline(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> TimelineEventResponse:
@@ -1117,6 +1129,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             expected = parent.in_reply_to
         made = 0
         limited = 0
+        new_mentions: list[int] = []
         for account_id in accounts:
             mention = account_id in mentioned
             if mention and account_id not in followers:
@@ -1131,9 +1144,14 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 parent_author = parents[0].author.iri if parents else client_store.timeline_item_author(client, account_id, obj.in_reply_to)
                 own_actor = f"{origin}/ap/actors/{store.get(account_id).public_id}"
                 in_timeline = _own_object(store, origin, account_id, obj.in_reply_to) or (parent_author is not None and (parent_author in (obj.author.iri, own_actor) or client_store.is_following(client, account_id, parent_author)))
-            made += client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=announced_by, in_timeline=in_timeline, now=now(), mention=mention)
+            new_item = client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=announced_by, in_timeline=in_timeline, now=now(), mention=mention)
+            made += new_item
+            if new_item and mention:
+                new_mentions.append(account_id)
             for parent in parents:
                 client_store.upsert_timeline_item(client, account_id=account_id, item=parent.model_dump(mode="json"), announced_by=None, in_timeline=False, now=now())
+        if new_mentions:
+            notification_events.ap_mention(settings.db_file, account_ids=new_mentions, actor_iri=obj.author.iri)
         if limited == len(accounts):
             return answer("ignored", "rate_limited")
         return answer("accepted", None, made)
@@ -1149,8 +1167,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             store = _open_store()
             client = _client()
             try:
-                decision = _decide_timeline(store, client, origin, event)
-                client.commit()
+                with notification_events.after_commit():
+                    decision = _decide_timeline(store, client, origin, event)
+                    client.commit()
                 return decision
             finally:
                 client.close()

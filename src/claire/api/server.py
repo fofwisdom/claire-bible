@@ -56,6 +56,7 @@ from ..collaboration import contributions
 from ..collaboration import theme_judgement
 from ..collaboration import reputation
 from ..collaboration import auto_contribution
+from ..notifications import events as notification_events
 from ..accounts import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -113,20 +114,6 @@ _kb_acting_account: contextvars.ContextVar[int | None] = contextvars.ContextVar(
 # 계정 자동 백업 주기 검사(초). 백업 주기 자체는 계정 정책(매일·매주)이 정한다.
 ACCOUNT_BACKUP_SCHEDULER_START_DELAY = 60.0
 ACCOUNT_BACKUP_SCHEDULER_INTERVAL = 600.0
-_SW_JS_CONTENT: str = (
-    "// Claire PWA Network-Passthrough Service Worker\n"
-    "self.addEventListener('install', (event) => {\n"
-    "  self.skipWaiting();\n"
-    "});\n"
-    "\n"
-    "self.addEventListener('activate', (event) => {\n"
-    "  event.waitUntil(self.clients.claim());\n"
-    "});\n"
-    "\n"
-    "self.addEventListener('fetch', (event) => {\n"
-    "  event.respondWith(fetch(event.request));\n"
-    "});\n"
-)
 _IMAGE_PATH_RE = re.compile(
     r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif)$"
 )
@@ -1271,8 +1258,10 @@ def create_app(
         """A new shared knowledge base: each mutual collaborator of the founder becomes a collaborator at once (design Section 9.10 rule 2), then the automatic rules run (Section 9.9 rule 4: a new shared knowledge base with seed entities)."""
         conn = dbm.connect_existing(s.db_file)
         try:
-            auto_contribution.grant_mutual_collaborators(conn, kb_id=kb_id, founder_account_id=founder_account_id)
+            granted = auto_contribution.grant_mutual_collaborators(conn, kb_id=kb_id, founder_account_id=founder_account_id)
             conn.commit()
+            if granted:
+                notification_events.kb_role_given(s.db_file, kb_id=kb_id, account_ids=granted, role="collaborator", actor_account_id=founder_account_id)
         finally:
             conn.close()
         _auto_run_all()
@@ -1421,6 +1410,8 @@ def create_app(
                 if created:
                     kb_collab.add_membership(conn, kb_id=kb.id, account_id=account_id, role="member", state="active" if kb.join_policy == "open" else "pending")
                     conn.commit()
+                    if kb.join_policy != "open":
+                        notification_events.kb_join_request(s.db_file, kb_id=kb.id, actor_account_id=account_id)
                 row = _member_row(conn, kb.id, account_id)
                 assert row is not None
                 return _member_view(row, mode=mode), created
@@ -1554,6 +1545,10 @@ def create_app(
                     kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role=role, decided_by_account_id=actor_id)
                 kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action=log_action, target=ids.format_public_id(target.public_id), reason=reason)
                 conn.commit()
+                if action == "approve":
+                    notification_events.kb_join_approved(s.db_file, kb_id=kb.id, account_id=target.id, actor_account_id=actor_id)
+                elif role == "collaborator" and (current is None or current["role"] != "collaborator"):
+                    notification_events.kb_role_given(s.db_file, kb_id=kb.id, account_ids=[target.id], role="collaborator", actor_account_id=actor_id)
                 row = _member_row(conn, kb.id, target.id)
                 return None if row is None else _member_view(row, mode=mode)
             finally:
@@ -1592,6 +1587,8 @@ def create_app(
                     kb_collab.update_membership(conn, kb_id=kb.id, account_id=target.id, role="member", decided_by_account_id=actor_id)
                 kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=actor_id, action="moderator_give" if give else "moderator_remove", target=ids.format_public_id(target.public_id))
                 conn.commit()
+                if give and (current is None or current["role"] != "moderator" or current["state"] != "active"):
+                    notification_events.kb_role_given(s.db_file, kb_id=kb.id, account_ids=[target.id], role="moderator", actor_account_id=actor_id)
                 row = _member_row(conn, kb.id, target.id)
                 assert row is not None
                 return _member_view(row, mode=mode), target.id
@@ -2155,6 +2152,9 @@ def create_app(
                     conn.rollback()
                     return JSONResponse({"error": exc.code}, status_code=exc.status)
                 conn.commit()
+                if action in ("approve", "reject"):
+                    decided = kb_collab.get_contribution(conn, number)
+                    notification_events.kb_contribution_decided(s.db_file, kb_id=kb.id, contributor_account_id=None if decided is None else decided["contributor_account_id"], decision="approved" if action == "approve" else "rejected", actor_account_id=actor)
             finally:
                 conn.close()
             if action == "approve":
@@ -2179,6 +2179,8 @@ def create_app(
             conn = dbm.connect_existing(s.db_file)
             try:
                 contributions.remove(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id), reason=body.get("reason", ""))
+                removed = kb_collab.get_contribution(conn, number)
+                notification_events.kb_contribution_decided(s.db_file, kb_id=kb.id, contributor_account_id=None if removed is None else removed["contributor_account_id"], decision="removed", actor_account_id=principal.account_id)
             except contributions.ContributionError as exc:
                 return JSONResponse({"error": exc.code}, status_code=exc.status)
             finally:
@@ -2822,6 +2824,7 @@ def create_app(
                 except ValueError:
                     return JSONResponse({"error": "mutual_exists"}, status_code=409)
                 conn.commit()
+                notification_events.mutual_requested(s.db_file, requester_account_id=account_id, other_account_id=int(other))
                 return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}, status_code=201)
             finally:
                 conn.close()
@@ -2847,6 +2850,7 @@ def create_app(
                 conn.commit()
                 made = 0
                 if accept:
+                    notification_events.mutual_accepted(s.db_file, accepter_account_id=account_id, requester_account_id=int(other))
                     # Section 9.9 rule 4: when a mutual collaboration starts, the rules of the two accounts run.
                     made = auto_contribution.run_account(conn, account_id, origin=_auto_origin()) + auto_contribution.run_account(conn, int(other), origin=_auto_origin())
                 return JSONResponse({"ok": True, "mutual_collaborations": _mutual_view(conn, account_id)}), bool(made)
@@ -4811,7 +4815,9 @@ def create_app(
         }
         if request.method == "HEAD":
             return Response(status_code=200, headers=headers, media_type="application/javascript")
-        return Response(content=_SW_JS_CONTENT, status_code=200, headers=headers, media_type="application/javascript")
+        # The service worker is the static file js/sw.js. The route sends it from the root path, thus its scope is "/" (PWA_NOTIFICATION_DESIGN.md PN4 rule 1).
+        content = await asyncio.to_thread((get_web_ui_renderer().static_dir / "js" / "sw.js").read_bytes)
+        return Response(content=content, status_code=200, headers=headers, media_type="application/javascript")
 
     async def icon_file_route(request: Request) -> Response:
         rel = request.query_params.get("p", "") or request.query_params.get("name", "")
@@ -7172,11 +7178,14 @@ def create_app(
         from ..federation.media_proxy import run_cleanup_scheduler as _media_cleanup_scheduler
 
         media_cleanup_task = asyncio.create_task(_media_cleanup_scheduler(s))
+        from ..notifications.sender import run_scheduler as _web_push_scheduler
+
+        web_push_task = asyncio.create_task(_web_push_scheduler(s))
         try:
             async with mcp_app.router.lifespan_context(mcp_app):
                 yield
         finally:
-            for task in (backup_task, feed_task, media_cleanup_task):
+            for task in (backup_task, feed_task, media_cleanup_task, web_push_task):
                 task.cancel()
                 try:
                     await task

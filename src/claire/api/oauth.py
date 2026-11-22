@@ -509,9 +509,12 @@ async def _parse_request_params(request: Request) -> dict[str, Any]:
 
 
 async def _maybe_notify_write_grant(request: Request, conn: Any, account_id: int, client_name: str) -> None:
-    """Send optional non-blocking Telegram notification when an account approves a write OAuth grant."""
+    """Tell the account that it approved a write OAuth grant: a notification (PWA_NOTIFICATION_DESIGN.md kind ``agent_write_grant``) and an optional non-blocking Telegram message."""
     try:
         settings = getattr(request.app.state, "settings", None) or get_settings()
+        from ..notifications import events as notification_events
+
+        notification_events.agent_write_grant(settings.db_file, account_id=account_id, client=client_name)
         config = getattr(request.app.state, "runtime_config", None)
         account = accounts_store.AccountStore(conn).get(account_id)
         deliveries: list[tuple[str, int]] = []

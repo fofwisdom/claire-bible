@@ -38,7 +38,8 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 # v4 (유저 단위 기능): ``account_telegram_bots``(계정별 텔레그램 봇)와 ``account_backup_policies``(계정 백업 주기)를 더한다.
 # v5 (Fedify sidecar FP1-2): adds ``actor_keys`` (federation actor key pairs, ``store/actor_keys.py``). The design document names this change "auth.db version 4" because it was written before v4 was used.
 # v6 (key decryption audit, owner decision 2026-11-19): adds ``provider_key_decryptions`` (one row for each minute, account, key, process, and purpose; kept 31 days, ``store/provider_keys.py``).
-AUTH_DB_SCHEMA_VERSION = 6
+# v7 (PWA notifications PN1, 2026-11-22): adds ``server_key_pairs`` (key pairs of the server that are not actor keys; the first is the VAPID pair of Web Push, ``store/notifications.py``).
+AUTH_DB_SCHEMA_VERSION = 7
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -558,6 +559,14 @@ CREATE TABLE IF NOT EXISTS actor_keys (
     key_version INTEGER NOT NULL,
     created_at REAL NOT NULL,
     PRIMARY KEY (account_id, alg)
+);
+CREATE TABLE IF NOT EXISTS server_key_pairs (
+    name TEXT PRIMARY KEY,
+    public_key TEXT NOT NULL,
+    private_ciphertext BLOB NOT NULL,
+    private_nonce BLOB NOT NULL,
+    key_version INTEGER NOT NULL,
+    created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS provider_key_decryptions (
     account_id INTEGER NOT NULL,

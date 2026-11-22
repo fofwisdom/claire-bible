@@ -220,6 +220,8 @@ def test_e2e_quote_requests_for_own_objects_follow_the_quote_policy(env):
     policy("manual")
     assert ask(YURI, 4) == {"decision": "accepted", "reason": None, "state": "pending"}
     assert ask(STRANGER, 5)["state"] == "pending"
+    # Only the requests that wait for the owner make a notification; the two requests are one notification with the count 2 (PWA_NOTIFICATION_DESIGN.md kind ap_quote_request).
+    assert _client_rows(env.settings, "SELECT account_id, kind, count, target_path FROM notifications WHERE kind='ap_quote_request'") == [(env.alpha, "ap_quote_request", 2, "/syndication?stage=collect")]
     listed = c.request("GET", QUOTES, session=env.alpha_session).json()
     assert listed["counts"] == {"pending": 2, "approved": 2}
     assert [(q["quoting_object"], q["quoting_actor"], q["state"], q["object"]["kind"], q["object"]["text"]) for q in listed["requests"]] == [(f"{STRANGER}/notes/5", STRANGER, "pending", "note", "Quote me"), (f"{YURI}/notes/4", YURI, "pending", "note", "Quote me")]

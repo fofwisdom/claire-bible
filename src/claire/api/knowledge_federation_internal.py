@@ -43,6 +43,7 @@ from ..federation.knowledge import collections as kf_collections
 from ..federation.knowledge import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
 from ..store import actor_keys, auth_db, kb_collab
 from ..store import db as dbm
+from ..notifications import events as notification_events
 from ..store.secrets import get_secret_service
 from .federation_routes import _MAX_IRI_LENGTH, ActorKey, ActorKeysResponse, _error, _json, _not_found, _Sealed
 
@@ -472,7 +473,9 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         def _apply() -> journal.Receipt:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                return journal.receive(conn, activity=body.activity, signer=body.signer, verified_by=body.verified_by, recipient=body.recipient, origin=canonical, now=now())
+                # The handlers call notification events in a savepoint; the events run after the journal committed (PWA_NOTIFICATION_DESIGN.md PN2 rule 2).
+                with notification_events.after_commit():
+                    return journal.receive(conn, activity=body.activity, signer=body.signer, verified_by=body.verified_by, recipient=body.recipient, origin=canonical, now=now())
             finally:
                 conn.close()
 

@@ -19,6 +19,16 @@
   <div class="appbar-end" id="__END_ID__">
     __INGEST_CONTROL_HTML__
     __END_EXTRA_HTML__
+    <button type="button" id="notifybtn" class="bar-icon-btn notify-btn" commandfor="pop-notify" command="toggle-popover" aria-haspopup="true" aria-expanded="false" data-i18n-title="nav.notify.open" title="${t:nav.notify.open}" aria-label="${t:nav.notify.open}" hidden><span data-icon="bell"></span><span class="notify-count" id="notify-count" aria-hidden="true" hidden></span></button>
+    <div id="pop-notify" popover="auto" class="app-popover app-popover-end notify-pop" aria-labelledby="notify-title">
+      <div class="notify-head">
+        <strong id="notify-title" data-i18n="nav.notify.title">${t:nav.notify.title}</strong>
+        <button type="button" id="notify-read-all" class="notify-link" data-i18n="nav.notify.read_all" hidden>${t:nav.notify.read_all}</button>
+      </div>
+      <div id="notify-list" class="notify-list" role="list"></div>
+      <p id="notify-empty" class="notify-empty" data-i18n="nav.notify.empty" hidden>${t:nav.notify.empty}</p>
+      <a id="notify-settings" class="notify-foot" href="/settings/notifications" data-i18n="nav.notify.settings">${t:nav.notify.settings}</a>
+    </div>
     <button type="button" id="themebtn" class="bar-icon-btn" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" title="${t:nav.theme_toggle}" aria-label="${t:nav.theme_toggle}" data-icon="moon"></button>
     <a id="homelinkbtn" class="bar-icon-btn" href="__HOME_HREF__"__HOME_ONCLICK_ATTR____HOME_CURRENT_ATTR__ data-i18n-title="nav.home_aria" data-i18n-aria-label="nav.home_aria" title="${t:nav.home_aria}" aria-label="${t:nav.home_aria}" data-icon="home"></a>
     <a id="syndlink" class="bar-icon-btn" href="__SYND_HREF__"__SYND_HIDDEN_ATTR____SYND_CURRENT_ATTR____SYND_EXTRA_ATTRS__ data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication" title="${t:nav.syndication}" aria-label="${t:nav.syndication}" data-icon="inbox"></a>

@@ -80,9 +80,13 @@ def test_e2e_mentions_and_replies_of_actors_that_are_not_followed(env):
     reply = f"{ZED}/notes/1"
     assert _timeline(env, _event("Create", ZED, _object(reply, ZED, in_reply_to=OBJECT))) == {"decision": "accepted", "reason": None, "items": 1, "notices": []}
     assert _mentions(env) == [(env.alpha, reply, 1, 1)]
+    # The owner of the document gets a notification with the entry address of the client view (PWA_NOTIFICATION_DESIGN.md kind ap_mention).
+    told = "SELECT account_id, kind, count, target_path FROM notifications ORDER BY id"
+    assert _client_rows(env.settings, told) == [(env.alpha, "ap_mention", 1, "/syndication?stage=collect")]
     # The same event again makes no second item.
     assert _timeline(env, _event("Create", ZED, _object(reply, ZED, in_reply_to=OBJECT)))["items"] == 0
     assert len(_mentions(env)) == 1
+    assert _client_rows(env.settings, told) == [(env.alpha, "ap_mention", 1, "/syndication?stage=collect")]
     # A public mention of an account makes one item for that account only.
     mention = f"{ZED}/notes/2"
     assert _timeline(env, _event("Create", ZED, _object(mention, ZED), mentioned=[BETA_ACTOR]))["items"] == 1
@@ -192,9 +196,13 @@ def test_e2e_automatic_notice_for_a_non_public_message(env):
     # The first non-public message of a sender gets one notice from the account, in the locale of the account. No item and no content is stored.
     assert private(ZED, 1) == {"decision": "ignored", "reason": "not_public", "items": 0, "notices": [{"actor_public_id": str(ALPHA_PUBLIC_ID), "content": english, "language": "en"}]}
     assert _client_rows(env.settings, "SELECT COUNT(*) FROM federation_timeline_items") == [(0,)]
+    # The account gets a notification for the message that got a notice (PWA_NOTIFICATION_DESIGN.md kind ap_private_message).
+    told = "SELECT account_id, kind, count FROM notifications ORDER BY id"
+    assert _client_rows(env.settings, told) == [(env.alpha, "ap_private_message", 1)]
     # The second message in auto_reply_hours gets no notice. Claire counts it.
     assert private(ZED, 2)["notices"] == []
     assert rows() == [(env.alpha, ZED, 2)]
+    assert _client_rows(env.settings, told) == [(env.alpha, "ap_private_message", 1)]
     # Another sender gets its own notice. The account has the Korean locale now.
     _db(env.settings, lambda conn: accounts_store.AccountStore(conn).update_locale(env.alpha, "ko"))
     assert private(YURI, 1)["notices"] == [{"actor_public_id": str(ALPHA_PUBLIC_ID), "content": korean, "language": "ko"}]

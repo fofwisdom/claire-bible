@@ -158,3 +158,25 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
   .appbar-end .bar-ingest-btn{min-width:36px;min-height:36px;height:36px;padding:0 8px}
   .appbar-end .bar-ingest-btn .btn-label{display:none}
 }
+/* Notification bell and list (docs/design/PWA_NOTIFICATION_DESIGN.md PN4 rule 2) */
+.notify-btn{position:relative}
+.notify-count{position:absolute;top:-4px;inset-inline-end:-4px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--accent);color:var(--bg);font-size:10px;font-weight:700;line-height:16px;text-align:center;pointer-events:none}
+.notify-count[hidden]{display:none}
+.app-popover.notify-pop{width:min(360px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));padding:0}
+.notify-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.notify-link{background:transparent;border:0;padding:2px 4px;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;border-radius:4px}
+.notify-link:hover,.notify-link:focus-visible{text-decoration:underline}
+.notify-link[hidden]{display:none}
+.notify-list{display:flex;flex-direction:column;max-height:min(60vh,420px);overflow-y:auto}
+.notify-item{display:grid;grid-template-columns:8px 1fr;gap:2px 8px;padding:9px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--fg);font:inherit;text-align:start;text-decoration:none;cursor:pointer}
+.notify-item:hover,.notify-item:focus-visible{background:var(--hover)}
+.notify-item-dot{grid-row:1 / span 3;align-self:start;width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--accent)}
+.notify-item.is-read .notify-item-dot{background:transparent}
+.notify-item.is-read .notify-item-title{font-weight:400}
+.notify-item-title{grid-column:2;font-weight:600;font-size:13px}
+.notify-item-body{grid-column:2;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+.notify-item-meta{grid-column:2;font-size:11.5px;color:var(--muted,var(--fg))}
+.notify-empty{margin:0;padding:18px 12px;text-align:center;font-size:12.5px;color:var(--muted,var(--fg))}
+.notify-empty[hidden]{display:none}
+.notify-foot{display:block;padding:9px 12px;font-size:12.5px;color:var(--accent);text-decoration:none;text-align:center}
+.notify-foot:hover,.notify-foot:focus-visible{text-decoration:underline}

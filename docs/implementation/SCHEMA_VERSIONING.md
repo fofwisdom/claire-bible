@@ -202,7 +202,7 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 받은 게시물, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 8`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 받은 게시물, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 9`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
   - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`(v8에서 제거), `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
   - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
   - **v3 (FP4-7)**: `federation_media_cache`(원격 미디어 캐시 기록, 키 `url_hash`, 설계 §7.2). 계정 열이 없고 모든 계정이 함께 쓴다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
@@ -211,18 +211,20 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
   - **v6 (FP4-9Q)**: `federation_notes`에 인용 열 `quote_of_iri`, `quote_author_iri`, `quote_state`(`pending`, `approved`, `refused`, `revoked` 또는 NULL), `quote_authorization_iri`, `quote_policy`(기본값 `public`)를 `ALTER TABLE ... ADD COLUMN`으로 더한다(열이 없을 때만, 재구성 없음). v5의 행은 인용이 없고 정책은 `public`이다. 새 테이블 `federation_quote_authorizations`(자기 객체에 대한 원격 인용 요청과 그 결과, 키 `id`, 유일 `(object_public_id, quoting_object_iri)`, 객체 소유 계정 `account_id`, 요청 활동 ID `request_iri`)와 인덱스 `idx_federation_quote_authorizations_account`. 설계 §5.4 규칙 5·6, §6.6 규칙 5, §7.1. 이관은 기동 때 스스로 끝나며, 모르는 테이블과 행은 그대로 둔다. 테스트: `tests/test_federation_quotes.py`.
   - **v7 (CT-0)**: 열 `linked_theme_id`를 값과 함께 `linked_kb_id`로 바꾼다(`_migrate_v7_linked_kb_id`, `ALTER TABLE ... RENAME COLUMN`). 다른 단계가 새 이름을 쓰므로 이 단계를 맨 먼저 실행한다. 멱등이다. 테스트: `tests/test_schema_v27.py`.
   - **v8 (2026-11-18)**: `federation_account_settings`를 지운다(`_migrate_v8_drop_account_settings`). 받은 게시물 보존 기간은 서버 관리자의 고유 권한이므로(소유자 결정) 계정 값이 없고, 보존 실행은 모든 계정에 서버 값을 쓴다. 지운 계정 값의 개수를 경고 로그로 남긴다. 멱등이다. 테스트: `tests/test_client_db.py`.
+  - **v9 (PN1, 2026-11-22)**: 알림과 웹 푸시 테이블 `notifications`(부분 유일 인덱스 `idx_notifications_group`: 읽지 않은 행의 `(account_id, kind, group_key)`), `push_subscriptions`(유일 `endpoint`), `push_queue`(키 `(notification_id, subscription_id)`), `notification_push_off`(키 `(account_id, kind)`), `notification_scan_seen`(키 `(scope, item_id)`)을 더한다(`_migrate_v9`). 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다. 계정 퍼지가 앞의 네 테이블에서 그 계정 행을 지운다([NOTIFICATIONS.md](NOTIFICATIONS.md) §3). 테스트: `tests/test_notifications.py`.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 
 ### 별도 저장소: `data/auth/auth.db`
 
-- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 6`다. 이 번호는 위 지식 DB version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
+- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 7`다. 이 번호는 위 지식 DB version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
   - **v1 (P1/P3)**: 계정 자격증명(`auth_secrets`), 초대(`invitations`, `invitation_redemptions`), 사용량(`account_usage`), 로그인 스로틀(`login_throttle`), 단기 OIDC 상태(`oidc_states`).
   - **v2 (P4)**: `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열 추가(설계 §10.3, §13.3).
   - **v3 (P5)**: `oidc_states`에 계정 연결용 `account_id` 열 추가, 외부 IdP 계정 연결 테이블 `account_identities` 연동(설계 §12, §13.3).
   - **v4 (유저 단위 기능)**: 계정별 텔레그램 봇 `account_telegram_bots`와 계정 백업 주기 `account_backup_policies` 테이블 추가.
   - **v5 (Fedify 사이드카 FP1-2)**: 연합 액터 키 테이블 `actor_keys` 추가. 기본 키는 `(account_id, alg)`이고 `account_id` 0은 서버 액터다. `alg`는 `rsa2048`·`ed25519`만 받는다. 개인 키는 `SecretService`가 AAD `actor_key|{account_id}|{alg}`로 암호화한다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6, `tests/test_actor_keys.py`). 설계 문서는 이 변경을 "auth.db version 4"라고 적었지만, 설계 작성 뒤에 v4가 먼저 쓰여서 코드에서는 v5다.
   - **v6 (key decryption audit, 2026-11-19)**: adds the table `provider_key_decryptions` (primary key `account_id, provider, fingerprint, process, purpose, minute`; `count`, `first_at`, `last_at`) and the index on `last_at`. `CREATE TABLE IF NOT EXISTS` makes it in an older file; no data changes. See [ACCOUNTS.md](ACCOUNTS.md) §5.8.
+  - **v7 (PWA notifications PN1, 2026-11-22)**: adds the table `server_key_pairs` (primary key `name`; `public_key`, `private_ciphertext`, `private_nonce`, `key_version`, `created_at`): key pairs of the server that are not actor keys. The row `webpush_vapid` is the VAPID pair of Web Push; `SecretService` encrypts the private key with the additional data `server_key|webpush_vapid`, and the first use makes the row (`store/notifications.py`, [NOTIFICATIONS.md](NOTIFICATIONS.md) §3). `CREATE TABLE IF NOT EXISTS` makes it in an older file; no data changes.
 - **[코드]** 저장된 값이 5보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
 - **[코드]** 예전 연합 스위치 `server_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `server_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 2026-11-22에 스위치를 없앴다(연합은 끌 수 없는 고유 기능, 결정 GD4). 스키마는 바뀌지 않았고, 남아 있는 `federation` 행은 읽지 않는다([FEDERATION.md](FEDERATION.md) §7.1).

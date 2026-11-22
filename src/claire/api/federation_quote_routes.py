@@ -33,6 +33,7 @@ from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from ..store import federation_quotes as quotes_store
+from ..notifications import events as notification_events
 from .federation_routes import _MAX_IRI_LENGTH, _NO_STORE, MENTION_RATE_WINDOW_SECONDS, InboxActor, _error, _json, _local_object_public_id, _not_found, _remote_host, _Sealed
 
 __all__ = ["QUOTE_REQUEST_FRAGMENT", "QuoteAuthorizationRecord", "QuoteEventRequest", "QuoteEventResponse", "quote_internal_routes", "quoted_object"]
@@ -127,7 +128,8 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             return answer("rejected", "invalid_object")
         if event.recipient_public_id is not None and event.recipient_public_id != str(store.get(account_id).public_id):
             return answer("rejected", "recipient_mismatch")
-        if quotes_store.find_authorization(client, public_id, event.instrument_iri) is None:
+        new_request = quotes_store.find_authorization(client, public_id, event.instrument_iri) is None
+        if new_request:
             # RS9: the requests of one remote domain for one account have the limit of the mentions (``mention_rate_per_hour``).
             rate = int(client_store.get_reading_settings(store.conn)["mention_rate_per_hour"])
             recent = quotes_store.recent_request_actors(client, account_id, since=now() - MENTION_RATE_WINDOW_SECONDS)
@@ -137,6 +139,9 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
         row = quotes_store.decide_request(client, account_id=account_id, object_public_id=public_id, quoting_object_iri=event.instrument_iri, quoting_actor_iri=event.actor.iri, request_iri=event.event_id, policy=policy, follower=follower, now=now())
         if row is None:
             return answer("rejected", "invalid_object")
+        if new_request and row.state == "pending":
+            # The request waits for the manual approval of the owner (PWA_NOTIFICATION_DESIGN.md kind ``ap_quote_request``).
+            notification_events.ap_quote_request(settings.db_file, account_id=account_id, actor_iri=event.actor.iri)
         return answer("accepted", None, row.state) if row.state in ("approved", "pending") else answer("rejected", "quote_refused", row.state)
 
     def _answer(client: Any, canonical: str, event: QuoteEventRequest) -> QuoteEventResponse:
@@ -159,6 +164,8 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             authorization = body.iri
         result = quotes_store.apply_quote_answer(client, public_id, author_iri=event.actor.iri, approved=event.type == "Accept", authorization_iri=authorization, now=now())
         state = "approved" if event.type == "Accept" else "refused"
+        if result == "changed":
+            notification_events.ap_quote_answered(settings.db_file, account_id=note.account_id, actor_iri=event.actor.iri, approved=event.type == "Accept")
         return answer("accepted", None, state if result == "changed" else None)
 
     def _decide(store: Any, client: Any, canonical: str, event: QuoteEventRequest) -> QuoteEventResponse:
@@ -181,8 +188,9 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             store = open_store()
             client = open_client()
             try:
-                decision = _decide(store, client, canonical, event)
-                client.commit()
+                with notification_events.after_commit():
+                    decision = _decide(store, client, canonical, event)
+                    client.commit()
                 return decision
             finally:
                 client.close()

@@ -1408,6 +1408,10 @@ def submit_client_extraction(
         finally:
             hook_conn.close()
 
+    from ..notifications import events as notification_events
+
+    notification_events.agent_extraction_done(db_path, kb_id=int(kb_id), document_id=doc_id, agent=claimed_by)
+
     return {
         "ok": True,
         "dry_run": False,
