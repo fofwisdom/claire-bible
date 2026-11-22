@@ -126,6 +126,8 @@ def test_graph_html_self_contained_markers():
     assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert 'id="authstate"' not in GRAPH_HTML and 'id="hamburger-btn"' in GRAPH_HTML and 'id="pop-hamburger-menu"' in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
+    assert 'id="dedupbtn"' in GRAPH_HTML and 'onclick="openDedup()"' in GRAPH_HTML and 'menu-danger-sep' in GRAPH_HTML
+    assert 'id="purgebtn"' in GRAPH_HTML and 'onclick="openPurge()"' in GRAPH_HTML and 'id="modal-dedup"' in GRAPH_HTML and 'id="modal-purge"' in GRAPH_HTML
     assert '<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML

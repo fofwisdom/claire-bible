@@ -371,3 +371,118 @@ def test_e2e_direct_docx_and_multipart_file_staging_then_extraction(claire_facto
     assert mp_resp.status_code == 200, mp_resp.text
     mp_data = mp_resp.json()
     assert mp_data["ok"] is True and mp_data["extraction_status"] == "pending" and mp_data["source_type"] == "file"
+
+
+def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
+    env: ClaireTestEnv = claire_factory()
+    conn = sqlite3.connect(env.db_path)
+    try:
+        accounts_store.AccountStore(conn).update_extraction_mode(env.alice.account_id, "client")
+        conn.commit()
+    finally:
+        conn.close()
+
+    oauth_client = register_oauth_client(env.client, client_name="Reingest Agent E2E")
+    write_tok = run_oauth_pkce_flow(
+        env.client,
+        origin=env.public_url,
+        username=env.alice.username,
+        password=env.alice.password,
+        client_id=oauth_client["client_id"],
+        client_secret=oauth_client["client_secret"],
+        scope="readonly write",
+        step_up_password=env.alice.password,
+    )["access_token"]
+    auth_hdr = {"Authorization": f"Bearer {write_tok}"}
+
+    source_text = "Claire Bible MCP pipeline supports deterministic re-ingestion and regeneration."
+    _, s1_res = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "title": "Reingest E2E Note", "full_content": True})
+    s1 = _extract_mcp_json(s1_res)
+    doc_id = s1["document_id"]
+    content_hash = s1["content_hash"]
+
+    _, c1_res = mcp_call(env.client, write_tok, "extract_claim", {"document_id": doc_id})
+    c1 = _extract_mcp_json(c1_res)
+    payload_v1 = {
+        "schema_version": ce.CLIENT_EXTRACTION_SCHEMA_VERSION,
+        "model": "gemini-3.8-flash",
+        "summary": "초기 추출 요약으로 LegacyNode 엔티티를 생성한다.",
+        "detail": _clean_adoc_detail("초기 추출", "초기 본문에서는 *LegacyNode* 를 기록한다."),
+        "key_claims": ["초기 추출은 LegacyNode를 생성한다."],
+        "entities": [
+            {"name": "ClairePipeline", "type": "Framework", "aliases": [], "observations": ["Initial pass"]},
+            {"name": "LegacyNode", "type": "Concept", "aliases": [], "observations": ["Only in v1"]},
+        ],
+        "relations": [{"source": "ClairePipeline", "target": "LegacyNode", "type": "uses", "fact": "ClairePipeline uses LegacyNode", "confidence": 0.9}],
+    }
+    _, sub1 = mcp_call(env.client, write_tok, "extract_submit", {"document_id": doc_id, "claim_token": c1["claim_token"], "expected_content_hash": content_hash, "payload": payload_v1, "dry_run": False})
+    assert _extract_mcp_json(sub1)["committed"] is True
+
+    # 1. Re-ingest duplicate text via extract_stage(force=True)
+    _, s_force_res = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "full_content": True, "force": True})
+    s_force = _extract_mcp_json(s_force_res)
+    assert s_force["ok"] is True and s_force["document_id"] == doc_id and s_force["duplicate"] is False and s_force["updated"] is True and s_force["extraction_status"] == "pending"
+
+    _, c2_res = mcp_call(env.client, write_tok, "extract_claim", {"document_id": doc_id})
+    c2 = _extract_mcp_json(c2_res)
+    payload_v2 = {
+        "schema_version": ce.CLIENT_EXTRACTION_SCHEMA_VERSION,
+        "model": "claude-sonnet-4-6",
+        "summary": "재적재 요약으로 UpdatedNode 엔티티만 남긴다.",
+        "detail": _clean_adoc_detail("재적재 본문", "재적재 본문에서는 *UpdatedNode* 를 기록한다."),
+        "key_claims": ["재적재는 UpdatedNode로 대체한다."],
+        "entities": [
+            {"name": "ClairePipeline", "type": "Framework", "aliases": [], "observations": ["Re-ingested pass"]},
+            {"name": "UpdatedNode", "type": "Concept", "aliases": [], "observations": ["Only in v2"]},
+        ],
+        "relations": [{"source": "ClairePipeline", "target": "UpdatedNode", "type": "uses", "fact": "ClairePipeline uses UpdatedNode", "confidence": 0.95}],
+    }
+    _, sub2 = mcp_call(env.client, write_tok, "extract_submit", {"document_id": doc_id, "claim_token": c2["claim_token"], "expected_content_hash": content_hash, "payload": payload_v2, "dry_run": False})
+    assert _extract_mcp_json(sub2)["committed"] is True
+
+    # 2. Regenerate already-extracted document directly via extract_claim(force=True)
+    _, c3_res = mcp_call(env.client, write_tok, "extract_claim", {"document_id": doc_id, "force": True})
+    c3 = _extract_mcp_json(c3_res)
+    assert c3["extraction_status"] == "pending" and c3["claim_token"]
+
+    _, read3_res = mcp_call(env.client, write_tok, "extract_read", {"document_id": doc_id, "claim_token": c3["claim_token"]})
+    assert "deterministic re-ingestion and regeneration" in _extract_mcp_json(read3_res)["content"]
+
+    payload_v3 = {
+        "schema_version": ce.CLIENT_EXTRACTION_SCHEMA_VERSION,
+        "model": "gemini-3.8-pro",
+        "summary": "재생성 요약으로 FinalRegenNode 엔티티를 반영한다.",
+        "detail": _clean_adoc_detail("재생성 본문", "재생성 본문에서는 *FinalRegenNode* 를 기록한다."),
+        "key_claims": ["재생성은 FinalRegenNode를 반영한다."],
+        "entities": [
+            {"name": "ClairePipeline", "type": "Framework", "aliases": [], "observations": ["Regenerated pass"]},
+            {"name": "FinalRegenNode", "type": "Concept", "aliases": [], "observations": ["Final v3"]},
+        ],
+        "relations": [{"source": "ClairePipeline", "target": "FinalRegenNode", "type": "uses", "fact": "ClairePipeline uses FinalRegenNode", "confidence": 0.98}],
+    }
+    _, sub3 = mcp_call(env.client, write_tok, "extract_submit", {"document_id": doc_id, "claim_token": c3["claim_token"], "expected_content_hash": content_hash, "payload": payload_v3, "dry_run": False})
+    assert _extract_mcp_json(sub3)["committed"] is True
+
+    _, doc_res = mcp_call(env.client, write_tok, "doc_get", {"document_id": doc_id, "kb": "personal"})
+    doc_view = _extract_mcp_json(doc_res)
+    assert doc_view["extraction_model"] == "gemini-3.8-pro"
+    assert "재생성 본문" in str(doc_view.get("detail") or "")
+    _, old_search = mcp_call(env.client, write_tok, "entity_search", {"query": "LegacyNode", "kb": "personal"})
+    assert _extract_mcp_json(old_search)["exact_matches"] == []
+
+    # 3. HTTP parity: POST /api/client-extraction/stage (document_id) and POST .../claim (force=True)
+    r_http_stage = env.client.post("/api/client-extraction/stage", json={"document_id": doc_id}, headers=auth_hdr)
+    assert r_http_stage.status_code == 200, r_http_stage.text
+    assert r_http_stage.json()["extraction_status"] == "pending" and r_http_stage.json()["updated"] is True
+
+    r_http_refetch = env.client.post("/api/client-extraction/stage", json={"document_id": doc_id, "refetch": True}, headers=auth_hdr)
+    assert r_http_refetch.status_code == 400 and r_http_refetch.json()["error"] == "refetch_url_missing"
+
+    conn2 = sqlite3.connect(env.db_path)
+    try:
+        dbm.mark_document_extraction_status(conn2, doc_id, "extracted", kb_id=env.alice.personal_kb_id, clear_claim=True)
+    finally:
+        conn2.close()
+    r_http_claim = env.client.post(f"/api/client-extraction/sources/{doc_id}/claim", json={"force": True}, headers=auth_hdr)
+    assert r_http_claim.status_code == 200, r_http_claim.text
+    assert r_http_claim.json()["extraction_status"] == "pending" and r_http_claim.json()["claim_token"]

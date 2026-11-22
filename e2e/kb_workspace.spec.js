@@ -62,6 +62,11 @@ test('the shared knowledge base bar of the workspace: join request, withdraw, jo
   await page.goto('/kb/101/?doc=doc-1', { waitUntil: 'domcontentloaded' });
   const bar = page.locator('#shared-kb-bar');
   await expect(bar).toBeVisible();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+  await expect(page.locator('#purgebtn')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#pop-hamburger-menu')).toBeHidden();
   // No membership, the join policy "approval": the join request, the fork, and (for the admin) the link to the review page.
   await expect(bar.locator('.shared-kb-bar-head .claire-tag').first()).toHaveText('공유 지식 베이스');
   await expect(bar.locator('[data-kb-act]')).toHaveCount(2);

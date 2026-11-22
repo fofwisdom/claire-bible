@@ -136,6 +136,9 @@ def seed(db_path: Path) -> None:
         # The regenerate test starts a real regeneration, which removes the graph components of its target document. This hidden document has no entity and no relation, thus the other tests keep their data.
         dbm.insert_document(conn, Document(id="doc-regen-1", url="https://example.com/regen/1", title="재생성 대상 문서", fetched_at=1699980000))
         dbm.set_document_hidden(conn, "doc-regen-1", True)
+        # Dedicated hidden document with no shared entities for the WebUI purge E2E test.
+        dbm.insert_document(conn, Document(id="doc-purge-1", url="https://example.com/purge/1", title="소각 대상 테스트 문서", fetched_at=1699970000))
+        dbm.set_document_hidden(conn, "doc-purge-1", True)
         conn.execute(
             "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
             ("23456789abcdefgh", "doc-1", 1700000000, None),
@@ -194,7 +197,7 @@ def seed(db_path: Path) -> None:
         for n in (1, 2, 3):
             conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", (f"e2e-sharedkb{n}-nonce", f"e2e-sharedkb{n}-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
         # Specs of the federation admin and of the shared knowledge base pages (e2e/federation_admin.spec.js, e2e/kb_manage.spec.js, e2e/kb_contribute_dialogs.spec.js, e2e/admin_themes_kb.spec.js, e2e/kb_workspace.spec.js, e2e/kb_public_pages.spec.js, e2e/admin_limits.spec.js, e2e/settings_bundles.spec.js, e2e/admin_plugins.spec.js, e2e/public_directory.spec.js, e2e/notifications.spec.js): one token for each test.
-        for name in ("fedadmin1", "fedadmin2", "fedadmin3", "fedadmin4", "fedadmin5", "fedadmin6", "fedadmin7", "fedadmin8", "kbmanage1", "kbmanage2", "kbmanage3", "kbmanage4", "kbmanage5", "kbdialog1", "kbdialog2", "admthemes1", "admthemes2", "kbwspace1", "kbwspace2", "kbwspace3", "kbwspace4", "kbpublic1", "kbpublic2", "admlimits1", "admlimits2", "bundlelinks", "adminplug1", "pubdirect1", "mcpgui001", "mcpgui002", "mcpclaude001", "mcpclaude002", "oauthwrite1", "notifybell1", "notifytab01", "notifypush1", "acctarea01", "acctarea02"):
+        for name in ("fedadmin1", "fedadmin2", "fedadmin3", "fedadmin4", "fedadmin5", "fedadmin6", "fedadmin7", "fedadmin8", "kbmanage1", "kbmanage2", "kbmanage3", "kbmanage4", "kbmanage5", "kbdialog1", "kbdialog2", "admthemes1", "admthemes2", "kbwspace1", "kbwspace2", "kbwspace3", "kbwspace4", "kbpublic1", "kbpublic2", "admlimits1", "admlimits2", "bundlelinks", "adminplug1", "pubdirect1", "mcpgui001", "mcpgui002", "mcpclaude001", "mcpclaude002", "oauthwrite1", "notifybell1", "notifytab01", "notifypush1", "acctarea01", "acctarea02", "purgedoc1"):
             conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", (f"e2e-{name}-nonce", f"e2e-{name}-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
 
         e1 = Entity(

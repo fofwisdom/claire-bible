@@ -5639,9 +5639,12 @@ paths:
                 text: {type: string}
                 filename: {type: string, nullable: true}
                 content_base64: {type: string, format: byte, nullable: true}
+                document_id: {type: string, nullable: true, description: 'Existing personal KB document ID to re-stage for re-extraction.'}
                 title: {type: string, nullable: true}
                 source_type: {type: string, nullable: true}
                 full_content: {type: boolean, default: true}
+                force: {type: boolean, default: false, description: 'When true, re-stage duplicate URL/text/file sources as pending for re-ingest.'}
+                refetch: {type: boolean, default: false, description: 'When true with document_id, re-fetch its URL before staging as pending.'}
                 mode: {type: string, nullable: true}
                 kb: {type: string, nullable: true, description: 'Optional; must omit or pass "personal" / caller personal kb number.'}
           multipart/form-data:
@@ -5654,6 +5657,7 @@ paths:
                 title: {type: string, nullable: true}
                 source_type: {type: string, nullable: true}
                 full_content: {type: boolean, default: true}
+                force: {type: boolean, default: false}
                 mode: {type: string, nullable: true}
                 kb: {type: string, nullable: true}
       responses:
@@ -5719,6 +5723,7 @@ paths:
               properties:
                 client_id: {type: string, nullable: true}
                 lease_seconds: {type: number, default: 300.0}
+                force: {type: boolean, default: false, description: 'When true, transition an extracted/failed personal KB document back to pending and acquire a lease.'}
       responses:
         '200':
           description: Lease granted with single-use `claim_token`, `lease_expires_at`, and `content_hash`.

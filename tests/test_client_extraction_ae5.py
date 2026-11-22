@@ -807,3 +807,170 @@ def test_staged_source_canonical_render_detail_prompt_and_math_passthrough(tmp_p
     raw_pass_errors: list[dict[str, str]] = []
     ce._validate_asciidoc_detail("= 위험 문서\n\n++++\n<div>raw</div>\n++++\n", raw_pass_errors)
     assert any(err["code"] == "detail_passthrough_forbidden" for err in raw_pass_errors)
+
+
+def test_force_reingest_restage_and_force_claim_reextraction(tmp_path: Path) -> None:
+    world = _setup_world(tmp_path)
+    url = "https://example.com/graph-video"
+    fetched_versions = [
+        Document(
+            id="tmp_v1",
+            url=url,
+            canonical_url=url,
+            title="Graphs in AI v1",
+            source_type="youtube",
+            raw_text="GraphRAG improves multi-hop reasoning across connected knowledge entities in enterprise AI systems.",
+            fetched_at=1000.0,
+        ),
+        Document(
+            id="tmp_v2",
+            url=url,
+            canonical_url=url,
+            title="Graphs in AI v2",
+            source_type="youtube",
+            raw_text=(
+                "GraphRAG v2 combines vector retrieval and knowledge graphs for structured reasoning over long documents. "
+                "When answering multi-hop analytical questions, pure vector similarity search often misses indirect relationships across entities, organizations, papers, and software repositories. "
+                "By extracting typed nodes and directed edges into an auditable SQLite graph alongside dense semantic embeddings, teams can verify provenance spans, trace multi-hop paths, and prune stale assumptions cleanly. "
+                "This architecture scales reliably for both personal research archives and collaborative engineering knowledge bases. "
+                "Operators can stage full raw transcripts or technical articles without invoking server LLMs, claim exclusive short-TTL leases, verify SHA-256 content hashes, validate AsciiDoc output, and commit atomic graph updates safely across sessions."
+            ),
+            fetched_at=2000.0,
+        ),
+    ]
+    fetch_calls: list[str] = []
+
+    def _mock_fetch(target: str, **_kwargs) -> Document:
+        fetch_calls.append(target)
+        idx = min(len(fetch_calls) - 1, len(fetched_versions) - 1)
+        src = fetched_versions[idx]
+        return Document(id=f"tmp_{len(fetch_calls)}", url=src.url, canonical_url=src.canonical_url, title=src.title, source_type=src.source_type, raw_text=src.raw_text, fetched_at=src.fetched_at)
+
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, settings=world.settings, fetch_fn=_mock_fetch)
+        doc_id = staged["document_id"]
+        assert staged["extraction_status"] == "pending"
+        claim1 = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+    finally:
+        conn.close()
+
+    res1 = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_id,
+        claim_token=claim1["claim_token"],
+        expected_content_hash=claim1["content_hash"],
+        payload=_valid_payload(
+            model="gemini-3.8-flash",
+            entities=[
+                {"name": "OldOnlyEntity", "type": "Concept", "aliases": [], "observations": ["First pass only"]},
+                {"name": "GraphRAG", "type": "Framework", "aliases": [], "observations": ["First pass shared"]},
+            ],
+            relations=[{"source": "GraphRAG", "target": "OldOnlyEntity", "type": "uses", "fact": "GraphRAG uses OldOnlyEntity"}],
+        ),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res1["ok"] is True and res1["committed"] is True
+
+    # Default stage_source and claim_staged_source still reject re-extraction on extracted docs.
+    conn2 = dbm.connect_existing(world.settings.db_file)
+    try:
+        dup_stage = ce.stage_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, settings=world.settings, fetch_fn=lambda target, **_kw: fetched_versions[0])
+        assert dup_stage["duplicate"] is True and dup_stage["extraction_status"] == "extracted"
+        with pytest.raises(ce.ClientExtractionError) as exc_not_pending:
+            ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+        assert exc_not_pending.value.code == "document_not_pending"
+
+        # 1. Exact duplicate force=True re-opens extracted document as pending.
+        forced_exact = ce.stage_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, force=True, settings=world.settings, fetch_fn=lambda target, **_kw: fetched_versions[0])
+        assert forced_exact["ok"] is True and forced_exact["document_id"] == doc_id
+        assert forced_exact["duplicate"] is False and forced_exact["updated"] is True and forced_exact["extraction_status"] == "pending"
+
+        claim_after_exact = ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+        # Active lease conflict still applies even when force=True.
+        with pytest.raises(ce.ClientExtractionError) as exc_conflict:
+            ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="other-worker", force=True)
+        assert exc_conflict.value.code == "claim_conflict"
+
+        # Commit regenerated extraction and verify old doc-only entity is pruned.
+        dbm.mark_document_extraction_status(conn2, doc_id, "extracted", kb_id=world.alice_kb.id, clear_claim=True)
+        # 2. Direct claim_staged_source(..., force=True) transitions extracted -> pending and issues claim_token.
+        claim2 = ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity", force=True)
+        assert claim2["extraction_status"] == "pending" and claim2["claim_token"] != claim_after_exact["claim_token"]
+    finally:
+        conn2.close()
+
+    res2 = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_id,
+        claim_token=claim2["claim_token"],
+        expected_content_hash=claim2["content_hash"],
+        payload=_valid_payload(
+            model="claude-sonnet-4-6",
+            summary="GraphRAG는 지식 그래프와 벡터 검색을 결합해 다중 홉 추론 정확도를 높인다.",
+            entities=[
+                {"name": "GraphRAG", "type": "Framework", "aliases": [], "observations": ["Second pass updated"]},
+                {"name": "VectorSearch", "type": "Concept", "aliases": [], "observations": ["Combined with GraphRAG"]},
+            ],
+            relations=[{"source": "GraphRAG", "target": "VectorSearch", "type": "uses", "fact": "GraphRAG uses VectorSearch"}],
+        ),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res2["ok"] is True and res2["committed"] is True
+
+    # 3. restage_existing_source(refetch=False) and restage_existing_source(refetch=True)
+    conn3 = dbm.connect_existing(world.settings.db_file)
+    try:
+        names = {r[0] for r in conn3.execute("SELECT name FROM entities WHERE kb_id=?", (world.alice_kb.id,)).fetchall()}
+        assert names == {"GraphRAG", "VectorSearch"}
+        assert dbm.latest_extraction_model(conn3, doc_id, kb_id=world.alice_kb.id) == ("agent_client", "claude-sonnet-4-6")
+
+        # Simulate legacy row missing content_hash/raw_chars before restage_existing_source(refetch=False).
+        conn3.execute("UPDATE documents SET content_hash='', raw_chars=NULL WHERE id=? AND kb_id=?", (doc_id, world.alice_kb.id))
+        conn3.commit()
+        restaged_local = ce.restage_existing_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, refetch=False)
+        assert restaged_local["ok"] is True and restaged_local["extraction_status"] == "pending" and restaged_local["updated"] is True and restaged_local["content_hash"] and restaged_local["raw_chars"] > 0
+
+        # refetch=True re-fetches URL and updates content_hash.
+        restaged_refetch = ce.restage_existing_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, refetch=True, settings=world.settings, fetch_fn=_mock_fetch)
+        assert restaged_refetch["ok"] is True and restaged_refetch["document_id"] == doc_id and restaged_refetch["extraction_status"] == "pending"
+        assert restaged_refetch["title"] == "Graphs in AI v2" and restaged_refetch["content_hash"] != restaged_local["content_hash"]
+
+        # Near-duplicate force=True updates the near-duplicate document in-place.
+        dbm.mark_document_extraction_status(conn3, doc_id, "extracted", kb_id=world.alice_kb.id, clear_claim=True)
+        near_url = "https://example.com/graph-video-mirror"
+        near_doc = Document(
+            id="tmp_near",
+            url=near_url,
+            canonical_url=near_url,
+            title="Graphs in AI v2",
+            source_type="youtube",
+            raw_text=fetched_versions[1].raw_text[:-1] + " today.",
+            fetched_at=3000.0,
+        )
+        forced_near = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=near_url, force=True, settings=world.settings, fetch_fn=lambda _u, **_kw: near_doc)
+        assert forced_near["document_id"] == doc_id and forced_near["duplicate"] is False and forced_near["updated"] is True and forced_near["extraction_status"] == "pending"
+
+        # Text-only document rejects refetch=True; empty raw_text rejects restage and force claim.
+        text_doc = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="Standalone text note for error checks.", title="Text Only", settings=world.settings)
+        text_id = text_doc["document_id"]
+        with pytest.raises(ce.ClientExtractionError) as exc_no_url:
+            ce.restage_existing_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=text_id, refetch=True, settings=world.settings)
+        assert exc_no_url.value.code == "refetch_url_missing"
+
+        conn3.execute("UPDATE documents SET raw_text='', extraction_status='extracted' WHERE id=? AND kb_id=?", (text_id, world.alice_kb.id))
+        conn3.commit()
+        with pytest.raises(ce.ClientExtractionError) as exc_no_raw:
+            ce.restage_existing_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=text_id, refetch=False)
+        assert exc_no_raw.value.code == "raw_text_missing"
+        with pytest.raises(ce.ClientExtractionError) as exc_claim_no_raw:
+            ce.claim_staged_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=text_id, force=True)
+        assert exc_claim_no_raw.value.code == "raw_text_missing"
+    finally:
+        conn3.close()

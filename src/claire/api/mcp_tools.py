@@ -189,11 +189,11 @@ _MCP_TOOL_SPECS: tuple[dict[str, Any], ...] = (
         "name": "extract_stage",
         "domain": "extract",
         "title": "Stage Source or Document File",
-        "description": "Stage a URL, plain text note, or base64 document file in the personal knowledge base with zero server LLM calls (scope write).",
+        "description": "Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (force=True, optional refetch=True), with zero server LLM calls (scope write).",
         "read_only": False,
         "scope": "write",
         "annotations": _OPEN_WRITE_ANNOTATIONS,
-        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("mode", "string"), _param("kb", "string")],
+        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("document_id", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("force", "boolean"), _param("refetch", "boolean"), _param("mode", "string"), _param("kb", "string")],
     },
     {
         "name": "extract_queue",
@@ -209,11 +209,11 @@ _MCP_TOOL_SPECS: tuple[dict[str, Any], ...] = (
         "name": "extract_claim",
         "domain": "extract",
         "title": "Claim or Renew Staged Source",
-        "description": "Acquire an exclusive lease on a pending source, or renew an active lease when claim_token is supplied (scope write).",
+        "description": "Acquire an exclusive lease on a pending source (or re-open an extracted/failed document when force=True), or renew an active lease when claim_token is supplied (scope write).",
         "read_only": False,
         "scope": "write",
         "annotations": _LOCAL_WRITE_ANNOTATIONS,
-        "parameters": [_param("document_id", "string", required=True), _param("claim_token", "string"), _param("client_id", "string"), _param("lease_seconds", "number"), _param("kb", "string")],
+        "parameters": [_param("document_id", "string", required=True), _param("claim_token", "string"), _param("client_id", "string"), _param("lease_seconds", "number"), _param("force", "boolean"), _param("kb", "string")],
     },
     {
         "name": "extract_read",
@@ -1099,13 +1099,16 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
         text: str | None = None,
         filename: str | None = None,
         content_base64: str | None = None,
+        document_id: str | None = None,
         title: str | None = None,
         source_type: str | None = None,
         full_content: bool = True,
+        force: bool = False,
+        refetch: bool = False,
         mode: str | None = None,
         kb: str | int | None = None,
     ) -> dict[str, Any]:
-        """Stage a URL, plain text note, or base64 document file in the personal knowledge base with zero server LLM calls (scope write)."""
+        """Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (scope write)."""
         scope_err = require_mcp_write_scope()
         if scope_err is not None:
             return scope_err
@@ -1114,17 +1117,25 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             return resolved
         account_id, personal_id = resolved
 
+        if not isinstance(force, bool):
+            return {"ok": False, "error": "invalid_force", "message": "force must be a boolean."}
+        if not isinstance(refetch, bool):
+            return {"ok": False, "error": "invalid_refetch", "message": "refetch must be a boolean."}
+
         clean_url = str(url).strip() if url is not None and str(url).strip() else None
         clean_text = str(text).strip() if text is not None and str(text).strip() else None
         clean_filename = str(filename).strip() if filename is not None and str(filename).strip() else None
         clean_b64 = str(content_base64).strip() if content_base64 is not None and str(content_base64).strip() else None
+        clean_doc_id = str(document_id).strip() if document_id is not None and str(document_id).strip() else None
         has_file = clean_filename is not None or clean_b64 is not None
 
-        mode_count = sum(bool(flag) for flag in (clean_url, clean_text, has_file))
+        mode_count = sum(bool(flag) for flag in (clean_url, clean_text, has_file, clean_doc_id))
         if mode_count == 0:
-            return {"ok": False, "error": "source_required", "message": "Provide exactly one of url, text, or filename with content_base64."}
+            return {"ok": False, "error": "source_required", "message": "Provide exactly one of url, text, filename with content_base64, or document_id."}
         if mode_count > 1:
-            return {"ok": False, "error": "ambiguous_source", "message": "Provide only one of url, text, or filename with content_base64."}
+            return {"ok": False, "error": "ambiguous_source", "message": "Provide only one of url, text, filename with content_base64, or document_id."}
+        if refetch and clean_doc_id is None:
+            return {"ok": False, "error": "invalid_refetch", "message": "refetch=True requires document_id."}
         if has_file and (clean_filename is None or clean_b64 is None):
             return {"ok": False, "error": "invalid_file_input", "message": "Both filename and content_base64 are required for file staging."}
         if clean_url is not None and not clean_url.startswith(("http://", "https://")):
@@ -1138,6 +1149,20 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             try:
                 kb_settings = theme_mgr.get_settings_for_kb(personal_id, s) if theme_mgr is not None else s
                 data_dir = Path(s.data_dir) if getattr(s, "data_dir", None) else None
+                if clean_doc_id is not None:
+                    return ce.restage_existing_source(
+                        conn,
+                        kb_id=personal_id,
+                        account_id=account_id,
+                        document_id=clean_doc_id,
+                        refetch=refetch,
+                        title=title,
+                        source_type=source_type,
+                        full_content=full_content,
+                        mode=mode,
+                        settings=kb_settings,
+                        data_dir=data_dir,
+                    )
                 if has_file:
                     return ce.stage_file_base64(
                         conn,
@@ -1149,6 +1174,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                         source_type=source_type,
                         full_content=full_content,
                         mode=mode,
+                        force=force,
                         settings=kb_settings,
                         data_dir=data_dir,
                     )
@@ -1161,6 +1187,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                     source_type=source_type,
                     full_content=full_content,
                     mode=mode,
+                    force=force,
                     settings=kb_settings,
                     data_dir=data_dir,
                 )
@@ -1200,12 +1227,15 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
         claim_token: str | None = None,
         client_id: str | None = None,
         lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS,
+        force: bool = False,
         kb: str | int | None = None,
     ) -> dict[str, Any]:
-        """Acquire an exclusive lease on a pending source, or renew an active lease when claim_token is supplied (scope write)."""
+        """Acquire an exclusive lease on a pending source (or re-open an extracted/failed document when force=True), or renew an active lease when claim_token is supplied (scope write)."""
         scope_err = require_mcp_write_scope()
         if scope_err is not None:
             return scope_err
+        if not isinstance(force, bool):
+            return {"ok": False, "error": "invalid_force", "message": "force must be a boolean."}
         resolved = _resolve_personal_kb_for_extraction(kb)
         if isinstance(resolved, dict):
             return resolved
@@ -1236,6 +1266,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                     document_id=document_id,
                     client_id=inferred_client,
                     lease_seconds=lease_seconds,
+                    force=force,
                 )
             except ce.ClientExtractionError as exc:
                 return exc.to_response_dict()

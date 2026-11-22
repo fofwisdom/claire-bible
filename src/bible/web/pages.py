@@ -89,6 +89,9 @@ def _build_standalone_graph_html() -> str:
         '<div class="app-menu-sec-title" id="menu-section-title">${t:ws.menu.section_title}</div>'
         '<button type="button" id="pathbtn" onclick="togglePathMode()" title="${t:ws.menu.path_title}" aria-label="${t:ws.menu.path}"><span class="btn-icon" data-icon="link"></span> <span class="btn-label">${t:ws.menu.path}</span></button>'
         '<button type="button" id="synthbtn" onclick="synth()" title="${t:ws.menu.synth} (0)" hidden><span class="btn-icon" data-icon="puzzle"></span> <span class="btn-label">${t:ws.menu.synth} (0)</span></button>'
+        '<button type="button" id="dedupbtn" onclick="openDedup()" title="${t:ws.menu.dedup_title}" aria-label="${t:ws.menu.dedup}" hidden><span class="btn-icon" data-icon="merge"></span> <span class="btn-label">${t:ws.menu.dedup}</span></button>'
+        '<hr class="app-menu-sep menu-danger-sep" hidden/>'
+        '<button type="button" id="purgebtn" class="app-menu-danger" onclick="openPurge()" title="${t:ws.menu.purge_title}" aria-label="${t:ws.menu.purge}" hidden><span class="btn-icon" data-icon="flame"></span> <span class="btn-label">${t:ws.menu.purge}</span></button>'
         "</div>"
     )
     ws_appbar = chrome.render_appbar_html(

@@ -3222,8 +3222,8 @@ def list_staged_documents(conn: sqlite3.Connection, *, kb_id: int | None = None,
     return out
 
 
-def claim_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: int | None = None, account_id: int | None = None, client_id: str | None = None, lease_seconds: float = DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None) -> dict[str, Any] | None:
-    """Atomically claim a pending document lease or reclaim an expired lease."""
+def claim_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: int | None = None, account_id: int | None = None, client_id: str | None = None, lease_seconds: float = DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None, allow_reextract: bool = False) -> dict[str, Any] | None:
+    """Atomically claim a pending document lease (or re-open an extracted/failed document when allow_reextract=True) or reclaim an expired lease."""
     ttl = float(lease_seconds)
     if ttl <= 0:
         raise ValueError("lease_seconds must be positive")
@@ -3233,12 +3233,17 @@ def claim_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: 
     stamp = time.time() if now is None else float(now)
     expires_at = stamp + ttl
     token = secrets.token_urlsafe(24)
-    where = "id=? AND extraction_status='pending' AND (claim_token IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)"
+    if allow_reextract:
+        where = "id=? AND length(trim(coalesce(raw_text, ''))) > 0 AND (claim_token IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)"
+        sql_set = "extraction_status='pending', claim_token=?, lease_expires_at=?, claimed_by_client_id=?"
+    else:
+        where = "id=? AND extraction_status='pending' AND (claim_token IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)"
+        sql_set = "claim_token=?, lease_expires_at=?, claimed_by_client_id=?"
     params: list[Any] = [token, expires_at, client_id, document_id, stamp]
     if scoped_kb_id is not None:
         where += " AND kb_id=?"
         params.append(int(scoped_kb_id))
-    cur = conn.execute(f"UPDATE documents SET claim_token=?, lease_expires_at=?, claimed_by_client_id=? WHERE {where}", tuple(params))
+    cur = conn.execute(f"UPDATE documents SET {sql_set} WHERE {where}", tuple(params))
     conn.commit()
     if cur.rowcount != 1:
         return None

@@ -210,7 +210,7 @@ The share page keeps its own truncation tag, because it has no source badge.
 
 Rows of the workspace configuration (`ClaireCommandPalette.init()` in `app.js`):
 
-- Commands: home, graph, ingest, light theme, dark theme.
+- Commands: home, graph, ingest, light theme, dark theme, and purge (owner only, on a personal knowledge base).
 - Documents: up to 10 from the loaded list, then up to 10 from `GET /documents` with `q` (the keywords `is:missing-detail` and `is:mismatched` set the `detail` filter).
 - Entities: the graph nodes in the client.
 - One row that runs `runFullTextSearch()` with the input text: it selects the document list, puts the text in `#q`, and calls `doDocServerSearch()`.

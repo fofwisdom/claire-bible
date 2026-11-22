@@ -6917,11 +6917,14 @@ def create_app(
         raw_bytes: bytes | None = None
         filename: str | None = None
         content_base64: str | None = None
+        document_id: str | None = None
         url_or_text = ""
         title: Any = None
         source_type: Any = None
         mode: Any = None
         full_content = True
+        force = False
+        refetch = False
 
         if ctype == "multipart/form-data":
             form = await request.form()
@@ -6949,6 +6952,10 @@ def create_app(
             if parsed_fc is None:
                 return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
             full_content = parsed_fc
+            parsed_force = _parse_bool_flag(form.get("force"), default=False)
+            if parsed_force is None:
+                return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
+            force = parsed_force
         else:
             body = await _json_object(request)
             _reject_foreign_kb_param(request, theme, body)
@@ -6959,11 +6966,24 @@ def create_app(
             if not isinstance(full_content_raw, bool):
                 return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
             full_content = full_content_raw
-            if "content_base64" in body or "filename" in body:
+            force_raw = body.get("force", False)
+            if not isinstance(force_raw, bool):
+                return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
+            force = force_raw
+            refetch_raw = body.get("refetch", False)
+            if not isinstance(refetch_raw, bool):
+                return JSONResponse({"ok": False, "error": "invalid_refetch", "message": "refetch must be a boolean."}, status_code=400)
+            refetch = refetch_raw
+            raw_doc_id = str(body.get("document_id") or "").strip()
+            if raw_doc_id:
+                document_id = raw_doc_id
+            elif "content_base64" in body or "filename" in body:
                 filename = str(body.get("filename") or "").strip()
                 content_base64 = str(body.get("content_base64") or "")
             else:
                 url_or_text = str(body.get("url_or_text") or body.get("url") or body.get("text") or "").strip()
+            if refetch and not document_id:
+                return JSONResponse({"ok": False, "error": "invalid_refetch", "message": "refetch=True requires document_id."}, status_code=400)
 
         def _work() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
@@ -6978,11 +6998,13 @@ def create_app(
                     "settings": theme_settings,
                     "data_dir": Path(s.data_dir) if getattr(s, "data_dir", None) else None,
                 }
+                if document_id is not None:
+                    return ce.restage_existing_source(conn, document_id=document_id, refetch=refetch, **common_kwargs)
                 if raw_bytes is not None:
-                    return ce.stage_file_bytes(conn, raw_bytes=raw_bytes, filename=filename or "", **common_kwargs)
+                    return ce.stage_file_bytes(conn, raw_bytes=raw_bytes, filename=filename or "", force=force, **common_kwargs)
                 if content_base64 is not None:
-                    return ce.stage_file_base64(conn, filename=filename or "", content_base64=content_base64, **common_kwargs)
-                return ce.stage_source(conn, url_or_text=url_or_text, **common_kwargs)
+                    return ce.stage_file_base64(conn, filename=filename or "", content_base64=content_base64, force=force, **common_kwargs)
+                return ce.stage_source(conn, url_or_text=url_or_text, force=force, **common_kwargs)
             finally:
                 conn.close()
 
@@ -7031,11 +7053,14 @@ def create_app(
         lease_raw = body.get("lease_seconds", dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS)
         if isinstance(lease_raw, bool) or not isinstance(lease_raw, (int, float)):
             return JSONResponse({"ok": False, "error": "invalid_lease_seconds", "message": "lease_seconds must be a number."}, status_code=400)
+        force_raw = body.get("force", False)
+        if not isinstance(force_raw, bool):
+            return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
 
         def _work() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return ce.claim_staged_source(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, client_id=str(client_id) if client_id is not None else None, lease_seconds=lease_raw)
+                return ce.claim_staged_source(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, client_id=str(client_id) if client_id is not None else None, lease_seconds=lease_raw, force=force_raw)
             finally:
                 conn.close()
 

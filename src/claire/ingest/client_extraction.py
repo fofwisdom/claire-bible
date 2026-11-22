@@ -395,11 +395,14 @@ def stage_source(
     source_type: str | None = None,
     full_content: bool = True,
     mode: str | None = None,
+    force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
     fetch_fn: Any = None,
 ) -> dict[str, Any]:
     """Stage full raw source content in the caller personal knowledge base with zero LLM calls when in client mode."""
+    if not isinstance(force, bool):
+        raise ClientExtractionError(400, "invalid_force", "force must be a boolean.")
     text_or_url = str(url_or_text or "").strip()
     if not text_or_url:
         raise ClientExtractionError(400, "source_required", "url_or_text must not be empty.")
@@ -429,6 +432,7 @@ def stage_source(
         kb_id=int(kb_id),
         settings=settings,
         account_id=int(account_id),
+        force=force,
     )
     return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=title, source_type=source_type, allow_title_update=is_url)
 
@@ -444,10 +448,13 @@ def stage_file_bytes(
     source_type: str | None = None,
     full_content: bool = True,
     mode: str | None = None,
+    force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Parse raw document bytes (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML) and stage without server LLM calls."""
+    if not isinstance(force, bool):
+        raise ClientExtractionError(400, "invalid_force", "force must be a boolean.")
     safe_name = _sanitize_stage_filename(filename)
     if not isinstance(raw_bytes, (bytes, bytearray)) or not raw_bytes:
         raise ClientExtractionError(400, "empty_file", "Uploaded file content must not be empty.")
@@ -484,6 +491,7 @@ def stage_file_bytes(
         kb_id=int(kb_id),
         settings=settings,
         account_id=int(account_id),
+        force=force,
     )
     return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=None, source_type=None, allow_title_update=False)
 
@@ -499,10 +507,13 @@ def stage_file_base64(
     source_type: str | None = None,
     full_content: bool = True,
     mode: str | None = None,
+    force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Validate and decode base64 document content, then stage it into the personal knowledge base."""
+    if not isinstance(force, bool):
+        raise ClientExtractionError(400, "invalid_force", "force must be a boolean.")
     encoded = "".join(str(content_base64 or "").split())
     if not encoded:
         raise ClientExtractionError(400, "invalid_base64", "content_base64 must not be empty.")
@@ -523,9 +534,92 @@ def stage_file_base64(
         source_type=source_type,
         full_content=full_content,
         mode=mode,
+        force=force,
         settings=settings,
         data_dir=data_dir,
     )
+
+
+def restage_existing_source(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    account_id: int,
+    document_id: str,
+    refetch: bool = False,
+    title: str | None = None,
+    source_type: str | None = None,
+    full_content: bool = True,
+    mode: str | None = None,
+    settings: Any = None,
+    data_dir: Path | None = None,
+    fetch_fn: Any = None,
+) -> dict[str, Any]:
+    """Re-open an existing personal KB document for Agent Client extraction, optionally refetching its source URL."""
+    doc_id = str(document_id or "").strip()
+    if not doc_id:
+        raise ClientExtractionError(400, "document_id_required", "document_id is required.")
+    if not isinstance(refetch, bool):
+        raise ClientExtractionError(400, "invalid_refetch", "refetch must be a boolean.")
+    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
+    row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id))
+    if row is None:
+        raise ClientExtractionError(404, "document_not_found", f"Document {doc_id!r} was not found in your personal knowledge base.")
+
+    if refetch:
+        target_url = str(row["url"] or row["canonical_url"] or "").strip()
+        if not target_url.startswith(("http://", "https://")):
+            raise ClientExtractionError(400, "refetch_url_missing", f"Document {doc_id!r} has no http(s) URL to refetch; omit refetch or set refetch=False to regenerate from stored raw_text.")
+        return stage_source(
+            conn,
+            kb_id=kb_id,
+            account_id=account_id,
+            url_or_text=target_url,
+            title=title,
+            source_type=source_type,
+            full_content=full_content,
+            mode=mode,
+            force=True,
+            settings=settings,
+            data_dir=data_dir,
+            fetch_fn=fetch_fn,
+        )
+
+    raw_text = str(row["raw_text"] or "")
+    if not raw_text.strip():
+        raise ClientExtractionError(400, "raw_text_missing", f"Document {doc_id!r} has no stored raw_text available for re-extraction.")
+
+    doc_hash = str(row["content_hash"] or "").strip() or compute_content_hash(raw_text)
+    doc_chars = int(row["raw_chars"]) if row["raw_chars"] is not None else len(raw_text)
+    assignments = ["extraction_status='pending'", "content_hash=?", "raw_chars=?", "claim_token=NULL", "lease_expires_at=NULL", "claimed_by_client_id=NULL"]
+    params: list[Any] = [doc_hash, doc_chars]
+    if title is not None and str(title).strip():
+        assignments.append("title=?")
+        params.append(str(title).strip())
+    if source_type is not None and str(source_type).strip():
+        assignments.append("source_type=?")
+        params.append(str(source_type).strip())
+    params.extend([doc_id, int(kb_id)])
+    conn.execute(f"UPDATE documents SET {', '.join(assignments)} WHERE id=? AND kb_id=?", tuple(params))
+    conn.commit()
+    updated_row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id)) or row
+    return {
+        "ok": True,
+        "document_id": doc_id,
+        "kb_id": int(kb_id),
+        "title": str(updated_row["title"]) if updated_row["title"] else None,
+        "source_type": str(updated_row["source_type"]) if updated_row["source_type"] else None,
+        "extraction_status": "pending",
+        "extraction_mode": effective_mode,
+        "account_extraction_mode": account_mode,
+        "staged": True,
+        "duplicate": False,
+        "updated": True,
+        "content_hash": doc_hash,
+        "raw_chars": doc_chars,
+        "full_content": True,
+        "message": "Existing source queued for Agent Client re-extraction",
+    }
 
 
 def list_staged_sources(conn: sqlite3.Connection, *, kb_id: int, account_id: int, status: str | None = "pending", limit: int = 50, now: float | None = None) -> dict[str, Any]:
@@ -543,14 +637,28 @@ def list_staged_sources(conn: sqlite3.Connection, *, kb_id: int, account_id: int
     return {"kb_id": int(kb_id), "extraction_mode": mode, "status": status, "count": len(sources), "sources": sources}
 
 
-def claim_staged_source(conn: sqlite3.Connection, *, kb_id: int, account_id: int, document_id: str, client_id: str | None = None, lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None) -> dict[str, Any]:
-    """Acquire an exclusive short-TTL claim lease on a pending staged document."""
+def claim_staged_source(conn: sqlite3.Connection, *, kb_id: int, account_id: int, document_id: str, client_id: str | None = None, lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None, force: bool = False) -> dict[str, Any]:
+    """Acquire an exclusive short-TTL claim lease on a pending staged document, or re-open an extracted/failed document when force=True."""
     doc_id = str(document_id or "").strip()
     if not doc_id:
         raise ClientExtractionError(400, "document_id_required", "document_id is required.")
+    if not isinstance(force, bool):
+        raise ClientExtractionError(400, "invalid_force", "force must be a boolean.")
     if isinstance(lease_seconds, bool) or not math.isfinite(float(lease_seconds)) or float(lease_seconds) <= 0:
         raise ClientExtractionError(400, "invalid_lease_seconds", "lease_seconds must be positive.")
-    claimed = dbm.claim_staged_document(conn, doc_id, kb_id=int(kb_id), account_id=int(account_id), client_id=client_id, lease_seconds=float(lease_seconds), now=now)
+    if force:
+        row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id))
+        if row is None:
+            raise ClientExtractionError(404, "document_not_found", f"Document {doc_id!r} was not found in your personal knowledge base.")
+        raw_text = str(row["raw_text"] or "")
+        if not raw_text.strip():
+            raise ClientExtractionError(400, "raw_text_missing", f"Document {doc_id!r} has no stored raw_text available for re-extraction.")
+        if not str(row["content_hash"] or "").strip() or row["raw_chars"] is None:
+            doc_hash = str(row["content_hash"] or "").strip() or compute_content_hash(raw_text)
+            doc_chars = int(row["raw_chars"]) if row["raw_chars"] is not None else len(raw_text)
+            conn.execute("UPDATE documents SET content_hash=?, raw_chars=? WHERE id=? AND kb_id=?", (doc_hash, doc_chars, doc_id, int(kb_id)))
+            conn.commit()
+    claimed = dbm.claim_staged_document(conn, doc_id, kb_id=int(kb_id), account_id=int(account_id), client_id=client_id, lease_seconds=float(lease_seconds), now=now, allow_reextract=force)
     if claimed is None:
         row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id))
         if row is None:
@@ -1307,8 +1415,9 @@ def submit_client_extraction(
 
         dbm.rollback_document_graph_contributions(atomic_conn, [doc_id], prune_orphans=True, kb_id=int(kb_id))
 
+        referenced_for_upsert = dict(referenced_kb_entities)
         resolved_by_norm: dict[str, Entity] = {}
-        resolved_by_id: dict[str, Entity] = dict(referenced_kb_entities)
+        resolved_by_id: dict[str, Entity] = {eid: ent for eid, ent in referenced_kb_entities.items() if dbm.get_entity(atomic_conn, eid, kb_id=int(kb_id)) is not None}
         entities_created = 0
         entities_linked = 0
         res_decisions = []
@@ -1322,8 +1431,8 @@ def submit_client_extraction(
             provisional = bool(ee.proposed_type and ee.proposed_type.strip())
 
             pre_primary, pre_target = precomputed_vectors.get(idx, (None, None))
-            if ee.entity_id and ee.entity_id.strip() in resolved_by_id:
-                existing_ent = resolved_by_id[ee.entity_id.strip()]
+            if ee.entity_id and ee.entity_id.strip() in referenced_for_upsert:
+                existing_ent = referenced_for_upsert[ee.entity_id.strip()]
                 updated_ent = _build_merged_referenced_entity(
                     existing_ent,
                     clean_name=clean_name,

@@ -2913,9 +2913,12 @@ function openPurge(){
     alert(tr("ws.purge.owner_only"));
     return;
   }
+  if(KB_PIN_RE.test(API_BASE)) return;
+  if(window.ClaireAppBar) window.ClaireAppBar.closePopovers();
   const host = document.getElementById('purge-modal-body') || panel;
   const dlg = document.getElementById('modal-purge');
-  const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
+  const openDocId = activeDoc || (typeof curReaderDoc !== 'undefined' ? curReaderDoc : null);
+  const curDoc = (allDocs && openDocId && allDocs.find(d => d.id === openDocId)) || curReaderDocData;
   const defTarget = (curDoc && (curDoc.id || curDoc.url || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
@@ -2955,6 +2958,7 @@ async function runPurgeCheck(isDryRun){
     alert(tr("ws.purge.owner_only"));
     return;
   }
+  if(KB_PIN_RE.test(API_BASE)) return;
   const isMulti = isMultiThemeEnabled();
   const targetInp = document.getElementById('purgetarget');
   const target = ((targetInp||{}).value||'').trim();
@@ -2991,12 +2995,12 @@ async function runPurgeCheck(isDryRun){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
     });
-    if(r.status === 401 || r.status === 404){
+    const d = await r.json().catch(() => ({}));
+    if(r.status === 401 || (r.status === 404 && !Array.isArray(d.targets))){
       expireWriteAccess();
       if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.session_expired") + '</p>';
       return;
     }
-    const d = await r.json();
     if(!r.ok || d.error){
       if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.purge.failed") + ' ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
       return;
@@ -3034,12 +3038,39 @@ async function runPurgeCheck(isDryRun){
       h += '</div>';
       if(resDiv) resDiv.innerHTML = h;
 
-      const purgedIds = (d.targets || []).map(t => t.id);
-      if(activeDoc && purgedIds.includes(activeDoc)){
+      const purgedIds = (d.targets || []).map(t => t.id).filter(Boolean);
+      const purgedSet = new Set(purgedIds);
+      if(purgedSet.size){
+        purgedIds.forEach(id => docById.delete(id));
+        if(docMainPager && Array.isArray(docMainPager.items)){
+          const before = docMainPager.items.length;
+          docMainPager.items = docMainPager.items.filter(x => !purgedSet.has(x.id));
+          if(typeof docMainPager.total === 'number') docMainPager.total = Math.max(0, docMainPager.total - (before - docMainPager.items.length));
+        }
+        if(docFilterPager && Array.isArray(docFilterPager.items)){
+          const beforeF = docFilterPager.items.length;
+          docFilterPager.items = docFilterPager.items.filter(x => !purgedSet.has(x.id));
+          if(typeof docFilterPager.total === 'number') docFilterPager.total = Math.max(0, docFilterPager.total - (beforeF - docFilterPager.items.length));
+        }
+        rebuildAllDocs();
+        const docqEl = document.getElementById('docq');
+        renderDocs(docqEl ? docqEl.value : '');
+      }
+      const openDocId = activeDoc || (typeof curReaderDoc !== 'undefined' ? curReaderDoc : null);
+      if(curReaderDocData && purgedSet.has(curReaderDocData.id)) curReaderDocData = null;
+      if(openDocId && purgedSet.has(openDocId)){
         activeDoc = null;
+        if(typeof curReaderDoc !== 'undefined') curReaderDoc = null;
         curReaderDocData = null;
+        if(typeof curDocPanelData !== 'undefined') curDocPanelData = null;
+        if(centerView === 'reader' || centerView === 'presentation'){
+          enterHome({reason:'nav'});
+        } else if(panel){
+          panel.innerHTML = defaultHint();
+        }
       }
       refreshGraph();
+      if(typeof loadHomeStats === 'function') loadHomeStats();
     }
   } catch(e) {
     if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.purge.request_error") + ' ' + esc(String(e)) + '</p>';
@@ -3053,6 +3084,7 @@ let dedupClusters=[];
 function dedupTargetHost(){ return document.getElementById('dedup-modal-body') || panel; }
 async function openDedup(){
   if(!canWrite()) return;
+  if(window.ClaireAppBar) window.ClaireAppBar.closePopovers();
   const host = dedupTargetHost();
   const dlg = document.getElementById('modal-dedup');
   host.innerHTML='<p class="al">' + tr("ws.dedup.checking") + ' '+
@@ -3134,7 +3166,18 @@ function refreshGraph(){
     });
     if(allNodes && changed.length) allNodes.update(changed);
     if(allNodes && added.length) allNodes.add(added);
-    if(allEdges) d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
+    if(allNodes){
+      const freshNodeIds = new Set(d.nodes.map(n => n.id));
+      const staleNodeIds = allNodes.getIds().filter(id => id !== clusterAnchor && !freshNodeIds.has(id));
+      if(staleNodeIds.length) allNodes.remove(staleNodeIds);
+      if(selectedNodeId && !freshNodeIds.has(selectedNodeId)) selectedNodeId = null;
+    }
+    if(allEdges){
+      d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
+      const freshEdgeIds = new Set(d.edges.map(e => e.id));
+      const staleEdgeIds = allEdges.getIds().filter(id => !(Array.isArray(clusterEdges) && clusterEdges.includes(id)) && !freshEdgeIds.has(id));
+      if(staleEdgeIds.length) allEdges.remove(staleEdgeIds);
+    }
     homeMiniCacheKey = '';
     homeDecisionsCacheKey = '';
     const fslider = document.getElementById('fslider');
@@ -5646,12 +5689,15 @@ function setAccessScope(scope, reason){
     window.ClaireAppBar.setSyndicationVisible(canWrite());
   }
   loadSharedKbBar();
-  ['synthbtn', 'dedupbtn', 'purgebtn'].forEach(function(id){
+  const canPurge = canWrite() && !KB_PIN_RE.test(API_BASE);
+  ['synthbtn', 'dedupbtn'].forEach(function(id){
     const el = document.getElementById(id);
     if(el) el.hidden = !canWrite();
   });
+  const purgeBtn = document.getElementById('purgebtn');
+  if(purgeBtn) purgeBtn.hidden = !canPurge;
   const dangerSep = document.querySelector('#graph-section .menu-danger-sep');
-  if(dangerSep) dangerSep.hidden = !canWrite();
+  if(dangerSep) dangerSep.hidden = !canPurge;
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -7633,13 +7679,19 @@ if(window.ClaireIngestDialogs){
 if(window.ClaireCommandPalette){
   window.ClaireCommandPalette.init({
     dialogId: 'cmdpalette',
-    getCommands: () => [
-      {id: 'home', icon: '⌂', iconName: 'home', label: tr('nav.palette.cmd_home'), keywords: 'home overview', run: () => enterHome({reason: 'nav'})},
-      {id: 'graph', icon: '›', iconName: 'graph', label: tr('nav.palette.cmd_graph'), keywords: 'graph map', run: () => setCenterView('graph')},
-      {id: 'ingest', icon: '+', iconName: 'plus', label: tr('nav.palette.cmd_ingest'), keywords: 'ingest add url text', run: () => openIngest()},
-      {id: 'light', icon: '›', iconName: 'sun', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
-      {id: 'dark', icon: '›', iconName: 'moon', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
-    ],
+    getCommands: () => {
+      const cmds = [
+        {id: 'home', icon: '⌂', iconName: 'home', label: tr('nav.palette.cmd_home'), keywords: 'home overview', run: () => enterHome({reason: 'nav'})},
+        {id: 'graph', icon: '›', iconName: 'graph', label: tr('nav.palette.cmd_graph'), keywords: 'graph map', run: () => setCenterView('graph')},
+        {id: 'ingest', icon: '+', iconName: 'plus', label: tr('nav.palette.cmd_ingest'), keywords: 'ingest add url text', run: () => openIngest()},
+        {id: 'light', icon: '›', iconName: 'sun', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
+        {id: 'dark', icon: '›', iconName: 'moon', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
+      ];
+      if(canWrite() && !KB_PIN_RE.test(API_BASE)){
+        cmds.push({id: 'purge', icon: '!', iconName: 'flame', label: tr('ws.purge.title'), keywords: 'purge delete remove 소각 삭제', run: () => openPurge()});
+      }
+      return cmds;
+    },
     getQueryActions: q => [{id: 'fulltext', icon: '›', iconName: 'search', label: tr('nav.palette.cmd_fulltext', {query: q}), run: () => runFullTextSearch(q)}],
     getListFilter: () => {
       const qEl = document.getElementById('q');

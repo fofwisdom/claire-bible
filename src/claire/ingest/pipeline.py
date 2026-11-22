@@ -315,6 +315,7 @@ def stage_raw(
     settings: Any = None,
     provider_context: Any = None,
     account_id: int | None = None,
+    force: bool = False,
 ) -> IngestReport:
     """Fetch, normalize, and stage untruncated raw content without invoking any server LLM provider."""
     return _ingest_core(
@@ -344,6 +345,7 @@ def stage_raw(
         provider_context=provider_context,
         account_id=account_id,
         stage_only=True,
+        force=bool(force),
     )
 
 
@@ -505,6 +507,7 @@ def _ingest_core(
     provider_context: Any,
     account_id: int | None,
     stage_only: bool,
+    force: bool = False,
 ) -> IngestReport:
     report = IngestReport()
     report.full_content = full_content
@@ -709,6 +712,31 @@ def _ingest_core(
                     preserve_presentation_history(old_meta, doc)
                 if not _store_doc_attachments_or_report(conn, inbox_id, doc, existing, data_dir, report, kb_id=tid):
                     return report
+                if stage_only and force:
+                    dbm.update_document_content(
+                        conn, existing, title=doc.title, raw_text=doc.raw_text,
+                        content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+                        source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid,
+                        extraction_status="pending",
+                        raw_chars=raw_chars_val,
+                        clear_claim=True,
+                    )
+                    if data_dir is not None:
+                        try:
+                            from ..store.raw import save_artifact
+
+                            save_artifact(data_dir, existing, doc.raw_text)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _download_doc_images(conn, doc, data_dir, kb_id=tid)
+                    report.document_id = existing
+                    report.updated = True
+                    report.duplicate = False
+                    report.staged = True
+                    report.extraction_status = "pending"
+                    report.message = STAGED_INGEST_MESSAGE
+                    dbm.update_inbox(conn, inbox_id, status="staged", document_id=existing, kb_id=tid)
+                    return report
                 if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
                     dbm.update_document_meta(conn, existing, doc.meta, kb_id=tid)
                     report.document_id = existing
@@ -842,6 +870,39 @@ def _ingest_core(
                 near_id, score = near
                 near_row = dbm.get_document_row(conn, near_id, kb_id=tid)
                 near_status = str(near_row["extraction_status"] or "extracted") if near_row is not None and "extraction_status" in near_row.keys() else "extracted"
+                if stage_only and force:
+                    if near_row is not None:
+                        try:
+                            old_near_meta = json.loads(near_row["meta"] or "{}")
+                        except Exception:
+                            old_near_meta = {}
+                        preserve_presentation_history(old_near_meta, doc)
+                    if not _store_doc_attachments_or_report(conn, inbox_id, doc, near_id, data_dir, report, kb_id=tid):
+                        return report
+                    dbm.update_document_content(
+                        conn, near_id, title=doc.title, raw_text=doc.raw_text,
+                        content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+                        source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid,
+                        extraction_status="pending",
+                        raw_chars=raw_chars_val,
+                        clear_claim=True,
+                    )
+                    if data_dir is not None:
+                        try:
+                            from ..store.raw import save_artifact
+
+                            save_artifact(data_dir, near_id, doc.raw_text)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _download_doc_images(conn, doc, data_dir, kb_id=tid)
+                    report.document_id = near_id
+                    report.updated = True
+                    report.duplicate = False
+                    report.staged = True
+                    report.extraction_status = "pending"
+                    report.message = STAGED_INGEST_MESSAGE
+                    dbm.update_inbox(conn, inbox_id, status="staged", document_id=near_id, kb_id=tid)
+                    return report
                 report.document_id = near_id
                 report.duplicate = True
                 report.extraction_status = near_status

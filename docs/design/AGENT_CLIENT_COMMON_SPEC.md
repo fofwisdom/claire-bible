@@ -1,7 +1,7 @@
-# Agent Client Common Specification (`claire` Plugin, `v0.4.1`)
+# Agent Client Common Specification (`claire` Plugin, `v0.4.3`)
 
 - **Document Identifier**: `SPEC-AGENT-CLIENT-COMMON-20261122`
-- **Status**: Active Specification (`fofwisdom/claire-agents` `v0.4.1`) -> Implemented behavior in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4, [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md) Section 9, [`GLOSSARY.md`](../implementation/GLOSSARY.md), and [`INGESTION.md`](../implementation/INGESTION.md)
+- **Status**: Active Specification (`fofwisdom/claire-agents` `v0.4.3`) -> Implemented behavior in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4, [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md) Section 9, [`GLOSSARY.md`](../implementation/GLOSSARY.md), and [`INGESTION.md`](../implementation/INGESTION.md)
 - **Date**: 2026-11-22
 - **Related Documents**:
   - [`CLAUDE_AGENT_CLIENT_DESIGN.md`](CLAUDE_AGENT_CLIENT_DESIGN.md) (empirical lessons `T1`–`T19` and owner decisions `CD1`–`CD4`)

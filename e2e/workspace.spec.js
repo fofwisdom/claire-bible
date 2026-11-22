@@ -125,7 +125,9 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.locator('#hamburger-btn').click();
   await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
   await expect(page.locator('#synthbtn')).toBeHidden();
+  await expect(page.locator('#dedupbtn')).toHaveCount(1);
   await expect(page.locator('#dedupbtn')).toBeHidden();
+  await expect(page.locator('#purgebtn')).toHaveCount(1);
   await expect(page.locator('#purgebtn')).toBeHidden();
   await expect(page.locator('#menu-logout-form')).toBeHidden();
   await page.keyboard.press('Escape');
@@ -3520,5 +3522,64 @@ test('the home button from the reader view goes to the home view without the gra
   const views = await page.evaluate(() => window.__views);
   expect(views).not.toContain('graph');
   expect(views[views.length - 1]).toBe('home');
+  expect(pageErrors).toEqual([]);
+});
+
+test('WebUI purge menu and command palette dry-run and purge a document for owner without losing session', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/?t=e2e-purgedoc1-token-0123456789abc', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+
+  // 1. Open doc-1 in reader, then open hamburger menu and check #dedupbtn / #purgebtn.
+  await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).first().click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+  await expect(page.locator('#dedupbtn')).toBeVisible();
+  await expect(page.locator('#purgebtn')).toBeVisible();
+
+  // 2. Click #purgebtn -> #modal-purge opens with #purgetarget pre-filled with doc-1.
+  await page.locator('#purgebtn').click();
+  const modal = page.locator('dialog#modal-purge');
+  await expect(modal).toBeVisible();
+  const targetInput = modal.locator('#purgetarget');
+  await expect(targetInput).toHaveValue('doc-1');
+
+  // 3. Dry-run with a non-matching target shows an error without expiring owner session.
+  await targetInput.fill('no-such-doc-purge-test');
+  await modal.locator('.claire-dialog-foot button').filter({ hasText: '영향 분석' }).click();
+  await expect(modal.locator('#purgeresult')).toContainText('소각 처리 실패');
+  expect(await page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+
+  // 4. Dry-run on doc-purge-1 lists the target and shows the confirmation run button.
+  await targetInput.fill('doc-purge-1');
+  await modal.locator('.claire-dialog-foot button').filter({ hasText: '영향 분석' }).click();
+  await expect(modal.locator('#purgeresult')).toContainText('소각 대상 테스트 문서');
+  await expect(modal.locator('#purgeresult')).toContainText('doc-purge-1');
+
+  // 5. Accept confirmation dialog, execute purge, verify completion and removal from backend.
+  page.once('dialog', dialog => dialog.accept());
+  await modal.locator('#purgeresult button').filter({ hasText: '소각 실행' }).click();
+  await expect(modal.locator('#purgeresult')).toContainText('영구 소각 완료');
+  const docsResp = await page.evaluate(() => fetch('documents?id=doc-purge-1').then(r => r.json()));
+  expect(docsResp.documents).toEqual([]);
+
+  // 6. Close modal and open purge again via the "/" command palette.
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+  await page.keyboard.press('/');
+  const palette = page.locator('#cmdpalette');
+  await expect(palette).toBeVisible();
+  await page.locator('#cmdpalette-input').fill('소각');
+  const purgeCmd = page.locator('#cmdpalette-list .cmd-palette-row').filter({ hasText: '문서 소각' }).first();
+  await expect(purgeCmd).toBeVisible();
+  await purgeCmd.click();
+  await expect(palette).toBeHidden();
+  await expect(modal).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+
   expect(pageErrors).toEqual([]);
 });
