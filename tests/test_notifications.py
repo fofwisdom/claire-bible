@@ -612,6 +612,68 @@ def test_push_routes_subscribe_kinds_and_remove(world):
     assert _state(world) == (0, 0)
 
 
+def test_account_support_bundle_has_the_notifications_of_the_account_without_capabilities(world):
+    """End to end through the routes: the account makes its bundle and reads the member ``notifications/summary.json``."""
+    import io
+    import tarfile
+
+    from compression import zstd
+
+    ben_headers, _ref = _session_of(world, "ben")
+    endpoint = "https://fcm.googleapis.com/fcm/send/capability-of-the-device-of-ben"
+    assert _request(world, ben_headers, "POST", "/api/me/push/subscriptions", json={"endpoint": endpoint, "keys": {"p256dh": RFC_UA_PUBLIC, "auth": RFC_AUTH}}).status_code == 201
+    assert _request(world, ben_headers, "PUT", "/api/me/push/kinds/ap_follower", json={"push": False}).status_code == 200
+    _one_subscription(world, "cho", endpoint="https://web.push.apple.com/capability-of-the-device-of-cho")
+    events.ap_quote_request(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/alice")
+    events.ap_quote_request(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/carol")
+    events.ap_follower(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/alice")
+    events.ap_mention(world.db_file, account_ids=[ACCOUNTS["cho"]], actor_iri="https://social.example/users/zed")
+
+    made = _request(world, ben_headers, "POST", "/api/me/support-bundles", json={"days": 1})
+    assert made.status_code == 200, made.text
+    archive = _request(world, ben_headers, "GET", f"/api/me/support-bundles/download?bundle_id={made.json()['bundle']['bundle_id']}")
+    assert archive.status_code == 200
+    files: dict[str, bytes] = {}
+    with zstd.ZstdFile(io.BytesIO(archive.content), "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
+        for member in tar:
+            data = tar.extractfile(member)
+            if data is not None:
+                files[member.name.split("/", 1)[1]] = data.read()
+    blob = b"".join(files.values()).decode("utf-8")
+    # No capability of a device, no key, no name from a notification, and nothing of another account.
+    for secret in ("capability-of-the-device", RFC_UA_PUBLIC, RFC_AUTH, "alice@social.example", "zed@social.example", "web.push.apple.com", "ap_mention"):
+        assert secret not in blob, secret
+    summary = json.loads(files["notifications/summary.json"])
+    assert summary["server_can_send"] is True and summary["server_sender_task"] == "absent"  # the fixture stops the task of the api process
+    [device] = summary["devices"]
+    assert (device["push_service"], device["session"], device["failures_in_sequence"], device["last_error"], device["last_success_at"]) == ("fcm.googleapis.com", "in_effect", 0, None, None)
+    assert summary["kinds_without_push"] == ["ap_follower"]
+    kinds = {row["kind"]: (row["notifications"], row["unread"], row["events"], row["unread_never_sent"]) for row in summary["notifications_by_kind"]}
+    assert kinds == {"ap_follower": (1, 1, 1, 1), "ap_quote_request": (1, 1, 2, 1)}
+    assert (summary["push_queue"]["messages"], summary["push_queue"]["due_now"]) == (1, 1)  # ap_follower has no push for this account
+    assert [(row["kind"], row["events"], row["read_at"], row["sent_at"]) for row in summary["recent"]] == [("ap_follower", 1, None, None), ("ap_quote_request", 2, None, None)]
+    assert [finding["code"] for finding in summary["findings"]] == ["SERVER_SENDER_NOT_RUNNING"]
+    manifest = json.loads(files["manifest.json"])
+    assert (manifest["counts"]["notification_devices"], manifest["counts"]["notification_findings"]) == (1, 1)
+
+    # The session of the device ends: the bundle of the account says so.
+    conn = dbm.connect_existing(world.db_file)
+    conn.execute("DELETE FROM auth_sessions WHERE account_id=?", (ACCOUNTS["ben"],))
+    conn.commit()
+    conn.close()
+    from claire.ops.support_bundle_notifications import collect_account_notifications
+
+    later = collect_account_notifications(world.settings, account_id=ACCOUNTS["ben"], now=time.time(), since=time.time() - 86400)
+    assert later["devices"][0]["session"] == "ended" and [f["code"] for f in later["findings"]] == ["SERVER_SENDER_NOT_RUNNING", "DEVICE_SESSION_ENDED"]
+    # An account without a device and with unread notifications.
+    conn = _client(world)
+    conn.execute("DELETE FROM push_subscriptions WHERE account_id=?", (ACCOUNTS["cho"],))
+    conn.commit()
+    conn.close()
+    cho = collect_account_notifications(world.settings, account_id=ACCOUNTS["cho"], now=time.time(), since=time.time() - 86400)
+    assert cho["devices"] == [] and [f["code"] for f in cho["findings"]] == ["SERVER_SENDER_NOT_RUNNING", "NO_DEVICE"]
+
+
 def test_settings_page_and_tab_query_pages_render(world):
     headers, _ref = _session_of(world, "ben")
     page = _request(world, headers, "GET", "/settings/notifications")

@@ -3,7 +3,7 @@
 관리자의 서버 전체 번들(``support_bundle.create_support_bundle``)과 달리 호출 계정의 데이터만 담는다.
 
 - 담는 것: 계정 상태 요약(비밀 없음), 소유 테마 목록과 집계, 소유 테마의 적재 대기열 요약·실패 항목, 소유 테마 문서의 프로바이더 텔레메트리,
-  선택한 대상 문서의 추적 정보, 빌드 정보.
+  선택한 대상 문서의 추적 정보, 빌드 정보, 그 계정의 알림 요약과 웹 푸시 기기(푸시 서비스 호스트 이름만. 엔드포인트·구독 키·알림 매개변수는 담지 않는다).
 - 담지 않는 것: 호스트·마운트·저장소 진단, 설정 값, 로그 파일, OAuth·MCP 기록, 다른 계정의 테마·문서, 문서 본문(``raw_text``·``detail``),
   비밀(토큰·키 원문).
 - 등록부와 다운로드 경로는 서버 번들과 같다(``support_bundles``와 sidecar). ``account_id`` 열로 소유 계정을 구분한다.
@@ -295,6 +295,16 @@ def _tracked_document(conn: sqlite3.Connection, kb_ids: list[int], target: str) 
     }
 
 
+def _notifications(settings: Settings, account_id: int, cutoff: float, now: float) -> dict[str, Any]:
+    """The notifications and the Web Push devices of the account (docs/implementation/NOTIFICATIONS.md). A failure of this part does not stop the bundle: the member then has the error type."""
+    from .support_bundle_notifications import collect_account_notifications
+
+    try:
+        return collect_account_notifications(settings, account_id=account_id, now=now, since=cutoff)
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "error", "error": type(exc).__name__, "findings": [], "devices": []}
+
+
 def create_account_support_bundle(
     settings: Settings | None = None,
     *,
@@ -336,6 +346,7 @@ def create_account_support_bundle(
     finally:
         conn.close()
     telemetry = _telemetry(s, doc_ids, cutoff)
+    notification_state = _notifications(s, account_id, cutoff, now)
     build = _get_build_identity()
 
     tmp_path = archive_path.with_name(f".{archive_path.name}.tmp")
@@ -348,6 +359,7 @@ def create_account_support_bundle(
                     _add_json(tar, f"{root}/pipeline/inbox_summary.json", inbox_summary)
                     _add_json(tar, f"{root}/pipeline/failed_items.json", failed_items)
                     _add_json(tar, f"{root}/telemetry/provider_records.json", telemetry)
+                    _add_json(tar, f"{root}/notifications/summary.json", notification_state)
                     if tracked is not None:
                         _add_json(tar, f"{root}/tracked_document/target_resolution.json", tracked)
                     _add_json(tar, f"{root}/diagnostics/build.json", build)
@@ -368,6 +380,8 @@ def create_account_support_bundle(
                             "counts": {
                                 "failed_items": len(failed_items),
                                 "telemetry_records": len(telemetry),
+                                "notification_devices": len(notification_state.get("devices", [])),
+                                "notification_findings": len(notification_state.get("findings", [])),
                             },
                             "git_commit": build.get("git_commit"),
                             "request_context": sanitize_sensitive_data(request_context or {}),

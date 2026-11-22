@@ -13,6 +13,7 @@ Archive members (see docs/implementation/TELEMETRY.md Section 3.3):
 | ``accounts/auth_db.json`` | ``collect_auth_db`` |
 | ``pipeline/worker_queues.json`` | ``collect_worker_queues`` |
 | ``pipeline/shared_kb.json`` | ``collect_shared_kb`` |
+| ``notifications/summary.json`` | ``support_bundle_notifications.collect_notifications`` |
 
 Each function returns ``(report, warnings)``. A missing database or table is a value in the report (``absent``), not an error.
 """
@@ -154,7 +155,7 @@ def _guard(report: dict[str, Any], key: str, warnings: list[dict[str, Any]], cod
 
 
 def collect_services(settings: Any, *, now: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Liveness of the services that are not the API: the worker loops and the Fedify sidecar."""
+    """Liveness of the services that are not the API (the worker loops and the Fedify sidecar), and of the tasks of the API process that write a state file."""
     from .loop_runtime import read_loop_states
 
     data_dir = Path(settings.data_dir)
@@ -177,6 +178,14 @@ def collect_services(settings: Any, *, now: float) -> tuple[dict[str, Any], list
         }
 
     _guard(report, "fedify_sidecar", warnings, "SERVICES_COLLECTOR_FAILED", _sidecar)
+
+    def _api_tasks() -> dict[str, Any]:
+        # The tasks of the api process have no service of their own. The task that sends Web Push writes its state file (notifications/sender.py); notifications/summary.json has the diagnosis.
+        from ..notifications.sender import read_task_state
+
+        return {"web_push": read_task_state(data_dir, now=now)}
+
+    _guard(report, "api_tasks", warnings, "SERVICES_COLLECTOR_FAILED", _api_tasks)
     return report, warnings
 
 

@@ -335,6 +335,10 @@ def sanitize_sensitive_data(obj: Any) -> Any:
         for k, v in obj.items():
             if isinstance(k, str) and k.lower() in _DOCUMENT_SAFE_KEYS:
                 sanitized[k] = sanitize_sensitive_data(v)
+            elif k == "row_counts" and isinstance(v, dict):
+                # The keys are table names and the values are row counts. A table name such as server_key_pairs or provider_key_decryptions has a secret word, but its count is not a secret: a whole number stays. Each other value gets the normal rule.
+                counts = {name: count for name, count in v.items() if isinstance(count, int) and not isinstance(count, bool)}
+                sanitized[k] = {**sanitize_sensitive_data({name: value for name, value in v.items() if name not in counts}), **counts}
             elif isinstance(k, str) and _SENSITIVE_KEY_RE.search(k) and not isinstance(v, bool):
                 sanitized[k] = "***REDACTED***"
             else:
@@ -1611,6 +1615,7 @@ def create_support_bundle(
                 )
 
                 # 5-3. Subsystems that came after format 3: services, runtime configuration, federation, client.db, auth.db, worker queues, shared knowledge bases (support_bundle_services.py).
+                from . import support_bundle_notifications as notification_collectors
                 from . import support_bundle_services as services
 
                 worker_databases: list[tuple[int, str, Path]] = []
@@ -1628,7 +1633,9 @@ def create_support_bundle(
                     ("pipeline/worker_queues.json", "WORKER_QUEUES", lambda: services.collect_worker_queues(worker_databases, since=cutoff_epoch, admin_kb_ids=admin_kb_ids)),
                     ("pipeline/shared_kb.json", "SHARED_KB", lambda: services.collect_shared_kb(s, since=cutoff_epoch)),
                     ("diagnostics/plugins.json", "PLUGINS", lambda: services.collect_plugins(s)),
+                    ("notifications/summary.json", "NOTIFICATIONS", lambda: notification_collectors.collect_notifications(s, now=now, since=cutoff_epoch)),
                 )
+                notification_findings: list[str] = []
                 for member, warning_code, collect in subsystem_members:
                     try:
                         member_report, member_warnings = collect()
@@ -1636,6 +1643,9 @@ def create_support_bundle(
                     except Exception as exc:  # noqa: BLE001
                         member_report = {"state": "error", "error": f"{type(exc).__name__}: {exc}"}
                         collector_warnings.append({"code": f"{warning_code}_COLLECTOR_FAILED", "message": member_report["error"]})
+                    if member == "notifications/summary.json" and isinstance(member_report.get("findings"), list):
+                        # The manifest names the findings, so that a reader sees a notification problem without the member.
+                        notification_findings = [str(item.get("code")) for item in member_report["findings"] if isinstance(item, dict)]
                     _add_tar_bytes(
                         tar,
                         f"{root_arcname}/{member}",
@@ -1897,6 +1907,7 @@ def create_support_bundle(
                         "msg": active_ingest_snapshot.get("msg"),
                         "file_present": bool(active_ingest_snapshot.get("file_present", False)),
                     },
+                    "notification_findings": notification_findings,
                     "target": sanitize_sensitive_data(target_info) if target_info else None,
                     "request_context": sanitize_sensitive_data(request_context or {}),
                 }

@@ -1,6 +1,8 @@
 """The Support Bundle members of the subsystems after format 3 (support_bundle_services.py) and the records of the worker loops (loop_runtime.py).
 
-The end-to-end test makes a bundle from a data directory with claire.db, client.db, auth.db, the loop records, the sidecar heartbeat, and the runtime files, and reads the archive. The unit tests cover the file I/O of loop_runtime.
+The end-to-end test makes a bundle from a data directory with claire.db, client.db, auth.db, the loop records, the sidecar heartbeat, and the runtime files, and reads the archive. The unit tests cover the file I/O of loop_runtime and of the state record of the Web Push task.
+
+The notification member (support_bundle_notifications.py) has its own end-to-end test: a data directory with notifications, devices, a queue, and the VAPID key pair row.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import Any
 
 from compression import zstd
 
+from claire.notifications import sender
 from claire.ops import loop_runtime
 from claire.store import auth_db, client_db
 from claire.store import db as dbm
@@ -26,6 +29,11 @@ FEED_URL = "https://private.example/feeds/secret-list.xml"
 ID_SALT = "salt-value-that-must-not-leak-0123456789"
 S3_SECRET = "s3-secret-value-0123456789"
 GEMINI_KEY = "AIza-gemini-key-0123456789"
+PUSH_PATH_A = "send/capability-of-device-a-0123456789"
+PUSH_PATH_B = "wpush/v2/capability-of-device-b-0123456789"
+PUSH_P256DH = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"
+PUSH_AUTH = "BTBZMqHH6r4Tts7J_aSIgg"
+ACTOR_NAME = "dana@other.example"
 
 
 @dataclass
@@ -221,3 +229,139 @@ def test_loop_runtime_writes_the_log_and_the_state(tmp_path: Path, monkeypatch):
     assert (state["loop"], state["cycles"], state["last_cycle_ok"], state["last_summary"]) == ("recover", 1, True, {"tried": 2, "recovered": 1})
     read = loop_runtime.read_loop_states(tmp_path, now=time.time())
     assert read["recover"]["state"] == "recent" and read["expand"] == {"state": "absent"}
+
+
+# --- notifications/summary.json ---------------------------------------------------------------------------------------
+
+
+def _bundle_members(settings: Any, now: float) -> dict[str, bytes]:
+    return _members(create_support_bundle(settings, days=1, now_epoch=now).filepath)
+
+
+def _seed_notifications(settings: StubSettings, now: float) -> None:
+    """Account 1 (the admin of a new database): two unread notifications, one of them of an unknown kind; two devices (one fails, and none has a session in effect); one message that waits for 10 minutes; one kind without push; the VAPID row."""
+    conn = dbm.connect_existing(settings.db_file)
+    conn.execute("UPDATE accounts SET status='active' WHERE id=1")
+    conn.execute("INSERT INTO kb_contributions (public_id, kb_id, document_id, origin, state, contributed_at, updated_at) VALUES (901, 0, 'doc-901', 'bulk', 'pending', ?, ?)", (now, now))
+    conn.commit()
+    conn.close()
+    cconn = client_db.connect_client_db(client_db.client_db_path(settings.db_file))
+    cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, group_key, count, created_at, updated_at) VALUES (1, 1, 'kf_contribution_pending', ?, '/moderation/kb/77?tab=queue', 'kb:5', 3, ?, ?)", (json.dumps({"actor": ACTOR_NAME, "kb": "Cities"}), now - 900, now - 700))
+    cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, count, created_at, updated_at, read_at, pushed_at) VALUES (2, 1, 'ap_follower', '{}', '/settings/federation', 1, ?, ?, ?, ?)", (now - 5 * 86400, now - 5 * 86400, now - 86400, now - 5 * 86400))
+    cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, count, created_at, updated_at) VALUES (3, 1, 'kind_of_a_newer_version', '{}', '/', 1, ?, ?)", (now - 60, now - 60))
+    for sub_id, endpoint, failures, error, success in ((1, f"https://fcm.googleapis.com/{PUSH_PATH_A}", 0, None, now - 3600), (2, f"https://updates.push.services.mozilla.com/{PUSH_PATH_B}", 3, "http_403", None)):
+        cconn.execute(
+            "INSERT INTO push_subscriptions (id, account_id, endpoint, p256dh, auth, label, session_ref, created_at, last_success_at, failure_count, last_error) VALUES (?, 1, ?, ?, ?, 'Chrome · Linux', 'ref-of-a-session-that-ended', ?, ?, ?, ?)",
+            (sub_id, endpoint, PUSH_P256DH, PUSH_AUTH, now - 86400, success, failures, error),
+        )
+    cconn.execute("INSERT INTO push_queue (notification_id, subscription_id, attempts, next_attempt_at) VALUES (1, 2, 2, ?)", (now - 600,))
+    cconn.execute("INSERT INTO notification_push_off (account_id, kind) VALUES (1, 'ap_follower')")
+    cconn.commit()
+    cconn.close()
+    aconn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
+    aconn.execute("INSERT INTO server_key_pairs (name, public_key, private_ciphertext, private_nonce, key_version, created_at) VALUES ('webpush_vapid', 'public-key-text', ?, ?, 1, ?)", (b"vapid-cipher-bytes", b"vapid-nonce", now - 86400))
+    aconn.commit()
+    aconn.close()
+
+
+def test_support_bundle_has_the_notification_member_with_findings_and_no_capability(tmp_path: Path, monkeypatch):
+    now = time.time()
+    settings = _seed(tmp_path, now)
+    _seed_notifications(settings, now)
+    monkeypatch.setattr(sender, "vapid_subject", lambda _settings: "http://claire.example")
+    members = _bundle_members(settings, now)
+    blob = b"".join(members.values()).decode("utf-8", errors="replace")
+    # No endpoint path (the capability of a device), no subscription key, no key material, no parameter of a notification, no entry address.
+    for secret in (PUSH_PATH_A, PUSH_PATH_B, PUSH_P256DH, PUSH_AUTH, "vapid-cipher-bytes", "public-key-text", ACTOR_NAME, "/moderation/kb/77", "ref-of-a-session-that-ended"):
+        assert secret not in blob, secret
+
+    summary = json.loads(members["notifications/summary.json"])
+    assert summary["readiness"] == {"public_origin": True, "origin_scheme": "http", "vapid_pair": {"state": "present", "created_at": summary["readiness"]["vapid_pair"]["created_at"]}}
+    assert summary["sender_task"] == {"state": "absent"}
+    assert summary["notifications"] == {"total": 3, "unread": 2, "accounts_with_unread": 1, "accounts_with_unread_and_no_device": 0}
+    kinds = {row["kind"]: row for row in summary["notifications_by_kind"]}
+    pending = kinds["kf_contribution_pending"]
+    assert (pending["channel"], pending["class"], pending["notifications"], pending["unread"], pending["events"], pending["made_in_period"], pending["unread_never_sent"]) == ("activitypub", "request", 1, 1, 3, 1, 1)
+    assert (kinds["ap_follower"]["unread"], kinds["ap_follower"]["made_in_period"]) == (0, 0)
+    assert kinds["kind_of_a_newer_version"]["known"] is False
+    queue = summary["push_queue"]
+    assert (queue["messages"], queue["due_now"], queue["retrying"], queue["max_attempts"], queue["by_kind"]) == (1, 1, 1, 2, [{"kind": "kf_contribution_pending", "messages": 1, "max_attempts": 2}])
+    assert 590 < queue["oldest_due_age_seconds"] < 660
+    subs = summary["push_subscriptions"]
+    assert (subs["devices"], subs["accounts"], subs["failing"], subs["max_failures_in_sequence"], subs["without_session_in_effect"]) == (2, 1, 1, 3, 2)
+    assert [(row["push_service"], row["devices"], row["failing"], row["never_sent"]) for row in subs["by_push_service"]] == [("fcm.googleapis.com", 1, 0, 0), ("updates.push.services.mozilla.com", 1, 1, 1)]
+    assert subs["last_errors"] == [{"error": "http_403", "devices": 1}]
+    assert summary["push_off"] == [{"kind": "ap_follower", "accounts": 1}]
+    assert summary["scan"]["contribution"] == {"first_scan_at": None, "told": 0, "pending_contributions": 1, "pending_not_told": 1}
+    [top] = summary["accounts_with_most_unread"]
+    assert (top["unread"], top["devices"], top["queued_messages"]) == (2, 2, 1) and top["account"]
+    codes = [finding["code"] for finding in summary["findings"]]
+    assert codes == ["ORIGIN_NOT_HTTPS", "SENDER_TASK_NOT_RUNNING", "QUEUE_OVERDUE", "DEVICES_FAILING", "DEVICES_WITHOUT_SESSION", "UNKNOWN_KINDS", "SCAN_NEVER_RAN"]
+    assert json.loads(members["manifest.json"])["notification_findings"] == codes
+
+    # The liveness of the task is with the other services, and the row counts of tables with a secret word in the name are counts, not a mask.
+    assert json.loads(members["diagnostics/services.json"])["api_tasks"] == {"web_push": {"state": "absent"}}
+    auth_counts = json.loads(members["accounts/auth_db.json"])["row_counts"]
+    assert auth_counts["server_key_pairs"] == 1 and auth_counts["provider_key_decryptions"] == 0
+    client_counts = json.loads(members["federation/client_db.json"])["row_counts"]
+    assert (client_counts["notifications"], client_counts["push_subscriptions"], client_counts["push_queue"]) == (3, 2, 1)
+    warnings = json.loads(members["diagnostics/collector_warnings.json"])
+    assert not [w for w in warnings if w["code"].startswith("NOTIFICATIONS")], warnings
+
+
+def test_notification_member_without_a_public_origin_and_with_a_running_task(tmp_path: Path, monkeypatch):
+    now = time.time()
+    settings = _seed(tmp_path, now)
+    _seed_notifications(settings, now)
+    monkeypatch.setattr(sender, "vapid_subject", lambda _settings: None)
+    recorder = sender.TaskRecorder(tmp_path, interval=5.0, now=now - 30)
+    recorder.cycle_ok(sender.SendReport(sent=2, dropped=1, errors=["http_403"]), told_contributions=1, now=now - 20)
+    members = _bundle_members(settings, now)
+    summary = json.loads(members["notifications/summary.json"])
+    task = summary["sender_task"]
+    assert (task["state"], task["totals"], task["last_work"]["sent"]) == ("recent", {"sent": 2, "retried": 0, "dropped": 1, "removed_subscriptions": 0, "told_contributions": 1}, 2)
+    assert task["last_send_errors"][0]["error"] == "http_403" and 15 < task["age_seconds"] < 30
+    codes = [finding["code"] for finding in summary["findings"]]
+    assert codes[0] == "NO_PUBLIC_ORIGIN" and "SENDER_TASK_NOT_RUNNING" not in codes and "ORIGIN_NOT_HTTPS" not in codes
+
+
+def test_notification_member_reports_an_absent_or_old_client_db(tmp_path: Path):
+    now = time.time()
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    conn.close()
+    settings = StubSettings(db_file=db_file, data_dir=tmp_path)
+    summary = json.loads(_bundle_members(settings, now)["notifications/summary.json"])
+    assert summary["client_db"]["state"] == "absent" and summary["sender_task"] == {"state": "absent"} and summary["readiness"]["vapid_pair"]["state"] == "absent"
+    assert not (tmp_path / "client.db").exists() and not (tmp_path / "auth" / "auth.db").exists()
+    # A client.db of version 8 (before the notifications): the member says that the tables are absent, and the collector does not fail.
+    cconn = client_db.connect_client_db(client_db.client_db_path(db_file))
+    for table in ("notifications", "push_subscriptions", "push_queue", "notification_push_off", "notification_scan_seen"):
+        cconn.execute(f"DROP TABLE {table}")
+    cconn.commit()
+    cconn.close()
+    members = _bundle_members(settings, now + 1)
+    summary = json.loads(members["notifications/summary.json"])
+    assert summary["client_db"]["state"] == "no_notification_tables" and [f["code"] for f in summary["findings"]] == ["NOTIFICATION_TABLES_ABSENT"]
+    assert not [w for w in json.loads(members["diagnostics/collector_warnings.json"]) if w["code"].startswith("NOTIFICATIONS")]
+
+
+def test_web_push_task_state_file_is_written_with_a_limit_and_read_with_its_age(tmp_path: Path):
+    assert sender.read_task_state(tmp_path, now=100.0) == {"state": "absent"}
+    recorder = sender.TaskRecorder(tmp_path, interval=5.0, now=1000.0)
+    path = sender.task_state_path(tmp_path)
+    assert json.loads(path.read_text())["started_at"] == 1000.0
+    # A cycle without work in the write interval does not write the file; a cycle with work, a failed cycle, and the end of the interval do.
+    recorder.cycle_ok(sender.SendReport(), told_contributions=0, now=1005.0)
+    assert json.loads(path.read_text())["cycles"] == 0
+    recorder.cycle_ok(sender.SendReport(sent=1), told_contributions=0, now=1010.0)
+    assert (json.loads(path.read_text())["cycles"], json.loads(path.read_text())["last_work_at"]) == (2, 1010.0)
+    recorder.cycle_ok(sender.SendReport(), told_contributions=0, now=1010.0 + sender.STATE_WRITE_INTERVAL)
+    assert json.loads(path.read_text())["cycles"] == 3
+    recorder.cycle_failed("OperationalError", now=1100.0)
+    state = sender.read_task_state(tmp_path, now=1110.0)
+    assert (state["state"], state["last_cycle_ok"], state["last_error"], state["failed_cycles"], state["totals"]["sent"]) == ("recent", False, "OperationalError", 1, 1)
+    assert sender.read_task_state(tmp_path, now=1100.0 + 2 * sender.STATE_WRITE_INTERVAL + 61)["state"] == "overdue"
+    path.write_text("not json", encoding="utf-8")
+    assert sender.read_task_state(tmp_path, now=1110.0)["state"] == "unreadable"

@@ -4,6 +4,7 @@
 - ``send_due`` reads the queue rows whose time came and sends each message. The text of a message is made at the send, in the locale of the account.
 - A subscription whose session is gone, or whose account is not active, is deleted before a send (PN3 rule 7).
 - Each request goes to an ``https`` endpoint whose addresses are all public, and follows no redirect (PN3 rule 6).
+- The task writes its state to ``run/task_web_push.json`` of the data directory (``TaskRecorder``). The Support Bundle reads the file (``read_task_state``): the task has no other record than log lines, and a person cannot see from outside if it runs.
 """
 
 from __future__ import annotations
@@ -11,9 +12,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sqlite3
+import tempfile
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Final
 
 import httpx
@@ -28,7 +32,7 @@ from ..store import notifications as store
 from ..store.secrets import get_secret_service
 from . import KINDS, render, webpush
 
-__all__ = ["SendReport", "run_scheduler", "send_due", "vapid_subject", "wake"]
+__all__ = ["SendReport", "TaskRecorder", "read_task_state", "run_scheduler", "send_due", "task_state_path", "vapid_subject", "wake"]
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +46,10 @@ RETRY_DELAYS: Final[tuple[float, ...]] = (30.0, 120.0, 600.0)
 MAX_SUBSCRIPTION_FAILURES: Final[int] = 5
 PAYLOAD_MAX_BYTES: Final[int] = 3000
 _BATCH: Final[int] = 100
+# The task writes its state after a cycle that did work or failed, and one time in this interval at least.
+STATE_WRITE_INTERVAL: Final[float] = 60.0
+_STATE_COUNTERS: Final[tuple[str, ...]] = ("sent", "retried", "dropped", "removed_subscriptions", "told_contributions")
+_STATE_ERRORS_MAX: Final[int] = 20
 
 Post = Callable[[webpush.PushRequest], int]
 
@@ -60,6 +68,87 @@ class SendReport:
     @property
     def total(self) -> int:
         return self.sent + self.retried + self.dropped + self.removed_subscriptions
+
+
+def task_state_path(data_dir: Path | str) -> Path:
+    return Path(data_dir) / "run" / "task_web_push.json"
+
+
+class TaskRecorder:
+    """The state record of the task: start, last cycle, last cycle with work, counts since the start, and the last reasons of failed sends. It has no endpoint, no key, and no account. A failure to write the file does not stop the task."""
+
+    def __init__(self, data_dir: Path | str, *, interval: float, now: float | None = None) -> None:
+        self.path = task_state_path(data_dir)
+        started = time.time() if now is None else now
+        self.state: dict[str, Any] = {
+            "task": "web_push",
+            "pid": os.getpid(),
+            "interval_seconds": float(interval),
+            "started_at": started,
+            "last_cycle_at": None,
+            "last_cycle_ok": None,
+            "last_error": None,
+            "last_error_at": None,
+            "last_work_at": None,
+            "last_work": {},
+            "last_send_errors": [],
+            "cycles": 0,
+            "failed_cycles": 0,
+            "totals": dict.fromkeys(_STATE_COUNTERS, 0),
+        }
+        self._written_at = 0.0
+        self._write(started)
+
+    def cycle_ok(self, report: SendReport, *, told_contributions: int, now: float | None = None) -> None:
+        ts = time.time() if now is None else now
+        work = {"sent": report.sent, "retried": report.retried, "dropped": report.dropped, "removed_subscriptions": report.removed_subscriptions, "told_contributions": int(told_contributions)}
+        self.state.update(last_cycle_at=ts, last_cycle_ok=True, cycles=self.state["cycles"] + 1)
+        did_work = any(work.values())
+        if did_work:
+            self.state.update(last_work_at=ts, last_work=work)
+            for name, value in work.items():
+                self.state["totals"][name] += value
+            if report.errors:
+                self.state["last_send_errors"] = ([{"at": ts, "error": error} for error in sorted(set(report.errors))] + self.state["last_send_errors"])[:_STATE_ERRORS_MAX]
+        if did_work or ts - self._written_at >= STATE_WRITE_INTERVAL:
+            self._write(ts)
+
+    def cycle_failed(self, error: str, *, now: float | None = None) -> None:
+        ts = time.time() if now is None else now
+        self.state.update(last_cycle_at=ts, last_cycle_ok=False, last_error=str(error)[:200], last_error_at=ts, cycles=self.state["cycles"] + 1, failed_cycles=self.state["failed_cycles"] + 1)
+        self._write(ts)
+
+    def _write(self, now: float) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, tmp_name = tempfile.mkstemp(prefix=f".{self.path.name}-", dir=self.path.parent)
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    json.dump(self.state, stream, ensure_ascii=False)
+                os.replace(tmp_name, self.path)
+            except BaseException:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
+            self._written_at = now
+        except OSError as exc:
+            log.warning("web push: cannot write the task state: %s", type(exc).__name__)
+
+
+def read_task_state(data_dir: Path | str, *, now: float) -> dict[str, Any]:
+    """The state of the task with its age. ``absent``: the ``api`` process did not start the task with this version. ``overdue``: the file is older than two write intervals and one minute, thus the task does not run now."""
+    path = task_state_path(data_dir)
+    if not path.is_file():
+        return {"state": "absent"}
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(record, dict):
+            raise ValueError("not an object")
+    except (OSError, ValueError) as exc:
+        return {"state": "unreadable", "error": f"{type(exc).__name__}: {exc}"}
+    last = record.get("last_cycle_at") or record.get("started_at")
+    age = now - float(last) if isinstance(last, (int, float)) else None
+    overdue = age is None or age > 2 * STATE_WRITE_INTERVAL + 60
+    return {"state": "overdue" if overdue else "recent", "age_seconds": age, **record}
 
 
 def wake() -> None:
@@ -243,6 +332,7 @@ async def run_scheduler(settings: Any) -> None:
     _wake_event = asyncio.Event()
     event = _wake_event
     last_cleanup = 0.0
+    recorder = TaskRecorder(settings.data_dir, interval=SCHEDULER_INTERVAL)
     try:
         while True:
             try:
@@ -253,8 +343,9 @@ async def run_scheduler(settings: Any) -> None:
             try:
                 from . import events
 
-                await asyncio.to_thread(events.scan_pending_contributions, settings.db_file)
+                told = await asyncio.to_thread(events.scan_pending_contributions, settings.db_file)
                 report = await asyncio.to_thread(send_due, settings)
+                recorder.cycle_ok(report, told_contributions=told)
                 if report.total:
                     log.info("web push: sent=%d retried=%d dropped=%d removed_subscriptions=%d errors=%s", report.sent, report.retried, report.dropped, report.removed_subscriptions, sorted(set(report.errors)))
                 if time.monotonic() - last_cleanup >= CLEANUP_INTERVAL:
@@ -262,6 +353,7 @@ async def run_scheduler(settings: Any) -> None:
                     await asyncio.to_thread(cleanup, settings)
             except Exception as exc:  # noqa: BLE001 - one bad cycle must not stop the task.
                 log.warning("web push cycle failed: %s", type(exc).__name__)
+                recorder.cycle_failed(type(exc).__name__)
     finally:
         _loop = None
         _wake_event = None

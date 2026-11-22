@@ -27,7 +27,8 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 | `src/claire/notifications/__init__.py` | `KINDS`, `emit`, `render`, `kb_people_managers`, `kb_reviewers` |
 | `src/claire/notifications/events.py` | One function for each kind, `after_commit`, `scan_pending_contributions` |
 | `src/claire/notifications/webpush.py` | RFC 8291 encryption and RFC 8292 VAPID header; no network call |
-| `src/claire/notifications/sender.py` | `send_due`, `run_scheduler` (task of the `api` process), `wake` |
+| `src/claire/notifications/sender.py` | `send_due`, `run_scheduler` (task of the `api` process), `wake`, `TaskRecorder` and `read_task_state` (the state file of the task) |
+| `src/claire/ops/support_bundle_notifications.py` | The notification members of the two Support Bundles (Section 8) |
 | `src/claire/store/notifications.py` | The tables of `client.db` and the VAPID key pair of `auth.db` |
 | `src/claire/api/accounts_routes/notifications.py` | The routes and the body of `/settings/notifications` |
 | `src/bible/static/js/sw.js` | The service worker (sent at `/sw.js`) |
@@ -111,6 +112,7 @@ Rules of the events:
 
 - **Outbound safety**: `guarded_client(allow_private_networks=False, private_network_allowlist=[], follow_redirects=False)`. The private network settings of the fetchers (`CLAIRE_ALLOW_PRIVATE_NETWORKS`, `CLAIRE_PRIVATE_NETWORK_ALLOWLIST`) do not apply. The subscribe route accepts only an `https` URL with a host name and without credentials; an IP address is refused.
 - **Task**: `run_scheduler` starts in the lifespan of the `api` process (`server.app_lifespan`). An emit in the same process calls `sender.wake`. The interval is 5 seconds. The log line `web push: sent=… retried=… dropped=… removed_subscriptions=… errors=[…]` has no endpoint and no key.
+- **State file**: the task writes `data/run/task_web_push.json` after a cycle with work, after a failed cycle, and one time each 60 seconds at least: start, last cycle, last cycle with work, totals since the start, and the last reasons of failed sends.
 - There is no environment variable and no admin setting for this function.
 
 ## 6. Client
@@ -135,7 +137,22 @@ All routes have the rule `_any("owner", "none")`; `/settings/notifications` has 
 | `PUT` | `/api/me/push/kinds/{kind}` | `{"push": true \| false}` | 200 `{"kind", "push"}`; 404 `kind_not_found` |
 | `POST` | `/api/me/push/test` | `{}` | 201 `{"ok", "id"}` |
 
-## 8. Known Limits
+## 8. Diagnosis with a Support Bundle
+
+When a person gets no notification, make a Support Bundle ([`TELEMETRY.md`](TELEMETRY.md) §3.7 and §4) and read `notifications/summary.json`. Its `findings` name the cause; the manifest of the server-wide bundle has the same codes in `notification_findings`.
+
+| Question | Where |
+| :--- | :--- |
+| Can the server send? | `readiness` (`NO_PUBLIC_ORIGIN`, `ORIGIN_NOT_HTTPS`, `VAPID_PAIR_ABSENT`) |
+| Does the task run? | `sender_task`, and `diagnostics/services.json` `api_tasks.web_push` (`SENDER_TASK_NOT_RUNNING`, `SENDER_TASK_CYCLE_FAILED`) |
+| Do messages wait? | `push_queue` (`QUEUE_OVERDUE`) |
+| Do the devices fail, and with which result of which push service? | `push_subscriptions` (`DEVICES_FAILING`, `DEVICES_WITHOUT_SESSION`) |
+| Was the notification made, and was it sent? | `notifications_by_kind` (`unread_never_sent`), `push_off`, and `scan` (`SCAN_NEVER_RAN`, `SCAN_BEHIND`) |
+| Which accounts wait? | `accounts_with_most_unread` |
+
+The account makes its own bundle at `/settings/bundles`. Its member has the devices of the account with the state of each sign-in session, the kinds without push, and the last 50 notifications with the time of each send.
+
+## 9. Known Limits
 
 - A real send (a browser of a person, the push service of its vendor) is not in the tests. It needs a server with a public HTTPS address.
 - The headless browser of the E2E tests has no system notification and no application badge. `e2e/notifications.spec.js` gives the worker the events and records the calls.
@@ -145,10 +162,11 @@ All routes have the rule `_any("owner", "none")`; `/settings/notifications` has 
 - The name of an actor of another server comes from its IRI, not from its profile.
 - A notification that is read stays in the list for 90 days; the list has no delete control.
 
-## 9. Tests
+## 10. Tests
 
 | File | Content |
 | :--- | :--- |
-| `tests/test_notifications.py` | The example of RFC 8291 Section 5 (body start, key, and nonce); the VAPID signature and claims; the store (grouping, queue, purge, migration from version 8, VAPID key); `emit` rules; the text of each kind in `en` and `ko`; the events of each kind; `after_commit`; the scan; the sender results (2xx, retry, 410, network error, session end, address that is not public, no public origin, kind that is off); the task of the `api` process; the routes; the page |
+| `tests/test_notifications.py` | The example of RFC 8291 Section 5 (body start, key, and nonce); the VAPID signature and claims; the store (grouping, queue, purge, migration from version 8, VAPID key); `emit` rules; the text of each kind in `en` and `ko`; the events of each kind; `after_commit`; the scan; the sender results (2xx, retry, 410, network error, session end, address that is not public, no public origin, kind that is off); the task of the `api` process; the routes; the page; the notification member of the account-scope Support Bundle |
 | `tests/test_e2e_federation_interactions.py`, `tests/test_e2e_federation_quotes.py`, `tests/test_knowledge_federation_kf4_e2e.py` | `ap_mention`, `ap_private_message`, `ap_quote_request`, `kf_offer_answered`, and `kf_grant` from the internal federation API |
+| `tests/test_support_bundle_services.py` | The notification member of the server-wide Support Bundle and the task state file |
 | `e2e/notifications.spec.js` | The bell and `/settings/notifications` in the console shell; a kind switch; an item opens its entry address and becomes read; the tab query; the service worker (`push`, an address of another site, `notificationclick`) |
