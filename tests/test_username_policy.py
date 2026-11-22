@@ -29,7 +29,7 @@ SPEC_RESERVED = {
     "private", "me", "self", "null", "undefined", "test", "demo",
     # 서비스
     "claire", "api", "www", "mail", "mcp", "bot", "media", "usercontent", "explore",
-    "invite", "settings", "syndication", "prototype", "clients", "moderation",
+    "invite", "settings", "syndication", "prototype", "clients", "moderation", "account", "directory",
     # 연합·인증 (Fedify / IdP)
     "inbox", "outbox", "actor", "actors", "ap", "fedify", "federation", "nodeinfo",
     "oauth", "auth", "followers", "following", "shared_inbox", "sharedinbox",
