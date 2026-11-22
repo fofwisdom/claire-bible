@@ -14,11 +14,13 @@ from starlette.testclient import TestClient
 from claire.accounts.provider_policy import ProviderKeyRejected
 from claire.api import server, usercontent
 from claire.core.config import Settings
+from claire.extract.prompts import DEFAULT_EXTRACTION_TEMPLATE, PROMPT_VERSION, extract_system_prompt, render_detail_instructions_adoc
 from claire.extract.provider import UnavailableProvider
 from claire.ingest import client_extraction as ce
 from claire.ingest.pipeline import stage_raw
 from claire.federation.knowledge import actors
 from claire.ontology.base import Document, Entity
+from claire.ontology.registry import ontology_prompt_block
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
@@ -166,7 +168,18 @@ def test_pending_isolation_in_server_usercontent_and_federation_actors(tmp_path:
 def test_get_extraction_spec_and_ontology_export_contract() -> None:
     spec = ce.get_extraction_spec()
     assert spec["schema_version"] == ce.CLIENT_EXTRACTION_SCHEMA_VERSION
+    assert spec["prompt_version"] == PROMPT_VERSION
+    assert spec["prompt_template"] == DEFAULT_EXTRACTION_TEMPLATE
+    assert "detail_rules" not in spec
+    assert spec["prompts"]["template"] == DEFAULT_EXTRACTION_TEMPLATE
+    assert spec["prompts"]["prompt_version"] == PROMPT_VERSION
+    assert spec["prompts"]["extract_system_prompt"] == extract_system_prompt(ontology_prompt_block())
+    assert spec["prompts"]["render_detail_prompt"] == render_detail_instructions_adoc()
     assert spec["json_schema"]["additionalProperties"] is False
+    assert "agent_client" in spec["json_schema"]["properties"]["model"]["description"]
+    assert spec["model_rules"]["set_active_model_when_known"] is True
+    assert "agent_client" in spec["model_rules"]["forbid_values"]
+    assert "[latexmath]" in spec["asciidoc_rules"]["allow_math_passthrough"]
     entity_names = {item["name"] for item in spec["ontology"]["entity_types"]}
     relation_names = {item["name"] for item in spec["ontology"]["relation_types"]}
     assert {"Tool", "Framework", "Model", "Org", "Concept", "Person"}.issubset(entity_names)
@@ -678,10 +691,16 @@ def test_client_extraction_model_recording_validation_and_legacy_oauth_client_id
         doc_c = staged_c["document_id"]
         dbm.log_extraction(conn, document_id=doc_c, provider="agent_client", model="claire_mcp_legacy123", prompt_version="agent-extract-v1", raw_response=json.dumps({"summary": "Legacy summary"}), kb_id=world.alice_kb.id)
         assert dbm.latest_extraction_model(conn, doc_c, kb_id=world.alice_kb.id) == ("agent_client", None)
+
+        staged_d = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=("OpenAI builds ReasoningEngine. " * 200).strip(), title="Long Source Doc", settings=world.settings)
+        doc_d = staged_d["document_id"]
+        claim_d = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_d, client_id="claire_mcp_xHAtun76dzIxa-ZI")
+        dbm.log_extraction(conn, document_id=doc_d, provider="agent_client", model="agent_client", prompt_version="agent-extract-v1", raw_response=json.dumps({"summary": "Legacy agent_client summary"}), kb_id=world.alice_kb.id)
+        assert dbm.latest_extraction_model(conn, doc_d, kb_id=world.alice_kb.id) == ("agent_client", None)
     finally:
         conn.close()
 
-    for bad_model in ("claire_mcp_bad", "line1\nline2", "x" * 129):
+    for bad_model in ("claire_mcp_bad", "agent_client", "AGENT_CLIENT", "line1\nline2", "x" * 129):
         dry_bad = ce.submit_client_extraction(
             world.settings.db_file,
             kb_id=world.alice_kb.id,
@@ -696,6 +715,22 @@ def test_client_extraction_model_recording_validation_and_legacy_oauth_client_id
         )
         assert dry_bad["ok"] is False
         assert any(err["field"] == "model" and err["code"] == "model_invalid" for err in dry_bad["errors"])
+
+    dry_warn = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_d,
+        claim_token=claim_d["claim_token"],
+        expected_content_hash=claim_d["content_hash"],
+        payload=_valid_payload(),
+        dry_run=True,
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert dry_warn["ok"] is True and dry_warn["errors"] == []
+    warn_codes = {w["code"] for w in dry_warn["warnings"]}
+    assert warn_codes == {"model_missing"}
 
     res_a = ce.submit_client_extraction(
         world.settings.db_file,
@@ -725,12 +760,50 @@ def test_client_extraction_model_recording_validation_and_legacy_oauth_client_id
 
     check_conn = dbm.connect_existing(world.settings.db_file, readonly=True)
     try:
-        row_a = check_conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_a, world.alice_kb.id)).fetchone()
-        assert (row_a["provider"], row_a["model"]) == ("agent_client", "gemini-3.8-flash")
+        row_a = check_conn.execute("SELECT provider, model, prompt_version FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_a, world.alice_kb.id)).fetchone()
+        assert (row_a["provider"], row_a["model"], row_a["prompt_version"]) == ("agent_client", "gemini-3.8-flash", PROMPT_VERSION)
         assert dbm.latest_extraction_model(check_conn, doc_a, kb_id=world.alice_kb.id) == ("agent_client", "gemini-3.8-flash")
 
-        row_b = check_conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_b, world.alice_kb.id)).fetchone()
-        assert (row_b["provider"], row_b["model"]) == ("agent_client", "")
+        row_b = check_conn.execute("SELECT provider, model, prompt_version FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_b, world.alice_kb.id)).fetchone()
+        assert (row_b["provider"], row_b["model"], row_b["prompt_version"]) == ("agent_client", "", PROMPT_VERSION)
         assert dbm.latest_extraction_model(check_conn, doc_b, kb_id=world.alice_kb.id) == ("agent_client", None)
     finally:
         check_conn.close()
+
+
+def test_staged_source_canonical_render_detail_prompt_and_math_passthrough(tmp_path: Path) -> None:
+    world = _setup_world(tmp_path)
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        plain_staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="Plain source without focus or images.", title="Plain Source", settings=world.settings)
+        plain_doc = plain_staged["document_id"]
+        plain_read = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=plain_doc)
+        assert "render_detail_prompt" not in plain_read
+
+        focused_staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="A" * 200, title="Focused Source", settings=world.settings)
+        focused_doc = focused_staged["document_id"]
+        dbm.update_document_meta(
+            conn,
+            focused_doc,
+            {"focus": "커널 메모리 격리", "images": [{"url": "https://example.com/arch.png", "alt": "Architecture"}]},
+            kb_id=world.alice_kb.id,
+        )
+        first_chunk = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=focused_doc, offset=0, limit=50)
+        assert first_chunk["render_detail_prompt"] == render_detail_instructions_adoc(
+            images=[{"url": "https://example.com/arch.png", "alt": "Architecture"}],
+            merged=False,
+            focus="커널 메모리 격리",
+        )
+        next_chunk = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=focused_doc, offset=50, limit=50)
+        assert "render_detail_prompt" not in next_chunk
+    finally:
+        conn.close()
+
+    math_errors: list[dict[str, str]] = []
+    cleaned_math, rendered_math = ce._validate_asciidoc_detail("= 수식 문서\n\n[latexmath]\n++++\nE = mc^2\n++++\n", math_errors)
+    assert math_errors == []
+    assert "E = mc^2" in cleaned_math and rendered_math
+
+    raw_pass_errors: list[dict[str, str]] = []
+    ce._validate_asciidoc_detail("= 위험 문서\n\n++++\n<div>raw</div>\n++++\n", raw_pass_errors)
+    assert any(err["code"] == "detail_passthrough_forbidden" for err in raw_pass_errors)

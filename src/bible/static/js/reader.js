@@ -588,9 +588,10 @@ function docMetaHtml(dc){
   }
   // The model of the latest extraction, to the right of the source badge. A later ingestion with a different model changes it.
   const exModel = String(dc.extraction_model || '').trim(), exProvider = String(dc.extraction_provider || '').trim();
-  if(exModel || exProvider){
+  const exModelLabel = exModel || (exProvider && exProvider !== 'agent_client' ? exProvider : '');
+  if(exModelLabel){
     const modelTip = hasI18nT ? ClaireI18n.t('context.doc.model_tip') : '';
-    tags.push('<span class="prov det model-badge" data-model-badge title="'+esc(modelTip)+'">'+esc(exModel || exProvider)+'</span>');
+    tags.push('<span class="prov det model-badge" data-model-badge title="'+esc(modelTip)+'">'+esc(exModelLabel)+'</span>');
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';

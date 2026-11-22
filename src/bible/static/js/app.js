@@ -5279,7 +5279,8 @@ function renderDocSourceTab(dc, ns){
   h += '<section aria-labelledby="ctx-model-heading"><div id="ctx-model-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.model_outputs')) + '</span></div>';
   h += '<dl class="ctx-kv">';
   const exModel = String(dc.extraction_model || '').trim(), exProvider = String(dc.extraction_provider || '').trim();
-  if(exModel || exProvider) h += '<dt>' + esc(tr('context.doc.field_model')) + '</dt><dd id="ctx-src-model">' + esc([exProvider, exModel].filter(Boolean).join(' · ')) + '</dd>';
+  const exParts = exProvider === 'agent_client' ? (exModel ? [exModel] : []) : [exProvider, exModel].filter(Boolean);
+  if(exParts.length) h += '<dt>' + esc(tr('context.doc.field_model')) + '</dt><dd id="ctx-src-model">' + esc(exParts.join(' · ')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.summary_status')) + '</dt><dd>' + esc(Boolean(dc.summary) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.detail_status')) + '</dt><dd>' + esc(Boolean(dc.detail || dc.detail_html) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.entity_count')) + '</dt><dd>' + esc(String(ns.length)) + '</dd>';
@@ -6343,6 +6344,9 @@ function renderHome(){
   renderHomeThemes();
   renderHomeMaintenance();
   renderHomeFlow();
+  if(window.ClaireUserHome && typeof window.ClaireUserHome.refreshWorkspaceHome === 'function'){
+    window.ClaireUserHome.refreshWorkspaceHome(theme);
+  }
 }
 // --- Stage strip (design Section 5.6, unit HW-8): collection, ingestion, publication ---
 // The strip is for the owner. Each count comes from a route that exists; a route that gives 404 (the federation routes while federation is off) or fails gives no count, and the stage shows its link only.

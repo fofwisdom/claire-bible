@@ -3,44 +3,122 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="text-scale" content="scale">
     <meta name="color-scheme" content="light dark">
     <meta name="robots" content="$robots_meta">
+    <meta name="claire-api-base" content="$api_base">
     <link rel="alternate" type="application/activity+json" href="$actor_url">
     <title>$title · Claire</title>
-    <style>
-      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; } }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
-      main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-      nav { display: flex; gap: 1rem; align-items: center; margin: 0 0 2rem; font-size: .95rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
-      nav a { color: var(--accent); text-decoration: none; }
-      nav a:hover { text-decoration: underline; }
-      .nav-right { margin-left: auto; display: flex; gap: 1rem; align-items: center; }
-      .nav-right form { margin: 0; }
-      button.link { background: none; border: 0; color: var(--accent); padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
-      .profile-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.75rem 1.5rem; }
-      .profile-card h1 { font-size: 1.6rem; margin: 0 0 .25rem; overflow-wrap: anywhere; }
-      .profile-handle { color: var(--muted); font-size: 1rem; margin: 0 0 1rem; overflow-wrap: anywhere; }
-      .profile-notice { margin: 0 0 1.25rem; }
-      .btn { display: inline-block; padding: .5rem 1.25rem; background: var(--accent); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
-    </style>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link rel="stylesheet" href="/static/css/user_home.css">
+    $i18n_bootstrap_html
   </head>
-  <body>
-    <main>
-      <nav aria-label="$nav_label">
+  <body class="uh-private-page">
+    <main class="uh-private-main home-b-scope" data-user-home="1" data-mobile-tab="timeline">
+      <nav class="uh-private-nav" aria-label="$nav_label">
         <a href="/"><strong>Claire</strong></a>
         <a href="/directory">$directory_title</a>
-        <div class="nav-right">
+        <div class="uh-private-nav-right">
           $nav_auth
         </div>
       </nav>
-      <article class="profile-card" data-profile-state="private">
-        <h1>$display_name</h1>
-        <p class="profile-handle">$handle</p>
-        <p class="profile-notice">$notice</p>
-        <p><a class="btn" href="/directory">$back_directory</a></p>
-      </article>
+
+      <div id="home-ap-profile" class="uh-profile-shell" aria-label="$profile_aria">
+        <div class="uh-profile-card">
+          <div class="uh-profile-top">
+            <div class="uh-identity">
+              <div class="uh-avatar" aria-hidden="true">$avatar_initial</div>
+              <div class="uh-id-main">
+                <div class="uh-name-row">
+                  <h1 class="uh-display-name">$display_name</h1>
+                  <span class="uh-chip ap">ActivityPub</span>
+                </div>
+                <div class="uh-handle-row">
+                  <code class="uh-handle-code profile-handle">$handle</code>
+                </div>
+              </div>
+            </div>
+            <div class="uh-profile-actions">
+              <button type="button" class="uh-btn ap" id="uh-follow-btn" commandfor="modal-home-follow" command="show-modal">$follow_label</button>
+            </div>
+          </div>
+          $summary_block
+        </div>
+      </div>
+
+      <div id="home-mobile-tabs" class="uh-mobile-tabs-wrap">
+        <div class="uh-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="$tabs_aria">
+          <button type="button" class="uh-tab" role="tab" id="home-tab-timeline" aria-selected="true" focusgroupstart>$tab_timeline</button>
+          <button type="button" class="uh-tab" role="tab" id="home-tab-kb" aria-selected="false">$tab_kb</button>
+        </div>
+      </div>
+
+      <div class="home-b-grid">
+        <div class="home-b-timeline" id="home-ap-timeline">
+          <section class="uh-tl-card" aria-label="$timeline_title">
+            <div class="uh-tl-head">
+              <div class="uh-tl-title-wrap">
+                <h2 class="uh-tl-title">$timeline_title</h2>
+              </div>
+            </div>
+            <div class="uh-tl-feed">$ssr_timeline_html</div>
+          </section>
+        </div>
+
+        <div class="home-b-kb">
+          <section class="uh-kb-summary-card" id="uh-private-kb-summary" aria-label="$kb_summary_title">
+            <div class="uh-kb-summary-head">
+              <h2 data-uh-kb-label>$kb_label</h2>
+              <span data-uh-kb-badge><span class="uh-chip warn">$kb_private_badge</span></span>
+            </div>
+            <p class="uh-kb-summary-stats" data-uh-kb-stats>$kb_stats</p>
+            <div class="uh-private-notice" data-profile-state="private">
+              <p>$notice</p>
+            </div>
+            <div><a class="uh-btn" href="/directory">$back_directory</a></div>
+          </section>
+        </div>
+      </div>
     </main>
+
+    <dialog id="modal-home-follow" closedby="any" aria-labelledby="modal-home-follow-title" class="uh-dialog" style="width:min(34rem,94vw);padding:0;border:1px solid var(--border);border-radius:10px;background:var(--card-bg);color:var(--fg)">
+      <div style="padding:1rem;display:flex;flex-direction:column;gap:0.75rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+          <h2 id="modal-home-follow-title" style="margin:0;font-size:1rem">$follow_dlg_title</h2>
+          <button type="button" class="uh-btn sm" commandfor="modal-home-follow" command="close">$close_label</button>
+        </div>
+        <div>
+          <div style="font-size:0.75rem;font-weight:700;margin-bottom:0.25rem">$follow_handle_label</div>
+          <div style="display:flex;gap:0.375rem;align-items:center;flex-wrap:wrap">
+            <code class="uh-handle-code" id="uh-follow-handle-val">$handle</code>
+            <button type="button" class="uh-btn sm" id="uh-follow-copy-handle">$copy_handle_label</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:0.75rem;font-weight:700;margin-bottom:0.25rem">$follow_actor_label</div>
+          <div style="display:flex;gap:0.375rem;align-items:center;flex-wrap:wrap">
+            <code class="uh-handle-code" id="uh-follow-iri-val">$actor_url</code>
+            <button type="button" class="uh-btn sm" id="uh-follow-copy-iri">$copy_iri_label</button>
+          </div>
+        </div>
+        <div>
+          <label for="uh-remote-domain" style="display:block;font-size:0.75rem;font-weight:700;margin-bottom:0.25rem">$follow_server_label</label>
+          <input id="uh-remote-domain" type="text" value="mastodon.example" style="width:100%;padding:0.375rem 0.5rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)"/>
+        </div>
+        <div>
+          <div style="font-size:0.75rem;font-weight:700;margin-bottom:0.25rem">$follow_preview_label</div>
+          <code class="uh-handle-code" id="uh-remote-follow-url"></code>
+        </div>
+        <p style="margin:0;font-size:0.75rem;color:var(--muted)">$follow_auto_accept</p>
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+          <button type="button" class="uh-btn" commandfor="modal-home-follow" command="close">$close_label</button>
+          <button type="button" class="uh-btn ap" id="uh-follow-open-remote">$follow_open_label</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script id="uh-bootstrap" type="application/json">$bootstrap_json</script>
+    <script src="/static/js/icons.js"></script>
+    <script src="/static/js/user_home_ap.js"></script>
   </body>
 </html>

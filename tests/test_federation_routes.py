@@ -409,7 +409,7 @@ def test_no_identity_field_in_any_response(internal):
     for canary in (CANARY_ISS, CANARY_SUB, CANARY_PROVIDER, "idp-canary"):
         assert canary not in blob
     record = internal.get(f"/actors/{ALICE_PUBLIC_ID}").json()
-    assert set(record) == {"public_id", "username", "display_name", "activated_at", "updated_at", "profile_url", "discoverable"}
+    assert set(record) == {"public_id", "username", "display_name", "activated_at", "updated_at", "profile_url", "discoverable", "summary"}
     # The internal account ID and the server role are not in the record.
     assert internal.alice not in record.values() and "member" not in record.values()
 

@@ -411,7 +411,7 @@ def test_account_and_server_bundles_include_safe_federation_diagnostics(tmp_path
         json.dumps(
             {
                 "received_at": now - 15,
-                "contract_version": "1.15",
+                "contract_version": "1.16",
                 "sidecar_version": "0.1.0",
                 "queue_depth": 0,
                 "self_check": {"ok": True, "answer": None},

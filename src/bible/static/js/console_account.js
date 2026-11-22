@@ -15,6 +15,7 @@
     password_not_set: tr("console.js.account.error.password_not_set"),
     too_many_attempts: tr("console.js.common.error.too_many_attempts"),
     invalid_display_name: tr("console.js.account.error.invalid_display_name"),
+    invalid_summary: tr("console.js.account.error.invalid_summary"),
     account_not_active: tr("console.js.account.error.account_not_active"),
     invalid_request: tr("console.js.common.error.invalid_request"),
     unsupported_provider: tr("console.js.account.error.unsupported_provider"),
@@ -500,6 +501,16 @@
         if (r.ok && r.body) {
           var dd = document.querySelector("[data-account-field='display_name']");
           if (dd) dd.textContent = String(r.body.display_name);
+        }
+      });
+    },
+    "summary": function (form) {
+      var value = form.elements.namedItem("summary").value;
+      return request("PATCH", "/api/me", { summary: value }).then(function (r) {
+        show(form, r.ok ? tr("console.js.common.saved") : errorText(r.status, r.body), !r.ok);
+        if (r.ok && r.body) {
+          var dd = document.querySelector("[data-account-field='summary']");
+          if (dd) dd.textContent = r.body.summary ? String(r.body.summary) : tr("console.settings.account.summary_unset");
         }
       });
     },

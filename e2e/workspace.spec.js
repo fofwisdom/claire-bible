@@ -2675,14 +2675,17 @@ test.describe('document context panel (HW-3)', () => {
 
     // 4. Verify Source badge (full and partial), resolution stage classes, and decision stream link on doc-2
     let doc2Mode = 'full';
+    let doc2Provider = 'gemini';
+    let doc2Model = 'gemini-test-1';
     await page.route(url => url.pathname.endsWith('/document'), async (route) => {
       const id = new URL(route.request().url()).searchParams.get('id');
       const response = await route.fetch();
       const json = await response.json();
       if (id === 'doc-2') {
         // The provider and the model of the latest extraction.
-        json.extraction_provider = 'gemini';
-        json.extraction_model = 'gemini-test-1';
+        json.extraction_provider = doc2Provider;
+        json.extraction_model = doc2Model;
+        json.has_transcript = true;
         if (doc2Mode === 'full') {
           json.orig_chars = 1200;
           json.raw_chars = 1200;
@@ -2707,15 +2710,37 @@ test.describe('document context panel (HW-3)', () => {
     const modelBadge = page.locator('#reader .docmeta .model-badge.prov.det');
     await expect(modelBadge).toHaveText('gemini-test-1');
     await expect(modelBadge).toHaveAttribute('title', /모델/);
+    const ccBadgeBox = await page.locator('#reader .docmeta .cc-tag').boundingBox();
     const fullBadgeBox = await page.locator('#reader .docmeta .source-badge').boundingBox();
     const modelBadgeBox = await modelBadge.boundingBox();
     expect(modelBadgeBox.x).toBeGreaterThan(fullBadgeBox.x);
+    expect(Math.abs(ccBadgeBox.height - fullBadgeBox.height)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(fullBadgeBox.height - modelBadgeBox.height)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(fullBadgeBox.height - 22)).toBeLessThanOrEqual(0.5);
     await expect(page.locator('#rbody .prov.model')).toHaveCount(0);
     // Unknown stage 'semantic_high' must render as plain text without .prov class
     await expect(tabPanel.locator('dt span:not(.prov)', { hasText: 'semantic_high' })).toBeVisible();
 
+    // Agent-client extraction without a recorded model must never fall back to displaying raw 'agent_client'
+    doc2Provider = 'agent_client';
+    doc2Model = null;
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).click();
+    await expect(page.locator('#reader .docmeta .model-badge')).toHaveCount(0);
+    await expect(page.locator('#ctx-src-model')).toHaveCount(0);
+
+    // Agent-client extraction with a recorded model renders the model name without 'agent_client'
+    doc2Provider = 'agent_client';
+    doc2Model = 'gemini-3.8-flash';
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).click();
+    await expect(page.locator('#reader .docmeta .model-badge')).toHaveText('gemini-3.8-flash');
+    await expect(page.locator('#ctx-src-model')).toHaveText('gemini-3.8-flash');
+
     // Check partial source badge with character counts on reload of doc-2
     doc2Mode = 'partial';
+    doc2Provider = 'gemini';
+    doc2Model = 'gemini-test-1';
     await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
     await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).click();
     await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="partial"].prov.det')).toContainText('원문 일부 보존');

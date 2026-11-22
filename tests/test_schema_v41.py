@@ -15,7 +15,7 @@ def test_v41_fresh_schema_objects(tmp_path: Path) -> None:
     conn = dbm.connect(tmp_path / "claire.db")
     try:
         dbm.init_db(conn)
-        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION == 41
+        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION >= 41
 
         triggers = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()}
         assert "accounts_username_not_null" in triggers
@@ -68,7 +68,7 @@ def test_v40_to_v41_migration_and_idempotency(tmp_path: Path) -> None:
     try:
         dbm.init_db(upgraded)
         dbm.init_db(upgraded)
-        assert int(upgraded.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 41
+        assert int(upgraded.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) >= 41
 
         triggers = {r["name"] for r in upgraded.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()}
         assert "accounts_username_not_null" in triggers

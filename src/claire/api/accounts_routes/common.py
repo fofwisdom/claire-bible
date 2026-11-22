@@ -34,6 +34,7 @@ from ..principal import Principal, has_recent_auth
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 SESSION_CHANNELS = frozenset({"cookie", "x-session"})
 DISPLAY_NAME_MAX_LENGTH = 64
+SUMMARY_MAX_LENGTH = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +219,18 @@ def validate_display_name(value: Any) -> str | None:
     if any(unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} for ch in value):
         return None
     return value
+
+
+def validate_summary(value: Any) -> str | None:
+    """Plain-text account bio: string up to ``SUMMARY_MAX_LENGTH`` chars after CRLF normalization, no control characters except newline."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    if len(normalized) > SUMMARY_MAX_LENGTH:
+        return None
+    if any(ch != "\n" and unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} for ch in normalized):
+        return None
+    return normalized
 
 
 def format_ts(value: float | None) -> str:

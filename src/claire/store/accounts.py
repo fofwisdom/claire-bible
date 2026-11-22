@@ -73,7 +73,7 @@ SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode"
+    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode, summary"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -109,6 +109,8 @@ class Account:
     personal_source_public: bool = True
     # v40 (AE4): per-account extraction mode ('provider' uses server LLM; 'client' stages raw content for Agent Client extraction).
     extraction_mode: ExtractionMode = "provider"
+    # v42: plain-text profile bio exported as ActivityPub Person.summary and shown on User Home.
+    summary: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,7 +151,7 @@ def _normalize_lookup(username: str) -> str | None:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode,
+        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode, summary,
     ) = tuple(row)
     mode_value: ExtractionMode = "client" if str(extraction_mode or "provider") == "client" else "provider"
     return Account(
@@ -168,6 +170,7 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         entity_language=None if entity_language is None else str(entity_language),
         personal_source_public=bool(personal_source_public),
         extraction_mode=mode_value,
+        summary="" if summary is None else str(summary),
     )
 
 
@@ -522,6 +525,26 @@ class AccountStore:
                 from . import federation as federation_store
 
                 federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
+        self.conn.commit()
+        return self.get(account_id)
+
+    def update_summary(self, account_id: int, summary: str, *, now: float | None = None) -> Account:
+        """Update ``accounts.summary`` (plain-text bio) and queue ``update_actor`` for active actors when changed."""
+        when = time.time() if now is None else now
+        before = self.conn.execute("SELECT summary, status, username FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if before is None:
+            raise AccountNotFound(account_id)
+        cur = self.conn.execute(
+            "UPDATE accounts SET summary=?, updated_at=? WHERE id=?",
+            (summary, when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountNotFound(account_id)
+        if str(before["summary"] or "") != summary and before["status"] == "active" and before["username"]:
+            from . import federation as federation_store
+
+            federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
         self.conn.commit()
         return self.get(account_id)
 

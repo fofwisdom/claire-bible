@@ -23,24 +23,18 @@ Follow all four defense layers below whenever working with the Claire Bible MCP 
 - **`CT4` Personal Knowledge Base Rule**: Extraction tools (`extract_stage`, `extract_queue`, `extract_claim`, `extract_read`, `extract_submit`) operate ONLY on the caller's personal knowledge base. Omit `kb`, pass `kb="personal"`, or pass only the caller's external personal KB number; shared or foreign KBs are rejected with `kb_ingest_by_contribution` or `kb_not_found`. Documents enter shared KBs only via `contrib_submit`.
 - **`CT23` KB Parameter Rule**: Call `kb_list()` to discover accessible external KB numbers. Scoped read tools (`kb_overview`, `entity_search`, `entity_get`, `graph_neighbors`, `graph_path`, `graph_context`, `doc_list`, `doc_get`) require `kb` (`kb="personal"` or an external KB number); omitting `kb` returns `kb_required`.
 
-## Layer 4: Summary, AsciiDoc, and Ontology Contract
+## Layer 4: Server-Authoritative Prompts, Validation, and Ontology Contract
 
-Call `extract_spec()` before extraction and satisfy all deterministic checks enforced by `extract_submit`:
+Call `extract_spec()` before extraction, treat its server-returned `prompts.extract_system_prompt` and `prompts.render_detail_prompt` (or the document-specific `render_detail_prompt` returned by `extract_read`) verbatim as the single source of truth for content, language, style, depth, and formatting—never invent or abbreviate a divergent local prompt—and satisfy all deterministic checks enforced by `extract_submit`:
 
 1. **Strict Schema (`ConfigDict(extra="forbid", strict=True)`)**:
    - Required payload fields: `schema_version` (`"agent-extract-v1"`), `summary`, and `detail` (plus `key_claims`, `entities`, `relations`, and optional `model`, `evidence`, `focus`, `lang`).
-   - Record only the exact processing LLM model name in `model` as plain text (for example `gemini-3.8-flash`), never an OAuth `client_id`; omit `model` if unknown.
+   - Always record the exact active processing LLM model name in `model` as plain text (for example `gemini-3.8-flash`), never an OAuth `client_id` or `"agent_client"`; omit only if genuinely unknown.
    - Output only schema-defined fields and grounded facts. Any `evidence` span (`quote`, `start`, `end`) must match `raw_text` and character offsets.
-2. **Summary Rules (`summary`)**:
-   - Write 1 to 3 factual sentences in Korean formal declarative written style (`문어체`: `~한다`, `~이다`, `~함`).
-   - Write pure plain text only with zero AsciiDoc/Markdown syntax (`=`, `==`, `#`, `**`, `*`, `[NOTE]`, `|===`, `link:`, lists, code fences), zero `[mock]` markers, and zero meta-prefaces (`"이 글은 ~를 다룬다"`).
-   - Keep proper nouns, model/tool/organization names, and technical terms in their original form without transliteration.
-3. **Claims and Observations (`key_claims`, `observations`)**:
-   - Write Korean `문어체`, preserving original proper nouns and technical terms, with zero `[mock]` markers or block/heading markup.
-4. **Rendered Detail Rules (`detail`, Required)**:
-   - Write Korean `문어체` in 100% pure AsciiDoc (`= Title`, `== Section`, `'''`, `*bold*`, `_italic_`, `#highlight#`, `https://example.com[label]`, `[quote]` + `____`, `[source,lang]` + `----`, `|===` tables).
-   - Balance all block delimiters, never emit `++++` passthroughs or `<script` / `javascript:` or Markdown leaks, leave a blank line after `= Title` unless followed by `:attr:`, `== `, `//`, or `[`, omit redundant leading source URL lines, and preserve source tables accurately.
-5. **Ontology and Entity Resolution Rules**:
+2. **Server Prompt Compliance (`prompts.extract_system_prompt` & `render_detail_prompt`)**:
+   - Follow `prompts.extract_system_prompt` for `summary`, `key_claims`, `entities`, and `relations`, and follow `render_detail_prompt` as a full standalone rendering pass for `detail` without compressing or abridging it.
+   - Satisfy deterministic `summary_rules` and `asciidoc_rules` (balance all block delimiters, never emit Markdown leaks or `<script` / `javascript:`, emit `++++` only for `[latexmath]`/`[stem]` math blocks, leave a blank line after `= Title` unless followed by `:attr:`, `== `, `//`, or `[`, and omit leading source URLs or author lines beneath `= Title`).
+3. **Ontology and Entity Resolution Rules**:
    - Choose valid seed `EntityType` / `RelationType` values from `extract_spec()`. Set `proposed_type` (`^[a-z][a-z0-9_]{1,47}$`) only when no seed type fits; avoid `Note` or `related_to` catch-alls and aggregator-platform entities unless the document is about that platform.
    - Ground entities in the personal KB via `entity_search(query=..., kb="personal")` and `graph_neighbors(entity_ids=[...], kb="personal")` without cross-KB IDs or relation self-loops, obeying `RELATION_DOMAIN_RANGE`.
-6. **Dry-Run Before Commit**: Always run `extract_submit(..., dry_run=True)` and fix every item in `errors` before calling `extract_submit(..., dry_run=False)`.
+4. **Dry-Run Before Commit**: Always run `extract_submit(..., dry_run=True)`, fix every item in `errors`, and address actionable `warnings` (such as `model_missing`) before calling `extract_submit(..., dry_run=False)`.

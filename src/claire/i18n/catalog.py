@@ -51,8 +51,9 @@ CONSOLE_ADMIN_SCRIPT_KEY_PREFIX = "console.js.admin."
 
 # The public share page (/p, share.html) has no workspace and no console: it gets only the keys of the document view.
 SHARE_KEY_PREFIXES = ("reader.", "share.")
+PRIVATE_PROFILE_KEY_PREFIXES = ("home.",)
 
-BrowserCatalogScope = Literal["page", "console", "console_admin", "share"]
+BrowserCatalogScope = Literal["page", "console", "console_admin", "share", "private_profile"]
 
 
 def _in_browser_catalog(key: str, scope: BrowserCatalogScope) -> bool:
@@ -60,6 +61,8 @@ def _in_browser_catalog(key: str, scope: BrowserCatalogScope) -> bool:
         return False
     if scope == "share":
         return key.startswith(SHARE_KEY_PREFIXES)
+    if scope == "private_profile":
+        return key.startswith(PRIVATE_PROFILE_KEY_PREFIXES)
     if not key.startswith(CONSOLE_KEY_PREFIX):
         return True
     if key.startswith(CONSOLE_ADMIN_SCRIPT_KEY_PREFIX):

@@ -58,8 +58,10 @@ from ..collaboration import reputation
 from ..collaboration import auto_contribution
 from ..notifications import events as notification_events
 from ..accounts import kb_access
+from ..accounts import user_home as user_home_mod
 from ..store import accounts as accounts_store
 from ..store import auth_db
+from ..store import client_db
 from ..store import kb_collab
 from ..store import themes as themes_store
 from ..store import federation as federation_store
@@ -4185,37 +4187,127 @@ def create_app(
         return HTMLResponse(html_text, headers=headers)
 
     def _render_private_profile_page(request: Request, account_id: int, mode: str = "network") -> Response:
-        """Render the HTTP 200 basic profile page when an account has no readable personal knowledge base at ``/@{username}/``."""
+        """Render the HTTP 200 User Home page when an account's personal knowledge base is private to non-owners."""
+        from ..i18n import browser_catalog_json
+
         conn = dbm.connect_existing(s.db_file, readonly=True)
+        client_conn = _open_optional_client_readonly()
         try:
             try:
                 account = accounts_store.AccountStore(conn).get(account_id)
             except accounts_store.AccountNotFound:
                 return PlainTextResponse("Not Found", status_code=404)
+            if account.status != "active" or not account.username:
+                return PlainTextResponse("Not Found", status_code=404)
+            runtime = WebRuntimeConfig.from_settings(s)
+            personal_kb = _personal_kb_for_home(account_id)
+            profile_data = user_home_mod.build_user_home_profile(
+                conn,
+                client_conn,
+                account=account,
+                personal_kb=personal_kb,
+                origin=runtime.public_origin,
+                handle_host=runtime.expected_authority,
+            )
+            timeline_data = user_home_mod.build_user_home_timeline(
+                conn,
+                client_conn,
+                account=account,
+                origin=runtime.public_origin,
+                limit=user_home_mod.TIMELINE_DEFAULT_LIMIT,
+                kind="note",
+            )
         finally:
+            if client_conn is not None:
+                client_conn.close()
             conn.close()
-        if account.status != "active" or not account.username:
-            return PlainTextResponse("Not Found", status_code=404)
-        runtime = WebRuntimeConfig.from_settings(s)
+
         actor_url = f"{runtime.public_origin}/ap/actors/{account.public_id}"
         handle = f"@{account.username}@{runtime.expected_authority}"
         display_name = account.display_name or account.username
         noindex = mode == "network" and not account.profile_public
         robots_meta = "noindex, nofollow" if noindex else "index, follow"
         _, _, nav_auth = _directory_viewer_nav(request, request_principal(request))
+        locale = get_locale()
+        catalog_json = browser_catalog_json(locale, scope="private_profile")
+        i18n_html = f'<script id="claire-i18n-catalog" type="application/json">{catalog_json}</script><script src="/static/js/i18n.js"></script>'
+
+        kb_sum = profile_data.get("kb_summary")
+        if kb_sum is not None:
+            kb_label = str(kb_sum["label"] or _t("home.kb_summary.title"))
+            last_ingest_str = (
+                time.strftime("%Y-%m-%d", time.gmtime(float(kb_sum["last_ingest_at"])))
+                if kb_sum.get("last_ingest_at") is not None
+                else _t("home.kb_summary.none")
+            )
+            kb_stats = " · ".join(
+                [
+                    _t("home.kb_summary.documents", count=kb_sum["documents"]),
+                    _t("home.kb_summary.entities", count=kb_sum["entities"]),
+                    _t("home.kb_summary.relations", count=kb_sum["relations"]),
+                    _t("home.kb_summary.last_ingest", time=last_ingest_str),
+                ]
+            )
+        else:
+            kb_label = _t("home.kb_summary.title")
+            kb_stats = ""
+
+        ssr_items = timeline_data.get("items") or []
+        if ssr_items:
+            ssr_timeline_html = "".join(
+                f'<article class="uh-post"><div class="uh-post-meta"><span class="uh-post-author">{html.escape(display_name)}</span><span>{html.escape(handle)}</span></div>'
+                f'<div class="uh-post-body">{item["content_html"]}</div></article>'
+                for item in ssr_items
+            )
+        else:
+            ssr_timeline_html = f'<div class="uh-tl-empty">{html.escape(_t("home.timeline.empty"))}</div>'
+
+        summary_block = f'<p class="uh-bio">{html.escape(account.summary)}</p>' if account.summary else ""
+        bootstrap_json = (
+            json.dumps({**profile_data, "timeline": timeline_data}, ensure_ascii=False)
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+        )
         template_path = Path(__file__).resolve().parent / "templates" / "private_profile.html"
         rendered = string.Template(template_path.read_text(encoding="utf-8")).safe_substitute(
-            html_lang=html.escape(get_locale(), quote=True),
+            html_lang=html.escape(locale, quote=True),
             robots_meta=robots_meta,
+            api_base=html.escape(f"/@{account.username}", quote=True),
             actor_url=html.escape(actor_url, quote=True),
             title=html.escape(display_name),
+            i18n_bootstrap_html=i18n_html,
             nav_label=html.escape(_t("directory.nav_label"), quote=True),
             directory_title=html.escape(_t("directory.title")),
             nav_auth=nav_auth,
+            profile_aria=html.escape(_t("home.profile.aria"), quote=True),
+            avatar_initial=html.escape(display_name[:2]),
             display_name=html.escape(display_name),
             handle=html.escape(handle),
+            follow_label=html.escape(_t("home.profile.follow")),
+            summary_block=summary_block,
+            tabs_aria=html.escape(_t("home.tabs.aria"), quote=True),
+            tab_timeline=html.escape(_t("home.tab.timeline")),
+            tab_kb=html.escape(_t("home.tab.kb")),
+            timeline_title=html.escape(_t("home.timeline.title")),
+            ssr_timeline_html=ssr_timeline_html,
+            kb_summary_title=html.escape(_t("home.kb_summary.title"), quote=True),
+            kb_label=html.escape(kb_label),
+            kb_private_badge=html.escape(_t("home.kb_summary.private")),
+            kb_stats=html.escape(kb_stats),
             notice=html.escape(_t("profile.private.notice")),
             back_directory=html.escape(_t("profile.private.back_directory")),
+            follow_dlg_title=html.escape(_t("home.follow_dlg.title")),
+            close_label=html.escape(_t("common.action.close")),
+            follow_handle_label=html.escape(_t("home.follow_dlg.handle")),
+            copy_handle_label=html.escape(_t("home.profile.copy_handle")),
+            follow_actor_label=html.escape(_t("home.follow_dlg.actor_id")),
+            copy_iri_label=html.escape(_t("home.follow_dlg.copy_iri")),
+            follow_server_label=html.escape(_t("home.follow_dlg.server_label")),
+            follow_preview_label=html.escape(_t("home.follow_dlg.url_preview")),
+            follow_auto_accept=html.escape(_t("home.follow_dlg.auto_accept")),
+            follow_open_label=html.escape(_t("home.follow_dlg.open")),
+            bootstrap_json=bootstrap_json,
         )
         rendered = get_web_ui_renderer().inject_favicon_head_tags(rendered)
         headers = {
@@ -4243,6 +4335,104 @@ def create_app(
         is_actor = account.status == "active" and bool(account.username)
         actor_url = f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}" if is_actor else None
         return actor_url, bool(account.profile_public)
+
+    def _open_optional_client_readonly() -> sqlite3.Connection | None:
+        cpath = client_db.client_db_path(s.db_file)
+        if not cpath.exists():
+            return None
+        try:
+            return client_db.connect_client_existing(cpath, readonly=True)
+        except Exception:
+            return None
+
+    def _personal_kb_for_home(account_id: int) -> KnowledgeBaseInfo | None:
+        try:
+            return get_kb_manager(s).personal_kb_for(account_id)
+        except KnowledgeBaseNotFound:
+            return None
+        except Exception:
+            return None
+
+    def _load_user_home_profile(account_id: int) -> dict[str, Any] | None:
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        client_conn = _open_optional_client_readonly()
+        try:
+            try:
+                account = accounts_store.AccountStore(conn).get(account_id)
+            except accounts_store.AccountNotFound:
+                return None
+            if account.status != "active":
+                return None
+            runtime = WebRuntimeConfig.from_settings(s)
+            personal_kb = _personal_kb_for_home(account_id)
+            return user_home_mod.build_user_home_profile(
+                conn,
+                client_conn,
+                account=account,
+                personal_kb=personal_kb,
+                origin=runtime.public_origin,
+                handle_host=runtime.expected_authority,
+            )
+        finally:
+            if client_conn is not None:
+                client_conn.close()
+            conn.close()
+
+    def _load_user_home_timeline(account_id: int, *, limit: int, max_id: int | None, kind: str | None) -> dict[str, Any] | None:
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        client_conn = _open_optional_client_readonly()
+        try:
+            try:
+                account = accounts_store.AccountStore(conn).get(account_id)
+            except accounts_store.AccountNotFound:
+                return None
+            if account.status != "active":
+                return None
+            runtime = WebRuntimeConfig.from_settings(s)
+            return user_home_mod.build_user_home_timeline(
+                conn,
+                client_conn,
+                account=account,
+                origin=runtime.public_origin,
+                limit=limit,
+                max_id=max_id,
+                kind=kind,
+            )
+        finally:
+            if client_conn is not None:
+                client_conn.close()
+            conn.close()
+
+    async def home_profile_route(request: Request) -> Response:
+        ns = request_namespace(request)
+        if ns is None or ns.account_id is None or ns.pinned_kb_id is not None:
+            return PlainTextResponse("Not Found", status_code=404)
+        payload = await asyncio.to_thread(_load_user_home_profile, ns.account_id)
+        if payload is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+    async def home_timeline_route(request: Request) -> Response:
+        ns = request_namespace(request)
+        if ns is None or ns.account_id is None or ns.pinned_kb_id is not None:
+            return PlainTextResponse("Not Found", status_code=404)
+        raw_limit = request.query_params.get("limit", str(user_home_mod.TIMELINE_DEFAULT_LIMIT))
+        if not (raw_limit.isascii() and raw_limit.isdigit()):
+            return JSONResponse({"error": "invalid_limit"}, status_code=400, headers={"Cache-Control": "no-store"})
+        limit = max(1, min(user_home_mod.TIMELINE_MAX_LIMIT, int(raw_limit)))
+        raw_max_id = request.query_params.get("max_id")
+        max_id: int | None = None
+        if raw_max_id is not None and raw_max_id != "":
+            if not (raw_max_id.isascii() and raw_max_id.isdigit() and raw_max_id[0] != "0" and len(raw_max_id) <= 19):
+                return JSONResponse({"error": "invalid_max_id"}, status_code=400, headers={"Cache-Control": "no-store"})
+            max_id = int(raw_max_id)
+        kind = request.query_params.get("kind")
+        if kind is not None and kind not in ("all", "note", "article"):
+            return JSONResponse({"error": "invalid_kind"}, status_code=400, headers={"Cache-Control": "no-store"})
+        payload = await asyncio.to_thread(_load_user_home_timeline, ns.account_id, limit=limit, max_id=max_id, kind=kind)
+        if payload is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
     def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, KnowledgeBaseInfo | None]:
         try:
@@ -7263,6 +7453,8 @@ def create_app(
             for font_name in FONTS
         ),
         Route("/whoami", whoami, methods=["GET"]),
+        Route("/home-profile", home_profile_route, methods=["GET"]),
+        Route("/home-timeline", home_timeline_route, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
         Route("/kb", kb_collection_route, methods=["GET", "HEAD"]),
         Route("/kb", kb_create_route, methods=["POST"]),

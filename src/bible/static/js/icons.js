@@ -86,7 +86,13 @@
     fork: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="11.5" cy="3.5" r="1.5"/><circle cx="8" cy="12.5" r="1.5"/><path d="M4.5 5v1.5a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2V5M8 8.5V11"/>',
     check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5"/>',
     chev: '<path d="M6 4l4 4-4 4"/>',
-    more: '<circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/>'
+    more: '<circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/>',
+    copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M3.5 10.5H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/>',
+    send: '<path d="m2 8 11.5-5.5L10 14 7.5 9.5zM7.5 9.5 13.5 2.5"/>',
+    "user-plus": '<circle cx="6.2" cy="5" r="2.3"/><path d="M2.2 13a4 4 0 0 1 8 0M12.2 5v4.4M10 7.2h4.4"/>',
+    rss: '<circle cx="4" cy="12" r="1.2"/><path d="M3 7.5A5.5 5.5 0 0 1 8.5 13M3 3.5A9.5 9.5 0 0 1 12.5 13"/>',
+    external: '<path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/>',
+    share: '<circle cx="12" cy="3.5" r="1.5"/><circle cx="4" cy="8" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="m5.4 7.2 5.2-2.9M5.4 8.8l5.2 2.9"/>'
   };
 
   function svg(name, cls) {

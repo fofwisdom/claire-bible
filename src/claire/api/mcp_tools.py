@@ -179,7 +179,7 @@ _MCP_TOOL_SPECS: tuple[dict[str, Any], ...] = (
         "name": "extract_spec",
         "domain": "extract",
         "title": "Get Extraction Specification",
-        "description": "Return active ontology types, relation domain/range constraints, AsciiDoc lint rules, and strict JSON payload schema.",
+        "description": "Return canonical server extraction and detail-rendering prompts (prompts.extract_system_prompt, prompts.render_detail_prompt, prompt_version), active ontology types, relation domain/range constraints, AsciiDoc lint rules, and strict JSON payload schema.",
         "read_only": True,
         "scope": "readonly",
         "annotations": _READ_ANNOTATIONS,
@@ -1085,7 +1085,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
 
     @mcp.tool(**_tool_kwargs("extract_spec"))
     async def extract_spec() -> dict[str, Any]:
-        """Return active ontology types, relation domain/range constraints, AsciiDoc lint rules, and strict JSON payload schema."""
+        """Return canonical server extraction and detail-rendering prompts, active ontology types, relation domain/range constraints, AsciiDoc lint rules, and strict JSON payload schema."""
         principal = current_principal.get()
         if principal is None or principal.account_id is None:
             return {"error": "account_required"}

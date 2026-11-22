@@ -38,6 +38,7 @@ from .common import (
     retry_after_seconds,
     same_origin,
     validate_display_name,
+    validate_summary,
 )
 from .setup import password_reason_text, username_reason_text
 
@@ -64,6 +65,7 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "public_id": str(account.public_id),
         "username": account.username,
         "display_name": account.display_name,
+        "summary": account.summary,
         "role": account.role,
         "scope": principal.scope,
         "status": account.status,
@@ -85,6 +87,14 @@ def update_display_name(ctx: AccountsContext, account_id: int, display_name: str
     conn = open_db(ctx)
     try:
         accounts_store.AccountStore(conn).update_display_name(account_id, display_name)
+    finally:
+        conn.close()
+
+
+def update_summary(ctx: AccountsContext, account_id: int, summary: str) -> None:
+    conn = open_db(ctx)
+    try:
+        accounts_store.AccountStore(conn).update_summary(account_id, summary)
     finally:
         conn.close()
 
@@ -285,13 +295,18 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"}):
-            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"])
+        if not body or not (set(body) <= {"display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"}):
+            return json_error(400, "invalid_request", fields=["display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
             if display_name is None:
                 return json_error(400, "invalid_display_name")
+        summary: str | None = None
+        if "summary" in body:
+            summary = validate_summary(body["summary"])
+            if summary is None:
+                return json_error(400, "invalid_summary")
         profile_public: int | None = None
         if "profile_public" in body:
             raw_pp = body["profile_public"]
@@ -329,6 +344,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         # A change of ``profile_public`` needs no recent authentication (FEDERATION_GO_LIVE_DESIGN.md decision GD6; FD11 is withdrawn): the switch shows or hides the content of the account, and the account is an actor in the two states.
         if display_name is not None:
             await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
+        if summary is not None:
+            await asyncio.to_thread(update_summary, ctx, principal.account_id, summary)
         if profile_public is not None:
             await asyncio.to_thread(update_profile_public, ctx, principal.account_id, profile_public)
         if "entity_language" in body:

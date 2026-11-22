@@ -575,3 +575,15 @@ Deno.test("update_actor after username rename keeps immutable actor id and deliv
     globalThis.fetch = realFetch;
   }
 });
+
+Deno.test("actor summary renders escaped HTML paragraph on Person when non-empty", async () => {
+  const { fake, get } = setup();
+  const baseActor = fixture("actor").response as Record<string, unknown>;
+  fake.overrides.set(`GET /internal/federation/v1/actors/${ALICE}`, {
+    status: 200,
+    response: { ...baseActor, summary: "Line 1 <script>\nLine 2" },
+  });
+  const actor = await get(`/ap/actors/${ALICE}`, AS2);
+  assert.equal(actor.status, 200);
+  assert.equal(actor.json?.summary, "<p>Line 1 &lt;script&gt;<br/>Line 2</p>");
+});

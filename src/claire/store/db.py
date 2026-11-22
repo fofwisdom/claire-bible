@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 41
+SCHEMA_VERSION = 42
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -912,6 +912,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v40_oauth_v21(conn)
     _migrate_v40_client_staging(conn)
     _migrate_v41_username_case_and_rename(conn)
+    _migrate_v42_account_summary(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1908,6 +1909,12 @@ def _migrate_v41_username_case_and_rename(conn: sqlite3.Connection) -> None:
     if _table_exists(conn, "username_tombstones"):
         _ensure_column(conn, "username_tombstones", "reusable_after", "REAL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_username_tombstones_lower ON username_tombstones(lower(username))")
+
+
+def _migrate_v42_account_summary(conn: sqlite3.Connection) -> None:
+    """v42 schema: ``accounts.summary`` plain-text bio for ActivityPub Person.summary and User Home."""
+    if _table_exists(conn, "accounts"):
+        _ensure_column(conn, "accounts", "summary", "TEXT NOT NULL DEFAULT ''")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
@@ -5348,8 +5355,10 @@ def latest_extraction_model(conn: sqlite3.Connection, document_id: str, kb_id: i
         return None, None
     provider = row["provider"] or None
     model = row["model"] or None
-    if provider == "agent_client" and model and str(model).strip().startswith("claire_mcp_"):
-        model = None
+    if provider == "agent_client" and model:
+        clean_model = str(model).strip()
+        if clean_model.startswith("claire_mcp_") or clean_model.lower() == "agent_client":
+            model = None
     return provider, model
 
 

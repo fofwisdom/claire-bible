@@ -97,7 +97,7 @@ Under owner decision GD8 (2026-11-22, Model 1), `profile_public` controls only d
 | Search engine indexing under `/@{username}/` and `/sitemap.xml` | In network mode, HTML responses under `/@{username}/` (`GET`/`HEAD /@{username}/` and HTML `GET /@{username}/kb`) emit `<meta name="robots" content="noindex, nofollow"/>` and `X-Robots-Tag: noindex, nofollow`, and `/sitemap.xml` excludes that account's personal KB |
 | **Identity, personal KB visibility, and ActivityPub federation (independent of `profile_public`)** | |
 | Identity resolution at `/@{username}/...` and username tombstones (`username_tombstones`) | `/@{username}/...` resolves in network mode for every `active` account with a USERNAME regardless of `profile_public` (rule `N1` withdrawn); active `username_tombstones` return `410 Gone` regardless of `profile_public` |
-| Personal KB workspace at `/@{username}/` and `/kb/{number}/` | Gated solely by `knowledge_bases.is_public`: when `is_public` is 1 (or the caller is the owner), Claire renders the workspace (with `noindex, nofollow` when `profile_public` is 0 in network mode); when `is_public` is 0 and the caller is not the owner, `GET`/`HEAD /@{username}/` returns the HTTP 200 basic profile card (`src/claire/api/templates/private_profile.html`) with `rel="alternate"`, `Link` header, `Cache-Control: no-store`, and a private personal KB notice, while personal KB subpaths (`/@{username}/graph`, `/@{username}/documents`, and other subpaths) and `/kb/{number}/` return 404 |
+| Personal KB workspace at `/@{username}/` and `/kb/{number}/` | Gated solely by `knowledge_bases.is_public`: when `is_public` is 1 (or the caller is the owner), Claire renders the workspace (with `noindex, nofollow` when `profile_public` is 0 in network mode); when `is_public` is 0 and the caller is not the owner, `GET`/`HEAD /@{username}/` returns the HTTP 200 User Home profile page (`src/claire/api/templates/private_profile.html`) with `rel="alternate"`, `Link` header, `Cache-Control: no-store`, actor `summary`, public `Note` timeline, and always-public KB summary (`label`, counts, last ingestion date), while personal KB subpaths (`/@{username}/graph`, `/@{username}/documents`, and other subpaths) and `/kb/{number}/` return 404 |
 | WebFinger, actor document (`Person` with `discoverable: false`, `manuallyApprovesFollowers: false`), keys, inbox, followers collection, following collection | Same as with `profile_public` 1 (only `discoverable` changes) |
 | Inbound `Follow` from another server, follow of a remote actor, remote timeline, mentions, notifications, thread fetch, automatic notice for a non-public message | Same as with `profile_public` 1 (auto-accepted `Accept(Follow)`) |
 | `Update(Person)` after a change of display name, USERNAME, or `profile_public` (`discoverable`), and `Delete(Person)` at a purge | Enqueued and sent |
@@ -147,6 +147,7 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | `type` | `Person` |
 | `preferredUsername` | `accounts.username` (preserves stored display case) |
 | `name` | `accounts.display_name` |
+| `summary` | Escaped `accounts.summary` wrapped in `<p>...</p>` when non-empty (plain text, max 500 characters; omitted when empty, contract 1.16) |
 | `url` | `{origin}/@{accounts.username}/` |
 | `inbox` | `{origin}/ap/actors/{public_id}/inbox` |
 | `endpoints.sharedInbox` | `{origin}/ap/inbox` |
@@ -157,7 +158,7 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | `manuallyApprovesFollowers` | `false` |
 
 - `outbox` is `{actor ID}/outbox`, `followers` is `{actor ID}/followers`, and `following` is `{actor ID}/following` (`Sidecar.#person` in `sidecar/fedify/src/sidecar.ts`).
-- The document has no `summary` and no `icon` property.
+- The document has no `icon` property; `summary` is emitted only when `accounts.summary` is non-empty.
 - The document has no email address, no external identity value, no server role, and no internal `accounts.id`.
 
 ### 4.2 Server Actor
@@ -309,7 +310,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.15"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.16"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.16 adds nullable `summary` (`str | None`) to `ActorRecord`, mapped to `Person.summary` as escaped `<p>...</p>` HTML when non-empty.
 - Version 1.15 (owner decision GD7, 2026-11-22) adds `discoverable` (`bool`) to `ActorRecord`, mapped to `Person.discoverable` (`bool(accounts.profile_public)`). A sidecar of version 1.14 refuses `1.15` actor records, because the shapes are sealed; Claire and the sidecar must come from the same commit.
 - Version 1.14 (owner decision GD4: federation has no switch) removed `federation` from the answers of `config` and `heartbeat` and the reason `federation_off` from the decisions of `inbox-events`, `timeline-events`, `context-objects`, and `quote-events`. A sidecar of version 1.13 refuses the `config` answer, because the shapes are sealed.
 - Version 1.13 (units GL1 and GL2 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)) changed `POST /heartbeat` (Section 7.2): new necessary fields `marker`, `public_host`, and `traffic`; `self_check.answer`; `knowledge_self_check.answers`; and `knowledge_self_check.signed` is an object with one result for each signature form (`draft_cavage`, `rfc9421`). Claire refuses a heartbeat of version 1.12 (400 `invalid_request`), records nothing, and GF2 fails. No other route changed.

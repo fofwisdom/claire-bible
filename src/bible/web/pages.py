@@ -39,6 +39,7 @@ def _build_standalone_graph_html() -> str:
     shared_ui_css = (_STATIC_DIR / "css" / "shared_ui.css").read_text(encoding="utf-8")
     ws_css = (_STATIC_DIR / "css" / "workspace.css").read_text(encoding="utf-8")
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
+    user_home_css = (_STATIC_DIR / "css" / "user_home.css").read_text(encoding="utf-8")
 
     graph_js = "\n".join((_STATIC_DIR / "js" / "graph" / name).read_text(encoding="utf-8") for name in _GRAPH_ENGINE_FILES)
     doc_content_js = (_STATIC_DIR / "js" / "renderers" / "doc_content.js").read_text(encoding="utf-8")
@@ -48,6 +49,7 @@ def _build_standalone_graph_html() -> str:
     kb_dialogs_js = (_STATIC_DIR / "js" / "kb_dialogs.js").read_text(encoding="utf-8")
     ingest_dialogs_js = (_STATIC_DIR / "js" / "ingest_dialogs.js").read_text(encoding="utf-8")
     command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
+    user_home_ap_js = (_STATIC_DIR / "js" / "user_home_ap.js").read_text(encoding="utf-8")
     app_js = (_STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
     i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
@@ -124,7 +126,7 @@ def _build_standalone_graph_html() -> str:
     )
 
     appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{shared_ui_css}\n{ws_css}\n{reader_css}\n</style>"
+    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{shared_ui_css}\n{ws_css}\n{reader_css}\n{user_home_css}\n</style>"
     html = re.sub(r"<link rel=stylesheet href=/static/css/[^>]+>\s*", "", index_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>")
 
@@ -142,7 +144,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{graph_js}\n{doc_content_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{graph_js}\n{doc_content_js}\n{reader_js}\n{command_palette_js}\n{user_home_ap_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 

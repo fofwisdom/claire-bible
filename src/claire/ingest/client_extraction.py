@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ..accounts.provider_policy import ProviderBudgetExceeded, ProviderKeyRejected, ProviderNotAllowed, ProviderNotConfigured
 from ..extract.decision import attach_resolution_meta
 from ..extract.frame import format_entity_frame
-from ..extract.prompts import clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, sanitize_rendered_detail
+from ..extract.prompts import DEFAULT_EXTRACTION_TEMPLATE, PROMPT_VERSION, build_extraction_prompt_bundle, clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, render_detail_instructions_adoc, sanitize_rendered_detail
 from ..extract.provider import UnavailableProvider, get_provider
 from ..extract.resolver import _call_provider_embed, is_type_compatible, passes_hard_invariants, resolve_or_create, sync_entity_space_embeddings
 from ..ingest.fetchers.base import FetchError
@@ -145,7 +145,7 @@ class ClientExtractionPayload(BaseModel):
     evidence: list[ClientSourceSpan] | None = None
     focus: str | None = None
     lang: str | None = None
-    model: str | None = None
+    model: str | None = Field(default=None, description="Exact processing LLM model identifier (for example 'gemini-3.8-flash' or 'claude-sonnet-4-6'). Never pass an OAuth client_id or 'agent_client'.")
 
 
 class _AtomicConnection(sqlite3.Connection):
@@ -248,12 +248,17 @@ def resolve_oauth_client_id(conn: sqlite3.Connection, *, account_id: int | None,
     return None
 
 
-def get_extraction_spec() -> dict[str, Any]:
-    """Return the deterministic extraction specification, ontology rules, and JSON schema."""
+def get_extraction_spec(*, focus: str | None = None, template: str | None = None) -> dict[str, Any]:
+    """Return the deterministic extraction specification, canonical server prompts, ontology rules, and JSON schema."""
+    ontology_spec = export_ontology_spec()
+    prompt_bundle = build_extraction_prompt_bundle(str(ontology_spec["prompt_block"]), focus=focus, template=template)
     return {
         "schema_version": CLIENT_EXTRACTION_SCHEMA_VERSION,
+        "prompt_version": prompt_bundle["prompt_version"],
+        "prompt_template": prompt_bundle["template"],
+        "prompts": prompt_bundle,
         "json_schema": ClientExtractionPayload.model_json_schema(),
-        "ontology": export_ontology_spec(),
+        "ontology": ontology_spec,
         "framing_rules": {
             "tag": "untrusted_source_document",
             "attributes": ["nonce", "document_id", "sha256"],
@@ -271,6 +276,13 @@ def get_extraction_spec() -> dict[str, Any]:
             "require_balanced_blocks": ["----", "....", "====", "____", "|===", "****"],
             "forbid_author_line_after_title": True,
             "forbid_leading_original_url": True,
+            "allow_math_passthrough": ["[latexmath]", "[stem]"],
+        },
+        "model_rules": {
+            "set_active_model_when_known": True,
+            "plain_model_name_only": True,
+            "forbid_values": ["claire_mcp_*", "agent_client"],
+            "examples": ["gemini-3.8-flash", "claude-sonnet-4-6"],
         },
         "embedding_policy": {
             "mode": "option_b_server_side",
@@ -682,6 +694,17 @@ def get_staged_source(
     }
     if line_meta:
         result.update(line_meta)
+    staged_meta = staged.get("meta") if isinstance(staged.get("meta"), dict) else {}
+    if eff_offset == 0 and (line_offset or 0) == 0:
+        meta_images = staged_meta.get("images") or []
+        meta_focus = str(staged_meta.get("focus") or "").strip() or None
+        is_merged = bool(staged_meta.get("extra_sources"))
+        if (isinstance(meta_images, list) and meta_images) or meta_focus or is_merged:
+            result["render_detail_prompt"] = render_detail_instructions_adoc(
+                images=meta_images if isinstance(meta_images, list) else None,
+                merged=is_merged,
+                focus=meta_focus,
+            )
     return result
 
 
@@ -691,8 +714,8 @@ def _validate_model(model: str | None, errors: list[dict[str, str]]) -> str | No
     stripped = str(model).strip()
     if not stripped:
         return None
-    if len(stripped) > MAX_MODEL_NAME_LEN or any(ord(ch) < 32 for ch in stripped) or _is_opaque_oauth_client_id(stripped):
-        errors.append({"field": "model", "code": "model_invalid", "message": f"model must be a single-line model name (max {MAX_MODEL_NAME_LEN} chars), not an OAuth client_id."})
+    if len(stripped) > MAX_MODEL_NAME_LEN or any(ord(ch) < 32 for ch in stripped) or _is_opaque_oauth_client_id(stripped) or stripped.lower() == "agent_client":
+        errors.append({"field": "model", "code": "model_invalid", "message": f"model must be a single-line model name (max {MAX_MODEL_NAME_LEN} chars), not an OAuth client_id or 'agent_client'."})
         return None
     return stripped
 
@@ -742,27 +765,41 @@ def _validate_asciidoc_detail(detail: str, errors: list[dict[str, str]]) -> tupl
 
     block_stack: list[str] = []
     delimiter_tokens = {"----", "....", "====", "____", "****", "++++"}
+    prev_nonempty = ""
     for idx, line in enumerate(lines):
         s = line.strip()
         if _ASCIIDOC_FENCE_RE.match(line):
             errors.append({"field": "detail", "code": "markdown_fence_leak", "message": f"Markdown triple-backtick fence found at line {idx + 1}; use AsciiDoc [source,lang] with '----'."})
+            if s:
+                prev_nonempty = s
             continue
         if s == "++++":
-            errors.append({"field": "detail", "code": "detail_passthrough_forbidden", "message": f"Raw AsciiDoc passthrough '++++' is forbidden at line {idx + 1}."})
+            if block_stack and block_stack[-1] == "++++":
+                block_stack.pop()
+            else:
+                if not re.match(r"^\[(?:latexmath|stem)(?:,[^\]]*)?\]$", prev_nonempty, re.IGNORECASE):
+                    errors.append({"field": "detail", "code": "detail_passthrough_forbidden", "message": f"Raw AsciiDoc passthrough '++++' is forbidden at line {idx + 1}."})
+                block_stack.append("++++")
+            prev_nonempty = s
+            continue
         if s in delimiter_tokens:
             if block_stack and block_stack[-1] == s:
                 block_stack.pop()
             else:
                 block_stack.append(s)
+            prev_nonempty = s
             continue
         if s == "|===":
             if block_stack and block_stack[-1] == "|===":
                 block_stack.pop()
             else:
                 block_stack.append("|===")
+            prev_nonempty = s
             continue
         in_verbatim = bool(block_stack and block_stack[-1] in ("----", "....", "++++"))
         if in_verbatim:
+            if s:
+                prev_nonempty = s
             continue
         if _MARKDOWN_HEADING_RE.match(line):
             errors.append({"field": "detail", "code": "markdown_heading_leak", "message": f"Markdown '#' heading found at line {idx + 1}; use AsciiDoc '= '/'== '."})
@@ -774,6 +811,8 @@ def _validate_asciidoc_detail(detail: str, errors: list[dict[str, str]]) -> tupl
             errors.append({"field": "detail", "code": "markdown_blockquote_leak", "message": f"Markdown '>' blockquote found at line {idx + 1}; use AsciiDoc '[quote]' + '____'."})
         if _MARKDOWN_LINK_RE.search(line):
             errors.append({"field": "detail", "code": "markdown_link_leak", "message": f"Markdown link '[label](url)' found at line {idx + 1}; use AsciiDoc 'https://...[label]'."})
+        if s:
+            prev_nonempty = s
 
     if block_stack:
         errors.append({"field": "detail", "code": "unclosed_adoc_block", "message": f"Unclosed AsciiDoc delimited block(s): {', '.join(block_stack)}."})
@@ -1201,6 +1240,9 @@ def submit_client_extraction(
 
         cleaned_detail = sanitize_rendered_detail(remove_leading_original_link(validated.detail.strip()), format="adoc").strip()
         if dry_run:
+            warnings: list[dict[str, str]] = []
+            if cleaned_model is None:
+                warnings.append({"field": "model", "code": "model_missing", "message": "model was omitted; set payload.model to the active processing LLM model name (for example 'gemini-3.8-flash' or 'claude-sonnet-4-6') when known."})
             return {
                 "ok": True,
                 "dry_run": True,
@@ -1214,6 +1256,7 @@ def submit_client_extraction(
                 "relations_count": len(validated.relations),
                 "key_claims_count": len(clean_claims),
                 "detail_chars": len(cleaned_detail),
+                "warnings": warnings,
                 "errors": [],
             }
 
@@ -1385,6 +1428,8 @@ def submit_client_extraction(
             "oauth_client_id": resolved_oauth_client,
             "model": cleaned_model,
             "schema_version": validated.schema_version,
+            "prompt_version": PROMPT_VERSION,
+            "prompt_template": DEFAULT_EXTRACTION_TEMPLATE,
             "expected_content_hash": expected_content_hash,
             "committed_at": commit_ts,
         }
@@ -1398,6 +1443,8 @@ def submit_client_extraction(
             "oauth_client_id": resolved_oauth_client,
             "model": cleaned_model,
             "schema_version": validated.schema_version,
+            "prompt_version": PROMPT_VERSION,
+            "prompt_template": DEFAULT_EXTRACTION_TEMPLATE,
             "expected_content_hash": expected_content_hash,
         }
         dbm.log_extraction(
@@ -1405,7 +1452,7 @@ def submit_client_extraction(
             document_id=doc_id,
             provider="agent_client",
             model=recorded_model,
-            prompt_version=validated.schema_version,
+            prompt_version=PROMPT_VERSION,
             raw_response=json.dumps(raw_response, ensure_ascii=False),
             kb_id=int(kb_id),
         )

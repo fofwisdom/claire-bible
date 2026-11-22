@@ -1139,6 +1139,7 @@ def _account_profile_body(
         ("public_id", t("console.settings.account.field.number"), str(account.public_id)),
         ("username", "USERNAME", f"@{account.username}" if account.username else t("console.settings.account.username_unset")),
         ("display_name", t("console.settings.account.display_name"), account.display_name),
+        ("summary", t("console.settings.account.summary"), account.summary or t("console.settings.account.summary_unset")),
         ("role", t("console.settings.account.field.role"), account_role_text(account.role)),
         ("status", t("console.common.status"), account_status_text(account.status)),
         ("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")),
@@ -1202,6 +1203,12 @@ def _account_profile_body(
         + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
         + console_result(attrs={"data-settings-result": True})
     )
+    summary_body = (
+        console_field(t("console.settings.account.summary"), f'<textarea name="summary" class="pref-input" rows="3" maxlength="500" placeholder="{escape(t("console.settings.account.summary_placeholder"))}">{escape(account.summary)}</textarea>')
+        + f'<p class="hint">{escape(t("console.settings.account.summary_hint"))}</p>'
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
     body = (
         console_card(
             escape(t("console.settings.account.info_title")),
@@ -1218,6 +1225,14 @@ def _account_profile_body(
             icon="tag",
             aria_label=t("console.settings.account.display_name"),
             attrs={"data-settings-form": "display-name"},
+        )
+        + console_form_card(
+            escape(t("console.settings.account.summary")),
+            summary_body,
+            id="settings-summary",
+            icon="edit",
+            aria_label=t("console.settings.account.summary"),
+            attrs={"data-settings-form": "summary"},
         )
         + _settings_locale_html(account)
         + _settings_entity_language_html(account)

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 # v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
 # v8: executive summary 지침 강화 (단순 서문/도입부 요약 및 메타 소개문 금지, 본문 전체 핵심 실체·결론 압축).
 PROMPT_VERSION = "extract-v8"
+DEFAULT_EXTRACTION_TEMPLATE = "default"
 # 프레젠테이션 저작 프롬프트 버전
 PRESENTATION_PROMPT_VERSION = "pres-v2"
 
@@ -599,15 +600,14 @@ def images_block_adoc(images: list[dict]) -> str:
     )
 
 
-def render_detail_prompt_adoc(
-    body: str,
-    images: list[dict],
+def render_detail_instructions_adoc(
     *,
-    merged: bool,
+    images: list[dict] | None = None,
+    merged: bool = False,
     scale: int = 1,
     focus: str | None = None,
 ) -> str:
-    """원문을 한국어 AsciiDoc(ADOC)으로 실용적·복합적으로 재구성하는 프롬프트."""
+    """Return the canonical Korean AsciiDoc detail-authoring instructions without trailing source text."""
     if merged:
         length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
         merge_hint = (
@@ -671,7 +671,40 @@ def render_detail_prompt_adoc(
         "   - 문서 제목(`= 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 라인을 일체 작성하지 마라.\n"
         "   - `= 제목` 직후에는 곧바로 목차/문서 속성(`:toc:`) 또는 본문 섹션(`== 개요`)으로 시작하라.\n"
         "   - 저자·소속 정보는 온톨로지 지식 그래프의 영역이며 문서 본문에 기재하지 않는다.\n"
-        + images_block_adoc(images)
+        + images_block_adoc(images or [])
+    )
+
+
+def build_extraction_prompt_bundle(
+    ontology_block: str,
+    *,
+    images: list[dict] | None = None,
+    merged: bool = False,
+    scale: int = 1,
+    focus: str | None = None,
+    template: str | None = None,
+) -> dict[str, str]:
+    """Return the canonical extraction and detail-rendering prompt bundle for server and client extractors."""
+    resolved_template = (template or DEFAULT_EXTRACTION_TEMPLATE).strip() or DEFAULT_EXTRACTION_TEMPLATE
+    return {
+        "template": resolved_template,
+        "prompt_version": PROMPT_VERSION,
+        "extract_system_prompt": extract_system_prompt(ontology_block),
+        "render_detail_prompt": render_detail_instructions_adoc(images=images, merged=merged, scale=scale, focus=focus),
+    }
+
+
+def render_detail_prompt_adoc(
+    body: str,
+    images: list[dict],
+    *,
+    merged: bool,
+    scale: int = 1,
+    focus: str | None = None,
+) -> str:
+    """원문을 한국어 AsciiDoc(ADOC)으로 실용적·복합적으로 재구성하는 프롬프트."""
+    return (
+        render_detail_instructions_adoc(images=images, merged=merged, scale=scale, focus=focus)
         + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"
     )
 

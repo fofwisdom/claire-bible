@@ -132,12 +132,14 @@ On a narrow screen an open drawer or sheet gets `role="dialog"` and `aria-modal=
 
 `resetWorkspaceState()` clears the search, the selection, the path, the reader, the drawers, and the filters, and sets the minimum degree from the node count (0, 1, 2, or 5 at 80, 180, and 400 nodes). It does not clear the synthesis set. `resetHome()` is an alias of `enterHome({reason:'brand'})`.
 
-### 4.3 Home Cards
+### 4.3 Home Cards and Conditional Proposal B Layout
 
-**[code]** `renderHome()` fills `#homewrap`. The center pane is a size container (`container-type:inline-size`); container queries give the card grid its columns. A card without data is hidden. No card shows a placeholder number.
+**[code]** `renderHome()` fills `#homewrap` and calls `ClaireUserHome.refreshWorkspaceHome(theme)` (`src/bible/static/js/user_home_ap.js`, styled by `src/bible/static/css/user_home.css`). The center pane is a size container (`container-type:inline-size`); container queries at `820px` switch between wide two-column Proposal B (`#home-ap-profile` full-width at top, `#home-ap-timeline` left column, KB cards right column, `#home-mobile-tabs` hidden) and narrow mobile-only tabs (`#home-mobile-tabs` visible with `Timeline` and `Knowledge Base` tabs). On Shared KBs (`/kb/{number}/` or `theme.is_personal === false`), `#home-ap-profile`, `#home-ap-timeline`, and `#home-mobile-tabs` stay hidden. A card without data is hidden. No card shows a placeholder number.
 
 | Element | Content | Source |
 | :--- | :--- | :--- |
+| `#home-ap-profile` (personal User Home only) | ActivityPub handle, display name, bio `summary`, follower/following/post counts, owner Note compose/profile edit buttons or visitor Follow dialog | `GET /home-profile` |
+| `#home-ap-timeline` (personal User Home only) | Concise `Timeline` (`타임라인`) feed with `All`/`Note`/`Article` filters and cursor pagination | `GET /home-timeline` |
 | `#home-facts` | Theme label, documents, entities, relations, time of the last ingestion | `GET /stats`; `fetched_at` of the first document row |
 | `#home-flow` (owner only) | Three links to `/syndication?stage=` with `collect`, `ingest`, or `publish`, with counts | `GET /api/feeds`, `GET /api/federation/following?limit=1`, `GET /api/federation/status`, `GET /api/federation/timeline?limit=1`, `GET /stats`. A route that fails gives no count. |
 | `#home-recent` | First five visible documents: source type, title, time, entity count | Document list; the entity count is the number of graph nodes whose `sources` has the document |

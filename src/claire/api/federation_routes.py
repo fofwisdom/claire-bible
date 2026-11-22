@@ -80,7 +80,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.15"
+CONTRACT_VERSION = "1.16"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -279,6 +279,7 @@ class ActorRecord(_Sealed):
     updated_at: float
     profile_url: str
     discoverable: bool
+    summary: str | None = None
 
 
 class ActorKey(_Sealed):
@@ -719,6 +720,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             updated_at=account.updated_at,
             profile_url=f"{_runtime().public_origin}/@{account.username}/",
             discoverable=bool(account.profile_public),
+            summary=account.summary or None,
         )
 
     def _domain_blocks(conn: Any) -> tuple[str, list[str]]:

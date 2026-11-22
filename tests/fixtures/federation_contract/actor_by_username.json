@@ -11,6 +11,7 @@
     "activated_at": 1800000100.5,
     "updated_at": 1800000200.25,
     "profile_url": "https://claire.example.com/@alice/",
-    "discoverable": true
+    "discoverable": true,
+    "summary": null
   }
 }

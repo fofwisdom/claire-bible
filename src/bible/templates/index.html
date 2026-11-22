@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="${html_lang}"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="text-scale" content="scale"/>
 <title>${t:home.title}</title>
 <meta name="robots" content="index, follow"/>
 <meta name="description" content="${t:ws.meta.description}"/>
@@ -73,6 +74,7 @@
 <link rel=stylesheet href=/static/css/shared_ui.css/>
 <link rel=stylesheet href=/static/css/workspace.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
+<link rel=stylesheet href=/static/css/user_home.css/>
 </head>
 <body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">
 <!-- __COMMON_APPBAR__ -->
@@ -141,15 +143,29 @@
   </aside>
   <div id="centerwrap">
     <section id="homewrap" class="workspace-pane" data-i18n-aria-label="nav.home" tabindex="0">
-      <div class="home-inner">
-        <h1 id="home-theme-label"></h1>
-        <p id="home-facts" class="home-facts" role="status" aria-live="polite"></p>
+      <div class="home-inner home-b-scope" data-user-home="0" data-mobile-tab="timeline">
+        <div id="home-ap-profile" class="uh-profile-shell" data-i18n-aria-label="home.profile.aria" aria-label="${t:home.profile.aria}" hidden></div>
         <nav class="home-flow" id="home-flow" data-i18n-aria-label="home.flow.label" hidden>
           <a class="home-flow-stage" id="home-flow-collect" href="/syndication?stage=collect" style="--stage:var(--stage-collect)"><b data-i18n="home.flow.collect">1 · Interaction</b><span class="home-flow-counts" id="home-flow-collect-counts"></span></a>
           <a class="home-flow-stage" id="home-flow-ingest" href="/syndication?stage=ingest" style="--stage:var(--stage-ingest)"><b data-i18n="home.flow.ingest">2 · Ingestion</b><span class="home-flow-counts" id="home-flow-ingest-counts"></span></a>
           <a class="home-flow-stage" id="home-flow-publish" href="/syndication?stage=publish" style="--stage:var(--stage-publish)"><b data-i18n="home.flow.publish">3 · Publication</b><span class="home-flow-counts" id="home-flow-publish-counts"></span></a>
         </nav>
-        <div class="home-cards">
+        <div id="home-mobile-tabs" class="uh-mobile-tabs-wrap" hidden>
+          <div class="uh-tablist" role="tablist" focusgroup="tablist nomemory" data-i18n-aria-label="home.tabs.aria" aria-label="${t:home.tabs.aria}">
+            <button type="button" class="uh-tab" role="tab" id="home-tab-timeline" aria-selected="true" focusgroupstart data-i18n="home.tab.timeline">${t:home.tab.timeline}</button>
+            <button type="button" class="uh-tab" role="tab" id="home-tab-kb" aria-selected="false" data-i18n="home.tab.kb">${t:home.tab.kb}</button>
+          </div>
+        </div>
+        <div class="home-b-grid">
+          <div class="home-b-timeline" id="home-ap-timeline" hidden></div>
+          <div class="home-b-kb">
+            <div class="uh-kb-summary-card" id="home-kb-summary">
+              <div class="uh-kb-summary-head">
+                <h1 id="home-theme-label"></h1>
+              </div>
+              <p id="home-facts" class="home-facts" role="status" aria-live="polite"></p>
+            </div>
+            <div class="home-cards">
           <section class="home-card" id="home-recent" aria-labelledby="home-recent-title" hidden>
             <header><h2 id="home-recent-title" data-i18n="home.recent.title">Recent ingestion</h2></header>
             <div id="home-recent-list" role="list"></div>
@@ -198,6 +214,8 @@
             </header>
             <div id="home-maint-list" role="list"></div>
           </section>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -458,6 +476,42 @@
     <div id="purge-modal-body"></div>
   </div>
 </dialog>
+<dialog id="modal-home-follow" closedby="any" aria-labelledby="modal-home-follow-title" class="claire-dialog uh-dialog">
+  <div class="claire-dialog-body">
+    <div class="claire-dialog-head">
+      <h2 id="modal-home-follow-title"><span data-icon="user-plus"></span> <span data-i18n="home.follow_dlg.title">${t:home.follow_dlg.title}</span></h2>
+      <button type="button" commandfor="modal-home-follow" command="close" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <div class="ingest-field"><span class="ingest-label" data-i18n="home.follow_dlg.handle">${t:home.follow_dlg.handle}</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><code class="uh-handle-code" id="uh-follow-handle-val"></code><button type="button" class="uh-btn sm" id="uh-follow-copy-handle" data-i18n="home.profile.copy_handle">${t:home.profile.copy_handle}</button></div></div>
+    <div class="ingest-field"><span class="ingest-label" data-i18n="home.follow_dlg.actor_id">${t:home.follow_dlg.actor_id}</span><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><code class="uh-handle-code" id="uh-follow-iri-val"></code><button type="button" class="uh-btn sm" id="uh-follow-copy-iri" data-i18n="home.follow_dlg.copy_iri">${t:home.follow_dlg.copy_iri}</button></div></div>
+    <div class="ingest-field"><label class="ingest-label" for="uh-remote-domain" data-i18n="home.follow_dlg.server_label">${t:home.follow_dlg.server_label}</label><input id="uh-remote-domain" type="text" value="mastodon.example" data-i18n-placeholder="home.follow_dlg.server_placeholder" placeholder="${t:home.follow_dlg.server_placeholder}"/></div>
+    <div class="ingest-field"><span class="ingest-label" data-i18n="home.follow_dlg.url_preview">${t:home.follow_dlg.url_preview}</span><code class="uh-handle-code" id="uh-remote-follow-url"></code></div>
+    <p class="claire-dialog-sub" data-i18n="home.follow_dlg.auto_accept">${t:home.follow_dlg.auto_accept}</p>
+    <div class="claire-dialog-foot">
+      <button type="button" commandfor="modal-home-follow" command="close" data-i18n="common.action.close">${t:common.action.close}</button>
+      <button type="button" class="pri" id="uh-follow-open-remote" data-i18n="home.follow_dlg.open">${t:home.follow_dlg.open}</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="modal-home-note" closedby="any" aria-labelledby="modal-home-note-title" class="claire-dialog uh-dialog">
+  <form id="uh-note-form" class="claire-dialog-form">
+    <div class="claire-dialog-head">
+      <h2 id="modal-home-note-title"><span data-icon="edit"></span> <span data-i18n="home.note_dlg.title">${t:home.note_dlg.title}</span></h2>
+      <button type="button" commandfor="modal-home-note" command="close" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <div class="ingest-field"><label class="ingest-label" for="uh-note-cw" data-i18n="home.note_dlg.cw_label">${t:home.note_dlg.cw_label}</label><input id="uh-note-cw" type="text" maxlength="140" data-i18n-placeholder="home.note_dlg.cw_placeholder" placeholder="${t:home.note_dlg.cw_placeholder}"/></div>
+    <div class="ingest-field"><label class="ingest-label" for="uh-note-content" data-i18n="home.note_dlg.content_label">${t:home.note_dlg.content_label}</label><textarea id="uh-note-content" rows="4" maxlength="500" required data-i18n-placeholder="home.note_dlg.content_placeholder" placeholder="${t:home.note_dlg.content_placeholder}"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="ingest-field"><label class="ingest-label" for="uh-note-lang" data-i18n="home.note_dlg.lang_label">${t:home.note_dlg.lang_label}</label><select id="uh-note-lang"><option value="ko">ko</option><option value="en">en</option></select></div>
+      <div class="ingest-field"><label class="ingest-label" for="uh-note-quote-policy" data-i18n="home.note_dlg.quote_label">${t:home.note_dlg.quote_label}</label><select id="uh-note-quote-policy"><option value="public" data-i18n="home.note_dlg.quote_public">${t:home.note_dlg.quote_public}</option><option value="followers" data-i18n="home.note_dlg.quote_followers">${t:home.note_dlg.quote_followers}</option><option value="manual" data-i18n="home.note_dlg.quote_manual">${t:home.note_dlg.quote_manual}</option><option value="nobody" data-i18n="home.note_dlg.quote_nobody">${t:home.note_dlg.quote_nobody}</option></select></div>
+    </div>
+    <p id="uh-note-msg" class="claire-dialog-msg" role="status" aria-live="polite"></p>
+    <div class="claire-dialog-foot">
+      <button type="button" commandfor="modal-home-note" command="close" data-i18n="common.action.cancel">${t:common.action.cancel}</button>
+      <button type="submit" class="pri" id="uh-note-submit" data-i18n="home.note_dlg.publish">${t:home.note_dlg.publish}</button>
+    </div>
+  </form>
+</dialog>
 <script>
   window.__CLAIRE_CONFIG = {
     sourceBaseUrl: '__SOURCE_BASE_URL__',
@@ -482,6 +536,7 @@
 <script src=/static/js/renderers/doc_content.js></script>
 <script src=/static/js/reader.js></script>
 <script src=/static/js/command_palette.js></script>
+<script src=/static/js/user_home_ap.js></script>
 <script src=/static/js/app.js></script>
 </body>
 </html>

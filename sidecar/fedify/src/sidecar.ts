@@ -99,6 +99,10 @@ export interface OutboxCounters {
   failed: number;
 }
 
+function escapeSummaryHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] ?? ch)).replace(/\n/g, "<br/>");
+}
+
 function instant(seconds: number): Temporal.Instant {
   return Temporal.Instant.fromEpochMilliseconds(Math.round(seconds * 1000));
 }
@@ -755,6 +759,7 @@ export class Sidecar {
       published: record.activated_at === null ? null : instant(record.activated_at),
       discoverable: record.discoverable,
       manuallyApprovesFollowers: false,
+      ...(record.summary ? { summary: `<p>${escapeSummaryHtml(record.summary)}</p>` } : {}),
     });
   }
 
