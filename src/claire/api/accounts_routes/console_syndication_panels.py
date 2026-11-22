@@ -209,6 +209,7 @@ def _render_agent_marketplace_block(repo: str) -> str:
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'
         f'<a id="pref-mcp-antigravity-guide" class="pref-btn pref-btn-accent" href="{escape(ag_guide_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_ag_guide_link"))}</a>'
         f'<a id="pref-mcp-marketplace-releases" class="pref-btn" href="{escape(releases_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_releases_link"))}</a>'
+        f'<button type="button" class="pref-btn" id="pref-mcp-download-mcp-config">{escape(t("console.synd.mcp.marketplace_download_config"))}</button>'
         "</div></div>"
         '<div class="pref-row">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_repo_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_repo_desc"))}</span></div>'

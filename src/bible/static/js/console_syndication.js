@@ -557,7 +557,7 @@
     if (promptEl) {
       var mp = (synd && synd.agent_marketplace) || {};
       var mpRepo = mp.repo || "fofwisdom/claire-agents";
-      var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire-antigravity plugin (.zip) from the latest GitHub Release of https://github.com/{repo} into my Antigravity plugins folder, verify SHA256SUMS, and set the claire MCP server URL to {mcp_url}.");
+      var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire-antigravity plugin (.zip) from the latest GitHub Release of https://github.com/{repo} into my Antigravity plugins folder, verify SHA256SUMS, write mcp_config.json inside the claire-antigravity plugin folder with claire URL {mcp_url}, and show the claire-antigravity plugin card so I can sign in.");
       promptEl.textContent = promptTmpl.replace(/\{repo\}/g, mpRepo).replace(/\{mcp_url\}/g, ep);
     }
     byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
@@ -625,6 +625,21 @@
         var text = byId(copy.getAttribute("data-copy-target")).textContent;
         if (!navigator.clipboard) { showToast(text); return; }
         navigator.clipboard.writeText(text).then(function () { showToast(tJs("console.js.synd.mcp.copied", "Copied to clipboard.")); }, function () { showToast(text); });
+        return;
+      }
+      var dlBtn = e.target.closest("#pref-mcp-download-mcp-config");
+      if (dlBtn) {
+        var cfgJson = JSON.stringify({ mcpServers: { claire: { url: mcpEndpoint() } } }, null, 2) + "\n";
+        var blob = new Blob([cfgJson], { type: "application/json;charset=utf-8" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "mcp_config.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        showToast(tJs("console.js.synd.mcp.downloaded_config", "Downloaded mcp_config.json."));
         return;
       }
       var revokeBtn = e.target.closest("[data-oauth-revoke-grant]");

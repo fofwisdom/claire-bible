@@ -2,16 +2,29 @@
 
 Connect Google Antigravity to your Claire Bible server over OAuth 2.1 (`/mcp`) for isolated source extraction and knowledge graph queries. Zero server tokens or secrets are included in this plugin.
 
-## Full Step-by-Step GUI Guides (단계별 GUI 설치 안내서)
+## 1. 계정 연결 · Sign In (OAuth 2.1)
+
+- 위쪽에 노란색 **`Sign in required.`** 배너가 보이면 **`Go to Accounts`** 버튼(또는 **`Accounts`** 탭)을 눌러 Claire Bible 서버에 로그인하고 `readonly` 및 `write` 권한을 승인하세요.
+- If the yellow **`Sign in required.`** banner appears above, click **`Go to Accounts`** (or open the **`Accounts`** tab) to sign in to your Claire Bible server and approve both `readonly` and `write` scopes.
+- 아직 `Sign in required.` 배너나 **`MCP`** 탭에 `claire` 서버가 보이지 않는다면, Claire 웹 **`/settings/mcp`**에서 **Antigravity 빠른 설치 문구**를 복사해 **`+ New Conversation`** 채팅창에 붙여넣거나, **`/settings/mcp`**의 **서버 연결 파일 내려받기**(`Download server config`)로 받은 `mcp_config.json` 파일을 이 플러그인 폴더 안에 넣으세요.
+
+## 2. 바로 시작하기 · Starter Prompts
+
+로그인을 마치면 위쪽의 추천 프롬프트 버튼 3개 중 하나를 클릭해 대기 중인 자료를 확인하거나, 격리된 `claire-extractor` 서브에이전트로 안전하게 지식을 추출하고 그래프를 검색할 수 있습니다.
+
+## 3. 첫 실행 시 권한 확인 창 (`Allow using this MCP tool?`) 안내
+
+처음 Claire 도구를 호출할 때 Antigravity가 **`Allow using this MCP tool?`** (`claire-antigravity_claire/<도구명>`) 권한 확인 창과 함께 4가지 선택지를 보여 줍니다:
+
+1. **`1 Yes, allow this time`** — 이번 한 번만 허용
+2. **`2 Yes, and always allow in this conversation`** — 이 대화 동안만 항상 허용
+3. **`3 Yes, and always allow`** — 앞으로도 계속 자동 허용
+4. **`4 No (tell the agent what to do instead)`** — 거부하고 다른 지시 입력
+
+- **추출·조회 도구 권장 선택**: 한 건을 추출할 때 여러 Claire MCP 도구(`get_extraction_spec`, `list_staged_sources`, `claim_staged_source`, `get_staged_source`, `resolve_entity`, `search`, `neighbors`, `submit_client_extraction`)가 차례대로 호출됩니다. 매번 멈추지 않도록 **`3 Yes, and always allow`**를 고른 뒤 **`Submit`**을 누르세요. (공유 지식베이스 기여 도구 `claire-antigravity_claire/kb_submit`은 필요할 때 **`1 Yes, allow this time`**으로 두면 수동 확인이 유지됩니다.)
+- **English tip**: When **`Allow using this MCP tool?`** appears on first run, choose **`3 Yes, and always allow`** and click **`Submit`** so multi-step extraction does not pause at every tool call. You can manage saved permissions anytime in **`Settings -> Permission Grants`**.
+
+## 4. 상세 설치 · 문제 해결 안내서 (Full Step-by-Step Guides)
 
 - **한국어 상세 가이드**: [`docs/antigravity.ko.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/antigravity.ko.md)
 - **English Setup Guide**: [`docs/antigravity.en.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/antigravity.en.md)
-
-## Quick Summary (요약)
-
-1. **방법 1 (권장 — 채팅창에 붙여넣어 자동 설치 / Recommended — Paste Once in Chat)**:
-   Open **Settings -> MCP** (`/settings/mcp`) on your Claire Bible server, click **Copy** on **Antigravity quick setup prompt**, and paste it into a new Antigravity chat window. Then click **Authenticate** next to `claire` under **Customizations -> Installed -> MCP Servers**.
-2. **방법 2 (순수 GUI 마우스 클릭 설치 / Point-and-Click Setup)**:
-   Download `claire-antigravity-v{{VERSION}}.zip` from [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest), unzip it into your Antigravity plugins folder (`~/.gemini/config/plugins/` on macOS/Linux or `%USERPROFILE%\.gemini\config\plugins` on Windows), and add `https://<your-claire-server>/mcp` as MCP server `claire` under **Customizations -> Installed -> MCP Servers -> Add MCP Server (+)**.
-
-> **Note**: GUI users do **not** need to rename or manually edit `mcp_config.json.tmpl`.

@@ -1,11 +1,12 @@
+const fs = require('node:fs');
 const { test, expect } = require('@playwright/test');
 const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/console_pages');
 
 test.use({ serviceWorkers: 'block' });
 
-test('English /settings/mcp provides one-click Antigravity quick setup prompt copy and English GUI guide link', async ({ browser, baseURL }) => {
+test('English /settings/mcp provides quick setup prompt copy, mcp_config.json download, and English GUI guide link', async ({ browser, baseURL }) => {
   const origin = new URL(baseURL).origin;
-  const context = await browser.newContext({ locale: 'en-US' });
+  const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
   const page = await context.newPage();
   const errors = watchErrors(page);
@@ -31,6 +32,17 @@ test('English /settings/mcp provides one-click Antigravity quick setup prompt co
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   const promptText = await promptEl.textContent();
   expect(copied).toBe(promptText);
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#pref-mcp-download-mcp-config').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('mcp_config.json');
+  await expect(page.locator('#pref-toast')).toContainText('Downloaded mcp_config.json.');
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  const parsed = JSON.parse(fs.readFileSync(downloadPath, 'utf8'));
+  expect(parsed).toEqual({ mcpServers: { claire: { url: expectedMcpUrl } } });
 
   await expectNoRawKeys(page, '#panel-mcp');
   expect(errors).toEqual([]);

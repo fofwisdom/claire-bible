@@ -531,9 +531,9 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 
 #### 1) Claude · Google Antigravity 공식 마켓플레이스 (`fofwisdom/claire-agents` + OAuth 2.1, 권장)
 1. 콘솔 `/settings/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스 저장소(`fofwisdom/claire-agents`, 정본 소스 `agent_clients/`, GitHub Actions 자동 동기화)를 이용한다:
-   - **Antigravity (GUI 우선)**: `/settings/mcp`에서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)를 복사해 Antigravity 채팅창에 그대로 붙여넣어 자동 설치하거나, 언어별 상세 GUI 가이드(`docs/antigravity.ko.md` / `docs/antigravity.en.md`) 및 GitHub Releases의 `claire-antigravity-v*.zip`을 따라 설치한 뒤 **Customizations -> Installed -> MCP Servers -> Add MCP Server (+)**에서 `/mcp` 주소를 등록하고 **Authenticate**로 OAuth 2.1 로그인을 완료한다. (CLI 사용자용 `.tar.gz` 및 `SHA256SUMS` 검증 안내도 가이드 내 접힘 영역으로 제공된다.)
+   - **Antigravity (GUI 우선)**: `/settings/mcp`에서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)를 복사해 Antigravity 채팅창에 그대로 붙여넣어 자동 설치하거나, 언어별 상세 GUI 가이드(`docs/antigravity.ko.md` / `docs/antigravity.en.md`)를 따라 GitHub Releases의 `claire-antigravity-v*.zip`과 `/settings/mcp`의 **서버 연결 파일 내려받기**(`#pref-mcp-download-mcp-config`, `mcp_config.json`)를 플러그인 폴더에 넣은 뒤 **Customizations -> Installed -> Plugins -> Claire Bible (`Setup required`) -> Go to Accounts**에서 OAuth 2.1 로그인을 완료한다. (첫 도구 실행 시 `Allow using this MCP tool?` 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누른다. CLI 사용자용 `.tar.gz` 및 `SHA256SUMS` 검증 안내도 가이드 내 접힘 영역으로 제공된다.)
    - **Claude (GUI 우선)**: 마켓플레이스 관리에 `fofwisdom/claire-agents`를 붙여넣어 동기화(`.claude-plugin/marketplace.json`)한 뒤 `claire-claude`를 설치한다 (`docs/claude.ko.md` / `docs/claude.en.md`).
-2. 번들에는 `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `README.md`, `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다.
+2. 번들에는 `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `assets/logo.svg`, `README.md`, `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다.
 3. 수동/CLI 환경에서 `mcp_config.json` 또는 Claude MCP 설정에 직접 지정할 때는 `url` 형식으로 본인의 Claire Bible 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
 ```json
 {

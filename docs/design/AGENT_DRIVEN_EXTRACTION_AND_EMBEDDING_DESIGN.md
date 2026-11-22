@@ -94,10 +94,10 @@ Because agent client plugins contain zero server secrets and zero user data, a s
 
 - `.claude-plugin/marketplace.json` — Registers only Claude target plugins (`./plugins/claire-claude`) so Claude GUI `owner/repo` shorthand (`fofwisdom/claire-agents`) syncs natively.
 - `plugins/claire-claude/` — `.claude-plugin/plugin.json`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`, and `README.md`.
-- `plugins/claire-antigravity/` — Official Antigravity `plugin.json` (`displayName`, bilingual `suggestedPrompts`, `homepage`, `repository`), `README.md`, `mcp_config.json.tmpl` (`{{MCP_URL}}`), `rules/AGENTS.md`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, and `skills/claire-query/SKILL.md`.
-- `docs/` — Dedicated GUI-first setup guides (`docs/antigravity.ko.md`, `docs/antigravity.en.md`, `docs/claude.ko.md`, `docs/claude.en.md`) with collapsed CLI/`SHA256SUMS` sections.
+- `plugins/claire-antigravity/` — Official Antigravity `plugin.json` (`displayName`, `logo` -> `assets/logo.svg`, bilingual `suggestedPrompts`, `homepage`, `repository`), `assets/logo.svg`, `README.md` (with `Go to Accounts` sign-in and `Allow using this MCP tool?` permission guidance), `mcp_config.json.tmpl` (`{{MCP_URL}}`), `rules/AGENTS.md`, `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, and `skills/claire-query/SKILL.md`.
+- `docs/` — Dedicated GUI-first setup guides (`docs/antigravity.ko.md`, `docs/antigravity.en.md`, `docs/claude.ko.md`, `docs/claude.en.md`) reflecting `Plugins -> Claire Bible (Setup required) -> Go to Accounts`, `mcp_config.json` download, `Allow using this MCP tool?` prompts, and collapsed CLI/`SHA256SUMS` sections.
 - `manifest.json` & `README.md` — Deterministic asset digests (`sort_keys=True`, without volatile source-commit metadata) and bilingual GUI-first setup docs.
-- GitHub Releases — Deterministic `claire-antigravity-v<ver>.zip`/`.tar.gz`, `claire-claude-v<ver>.zip`/`.tar.gz` (fixed mtime/permissions), `SHA256SUMS`, and generated bilingual `release_notes.md`.
+- GitHub Releases — Deterministic `claire-antigravity-v<ver>.zip`/`.tar.gz`, `claire-claude-v<ver>.zip`/`.tar.gz` (fixed mtime/permissions), `SHA256SUMS`, and generated bilingual `release_notes.md` (`v0.1.2`).
 
 ### 4.2 GitHub Actions Pipelines & Server WebUI
 
@@ -105,7 +105,7 @@ Because agent client plugins contain zero server secrets and zero user data, a s
 - **Automated Sync & Release (`.github/workflows/publish-agent-marketplace.yml`)**: On `push` to `main` or manual `workflow_dispatch`, builds deterministically, mints a short-lived GitHub App token (`MARKETPLACE_APP_ID`, `MARKETPLACE_APP_PRIVATE_KEY` scoped solely to `fofwisdom/claire-agents`), mirrors `/tmp/claire-agents-dist/repo/` via `rsync --delete`, pushes only when `git status --porcelain` has changes, and creates tag `v<version>` + GitHub Release using `--notes-file /tmp/claire-agents-dist/release_notes.md` (or updates release notes via `gh release edit` when the tag already exists).
 - **Server Settings & WebUI**:
   - `CLAIRE_AGENT_MARKETPLACE_REPO` (`Settings.agent_marketplace_repo`, default `fofwisdom/claire-agents`) lets fork operators point `/settings/mcp` (`#pref-mcp-client-bundles`) to a custom `owner/repo` (invalid patterns fall back to `fofwisdom/claire-agents`).
-  - `/settings/mcp` shows a 3-step green/red progress card (`#pref-mcp-agent-guide`: ① `extraction_mode == "client"` → ② OAuth 2.1 `write` grant authorized → ③ first `agent_client` extraction committed) alongside `#pref-mcp-client-bundles` featuring a one-click Antigravity quick setup prompt (`#pref-mcp-antigravity-prompt`), locale-aware Antigravity Setup Guide link (`#pref-mcp-antigravity-guide`), Releases link, `owner/repo` copy control, and collapsed CLI/Git URL details.
+  - `/settings/mcp` shows a 3-step green/red progress card (`#pref-mcp-agent-guide`: ① `extraction_mode == "client"` → ② OAuth 2.1 `write` grant authorized → ③ first `agent_client` extraction committed) alongside `#pref-mcp-client-bundles` featuring a one-click Antigravity quick setup prompt (`#pref-mcp-antigravity-prompt`), locale-aware Antigravity Setup Guide link (`#pref-mcp-antigravity-guide`), Releases link, `mcp_config.json` download button (`#pref-mcp-download-mcp-config`), `owner/repo` copy control, and collapsed CLI/Git URL details.
   - Keep `"clients"` in `RESERVED_USERNAMES` (`src/claire/accounts/username_policy.py`) so member handles never collide with reserved root prefixes.
 
 ---

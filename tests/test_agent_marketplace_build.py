@@ -64,7 +64,9 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_plugin = json.loads((ag_dir / "plugin.json").read_text(encoding="utf-8"))
     assert ag_plugin["name"] == "claire-antigravity"
     assert ag_plugin["displayName"] == "Claire Bible"
-    assert ag_plugin["version"] == "0.1.1"
+    assert ag_plugin["version"] == "0.1.2"
+    assert ag_plugin["logo"] == "assets/logo.svg"
+    assert (ag_dir / "assets" / "logo.svg").is_file()
     assert ag_plugin["homepage"] == "https://github.com/fofwisdom/claire-agents#antigravity"
     assert ag_plugin["repository"] == "https://github.com/fofwisdom/claire-agents"
     assert isinstance(ag_plugin["suggestedPrompts"], list)
@@ -75,9 +77,13 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "client_id" not in ag_plugin
     assert "required_scopes" not in ag_plugin
     assert "files" not in ag_plugin
-    assert "fofwisdom/claire-agents" in (ag_dir / "README.md").read_text(encoding="utf-8")
-    assert "docs/antigravity.ko.md" in (ag_dir / "README.md").read_text(encoding="utf-8")
-    assert "docs/antigravity.en.md" in (ag_dir / "README.md").read_text(encoding="utf-8")
+    ag_readme = (ag_dir / "README.md").read_text(encoding="utf-8")
+    assert "fofwisdom/claire-agents" in ag_readme
+    assert "docs/antigravity.ko.md" in ag_readme
+    assert "docs/antigravity.en.md" in ag_readme
+    assert "Go to Accounts" in ag_readme
+    assert "Allow using this MCP tool?" in ag_readme
+    assert "Yes, and always allow" in ag_readme
     mcp_tmpl = (ag_dir / "mcp_config.json.tmpl").read_text(encoding="utf-8")
     assert "{{MCP_URL}}" in mcp_tmpl
     ag_rules = (ag_dir / "rules" / "AGENTS.md").read_text(encoding="utf-8")
@@ -101,8 +107,22 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
         assert expected_heading in guide_text
         assert "fofwisdom/claire-agents" in guide_text
         if guide_name.startswith("antigravity."):
-            assert "Add MCP Server (+)" in guide_text
-            assert "claire-antigravity-v0.1.1.zip" in guide_text
+            assert "Go to Accounts" in guide_text
+            assert "Allow using this MCP tool?" in guide_text
+            assert "Yes, and always allow" in guide_text
+            assert "Add MCP Server (+)" not in guide_text
+            assert "claire-antigravity-v0.1.2.zip" in guide_text
+            # Verify fallback ```text prompt lines fit cleanly without horizontal scrollbars.
+            in_text_block = False
+            for line in guide_text.splitlines():
+                if line.strip() == "```text":
+                    in_text_block = True
+                    continue
+                if in_text_block and line.strip() == "```":
+                    in_text_block = False
+                    continue
+                if in_text_block:
+                    assert len(line) <= 100, f"{guide_name} text block line too long: {line!r}"
 
     top_readme = (repo_a / "README.md").read_text(encoding="utf-8")
     assert "docs/antigravity.ko.md" in top_readme
@@ -114,7 +134,9 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     notes_b = (out_b / "release_notes.md").read_bytes()
     assert notes_a == notes_b
     notes_text = notes_a.decode("utf-8")
-    assert "claire-antigravity-v0.1.1.zip" in notes_text
+    assert "claire-antigravity-v0.1.2.zip" in notes_text
+    assert "Go to Accounts" in notes_text
+    assert "Allow using this MCP tool?" in notes_text
     assert "docs/antigravity.ko.md" in notes_text
     assert "docs/antigravity.en.md" in notes_text
     assert "release_notes.md" not in sums_a.decode("utf-8")
@@ -126,12 +148,14 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert manifest_ag["client_id"] == "antigravity"
     assert manifest_ag["required_scopes"] == ["readonly", "write"]
     assert any(f["path"] == "README.md" for f in manifest_ag["files"])
+    assert any(f["path"] == "assets/logo.svg" for f in manifest_ag["files"])
 
-    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.1.1.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.1.2.tar.gz", "r:gz") as tf:
         assert "claire-antigravity/plugin.json" in tf.getnames()
+        assert "claire-antigravity/assets/logo.svg" in tf.getnames()
         assert "claire-antigravity/README.md" in tf.getnames()
         assert "claire-antigravity/mcp_config.json.tmpl" in tf.getnames()
-    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.1.1.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.1.2.zip", "r") as zf:
         assert "claire-claude/.claude-plugin/plugin.json" in zf.namelist()
         assert "claire-claude/skills/claire-query/SKILL.md" in zf.namelist()
 

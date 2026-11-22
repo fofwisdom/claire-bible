@@ -2,7 +2,7 @@
 
 [English Guide](./antigravity.en.md) · [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)
 
-터미널 명령어나 JSON 파일을 직접 편집하지 않고 **Antigravity GUI(앱/IDE)**만으로 Claire Bible 플러그인을 적용하는 안내서입니다.
+터미널 명령어나 JSON 파일을 직접 편집하지 않고 **Antigravity GUI(앱)**만으로 Claire Bible 플러그인을 설치·로그인하고 첫 추출까지 실행하는 안내서입니다.
 
 ---
 
@@ -10,36 +10,63 @@
 
 1. 본인의 **Claire Bible 웹 화면**에 로그인합니다.
 2. **계정 설정**(`/settings/account`)에서 **지식 추출 모드**를 **`에이전트 클라이언트 (client)`**로 바꿉니다.
-3. **MCP 설정**(`/settings/mcp`) 페이지를 열어 둡니다. 이 페이지에서 본인 서버의 `/mcp` 주소와 빠른 설치 문구를 바로 복사할 수 있습니다.
+3. **MCP 설정**(`/settings/mcp`) 페이지를 열어 둡니다. 이 페이지에서 **Antigravity 빠른 설치 문구** 복사와 **`mcp_config.json`** 파일 다운로드를 모두 할 수 있습니다.
 
 ---
 
 ## 방법 1 (가장 쉬움 · 권장): Antigravity 채팅창에 1번 붙여넣어 설치하기
 
-숨김 폴더 위치나 설정 파일 형식을 전혀 알지 못해도 Antigravity가 사용자 운영체제에 맞춰 설치를 대신 처리합니다.
+숨김 폴더 위치나 설정 파일 형식을 전혀 몰라도 Antigravity가 사용자 운영체제에 맞춰 설치를 대신 처리합니다.
 
 1. Claire Bible **`/settings/mcp`** 페이지의 **공식 에이전트 마켓플레이스 (GitHub)** 카드에서 **`Antigravity 빠른 설치 문구`** 옆 **복사** 버튼을 누릅니다.
-   - 직접 입력하려면 아래 문구에서 `https://<내-Claire-서버-주소>/mcp`만 내 서버의 `/mcp` 주소로 바꿔 복사하세요:
+   - GitHub에서 바로 시작하려면 아래 문구에서 `<내-Claire-서버-주소>`만 본인 서버 주소로 바꿔 복사하세요:
    ```text
-   https://github.com/{{MARKETPLACE_REPO}} 저장소의 최신 GitHub Release에서 claire-antigravity 플러그인(.zip)을 내려받아 내 운영체제의 Antigravity 플러그인 폴더에 설치하고, SHA256SUMS를 확인한 뒤 claire MCP 서버 주소를 https://<내-Claire-서버-주소>/mcp로 설정해 줘.
+   https://github.com/{{MARKETPLACE_REPO}} 저장소의 최신 GitHub Release에서
+   claire-antigravity 플러그인(.zip)을 내려받아 내 Antigravity 플러그인 폴더에
+   설치하고 SHA256SUMS를 확인한 뒤, 플러그인 폴더 안 mcp_config.json에
+   claire URL을 https://<내-Claire-서버-주소>/mcp 로 넣고 로그인 카드를 띄워 줘.
    ```
-2. **Antigravity 앱**을 열고 **새 대화(New Conversation)** 입력창에 그대로 붙여넣어 전송합니다.
-3. 설치가 끝나면 Antigravity 화면 좌측 사이드바에서 **Customizations → Installed → MCP Servers**로 이동합니다.
-4. `claire` 서버 옆 **Authenticate(인증)** 버튼을 누르고, 브라우저가 열리면 Claire Bible 로그인 및 권한(`readonly`, `write`)을 승인합니다.
+2. **Antigravity 앱** 왼쪽 위의 **`+ New Conversation`**을 눌러 입력창에 붙여넣고 전송합니다.
+   - *설치 중 권한 요청 안내*: 현재 작업 폴더 밖(`~/.gemini/config/plugins/claire-antigravity`)에 파일을 내려받아 저장할 때 Antigravity가 권한을 물을 수 있습니다. 설치는 한 번만 실행되므로 **`1 Yes, allow this time`**을 선택하고 **`Submit`**을 누르세요.
+3. **Claire Bible 계정 로그인 (OAuth 2.1)**:
+   - 설치가 끝나면 채팅 답변에 뜬 **Claire Bible 카드**의 **Sign in** 버튼을 누르거나,
+   - 왼쪽 사이드바 **`Customizations`** → 오른쪽 위 **`Installed`** → **`Plugins`** 목록에서 주황색 **`Setup required`** 배지가 붙은 **`Claire Bible`**을 클릭합니다.
+   - 열린 화면(`Customizations / claire-antigravity`) 상단의 노란색 **`Sign in required.`** 배너에서 **`Go to Accounts`** 버튼(또는 **`Accounts`** 탭)을 눌러 로그인을 시작하고, 브라우저에서 Claire Bible 로그인 및 **`readonly` · `write`** 권한을 승인합니다.
+
+> **참고**: `Customizations -> Installed` 아래쪽의 `MCP Servers 0` (`No MCP servers yet. Use Add to browse the store.`) 영역이 비어 있는 것은 정상입니다. 플러그인에 포함된 MCP 서버는 `MCP Servers`가 아니라 **`Plugins -> Claire Bible`** 안에서 관리됩니다.
 
 ---
 
 ## 방법 2 (순수 마우스 클릭): 파일 내려받아 직접 적용하기
 
-에이전트에게 다운로드 작업을 맡기지 않고 직접 파일을 내려받아 클릭으로 설정하고 싶을 때 사용합니다. **JSON 파일을 수동으로 편집할 필요가 없습니다.**
+에이전트에게 다운로드 작업을 맡기지 않고 직접 파일을 내려받아 클릭으로 설정하고 싶을 때 사용합니다. **JSON 파일을 손으로 편집하지 않아도 됩니다.**
 
-### 1단계: 플러그인 `.zip` 파일 내려받기
-1. [GitHub Releases 페이지](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)를 엽니다.
-2. Assets 목록에서 **`claire-antigravity-v{{VERSION}}.zip`** 파일을 클릭해 내려받습니다. (`.tar.gz`는 받지 않아도 됩니다.)
-3. 내려받은 `.zip` 파일을 더블클릭해 압축을 풉니다. 안에 **`claire-antigravity`** 폴더가 나옵니다. (폴더 바로 안에 `plugin.json`이 있어야 합니다.)
+> **주의**: `MCP Servers` 옆 `+` 버튼은 마켓플레이스 스토어를 여는 기능(`Use Add to browse the store.`)이며, 직접 서버 URL을 입력하는 창이 아닙니다. 아래 순서대로 플러그인 폴더에 `mcp_config.json` 파일을 함께 넣어 주세요.
 
-### 2단계: Antigravity 플러그인 폴더로 옮기기
-운영체제 파일 관리자에서 아래 경로를 열고, 압축을 푼 **`claire-antigravity`** 폴더를 통째로 넣습니다. (`plugins` 폴더가 아직 없다면 `config` 폴더 안에 `plugins` 새 폴더를 만드세요.)
+### 1단계: 플러그인 `.zip`과 `mcp_config.json` 내려받기
+1. [GitHub Releases 페이지](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)에서 **`claire-antigravity-v{{VERSION}}.zip`** 파일을 내려받아 압축을 풉니다. (`claire-antigravity` 폴더가 만들어집니다.)
+2. Claire Bible **`/settings/mcp`** 페이지에서 **`서버 연결 파일 내려받기`** 버튼을 눌러 **`mcp_config.json`** 파일을 내려받습니다.
+3. 내려받은 **`mcp_config.json`** 파일을 압축 푼 **`claire-antigravity`** 폴더 바로 안(`plugin.json`과 같은 위치)에 옮깁니다.
+
+<details>
+<summary>/settings/mcp를 열지 않고 직접 mcp_config.json을 만들고 싶을 때</summary>
+
+`claire-antigravity/mcp_config.json` 파일에 본인 서버 주소를 넣어 저장하세요:
+
+```json
+{
+  "mcpServers": {
+    "claire": {
+      "url": "https://<내-Claire-서버-주소>/mcp"
+    }
+  }
+}
+```
+
+</details>
+
+### 2단계: `claire-antigravity` 폴더를 Antigravity 플러그인 폴더로 옮기기
+운영체제 파일 관리자에서 아래 경로를 열고, **`claire-antigravity`** 폴더를 통째로 넣습니다. (`plugins` 폴더가 아직 없다면 `config` 폴더 안에 `plugins` 새 폴더를 만드세요.)
 
 - **macOS (Finder)**
   1. Finder 상단 메뉴 **이동 → 폴더로 이동...** (단축키 `⌘ + ⇧ + G`)을 누릅니다.
@@ -53,22 +80,37 @@
   1. 홈 폴더에서 `Ctrl + H`를 눌러 숨김 폴더를 표시합니다.
   2. `.gemini` → `config` → `plugins` 순서로 들어간 뒤 `claire-antigravity` 폴더를 옮깁니다.
 
-### 3단계: Antigravity GUI에서 MCP 서버 추가 및 OAuth 로그인
-1. **Antigravity 앱** 좌측 사이드바에서 **Customizations → Installed**를 엽니다.
-2. 플러그인 목록에 **`Claire Bible`**이 켜져(Enabled) 있는지 확인합니다.
-3. 같은 화면의 **MCP Servers** 섹션에서 **Add MCP Server (+)** 버튼을 누릅니다.
-4. 아래 두 항목만 입력하고 저장합니다:
-   - **Name**: `claire`
-   - **URL**: Claire `/settings/mcp`에서 복사한 `/mcp` 주소 (예: `https://claire.example.com/mcp`)
-5. 등록된 `claire` 서버 옆 **Authenticate**를 눌러 브라우저에서 Claire Bible 로그인 및 `readonly` · `write` 권한을 승인합니다.
+### 3단계: `Claire Bible` 플러그인 화면에서 로그인하기
+1. **Antigravity 앱** 왼쪽 사이드바에서 **`Customizations`**를 열고 오른쪽 위가 **`Installed`**인지 확인합니다.
+2. **`Plugins`** 목록에서 주황색 **`Setup required`** 배지가 붙은 **`Claire Bible`**을 클릭합니다.
+3. 노란색 **`Sign in required.`** 배너의 **`Go to Accounts`**(또는 **`Accounts`** 탭)를 눌러 브라우저에서 Claire Bible 로그인과 **`readonly` · `write`** 권한을 승인합니다.
 
-> **중복 설정 주의**: 방법 1을 이미 실행했다면 `claire` MCP 서버가 이미 등록되어 있습니다. 방법 1과 방법 2를 동시에 중복 적용하면 서버 이름이 충돌할 수 있으므로 둘 중 하나만 선택하세요.
+---
+
+## 첫 명령 실행 시 권한 확인 창 (`Allow using this MCP tool?`) 다루기
+
+로그인을 마친 뒤 `Claire Bible` 화면(`Overview` 탭)의 추천 프롬프트 버튼이나 새 대화창에서 첫 작업을 요청하면, Antigravity가 보안상 아래와 같은 **`Allow using this MCP tool?`** 확인 창을 띄웁니다:
+
+- 도구 이름 예: `claire-antigravity_claire/list_staged_sources`
+- 선택지 4가지:
+  1. **`1 Yes, allow this time`** — 이번 한 번만 실행 허용
+  2. **`2 Yes, and always allow in this conversation`** — 현재 대화 안에서만 계속 허용
+  3. **`3 Yes, and always allow`** — 앞으로도 확인 없이 항상 허용
+  4. **`4 No (tell the agent what to do instead)`** — 실행하지 않고 다른 지시 입력
+
+### 무엇을 선택하면 되나요?
+- **개인 지식베이스 추출·검색 도구 (`list_staged_sources`, `claim_staged_source`, `get_staged_source`, `get_extraction_spec`, `resolve_entity`, `search`, `neighbors`, `submit_client_extraction` 등)**:
+  - 문서 1건을 추출할 때 7~9개 도구가 순서대로 실행됩니다. 매번 멈추지 않도록 **`3 Yes, and always allow`**를 선택한 뒤 **`Submit`**을 누르세요.
+- **공유 지식베이스 기여 도구 (`claire-antigravity_claire/kb_submit`)**:
+  - 공유 공간에 문서를 올릴 때만 쓰이므로, 실수 방지를 원한다면 **`1 Yes, allow this time`**을 선택하는 것을 권장합니다.
+- **나중에 권한을 바꾸거나 취소하고 싶을 때**:
+  - Antigravity 왼쪽 아래 **`Settings` → `Permission Grants`**에서 저장된 허용 목록을 언제든 확인·삭제할 수 있습니다.
 
 ---
 
 ## 잘 연결되었는지 확인 & 첫 추출해 보기
 
-설정이 끝나면 Antigravity의 **`Claire Bible`** 플러그인 카드에 표시되는 추천 프롬프트를 클릭하거나, 새 대화창에 아래처럼 물어보세요:
+**`Customizations -> Installed -> Plugins -> Claire Bible`** 화면의 추천 프롬프트 칩을 클릭하거나, 새 대화창에 아래처럼 물어보세요:
 
 - `대기 중인 Claire Bible 자료 목록 보여 줘`
 - `Claire Bible 대기 자료를 안전하게 추출해서 저장해 줘`
@@ -80,14 +122,18 @@
 
 ## 자주 묻는 질문 (FAQ)
 
+- **Q. `MCP Servers 0` (`No MCP servers yet. Use Add to browse the store.`)라고 나와요.**
+  - 정상입니다. 플러그인(`claire-antigravity`)이 제공하는 MCP 서버는 상단 **`Plugins -> Claire Bible`** 안의 **`MCP`** 및 **`Accounts`** 탭에서 관리되며, 전역 `MCP Servers` 목록에는 표시되지 않습니다.
+- **Q. `Claire Bible` 옆에 `Setup required`가 뜨고, 들어가면 `Sign in required.`가 보입니다.**
+  - 아직 OAuth 2.1 로그인이 완료되지 않은 상태입니다. **`Go to Accounts`** 버튼(또는 **`Accounts`** 탭)을 눌러 브라우저 로그인을 완료하면 사라집니다.
 - **Q. `.gemini` 폴더나 `plugins` 폴더가 보이지 않아요.**
-  - macOS와 Linux에서는 `.`으로 시작하는 폴더가 기본적으로 숨겨져 있습니다. macOS는 Finder에서 `⌘ + ⇧ + .` 또는 `⌘ + ⇧ + G`, Windows는 탐색기 주소창에 `%USERPROFILE%\.gemini\config\plugins` 직접 입력, Linux는 `Ctrl + H`를 사용하세요.
-- **Q. 압축을 풀었는데 Antigravity Installed 목록에 `Claire Bible`이 안 떠요.**
-  - 폴더가 이중으로 중첩(`plugins/claire-antigravity/claire-antigravity/plugin.json`)되지 않았는지 확인하세요. `plugins/claire-antigravity/plugin.json` 구조가 되어야 정상 인식됩니다.
-- **Q. 폴더 안에 있는 `mcp_config.json.tmpl` 파일을 수정해야 하나요?**
-  - **아니요.** 방법 2처럼 GUI의 **Add MCP Server (+)**로 URL을 추가하는 사용자는 `.tmpl` 파일을 건드리지 않아도 됩니다. 이 파일은 방법 1(채팅 자동 설치) 또는 고급 수동 설정용 템플릿입니다.
+  - `.`으로 시작하는 폴더는 기본적으로 숨겨져 있습니다. macOS는 Finder에서 `⌘ + ⇧ + G`, Windows는 파일 탐색기 주소창에 `%USERPROFILE%\.gemini\config\plugins` 직접 입력, Linux는 `Ctrl + H`를 사용하세요.
+- **Q. 압축을 풀었는데 `Plugins` 목록에 `Claire Bible`이 안 떠요.**
+  - 폴더가 이중으로 중첩(`plugins/claire-antigravity/claire-antigravity/plugin.json`)되지 않았는지 확인하세요. `plugins/claire-antigravity/plugin.json` 구조여야 정상 인식됩니다.
+- **Q. 도구 실행 때마다 계속 `Allow using this MCP tool?`가 떠요.**
+  - 처음 한 번 **`3 Yes, and always allow`**를 선택하고 **`Submit`**을 누르면 해당 도구 이름에 대해 다시 묻지 않습니다. 설정 변경은 **`Settings -> Permission Grants`**에서 할 수 있습니다.
 - **Q. 새 버전으로 업데이트하려면 어떻게 하나요?**
-  - 방법 1을 다시 실행하거나, 새 `.zip` 파일을 받아 기존 `plugins/claire-antigravity` 폴더를 덮어쓰면 됩니다. MCP 서버 연결과 로그인 상태는 유지됩니다.
+  - 방법 1을 다시 실행하거나, 새 `.zip` 파일을 받아 기존 `plugins/claire-antigravity` 폴더를 덮어쓰세요. 기존의 `mcp_config.json`과 로그인 정보는 그대로 유지됩니다.
 
 ---
 
@@ -101,13 +147,13 @@
    sha256sum -c SHA256SUMS --ignore-missing
    ```
    *(macOS에서는 `shasum -a 256 -c SHA256SUMS --ignore-missing` 사용)*
-2. 설치:
+2. 설치 및 검증:
    ```bash
    mkdir -p ~/.gemini/config/plugins
    tar -xzf claire-antigravity-v{{VERSION}}.tar.gz -C ~/.gemini/config/plugins
+   agy plugin validate --strict ~/.gemini/config/plugins/claire-antigravity
    ```
-   또는 `agy plugin install ~/.gemini/config/plugins/claire-antigravity`로 확인/검증(`agy plugin validate --strict`)할 수 있습니다.
-3. 수동 `mcp_config.json` 작성 예시 (`mcp_config.json.tmpl` 기반):
+3. `plugins/claire-antigravity/mcp_config.json` 작성:
    ```json
    {
      "mcpServers": {
