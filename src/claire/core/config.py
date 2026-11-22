@@ -563,7 +563,7 @@ class Settings(BaseSettings):
     cloudflare_ips_only: bool = Field(
         default=False, alias="CLAIRE_CLOUDFLARE_IPS_ONLY"
     )
-    # The edge service (CB_EDGE=1): the api process opens the edge listener on data/run/edge.sock and reads the peer address that the edge gives (api/edge_listener.py). Compose sets the value; it is not a setting of the env file.
+    # The edge service (production): when CLAIRE_EDGE_LISTENER=1, the api process opens the edge listener on data/run/edge.sock and reads the peer address that the edge gives (api/edge_listener.py). Compose sets the value; it is not a setting of the env file.
     edge_listener: bool = Field(default=False, alias="CLAIRE_EDGE_LISTENER")
     # 로그인 실패 제한의 클라이언트 IP 판정에서 X-Forwarded-For를 믿을 바로 앞 프록시 대역(쉼표 구분 CIDR).
     # 빈 값이면 헤더를 읽지 않는다. 형식 검사는 `api.security.parse_trusted_proxies`가 기동 때 한다.

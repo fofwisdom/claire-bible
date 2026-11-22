@@ -419,3 +419,5 @@ def test_dev_compose_model_wires_role_ports_to_api_port(tmp_path):
     ]
     for worker in ("refresh", "recover", "expand"):
         assert ports[worker] == []
+    assert ports["fedify"] == [("127.0.0.1", "8791", 8790)]
+    assert "edge" not in ports

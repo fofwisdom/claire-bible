@@ -36,7 +36,7 @@ flowchart LR
 - **개인·공유 지식 베이스와 테마**: 단일 `claire.db` 내 `kb_id` 격리로 계정별 개인 지식 베이스와 협업용 공유 지식 베이스를 운영하며, 주제별 컬렉션 테마와 기여·검토·평판 워크플로를 제공한다.
 - **멀티 계정·보안·통합 콘솔·PWA 알림**: 싱글·네트워크 모드, 초대제 가입, OIDC/GitHub 외부 IdP, 4계층 RBAC(`owner`/`write`/`readonly`/`anonymous`), OAuth 2.1(`S256` PKCE, RFC 8628 `/device`, RFC 8693 토큰 교환)을 지원한다. 한/영 i18n 기반 Web UI(홈 개요, 엔티티 마크 리더, 2D 그래프, 명령 팔레트, `/syndication`, `/directory`)와 `/account/*`·`/settings/*`·`/moderation/*`·`/admin/*` 통합 콘솔, 연계 요청 알림 및 PWA Web Push를 제공한다.
 - **서버 프로바이더와 외부 AI 에이전트 연동**: `data/providers.json` 기반 Gemini 프로바이더(관리자·멤버 BYOK·서버 등급 격리)뿐만 아니라 클라이언트 에이전트 주도 추출(`extraction_mode=client`)을 지원한다. Streamable HTTP MCP 서버와 `agent_clients/` 공식 플러그인(`fofwisdom/claire-agents`, Antigravity·Claude Code)으로 OAuth 2.1 인증, 직접 적재, 격리된 추출, 그래프 질의를 연결한다.
-- **ActivityPub 및 지식 연합**: Deno 기반 Fedify 사이드카로 계정 액터 발행, 원격 타임라인·노트·답글·부스트·인용(FEP-044f)을 처리하며, 서버 간 공유 지식 베이스 큐레이션·교차 기여(Knowledge Federation)와 선택적 `edge` 리버스 프록시(`CB_EDGE=1`)를 제공한다.
+- **ActivityPub 및 지식 연합**: Deno 기반 Fedify 사이드카로 계정 액터 발행, 원격 타임라인·노트·답글·부스트·인용(FEP-044f)을 처리하며, 서버 간 공유 지식 베이스 큐레이션·교차 기여(Knowledge Federation)와 운영 환경 내장 `edge` 리버스 프록시를 제공한다.
 
 ---
 
@@ -114,7 +114,7 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 ./cb-manuscript update             # 최신 소스코드 빌드 및 안전 재기동
 ```
 
-> 외부 리버스 프록시 뒤에서 단일 업스트림으로 API와 Fedify 연합 경로를 분기하려면 `CB_EDGE=1`로 선택적 `edge` 서비스를 활성화할 수 있다([FEDERATION.md](docs/implementation/FEDERATION.md)).
+> 운영 환경에서는 내장 `edge` 서비스가 단일 포트(`CB_API_PORT`)에서 API와 Fedify 연합 경로를 분기하므로 외부 리버스 프록시는 단일 업스트림으로만 연결하면 된다([FEDERATION.md](docs/implementation/FEDERATION.md), [EXTERNAL_ACCESS.md](docs/implementation/EXTERNAL_ACCESS.md)).
 
 ---
 
@@ -157,9 +157,8 @@ claire-bible/
 ├── data/                     # 런타임 DB(claire.db, client.db, auth/auth.db, fedify/fedify.db) 및 설정
 ├── cb-manuscript             # 호스트 운영·배포 래퍼 스크립트
 ├── pyproject.toml            # 패키지 명세, 의존성 및 ty 타입 검사 설정
-├── docker-compose.yml        # 프로덕션 서비스(api, bot, refresh, recover, expand, fedify, 선택 edge)
-├── docker-compose.dev.yml    # 개발용 Docker Compose 오버레이
-└── docker-compose.edge.yml   # CB_EDGE=1 활성화용 edge 오버레이
+├── docker-compose.yml        # 프로덕션 서비스(api, bot, refresh, recover, expand, fedify, edge)
+└── docker-compose.dev.yml    # 개발용 Docker Compose 오버레이
 ```
 
 ---

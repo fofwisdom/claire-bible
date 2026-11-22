@@ -202,10 +202,10 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 ### 시작과 중지
 
-1. 연합은 서버의 고유 기능이라 켜고 끄는 스위치가 없다(소유자 결정 GD4, 2026-11-22). `fedify` 서비스는 다른 서비스와 함께 뜬다. 필요하면 env 파일의 `CB_FEDIFY_PORT`(기본 `8790`, 개발 예시 `8791`)를 바꾼다. 이 포트는 `CB_API_PORT`나 역할 호스트 포트와 같을 수 없다. env 파일에 남아 있는 `CB_FEDERATION` 값은 읽지 않는다.
+1. 연합은 서버의 고유 기능이라 켜고 끄는 스위치가 없다(소유자 결정 GD4, 2026-11-22). `fedify` 서비스는 다른 서비스와 함께 뜬다. 운영 환경에서는 `edge` 서비스가 항상 함께 떠서 단일 포트 `CB_API_BIND:CB_API_PORT`를 열고 `api`·`fedify`는 호스트 포트를 열지 않는다(예전 env 파일에 남아 있는 `CB_FEDERATION`·`CB_EDGE` 값은 읽지 않는다). 개발 스택(`docker-compose.dev.yml`)에서는 `edge` 없이 `CB_FEDIFY_PORT`(기본 `8791`)를 호스트에 열며, 이 포트는 `CB_API_PORT`나 역할 호스트 포트와 같을 수 없다.
 2. `./cb-manuscript update`(새 서버는 `install`)를 실행한다. `cb-manuscript`는 기동과 마이그레이션 전에 `data/run/`(0770)과 `data/fedify/`(0700)를 만든다.
 3. 서비스 키 `data/auth/fedify_service.key`는 `claire migrate`(`install`·`update`의 한 단계)가 만든다. 이 파일이 없으면 Compose가 `fedify` 컨테이너를 시작하지 못한다(`create_host_path: false`). 그래서 마이그레이션을 한 번도 하지 않은 데이터 디렉터리에서 `./cb-manuscript up`만 실행하면 실패한다.
-4. reverse proxy에 연합 경로 규칙을 넣는다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「Fedify 사이드카 경로」). `CB_EDGE=1`(운영 전용)을 쓰면 외부 proxy는 모든 요청을 `CB_API_BIND:CB_API_PORT`로만 보내면 된다(같은 문서의 「edge 서비스」).
+4. 운영 환경에서는 `edge`가 네 연합 경로를 내부에서 분기하므로 외부 reverse proxy는 모든 요청을 `CB_API_BIND:CB_API_PORT` 단일 upstream으로만 보내면 된다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「edge 서비스와 Fedify 사이드카 경로」).
 5. 준비 검사를 실행한다.
 
 ```bash

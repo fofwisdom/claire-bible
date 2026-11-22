@@ -1,4 +1,4 @@
-"""Edge service (unit GL3, docs/implementation/FEDERATION.md Section 10.1): the edge listener of Claire, the switch CB_EDGE of cb-manuscript, the Compose model, and the edge image.
+"""Edge service (unit GL3, docs/implementation/FEDERATION.md Section 10.1): the edge listener of Claire, the always-on edge wiring of cb-manuscript, the Compose model, and the edge image.
 
 - The listener tests run a real Claire process and send requests on its Unix socket. They need no Docker.
 - The Compose model test calls ``docker compose config`` and is skipped when Docker is not installed.
@@ -131,28 +131,25 @@ def test_e2e_edge_listener_gives_each_request_the_peer_address_that_the_edge_saw
             assert edge.get(METADATA, headers={EDGE_PEER_HEADER: "unknown"}).status_code == 400
             assert edge.get(METADATA, headers=[(EDGE_PEER_HEADER, "104.16.0.1"), (EDGE_PEER_HEADER, "9.9.9.9")]).status_code == 400
         # On the TCP listener the header has no meaning: the peer is the loopback address, and a public address in the header does not make the filter refuse the request.
-        direct = httpx.get(f"http://{authority}{METADATA}", headers={EDGE_PEER_HEADER: "9.9.9.9"}, timeout=10)
+        with httpx.Client(trust_env=False, timeout=10) as client:
+            direct = client.get(f"http://{authority}{METADATA}", headers={EDGE_PEER_HEADER: "9.9.9.9"})
         assert direct.status_code == 200
     finally:
         _stop(claire)
 
 
-def _runtime_values(**changes: str) -> dict[str, str]:
-    values = {"CB_EDGE": "1", "CLAIRE_FQDN": "Claire.Example.com"}
-    values.update(changes)
-    return values
-
-
-def test_cb_manuscript_edge_switch_is_explicit(monkeypatch):
+def test_cb_manuscript_edge_is_always_enabled_in_production_and_disabled_in_development(monkeypatch):
     monkeypatch.delenv("CB_EDGE", raising=False)
     validate = cb_manuscript._validate_edge
-    assert validate(_runtime_values(), environment="production") == "claire.example.com"
-    assert validate(_runtime_values(CLAIRE_FQDN="", CLAIRE_PUBLIC_URL="https://claire.example.com/"), environment="production") == "claire.example.com"
-    assert validate(_runtime_values(CB_EDGE="0"), environment="production") == ""
-    assert validate({"CLAIRE_FQDN": "claire.example.com"}, environment="production") == ""
-    for values, environment in ((_runtime_values(CB_EDGE="true"), "production"), (_runtime_values(), "development")):
-        with pytest.raises(cb_manuscript.ManuscriptError):
-            validate(values, environment=environment)
+    assert validate({"CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"
+    assert validate({"CLAIRE_FQDN": "", "CLAIRE_PUBLIC_URL": "https://Claire.Example.com/"}, environment="production") == "claire.example.com"
+    # Legacy CB_EDGE values in an existing .env are ignored.
+    assert validate({"CB_EDGE": "0", "CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"
+    assert validate({"CB_EDGE": "true", "CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"
+    assert validate({"CB_EDGE": "1", "CLAIRE_FQDN": "127.0.0.1:8766"}, environment="development") == ""
+    assert validate({}, environment="development") == ""
+    with pytest.raises(cb_manuscript.ManuscriptError):
+        validate({"CLAIRE_FQDN": "", "CLAIRE_PUBLIC_URL": ""}, environment="production")
 
 
 def test_edge_files_have_the_rules_of_the_reverse_proxy():
@@ -178,31 +175,36 @@ def test_edge_files_have_the_rules_of_the_reverse_proxy():
 @pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
 def test_compose_model_of_the_edge_has_one_host_port_and_one_mount():
     env = {**os.environ, "CB_ENV_FILE": ".env.example", "CB_EDGE_APP_HOST": "claire.example.com"}
-    for key in ("CB_DATA_DIR", "CB_UID", "CB_GID", "CB_API_BIND", "CB_API_PORT", "CB_FEDIFY_PORT", "CB_IMAGE_TAG", "CB_PROJECT_NAME", "CLAIRE_ENVIRONMENT"):
+    for key in ("CB_DATA_DIR", "CB_UID", "CB_GID", "CB_API_BIND", "CB_API_PORT", "CB_FEDIFY_PORT", "CB_IMAGE_TAG", "CB_PROJECT_NAME", "CLAIRE_ENVIRONMENT", "CB_DEV_ENV_FILE"):
         env.pop(key, None)
     base = [str(DOCKER), "compose", "--project-directory", str(ROOT), "--env-file", str(ROOT / ".env.example")]
 
-    def model(*args: str) -> dict:
-        result = subprocess.run([*base, *args, "config", "--format", "json"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+    def model(*args: str, extra_env: dict[str, str] | None = None) -> dict:
+        run_env = env if extra_env is None else {**env, **extra_env}
+        result = subprocess.run([*base, *args, "config", "--format", "json"], cwd=ROOT, env=run_env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stderr[-4000:]
         return json.loads(result.stdout)["services"]
 
-    # Without the profile the service does not start, and api has its host port.
-    plain = model("-f", str(ROOT / "docker-compose.yml"))
-    assert "edge" not in plain and len(plain["api"]["ports"]) == 1 and len(plain["fedify"]["ports"]) == 1
-
-    services = model("--profile", "edge", "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "docker-compose.edge.yml"))
+    # Production starts edge on CB_API_PORT and removes host ports from api and fedify.
+    services = model("-f", str(ROOT / "docker-compose.yml"))
     edge = services["edge"]
-    assert [(port["target"], port["published"]) for port in edge["ports"]] == [(8080, plain["api"]["ports"][0]["published"])]
+    assert "profiles" not in edge
+    assert [(port["target"], str(port["published"])) for port in edge["ports"]] == [(8080, "8765")]
     assert not services["api"].get("ports") and not services["fedify"].get("ports")
     assert services["api"]["environment"]["CLAIRE_EDGE_LISTENER"] == "1"
-    assert "CLAIRE_EDGE_LISTENER" not in plain["api"]["environment"]
     # The edge gets the socket directory only, the authority of the public origin, and no env file.
     assert [(volume["target"], volume["bind"]["create_host_path"]) for volume in edge["volumes"]] == [("/data/run", False)]
     assert edge["volumes"][0]["source"].endswith("/run")
+    assert edge["tmpfs"] == ["/tmp"]
     assert set(edge["environment"]) == {"TZ", "CLAIRE_EDGE_PORT", "CLAIRE_EDGE_APP_HOST", "CLAIRE_EDGE_API_SOCKET", "CLAIRE_EDGE_FEDIFY", "CLAIRE_EDGE_RESOLVER"}
     assert edge["environment"]["CLAIRE_EDGE_APP_HOST"] == "claire.example.com"
     assert "env_file" not in edge and edge["user"] == services["fedify"]["user"]
+
+    # Development keeps direct host ports on api and fedify without starting edge.
+    dev_services = model("--env-file", str(ROOT / ".env.dev.example"), "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "docker-compose.dev.yml"), extra_env={"CB_DEV_ENV_FILE": ".env.dev.example"})
+    assert "edge" not in dev_services
+    assert dev_services["api"]["environment"]["CLAIRE_EDGE_LISTENER"] == "0"
+    assert len(dev_services["api"]["ports"]) >= 2 and len(dev_services["fedify"]["ports"]) == 1
 
 
 @pytest.mark.skipif(DOCKER is None or DENO is None or os.environ.get("CB_EDGE_TEST") != "1", reason="needs docker, deno, and CB_EDGE_TEST=1")

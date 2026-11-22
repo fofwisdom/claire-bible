@@ -2750,7 +2750,7 @@ def wrap_web_app(
     data_dir = getattr(settings, "data_dir", None)
     if data_dir is None:
         return secured
-    # The edge listener (CB_EDGE=1) is outside the public middleware: each one then reads the peer address that the edge saw.
+    # The edge listener (CLAIRE_EDGE_LISTENER=1) is outside the public middleware: each one then reads the peer address that the edge saw.
     if getattr(settings, "edge_listener", False) is True:
         from .edge_listener import EdgePeerMiddleware, edge_socket_path
 

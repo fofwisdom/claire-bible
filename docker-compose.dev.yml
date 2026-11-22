@@ -25,11 +25,14 @@ services:
 
   api:
     <<: *claire-dev-service
+    environment:
+      CLAIRE_EDGE_LISTENER: "0"
     # 개발 환경 포트 분리 배선(설계 §5.1, Rev. 2.3): 역할 호스트 포트를 모두 같은 컨테이너
     # 포트(CB_API_PORT)로 연결한다. 단일 Uvicorn 안의 HostRouter가 Host(IPv4:포트)로
     # 하위 앱을 고른다. 포트가 비어 있으면 앱 포트 매핑과 같은 항목이 되어 Compose가
     # 중복을 합치므로 추가 매핑이 생기지 않는다. 정합성은 ops/cb_manuscript.py가 검증한다.
-    ports:
+    ports: !override
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_API_PORT:?CB_API_PORT is required}:${CB_API_PORT:?CB_API_PORT is required}"
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_USERCONTENT_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_MEDIA_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
       # Static prototype role (RD20): fixed port 8769, the same as DEV_PROTOTYPE_PORT in src/claire/api/prototype_host.py. It is not a setting.
@@ -44,10 +47,12 @@ services:
   expand:
     <<: *claire-dev-service
 
-  # Development entry of the Fedify sidecar. The user, the environment, and the host port come from docker-compose.yml.
-  # The host port is CB_API_BIND:CB_FEDIFY_PORT (127.0.0.1:8791 in .env.dev.example). Only the data paths and the build policy are different.
+  # Development entry of the Fedify sidecar. The user and the environment come from docker-compose.yml.
+  # The host port is CB_API_BIND:CB_FEDIFY_PORT (127.0.0.1:8791 in .env.dev.example).
   fedify:
     pull_policy: build
+    ports: !override
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_FEDIFY_PORT:-8791}:8790"
     volumes: !override
       - type: bind
         source: "${CB_DATA_DIR:-./.dev/data}/run"
@@ -65,3 +70,8 @@ services:
         read_only: true
         bind:
           create_host_path: false
+
+  # Development uses direct host ports on api and fedify without the edge service.
+  edge:
+    profiles: ["production-only"]
+    ports: !reset []

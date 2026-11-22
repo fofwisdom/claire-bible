@@ -1,6 +1,6 @@
 # Federation Implementation Reference
 
-Basis: 2026-11-22 (phases FP1 to FP4, units GL1 to GL3, owner decisions GD4 to GD8, and contract 1.15; base sections examined from commit `d15ae8e0`). Readers: agents and operators who change or operate the Fedify sidecar federation.
+Basis: 2026-11-22 (phases FP1 to FP4, units GL1 to GL3, owner decisions GD2 revised and GD4 to GD8, and contract 1.15; base sections examined from commit `d15ae8e0`). Readers: agents and operators who change or operate the Fedify sidecar federation.
 
 Design principles: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (phases FP1 to FP3), [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) (phase FP4 and the work that waits), and [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) (units GL1 to GL4 and owner decisions GD1 to GD8). This document tells what the code does now. Section 13 lists choices that the code made in phases FP1 to FP3.
 
@@ -13,7 +13,7 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | WebFinger, NodeInfo, actor document (`discoverable` from `profile_public`, contract 1.15), server actor | Implemented (Sections 3 and 4.1) |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
-| Edge service: one upstream for the external reverse proxy, with the rules of Section 10 in the repository (`CB_EDGE=1`, production only) | Implemented (unit GL3, 2026-11-22). Section 10.1 |
+| Edge service: one upstream for the external reverse proxy, always active in production with the rules of Section 10 in the repository (no `CB_EDGE` switch) | Implemented (unit GL3, revised GD2 2026-11-22). Section 10.1 |
 | Federation without a switch (owner decision GD4, 2026-11-22): no server setting `federation`, no container switch `CB_FEDERATION`; the sidecar is a service of each installation | Implemented. Section 7.1 |
 | Readiness checks GF1 to GF20 (a report of the state, not a gate) | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
 | Alternate link on the profile page; `PATCH /api/me` changes `profile_public` with no step-up confirmation (Section 8.1, decision GD6) | Implemented |
@@ -44,9 +44,10 @@ The sidecar makes these outbound requests: the public self-check to the public o
 
 ```mermaid
 flowchart LR
-    R["Remote server"] -->|HTTPS| P["Reverse proxy"]
-    P -->|"federation paths"| S["Fedify sidecar (Deno, port 8790)"]
-    P -->|"all other paths"| A["Claire api"]
+    R["Remote server"] -->|HTTPS| P["External reverse proxy"]
+    P -->|"production: all paths on CB_API_PORT"| E["edge (nginx, container port 8080)"]
+    E -->|"federation paths of app host"| S["Fedify sidecar (Deno, container port 8790)"]
+    E -->|"all other requests (Unix socket data/run/edge.sock)"| A["Claire api"]
     S -->|"Unix socket, signed requests"| I["Internal federation API (in the api process)"]
     I --- D1[("claire.db")]
     I --- D2[("auth.db: actor_keys")]
@@ -68,7 +69,7 @@ flowchart LR
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
 | `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check, knowledge self-check (`/ap/self-check`), loop states |
 | `sidecar/fedify/src/probes.ts` | Answer attribution of a self-check request, path record of the public host, traffic counters |
-| `ops/edge/`, `docker-compose.edge.yml`, `src/claire/api/edge_listener.py` | Edge service (optional, Section 10.1): the image with the reverse proxy rules, the Compose overlay, and the edge listener of Claire |
+| `ops/edge/`, `src/claire/api/edge_listener.py` | Edge service (always active in production, Section 10.1): the image with the reverse proxy rules and the edge listener of Claire |
 | `sidecar/fedify/src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 
 ## 3. Actor Rule
@@ -410,7 +411,7 @@ Federation is a function of each server (owner decision GD4 of [`FEDERATION_GO_L
 
 - There is no server setting `federation`. `AccountStore` has no method that reads or sets it, and no route changes it. A row `federation` that an older version stored in `server_settings` stays in the database and is not read.
 - There is no container switch `CB_FEDERATION`. The service `fedify` starts with the other services (Section 9.1). A value `CB_FEDERATION` in an env file is not read.
-- The readiness checks are a report of the state of the server. They do not gate a change (the gate of decision KD13 has no object). When the edge of a server does not send the federation paths to the sidecar, the paths give 404 from Claire, and the report tells it.
+- The readiness checks are a report of the state of the server. They do not gate a change (the gate of decision KD13 has no object). When the external edge or proxy of a server does not send requests to `edge` with the `Host` header preserved (or in development, does not send the federation paths to the sidecar), the paths give 404 from Claire, and the report tells it.
 - Which account is an actor is the rule of Section 3. An account cannot stop its own actor. With `profile_public` 0 it hides the account from discovery (`/directory` and `Person.discoverable`) and search indexing (`noindex, nofollow` and `/sitemap.xml` exclusion), while personal KB visibility stays controlled by `knowledge_bases.is_public` (decision GD8, Section 3.1).
 - The switch `kb_auto_contribution` of the knowledge federation stays ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 15).
 
@@ -689,8 +690,8 @@ A change of `profile_public` to 0 is not such an event (decisions GD5, GD7, and 
 
 ### 9.1 Compose
 
-- Service `fedify` in `docker-compose.yml`. It has no Compose profile: it starts with the other services (Section 7.1).
-- `CB_FEDIFY_PORT` is the host port of the sidecar on `CB_API_BIND` (default 8790, `.env.dev.example` uses 8791). The container port is always 8790. `cb-manuscript` refuses a `CB_FEDIFY_PORT` that is equal to `CB_API_PORT` or a role host port.
+- Service `fedify` in `docker-compose.yml`. It has no Compose profile: it starts with the other services (Section 7.1). In `production`, `fedify` and `api` open no host ports (`fedify:8790` stays internal on the Compose network for `edge`, and `api:${CB_API_PORT}` stays internal for `bot`).
+- `CB_FEDIFY_PORT` is the development-only host port of the sidecar on `CB_API_BIND` (`.env.dev.example` uses `8791`). The container port is always `8790`. In `development`, `docker-compose.dev.yml` publishes `CB_API_BIND:CB_FEDIFY_PORT` to `8790` directly and `cb-manuscript` refuses a `CB_FEDIFY_PORT` that is equal to `CB_API_PORT` or a role host port. In `production`, `fedify` exposes no host port and `CB_FEDIFY_PORT` is not used.
 - `CB_FEDIFY_IMAGE` is the image name (default `claire-bible-fedify`). The tag is `CB_IMAGE_TAG`. The build context is `sidecar/fedify/`.
 - The service starts after `api` is healthy (`depends_on`).
 - The service has no `env_file`. The values of `.env` do not go into this container.
@@ -734,22 +735,22 @@ deno run --frozen --cached-only --allow-net --allow-read=/data,/app --allow-writ
 
 ### 9.4 Start Sequence
 
-1. Set `CB_FEDIFY_PORT` in the env file if the default is not free. With the edge service, set `CB_EDGE=1` (Section 10.1).
+1. In `production`, `edge` always starts on `CB_API_BIND:CB_API_PORT`, and `api` and `fedify` open no host ports (Section 10.1). In `development`, set `CB_FEDIFY_PORT` in `.env.dev` if the default (`8791`) is not free.
 2. Run `./cb-manuscript update` (or `install` on a new server). `claire migrate`, a step of the two commands, makes the service key; the sidecar cannot start without it, so `./cb-manuscript up` alone on a data directory that was never migrated fails at the mount of the key file.
-3. Configure the reverse proxy: the path rules of Section 10, or with the edge service one rule that sends all requests to `CB_API_BIND:CB_API_PORT` (Section 10.1).
+3. Configure the external reverse proxy: in `production`, use one upstream rule that sends all hosts and all paths to `http://CB_API_BIND:CB_API_PORT` with `Host` preserved (Section 10.1); `edge` runs the four federation path rules of Section 10 internally.
 4. Run `./cb-manuscript app server check --federation --json` and repair what the report tells ([`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md)). There is no step that turns federation on: when the report passes, other servers can reach the actors of this server.
 
 ## 10. Reverse Proxy Rules
 
-The repository has no reverse proxy configuration. The operator configures the proxy. [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) has an Nginx example.
+In `production`, the `edge` service executes these rules inside the Compose stack (`ops/edge/claire/routes.conf`), so the external reverse proxy does not need a four-path split and sends all requests to `CB_API_BIND:CB_API_PORT`. In `development`, `edge` does not run and `fedify` is reachable directly on `CB_API_BIND:CB_FEDIFY_PORT`. [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) has the external Nginx example and operational details.
 
 | Match | Path | Destination |
 | :--- | :--- | :--- |
-| Exact | `/.well-known/webfinger` | Sidecar (`CB_FEDIFY_PORT`) |
+| Exact | `/.well-known/webfinger` | Sidecar (`fedify:8790` via `edge` in production; `CB_FEDIFY_PORT` in development) |
 | Exact | `/.well-known/nodeinfo` | Sidecar |
 | Prefix | `/nodeinfo/` | Sidecar |
 | Prefix | `/ap/` | Sidecar |
-| All other paths | | Claire (`CB_API_PORT`) |
+| All other paths | | Claire (`data/run/edge.sock` via `edge` in production; `CB_API_PORT` in development) |
 
 - Do not send the prefix `/.well-known/` to the sidecar. `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` must stay on Claire. GF7 examines this.
 - Wrong rules fail closed: Claire returns 404 for the federation paths, and the sidecar returns 404 for the paths of Claire. GF6 and GF7 show the two directions.
@@ -757,9 +758,9 @@ The repository has no reverse proxy configuration. The operator configures the p
 - The inbox paths get `POST` requests from remote servers. The proxy must send the body and the headers `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, and `Host` without a change. The `Host` value must be the app host, because the signature includes it.
 - The sidecar has no request rate limit. A rate limit is a function of the reverse proxy.
 
-### 10.1 Edge Service (Unit GL3)
+### 10.1 Edge Service (Unit GL3, Always-On in Production)
 
-The edge service is an option for production. It has the rules of this section in the repository, so the external reverse proxy needs no path rule. Design: [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) Section 8 (owner decision GD2).
+The edge service is always active in `production`. It has the rules of Section 10 in the repository, so the external reverse proxy needs only one upstream rule. Design: [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) Section 8 (owner decision GD2, revised 2026-11-22 to remove `CB_EDGE` and the edge overlay).
 
 ```mermaid
 flowchart LR
@@ -768,13 +769,13 @@ flowchart LR
     E -->|"all other requests: Unix socket data/run/edge.sock"| A["Claire api (edge listener)"]
 ```
 
-**Switch.** `CB_EDGE` in the env file is exactly `0` or `1`. `cb-manuscript` refuses another value, and the value `1` in development (the development stack has host ports for the role hosts and the prototype role, which the edge does not serve). With `CB_EDGE=1`, `cb-manuscript` adds the Compose profile `edge` and the file `docker-compose.edge.yml` to each Compose command, and gives Compose the authority of the public origin in `CB_EDGE_APP_HOST` (from `CLAIRE_FQDN`, or from `CLAIRE_PUBLIC_URL` of an old env file).
+**Production always-on, development excluded (no switch).** There is no `CB_EDGE` switch and no edge Compose overlay (any legacy `CB_EDGE` value left in an old `.env` is ignored by `cb-manuscript`). In `production`, `cb-manuscript` loads `docker-compose.yml` only, passes the authority of the public origin in `CB_EDGE_APP_HOST` (derived from `CLAIRE_FQDN`, or from `CLAIRE_PUBLIC_URL` of an old env file), and runs `edge` on `CB_API_BIND:CB_API_PORT`. In `development`, `cb-manuscript` loads `docker-compose.yml` and `docker-compose.dev.yml`, which sets `CLAIRE_EDGE_LISTENER=0` on `api`, puts `edge` in `profiles: ["production-only"]` with `ports: !reset []` so `edge` never starts, and publishes direct host ports on `api` (`CB_API_PORT`, `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT`, `8769`) and `fedify` (`CB_FEDIFY_PORT`) for the role hosts and the static prototype role.
 
 **Compose.**
 
-- Service `edge` in `docker-compose.yml`, profile `edge`. Image `CB_EDGE_IMAGE` (default `claire-bible-edge`) with the tag `CB_IMAGE_TAG`; build context `ops/edge/`; base image `nginx:1.30.7-alpine` (the stable release on 2026-11-22; license BSD 2-clause). The service starts after `api` is healthy.
-- The edge publishes `CB_API_BIND:CB_API_PORT` to its port 8080. `docker-compose.edge.yml` removes the host ports of `api` and `fedify` (`ports: !reset []`) and sets `CLAIRE_EDGE_LISTENER=1` for `api`. `CB_FEDIFY_PORT` then has no function.
-- User `CB_UID:CB_GID`, as `fedify`. The only mount is `{data}/run` at `/data/run` (`create_host_path: false`). `/tmp` is a tmpfs: the process writes its configuration, its PID file, and its temporary files there. The service has no `env_file`.
+- Service `edge` in `docker-compose.yml` (no profile in `production`). Image `CB_EDGE_IMAGE` (default `claire-bible-edge`) with the tag `CB_IMAGE_TAG`; build context `ops/edge/`; base image `nginx:1.30.7-alpine` (the stable release on 2026-11-22; license BSD 2-clause). The service starts after `api` is healthy.
+- In `production`, `edge` publishes `CB_API_BIND:CB_API_PORT` to its port 8080, `api` sets `CLAIRE_EDGE_LISTENER: "1"` and opens no host ports (internal `api:${CB_API_PORT}` stays on the Compose network for `bot`), and `fedify` opens no host ports (internal `fedify:8790` only).
+- User `CB_UID:CB_GID`, as `fedify`. The only mount is `{data}/run` at `/data/run` (`create_host_path: false`). `/tmp` is a `tmpfs`: the process writes its configuration, its PID file, and its temporary files there. The service has no `env_file`.
 
 **Rules of the edge** (`ops/edge/claire/routes.conf`, the one reference file of the rules of this section; `tests/test_edge_listener.py` reads it):
 
@@ -789,9 +790,9 @@ flowchart LR
 - A connection on a Unix socket has no peer address. `EdgePeerMiddleware` selects the requests of this listener by the socket that accepted the connection (ASGI `scope["server"]`), puts the address of `X-Claire-Edge-Peer` in the ASGI `client` value, and removes the header. It is outside all other middleware of the public application. Thus the Cloudflare filter, the trusted proxies of the login rate limits, and the access log read the address that the edge saw: the same address as without the edge.
 - A request on the edge listener without exactly one valid address in the header gets 400. On each other listener the header is not read.
 
-**External reverse proxy with the edge.** One rule: all requests of all hosts of the server go to `http://CB_API_BIND:CB_API_PORT`, with the `Host` of the request. The rules for the body, the signature headers, and the cache (above) still apply to it, and so do the faults of a CDN or a WAF (Section 7.2.1): the edge removes only the path rules from the work of the operator.
+**External reverse proxy with the edge.** One rule: all requests of all hosts of the server go to `http://CB_API_BIND:CB_API_PORT`, with the `Host` of the request preserved. The rules for the body, the signature headers, and the cache (above) still apply to it, and so do the faults of a CDN or a WAF (Section 7.2.1): the edge removes the four-path split from the work of the operator.
 
-**Change on a server that runs.** Set `CB_EDGE=1` and run `./cb-manuscript update`; in the same window, replace the path rules of the external reverse proxy with the one rule (the port of the sidecar is closed, so an old path rule gives 502). Return: `CB_EDGE=0`, `./cb-manuscript update`, and the path rules again.
+**Upgrading a server that used earlier 4-path rules.** Run `./cb-manuscript update` (any legacy `CB_EDGE` value left in `.env` is ignored); in the same window, replace the path rules of the external reverse proxy with the one upstream rule to `http://CB_API_BIND:CB_API_PORT` (the host port of the sidecar is closed in production, so an old path rule to it returns 502).
 
 **Limits.** The edge is one more hop for each request of each user. It was run with a real Claire process and a real sidecar process on one host (`tests/test_edge_listener.py`, gate `CB_EDGE_TEST=1`), not through `cb-manuscript` on a production host, and not behind a CDN.
 
@@ -866,7 +867,7 @@ These facts are true for the code now. They are choices that the implementation 
 | `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, outbox task lease and acknowledgement, object record and its public conditions, outbox collection, and two end-to-end runs with a real `api` process: follow events through the socket, and publish on the public listener with the handoff on the socket |
 | `tests/test_federation_profile_switch.py` | The profile switch needs no recent authentication (session and bearer credential), switch markup, alternate link, and the switch in a browser with no dialog |
 | `tests/test_federation_readiness.py` | GF1 to GF20, answer attribution, admin API, CLI |
-| `tests/test_edge_listener.py` | Unit GL3: the edge listener with a real Claire process (the peer address of `X-Claire-Edge-Peer` reaches the Cloudflare filter; 400 without one valid address; no meaning on the TCP listener), the switch `CB_EDGE` of `cb-manuscript`, the rule files, the Compose model with the profile `edge` and the overlay, and with `CB_EDGE_TEST=1` the edge image in front of a real Claire process and a real sidecar process: GF1 to GF20, the federation paths of another host, 413 at the edge, and the outside probe |
+| `tests/test_edge_listener.py` | Unit GL3: the edge listener with a real Claire process (the peer address of `X-Claire-Edge-Peer` reaches the Cloudflare filter; 400 without one valid address; no meaning on the TCP listener), `cb-manuscript` edge host derivation and legacy `CB_EDGE` ignore, the rule files, the always-on production Compose model and `docker-compose.dev.yml` exclusion, and with `CB_EDGE_TEST=1` the edge image in front of a real Claire process and a real sidecar process: GF1 to GF20, the federation paths of another host, 413 at the edge, and the outside probe |
 | `tests/test_federation_go_live.py` | Units GL1 and GL2 end to end: a real Claire process and a real sidecar process behind an intermediary in the test process (the public origin). Each fault of the intermediary gives its code in `claire server check --federation --json`: a CDN challenge, a CDN block of the `profile` parameter, a WAF that refuses `application/activity+json`, a removed path prefix, a path to the wrong upstream, a changed `Host`, and a cache with an old answer. The outside probe script runs against the same origin |
 | `sidecar/fedify/tests/probes_test.ts` | Address classes, the path record, the traffic counters with their 24-hour window, the meter provider |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |

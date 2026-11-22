@@ -781,19 +781,50 @@ def test_down_uses_all_profiles(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("lines", "message"),
     [
-        (("CB_FEDIFY_PORT=8765",), "CB_FEDIFY_PORT .* must be different from CB_API_PORT"),
+        (("CB_FEDIFY_PORT=8766",), "CB_FEDIFY_PORT .* must be different from CB_API_PORT"),
         (("CB_FEDIFY_PORT=70000",), "CB_FEDIFY_PORT must be in range"),
         (("CB_FEDIFY_PORT=abc",), "CB_FEDIFY_PORT must be an integer"),
     ],
 )
 def test_sidecar_port_is_validated_before_a_subprocess(tmp_path, monkeypatch, lines, message):
-    _write_layout(tmp_path, dev=False)
-    with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
+    _write_layout(tmp_path, dev=True)
+    with (tmp_path / ".env.dev").open("a", encoding="utf-8") as stream:
         stream.write("\n".join((*lines, "")))
     monkeypatch.delenv("CB_FEDIFY_PORT", raising=False)
 
     with pytest.raises(cb.ManuscriptError, match=message):
-        cb.load_runtime(cb.Layout(tmp_path))
+        cb.load_runtime(cb.Layout(tmp_path), legacy_dev=True)
+
+
+def test_production_ignores_legacy_fedify_port_and_edge_switch_in_env(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=False)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
+        stream.write("CB_FEDIFY_PORT=8765\nCB_EDGE=0\n")
+    monkeypatch.delenv("CB_FEDIFY_PORT", raising=False)
+    monkeypatch.delenv("CB_EDGE", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    assert runtime.edge_enabled is True
+    assert runtime.edge_app_host == "claire.example.com"
+    assert runtime.compose_files == (runtime.layout.compose,)
+    assert runtime.compose_environment()["CB_EDGE_APP_HOST"] == "claire.example.com"
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["up"], root=tmp_path) == 0
+
+    assert "--profile" not in run.call_args.args[0]
+
+
+def test_development_disables_edge_and_uses_dev_compose(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=True)
+    monkeypatch.setenv("CB_EDGE_APP_HOST", "stale.example.com")
+
+    runtime = cb.load_runtime(cb.Layout(tmp_path), legacy_dev=True)
+    assert runtime.edge_enabled is False
+    assert runtime.edge_app_host == ""
+    assert runtime.compose_files == (runtime.layout.compose, runtime.layout.dev_compose)
+    assert "CB_EDGE_APP_HOST" not in runtime.compose_environment()
 
 
 def test_up_makes_the_mount_directories_of_the_sidecar_before_compose(tmp_path, monkeypatch):

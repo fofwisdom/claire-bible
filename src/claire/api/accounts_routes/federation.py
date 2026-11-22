@@ -96,7 +96,7 @@ DOMAIN_BLOCK_NOTE_MAX_LENGTH = 200
 ACTOR_IRI_MAX_LENGTH = 2048
 
 _NO_STORE = {"Cache-Control": "no-store"}
-_HEARTBEAT_KEYS = ("received_at", "contract_version", "sidecar_version", "queue_depth", "self_check", "knowledge_self_check", "loops")
+_HEARTBEAT_KEYS = ("received_at", "contract_version", "sidecar_version", "queue_depth", "marker", "public_host", "self_check", "knowledge_self_check", "loops", "traffic")
 
 
 def _heartbeat_view(data_dir: Any) -> dict[str, Any] | None:

@@ -38,12 +38,10 @@ DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
 ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
-# Fedify sidecar (federation design, Section 4.2): the host port of the sidecar. The sidecar is a service of each installation: federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
+# Fedify sidecar (federation design, Section 4.2): the development host port of the sidecar. The sidecar is a service of each installation: federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
 FEDIFY_PORT_KEY = "CB_FEDIFY_PORT"
-DEFAULT_FEDIFY_PORT = 8790
-# Edge service (docs/implementation/FEDERATION.md Section 10.1): the switch that activates the Compose profile and the overlay file, the profile name, and the variable that gives the edge the authority of the public origin.
-EDGE_KEY = "CB_EDGE"
-EDGE_PROFILE = "edge"
+DEFAULT_FEDIFY_PORT = 8791
+# Edge service (docs/implementation/FEDERATION.md Section 10.1): the variable that gives the edge the authority of the public origin in production.
 EDGE_APP_HOST_KEY = "CB_EDGE_APP_HOST"
 # Optional role hosts besides app (design §5.1): (role, host setting, development host port).
 ROLE_HOST_SETTINGS = (
@@ -239,10 +237,6 @@ class Layout:
         return self.root / "docker-compose.yml"
 
     @property
-    def edge_compose(self) -> Path:
-        return self.root / "docker-compose.edge.yml"
-
-    @property
     def dev_compose(self) -> Path:
         for name in (
             "docker-compose.dev.yml",
@@ -299,7 +293,7 @@ class Runtime:
     wait_timeout: int
     bot_enabled: bool
     anonymous_readonly: bool
-    # The edge service: the authority of the public origin, or an empty string when CB_EDGE is not 1.
+    # The edge service: the authority of the public origin in production, or an empty string in development.
     edge_app_host: str = ""
 
     @property
@@ -320,9 +314,6 @@ class Runtime:
     def compose_files(self) -> tuple[Path, ...]:
         if self.dev:
             return (self.layout.compose, self.layout.dev_compose)
-        if self.edge_enabled:
-            # The overlay removes the host ports of api and fedify: the edge has the host port of Claire.
-            return (self.layout.compose, self.layout.edge_compose)
         return (self.layout.compose,)
 
     def compose_argv(self, *args: str, all_profiles: bool = False) -> list[str]:
@@ -342,8 +333,6 @@ class Runtime:
             argv.extend(("--profile", "*"))
         elif self.bot_enabled:
             argv.extend(("--profile", "bot"))
-        if self.edge_enabled and not all_profiles:
-            argv.extend(("--profile", EDGE_PROFILE))
         argv.extend(args)
         return argv
 
@@ -959,9 +948,11 @@ def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
     return raw == "1"
 
 
-def _validate_fedify_port(values: Mapping[str, str], *, port: int) -> None:
-    """The host port of the Fedify sidecar must be different from the other host ports."""
+def _validate_fedify_port(values: Mapping[str, str], *, environment: str, port: int) -> None:
+    """In development, the host port of the Fedify sidecar must be different from the other host ports."""
 
+    if environment != DEVELOPMENT:
+        return
     # The host port is a Compose input, so the process environment wins, the same as CB_API_PORT.
     fedify_port = _parse_role_port(values, FEDIFY_PORT_KEY) or DEFAULT_FEDIFY_PORT
     used = {"CB_API_PORT": port}
@@ -977,24 +968,21 @@ def _validate_fedify_port(values: Mapping[str, str], *, port: int) -> None:
 
 
 def _validate_edge(values: Mapping[str, str], *, environment: str) -> str:
-    """Return the authority of the public origin when the operator activated the edge service, else an empty string."""
+    """Return the lowercase authority of the public origin for the edge service in production, or an empty string in development."""
 
-    raw = _effective(values, EDGE_KEY)
-    if raw not in {"", "0", "1"}:
-        raise ManuscriptError(f"{EDGE_KEY} must be exactly 0 or 1.")
-    if raw != "1":
-        return ""
     if environment == DEVELOPMENT:
-        # The development stack has a host port for each role host and for the prototype role. The edge has the host port of the app only.
-        raise ManuscriptError(f"{EDGE_KEY}=1 is for production only. The development stack has host ports that the edge does not serve.")
+        return ""
     fqdn = values.get("CLAIRE_FQDN", "").strip()
     if fqdn:
         authority = fqdn.split("://", 1)[1] if "://" in fqdn else fqdn
     else:
-        authority = _split_url(values.get("CLAIRE_PUBLIC_URL", ""), field="CLAIRE_PUBLIC_URL").netloc
+        public_url = values.get("CLAIRE_PUBLIC_URL", "").strip()
+        if not public_url:
+            raise ManuscriptError("Edge service requires CLAIRE_FQDN or CLAIRE_PUBLIC_URL.")
+        authority = _split_url(public_url, field="CLAIRE_PUBLIC_URL").netloc
     authority = authority.rstrip("/").lower()
     if not authority:
-        raise ManuscriptError(f"{EDGE_KEY}=1 needs CLAIRE_FQDN.")
+        raise ManuscriptError("Edge service requires CLAIRE_FQDN or CLAIRE_PUBLIC_URL.")
     return authority
 
 
@@ -1064,7 +1052,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     anonymous_readonly = _validate_anonymous_readonly(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
-    _validate_fedify_port(values, port=parsed_port)
+    _validate_fedify_port(values, environment=environment, port=parsed_port)
     edge_app_host = _validate_edge(values, environment=environment)
     return Runtime(
         layout=layout,
@@ -3589,7 +3577,7 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"profile: {runtime.environment}")
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
-    print(f"edge profile: {'enabled' if runtime.edge_enabled else 'disabled'}")
+    print(f"edge service: {'enabled' if runtime.edge_enabled else 'disabled'}")
     anonymous_status = "disabled"
     if runtime.anonymous_readonly:
         anonymous_status = (
@@ -3935,9 +3923,9 @@ def build_parser() -> argparse.ArgumentParser:
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
             "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
-            "  - Fedify sidecar host port CB_FEDIFY_PORT\n"
+            "  - Fedify sidecar host port CB_FEDIFY_PORT in development\n"
             "      (different from CB_API_PORT and the role host ports)\n"
-            "  - Edge service switch CB_EDGE (exactly 0 or 1; production only)\n"
+            "  - Edge service public authority in production (from CLAIRE_FQDN or CLAIRE_PUBLIC_URL)\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
             "  - data/ and vault/ directory permissions (0700)"
         ),
@@ -4152,7 +4140,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Running without arguments starts safely in background (-d --wait --wait-timeout <timeout>).\n"
             "Passing additional arguments forwards them to docker compose up.\n"
             "The Fedify sidecar (service fedify) starts with the other services. Its service key comes from `update` or `install`.\n"
-            "CB_EDGE=1 adds the Compose profile `edge` (service edge) and docker-compose.edge.yml: the edge has the host port CB_API_PORT."
+            "In production, the edge service (service edge) starts with the other services and publishes the host port CB_API_PORT."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(

@@ -344,8 +344,10 @@ def test_backup_leaves_out_the_fedify_sidecar_files_and_restore_makes_the_direct
     for name in ("run", "fedify", "auth"):
         (data / name).mkdir(exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    edge_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         listener.bind(str(data / "run" / "federation.sock"))
+        edge_listener.bind(str(data / "run" / "edge.sock"))
         (data / "run" / "federation_heartbeat.json").write_text("{}", encoding="utf-8")
         (data / "fedify" / "fedify.db").write_bytes(b"queue-with-private-keys")
         (data / "fedify" / "fedify.db-wal").write_bytes(b"wal")
@@ -354,12 +356,13 @@ def test_backup_leaves_out_the_fedify_sidecar_files_and_restore_makes_the_direct
         with _docker(DockerHarness(running=("api-id",))):
             assert cb.main(["backup", "--format", "directory"], root=root) == 0
     finally:
+        edge_listener.close()
         listener.close()
 
     artifact = _visible_artifacts(root)[0]
     names = [path.relative_to(artifact).as_posix() for path in artifact.rglob("*")]
     assert any(name.endswith("data/marker.txt") for name in names)
-    for forbidden in ("federation.sock", "federation_heartbeat.json", "fedify.db", "fedify_service.key", "/run", "/fedify"):
+    for forbidden in ("federation.sock", "edge.sock", "federation_heartbeat.json", "fedify.db", "fedify_service.key", "/run", "/fedify"):
         assert not any(name.endswith(forbidden) for name in names), forbidden
     assert "fedify" not in json.dumps(_read_manifest(artifact))
 

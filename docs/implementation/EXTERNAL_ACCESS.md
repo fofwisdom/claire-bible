@@ -51,7 +51,7 @@ CLAIRE_ENVIRONMENT=development ./cb-manuscript up
 
 ```text
 client -- HTTPS / production hostname --> external reverse proxy
-       -- HTTP / fixed LAN addresses --> Claire host:CB_API_PORT
+       -- HTTP / fixed LAN addresses --> Claire host edge:CB_API_PORT
 ```
 
 Claire host의 `.env`에는 proxy가 도달할 수 있는 고정 LAN IPv4와 사용자가 접속할 hostname을 설정한다.
@@ -66,12 +66,12 @@ CLAIRE_CORS_ALLOWED_ORIGINS=https://portal.example.com
 
 배포 계약은 다음과 같다.
 
-- reverse proxy의 upstream은 `http://192.168.10.25:8765`처럼 고정한다.
-- Claire로 보내는 `Host`는 `CLAIRE_PUBLIC_URL`의 authority와 정확히 같아야 한다.
+- 운영 환경에서는 `edge` 서비스가 단일 호스트 포트 `CB_API_BIND:CB_API_PORT`를 열고(`api`·`fedify`는 호스트 포트를 열지 않는다), reverse proxy의 upstream은 `http://192.168.10.25:8765`처럼 하나로 고정한다.
+- Claire(`edge`)로 보내는 `Host`는 요청의 원래 호스트명(`CLAIRE_FQDN` 또는 역할 호스트)과 정확히 같아야 한다.
 - 알 수 없는 hostname을 Claire upstream으로 보내지 않고 proxy의 기본 virtual host에서 거부한다.
 - NDJSON 응답을 즉시 전달하도록 response buffering을 끄고 upstream read timeout을 장시간 작업보다 길게 둔다.
 - proxy access log에는 query string, `Referer`, `Authorization`과 cookie를 기록하지 않는다. 기존 인증 진입 query가 proxy 로그로 유출되지 않아야 한다.
-- Claire host firewall은 API port의 source를 reverse proxy의 고정 LAN IP로만 허용한다. Host 검사만으로 backend 직접 접근을 막을 수는 없다.
+- Claire host firewall은 `CB_API_PORT`의 source를 reverse proxy의 고정 LAN IP로만 허용한다. Host 검사만으로 backend 직접 접근을 막을 수는 없다.
 
 ## Nginx 예시
 
@@ -146,49 +146,47 @@ server {
 
 같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를 포함하므로 위 안전 로그에서는 사용하지 않는다.
 
-## Fedify 사이드카 경로 (연합)
+## edge 서비스와 Fedify 사이드카 경로 (연합)
 
-Fedify 사이드카는 모든 서버에서 뜬다(연합에는 스위치가 없다). reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
+Fedify 사이드카는 모든 서버에서 뜬다(연합에는 스위치가 없다). **운영(`production`)에서는 저장소의 `edge` 서비스가 항상 함께 떠서 `CB_API_BIND:CB_API_PORT`를 받는다**(스위치 `CB_EDGE` 없음, [FEDERATION.md](FEDERATION.md) §10.1). 따라서 외부 reverse proxy나 WAF는 서버의 모든 호스트(앱 호스트와 역할 호스트)와 모든 경로를 **`http://CB_API_BIND:CB_API_PORT` 단일 upstream** 하나로만 보내면 되며(`Host` 헤더 유지), 외부 proxy에서 4개 연합 경로를 따로 분기할 필요가 없다.
 
-| 일치 방식 | 경로 | 목적지 |
+`edge` 내부(`ops/edge/claire/routes.conf`)에서는 앱 호스트(`CLAIRE_FQDN`)의 아래 네 경로만 내부 `fedify:8790`으로 보내고, 나머지 경로와 다른 호스트 요청은 모두 `data/run/edge.sock`을 통해 Claire `api`로 보낸다([FEDERATION.md](FEDERATION.md) §10).
+
+| 일치 방식 | 경로 | `edge` 내부 목적지 (`CLAIRE_FQDN`) |
 |---|---|---|
-| 정확히 일치 | `/.well-known/webfinger` | 사이드카 |
-| 정확히 일치 | `/.well-known/nodeinfo` | 사이드카 |
-| 접두어 | `/nodeinfo/` | 사이드카 |
-| 접두어 | `/ap/` | 사이드카 |
+| 정확히 일치 | `/.well-known/webfinger` | `fedify:8790` (사이드카) |
+| 정확히 일치 | `/.well-known/nodeinfo` | `fedify:8790` (사이드카) |
+| 접두어 | `/nodeinfo/` | `fedify:8790` (사이드카) |
+| 접두어 | `/ap/` | `fedify:8790` (사이드카) |
+| 그 밖의 모든 경로 및 다른 호스트 | — | `data/run/edge.sock` (Claire `api`) |
 
-- `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다. `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
+- `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다(`ops/edge/claire/routes.conf`도 위 두 정확 일치만 분기한다). `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
 - 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 비공개 프로필 계정도 연합 액터이므로 다른 서버가 탐색·팔로우할 수 있으며, `active` 상태가 아니거나 USERNAME이 없는 계정의 액터 경로만 사이드카가 404를 낸다.
 - 사이드카는 URL을 Claire가 알려 준 정규 origin으로 만들고 요청의 `Host`를 쓰지 않는다. `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` 헤더는 사이드카가 읽지 않고 지운다.
-- 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. proxy는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 사이드카로 넘기는 `Host`는 앱 호스트여야 한다. 사이드카는 본문을 1 MiB까지만 읽고 넘으면 413을 낸다.
-- 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.
-- Claire host firewall은 `CB_FEDIFY_PORT`의 source도 reverse proxy의 고정 LAN IP로만 허용한다.
+- 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. 외부 proxy와 WAF는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 `edge`로 넘기는 `Host`는 원래 호스트(`CLAIRE_FQDN`)여야 한다. 사이드카와 `edge`는 연합 경로 본문을 1 MiB까지만 읽고 넘으면 413을 낸다. 연합 경로에는 캐시를 두지 않는다.
+- 사이드카와 `edge`에는 요청 속도 제한이 없다. 속도 제한은 외부 proxy에서 건다.
+- 운영 환경에서 `api`와 `fedify`는 호스트 포트를 열지 않는다. Claire host firewall은 `CB_API_PORT`의 source만 reverse proxy의 고정 LAN IP로 허용하면 된다.
+- `CLAIRE_CLOUDFLARE_IPS_ONLY`, `CLAIRE_TRUSTED_PROXIES`는 `edge`가 본 피어 주소(외부 reverse proxy의 주소, `X-Claire-Edge-Peer`)를 기준으로 `api`에서 동작한다.
 - 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. GF8은 나머지 연합 경로가 경로와 `Host`가 바뀌지 않은 채 사이드카에 닿는지, GF9와 GF10은 실제 전달과 같은 미디어 타입·서명 형식의 `POST`가 통과하는지 확인한다. `./cb-manuscript app server check --federation --json`으로 실행한다.
 
-아래는 위 Nginx 예시의 `server` 블록에 더하는 예시다. 이 저장소의 테스트는 Nginx 설정을 실행하지 않는다.
+### 개발 환경 사이드카 직접 접속 및 기존 운영 서버 전환
+
+- **개발(`development`)**: `docker-compose.dev.yml`은 `edge`를 제외하고 `api`에 `CLAIRE_EDGE_LISTENER=0`을 넣어 직접 호스트 포트를 유지한다. 사이드카는 `.env.dev`의 `CB_API_BIND:CB_FEDIFY_PORT`(`.env.dev.example` 기본값 `8791`)로 호스트에 직접 열린다. 아래 Nginx 4경로 발췌는 운영에서 외부 proxy가 직접 분기할 필요가 없는 참고 규칙(`ops/edge/claire/routes.conf`와 동일한 4경로)이며, 개발 스택에서 사이드카 포트(`CB_FEDIFY_PORT`)를 직접 시험할 때만 사용한다.
 
 ```nginx
-upstream claire_fedify {
-    server 192.168.10.25:8790;
+upstream claire_fedify_dev {
+    server 127.0.0.1:8791;
     keepalive 16;
 }
 
-# server { ... } 안에 추가한다.
-location = /.well-known/webfinger { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
-location = /.well-known/nodeinfo  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
-location ^~ /nodeinfo/            { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
-location ^~ /ap/                  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+# 개발 환경에서 edge 없이 직접 사이드카 포트를 붙일 때만 사용하는 참고 규칙
+location = /.well-known/webfinger { proxy_pass http://claire_fedify_dev; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location = /.well-known/nodeinfo  { proxy_pass http://claire_fedify_dev; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location ^~ /nodeinfo/            { proxy_pass http://claire_fedify_dev; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location ^~ /ap/                  { proxy_pass http://claire_fedify_dev; proxy_http_version 1.1; proxy_set_header Connection ""; }
 ```
 
-### edge 서비스 (선택)
-
-운영 서버에서 `CB_EDGE=1`을 쓰면 위 네 경로 규칙이 저장소의 `edge` 서비스 안으로 들어간다([FEDERATION.md](FEDERATION.md) §10.1). 외부 reverse proxy의 규칙은 하나로 줄어든다.
-
-- 서버의 모든 호스트(앱 호스트와 역할 호스트)의 모든 요청을 `http://CB_API_BIND:CB_API_PORT`로 보낸다. `Host`는 요청의 값 그대로 보낸다.
-- `CB_FEDIFY_PORT`는 쓰지 않는다(호스트에 열리지 않는다). Claire host firewall은 `CB_API_PORT`의 source만 reverse proxy의 고정 LAN IP로 허용하면 된다.
-- 본문·서명 헤더를 바꾸지 않는 규칙과 연합 경로에 캐시를 두지 않는 규칙은 외부 proxy에 그대로 적용된다. CDN과 WAF의 차단도 edge가 없애 주지 않는다(아래 표).
-- `CLAIRE_CLOUDFLARE_IPS_ONLY`, `CLAIRE_TRUSTED_PROXIES`는 edge가 본 피어 주소(외부 reverse proxy의 주소)를 기준으로 edge가 없을 때와 같게 동작한다.
-- 이미 운영 중인 서버에서 켤 때는 `./cb-manuscript update`와 외부 proxy 규칙 교체를 같은 작업 창에서 한다. 사이드카 포트가 닫히므로 예전 경로 규칙이 남아 있으면 502가 난다. 되돌리려면 `CB_EDGE=0`으로 `update`하고 경로 규칙을 다시 넣는다.
+- **예전 4경로 분리 구성을 쓰던 운영 서버 전환**: `./cb-manuscript update`를 실행하면(예전 `.env`에 남아 있는 `CB_EDGE` 값은 무시된다) `edge`가 항상 켜지고 `fedify` 호스트 포트는 닫힌다. 같은 작업 창에서 외부 reverse proxy의 4개 연합 경로 규칙을 지우고 모든 요청을 `http://CB_API_BIND:CB_API_PORT` 단일 upstream으로 보내도록 바꾼다(예전 사이드카 포트 규칙이 남아 있으면 502가 난다). CDN과 WAF의 봇·미디어타입 차단도 `edge`가 대신 풀어 주지 않으므로 아래 대응표를 함께 확인한다.
 
 ### 연합 준비 검사 실패 대응
 
@@ -432,5 +430,5 @@ development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface�
 6. Claire Bible과 proxy access log에 query string과 인증 정보가 남지 않는다.
 7. 레거시 테마 FQDN 접근 시 정규 네임스페이스 경로로 308 리다이렉트되며, 일몰 도래 시 410 Gone으로 응답한다.
 8. `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시 비-Cloudflare 공인 IP 직접 접근이 403으로 차단되고 LAN/사설 접근은 유지된다.
-9. Fedify 사이드카를 쓰면 `/.well-known/webfinger`·`/.well-known/nodeinfo`·`/nodeinfo/`·`/ap/`만 사이드카로 가고, `/.well-known/oauth-authorization-server`는 계속 Claire의 메타데이터를 돌려준다(준비 검사 GF6, GF7).
+9. 운영에서는 `edge`가 `/.well-known/webfinger`·`/.well-known/nodeinfo`·`/nodeinfo/`·`/ap/`만 사이드카로 보내고, `/.well-known/oauth-authorization-server`는 계속 Claire의 메타데이터를 돌려준다(준비 검사 GF6, GF7).
  

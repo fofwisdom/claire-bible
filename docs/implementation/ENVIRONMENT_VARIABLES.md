@@ -82,12 +82,11 @@ graph TD
 | `CB_PLUGINS_DIR` | `./var/plugins` / `./.dev/var/plugins` | 호스트 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 컨테이너에 읽기 전용으로 마운트된다(`/app/var/plugins`). `cb-manuscript`가 한 번 해석하고, 데이터·볼트·백업·프로젝트 플러그인 폴더와 같거나 겹치면 거부하며, 없으면 만든다. 백업 구성 요소 `plugins`. |
 | `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 선택 도구 바이너리(예: `ffmpeg`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
-| `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
+| `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 공개 HTTP 진입 포트 번호(운영에서는 `edge`가, 개발에서는 `api`가 이 포트를 연다). |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
-| `CB_FEDIFY_PORT` | `8790` / `8791` | 정수 (`1~65535`) | 사이드카(`fedify` 서비스, 스위치 없이 항상 뜬다)를 `CB_API_BIND`에 퍼블리시하는 호스트 포트. 컨테이너 포트는 항상 `8790`이다. `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. reverse proxy가 연합 경로만 이 포트로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
+| `CB_FEDIFY_PORT` | 미사용 / `8791` | 정수 (`1~65535`) | 개발 환경(`docker-compose.dev.yml`) 전용. 사이드카(`fedify` 서비스, 컨테이너 포트 `8790`)를 `CB_API_BIND`에 퍼블리시하는 호스트 포트다(`.env.dev.example` 기본값 `8791`). 개발 환경에서 `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. 운영 환경(`docker-compose.yml`)에서는 `edge`가 내부 `fedify:8790`으로 직접 라우팅하므로 `fedify`가 호스트 포트를 열지 않으며 이 변수는 쓰이지 않는다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
 | `CB_FEDIFY_IMAGE` | `claire-bible-fedify` | 문자열 | 사이드카 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. |
-| `CB_EDGE` | `0` | 정확히 `0` 또는 `1` | edge 서비스 스위치(운영 전용). `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile edge`와 `docker-compose.edge.yml`을 붙인다. `edge` 서비스가 호스트 포트 `CB_API_PORT`를 갖고 `api`와 `fedify`는 호스트 포트가 없어진다. 외부 reverse proxy는 서버의 모든 호스트의 모든 요청을 `CB_API_BIND:CB_API_PORT`로 보내며 연합 경로 규칙이 필요 없다. development이거나 다른 값이면 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §10.1 |
-| `CB_EDGE_IMAGE` | `claire-bible-edge` | 문자열 | edge 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. 빌드 컨텍스트는 `ops/edge/`다. |
+| `CB_EDGE_IMAGE` | `claire-bible-edge` | 문자열 | 운영 환경에서 항상 실행되는 `edge` 서비스 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. 빌드 컨텍스트는 `ops/edge/`다. |
 
 #### 2.2.1 Fedify 사이드카 컨테이너 (`CLAIRE_FEDIFY_*`)
 
@@ -99,7 +98,7 @@ graph TD
 | `CLAIRE_FEDIFY_SERVICE_KEY_FILE` | `/data/auth/fedify_service.key` | 컨테이너 내부 경로 | 내부 연합 API 요청 서명에 쓰는 서비스 키 파일(32바이트). `claire migrate`가 호스트의 `data/auth/fedify_service.key`로 만든다. |
 | `CLAIRE_FEDIFY_DB` | `/data/fedify/fedify.db` | 컨테이너 내부 경로 | 사이드카 DB(Fedify 캐시와 메시지 큐). 사이드카가 권한 0600으로 만든다. |
 | `CLAIRE_FEDIFY_HOST` | `0.0.0.0` | IP 주소 | 사이드카 HTTP 리스너 주소(컨테이너 내부). |
-| `CLAIRE_FEDIFY_PORT` | `8790` | 정수 | 사이드카 HTTP 리스너 포트(컨테이너 내부). 호스트 포트는 `CB_FEDIFY_PORT`다. |
+| `CLAIRE_FEDIFY_PORT` | `8790` | 정수 | 사이드카 HTTP 리스너 포트(컨테이너 내부). 개발 환경의 호스트 포트는 `CB_FEDIFY_PORT`(`8791`)이고, 운영 환경에서는 호스트 포트를 열지 않고 `edge`가 `fedify:8790`으로 연결한다. |
 
 ---
 
@@ -303,7 +302,7 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_AGENT_MARKETPLACE_REPO` | `fofwisdom/claire-agents` | `owner/repo` | 에이전트 전용 GitHub 마켓플레이스 저장소 식별자. `/account/mcp` 안내 카드의 기본 저장소(`fofwisdom/claire-agents`)를 포크 운영자가 바꿀 때 사용한다. 잘못된 형식이면 기본값으로 폴백한다. |
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
 | `CLAIRE_TRUSTED_PROXIES` | `""` | 쉼표 구분 CIDR 목록 (예: `192.168.10.1/32,10.0.0.0/8`) | 로그인 실패 제한에 쓸 클라이언트 IP 판정에서 `X-Forwarded-For`를 믿을 바로 앞 프록시 대역. 바로 앞 피어가 이 목록(과 `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역)에 있을 때만 헤더를 오른쪽부터 읽어 신뢰하지 않는 첫 주소를 쓴다. 비면 헤더를 읽지 않고 피어 주소를 쓴다. 잘못된 CIDR이면 기동이 실패한다. 접근 로그의 IP 표기와 Host·scheme 판정에는 쓰지 않는다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |
-| `CLAIRE_EDGE_LISTENER` | `0` (`false`) | 정확히 `0` 또는 `1` | `1`이면 `api` 프로세스가 `data/run/edge.sock`(권한 0660)에 edge 리스너를 열고, 그 리스너로 온 요청의 피어 주소를 `X-Claire-Edge-Peer` 헤더(edge가 본 주소)에서 읽는다. 헤더가 없거나 주소가 아니면 400이다. `.env`에 적는 값이 아니다: `CB_EDGE=1`일 때 `docker-compose.edge.yml`이 `api` 서비스에만 넣는다. [FEDERATION.md](FEDERATION.md) §10.1 |
+| `CLAIRE_EDGE_LISTENER` | `0` (`false`, 운영 Compose `1`) | 정확히 `0` 또는 `1` | `1`이면 `api` 프로세스가 `data/run/edge.sock`(권한 0660)에 edge 리스너를 열고, 그 리스너로 온 요청의 피어 주소를 `X-Claire-Edge-Peer` 헤더(edge가 본 주소)에서 읽는다. 헤더가 없거나 주소가 아니면 400이다. `.env`에 적는 값이 아니다: 운영 `docker-compose.yml`이 `api` 서비스에 `1`을, 개발 `docker-compose.dev.yml`이 `0`을 넣는다. [FEDERATION.md](FEDERATION.md) §10.1 |
 | `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 테마 문맥이 없는 메인 화면과 모든 모드의 공유 문서 페이지(`/p`)가 쓴다. 테마 문맥이 있는 화면은 그 테마의 ID만 쓰고, 이 값으로 폴백하지 않는다([PUBLIC_SITE.md](PUBLIC_SITE.md) §6). 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
 | `CLAIRE_OIDC_<PROVIDER>_CLIENT_SECRET` | `""` | 문자열 시크릿 | **[선택] 외부 IdP Client Secret (OIDC / GitHub)**. 공급자 식별자(대문자, 하이픈은 밑줄로 변환, 예: `CLAIRE_OIDC_GOOGLE_CLIENT_SECRET`, `CLAIRE_OIDC_GITHUB_CLIENT_SECRET`)에 대응하는 클라이언트 비밀값. `data/auth/idp_providers.json` 파일에는 비밀을 저장하지 않으며 오직 이 환경변수 또는 Docker Secret 파일(`/run/secrets/claire_oidc_<provider>_client_secret`)로만 안전하게 주입받는다. |
 

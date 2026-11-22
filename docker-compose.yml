@@ -49,8 +49,7 @@ services:
       <<: *claire-environment
       CLAIRE_INJECT_HOST: "0.0.0.0"
       CLAIRE_INJECT_PORT: "${CB_API_PORT:?CB_API_PORT is required}"
-    ports:
-      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_API_PORT:?CB_API_PORT is required}:${CB_API_PORT:?CB_API_PORT is required}"
+      CLAIRE_EDGE_LISTENER: "1"
     command: ["claire", "serve-api"]
     healthcheck:
       test: ["CMD", "claire", "liveness"]
@@ -99,7 +98,7 @@ services:
   # The process uses the uid and gid of the Claire services (CB_UID, CB_GID). Thus it can read the service key (mode 0600), connect to the socket (mode 0660), and write data/fedify/.
   # The mounts are the socket directory, data/fedify/, and the service key file only. Do not add data/auth/ as a directory. Do not add the Claire database.
   # `create_host_path: false` stops the start when a source path does not exist. Docker must not make these paths as root.
-  # The reverse proxy sends these public paths to this service: exact /.well-known/webfinger, exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/.
+  # The edge service sends these public paths to fedify:8790: exact /.well-known/webfinger, exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/.
   fedify:
     image: "${CB_FEDIFY_IMAGE:-claire-bible-fedify}:${CB_IMAGE_TAG:-local}"
     build:
@@ -113,8 +112,6 @@ services:
       CLAIRE_FEDIFY_DB: "/data/fedify/fedify.db"
       CLAIRE_FEDIFY_HOST: "0.0.0.0"
       CLAIRE_FEDIFY_PORT: "8790"
-    ports:
-      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_FEDIFY_PORT:-8790}:8790"
     depends_on:
       api:
         condition: service_healthy
@@ -137,12 +134,11 @@ services:
           create_host_path: false
     stop_grace_period: 20s
 
-  # Edge service (docs/implementation/FEDERATION.md Section 10.1). It starts only when the Compose profile `edge` is active: `cb-manuscript` adds the profile and docker-compose.edge.yml when CB_EDGE=1.
+  # Edge service (docs/implementation/FEDERATION.md Section 10.1). It always starts with the other services in production and publishes the single host port CB_API_PORT.
   # The edge has the reverse proxy rules of the server in one tested file (ops/edge/claire/routes.conf). The external reverse proxy sends all requests of all hosts of the server to this one port.
   # The federation paths of the app host go to the service `fedify`. All other requests go to Claire through the Unix socket data/run/edge.sock.
   # The values of the env file do not go into this container: it gets only the authority of the public origin. The only mount is the socket directory.
   edge:
-    profiles: ["edge"]
     image: "${CB_EDGE_IMAGE:-claire-bible-edge}:${CB_IMAGE_TAG:-local}"
     build:
       context: ops/edge

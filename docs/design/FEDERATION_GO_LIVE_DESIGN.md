@@ -1,7 +1,7 @@
 # Federation Go-Live: GF1 to GF17 on a Server Behind a CDN and a WAF
 
 - **Document Identifier**: `DESIGN-FEDERATION-GO-LIVE-20261122`
-- **Status**: Units GL1 to GL3 are implemented (2026-11-22): answer attribution, path record, and traffic checks (GL1, GL2) are in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2, and the optional edge service (GL3) is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD8 (Section 12) are locked (2026-11-22) with no open questions: GD4 removes the federation switch, GD5 makes every active account with a USERNAME an actor, GD6 removes step-up authentication from `profile_public`, GD7 resolves GQ4 using Mastodon and Fedify defaults, and GD8 ("Model 1") withdraws existence-hiding rule N1 so `profile_public` controls discovery and search indexing only ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 3.1).
+- **Status**: Units GL1 to GL3 are implemented (2026-11-22): answer attribution, path record, and traffic checks (GL1, GL2) are in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2, and the always-on production edge service (GL3, revised GD2) is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD8 (Section 12) are locked (2026-11-22) with no open questions: GD2 (revised 2026-11-22) makes `edge` always-on in `production` on single port `CB_API_PORT` (removing `CB_EDGE` and `docker-compose.edge.yml`) while `development` keeps direct host ports without `edge`, GD4 removes the federation switch, GD5 makes every active account with a USERNAME an actor, GD6 removes step-up authentication from `profile_public`, GD7 resolves GQ4 using Mastodon and Fedify defaults, and GD8 ("Model 1") withdraws existence-hiding rule N1 so `profile_public` controls discovery and search indexing only ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 3.1).
 - **Date**: 2026-11-22
 - **Base commit**: `171257c`
 - **Related Documents**:
@@ -67,7 +67,7 @@ The earlier work proved the code: the checks exist, the sidecar works, and two s
 1. **Attribute each answer (R1).** Each probe records who answered: this sidecar, Claire, the CDN, another intermediary, or nobody.
 2. **Probe as a remote server probes (R2).** Same headers, same media types, same signature forms, same sizes.
 3. **Record the path (R3).** Record the address that the public name resolves to and whether the answer crossed the CDN. Give the owner one outside probe.
-4. **Own the routing where possible (R4, option).** A shipped edge service makes the four path rules a tested file of the repository.
+4. **Own the routing where possible (R4).** A shipped edge service makes the four path rules a tested file of the repository (always-on in production per revised GD2).
 5. **Watch real traffic after go-live (R5, option).** Count verified requests of other servers and the results of deliveries.
 
 ---
@@ -79,7 +79,7 @@ The earlier work proved the code: the checks exist, the sidecar works, and two s
 | R1 | Answer attribution in all request checks; path and `Host` verification for GF8 | None (inside the existing checks) | GL1 |
 | R2 | Probes with the headers, media types, and signature forms of real traffic | None | GL1 |
 | R3 | Path record, warning check GF18, outside probe script | None | GL1 |
-| R4 | Edge service `edge` (opt-in `CB_EDGE`) | GQ2 | GL3 |
+| R4 | Edge service `edge` (always-on in production per revised GD2; initially opt-in `CB_EDGE`) | GQ2 | GL3 |
 | R5 | Traffic counters in the heartbeat, warning checks GF19 and GF20 | GQ3 | GL2 |
 | Runbook | Go-live steps L0 to L6 for the owner's server (Section 10) | GQ1 (order) | GL4 |
 
@@ -195,12 +195,12 @@ Rules:
 
 ---
 
-## 8. R4: Edge Service (Option, GQ2)
+## 8. R4: Edge Service (Always-On in Production, Revised GD2)
 
 ### 8.1 Function
 
-- A service `edge` in `docker-compose.yml` (image of the stable Nginx release, pinned as the other images; license BSD-2-Clause **[external, unverified]**), in the Compose profile `edge`. `CB_EDGE` is exactly `0` or `1` **[code]** (`cb_manuscript.py`). No value has a default behavior: `cb-manuscript` refuses another value.
-- With `CB_EDGE=1`, the edge publishes `CB_API_BIND:CB_API_PORT`. An overlay `docker-compose.edge.yml` removes the host ports of `api` and `fedify` (`ports: !reset []`). The external proxy sends all paths of all hosts of the server to this one upstream.
+- A service `edge` in `docker-compose.yml` (image of the stable Nginx release, pinned as the other images; license BSD-2-Clause **[external, unverified]**). GL3 initially built `edge` as an opt-in (`CB_EDGE` switch, Compose profile `edge`, and `docker-compose.edge.yml`). On 2026-11-22 the owner revised GD2: `CB_EDGE` and `docker-compose.edge.yml` are removed (any legacy `CB_EDGE` value left in an old `.env` is ignored), and `edge` always runs in `production`.
+- In `production`, `edge` publishes single host port `CB_API_BIND:CB_API_PORT`, while `api` (`CLAIRE_EDGE_LISTENER=1`) and `fedify` open no host ports. The external reverse proxy sends all paths of all hosts of the server to this one upstream. In `development`, `docker-compose.dev.yml` sets `CLAIRE_EDGE_LISTENER=0`, excludes `edge`, and keeps direct host ports on `api` and `fedify` (`CB_FEDIFY_PORT`).
 - The edge sends the federation paths of the app host (`CLAIRE_FQDN`) to `fedify:8790` and all other requests to Claire. The rules of FEDERATION.md §10 apply to the app host only **[code]**.
 
 ### 8.2 One Reference File
@@ -226,9 +226,9 @@ The edge sees the external proxy as its peer. Thus the Cloudflare filter sees th
 
 ### 8.6 Change on an Existing Server
 
-1. `./cb-manuscript update` with `CB_EDGE=1`.
-2. In the same window, the external proxy gets one upstream rule in place of the path rules. The old path rules point to the port of the sidecar, which is then closed (the answer would be 502).
-3. Return: `CB_EDGE=0`, `update`, and the old path rules.
+1. Under revised GD2 (2026-11-22), `./cb-manuscript update` starts `edge` in `production`, removes host ports from `api` and `fedify`, and ignores any legacy `CB_EDGE` value left in `.env`.
+2. In the same window, the external proxy replaces any earlier path rules with one upstream rule to `CB_API_BIND:CB_API_PORT` (with `Host` preserved). Any old path rules that point to the host port of the sidecar would get 502 because `fedify` opens no host port in `production`.
+3. Historical note (initial opt-in GD2 before the 2026-11-22 revision): GL3 first shipped `CB_EDGE=1` with `docker-compose.edge.yml` and profile `edge`, and allowed rollback via `CB_EDGE=0` and restoring the external path rules. That switch and overlay are now removed.
 
 ### 8.7 Relation to FD6
 
@@ -265,7 +265,7 @@ The owner does each step; an agent does not operate production (PRINCIPLES E4). 
 | Step | Owner action | Completion criteria |
 | :--- | :--- | :--- |
 | L0 | Write down the edge chain of the server (CDN, WAF, the place of the path rules, NAT). Not in the repository. | The chain is known |
-| L1 | `./cb-manuscript update` (with `CB_EDGE=1` for the edge, GD2). The sidecar starts with the other services (GD4) | GF2, GF3, GF4 pass |
+| L1 | `./cb-manuscript update` (`edge` starts automatically in `production` on single port `CB_API_PORT` per revised GD2, and `fedify` starts with the other services per GD4). Replace any 4-path external proxy rules with the single upstream rule to `CB_API_BIND:CB_API_PORT` | GF2, GF3, GF4 pass |
 | L2 | `./cb-manuscript app server check --federation --json`. Repair with Appendix A. Repeat. | GF1 to GF16 pass. GF18 passes, or the outside probe (L4) shows the same results. |
 | L3 | No action: federation has no switch (GD4). Step L3 of the first version was the change of the switch | GF17 passes, or its warning has a known reason (KA2 rule) |
 | L4 | Run `ops/federation_outside_probe.sh` from another network | Each path reaches the sidecar or Claire as in the table of FEDERATION.md §10; no `cf-mitigated`, no `intermediary` |
@@ -294,7 +294,7 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 | ID | Question | Decision |
 | :--- | :--- | :--- |
 | GD1 | GQ1: order of the go-live and the acceptance path | A: the go-live of the owner's server (L0 to L6) is the go-live of the federation of accounts and is not a KA step. KA3 and KA4 continue in parallel; KA5 starts after them. |
-| GD2 | GQ2: edge service | A: the edge is an opt-in (`CB_EDGE`), built with GL1. The owner turns it on at step L1. |
+| GD2 | GQ2: edge service | Initially A: the edge is an opt-in (`CB_EDGE`), built with GL1 and turned on at step L1. **Revised 2026-11-22**: `CB_EDGE` and `docker-compose.edge.yml` are removed (`CB_EDGE` if present in an old `.env` is ignored), and `edge` always runs in `production` on single port `CB_API_PORT` while `development` keeps direct host ports without `edge`. |
 | GD3 | GQ3: traffic after go-live | A: GF19 and GF20 are in the same release as GL1 (one contract change, 1.13). |
 | GD4 | The federation switch (owner, 2026-11-22, after the first report of the owner's server) | Federation is a function of each server that cannot be turned off; it is not a switch. The checks must not need a state that only the switch gives. |
 | GD5 | The actor and the private profile (owner, 2026-11-22, after GD4) | Every `active` account with a USERNAME is an ActivityPub actor by default, even when `profile_public` is 0; `profile_public` does not gate actor existence (content and visibility scope resolved in GD7 and revised by GD8). |
@@ -309,7 +309,7 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 3. The readiness checks are a report of the state, not a gate. Decision KD13 (the gate) and rule 8 of KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.1 have no object. GF14 to GF16, GF19, and GF20 apply on each server.
 4. An account is an actor when it is `active` and has a public profile and a USERNAME (FD3 without the server switch). An account with a public profile is thus an actor from the update, without a new confirmation; a change to public still needs a recent sign-in (FD11), now on each server. **Changed** by GD5 and GD6 below: the profile is not a condition of the actor, and the change needs no recent sign-in.
 5. The owner direction "the federation of shared knowledge is on by default" (KNOWLEDGE_FEDERATION_DESIGN.md Section 2) is replaced by the stronger rule: always on. The switch `kb_auto_contribution` stays (KD4).
-6. The edge service stays an option (GD2). Without it, the external reverse proxy needs the path rules of FEDERATION.md Section 10.
+6. The edge service initially started as an option (GD2) and was made always-on in `production` on 2026-11-22 (revised GD2; `CB_EDGE` and `docker-compose.edge.yml` removed). In `production`, the external reverse proxy uses one upstream rule to `CB_API_BIND:CB_API_PORT` with `Host` preserved, and `edge` runs the path rules of FEDERATION.md Section 10.
 
 **GD5, GD6, and GD7, facts and consequences.** Item 4 of GD4 kept `profile_public` as the gate of the actor and kept step-up confirmation for a change to public. The owner resolved these points in GD5, GD6, and GD7:
 
@@ -347,7 +347,7 @@ KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4
 | B | No production go-live before KA3 and KA4 are complete (historical option asked when a production switch existed before GD4; KD10 in the strict form) | The permanent development network (DE1 to DE5) and the KF3 to KF5 scenarios come first. Publishing waits. |
 | C | Two switches: one for accounts, one for shared knowledge | Reverses KD13 and adds a switch to the console, the checks, and the sidecar. Not recommended. |
 
-### GQ2: Edge Service (R4)
+### GQ2: Edge Service (R4) [initially A; revised 2026-11-22 to always-on in production]
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
@@ -371,7 +371,7 @@ KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4
 | :--- | :--- | :--- |
 | GL1 (implemented) | R1, R2, R3: answer records, the Claire marker header, GF8 and GF6 path and `Host` verification, the probes of R2, the path record, GF18, contract 1.13, catalog keys, the outside probe script | Each fault mode of Section 11 gives its code and party; the probes send the headers of R2 (a test reads the headers at the intermediary); GF18 fails for a private address of the public host and passes for a global address |
 | GL2 (implemented) | R5: counters, GF19, GF20 | The DrFed scenario changes the counters; no delivery: GF20 does not apply. Not done: the DrFed scenario was not run (it needs Docker and the gate `CB_DRFED_TEST=1`); the counters have tests of the sidecar code and of the checks |
-| GL3 (GD2, implemented) | R4: edge service, overlay, `CB_EDGE` in `cb-manuscript`, Unix socket listener for the edge, shared routing file with the gateway | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `CB_EDGE=0` gives the current topology |
+| GL3 (GD2, implemented; revised 2026-11-22) | R4: always-on production edge service, Unix socket listener for the edge, shared routing file with the gateway (initially opt-in `CB_EDGE` and `docker-compose.edge.yml`, then both removed under revised GD2) | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `production` runs `edge` on single port `CB_API_PORT` (`api` and `fedify` open no host ports), and `development` keeps direct host ports without `edge` |
 | GL4 | Steps L0 to L6 (owner) | Section 10 |
 
 Choices made in the code of GL1 and GL2 (the implementation document has the details):
@@ -386,7 +386,7 @@ Choices made in the code of GL1 and GL2 (the implementation document has the det
 
 Choices made in the code of GL3:
 
-1. The edge is for production only: `cb-manuscript` refuses `CB_EDGE=1` in development, because the development stack has host ports for the role hosts and the prototype role. (The earlier `CB_FEDERATION=1` prerequisite was removed by GD4.)
+1. The edge is for production only: `docker-compose.yml` runs `edge` on `CB_API_PORT` with `CLAIRE_EDGE_LISTENER=1` on `api` and no host ports on `api` or `fedify`, while `docker-compose.dev.yml` sets `CLAIRE_EDGE_LISTENER=0`, excludes `edge`, and keeps direct host ports on `api` and `fedify` for the role hosts and the prototype role. (Initially `cb-manuscript` used `CB_EDGE` as an opt-in switch; revised GD2 on 2026-11-22 removed `CB_EDGE` and `docker-compose.edge.yml` and ignores any legacy `CB_EDGE` value in `.env`. The earlier `CB_FEDERATION=1` prerequisite was also removed by GD4.)
 2. Section 8.4 said that the edge sets `X-Forwarded-For`. The code uses a separate header, `X-Claire-Edge-Peer`, and Claire puts its value in the peer address of the request. The `X-Forwarded-For` of the external reverse proxy then goes to Claire without a change, and the trusted-proxy rule works as without the edge.
 3. Section 8.3 rule 1 (an unknown `Host` gets no answer) is not in the edge: the edge does not know the legacy hosts, which are in the database. Claire refuses an unknown host, as without the edge. The federation rules apply only to the `Host` of the app.
 4. Section 8.3 rule 2 (a rate limit for `POST` below `/ap/`) is not in the edge. The peer of the edge is the external reverse proxy, so a limit for each peer address is one limit for all servers; a correct key and the values need the data of KA5.

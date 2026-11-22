@@ -568,6 +568,10 @@ def test_e2e_admin_reads_the_state_of_a_server_that_federates_without_a_switch(e
     assert [(item["id"], item["applies"], item["passed"]) for item in body["readiness"]["items"] if item["id"] in ("GF14", "GF16")] == [("GF14", True, True), ("GF16", True, True)]
     assert body["heartbeat"]["self_check"]["ok"] is True
     assert body["heartbeat"]["contract_version"] == federation_routes.CONTRACT_VERSION
+    assert set(body["heartbeat"]) == {"received_at", *federation_routes.HeartbeatRequest.model_fields}
+    assert isinstance(body["heartbeat"]["marker"], str) and body["heartbeat"]["marker"]
+    assert body["heartbeat"]["public_host"]["addresses"]
+    assert {"inbound_verified", "inbound_rejected", "deliveries"}.issubset(body["heartbeat"]["traffic"])
     # A value that an older version stored for the switch is not read.
     _store_call(env.settings, lambda store: store.set_setting("federation", "off", updated_by=1))
     again = env.client.request("GET", "/api/admin/federation", session=env.admin).json()

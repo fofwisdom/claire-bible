@@ -40,15 +40,11 @@ sys.exit(1 if errors else 0)
 '
 
 echo "[ci] 2/5 Compose 운영·개발 설정 및 볼륨 무결성 검사"
-CB_ENV_FILE=.env.example \
+CB_ENV_FILE=.env.example CB_EDGE_APP_HOST=claire.example.com \
   docker compose --env-file .env.example -f docker-compose.yml config --quiet
 CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
   docker compose --env-file .env.example --env-file .env.dev.example \
     -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-# The production model with the edge service (CB_EDGE=1): the profile `edge` and the overlay that removes the host ports of api and fedify.
-CB_ENV_FILE=.env.example CB_EDGE_APP_HOST=claire.example.com \
-  docker compose --env-file .env.example --profile edge \
-    -f docker-compose.yml -f docker-compose.edge.yml config --quiet
 
 # Volume specification assertions: /host-bin and /extra-certs must be present; Ubuntu system paths must not regress
 grep -q '/host-bin:ro' docker-compose.yml || { echo "CI Error: /host-bin:ro volume missing in docker-compose.yml"; exit 1; }
@@ -70,8 +66,18 @@ for compose_file in docker-compose.yml docker-compose.dev.yml; do
     exit 1
   fi
 done
-if ! CB_ENV_FILE=.env.example docker compose --env-file .env.example -f docker-compose.yml config --services | grep -qx fedify; then
+prod_services="$(CB_ENV_FILE=.env.example CB_EDGE_APP_HOST=claire.example.com docker compose --env-file .env.example -f docker-compose.yml config --services)"
+if ! grep -qx fedify <<<"$prod_services"; then
   echo "CI Error: service fedify must start with the other services (federation has no switch)"
+  exit 1
+fi
+if ! grep -qx edge <<<"$prod_services"; then
+  echo "CI Error: service edge must start with the other services in production"
+  exit 1
+fi
+dev_services="$(CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example docker compose --env-file .env.example --env-file .env.dev.example -f docker-compose.yml -f docker-compose.dev.yml config --services)"
+if grep -qx edge <<<"$dev_services"; then
+  echo "CI Error: service edge must not start in development"
   exit 1
 fi
 

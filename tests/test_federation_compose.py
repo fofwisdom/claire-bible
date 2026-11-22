@@ -118,7 +118,7 @@ def test_compose_model_starts_fedify_with_the_other_services(dev):
 
 
 @pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
-@pytest.mark.parametrize(("dev", "data_dir", "host_port"), [(False, "data", "8790"), (True, ".dev/data", "8791")])
+@pytest.mark.parametrize(("dev", "data_dir", "host_port"), [(False, "data", None), (True, ".dev/data", "8791")])
 def test_compose_model_mounts_only_socket_directory_database_directory_and_key_file(dev, data_dir, host_port):
     model = _compose_model(dev=dev)
     fedify = model["services"]["fedify"]
@@ -137,5 +137,6 @@ def test_compose_model_mounts_only_socket_directory_database_directory_and_key_f
     assert "env_file" not in fedify
     assert set(fedify["environment"]) == {"TZ", "CLAIRE_FEDIFY_SOCKET", "CLAIRE_FEDIFY_SERVICE_KEY_FILE", "CLAIRE_FEDIFY_DB", "CLAIRE_FEDIFY_HOST", "CLAIRE_FEDIFY_PORT"}
     assert fedify["build"]["context"] == str(SIDECAR_DIR)
-    assert [(port["host_ip"], str(port["published"]), port["target"]) for port in fedify["ports"]] == [("127.0.0.1", host_port, 8790)]
+    expected_ports = [("127.0.0.1", host_port, 8790)] if host_port else []
+    assert [(port["host_ip"], str(port["published"]), port["target"]) for port in fedify.get("ports", [])] == expected_ports
     assert fedify["depends_on"]["api"]["condition"] == "service_healthy"
