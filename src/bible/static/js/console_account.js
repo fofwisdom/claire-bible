@@ -280,7 +280,6 @@
     active: tr("console.js.account.federation.state.active"),
     account_not_active: tr("console.js.account.federation.state.account_not_active"),
     no_username: tr("console.js.account.federation.state.no_username"),
-    federation_off: tr("console.js.account.federation.state.federation_off"),
     profile_not_public: tr("console.js.account.federation.state.profile_not_public")
   };
 

@@ -143,7 +143,6 @@ class _Claire:
             store = accounts_store.AccountStore(conn)
             store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
             store.set_setting("mode", "network", updated_by=1)
-            store.set_federation_state("on", updated_by=1)
             conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
             self.account_id = store.find_by_username("alice").id
             conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, ?, ?)", (self.account_id, THEME_NUMBER))

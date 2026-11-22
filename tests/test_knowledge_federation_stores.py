@@ -29,7 +29,6 @@ def conn(tmp_path: Path):
     """``claire.db`` of server B with the switch ``federation`` on."""
     connection = dbm.connect(tmp_path / "claire.db")
     dbm.init_db(connection)
-    accounts_store.AccountStore(connection).set_federation_state("on", updated_by=1)
     connection.commit()
     yield connection
     connection.close()
@@ -194,12 +193,7 @@ def test_a_collection_answers_only_the_server_actor_of_a_server_that_is_not_bloc
         assert decision.domain is not None
 
 
-def test_no_exchange_while_the_switch_is_off(conn) -> None:
-    accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1)
-    conn.commit()
-    assert access.collection_access(conn, signer=A_SERVER, origin=ORIGIN).reason == "federation_off"
-    assert access.exchange_refusal(conn, actor_iri=ALICE, origin=ORIGIN) == "federation_off"
-    assert not access.auto_contribution_accepted(conn)
+def test_an_http_address_of_another_server_is_permitted_in_development(conn) -> None:
     # In development the origin is http, and an http address of another server is permitted.
     assert access.remote_server_domain("http://a.example/ap/actors/server", "http://127.0.0.1:8765") == "a.example"
 
@@ -271,10 +265,7 @@ def test_a_delivery_that_the_controls_stop_gets_no_row(conn, handlers, change, s
     assert known_servers.list_servers(conn) == []
 
 
-def test_no_row_while_the_switch_is_off(conn, handlers) -> None:
-    accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1)
-    conn.commit()
-    assert _receive(conn, _offer()).reason == "federation_off"
+def test_an_unknown_signature_mechanism_is_an_error(conn, handlers) -> None:
     with pytest.raises(ValueError):
         journal.receive(conn, activity=_offer(), signer=ALICE, verified_by="none", recipient=None, origin=ORIGIN, now=T0)
 
@@ -320,17 +311,9 @@ def test_a_handler_refusal_is_recorded_with_its_code(conn, handlers) -> None:
     assert conn.execute("SELECT COUNT(*) FROM server_settings WHERE key='kf_test'").fetchone()[0] == 0
 
 
-def test_a_replay_waits_while_the_switch_is_off_and_a_block_refuses_the_row(conn, handlers) -> None:
+def test_a_block_refuses_the_row_of_a_replay(conn, handlers) -> None:
     failed = _receive(conn, _offer()).entry
-    store = accounts_store.AccountStore(conn)
-    store.set_federation_state("off", updated_by=1)
-    conn.commit()
-    with pytest.raises(journal.JournalError) as exc:
-        journal.replay(conn, failed.id, origin=ORIGIN, now=T0 + 10)
-    assert exc.value.code == "federation_off"
-    assert journal.get_entry(conn, failed.id) == failed
 
-    store.set_federation_state("on", updated_by=1)
     _block(conn, "a.example")
     refused = journal.replay(conn, failed.id, origin=ORIGIN, now=T0 + 20)
     assert (refused.status, refused.error_code, refused.attempts) == ("refused", "blocked_domain", 2)

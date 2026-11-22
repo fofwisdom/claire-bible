@@ -29,7 +29,7 @@ Owner decisions FD1 to FD12 (locked 2026-11-10):
 | :--- | :--- | :--- |
 | FD1 | Claire hosts ActivityPub actors for accounts through a Fedify sidecar. | The sidecar takes the protocol risks that stopped the earlier native design. |
 | FD2 | Federation operates in network mode only. **Replaced** by KD2 and Section 15 of [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md): federation works in both modes, and rule S9 is withdrawn. | Single mode must not show the USERNAME of the admin (S9). A handle shows the USERNAME. |
-| FD3 | The gate of an account is `profile_public` together with the server switch. There is no separate switch for each account. | One public profile rule. A remote server cannot find which private accounts exist: all other states give the same 404. |
+| FD3 | The gate of an account is `profile_public` together with the server switch. **Changed** by GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) (2026-11-22): there is no server switch; the gate of an account is `profile_public` alone. There is no separate switch for each account. | One public profile rule. A remote server cannot find which private accounts exist: all other states give the same 404. |
 | FD4 | The actor ID contains the public number of the account, not the USERNAME. | A released USERNAME can go to a new account. The new account must not get the old identity, followers, or trust. A public number is never used again. |
 | FD5 | Claire keeps the actor keys, encrypted. The sidecar gets a key only on the internal channel. | Backup, purge, and rotation follow the existing secret rules. |
 | FD6 | The reverse proxy sends the federation paths to the sidecar. Claire does not proxy them. | Inbound federation load does not go through the one ASGI worker. A wrong proxy rule fails closed with 404. |
@@ -50,7 +50,7 @@ Architecture principles (FK1 to FK10):
 6. **No fallback (FK9, PRINCIPLES C1 and C2).** If the sidecar is not available, outbound tasks stay pending and the interface shows that state. Claire does not send through a connected account as a substitute.
 7. **Transactional outbox.** A publish writes the object and its task in one transaction. Activity IDs are stable, so a second handoff makes no second object on a remote server.
 8. **Privacy changes remove what was published.** A theme that becomes private, a purged document, and a deleted theme make `Delete` tasks in the transaction of the change. The interface says that removal on remote servers is a request, not a guarantee.
-9. **Readiness before the switch.** The admin can turn federation on only when all readiness checks pass. One of the checks shows that the reverse proxy sends the federation paths to the sidecar and the OAuth metadata paths to Claire.
+9. **Readiness before the switch.** The admin can turn federation on only when all readiness checks pass. One of the checks shows that the reverse proxy sends the federation paths to the sidecar and the OAuth metadata paths to Claire. **Withdrawn** by GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) (2026-11-22): federation has no switch, and the readiness checks are a report of the state.
 10. **Schema grows only when it is read (FK10).** A schema object is added in the phase that first reads it.
 11. **Sidecar dependency licenses.** A sidecar dependency must have the MIT, Apache-2.0, BSD, or ISC license. Other licenses need owner approval. The sidecar image keeps the license files of its dependencies.
 

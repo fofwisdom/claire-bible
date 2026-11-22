@@ -54,7 +54,6 @@ def conn(tmp_path: Path):
     """``claire.db`` of server B with the switch ``federation`` on."""
     connection = dbm.connect(tmp_path / "claire.db")
     dbm.init_db(connection)
-    accounts_store.AccountStore(connection).set_federation_state("on", updated_by=1)
     connection.commit()
     yield connection
     connection.close()
@@ -581,7 +580,6 @@ def test_two_deliveries_of_one_activity_at_the_same_time_run_its_handler_one_tim
     path = tmp_path / "claire.db"
     first = dbm.connect(path)
     dbm.init_db(first)
-    accounts_store.AccountStore(first).set_federation_state("on", updated_by=1)
     first.commit()
     calls: list[str] = []
 

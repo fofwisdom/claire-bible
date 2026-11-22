@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -295,6 +296,10 @@ def test_me_patch_profile_public_and_combinations(client, settings):
     assert client.request("GET", "/api/me", session=token).json()["profile_public"] == 1
 
 
+def _profile_switch_checked(html: str) -> bool:
+    return re.search(r'<input id="pref-profile-public"[^>]* checked', html) is not None
+
+
 def test_settings_account_profile_public_toggle_e2e(client, settings):
     _activate_admin(settings)
     token = _session(settings)
@@ -309,7 +314,9 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     assert page.status_code == 200
     assert 'data-settings-toggle="profile-public"' in page.text
     assert '<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"' in page.text
-    assert 'switch data-settings-toggle="profile-public" checked' not in page.text
+    # The change to public makes the account a federation actor, so the switch asks for a confirmation of identity (FD11).
+    assert 'data-settings-toggle="profile-public" data-step-up="' in page.text
+    assert not _profile_switch_checked(page.text)
     assert '<dd data-account-field="profile_public">Private</dd>' in page.text
     assert "data-profile-public-hint" not in page.text
 
@@ -322,7 +329,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
 
     page2 = client.request("GET", "/settings/account", session=token)
     assert page2.status_code == 200
-    assert 'switch data-settings-toggle="profile-public" checked' in page2.text
+    assert _profile_switch_checked(page2.text)
     assert '<dd data-account-field="profile_public">Public (shown in the public directory)</dd>' in page2.text
 
     patch_res2 = client.request("PATCH", "/api/me", session=token, json={"profile_public": 0})
@@ -331,7 +338,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
 
     page3 = client.request("GET", "/settings/account", session=token)
     assert page3.status_code == 200
-    assert 'switch data-settings-toggle="profile-public" checked' not in page3.text
+    assert not _profile_switch_checked(page3.text)
     assert '<dd data-account-field="profile_public">Private</dd>' in page3.text
 
     conn = _db(settings)

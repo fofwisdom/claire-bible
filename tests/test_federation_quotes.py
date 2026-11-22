@@ -120,11 +120,8 @@ def test_quote_models_are_sealed_and_untrusted_input_is_refused(internal):  # no
     # The path of an authorization: a number that is not valid, and a request that waits.
     assert internal.get("/quote-authorizations/0").status_code == 404
     assert internal.get("/quote-authorizations/99").status_code == 404
-    internal.set_state(federation="off")
-    assert internal.get("/quote-authorizations/1").status_code == 404
     # A revoked authorization is gone in all states, the same as a deleted object.
     assert internal.get("/quote-authorizations/2").status_code == 410
-    assert internal.call(request).json()["reason"] == "federation_off"
 
 
 # --- Schema (I/O) ---

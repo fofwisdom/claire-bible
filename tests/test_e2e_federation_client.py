@@ -31,7 +31,6 @@ def _make_env(tmp_path, *, usercontent_host: bool):
     settings, alpha, beta = _prepare(tmp_path)
     if usercontent_host:
         settings.usercontent_fqdn = USERCONTENT
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, ?)", (alpha, ALPHA_THEME)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))

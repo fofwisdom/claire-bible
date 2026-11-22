@@ -257,14 +257,15 @@ def test_e2e_each_fault_of_the_edge_gives_the_code_of_the_party_that_answered(tm
             assert time.monotonic() < deadline, "serve-api did not start in time"
             time.sleep(0.2)
 
-        # 1. An edge without a fault: each check that applies passes, also before the switch is on.
+        # 1. An edge without a fault: each required check passes. Only the warning GF19 fails, because no other server sent a request to this new server.
         heartbeat = start_sidecar()
         assert heartbeat["self_check"] == {"ok": True, "checked_at": heartbeat["self_check"]["checked_at"], "answer": None}, heartbeat
         assert heartbeat["knowledge_self_check"]["failed_paths"] == [] and heartbeat["knowledge_self_check"]["signed"] == {"draft_cavage": {"result": "ok", "answer": None}, "rfc9421": {"result": "ok", "answer": None}}, heartbeat
         assert heartbeat["public_host"] == {"host": "127.0.0.1", "addresses": [{"address": "127.0.0.1", "class": "loopback"}], "error": None}
         assert heartbeat["traffic"]["inbound_verified"]["count"] == 0
         items = report()
-        assert [item_id for item_id, item in items.items() if not item["passed"]] == [], items
+        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF19"], items
+        assert (items["GF14"]["applies"], items["GF14"]["passed"], items["GF16"]["passed"]) == (True, True, True)
 
         # The outside probe gets each path from its party.
         probe = subprocess.run(["sh", str(PROBE_SCRIPT), origin], capture_output=True, text=True, timeout=120, env=_clean_env())
@@ -284,12 +285,14 @@ def test_e2e_each_fault_of_the_edge_gives_the_code_of_the_party_that_answered(tm
         ]
         heartbeat = start_sidecar()
         items = report()
-        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF6", "GF7", "GF8", "GF9", "GF10"], items
+        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF6", "GF7", "GF8", "GF9", "GF10", "GF14", "GF16", "GF19"], items
+        # The same faults show in the checks of the documents: the server actor on a changed path, and a collection that Claire answers.
+        assert (items["GF14"]["code"], items["GF16"]["code"], items["GF16"]["values"]["path"]) == ("server_actor_failed", "answered_by_claire", "/ap/themes")
         assert (items["GF6"]["code"], items["GF6"]["values"]["via_cdn"]) == ("cdn_challenge", "cloudflare")
         assert (items["GF7"]["code"], items["GF7"]["values"]["path"]) == ("answered_by_sidecar", "/.well-known/oauth-authorization-server")
         # The marker header alone shows no fault for a removed prefix: the path that the sidecar got does.
         assert (items["GF8"]["code"], items["GF8"]["values"]["received"], items["GF8"]["values"]["paths"]) == ("path_changed", "/actors/server", "/ap/actors/server, /ap/themes")
-        # The signed request has the media type of a delivery, so the WAF rule shows before the switch is on.
+        # The signed request has the media type of a delivery, so the WAF rule shows in the check.
         assert (items["GF9"]["code"], items["GF9"]["values"]["server"], items["GF9"]["values"]["forms"]) == ("intermediary", "waf", "draft-cavage, RFC 9421")
         assert (items["GF10"]["code"], items["GF10"]["values"]["server"], items["GF10"]["values"]["media_type"]) == ("intermediary", "waf", "application/activity+json")
         probe = subprocess.run(["sh", str(PROBE_SCRIPT), origin], capture_output=True, text=True, timeout=120, env=_clean_env())
@@ -305,7 +308,8 @@ def test_e2e_each_fault_of_the_edge_gives_the_code_of_the_party_that_answered(tm
         old_marker = heartbeat["marker"]
         heartbeat = start_sidecar()
         items = report()
-        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF8", "GF9", "GF10"], items
+        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF8", "GF9", "GF10", "GF14", "GF19"], items
+        assert items["GF14"]["code"] == "sidecar_other"
         # The cache gives the answer of the sidecar process of step 2: its marker is not the marker of the process that runs now.
         assert cached["/.well-known/nodeinfo"][1]["x-claire-fedify-server"] == old_marker != heartbeat["marker"]
         assert (items["GF8"]["code"], items["GF8"]["values"]["path"]) == ("sidecar_other", "/.well-known/nodeinfo")
@@ -315,7 +319,7 @@ def test_e2e_each_fault_of_the_edge_gives_the_code_of_the_party_that_answered(tm
         # 4. A cache that gives an old answer of the process that runs now: the marker is correct, but the sidecar did not get the request.
         edge.faults = []
         start_sidecar()
-        assert [item_id for item_id, item in report().items() if not item["passed"]] == []
+        assert [item_id for item_id, item in report().items() if not item["passed"]] == ["GF19"]
         live = dict(edge.cache)
         edge.faults = [lambda request: live["/ap/kb"] if _path(request) == "/ap/kb" else None]
         deadline = time.monotonic() + 60

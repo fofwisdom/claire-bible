@@ -55,7 +55,7 @@ async function installApi(page, opts) {
       return json(route, { ok: true, authenticated_at: 1700001000 });
     }
     if (method !== 'GET' && path !== '/api/admin/auto-contribution' && state.reauthNeeded) return json(route, { error: 'reauth_required', reauth: '/api/auth/reauth' }, 401);
-    if (path === '/api/admin/federation/known-servers' && method === 'GET') return json(route, { servers: state.servers, switches: { federation: 'off', kb_auto_contribution: state.autoState, signed_get: 'required' } });
+    if (path === '/api/admin/federation/known-servers' && method === 'GET') return json(route, { servers: state.servers, switches: { kb_auto_contribution: state.autoState, signed_get: 'required' } });
     if (path === '/api/admin/federation/known-servers' && method === 'POST') {
       const domain = JSON.parse(req.postData()).domain;
       if (domain === '127.0.0.1') return json(route, { error: 'own_domain' }, 400);
@@ -100,7 +100,7 @@ async function installApi(page, opts) {
     }
     const replay = /^\/api\/admin\/federation\/journal\/(\d+)\/replay$/.exec(path);
     if (replay && method === 'POST') {
-      if (replay[1] === '38') return json(route, { error: 'federation_off' }, 409);
+      if (replay[1] === '38') return json(route, { error: 'journal_entry_not_replayable', states: ['failed', 'received'] }, 409);
       return json(route, { entry: journalEntry(Number(replay[1]), 'processed', { attempts: 2 }) });
     }
     if (path === '/api/admin/auto-contribution' && method === 'GET') return json(route, { ok: true, state: state.autoState, settings: { auto_match_threshold: 0.5, auto_run_documents: 50 } });
@@ -383,8 +383,8 @@ test('/admin/federation: the journal filter sends each state, replay shows only 
   await expect(rows).toHaveCount(7);
   // A replay that the server refuses: the catalog text of the code.
   await rows.nth(2).locator('[data-replay-j="38"]').click();
-  await expect(page.locator('.claire-toast').last()).not.toContainText('federation_off');
-  await expect(page.locator('.claire-toast').last()).toContainText('연합');
+  await expect(page.locator('.claire-toast').last()).not.toContainText('journal_entry_not_replayable');
+  await expect(page.locator('.claire-toast').last()).toContainText('이 저널 행은 다시 처리할 수 없습니다.');
   await expect(rows.nth(2).locator('[data-replay-j="38"]')).toBeEnabled();
 
   // The state filter: each state sends "status"; "all" sends no parameter.
@@ -593,16 +593,15 @@ test('/admin/federation: readiness checks GF1-GF20 in three groups with levels, 
       { id: 'GF11', name: 'Knowledge federation loops of the sidecar make progress', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'loops_ok', detail: 'Loops ok.', values: {} },
       { id: 'GF12', name: 'Actor keys can be decrypted', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'actor_keys_empty', detail: 'No actor key yet.', values: {} },
       { id: 'GF13', name: 'Settings of the knowledge federation and the public name', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'settings_ok', detail: 'Settings ok.', values: {} },
-      { id: 'GF14', name: 'First-contact documents through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
-      { id: 'GF15', name: 'Knowledge base actor document through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
-      { id: 'GF16', name: 'Collections refuse an unsigned read', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF14', name: 'First-contact documents through the public origin', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'first_contact_ok', detail: 'First contact ok.', values: {} },
+      { id: 'GF15', name: 'Knowledge base actor document through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'no_shared_kb', detail: 'There is no shared knowledge base.', values: {} },
+      { id: 'GF16', name: 'Collections refuse an unsigned read', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'collections_refused_unsigned', detail: 'Collections refuse.', values: {} },
       { id: 'GF17', name: 'JSON-LD context and vocabulary page through the public origin', group: 'knowledge', level: 'warning', applies: true, passed: false, code: 'ns_context_failed', detail: 'Missing CORS header.', values: { problem: 'missing header Access-Control-Allow-Origin: *' } },
       { id: 'GF18', name: 'The checks take the path of other servers', group: 'operation', level: 'warning', applies: true, passed: false, code: 'public_host_private', detail: 'Private address.', values: { host: 'claire.example.com', address: '192.168.10.5', source: 'sidecar' } },
-      { id: 'GF19', name: 'Other servers reach this server', group: 'operation', level: 'warning', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
-      { id: 'GF20', name: 'Deliveries to other servers succeed', group: 'operation', level: 'warning', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF19', name: 'Other servers reach this server', group: 'operation', level: 'warning', applies: true, passed: false, code: 'no_inbound', detail: 'No request.', values: { host: 'claire.example.com', rejected: 0 } },
+      { id: 'GF20', name: 'Deliveries to other servers succeed', group: 'operation', level: 'warning', applies: false, passed: true, code: 'no_deliveries', detail: 'No delivery.', values: {} },
     ];
     return json(route, {
-      federation: 'off',
       mode: 'network',
       readiness: { passed: false, items },
       heartbeat: {
@@ -628,14 +627,19 @@ test('/admin/federation: readiness checks GF1-GF20 in three groups with levels, 
   await expect(page.locator('[data-readiness-group="account"]')).toContainText('계정 연합 (GF1–GF7)');
   await expect(page.locator('[data-readiness-group-summary="account"]')).toContainText('필수 7/7 통과');
   await expect(page.locator('[data-readiness-group="knowledge"]')).toContainText('공유 지식 연합 (GF8–GF17)');
-  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('필수 5/6 통과');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('필수 7/8 통과');
   await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('1개 실패');
   await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('경고 1개');
-  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('3개 해당 없음');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('1개 해당 없음');
 
-  const gf14 = page.locator('tr[data-readiness-item="GF14"]');
-  await expect(gf14).toHaveAttribute('data-readiness-applies', '0');
-  await expect(gf14).toContainText('해당 없음');
+  // Federation has no switch: the checks of the documents apply at once. GF15 needs a shared knowledge base.
+  await expect(page.locator('tr[data-readiness-item="GF14"]')).toHaveAttribute('data-readiness-applies', '1');
+  const gf15 = page.locator('tr[data-readiness-item="GF15"]');
+  await expect(gf15).toHaveAttribute('data-readiness-applies', '0');
+  await expect(gf15).toContainText('해당 없음');
+  // The state card has no control that turns federation on or off.
+  await expect(page.locator('#admin-federation-switch')).toContainText('켜짐 · 항상');
+  await expect(page.locator('[data-federation-switch]')).toHaveCount(0);
 
   const gf17 = page.locator('tr[data-readiness-item="GF17"]');
   await expect(gf17).toHaveAttribute('data-readiness-level', 'warning');
@@ -652,8 +656,9 @@ test('/admin/federation: readiness checks GF1-GF20 in three groups with levels, 
 
   // The third group has the path and the traffic checks. They are warnings.
   await expect(page.locator('[data-readiness-group="operation"]')).toContainText('경로와 트래픽 (GF18–GF20)');
-  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('경고 1개');
-  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('2개 해당 없음');
+  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('경고 2개');
+  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('1개 해당 없음');
+  await expect(page.locator('tr[data-readiness-item="GF19"]')).toContainText('@username@claire.example.com');
   const gf18 = page.locator('tr[data-readiness-item="GF18"]');
   await expect(gf18).toHaveAttribute('data-readiness-level', 'warning');
   await expect(gf18).toContainText('공개 호스트 claire.example.com가 sidecar에서 사설 주소 192.168.10.5로 해석됩니다.');

@@ -36,7 +36,7 @@ SETTINGS: dict[str, float] = {"auto_match_threshold": 0.5, "auto_run_documents":
 # ``documents.source_type`` of a pasted text. Such a document never goes by the rule.
 PASTED_TEXT = "text"
 # Can a rule have targets on other servers now (``remote_state``)? ``on``, or the reason that it cannot.
-REMOTE_STATES = ("on", "no_origin", "federation_off", "not_a_federation_actor")
+REMOTE_STATES = ("on", "no_origin", "not_a_federation_actor")
 # The modes of a target (rule 3): ``approved`` (a collaborator or a moderator; on another server, an account with a grant in its term, and the other server decides at the end), ``direct`` (a member), ``pending``; and ``closed`` for a target on a server that accepts no automatic contributions now.
 MODES = ("approved", "direct", "pending", "closed")
 
@@ -229,13 +229,11 @@ def _over_threshold(conn: sqlite3.Connection, *, account_id: int, personal_kb_id
 
 
 def remote_state(conn: sqlite3.Connection, account_id: int, origin: str | None) -> str:
-    """``on`` when the rule of the account can have targets on other servers now, else the reason (one of ``REMOTE_STATES``): this server has no canonical origin (``no_origin``), the switch ``federation`` is off (``federation_off``), or the account has no actor that can sign an ``Offer`` (``not_a_federation_actor``: a public profile and a USERNAME, federation design Section 12.1 rule 2)."""
-    from ..federation.knowledge import access, actors
+    """``on`` when the rule of the account can have targets on other servers now, else the reason (one of ``REMOTE_STATES``): this server has no canonical origin (``no_origin``), or the account has no actor that can sign an ``Offer`` (``not_a_federation_actor``: a public profile and a USERNAME, federation design Section 12.1 rule 2)."""
+    from ..federation.knowledge import actors
 
     if origin is None:
         return "no_origin"
-    if not access.federation_on(conn):
-        return "federation_off"
     if actors.account_actor_iri(conn, account_id, origin) is None:
         return "not_a_federation_actor"
     return "on"

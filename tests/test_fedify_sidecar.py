@@ -86,12 +86,11 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
     migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert migrate.returncode == 0, migrate.stdout + migrate.stderr
 
-    def seed(*, mode: str, federation: str) -> None:
+    def seed(*, mode: str) -> None:
         conn = dbm.connect_existing(data_dir / "claire.db")
         try:
             store = accounts_store.AccountStore(conn)
             store.set_setting("mode", mode, updated_by=1)
-            store.set_federation_state(federation, updated_by=1)
         finally:
             conn.close()
 
@@ -112,7 +111,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         conn.commit()
     finally:
         conn.close()
-    seed(mode="network", federation="on")
+    seed(mode="network")
 
     sock_path = federation_socket_path(data_dir)
     sidecar_db = data_dir / "fedify" / "fedify.db"
@@ -254,27 +253,19 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         # The sidecar database is a secret store (design Section 7 item 5).
         assert (sidecar_db.stat().st_mode & 0o777) == 0o600
 
-        # Single mode shows no USERNAME (S9): after the config cache time, each path is 404.
-        seed(mode="single", federation="off")
-        deadline = time.monotonic() + 30
-        # NodeInfo depends on the cached config only. An actor path can be 404 earlier, because Claire refuses the actor at once.
-        while httpx.get(f"{base}/nodeinfo/2.1", timeout=10).status_code != 404:
-            assert time.monotonic() < deadline, "the sidecar did not stop the actor"
-            time.sleep(0.5)
-        gone = httpx.get(finger_url, params={"resource": f"acct:alice@127.0.0.1:{claire_port}"}, timeout=10)
-        assert gone.status_code == 404 and "alice" not in gone.text
-        # S9: the admin USERNAME is not shown in single mode, on any federation path of the sidecar.
-        single_answers = [
-            httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10),
-            httpx.get(finger_url, params={"resource": f"{origin}/ap/actors/{admin_public_id}"}, timeout=10),
-            httpx.get(f"{base}/ap/actors/{admin_public_id}", headers={"Accept": "application/activity+json"}, timeout=10),
-            httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10),
-            httpx.get(f"{base}/.well-known/nodeinfo", timeout=10),
-            httpx.get(f"{base}/nodeinfo/2.1", timeout=10),
-        ]
-        for answer in single_answers:
-            assert answer.status_code == 404, answer.url
-            assert "admin_kim" not in answer.text + repr(list(answer.headers.items())), answer.url
+        # Single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2): federation has no switch, and the actors work with the same rules. A paused account gives 404.
+        seed(mode="single")
+        conn = dbm.connect_existing(data_dir / "claire.db")
+        try:
+            accounts_store.AccountStore(conn).update_profile_public(1, 0)
+        finally:
+            conn.close()
+        paused = httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10)
+        assert paused.status_code == 404 and "admin_kim" not in paused.text
+        assert httpx.get(f"{base}/ap/actors/{admin_public_id}", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 404
+        still = httpx.get(finger_url, params={"resource": f"acct:alice@127.0.0.1:{claire_port}"}, timeout=10)
+        assert still.status_code == 200
+        assert httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 200
     except BaseException:
         if sidecar is not None:
             print("sidecar output:", _stop(sidecar)[-3000:])
@@ -289,8 +280,8 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
     assert claire.returncode in (0, -signal.SIGTERM), claire_out[-2000:]
 
 
-def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
-    """The admin can set the switch to ``on`` only after GF6 passes. Thus the sidecar self-check must pass while federation is off.
+def test_e2e_self_check_passes_on_a_new_server(tmp_path):
+    """The self-checks of the sidecar pass on a server without an actor and without a shared knowledge base.
 
     The public origin of this server is the address of the sidecar. This stands for a reverse proxy that sends the federation paths to the sidecar.
     """
@@ -317,7 +308,6 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        assert store.federation_state() == "off"
     finally:
         conn.close()
 
@@ -358,15 +348,11 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
             time.sleep(0.2)
         assert record["self_check"]["ok"] is True, record
 
-        # Federation is off: the sidecar still shows no federation data.
-        finger = httpx.get(f"http://127.0.0.1:{sidecar_port}/.well-known/webfinger", params={"resource": f"acct:claire@127.0.0.1:{sidecar_port}"}, timeout=10)
-        assert finger.status_code == 404 and finger.text == "Not Found"
-
-        # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire: the report tells that the sidecar answered these paths.
+        # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire, and the warning GF19 fails because no other server sent a request: the report tells that the sidecar answered these paths.
         check = subprocess.run([sys.executable, "-m", "claire_bible.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
         report = json.loads(check.stdout)
         items = {item["id"]: item["passed"] for item in report["data"]["items"]}
-        assert items == {f"GF{i}": (i not in (7, 17)) for i in range(1, 21)}, check.stdout
+        assert items == {f"GF{i}": (i not in (7, 17, 19)) for i in range(1, 21)}, check.stdout
         codes = {item["id"]: item["code"] for item in report["data"]["items"]}
         assert (codes["GF7"], codes["GF17"]) == ("answered_by_sidecar", "answered_by_sidecar"), check.stdout
     finally:
@@ -402,7 +388,6 @@ def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
         conn.commit()
@@ -473,7 +458,6 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
         alice = store.find_by_username("alice").id
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 1, 1, ?, ?)", (alice, theme_number))

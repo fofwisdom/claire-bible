@@ -71,7 +71,7 @@ Deno.test("a thread fetch task reads the context collection and gives the object
   }
 });
 
-Deno.test("a start object that is not available rejects the task, and federation off takes no task", async () => {
+Deno.test("a start object that is not available rejects the task", async () => {
   const { fake, sidecar, documents, restore } = setup();
   try {
     documents.set(ROOT, await remoteActor(ROOT));
@@ -79,12 +79,6 @@ Deno.test("a start object that is not available rejects the task, and federation
     assert.equal(await sidecar.processContextTasks(), 1);
     assert.deepEqual(fake.clientAcks, [{ id: 4, result: "rejected", error_code: "object_not_found", actor: null }]);
     assert.ok(!fake.calls.some((call) => call.includes("/context-objects")));
-
-    fake.config = { federation: "off" };
-    fake.now += 10;
-    fake.calls.length = 0;
-    assert.equal(await sidecar.processContextTasks(), 0);
-    assert.ok(!fake.calls.some((call) => call.includes("/context-tasks")));
   } finally {
     restore();
   }

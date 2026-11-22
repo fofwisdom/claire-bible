@@ -90,11 +90,11 @@ def update_display_name(ctx: AccountsContext, account_id: int, display_name: str
 
 
 def profile_public_needs_step_up(ctx: AccountsContext, account_id: int) -> bool:
-    """True when federation is on and the profile is not public now. Then a change to public makes the account a federation actor (Fedify sidecar design Section 8.4, FD11)."""
+    """True when the profile is not public now. A change to public makes the account a federation actor (Fedify sidecar design Section 8.4, FD11)."""
     conn = open_db(ctx)
     try:
         store = accounts_store.AccountStore(conn)
-        return store.federation_state() == "on" and not store.get(account_id).profile_public
+        return not store.get(account_id).profile_public
     finally:
         conn.close()
 

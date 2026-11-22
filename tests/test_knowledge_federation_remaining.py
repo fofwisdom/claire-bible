@@ -303,7 +303,6 @@ def test_the_routes_that_send_activities_refuse_without_a_configured_public_orig
 def test_mcp_candidates_and_submit_with_a_shared_knowledge_base_of_another_server(world, no_llm) -> None:  # noqa: F811
     conn = dbm.connect(world.settings.db_file)
     try:
-        accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1)
         conn.commit()
     finally:
         conn.close()

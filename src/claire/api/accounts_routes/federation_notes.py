@@ -112,7 +112,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         """The account of the caller. Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11)."""
         store = accounts_store.AccountStore(conn)
         account = store.get(account_id)
-        if need_actor and actor_state(account, federation=store.federation_state()) != "active":
+        if need_actor and actor_state(account) != "active":
             raise _Refused(409, "not_actor")
         return store, account
 

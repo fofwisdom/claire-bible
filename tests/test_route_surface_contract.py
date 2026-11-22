@@ -110,7 +110,7 @@ ADMIN_KEYS = {
     ("POST", "/api/admin/server/invites"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"),
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
-    *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),
+    *((m, "/api/admin/federation") for m in ("GET", "HEAD")),
     *((m, "/api/admin/federation/domain-blocks") for m in ("GET", "HEAD", "POST", "DELETE")),
     *((m, "/api/admin/federation/reading") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation/known-servers") for m in ("GET", "HEAD", "POST", "DELETE")),

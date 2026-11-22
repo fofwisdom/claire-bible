@@ -111,10 +111,6 @@ def test_a_read_is_due_after_a_good_server_read_and_one_time_each_day(a: KfServe
     assert a.internal("GET", "/knowledge-kb-reads").json() == {"reads": []}
     a.now += 120
     assert [read["domain"] for read in a.internal("GET", "/knowledge-kb-reads").json()["reads"]] == ["b.example"]
-    # While the switch ``federation`` is off, no read is due.
-    a.now += remote_kbs.READ_LEASE_SECONDS + 1
-    a.db(lambda conn: conn.execute("UPDATE server_settings SET value='off' WHERE key='federation'"))
-    assert a.internal("GET", "/knowledge-kb-reads").json() == {"reads": []}
 
 
 def test_a_batch_stores_valid_items_and_refuses_the_others(a: KfServer) -> None:

@@ -582,7 +582,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/admin/server/mode"),
         ("POST", "/api/admin/server/invites"),
         ("POST", "/api/admin/server/legacy-hosts/sunset"),
-        ("POST", "/api/admin/federation"),
         ("PATCH", "/api/admin/accounts"),
         ("GET", "/api/admin/usernames/retired"),
         ("HEAD", "/api/admin/usernames/retired"),

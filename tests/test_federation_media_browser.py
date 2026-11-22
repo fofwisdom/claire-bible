@@ -42,7 +42,6 @@ def live(tmp_path):
     settings.usercontent_fqdn = f"127.0.0.1:{ports[1]}"
     settings.media_fqdn = f"127.0.0.1:{ports[2]}"
     settings.allow_private_networks = True
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (alpha,)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     servers = [uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on" if index == 0 else "off")) for index, port in enumerate(ports)]

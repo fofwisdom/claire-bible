@@ -131,22 +131,7 @@ Deno.test("NodeInfo shows the software and federated actors only", async () => {
   assert.equal((info.usage as { users: { total: number } }).users.total, 1);
 });
 
-Deno.test("all paths are 404 when federation is off, in each mode", async () => {
-  for (const state of [{ federation: "off" }, { federation: "off", mode: "single" }]) {
-    const { get, fake, bodies } = setup();
-    fake.config = { ...state, federated_actors: 0 };
-    for (const [path, accept] of [[webfinger("alice@claire.example.com"), JRD], [webfinger("claire@claire.example.com"), JRD], [`/ap/actors/${ALICE}`, AS2], ["/ap/actors/server", AS2], ["/.well-known/nodeinfo", "application/json"], ["/nodeinfo/2.1", "application/json"]]) {
-      const response = await get(path, accept);
-      assert.equal(response.status, 404, `${JSON.stringify(state)} ${path}`);
-      assert.equal(response.text, "Not Found");
-    }
-    // The sidecar asked Claire for the config only.
-    assert.ok(!bodies.join("").includes("alice"));
-    assert.ok(fake.calls.every((call) => call.endsWith("/config")));
-  }
-});
-
-Deno.test("the server actor and NodeInfo work in single mode while federation is on", async () => {
+Deno.test("the server actor and NodeInfo work in single mode", async () => {
   // KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5: the server actor and the federation of shared knowledge work in single mode. Claire decides which account is an actor (KD2).
   const { get, fake } = setup();
   fake.config = { mode: "single" };
@@ -227,8 +212,8 @@ function through(handler: (request: Request) => Response | Promise<Response>): t
   return (async (input: string | URL | Request, init?: RequestInit) => await handler(input instanceof Request ? input : new Request(input, init))) as typeof fetch;
 }
 
-Deno.test("the public self-check accepts the answer of this sidecar process only, also while federation is off, and tells who answered", async () => {
-  for (const state of [{}, { federation: "off", federated_actors: 0 }]) {
+Deno.test("the public self-check accepts the answer of this sidecar process only, in each mode, and tells who answered", async () => {
+  for (const state of [{}, { mode: "single" }]) {
     const { sidecar, fake } = setup();
     fake.config = state;
     const config = await sidecar.config();
@@ -301,10 +286,10 @@ Deno.test("a self-check tells a changed path, a changed Host, and an answer that
 
 Deno.test("each answer has the marker header, and it shows no server data", async () => {
   const { sidecar, fake } = setup();
-  fake.config = { mode: "single", federation: "off", federated_actors: 0 };
-  for (const path of ["/", "/ap/actors/server", "/.well-known/webfinger?resource=acct:alice@claire.example.com"]) {
-    const response = await sidecar.handle(new Request(`${LISTEN}${path}`));
-    assert.equal(response.status, 404);
+  // A path of Claire, an unknown federation path, and an actor path: each answer has the marker.
+  for (const [path, status] of [["/", 404], ["/ap/unknown", 404], ["/ap/actors/server", 200]] as const) {
+    const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { headers: { accept: AS2 } }));
+    assert.equal(response.status, status, path);
     assert.equal(response.headers.get(SIDECAR_HEADER), sidecar.marker);
   }
   assert.match(sidecar.marker, /^[0-9a-f-]{36}$/);
@@ -337,9 +322,8 @@ Deno.test("the source permits private network addresses only through the develop
   assert.ok(sidecar.includes(`createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, ${option}, meterProvider, onOutboxError:`));
 });
 
-Deno.test("knowledgeSelfCheck passes through sidecar while federation is off, sends the two signature forms of a delivery, and rejects nonce replay", async () => {
+Deno.test("knowledgeSelfCheck passes through sidecar, sends the two signature forms of a delivery, and rejects nonce replay", async () => {
   const fake = fakeClaire();
-  fake.config = { federation: "off" };
   const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
   const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
   const config = await sidecar.config();
@@ -454,7 +438,6 @@ Deno.test("knowledgeSelfCheck detects missing routes, a removed path prefix, hos
 
 Deno.test("runKnowledgeReads and runKnowledgeExchange update heartbeat loop state and clear errors on recovery", async () => {
   const fake = fakeClaire();
-  fake.config = { federation: "off" };
   const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
   const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
 

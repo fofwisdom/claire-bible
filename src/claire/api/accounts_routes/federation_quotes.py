@@ -115,7 +115,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 store = accounts_store.AccountStore(conn)
                 # The answer goes out with the key of the actor (Section 5.4 rule 11).
-                if actor_state(store.get(account_id), federation=store.federation_state()) != "active":
+                if actor_state(store.get(account_id)) != "active":
                     return 409, {"error": "not_actor"}
                 row = quotes_store.get_authorization(client, int(raw_id))
                 # A request of another account gives the same answer as no request.

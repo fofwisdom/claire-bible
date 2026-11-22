@@ -120,7 +120,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`, `POST /api/me/username`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`, `POST /api/me/username`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST`·`DELETE /api/admin/federation/domain-blocks` 등)다. `me.py`의 `PATCH /api/me`는 §5.5의 조건(`profile_public`을 0에서 1로 바꿀 때)에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
@@ -318,7 +318,7 @@
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
 | `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, WebMCP 헤더 정책, `POST /support/bundle` |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
-| `/admin/federation` | 서버 연합 스위치, 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |
+| `/admin/federation` | 연합 상태(연합은 끌 수 없는 고유 기능이라 스위치가 없다), 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |
 | `/admin/storage` | 새 미디어의 저장소(로컬 또는 S3 호환), 연결 시험, 마지막 이관 결과([FEDERATION.md](FEDERATION.md) §20, [OPERATIONS.md](OPERATIONS.md)) |
 | `/admin/kb` | 호환 308 → `/moderation/oversight` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
 | `/admin/themes` | 호환 308 → `/moderation/themes` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
@@ -344,7 +344,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | USERNAME 행 및 USERNAME 변경 양식(`#settings-username`), 표시 이름, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환 및 `client` 모드 활성 시 `/settings/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`), 인터페이스 언어·개체 언어, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/username`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | USERNAME 행 및 USERNAME 변경 양식(`#settings-username`), 표시 이름, 프로필 공개 스위치(`#pref-profile-public`; both server modes since 2026-11-19, because rule S9 is withdrawn and the account actor of the admin federates in single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 스위치에는 항상 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환 및 `client` 모드 활성 시 `/settings/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`), 인터페이스 언어·개체 언어, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/username`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/invites` | 1 내 계정 · 워크스페이스 | 모든 `owner` 계정(관리자 및 멤버)용 초대 코드 관리 화면(`console_invites.js`, `ALL_MODES`). 싱글 모드 또는 `member_invites_enabled=False`인 비관리자에게는 `#invites-issue-section`에 안내문만 표시하고, 발급 가능 시 생성 양식(`#invites-create-form`: 선택형 사용 횟수 `1`/`3`/`5`, 선택형 만기 `30분`/`1시간`/`6시간`/`1일`/`7일`, 메모; `reserved_username` 입력은 UI에 두지 않음)을 표시한다. 상태 배너(`#invites-result`) 아래 맨 끝 카드로 `#invites-list-section`을 배치하며 코드별 상태 배지, 사용 횟수, 만기일, 가입 이용자 목록, 가입 링크 복사(`[data-invite-copy]`), 활성 코드 즉시 폐기(`[data-invite-revoke]`)를 제공한다. 비관리자는 본인 발급 코드만 조회·폐기하고 관리자는 전체를 관리하며, 비관리자 응답에는 `/admin/*`·`console_admin.js`·`console.js.admin.*`이 없다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 목록 응답도 소유자에게 번들마다 같은 `download_url`을 준다(서포트 번들은 `telemetry.db`의 행, 데이터 번들은 모드 `0600` sidecar가 토큰을 가진다). 그래서 목록의 각 행에 "링크 복사"가 번들이 만료될 때까지 있다. 목록에는 그 밖의 토큰 필드가 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. 토큰을 sidecar에 두기 전에 만든 데이터 번들은 행에 링크가 없다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
@@ -484,11 +484,11 @@ Basis: 2026-11-19. Design: KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2.
 
 - **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 연결 계정(클라이언트) 방식은 RD12로 보류되었다([FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md)).
 - **[코드] 구현 범위**: FP1(탐색)까지다. 받은편지함·팔로워·발행은 없다. Claire의 공개 리스너는 `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`를 등록하지 않으므로 이 경로가 Claire에 닿으면 404다. 이 경로는 reverse proxy가 사이드카로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)).
-- **[코드] `server_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 그 시점에 적용되는 필수 준비 검사(GF1–GF13)가 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. 콘솔 섹션은 `/admin/federation`이다(§5.9, [FEDERATION.md](FEDERATION.md) §7).
-- **[코드] 액터 조건**: `federation`이 `on`, 모드가 `network`, 계정 `status`가 `active`, `profile_public`이 1인 계정만 연합 액터다. 액터인 계정의 프로필 페이지 `/@{username}/`에는 `rel="alternate"` 링크와 `Link` 헤더가 붙는다([FEDERATION.md](FEDERATION.md) §3, §8.2).
+- **[코드] 연합에는 스위치가 없다**(소유자 결정 GD4, 2026-11-22): 연합은 서버의 고유 기능이고 끌 수 없다. 서버 설정 `federation`은 없으며, 예전 버전이 `server_settings`에 남긴 `federation` 행은 읽지 않는다. `AccountStore`에 그 값을 읽거나 쓰는 메서드가 없고 `POST /api/admin/federation`도 없다. 관리자는 `GET /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 준비 검사와 사이드카 상태만 읽는다. 준비 검사는 관문이 아니라 상태 보고다. 콘솔 섹션은 `/admin/federation`이다(§5.9, [FEDERATION.md](FEDERATION.md) §7).
+- **[코드] 액터 조건**: 계정 `status`가 `active`, `profile_public`이 1, USERNAME이 있는 계정만 연합 액터다. 서버 모드와 무관하다. 액터인 계정의 프로필 페이지 `/@{username}/`에는 `rel="alternate"` 링크와 `Link` 헤더가 붙는다([FEDERATION.md](FEDERATION.md) §3, §8.2).
 - **[코드] `profile_public` 단계 인증**: §5.5.
 - **[코드] 액터 키**: `auth.db`의 `actor_keys`(§8). 계정 퇴역(purge) 때 이 행을 지우는 코드는 아직 없다.
-- **[코드] 모드 전환 거부**: `federation`이 `on`이면 `POST /api/admin/server/mode`의 `network` → `single` 전환이 400 `federation_enabled`로 거부된다(`server.py`).
+- **[코드] 모드 전환**: 연합은 `network` → `single` 전환의 조건이 아니다([FEDERATION.md](FEDERATION.md) §8.3).
 - **[코드] 근거 테스트**: `tests/test_federation_step_up.py`, `tests/test_federation_readiness.py`, `tests/test_actor_keys.py`.
 
 ## 14. Per-account features: Telegram bot, bundles, backup

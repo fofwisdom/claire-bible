@@ -58,10 +58,6 @@ AccountStatus = Literal["setup_required", "active", "suspended", "deleting", "pu
 # 서버 모드(§4). ``server_settings.mode``에 둔다. 행이 없으면 싱글 모드다(P2 이전 설치).
 ServerMode = Literal["single", "network"]
 SERVER_MODES: frozenset[str] = frozenset({"single", "network"})
-# Federation switch of the server (Fedify sidecar design). Federation operates in network mode only (FK3).
-FederationState = Literal["off", "on"]
-FEDERATION_STATES: frozenset[str] = frozenset({"off", "on"})
-FEDERATION_SETTING_KEY = "federation"
 MEMBER_INVITES_SETTING_KEY = "member_invites_enabled"
 _MEMBER_INVITES_TRUE_VALUES: frozenset[str] = frozenset({"1", "true", "on"})
 _MEMBER_INVITES_FALSE_VALUES: frozenset[str] = frozenset({"0", "false", "off"})
@@ -420,21 +416,6 @@ class AccountStore:
             raise RuntimeError(f"server_settings.mode has an unknown value: {raw!r}")
         return raw  # type: ignore[return-value]  # SERVER_MODES가 걸렀다
 
-    def federation_state(self) -> FederationState:
-        """``server_settings.federation`` (Fedify sidecar design Section 10.1). ``"off"`` when there is no row. An unknown value raises ``RuntimeError`` (C1)."""
-        raw = self.get_setting(FEDERATION_SETTING_KEY)
-        if raw is None:
-            return "off"
-        if raw not in FEDERATION_STATES:
-            raise RuntimeError(f"server_settings.federation has an unknown value: {raw!r}")
-        return raw  # type: ignore[return-value]
-
-    def set_federation_state(self, state: FederationState, *, updated_by: int) -> None:
-        """Record the federation switch. The caller does the readiness checks (design Section 12) first."""
-        if state not in FEDERATION_STATES:
-            raise ValueError(f"unknown federation state: {state!r}")
-        self.set_setting(FEDERATION_SETTING_KEY, state, updated_by=updated_by)
-
     def member_invites_enabled(self) -> bool:
         """Return whether non-admin members may issue invite codes. Defaults to False when absent; unknown stored values raise RuntimeError (C1)."""
         raw = self.get_setting(MEMBER_INVITES_SETTING_KEY)
@@ -535,7 +516,7 @@ class AccountStore:
             self.conn.rollback()
             raise AccountNotFound(account_id)
         # 연합 액터의 이름이 바뀌면 팔로워에게 Update(Person)을 보낸다(Fedify 사이드카 설계 §8.1). 이름 변경과 같은 트랜잭션이다.
-        if before is not None and str(before[0]) != display_name and self.federation_state() == "on":
+        if before is not None and str(before[0]) != display_name:
             row = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
             if row["status"] == "active" and row["profile_public"] and row["username"]:
                 from . import federation as federation_store
@@ -707,9 +688,8 @@ class AccountStore:
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
         from . import federation as federation_store
 
-        federation_active = self.federation_state() == "on"
         was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
-        federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=federation_active and not skip_federated_delete, now=when)
+        federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=not skip_federated_delete, now=when)
         # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
         from . import client_db
 
@@ -977,7 +957,7 @@ class AccountStore:
             if cur.rowcount != 1:
                 raise AccountStateError(f"account {account_id}: could not update username")
             federation_update_queued = False
-            if self.federation_state() == "on" and current.profile_public:
+            if current.profile_public:
                 from . import federation as federation_store
 
                 federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)

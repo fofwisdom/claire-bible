@@ -1,7 +1,7 @@
 # Federation Go-Live: GF1 to GF17 on a Server Behind a CDN and a WAF
 
 - **Document Identifier**: `DESIGN-FEDERATION-GO-LIVE-20261122`
-- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is implemented (2026-11-22); the current behavior is in FEDERATION.md Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD3 (Section 12) are locked (2026-11-22). No open questions remain.
+- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is implemented (2026-11-22); the current behavior is in FEDERATION.md Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD4 (Section 12) are locked (2026-11-22); GD4 (federation has no switch) is implemented. No open questions remain.
 - **Date**: 2026-11-22
 - **Base commit**: `171257c`
 - **Related Documents**:
@@ -22,7 +22,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 2. When a check fails, the report tells which party answered and on which path. The owner can then repair the edge without an agent on the server (PRINCIPLES E4).
 3. A check passes only when the real requests of other servers can also pass, as far as rule 2 of the checks (no request to another server) permits.
 
-Non-goals: a change of the gate (KD13); new rules for the exchange of shared knowledge; the calibration (KA5); the hosting of the JSON-LD context (KA4).
+Non-goals at the start: a change of the gate (KD13), which decision GD4 then removed with the switch; new rules for the exchange of shared knowledge; the calibration (KA5); the hosting of the JSON-LD context (KA4).
 
 ---
 
@@ -265,9 +265,9 @@ The owner does each step; an agent does not operate production (PRINCIPLES E4). 
 | Step | Owner action | Completion criteria |
 | :--- | :--- | :--- |
 | L0 | Write down the edge chain of the server (CDN, WAF, the place of the path rules, NAT). Not in the repository. | The chain is known |
-| L1 | `./cb-manuscript update` with `CB_FEDERATION=1` (and `CB_EDGE=1` with GQ2 A) | GF2, GF3, GF4 pass |
-| L2 | `./cb-manuscript app server check --federation --json`. Repair with Appendix A. Repeat. | GF1 to GF13 pass. GF18 passes, or the outside probe (L4) shows the same results. |
-| L3 | Set `federation` to `on` in `/admin/federation` (gate KD13) | GF14 to GF16 pass. GF17 passes, or its warning has a known reason (KA2 rule) |
+| L1 | `./cb-manuscript update` (with `CB_EDGE=1` for the edge, GD2). The sidecar starts with the other services (GD4) | GF2, GF3, GF4 pass |
+| L2 | `./cb-manuscript app server check --federation --json`. Repair with Appendix A. Repeat. | GF1 to GF16 pass. GF18 passes, or the outside probe (L4) shows the same results. |
+| L3 | No action: federation has no switch (GD4). Step L3 of the first version was the change of the switch | GF17 passes, or its warning has a known reason (KA2 rule) |
 | L4 | Run `ops/federation_outside_probe.sh` from another network | Each path reaches the sidecar or Claire as in the table of FEDERATION.md §10; no `cf-mitigated`, no `intermediary` |
 | L5 | From an account on another fediverse server, search and follow `@{username}@{host}`. Publish one document from `/syndication`. | The remote account sees the document. With GQ3 A: GF19 and GF20 pass |
 | L6 | Normal use | A change of the edge repeats L2 and L4 (KA rule 2) |
@@ -296,6 +296,16 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 | GD1 | GQ1: order of the go-live and the acceptance path | A: the go-live of the owner's server (L0 to L6) is the go-live of the federation of accounts and is not a KA step. KA3 and KA4 continue in parallel; KA5 starts after them. |
 | GD2 | GQ2: edge service | A: the edge is an opt-in (`CB_EDGE`), built with GL1. The owner turns it on at step L1. |
 | GD3 | GQ3: traffic after the switch | A: GF19 and GF20 are in the same release as GL1 (one contract change, 1.13). |
+| GD4 | The federation switch (owner, 2026-11-22, after the first report of the owner's server) | Federation is a function of each server that cannot be turned off; it is not a switch. The checks must not need a state that only the switch gives. |
+
+**GD4, facts and consequences.** The first report of the owner's server showed two switches that needed each other: the console switch `federation` needed GF1 to GF13, GF2 and GF6 to GF11 needed the sidecar, and the sidecar started only with the container switch `CB_FEDERATION=1`, which `update` had filled with the default `0`. The decision removes the two switches:
+
+1. There is no server setting `federation`: no method reads or sets it, `POST /api/admin/federation` does not exist, and a row of an older version is not read. The sidecar and the internal API have no state "off" (contract 1.14).
+2. There is no `CB_FEDERATION`: the service `fedify` has no Compose profile and starts with the other services.
+3. The readiness checks are a report of the state, not a gate. Decision KD13 (the gate) and rule 8 of KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.1 have no object. GF14 to GF16, GF19, and GF20 apply on each server.
+4. An account is an actor when it is `active` and has a public profile and a USERNAME (FD3 without the server switch). An account with a public profile is thus an actor from the update, without a new confirmation; a change to public still needs a recent sign-in (FD11), now on each server.
+5. The owner direction "the federation of shared knowledge is on by default" (KNOWLEDGE_FEDERATION_DESIGN.md Section 2) is replaced by the stronger rule: always on. The switch `kb_auto_contribution` stays (KD4).
+6. The edge service stays an option (GD2). Without it, the external reverse proxy needs the path rules of FEDERATION.md Section 10.
 
 The questions as they were asked:
 

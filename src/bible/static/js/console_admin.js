@@ -755,7 +755,7 @@
     });
   }
 
-  // --- /admin/federation: switch, readiness checks, sidecar heartbeat, domain blocks (Fedify sidecar design Sections 9.2, 11, and 12) ---
+  // --- /admin/federation: readiness checks, sidecar heartbeat, domain blocks (Fedify sidecar design Sections 9.2, 11, and 12). Federation has no switch. ---
 
   function initFederationSection() {
     var FED_ERROR_TEXT = {
@@ -766,8 +766,6 @@
       invalid_request: tr("console.js.common.error.invalid_request"),
       domain_block_not_found: tr("console.js.admin.federation.error.domain_block_not_found")
     };
-    var switchCard = document.getElementById("admin-federation-switch");
-    var switchResult = document.getElementById("admin-federation-switch-result");
     var readinessTbody = document.getElementById("admin-federation-readiness-tbody");
     var readinessResult = document.getElementById("admin-federation-readiness-result");
     var refreshBtn = document.getElementById("admin-federation-refresh");
@@ -818,10 +816,6 @@
 
     function errorText(res) {
       var body = res.body;
-      if (body && body.error === "readiness_failed") {
-        var fails = (body.failures || []).map(function (f) { return f.id + " (" + (readinessText(f).detail || f.name) + ")"; });
-        return tr("console.js.admin.mode.readiness_failed") + " " + (fails.join(", ") || body.detail || "");
-      }
       if (body && typeof body.error === "string" && FED_ERROR_TEXT[body.error]) return FED_ERROR_TEXT[body.error];
       if (body && typeof body.detail === "string" && body.detail) return body.detail;
       return tr("console.js.common.http_error", { status: res.status });
@@ -1105,24 +1099,6 @@
       return send("GET", "/api/admin/federation/domain-blocks").then(function (res) {
         if (res.ok && res.body && Array.isArray(res.body.domain_blocks)) renderBlocks(res.body.domain_blocks);
       }).catch(function () {});
-    }
-
-    if (switchCard) {
-      switchCard.addEventListener("click", function (ev) {
-        var btn = ev.target.closest("[data-federation-switch]");
-        if (!btn) return;
-        var target = btn.getAttribute("data-federation-switch");
-        if (target === "off" && !window.confirm(tr("console.js.admin.federation.off_confirm"))) return;
-        setResult(switchResult, tr("console.js.admin.in_work"), false);
-        sendChange("POST", "/api/admin/federation", { federation: target }, switchResult, function (res) {
-          if (res.ok) {
-            setResult(switchResult, target === "on" ? tr("console.js.admin.federation.on_done") : tr("console.js.admin.federation.off_done"), false);
-            window.location.reload();
-            return;
-          }
-          setResult(switchResult, errorText(res), true);
-        });
-      });
     }
 
     if (refreshBtn) {

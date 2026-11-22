@@ -339,8 +339,6 @@ def test_backup_leaves_out_the_fedify_sidecar_files_and_restore_makes_the_direct
 
     root = tmp_path / "project"
     _write_layout(root, dev=False)
-    with (root / ".env").open("a", encoding="utf-8") as env_file:
-        env_file.write("\nCB_FEDERATION=1\n")
     _seed_storage(root)
     data = root / "data"
     for name in ("run", "fedify", "auth"):

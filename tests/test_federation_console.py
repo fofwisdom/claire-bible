@@ -111,10 +111,6 @@ def _db(settings: _Settings, fn):
         conn.close()
 
 
-def _set_federation(settings: _Settings, state: str) -> None:
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state(state, updated_by=1))
-
-
 def _set_public(settings: _Settings, account_id: int, value: int) -> None:
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=? WHERE id=?", (value, account_id)))
 
@@ -182,22 +178,19 @@ def test_status_shows_the_handle_the_actor_id_and_the_condition_that_fails(env):
         assert response.headers["cache-control"] == "no-store"
         return response.json()
 
-    off = status()
-    _set_federation(env.settings, "on")
     private = status()
     _set_public(env.settings, env.alpha, 1)
     active = status()
 
-    assert off == {
-        "federation": "off",
+    # The answer has no state of a server switch: federation has no switch.
+    assert private == {
         "handle": "@member_alpha@127.0.0.1:8765",
         "actor_id": f"{PUBLIC_URL}/ap/actors/{ALPHA_PUBLIC_ID}",
         "is_actor": False,
-        "actor_state": "federation_off",
+        "actor_state": "profile_not_public",
         "followers": {"total": 1},
         "pending_tasks": 0,
     }
-    assert (private["federation"], private["is_actor"], private["actor_state"]) == ("on", False, "profile_not_public")
     assert (active["is_actor"], active["actor_state"]) == (True, "active")
 
 
@@ -466,7 +459,6 @@ def test_domain_block_change_needs_recent_authentication_and_the_same_origin(env
 
 
 def test_settings_section_shows_the_handle_and_the_follower_count_and_no_admin_markup(env):
-    _set_federation(env.settings, "on")
     _set_public(env.settings, env.alpha, 1)
     _follow(env.settings, env.alpha, BOB, at=100.0)
     _follow(env.settings, env.alpha, CAROL, at=101.0)
@@ -502,8 +494,9 @@ def test_admin_section_shows_the_switch_and_the_blocks_and_is_hidden_from_a_memb
     body = admin_page.text
     assert 'data-active-area="admin"' in body
     assert 'data-active-section="federation"' in body
-    assert 'id="admin-federation-switch" data-federation-state="off"' in body
-    assert 'data-federation-switch="on"' in body
+    # Federation has no switch: the card shows the state and has no control to change it.
+    assert 'id="admin-federation-switch"' in body
+    assert "data-federation-switch" not in body and "data-federation-state" not in body
     assert 'id="admin-federation-readiness-tbody"' in body
     assert 'id="admin-federation-heartbeat"' in body
     assert '<tr data-domain-block="spam.example">' in body
@@ -529,7 +522,6 @@ def test_e2e_owner_removes_a_follower_and_admin_changes_a_domain_block(tmp_path)
         port = int(probe.getsockname()[1])
     base = f"http://127.0.0.1:{port}"
     settings, alpha, _beta = _prepare(tmp_path, public_url=base, fqdn=f"127.0.0.1:{port}")
-    _set_federation(settings, "on")
     _set_public(settings, alpha, 1)
     _follow(settings, alpha, BOB, at=100.0)
     _follow(settings, alpha, CAROL, at=101.0)

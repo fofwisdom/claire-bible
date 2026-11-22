@@ -261,7 +261,6 @@ def test_change_username_hold_expiry_early_release_and_federation_outbox(conn: s
     store = acc.AccountStore(conn)
     store.complete_setup(1, username="Boss", display_name="Boss", now=100.0)
     store.set_setting("mode", "network", updated_by=1)
-    store.set_federation_state("on", updated_by=1)
 
     alice = store.create_member(username="Alice", display_name="Alice", profile_public=True, now=101.0)
     bob = store.create_member(username="Bob", display_name="Bob", profile_public=False, now=101.0)

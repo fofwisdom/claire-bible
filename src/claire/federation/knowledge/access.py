@@ -18,7 +18,6 @@ import sqlite3
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 
 __all__ = [
@@ -27,7 +26,6 @@ __all__ = [
     "auto_contribution_accepted",
     "collection_access",
     "exchange_refusal",
-    "federation_on",
     "iri_origin",
     "quota_domain",
     "remote_server_domain",
@@ -38,16 +36,11 @@ __all__ = [
 SERVER_ACTOR_PATH = "/ap/actors/server"
 
 
-def federation_on(conn: sqlite3.Connection) -> bool:
-    """True when the switch ``federation`` is ``on``. No row is ``off``."""
-    return accounts_store.AccountStore(conn).federation_state() == "on"
-
-
 def auto_contribution_accepted(conn: sqlite3.Connection) -> bool:
-    """True when this server accepts automatic contributions of other servers: the switches ``federation`` and ``kb_auto_contribution`` are ``on`` (design Section 12.3 rule 1)."""
+    """True when this server accepts automatic contributions of other servers: the switch ``kb_auto_contribution`` is ``on`` (design Section 12.3 rule 1). Federation itself has no switch."""
     from ...collaboration import auto_contribution  # the import is here so that the store modules of this package do not load the contribution code
 
-    return federation_on(conn) and auto_contribution.switch_on(conn)
+    return auto_contribution.switch_on(conn)
 
 
 def remote_server_domain(iri: str, origin: str) -> str | None:
@@ -99,10 +92,8 @@ def quota_domain(domain: str) -> str:
 def exchange_refusal(conn: sqlite3.Connection, *, actor_iri: str, origin: str) -> str | None:
     """Return the reason that stops an exchange with the server of ``actor_iri``, or ``None`` when the exchange is permitted.
 
-    Reasons, in this sequence: ``federation_off``, ``invalid_actor``, ``blocked_domain``. The rule applies to reads and to writes (KS1).
+    Reasons, in this sequence: ``invalid_actor``, ``blocked_domain``. The rule applies to reads and to writes (KS1).
     """
-    if not federation_on(conn):
-        return "federation_off"
     domain = remote_server_domain(actor_iri, origin)
     if domain is None:
         return "invalid_actor"
@@ -125,10 +116,8 @@ def collection_access(conn: sqlite3.Connection, *, signer: str | None, origin: s
 
     ``signer`` is the IRI of the actor whose key the sidecar verified for the request, or ``None`` for a request without a valid signature. Claire does not verify a signature; the caller must be the internal federation API.
 
-    Reasons of a refusal, in this sequence: ``federation_off``, ``unsigned``, ``invalid_actor``, ``not_a_server_actor`` (the signer is not the server actor of its server), ``blocked_domain``. Each refusal gets the same 404 at the HTTP level, so that a blocked server learns nothing.
+    Reasons of a refusal, in this sequence: ``unsigned``, ``invalid_actor``, ``not_a_server_actor`` (the signer is not the server actor of its server), ``blocked_domain``. Each refusal gets the same 404 at the HTTP level, so that a blocked server learns nothing.
     """
-    if not federation_on(conn):
-        return CollectionAccess(False, "federation_off", None)
     if signer is None:
         return CollectionAccess(False, "unsigned", None)
     domain = remote_server_domain(signer, origin)

@@ -101,7 +101,7 @@ def test_e2e_mutual_collaboration_and_automatic_contribution(world) -> None:  # 
 
     # The dry run: Cities (of ann) has no signature and no seed entities, so no document goes now. Then ben turns the rule on; that needs a recent sign-in.
     dry = client.post("/api/auto-rule/dry-run", json=RULE, headers=world.ben)
-    assert dry.status_code == 200 and dry.json() == {"server_switch": True, "remote_state": "federation_off", "targets": []}
+    assert dry.status_code == 200 and dry.json() == {"server_switch": True, "remote_state": "on", "targets": []}
     assert client.put("/api/auto-rule", json=RULE, headers=world.ben).status_code == 403
     assert client.put("/api/auto-rule", json={**RULE, "state": "on"}, headers=world.ben).status_code == 400
     saved = step_up_request(client, s, "PUT", "/api/auto-rule", account_id=BEN, json=RULE)

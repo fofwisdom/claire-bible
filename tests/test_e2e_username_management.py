@@ -125,7 +125,6 @@ def test_e2e_case_preserving_usernames_and_rename_lifecycle(tmp_path: Path) -> N
         try:
             store = accounts_store.AccountStore(conn)
             store.set_setting("mode", "network", updated_by=1)
-            store.set_federation_state("on", updated_by=1)
         finally:
             conn.close()
 

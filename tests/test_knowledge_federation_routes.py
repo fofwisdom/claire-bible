@@ -125,13 +125,6 @@ def test_internal_collection_route_answers_a_server_actor_and_gives_404_to_each_
     assert b.internal("GET", f"/knowledge-collections/kb?signer={A_SERVER}&page=2").status_code == 400
 
 
-def test_internal_collection_route_gives_404_while_the_switch_is_off(b) -> None:
-    from claire.store import accounts as accounts_store
-
-    b.db(lambda conn: accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1))
-    assert b.internal("GET", f"/knowledge-collections/kb?signer={A_SERVER}").status_code == 404
-
-
 # --- Internal: /knowledge-server-reads ----------------------------------------------
 
 
@@ -164,7 +157,7 @@ def test_admin_known_servers_list_and_entry(b) -> None:
     session = b.admin_session()
     empty = b.request("GET", KNOWN, session=session)
     assert empty.status_code == 200 and empty.headers["cache-control"] == "no-store"
-    assert empty.json() == {"servers": [], "switches": {"federation": "on", "kb_auto_contribution": "off", "signed_get": "required"}}
+    assert empty.json() == {"servers": [], "switches": {"kb_auto_contribution": "off", "signed_get": "required"}}
 
     made = b.request("POST", KNOWN, session=session, json={"domain": "A.Example"})
     assert made.status_code == 201 and made.json()["created"] is True
@@ -235,10 +228,3 @@ def test_admin_journal_list_detail_and_replay(b, monkeypatch: pytest.MonkeyPatch
     assert again.status_code == 409 and again.json() == {"error": "journal_entry_not_replayable", "states": ["failed", "received"]}
     assert b.request("POST", f"{JOURNAL}/999/replay", session=session, json={}).status_code == 404
     assert _audit(b)[-1] == ("federation.journal_replay", {"id": entry_id, "status": "processed", "error_code": None})
-
-    from claire.store import accounts as accounts_store
-
-    b.db(lambda conn: accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1))
-    off = b.request("POST", f"{JOURNAL}/{follow_id}/replay", session=session, json={})
-    assert off.status_code == 409 and off.json() == {"error": "federation_off"}
-    assert b.request("GET", f"{JOURNAL}/{follow_id}", session=session).json()["entry"]["status"] == "failed"

@@ -42,7 +42,6 @@ def _event(kind: str, actor: str, obj: dict | None = None, *, object_iri: str | 
 @pytest.fixture
 def env(tmp_path):
     settings, alpha, beta = _prepare(tmp_path)
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:
@@ -148,6 +147,3 @@ def test_e2e_blocks_limits_and_the_actor_rule(env):
 
     # A body outside the sealed model is refused.
     assert env.sidecar.call("POST", "/timeline-events", {**_event("Create", CAROL, _object(f"{CAROL}/notes/14", CAROL)), "extra": 1}).status_code == 400
-    # Federation off: nothing is applied.
-    _db(env.settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1))
-    assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/15", CAROL)))["reason"] == "federation_off"

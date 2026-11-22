@@ -63,7 +63,6 @@ if (import.meta.main) {
   const beat = async () => {
     try {
       const config = await sidecar.config();
-      // The self-checks run also while federation is off: GF6, GF8, and GF9 must pass before the admin sets the switch to `on`.
       // The path record (GF18) tells which addresses the public host has for this process.
       const [selfCheck, knowledgeSelfCheck, publicHost] = await Promise.all([
         sidecar.publicSelfCheck(config),

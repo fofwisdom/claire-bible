@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.13"
+CONTRACT_VERSION = "1.14"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -123,7 +123,6 @@ class ConfigResponse(_Sealed):
     canonical_origin: str
     handle_host: str
     mode: Literal["single", "network"]
-    federation: Literal["off", "on"]
     software: SoftwareInfo
     trusted_proxies: list[str]
     # Number of federation actors. NodeInfo shows this number only (design Section 5.1 rule 6). It is 0 when federation is not active.
@@ -269,7 +268,6 @@ class HeartbeatRequest(_Sealed):
 
 class HeartbeatResponse(_Sealed):
     contract_version: str
-    federation: Literal["off", "on"]
 
 
 class ActorRecord(_Sealed):
@@ -319,7 +317,7 @@ class InboxEventResponse(_Sealed):
     reply: Literal["accept"] | None
     # A code for the log and the telemetry of the sidecar. ``None`` for ``accepted``.
     # ``no_object``: a ``Like``, an ``Announce``, or their ``Undo`` refers to an object path of this server that is not a public object now (unit FP4-8).
-    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object"] | None
+    reason: Literal["invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object"] | None
 
 
 class FollowerItem(_Sealed):
@@ -484,7 +482,7 @@ class TimelineNotice(_Sealed):
 
 class TimelineEventResponse(_Sealed):
     decision: Literal["accepted", "rejected", "ignored"]
-    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited"] | None
+    reason: Literal["invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited"] | None
     # The number of items that the event made, changed, or deleted, for all accounts. The parents are not in this number.
     items: int
     # The automatic notices that the sidecar sends now. Empty for all events except a non-public ``Create`` that mentions or addresses an account.
@@ -555,7 +553,7 @@ class ContextObjectsRequest(_Sealed):
 
 class ContextObjectsResponse(_Sealed):
     decision: Literal["accepted", "rejected"]
-    reason: Literal["federation_off", "not_an_actor", "context_fetch_off"] | None
+    reason: Literal["not_an_actor", "context_fetch_off"] | None
     # The number of new items of the account. An object that the account has already is not in this number.
     stored: int
     # The number of objects that Claire did not take: above ``context_max_items``, not permitted (Section 6.2), or without a link to the thread.
@@ -705,9 +703,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def _open_store() -> accounts_store.AccountStore:
         return accounts_store.AccountStore(dbm.connect_existing(settings.db_file, readonly=True))
 
-    def _federation_active(store: accounts_store.AccountStore) -> bool:
-        # The mode is not a condition: the server actor, the federation of shared knowledge, and the account actors work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). ``_is_actor`` is the same rule in the two modes.
-        return store.federation_state() == "on"
+    # Federation has no switch and the mode is not a condition: the server actor, the federation of shared knowledge, and the account actors work in each server (FEDERATION_GO_LIVE_DESIGN.md decision GD4; KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). ``_is_actor`` is the same rule in the two modes.
 
     def _is_actor(account: accounts_store.Account | None) -> bool:
         return account is not None and account.status == "active" and account.profile_public and bool(account.username)
@@ -727,8 +723,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return federation_store.domain_blocks_etag(domains), domains
 
     def _find_actor(store: accounts_store.AccountStore, *, username: str | None = None, public_id: str | None = None) -> accounts_store.Account | None:
-        if not _federation_active(store):
-            return None
         if username is not None:
             account = store.find_by_username(username)
         else:
@@ -744,7 +738,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def _find_departing(store: accounts_store.AccountStore, public_id: str) -> accounts_store.Account | None:
         """Return a purged account whose ``delete_actor`` task waits for the sidecar, or ``None``. The sidecar needs the keys and the followers of this account for that one task (design Section 8.1)."""
         number = _parse_actor_id(public_id)
-        if number is None or not _federation_active(store):
+        if number is None:
             return None
         account = store.find_by_public_id(number)
         if account is None or account.status != "purged" or not federation_store.has_pending_delete_actor(store.conn, account.id):
@@ -755,11 +749,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         runtime = _runtime()
         store = _open_store()
         try:
-            mode, federation = store.server_mode(), store.federation_state()
+            mode = store.server_mode()
             blocks_etag, _domains = _domain_blocks(store.conn)
-            federated_actors = 0
-            if _federation_active(store):
-                federated_actors = int(store.conn.execute("SELECT COUNT(*) FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL").fetchone()[0])
+            federated_actors = int(store.conn.execute("SELECT COUNT(*) FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL").fetchone()[0])
         finally:
             store.conn.close()
         return _json(
@@ -768,7 +760,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 canonical_origin=runtime.public_origin,
                 handle_host=runtime.expected_authority,
                 mode=mode,
-                federation=federation,
                 software=SoftwareInfo(name=SOFTWARE_NAME, version=software_version()),
                 trusted_proxies=[str(network) for network in runtime.trusted_proxies],
                 federated_actors=federated_actors,
@@ -791,12 +782,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         temporary = path.with_name(path.name + ".tmp")
         temporary.write_text(json.dumps(record), encoding="utf-8")
         os.replace(temporary, path)
-        store = _open_store()
-        try:
-            federation = store.federation_state()
-        finally:
-            store.conn.close()
-        return _json(HeartbeatResponse(contract_version=CONTRACT_VERSION, federation=federation))
+        return _json(HeartbeatResponse(contract_version=CONTRACT_VERSION))
 
     def actor_by_username(request: Request) -> Response:
         store = _open_store()
@@ -825,7 +811,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         try:
             departing = None
             if raw_id == SERVER_ACTOR_ID:
-                key_owner = actor_keys.SERVER_ACTOR_ACCOUNT_ID if _federation_active(store) else None
+                key_owner = actor_keys.SERVER_ACTOR_ACCOUNT_ID
             else:
                 account = _find_actor(store, public_id=raw_id)
                 departing = _find_departing(store, raw_id) if account is None else None
@@ -852,8 +838,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return InboxEventResponse(decision="rejected", reply=None, reason=reason)
 
         conn = store.conn
-        if not _federation_active(store):
-            return rejected("federation_off")
         hosts = [_remote_host(address, origin) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return rejected("invalid_actor")
@@ -1073,8 +1057,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return TimelineEventResponse(decision=decision, reason=reason, items=items, notices=notices or [])
 
         conn = store.conn
-        if not _federation_active(store):
-            return answer("rejected", "federation_off")
         hosts = [_remote_host(address, origin) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return answer("rejected", "invalid_actor")
@@ -1225,8 +1207,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         )
 
     def _actor_account_ids(store: accounts_store.AccountStore) -> list[int]:
-        if not _federation_active(store):
-            return []
         return [int(row[0]) for row in store.conn.execute("SELECT id FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL")]
 
     def outbox_tasks(request: Request) -> Response:
@@ -1236,8 +1216,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         store = accounts_store.AccountStore(dbm.connect_existing(settings.db_file))
         try:
             # Only a task of an account that is an actor now is given. A task of a paused account waits: the sidecar cannot get the key of that account.
-            # A ``delete_actor`` task is the exception: its account is purged, and the task is given while federation is active.
-            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), include_delete_actor=_federation_active(store))
+            # A ``delete_actor`` task is the exception: its account is purged, and the task is given.
+            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), include_delete_actor=True)
             items = []
             for task in leased:
                 try:
@@ -1417,8 +1397,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 task = client_store.get_client_task(client, body.task_id)
                 if task is None or task.kind != client_store.THREAD_FETCH_KIND or task.status != "pending" or task.ref_id is None:
                     return None
-                if not _federation_active(store):
-                    return refuse("federation_off")
                 if task.account_id not in _actor_account_ids(store):
                     return refuse("not_an_actor")
                 reading = client_store.get_reading_settings(store.conn)
@@ -1468,7 +1446,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             if tombstone is not None and tombstone.kind == "object":
                 return JSONResponse({"error": "gone", "gone_at": tombstone.gone_at}, status_code=410, headers=_NO_STORE)
             obj = federation_store.get_object(conn, public_id)
-            if obj is None or not _federation_active(store):
+            if obj is None:
                 return _not_found()
             account = store.get(obj.account_id)
             # The object is public only while its account is an actor, its theme is public, and its document is not hidden.
@@ -1564,7 +1542,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
-        *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, federation_active=_federation_active),
+        *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.
         *knowledge_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin),
     ]

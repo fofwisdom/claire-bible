@@ -259,10 +259,8 @@ def outbox_collection(conn: sqlite3.Connection, number: int, *, origin: str, tot
 
 
 def account_actor_iri(conn: sqlite3.Connection, account_id: int, origin: str) -> str | None:
-    """The IRI of the federation actor of an account of this server, or None when the account is not a federation actor: the switch ``federation`` is on, and the account is ``active`` with a public profile and a USERNAME (FEDERATION.md Section 3). The rule is the same in single mode and in network mode (design Section 15 rule 5, KD2)."""
+    """The IRI of the federation actor of an account of this server, or None when the account is not a federation actor: the account is ``active`` with a public profile and a USERNAME (FEDERATION.md Section 3). The rule is the same in single mode and in network mode (design Section 15 rule 5, KD2)."""
     store = accounts_store.AccountStore(conn)
-    if store.federation_state() != "on":
-        return None
     try:
         account = store.get(int(account_id))
     except accounts_store.AccountNotFound:

@@ -129,18 +129,25 @@ class _Internal:
     def store(self) -> accounts_store.AccountStore:
         return accounts_store.AccountStore(dbm.connect_existing(self.settings.db_file))
 
-    def set_state(self, *, mode: str = "network", federation: str = "on") -> None:
+    def set_state(self, *, mode: str = "network") -> None:
         store = self.store()
         try:
             store.set_setting("mode", mode, updated_by=1)
-            store.set_federation_state(federation, updated_by=1)
+        finally:
+            store.conn.close()
+
+    def pause(self, account_id: int) -> None:
+        """Make the profile of an account private: the account is then not a federation actor (a pause, FD10)."""
+        store = self.store()
+        try:
+            store.update_profile_public(account_id, 0)
         finally:
             store.conn.close()
 
 
 @pytest.fixture
 def internal(tmp_path):
-    """A network-mode server with federation on. ``alice`` is an actor and has three followers, two published objects, one deleted object, and two outbox tasks. The other accounts are not actors. One domain is blocked."""
+    """A network-mode server. ``alice`` is an actor and has three followers, two published objects, one deleted object, and two outbox tasks. The other accounts are not actors. One domain is blocked."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -148,7 +155,6 @@ def internal(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice", display_name="Alice Kim")
         _add_account(conn, 216412345678901234, "private_bob", profile_public=0)
         _add_account(conn, 316412345678901234, "suspended_carol", status="suspended")
@@ -209,26 +215,6 @@ def _store_fixture_keys(internal: _Internal, account_id: int, name: str) -> None
         auth.commit()
     finally:
         auth.close()
-
-
-# --- Server setting (I/O) ---
-
-
-def test_federation_setting_default_and_values(tmp_path):
-    conn = dbm.connect(tmp_path / "claire.db")
-    try:
-        dbm.init_db(conn)
-        store = accounts_store.AccountStore(conn)
-        assert store.federation_state() == "off"
-        store.set_federation_state("on", updated_by=1)
-        assert store.federation_state() == "on"
-        with pytest.raises(ValueError):
-            store.set_federation_state("maybe", updated_by=1)  # type: ignore[arg-type]
-        store.set_setting("federation", "maybe", updated_by=1)
-        with pytest.raises(RuntimeError):
-            store.federation_state()
-    finally:
-        conn.close()
 
 
 # --- Each endpoint agrees with its fixture (module interface) ---
@@ -356,7 +342,7 @@ def test_non_federated_account_gets_the_same_404(internal, username, public_id):
         auth.close()
 
 
-def test_the_actors_are_the_same_in_single_mode_while_federation_is_on(internal):
+def test_the_actors_are_the_same_in_single_mode(internal):
     """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5 and KD2: the server actor and the account actors work in single mode with the rules of network mode."""
     internal.set_state(mode="single")
     for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", "/actors/server/keys"):
@@ -364,17 +350,17 @@ def test_the_actors_are_the_same_in_single_mode_while_federation_is_on(internal)
     assert internal.get("/config").json()["mode"] == "single"
 
 
-@pytest.mark.parametrize("state", [{"federation": "off"}, {"federation": "off", "mode": "single"}])
-def test_no_actor_when_federation_is_off_in_each_mode(internal, state):
-    internal.set_state(**state)
-    for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", f"/actors/{ALICE_PUBLIC_ID}/followers", f"/actors/{ALICE_PUBLIC_ID}/outbox", f"/objects/{OBJECT_ID}", "/actors/server/keys"):
-        assert internal.get(path).status_code == 404, path
-    assert internal.get("/outbox-tasks").json() == {"tasks": []}
-    # The config endpoint stays available. The sidecar reads the state from it.
+def test_the_stored_value_of_the_old_switch_has_no_effect(internal):
+    """Federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4). A row ``federation`` that an older version stored in ``server_settings`` is not read."""
+    store = internal.store()
+    try:
+        store.set_setting("federation", "off", updated_by=1)
+    finally:
+        store.conn.close()
+    for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", "/actors/server/keys"):
+        assert internal.get(path).status_code == 200, path
     config = internal.get("/config").json()
-    assert (config["mode"], config["federation"]) == (state.get("mode", "network"), state.get("federation", "on"))
-    assert config["federated_actors"] == 0
-    assert "alice" not in "".join(internal.bodies)
+    assert "federation" not in config and config["federated_actors"] > 0
 
 
 @pytest.mark.parametrize("raw", ["0", "01", "+1", "-1", "1e3", "abc", "%EF%BC%91%EF%BC%92", "9" * 20, "Server"])
@@ -560,15 +546,6 @@ def test_follow_through_the_shared_inbox_has_no_recipient(internal):
     assert (internal.alice, BOB_IRI, f"{BOB_IRI}/inbox", "https://remote.example/inbox") in _follower_rows(internal)
 
 
-@pytest.mark.parametrize("state", [{"federation": "off"}, {"federation": "off", "mode": "single"}])
-def test_no_event_is_applied_when_federation_is_not_active(internal, state):
-    before = _follower_rows(internal)
-    internal.set_state(**state)
-    for body in (_event(), _event("Undo", object_type="Follow", actor={"iri": "https://remote.example/users/u1"}), _event("Like")):
-        assert _post_event(internal, body).json() == {"decision": "rejected", "reply": None, "reason": "federation_off"}
-    assert _follower_rows(internal) == before
-
-
 def test_undo_follow_applies_to_a_paused_account(internal):
     _post_event(internal, _event())
     conn = dbm.connect_existing(internal.settings.db_file)
@@ -642,10 +619,6 @@ def test_domain_blocks_have_an_entity_tag_that_config_repeats(internal):
     changed = internal.client.get(path, headers={**signed, "If-None-Match": etag})
     assert changed.status_code == 200 and changed.json()["domains"] == ["blocked.example", "worse.example"]
     assert changed.json()["etag"] == internal.get("/config").json()["domain_blocks_etag"] != etag
-
-    # The list does not depend on the federation switch. The sidecar can load it before the switch is on.
-    internal.set_state(federation="off")
-    assert internal.get("/domain-blocks").json() == changed.json()
 
 
 # --- Outbox tasks, objects, and the outbox collection (design Sections 6.2 and 9.3, unit FP3-2) ---
@@ -822,7 +795,6 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice")
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         # The body has Markdown marks and a script; RD21 keeps both out of the object.
@@ -932,7 +904,6 @@ def test_e2e_follow_events_through_the_internal_socket(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         _add_account(conn, ALICE_PUBLIC_ID, "alice")
     finally:
         conn.close()
@@ -1050,7 +1021,7 @@ def test_route_table_is_wired_into_the_application(tmp_path):
 
     status, body = asyncio.run(call((str(federation_socket_path(tmp_path)), None)))
     assert status == 200
-    assert json.loads(body)["mode"] == "single" and json.loads(body)["federation"] == "off"
+    assert json.loads(body)["mode"] == "single" and "federation" not in json.loads(body)
     status, _body = asyncio.run(call(("127.0.0.1", 8765)))
     assert status == 404
 

@@ -1067,14 +1067,6 @@ def _settings_enabled_idp_providers(ctx: AccountsContext) -> list[auth_db.IdpPro
     return [p for p in auth_db.load_idp_providers(data_dir, include_secrets=False) if p.enabled]
 
 
-def _federation_on(ctx: AccountsContext) -> bool:
-    conn = open_db(ctx)
-    try:
-        return accounts_store.AccountStore(conn).federation_state() == "on"
-    finally:
-        conn.close()
-
-
 def _settings_account_body(
     ctx: AccountsContext,
     *,
@@ -1104,15 +1096,12 @@ def _settings_account_body(
         ("extraction_mode", t("console.settings.account.extraction_mode_label"), _extraction_mode_text(account.extraction_mode)),
     ]
     info_html = console_kv([{"label": label, "value": value, "attrs": {"data-account-field": key}} for key, label, value in info_rows])
-    # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
-    federation_on = _federation_on(ctx)
-    profile_toggle_attrs: dict[str, Any] = {"data-settings-toggle": "profile-public"}
-    if federation_on:
-        profile_toggle_attrs["data-step-up"] = "password" if has_password else "session"
+    # Fedify sidecar design Sections 8.1 and 8.4: a public profile is a federation actor, and the change to public needs a step-up.
+    profile_toggle_attrs: dict[str, Any] = {"data-settings-toggle": "profile-public", "data-step-up": "password" if has_password else "session"}
     if account.profile_public:
         profile_toggle_attrs["checked"] = True
     profile_toggle_attrs["aria-label"] = t("console.settings.account.profile_public_label")
-    federation_hint_html = f'<p class="hint" data-federation-hint>{escape(t("console.settings.account.federation_hint"))}</p>' if federation_on else ""
+    federation_hint_html = f'<p class="hint" data-federation-hint>{escape(t("console.settings.account.federation_hint"))}</p>'
     profile_toggle_html = (
         console_toggle_row(t("console.settings.account.profile_public"), "pref-profile-public", checked=False, attrs=profile_toggle_attrs)
         + federation_hint_html

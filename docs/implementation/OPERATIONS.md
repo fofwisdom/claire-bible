@@ -202,27 +202,21 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 ### 시작과 중지
 
-1. env 파일에 `CB_FEDERATION=1`을 둔다(정확히 `0` 또는 `1`). 필요하면 `CB_FEDIFY_PORT`(기본 `8790`, 개발 예시 `8791`)를 바꾼다. 이 포트는 `CB_API_PORT`나 역할 호스트 포트와 같을 수 없다.
-2. `./cb-manuscript update` 또는 `./cb-manuscript up`을 실행한다. `cb-manuscript`는 `CB_FEDERATION=1`일 때 모든 Compose 호출에 `--profile federation`을 붙이고, 기동 전에 `data/run/`(0770)과 `data/fedify/`(0700)를 만든다. `./cb-manuscript preflight` 출력의 `federation profile: enabled|disabled` 줄로 확인한다.
-3. 서비스 키 `data/auth/fedify_service.key`는 `claire migrate`(`install`·`update`의 한 단계)가 만든다. 이 파일이 없으면 Compose가 `fedify` 컨테이너를 시작하지 않는다(`create_host_path: false`).
-4. reverse proxy에 연합 경로 규칙을 넣는다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「Fedify 사이드카 경로」).
+1. 연합은 서버의 고유 기능이라 켜고 끄는 스위치가 없다(소유자 결정 GD4, 2026-11-22). `fedify` 서비스는 다른 서비스와 함께 뜬다. 필요하면 env 파일의 `CB_FEDIFY_PORT`(기본 `8790`, 개발 예시 `8791`)를 바꾼다. 이 포트는 `CB_API_PORT`나 역할 호스트 포트와 같을 수 없다. env 파일에 남아 있는 `CB_FEDERATION` 값은 읽지 않는다.
+2. `./cb-manuscript update`(새 서버는 `install`)를 실행한다. `cb-manuscript`는 기동과 마이그레이션 전에 `data/run/`(0770)과 `data/fedify/`(0700)를 만든다.
+3. 서비스 키 `data/auth/fedify_service.key`는 `claire migrate`(`install`·`update`의 한 단계)가 만든다. 이 파일이 없으면 Compose가 `fedify` 컨테이너를 시작하지 못한다(`create_host_path: false`). 그래서 마이그레이션을 한 번도 하지 않은 데이터 디렉터리에서 `./cb-manuscript up`만 실행하면 실패한다.
+4. reverse proxy에 연합 경로 규칙을 넣는다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「Fedify 사이드카 경로」). `CB_EDGE=1`(운영 전용)을 쓰면 외부 proxy는 모든 요청을 `CB_API_BIND:CB_API_PORT`로만 보내면 된다(같은 문서의 「edge 서비스」).
 5. 준비 검사를 실행한다.
 
 ```bash
 ./cb-manuscript app server check --federation --json
 ```
 
-6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 서버 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
+6. 준비 검사는 관문이 아니라 상태 보고다. 통과하면 다른 서버가 이 서버의 액터에 닿을 수 있고, 따로 켜는 단계는 없다. 콘솔 화면 `/admin/federation`은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록을 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다.
 
-사이드카는 `federation`이 `off`인 동안에도 heartbeat마다 공개 자가 검사를 한다. 그래서 리버스 프록시 규칙이 맞으면 스위치를 켜기 전에 GF6이 통과한다([FEDERATION.md](FEDERATION.md) §7.2).
+계정 하나의 연합을 멈추려면 그 계정의 프로필을 비공개로 바꾼다([FEDERATION.md](FEDERATION.md) §8.4). 서버 전체의 연합을 끄는 방법은 없다.
 
-끄려면 `/admin/federation` 화면에서 끄거나 `POST /api/admin/federation`으로 `off`를 보낸다(준비 검사 조건 없음). 컨테이너까지 내리려면 `CB_FEDERATION=0`으로 바꾸고 `./cb-manuscript up`을 다시 실행한다. `network` → `single` 모드 전환은 `federation`이 `on`이면 거부된다.
-
-### 파일
-
-| 경로 | 만드는 주체 | 내용 |
-| :--- | :--- | :--- |
-| `data/run/federation.sock` | `api` 프로세스 (기동할 때마다, `CB_FEDERATION` 값과 무관) | 내부 연합 API의 Unix 소켓, 권한 0660. 정상 종료 때 지우고, 남아 있던 소켓 파일은 다음 기동 때 교체한다 |
+| `data/run/federation.sock` | `api` 프로세스 (기동할 때마다) | 내부 연합 API의 Unix 소켓, 권한 0660. 정상 종료 때 지우고, 남아 있던 소켓 파일은 다음 기동 때 교체한다 |
 | `data/run/federation_heartbeat.json` | `api` 프로세스 | 사이드카가 마지막으로 보낸 heartbeat와 받은 시각. GF2·GF6이 읽는다. 120초보다 오래되면 검사 실패 |
 | `data/auth/fedify_service.key` | `claire migrate` | 내부 연합 API 서명용 서비스 키, 32바이트, 권한 0600. `fedify` 컨테이너에는 이 파일 하나만 읽기 전용으로 마운트된다 |
 | `data/fedify/fedify.db` (`-wal`, `-shm`) | 사이드카 | Fedify 캐시와 메시지 큐, 권한 0600. Claire는 이 파일을 읽지 않는다 |

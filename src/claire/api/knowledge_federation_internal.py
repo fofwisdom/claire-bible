@@ -285,7 +285,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         canonical = origin()
         conn = dbm.connect_existing(settings.db_file, readonly=True)
         try:
-            exists = access.federation_on(conn) and actors.shared_kb(conn, number) is not None
+            exists = actors.shared_kb(conn, number) is not None
         finally:
             conn.close()
         if not exists:
@@ -305,7 +305,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         conn = dbm.connect_existing(settings.db_file, readonly=True)
         try:
             # The keys of an actor whose knowledge base is gone are given while its last activity (the ``Delete`` of its record) waits, as for a purged account actor (FEDERATION.md Section 8.5).
-            allowed = access.federation_on(conn) and (actors.shared_kb(conn, number) is not None or outbox.has_open_task(conn, str(number)))
+            allowed = actors.shared_kb(conn, number) is not None or outbox.has_open_task(conn, str(number))
         finally:
             conn.close()
         if not allowed:
@@ -398,8 +398,8 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         canonical = origin()
         conn = dbm.connect_existing(settings.db_file)
         try:
-            # No activity goes out while the switch is off. The request changes data (the tasks that the state needs, and the leases), although the method is GET, as ``outbox-tasks`` does.
-            tasks = outbox.lease(conn, origin=canonical, now=now(), limit=limit) if access.federation_on(conn) else []
+            # The request changes data (the tasks that the state needs, and the leases), although the method is GET, as ``outbox-tasks`` does.
+            tasks = outbox.lease(conn, origin=canonical, now=now(), limit=limit)
             conn.commit()
             _drop_gone_kb_actor_keys(conn)
         finally:
@@ -428,7 +428,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
             return _error(400, "invalid_request")
         conn = dbm.connect_existing(settings.db_file)
         try:
-            reads = remote_documents.lease(conn, now=now(), limit=limit) if access.federation_on(conn) else []
+            reads = remote_documents.lease(conn, now=now(), limit=limit)
             conn.commit()
         finally:
             conn.close()
@@ -446,8 +446,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         def _apply() -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                # While the switch is off there is no exchange: the answer is not stored, and the read comes again after its lease.
-                read = remote_documents.record_result(conn, result.id, document=result.document, error=result.error, origin=canonical, now=now()) if access.federation_on(conn) else None
+                read = remote_documents.record_result(conn, result.id, document=result.document, error=result.error, origin=canonical, now=now())
                 conn.commit()
                 return read
             finally:
@@ -533,8 +532,8 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
             limit = int(raw)
         conn = dbm.connect_existing(settings.db_file)
         try:
-            # No server is read while the switch is off. The request changes data (the leases), although the method is GET, as ``outbox-tasks`` does.
-            due = known_servers.lease_reads(conn, now=now(), limit=limit) if access.federation_on(conn) else []
+            # The request changes data (the leases), although the method is GET, as ``outbox-tasks`` does.
+            due = known_servers.lease_reads(conn, now=now(), limit=limit)
             conn.commit()
         finally:
             conn.close()
@@ -578,8 +577,8 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         canonical = origin()
         conn = dbm.connect_existing(settings.db_file)
         try:
-            # No collection is read while the switch is off. The request changes data (the leases), although the method is GET, as ``knowledge-server-reads`` does.
-            due = remote_kbs.lease_reads(conn, now=now(), limit=limit) if access.federation_on(conn) else []
+            # The request changes data (the leases), although the method is GET, as ``knowledge-server-reads`` does.
+            due = remote_kbs.lease_reads(conn, now=now(), limit=limit)
             conn.commit()
         finally:
             conn.close()
@@ -603,8 +602,7 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
                         return None
                     conn.commit()
                     return KbReadBatchResponse(domain=batch.domain, stored=0, refused=0, refused_code=None, removed=None)
-                # While the switch is off there is no exchange: the batch is not stored, and the read stays open until its lease ends.
-                result = remote_kbs.record_batch(conn, batch.domain, items=batch.items, origin=canonical, now=when) if access.federation_on(conn) else None
+                result = remote_kbs.record_batch(conn, batch.domain, items=batch.items, origin=canonical, now=when)
                 if result is None:
                     return None
                 removed = remote_kbs.finish_read(conn, batch.domain, now=when) if batch.complete else None

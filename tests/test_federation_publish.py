@@ -78,7 +78,6 @@ def env(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         members = []
         for public_id, username in ((ALPHA_PUBLIC_ID, "member_alpha"), (BETA_PUBLIC_ID, "member_beta")):
             cur = conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 0, 0)", (public_id, username, username))
@@ -292,7 +291,7 @@ def test_only_a_document_of_a_public_theme_of_the_own_account_can_be_published(e
     assert _objects(env.settings) == [] and _tasks(env.settings) == []
 
 
-@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_not_public"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active"), ("UPDATE server_settings SET value='off' WHERE key='federation'", "federation_off")])
+@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_not_public"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active")])
 def test_an_account_that_is_not_an_actor_cannot_publish(env, change, state):
     conn = dbm.connect_existing(env.settings.db_file)
     conn.execute(change)
@@ -384,7 +383,6 @@ def test_retract_refuses_a_body_outside_the_model(env, body):
 def test_single_mode_has_no_publishing_routes(env):
     conn = dbm.connect_existing(env.settings.db_file)
     store = accounts_store.AccountStore(conn)
-    store.set_federation_state("off", updated_by=1)
     store.set_setting("mode", "single", updated_by=1)
     conn.close()
     for path, body in (("/api/federation/publish", {"kb": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
@@ -416,7 +414,6 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         alpha = int(conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'member_alpha', 'member', 'active', 'Alpha', 1, 0, 0, 0)", (ALPHA_PUBLIC_ID,)).lastrowid)
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))

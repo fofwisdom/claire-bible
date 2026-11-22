@@ -232,12 +232,12 @@ Deno.test("a rejected Follow gets a Reject only when the followed actor has a ke
     assert.equal((deliveries[0].body.object as Record<string, unknown>).id, "https://remote.example/activities/140");
 
     // An account that is not an actor has no key: no reply. A blocked domain gets no delivery.
-    for (const reason of ["not_an_actor", "blocked_domain", "invalid_actor", "federation_off"]) {
+    for (const reason of ["not_an_actor", "blocked_domain", "invalid_actor"]) {
       fake.decision = { decision: "rejected", reply: null, reason };
       await post("/ap/inbox", new Follow({ id: new URL(`https://remote.example/activities/${reason}`), actor: bob, object: new URL(ALICE_URL) }));
     }
     assert.equal(deliveries.length, 1);
-    assert.equal(sidecar.counters.rejected, 5);
+    assert.equal(sidecar.counters.rejected, 4);
   } finally {
     restore();
   }
@@ -281,12 +281,6 @@ Deno.test("inbox paths accept POST only, and are 404 when federation is not acti
     }
     assert.equal((await post("/ap/actors/216412345678901234/inbox", fixtureFollow())).status, 404);
     assert.equal((await post(`/ap/actors/${ALICE}`, fixtureFollow())).status, 405);
-    for (const state of [{ federation: "off" }, { federation: "off", mode: "single" }]) {
-      fake.config = state;
-      fake.now += 600;
-      assert.equal((await post(`/ap/actors/${ALICE}/inbox`, fixtureFollow())).status, 404);
-      assert.equal((await post("/ap/inbox", fixtureFollow())).status, 404);
-    }
     assert.deepEqual(fake.events, []);
   } finally {
     restore();

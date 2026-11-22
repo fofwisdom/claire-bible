@@ -71,7 +71,7 @@ class QuoteEventRequest(_Sealed):
 class QuoteEventResponse(_Sealed):
     decision: Literal["accepted", "rejected", "ignored"]
     # ``quote_refused``: the policy of the object refuses the request, and a ``quote_reject`` task sends the ``Reject``. ``no_quote``: the answer is for a note that has no quote now. ``not_the_author``: the answer does not come from the author of the quoted object.
-    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "no_object", "invalid_object", "recipient_mismatch", "rate_limited", "quote_refused", "no_quote", "not_the_author", "invalid_authorization", "unsupported_type"] | None
+    reason: Literal["invalid_actor", "blocked_domain", "no_object", "invalid_object", "recipient_mismatch", "rate_limited", "quote_refused", "no_quote", "not_the_author", "invalid_authorization", "unsupported_type"] | None
     # The state of the request or of the quote after the event, or ``None`` when the event changed nothing.
     state: Literal["pending", "approved", "refused", "revoked"] | None
 
@@ -108,7 +108,7 @@ def _same_origin(first: str, second: str) -> bool:
     return bool(a.netloc) and (a.scheme.lower(), a.netloc.lower()) == (b.scheme.lower(), b.netloc.lower())
 
 
-def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]], federation_active: Callable[[Any], bool]) -> list[BaseRoute]:
+def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]]) -> list[BaseRoute]:
     """The routes of this module. The callables are the helpers of ``federation_internal_routes``."""
 
     def answer(decision: Any, reason: Any = None, state: Any = None) -> QuoteEventResponse:
@@ -163,8 +163,6 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
         return answer("accepted", None, state if result == "changed" else None)
 
     def _decide(store: Any, client: Any, canonical: str, event: QuoteEventRequest) -> QuoteEventResponse:
-        if not federation_active(store):
-            return answer("rejected", "federation_off")
         hosts = [_remote_host(address, canonical) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return answer("rejected", "invalid_actor")

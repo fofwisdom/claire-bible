@@ -84,10 +84,9 @@ graph TD
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
-| `CB_FEDERATION` | `0` | 정확히 `0` 또는 `1` | Fedify 사이드카 스위치. `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile federation`을 붙여 `fedify` 서비스를 빌드·기동하고, 기동 전에 `data/run/`과 `data/fedify/`를 만든다. 컨테이너만 띄우며 서버 설정 `federation`은 바꾸지 않는다. 다른 값은 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §9 |
-| `CB_FEDIFY_PORT` | `8790` / `8791` | 정수 (`1~65535`) | 사이드카를 `CB_API_BIND`에 퍼블리시하는 호스트 포트. 컨테이너 포트는 항상 `8790`이다. `CB_FEDERATION=1`일 때 `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. reverse proxy가 연합 경로만 이 포트로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
+| `CB_FEDIFY_PORT` | `8790` / `8791` | 정수 (`1~65535`) | 사이드카(`fedify` 서비스, 스위치 없이 항상 뜬다)를 `CB_API_BIND`에 퍼블리시하는 호스트 포트. 컨테이너 포트는 항상 `8790`이다. `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. reverse proxy가 연합 경로만 이 포트로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
 | `CB_FEDIFY_IMAGE` | `claire-bible-fedify` | 문자열 | 사이드카 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. |
-| `CB_EDGE` | `0` | 정확히 `0` 또는 `1` | edge 서비스 스위치(운영 전용, `CB_FEDERATION=1` 필요). `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile edge`와 `docker-compose.edge.yml`을 붙인다. `edge` 서비스가 호스트 포트 `CB_API_PORT`를 갖고 `api`와 `fedify`는 호스트 포트가 없어진다. 외부 reverse proxy는 서버의 모든 호스트의 모든 요청을 `CB_API_BIND:CB_API_PORT`로 보내며 연합 경로 규칙이 필요 없다. development이거나 `CB_FEDERATION`이 `1`이 아니거나 다른 값이면 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §10.1 |
+| `CB_EDGE` | `0` | 정확히 `0` 또는 `1` | edge 서비스 스위치(운영 전용). `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile edge`와 `docker-compose.edge.yml`을 붙인다. `edge` 서비스가 호스트 포트 `CB_API_PORT`를 갖고 `api`와 `fedify`는 호스트 포트가 없어진다. 외부 reverse proxy는 서버의 모든 호스트의 모든 요청을 `CB_API_BIND:CB_API_PORT`로 보내며 연합 경로 규칙이 필요 없다. development이거나 다른 값이면 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §10.1 |
 | `CB_EDGE_IMAGE` | `claire-bible-edge` | 문자열 | edge 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. 빌드 컨텍스트는 `ops/edge/`다. |
 
 #### 2.2.1 Fedify 사이드카 컨테이너 (`CLAIRE_FEDIFY_*`)

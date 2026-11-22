@@ -918,12 +918,12 @@ def submit_to_themes(
     for document_id in documents:
         if conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=?", (document_id, int(personal_kb_id))).fetchone() is None:
             raise ContributionError(404, "document_not_found", document=document_id)
-    remote_on = False
+    # A target on another server needs the canonical origin of this server.
+    remote_on = origin is not None
     direct_remote = None
     if origin is not None:
-        from ..federation.knowledge import access, grants, offers, remote_kbs
+        from ..federation.knowledge import grants, offers, remote_kbs
 
-        remote_on = access.federation_on(conn)
     if remote_kb_id is not None:
         if theme_id is not None:
             raise ValueError("a submission has a theme or a remote knowledge base, not the two")

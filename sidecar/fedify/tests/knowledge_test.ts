@@ -248,11 +248,6 @@ Deno.test("a GET that a server actor signed gets the collection document of Clai
     assert.equal((await signed("GET", "/ap/kb?limit=5")).status, 404);
     assert.equal(knowledgeCalls().length, calls);
     assert.equal((await sidecar.handle(new Request(`${ORIGIN}/ap/kb`, { method: "POST", body: "{}" }))).status, 405);
-    // While federation is off, the path is not there.
-    fake.config = { federation: "off" };
-    fake.now += 10;
-    assert.equal((await sidecar.handle(new Request(`${ORIGIN}/ap/kb`, { headers: { accept: AS2 } }))).status, 404);
-    assert.equal(knowledgeCalls().length, calls);
   } finally {
     restore();
   }
@@ -298,12 +293,6 @@ Deno.test("the read job reads NodeInfo, the server actor, and the /kb collection
       const key = await verifyRequest(request, { documentLoader: remoteLoader, contextLoader: remoteLoader, currentTime: Temporal.Now.instant() });
       assert.equal(key?.ownerId?.href, `${ORIGIN}/ap/actors/server`, request.url);
     }
-    // While federation is off, the job asks Claire for nothing.
-    fake.config = { federation: "off" };
-    fake.now += 10;
-    const calls = fake.calls.length;
-    assert.equal(await sidecar.processKnowledgeReads(), 0);
-    assert.deepEqual(fake.calls.slice(calls), ["GET /internal/federation/v1/config"]);
   } finally {
     restore();
   }
@@ -543,13 +532,6 @@ Deno.test("the result of a delivery tells Claire if the task can come again", as
     const blocks = fixture("domain_blocks").response as { domains: string[] };
     assert.equal(await run(acceptTask(7, `https://${blocks.domains[0]}/ap/actors/server`)), "rejected blocked_domain");
     assert.equal(requests.length, before);
-    // While federation is off, the job asks Claire for nothing.
-    fake.config = { federation: "off" };
-    fake.now += 10;
-    const calls = fake.calls.length;
-    assert.equal(await sidecar.processKnowledgeOutbox(), 0);
-    assert.equal(await sidecar.processKnowledgeRemoteReads(), 0);
-    assert.deepEqual(fake.calls.slice(calls), ["GET /internal/federation/v1/config"]);
   } finally {
     restore();
   }

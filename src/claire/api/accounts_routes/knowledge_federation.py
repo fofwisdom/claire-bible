@@ -25,7 +25,6 @@ from starlette.routing import Route
 from ...collaboration import auto_contribution
 from ...federation.knowledge import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
 from ...federation.knowledge import actors, journal, known_servers, outbox, remote_documents, remote_kbs
-from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import federation as federation_store
 from ..principal import Principal, request_principal
@@ -112,7 +111,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return {
                     "servers": [known_server_view(conn, server) for server in known_servers.list_servers(conn)],
                     "switches": {
-                        "federation": accounts_store.AccountStore(conn).federation_state(),
                         "kb_auto_contribution": "on" if auto_contribution.switch_on(conn) else "off",
                         # Not a switch: a collection of shared knowledge always needs a signed request of a server actor (design Section 6.3).
                         "signed_get": "required",
@@ -278,8 +276,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 except journal.JournalError as exc:
                     if exc.code == "not_found":
                         return 404, {"error": "journal_entry_not_found"}
-                    if exc.code == "federation_off":
-                        return 409, {"error": "federation_off"}
                     return 409, {"error": "journal_entry_not_replayable", "states": list(journal.REPLAY_STATES)}
             finally:
                 conn.close()

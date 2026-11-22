@@ -1847,8 +1847,6 @@ def create_app(
         def _give() -> JSONResponse:
             conn = dbm.connect_existing(s.db_file)
             try:
-                if not kf_access.federation_on(conn):
-                    return JSONResponse({"error": "federation_off"}, status_code=409)
                 if canonical is None:
                     return JSONResponse({"error": "public_origin_missing"}, status_code=409)
                 domain = kf_access.remote_server_domain(actor, canonical)
@@ -1898,15 +1896,14 @@ def create_app(
                 grant = kf_grants.get_issued(conn, int(raw))
                 if grant is None or int(grant["kb_number"]) != int(kb.number):
                     return JSONResponse({"error": "grant_not_found"}, status_code=404)
-                federation = kf_access.federation_on(conn)
-                if federation and canonical is None:
+                if canonical is None:
                     # The ``Revoke`` needs the IRI of the knowledge base actor: the grant does not end without it, so that the other server is not left with a grant that this server ended.
                     return JSONResponse({"error": "public_origin_missing"}, status_code=409)
                 if kf_grants.issued_state(grant, now) != "active" or not kf_grants.revoke(conn, int(grant["id"]), account_id=int(principal.account_id), now=now):
                     return JSONResponse({"error": "grant_not_active"}, status_code=409)
 
                 # No ``Revoke`` goes to an address that is not one of another server now; the grant ends on this server, which is the authority for it.
-                if federation and canonical is not None and kf_access.remote_server_domain(grant["actor_iri"], canonical) is not None:
+                if kf_access.remote_server_domain(grant["actor_iri"], canonical) is not None:
                     kb_iri = kf_collections.knowledge_base_iris(canonical, int(kb.number))["id"]
                     kf_outbox.enqueue(conn, kf_vocabulary.build_revoke(activity_id=f"{grant['grant_iri']}/revoke", knowledge_base=kb_iri, account_actor=grant["actor_iri"], grant=grant["grant_iri"]), signer=str(int(kb.number)), recipients=[grant["actor_iri"]], origin=canonical, now=now)
                 kb_collab.log_moderation(conn, kb_id=kb.id, actor_account_id=int(principal.account_id), action="remote_collaborator_revoke", target=str(grant["actor_iri"]), now=now)
@@ -4171,8 +4168,6 @@ def create_app(
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             store = accounts_store.AccountStore(conn)
-            if store.federation_state() != "on":
-                return None
             try:
                 account = store.get(account_id)
             except accounts_store.AccountNotFound:

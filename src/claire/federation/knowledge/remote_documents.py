@@ -143,12 +143,10 @@ def sources_of(conn: sqlite3.Connection, kb_id: int) -> list[remote_kbs.RemoteKn
 
 
 def source_of(conn: sqlite3.Connection, *, kb_id: int, remote_kb_id: int) -> remote_kbs.RemoteKnowledgeBase:
-    """The remote knowledge base S that a reviewer of K curates from. ``SourceError(404, "source_not_found")`` for no record (or a record of a blocked domain); ``SourceError(409, "source_not_in_theme")`` when S shares no active theme with K; ``SourceError(409, "federation_off")`` while the switch is off."""
+    """The remote knowledge base S that a reviewer of K curates from. ``SourceError(404, "source_not_found")`` for no record (or a record of a blocked domain); ``SourceError(409, "source_not_in_theme")`` when S shares no active theme with K."""
     record = remote_kbs.get(conn, int(remote_kb_id))
     if record is None or federation_store.blocking_domain(conn, record.domain) is not None:
         raise SourceError(404, "source_not_found")
-    if not access.federation_on(conn):
-        raise SourceError(409, "federation_off")
     if record.id not in {source.id for source in sources_of(conn, kb_id)}:
         raise SourceError(409, "source_not_in_theme")
     return record

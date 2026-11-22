@@ -45,15 +45,9 @@ CB_ENV_FILE=.env.example \
 CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
   docker compose --env-file .env.example --env-file .env.dev.example \
     -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-# The same two models with the Compose profile `federation` active (service fedify).
-CB_ENV_FILE=.env.example \
-  docker compose --env-file .env.example --profile federation -f docker-compose.yml config --quiet
-CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
-  docker compose --env-file .env.example --env-file .env.dev.example --profile federation \
-    -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 # The production model with the edge service (CB_EDGE=1): the profile `edge` and the overlay that removes the host ports of api and fedify.
 CB_ENV_FILE=.env.example CB_EDGE_APP_HOST=claire.example.com \
-  docker compose --env-file .env.example --profile federation --profile edge \
+  docker compose --env-file .env.example --profile edge \
     -f docker-compose.yml -f docker-compose.edge.yml config --quiet
 
 # Volume specification assertions: /host-bin and /extra-certs must be present; Ubuntu system paths must not regress
@@ -66,7 +60,7 @@ if grep -Eq '^[[:space:]]*-[[:space:]]*/etc/(ssl/certs|ca-certificates|localtime
   exit 1
 fi
 
-# Fedify sidecar mount assertions: the service has the profile `federation`, mounts the service key file, and does not mount data/auth as a directory, the complete data directory, or the Claire database.
+# Fedify sidecar mount assertions: the service has no profile (it starts with the other services), mounts the service key file, and does not mount data/auth as a directory, the complete data directory, or the Claire database.
 for compose_file in docker-compose.yml docker-compose.dev.yml; do
   fedify_block="$(awk '/^  fedify:[[:space:]]*$/ {found=1; next} found && /^  [^[:space:]#]/ {found=0} found' "$compose_file")"
   [ -n "$fedify_block" ] || { echo "CI Error: service fedify missing in $compose_file"; exit 1; }
@@ -76,9 +70,8 @@ for compose_file in docker-compose.yml docker-compose.dev.yml; do
     exit 1
   fi
 done
-grep -Eq '^    profiles: \["federation"\]' docker-compose.yml || { echo "CI Error: service fedify must have the Compose profile federation"; exit 1; }
-if CB_ENV_FILE=.env.example docker compose --env-file .env.example -f docker-compose.yml config --services | grep -qx fedify; then
-  echo "CI Error: service fedify must not start when the profile federation is not active"
+if ! CB_ENV_FILE=.env.example docker compose --env-file .env.example -f docker-compose.yml config --services | grep -qx fedify; then
+  echo "CI Error: service fedify must start with the other services (federation has no switch)"
   exit 1
 fi
 

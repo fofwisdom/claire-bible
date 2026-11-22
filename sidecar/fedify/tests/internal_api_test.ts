@@ -52,7 +52,7 @@ Deno.test("a request outside the time window or with a different key is refused"
 });
 
 Deno.test("a response outside the sealed shape is an error", async () => {
-  for (const change of [{ extra_field: 1 }, { federation: "maybe" }, { federated_actors: "1" }, { trusted_proxies: [1] }, { software: { name: "claire-bible" } }, { limits: {} }, { domain_blocks_etag: null }]) {
+  for (const change of [{ extra_field: 1 }, { mode: "maybe" }, { federated_actors: "1" }, { trusted_proxies: [1] }, { software: { name: "claire-bible" } }, { limits: {} }, { domain_blocks_etag: null }]) {
     const { api, fake } = client();
     fake.config = change;
     await assert.rejects(api.config(), ContractError, JSON.stringify(change));

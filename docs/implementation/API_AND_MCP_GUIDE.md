@@ -364,7 +364,7 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 ### 2.7 연합 발행 API (`/api/federation/*`, 네트워크 모드)
 
-네이티브 연합 액터로 문서를 발행하거나 철회한다. 서버 설정 `federation`이 `on`이고 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다. 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
+네이티브 연합 액터로 문서를 발행하거나 철회한다. 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다(연합에는 서버 스위치가 없다). 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
 
 | 메서드 | 경로 | 스코프 | 기능 |
 | :--- | :--- | :--- | :--- |

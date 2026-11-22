@@ -36,7 +36,7 @@ def _fedify_block(name: str) -> str:
     return "\n".join(lines)
 
 
-def _compose_model(*, dev: bool, federation: bool) -> dict:
+def _compose_model(*, dev: bool) -> dict:
     argv = [DOCKER, "compose", "--project-directory", str(REPO_ROOT), "--env-file", str(REPO_ROOT / ".env.example")]
     env = {**os.environ, "CB_ENV_FILE": ".env.example"}
     for key in ("CB_DATA_DIR", "CB_UID", "CB_GID", "CB_API_BIND", "CB_API_PORT", "CB_FEDIFY_PORT", "CB_IMAGE_TAG", "CB_PROJECT_NAME", "CLAIRE_ENVIRONMENT"):
@@ -44,8 +44,6 @@ def _compose_model(*, dev: bool, federation: bool) -> dict:
     if dev:
         argv += ["--env-file", str(REPO_ROOT / ".env.dev.example")]
         env["CB_DEV_ENV_FILE"] = ".env.dev.example"
-    if federation:
-        argv += ["--profile", "federation"]
     argv += ["-f", str(REPO_ROOT / "docker-compose.yml")]
     if dev:
         argv += ["-f", str(REPO_ROOT / "docker-compose.dev.yml")]
@@ -67,9 +65,10 @@ def test_fedify_service_text_has_only_the_permitted_mounts(name):
         assert forbidden not in block
 
 
-def test_fedify_service_text_has_the_profile_and_the_claire_user():
+def test_fedify_service_text_has_no_profile_and_the_claire_user():
     block = _fedify_block("docker-compose.yml")
-    assert 'profiles: ["federation"]' in block
+    # Federation has no switch: the service starts with the other services.
+    assert "profiles:" not in block
     assert 'user: "${CB_UID:-1000}:${CB_GID:-1000}"' in block
     assert "context: sidecar/fedify" in block
     assert "condition: service_healthy" in block
@@ -112,16 +111,16 @@ def test_license_table_lists_each_locked_dependency_with_a_permitted_license():
 
 @pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
 @pytest.mark.parametrize("dev", [False, True])
-def test_compose_model_does_not_start_fedify_without_the_profile(dev):
-    model = _compose_model(dev=dev, federation=False)
-    assert "fedify" not in model["services"]
+def test_compose_model_starts_fedify_with_the_other_services(dev):
+    model = _compose_model(dev=dev)
+    assert "fedify" in model["services"] and "profiles" not in model["services"]["fedify"]
     assert "api" in model["services"]
 
 
 @pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
 @pytest.mark.parametrize(("dev", "data_dir", "host_port"), [(False, "data", "8790"), (True, ".dev/data", "8791")])
-def test_compose_model_with_the_profile_mounts_only_socket_directory_database_directory_and_key_file(dev, data_dir, host_port):
-    model = _compose_model(dev=dev, federation=True)
+def test_compose_model_mounts_only_socket_directory_database_directory_and_key_file(dev, data_dir, host_port):
+    model = _compose_model(dev=dev)
     fedify = model["services"]["fedify"]
     data = REPO_ROOT / data_dir
 
@@ -135,7 +134,6 @@ def test_compose_model_with_the_profile_mounts_only_socket_directory_database_di
     assert mounts["/data/auth/fedify_service.key"]["read_only"] is True
 
     assert fedify["user"] == "1000:1000"
-    assert fedify["profiles"] == ["federation"]
     assert "env_file" not in fedify
     assert set(fedify["environment"]) == {"TZ", "CLAIRE_FEDIFY_SOCKET", "CLAIRE_FEDIFY_SERVICE_KEY_FILE", "CLAIRE_FEDIFY_DB", "CLAIRE_FEDIFY_HOST", "CLAIRE_FEDIFY_PORT"}
     assert fedify["build"]["context"] == str(SIDECAR_DIR)

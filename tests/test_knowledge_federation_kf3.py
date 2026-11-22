@@ -175,11 +175,6 @@ def test_undo_removes_the_follower_and_a_personal_knowledge_base_is_no_actor(tmp
     if personal is not None:
         assert b.internal("GET", f"/knowledge-kb-actors/{personal[0]}").status_code == 404
         assert b.internal("GET", f"/knowledge-kb-actors/{personal[0]}/keys").status_code == 404
-    # While the switch is off, no actor document, no key, and no task.
-    b.db(lambda conn: accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1))
-    assert b.internal("GET", f"/knowledge-kb-actors/{B_KB_NUMBER}").status_code == 404
-    assert b.internal("GET", f"/knowledge-kb-actors/{B_KB_NUMBER}/keys").status_code == 404
-    assert _tasks(b) == []
 
 
 # --- This server follows a knowledge base actor of another server ----------------------------------

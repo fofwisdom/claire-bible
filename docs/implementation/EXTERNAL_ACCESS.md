@@ -148,7 +148,7 @@ server {
 
 ## Fedify 사이드카 경로 (연합)
 
-Fedify 사이드카를 쓰는 서버(`CB_FEDERATION=1`)에서는 reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
+Fedify 사이드카는 모든 서버에서 뜬다(연합에는 스위치가 없다). reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
 
 | 일치 방식 | 경로 | 목적지 |
 |---|---|---|
@@ -158,7 +158,7 @@ Fedify 사이드카를 쓰는 서버(`CB_FEDERATION=1`)에서는 reverse proxy�
 | 접두어 | `/ap/` | 사이드카 |
 
 - `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다. `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
-- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 서버 설정 `federation`이 `off`이거나 모드가 `single`이면 사이드카는 연합 경로에도 404를 낸다.
+- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 액터가 아닌 계정(프로필 비공개, USERNAME 없음, 비활성)의 경로는 사이드카가 404를 낸다.
 - 사이드카는 URL을 Claire가 알려 준 정규 origin으로 만들고 요청의 `Host`를 쓰지 않는다. `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` 헤더는 사이드카가 읽지 않고 지운다.
 - 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. proxy는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 사이드카로 넘기는 `Host`는 앱 호스트여야 한다. 사이드카는 본문을 1 MiB까지만 읽고 넘으면 413을 낸다.
 - 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.

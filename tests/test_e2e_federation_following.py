@@ -42,7 +42,6 @@ class _Sidecar:
 def env(tmp_path):
     settings, alpha, _beta = _prepare(tmp_path)
     # Alpha is an actor: federation on, public profile.
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (alpha,)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:

@@ -38,23 +38,21 @@ __all__ = [
     "settings_federation_body",
 ]
 
-ActorState = Literal["active", "account_not_active", "no_username", "federation_off", "profile_not_public"]
+ActorState = Literal["active", "account_not_active", "no_username", "profile_not_public"]
 
 # The text of each actor state is the catalog key ``console.federation.actor_state.<state>``. ``console_account.js`` reads the same keys.
-ACTOR_STATES = ("active", "account_not_active", "no_username", "federation_off", "profile_not_public")
+ACTOR_STATES = ("active", "account_not_active", "no_username", "profile_not_public")
 
 
-def actor_state(account: accounts_store.Account, *, federation: str) -> ActorState:
+def actor_state(account: accounts_store.Account) -> ActorState:
     """Return ``active`` when the account is a federation actor. If not, return the first condition of the actor rule that fails. The rule is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 
-    The sequence is: account status, USERNAME, server switch, ``profile_public``.
+    The sequence is: account status, USERNAME, ``profile_public``. Federation has no server switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
     """
     if account.status != "active":
         return "account_not_active"
     if not account.username:
         return "no_username"
-    if federation != "on":
-        return "federation_off"
     if not account.profile_public:
         return "profile_not_public"
     return "active"
@@ -67,10 +65,8 @@ def account_federation_status(ctx: AccountsContext, conn: sqlite3.Connection, ac
     """
     store = accounts_store.AccountStore(conn)
     account = store.get(account_id)
-    federation = store.federation_state()
-    state = actor_state(account, federation=federation)
+    state = actor_state(account)
     return {
-        "federation": federation,
         "handle": f"@{account.username}@{ctx.config.expected_authority}" if account.username else None,
         "actor_id": f"{ctx.config.public_origin}/ap/actors/{account.public_id}" if account.username else None,
         "is_actor": state == "active",
@@ -193,24 +189,20 @@ def _reading_settings_html(values: dict[str, Any]) -> str:
 def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     """Return the body and the bootstrap data of ``/admin/federation``.
 
-    The body has the switch state and the blocked domains. It does not do the readiness checks: ``console_admin.js`` gets them from ``GET /api/admin/federation``, because check GF7 sends a network request.
+    The body has the state card and the blocked domains. Federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4). The body does not do the readiness checks: ``console_admin.js`` gets them from ``GET /api/admin/federation``, because check GF7 sends a network request.
     """
     conn = open_db(ctx)
     try:
         store = accounts_store.AccountStore(conn)
-        federation = store.federation_state()
         mode = store.server_mode()
         blocks = federation_store.list_domain_blocks(conn)
         reading = federation_client_store.get_reading_settings(conn)
     finally:
         conn.close()
     reading_html = _reading_settings_html(reading)
-    target = "off" if federation == "on" else "on"
-    switch_label = t("console.federation.switch.turn_off") if federation == "on" else t("console.federation.switch.turn_on")
-    switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
     switch_kv = console_kv(
         [
-            {"label": t("console.federation.switch.state"), "value_html": f'<span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{escape(t("console.federation.switch.on") if federation == "on" else t("console.federation.switch.off"))}</span>'},
+            {"label": t("console.federation.switch.state"), "value_html": f'<span class="badge badge-enabled" data-federation-field="federation">{escape(t("console.federation.switch.always_on"))}</span>'},
             {"label": t("console.mode.title"), "value": t("console.mode.network") if mode == "network" else t("console.mode.single"), "attrs": {"data-federation-field": "mode"}},
         ]
     )
@@ -237,13 +229,11 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         escape(t("console.federation.switch.title")),
         switch_kv
         + f'<p class="hint">{escape(t("console.federation.switch.hint"))}</p>'
-        + console_actions(f'<button type="button" class="{switch_class}" data-federation-switch="{target}">{escape(switch_label)}</button>')
-        + console_result(id="admin-federation-switch-result")
         + auto_contrib_row
         + signed_get_row,
         id="admin-federation-switch",
         icon="globe",
-        attrs={"data-federation-state": federation, "aria-label": t("console.federation.switch.title")},
+        attrs={"aria-label": t("console.federation.switch.title")},
     )
     readiness_card = console_card(
         escape(t("console.federation.readiness.title")),
@@ -317,4 +307,4 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f'<div role="tabpanel" data-tabpanel="journal" hidden="until-found"><div class="claire-panel-inner">{console_host("admin-federation-journal-host")}</div></div>'
         "</div></div>"
     )
-    return body, {"federation": federation, "domain_blocks": [domain_block_view(block) for block in blocks]}
+    return body, {"domain_blocks": [domain_block_view(block) for block in blocks]}

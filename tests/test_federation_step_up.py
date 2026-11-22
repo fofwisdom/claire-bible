@@ -98,10 +98,6 @@ def _store_call(settings: _Settings, fn):
         conn.close()
 
 
-def _set_federation(settings: _Settings, state: str) -> None:
-    _store_call(settings, lambda store: store.set_federation_state(state, updated_by=1))
-
-
 def _is_public(settings: _Settings, account_id: int) -> bool:
     return _store_call(settings, lambda store: store.get(account_id).profile_public)
 
@@ -133,8 +129,7 @@ def env(tmp_path):
 # --- PATCH /api/me (module interface: route, store, and step-up rule) ---
 
 
-def test_change_to_public_needs_recent_authentication_when_federation_is_on(env):
-    _set_federation(env.settings, "on")
+def test_change_to_public_needs_recent_authentication(env):
     stale = _session(env.settings, env.member, authenticated_ago=STALE)
 
     refused = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1})
@@ -159,7 +154,6 @@ def test_change_to_public_needs_recent_authentication_when_federation_is_on(env)
 
 
 def test_pause_and_repeat_never_need_recent_authentication(env):
-    _set_federation(env.settings, "on")
     fresh = _session(env.settings, env.member)
     assert env.client.request("PATCH", "/api/me", session=fresh, json={"profile_public": 1}).status_code == 200
 
@@ -173,8 +167,7 @@ def test_pause_and_repeat_never_need_recent_authentication(env):
     assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1}).status_code == 401
 
 
-def test_bearer_credential_cannot_make_the_change_when_federation_is_on(env):
-    _set_federation(env.settings, "on")
+def test_bearer_credential_cannot_make_the_change(env):
     bearer = {"Authorization": f"Bearer {OWNER_TOKEN}"}
     refused = env.client.request("PATCH", "/api/me", headers=bearer, json={"profile_public": 1})
     assert refused.status_code == 403
@@ -182,26 +175,16 @@ def test_bearer_credential_cannot_make_the_change_when_federation_is_on(env):
     assert _is_public(env.settings, 1) is False
 
 
-def test_contract_is_unchanged_when_federation_is_off(env):
+def test_a_value_that_is_not_0_or_1_is_refused(env):
     stale = _session(env.settings, env.member, authenticated_ago=STALE)
-    accepted = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1})
-    assert accepted.status_code == 200 and accepted.json()["profile_public"] == 1
-    assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 0}).status_code == 200
-    bearer = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-    assert env.client.request("PATCH", "/api/me", headers=bearer, json={"profile_public": 1}).status_code == 200
     assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 2}).status_code == 400
 
 
 # --- /settings/account switch ---
 
 
-def test_switch_markup_shows_the_step_up_only_when_federation_is_on(env):
+def test_switch_markup_shows_the_step_up(env):
     session = _session(env.settings, env.member)
-    off = env.client.request("GET", "/settings/account", session=session).text
-    assert 'data-settings-toggle="profile-public"' in off
-    assert "data-step-up" not in off and "data-federation-hint" not in off
-
-    _set_federation(env.settings, "on")
     on = env.client.request("GET", "/settings/account", session=session).text
     assert 'data-settings-toggle="profile-public" data-step-up="password"' in on
     assert "data-federation-hint" in on and "are not deleted" in on
@@ -217,13 +200,8 @@ def test_profile_page_has_the_alternate_link_for_a_federation_actor_only(env):
     def profile(**kwargs):
         return env.client.request("GET", "/@member_alpha/", **kwargs)
 
-    # Federation off, public profile: no link.
+    # A public profile: link in the head and in the header, also for an anonymous reader.
     assert env.client.request("PATCH", "/api/me", session=session, json={"profile_public": 1}).status_code == 200
-    page = profile()
-    assert page.status_code == 200 and ALTERNATE not in page.text and "link" not in page.headers
-
-    # Federation on, public profile: link in the head and in the header, also for an anonymous reader.
-    _set_federation(env.settings, "on")
     page = profile()
     assert page.status_code == 200
     assert page.text.count(ALTERNATE) == 1 and page.text.index(ALTERNATE) < page.text.index("</head>")
@@ -232,7 +210,7 @@ def test_profile_page_has_the_alternate_link_for_a_federation_actor_only(env):
     negotiated = profile(headers={"Accept": "application/activity+json"})
     assert negotiated.headers["content-type"].startswith("text/html")
 
-    # Federation on, paused profile: the owner sees the page without the link.
+    # A paused profile: the owner sees the page without the link.
     assert env.client.request("PATCH", "/api/me", session=session, json={"profile_public": 0}).status_code == 200
     page = profile(session=session)
     assert page.status_code == 200 and ALTERNATE not in page.text and "link" not in page.headers
@@ -250,7 +228,6 @@ def test_e2e_step_up_dialog_makes_the_profile_public(tmp_path):
         port = int(probe.getsockname()[1])
     base = f"http://127.0.0.1:{port}"
     settings, member = _prepare(tmp_path, public_url=base, fqdn=f"127.0.0.1:{port}")
-    _set_federation(settings, "on")
     stale = _session(settings, member, authenticated_ago=STALE)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"))

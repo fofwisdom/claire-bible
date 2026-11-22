@@ -66,7 +66,7 @@ class _Settings:
 class KfServer:
     """One test server. ``now`` is the clock of the internal app; the store functions get the time of the request."""
 
-    def __init__(self, tmp_path: Path, origin: str, *, username: str, federation: str = "on", mode: str = "single") -> None:
+    def __init__(self, tmp_path: Path, origin: str, *, username: str, mode: str = "single") -> None:
         directory = tmp_path / origin.split("//", 1)[1]
         directory.mkdir(parents=True)
         self.origin = origin
@@ -78,7 +78,6 @@ class KfServer:
             store = accounts_store.AccountStore(conn)
             # Single mode (the default): the federation of shared knowledge works in single mode (design Section 15 rule 5).
             store.complete_setup(1, username=username, display_name=username)
-            store.set_federation_state(federation, updated_by=1)
             if mode != "single":
                 # Network mode has the root page (design Section 8.3).
                 store.set_setting("mode", mode, updated_by=1)
@@ -203,7 +202,6 @@ class KfWorld:
                 )
             store = accounts_store.AccountStore(conn)
             store.set_setting("mode", "network", updated_by=1)
-            store.set_federation_state("on", updated_by=1)
             conn.commit()
         finally:
             conn.close()

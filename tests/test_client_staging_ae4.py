@@ -98,7 +98,6 @@ def _setup_network_env(tmp_path: Path, *, alice_mode: str = "provider") -> Simpl
     _add_account(conn, 3, "bob", extraction_mode="provider")
     store = accounts_store.AccountStore(conn)
     store.set_setting("mode", "network", updated_by=1)
-    store.set_federation_state("on", updated_by=1)
     _add_kb(conn, db_file, kb_id=20, seq=1, label="Alice KB", account_id=2, personal=True)
     _add_kb(conn, db_file, kb_id=30, seq=2, label="Bob KB", account_id=3, personal=True)
     _add_kb(conn, db_file, kb_id=40, seq=3, label="Shared KB", account_id=None, personal=False)

@@ -38,9 +38,7 @@ DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
 ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
-# Fedify sidecar (federation design, Section 4.2): the switch that activates the Compose profile, the profile name, and the host port of the sidecar.
-FEDERATION_KEY = "CB_FEDERATION"
-FEDERATION_PROFILE = "federation"
+# Fedify sidecar (federation design, Section 4.2): the host port of the sidecar. The sidecar is a service of each installation: federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
 FEDIFY_PORT_KEY = "CB_FEDIFY_PORT"
 DEFAULT_FEDIFY_PORT = 8790
 # Edge service (docs/implementation/FEDERATION.md Section 10.1): the switch that activates the Compose profile and the overlay file, the profile name, and the variable that gives the edge the authority of the public origin.
@@ -301,7 +299,6 @@ class Runtime:
     wait_timeout: int
     bot_enabled: bool
     anonymous_readonly: bool
-    federation_enabled: bool = False
     # The edge service: the authority of the public origin, or an empty string when CB_EDGE is not 1.
     edge_app_host: str = ""
 
@@ -345,8 +342,6 @@ class Runtime:
             argv.extend(("--profile", "*"))
         elif self.bot_enabled:
             argv.extend(("--profile", "bot"))
-        if self.federation_enabled and not all_profiles:
-            argv.extend(("--profile", FEDERATION_PROFILE))
         if self.edge_enabled and not all_profiles:
             argv.extend(("--profile", EDGE_PROFILE))
         argv.extend(args)
@@ -964,15 +959,10 @@ def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
     return raw == "1"
 
 
-def _validate_federation(values: Mapping[str, str], *, port: int) -> bool:
-    """Return True when the operator activated the Compose profile of the Fedify sidecar."""
+def _validate_fedify_port(values: Mapping[str, str], *, port: int) -> None:
+    """The host port of the Fedify sidecar must be different from the other host ports."""
 
-    # The switch and the host port are Compose inputs, so the process environment wins, the same as CB_API_PORT.
-    raw = _effective(values, FEDERATION_KEY)
-    if raw not in {"", "0", "1"}:
-        raise ManuscriptError(f"{FEDERATION_KEY} must be exactly 0 or 1.")
-    if raw != "1":
-        return False
+    # The host port is a Compose input, so the process environment wins, the same as CB_API_PORT.
     fedify_port = _parse_role_port(values, FEDIFY_PORT_KEY) or DEFAULT_FEDIFY_PORT
     used = {"CB_API_PORT": port}
     for _role, _host_key, port_key in ROLE_HOST_SETTINGS:
@@ -984,10 +974,9 @@ def _validate_federation(values: Mapping[str, str], *, port: int) -> bool:
             raise ManuscriptError(
                 f"{FEDIFY_PORT_KEY} ({fedify_port}) must be different from {key}."
             )
-    return True
 
 
-def _validate_edge(values: Mapping[str, str], *, environment: str, federation_enabled: bool) -> str:
+def _validate_edge(values: Mapping[str, str], *, environment: str) -> str:
     """Return the authority of the public origin when the operator activated the edge service, else an empty string."""
 
     raw = _effective(values, EDGE_KEY)
@@ -998,8 +987,6 @@ def _validate_edge(values: Mapping[str, str], *, environment: str, federation_en
     if environment == DEVELOPMENT:
         # The development stack has a host port for each role host and for the prototype role. The edge has the host port of the app only.
         raise ManuscriptError(f"{EDGE_KEY}=1 is for production only. The development stack has host ports that the edge does not serve.")
-    if not federation_enabled:
-        raise ManuscriptError(f"{EDGE_KEY}=1 needs {FEDERATION_KEY}=1: the edge sends the federation paths to the Fedify sidecar.")
     fqdn = values.get("CLAIRE_FQDN", "").strip()
     if fqdn:
         authority = fqdn.split("://", 1)[1] if "://" in fqdn else fqdn
@@ -1017,8 +1004,6 @@ def _prepare_federation_mounts(runtime: Runtime) -> None:
     Compose does not make these paths (`create_host_path: false`), because Docker makes a missing path as root. The service key file is not made here: `claire migrate` makes it.
     """
 
-    if not runtime.federation_enabled:
-        return
     data = resolve_storage(runtime).data
     for name, mode in (("run", 0o770), ("fedify", 0o700)):
         path = data / name
@@ -1079,8 +1064,8 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     anonymous_readonly = _validate_anonymous_readonly(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
-    federation_enabled = _validate_federation(values, port=parsed_port)
-    edge_app_host = _validate_edge(values, environment=environment, federation_enabled=federation_enabled)
+    _validate_fedify_port(values, port=parsed_port)
+    edge_app_host = _validate_edge(values, environment=environment)
     return Runtime(
         layout=layout,
         environment=environment,
@@ -1089,7 +1074,6 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         wait_timeout=wait_timeout,
         bot_enabled=bot_enabled,
         anonymous_readonly=anonymous_readonly,
-        federation_enabled=federation_enabled,
         edge_app_host=edge_app_host,
     )
 
@@ -3605,7 +3589,6 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"profile: {runtime.environment}")
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
-    print(f"federation profile: {'enabled' if runtime.federation_enabled else 'disabled'}")
     print(f"edge profile: {'enabled' if runtime.edge_enabled else 'disabled'}")
     anonymous_status = "disabled"
     if runtime.anonymous_readonly:
@@ -3952,9 +3935,9 @@ def build_parser() -> argparse.ArgumentParser:
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
             "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
-            "  - Fedify sidecar switch CB_FEDERATION (exactly 0 or 1) and CB_FEDIFY_PORT\n"
+            "  - Fedify sidecar host port CB_FEDIFY_PORT\n"
             "      (different from CB_API_PORT and the role host ports)\n"
-            "  - Edge service switch CB_EDGE (exactly 0 or 1; production only; needs CB_FEDERATION=1)\n"
+            "  - Edge service switch CB_EDGE (exactly 0 or 1; production only)\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
             "  - data/ and vault/ directory permissions (0700)"
         ),
@@ -4168,7 +4151,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Start Docker Compose services.\n"
             "Running without arguments starts safely in background (-d --wait --wait-timeout <timeout>).\n"
             "Passing additional arguments forwards them to docker compose up.\n"
-            "CB_FEDERATION=1 adds the Compose profile `federation` (service fedify) to all commands.\n"
+            "The Fedify sidecar (service fedify) starts with the other services. Its service key comes from `update` or `install`.\n"
             "CB_EDGE=1 adds the Compose profile `edge` (service edge) and docker-compose.edge.yml: the edge has the host port CB_API_PORT."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

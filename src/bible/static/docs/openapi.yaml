@@ -855,7 +855,7 @@ paths:
         server), and `actor`; `mode` is `approved` (a grant in its term), `pending`, or `closed` (its
         server accepts no automatic contributions now; `documents` is empty). `remote_state` is `on`,
         or the reason that the rule has no target on another server now: `no_origin`,
-        `federation_off`, `not_a_federation_actor`.
+        `not_a_federation_actor`.
       operationId: dryRunAutoRule
       x-claire-access: owner
       security:
@@ -1192,7 +1192,7 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: '`{"servers": [{"domain", "status", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at", "kbs", "kb_read"}], "switches": {"federation", "kb_auto_contribution", "signed_get"}}`'
+          description: '`{"servers": [{"domain", "status", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at", "kbs", "kb_read"}], "switches": {"kb_auto_contribution", "signed_get"}}`'
         '404':
           description: Not the admin.
     post:
@@ -1313,8 +1313,7 @@ paths:
     post:
       summary: Process a failed row of the inbox journal again
       description: >-
-        Only a row with the state `failed` or `received`. While the switch `federation` is off
-        the row does not change (409 `federation_off`). Needs the same origin and a session with
+        Only a row with the state `failed` or `received`. Needs the same origin and a session with
         a recent sign-in. Writes `admin_audit` `federation.journal_replay`.
       operationId: replayKnowledgeJournalEntry
       x-claire-access: admin
@@ -1342,7 +1341,7 @@ paths:
         '404':
           description: '`journal_entry_not_found`, or not the admin.'
         '409':
-          description: '`journal_entry_not_replayable` (with `states`) or `federation_off`.'
+          description: '`journal_entry_not_replayable` (with `states`).'
 
   /api/reputation:
     get:
@@ -1749,7 +1748,7 @@ paths:
         '404':
           description: '`source_not_found` (also for a private personal knowledge base).'
         '409':
-          description: '`source_not_in_theme`, or `federation_off` for a source on another server.'
+          description: '`source_not_in_theme`.'
 
   /kb/{number}/remote-sources:
     get:
@@ -1804,7 +1803,7 @@ paths:
         '404':
           description: '`source_not_found` (no record, or a record of a blocked domain).'
         '409':
-          description: '`source_not_in_theme` or `federation_off`.'
+          description: '`source_not_in_theme`.'
 
   /kb/{number}/remote-collaborators:
     parameters:
@@ -1864,7 +1863,7 @@ paths:
         '403':
           description: '`step_up_requires_session`, `kb_capability_required`, or `scope_insufficient`.'
         '409':
-          description: '`blocked_domain`, `federation_off`, or `public_origin_missing` (the settings give no public URL; the IRIs of `Grant` come only from the configured public origin).'
+          description: '`blocked_domain` or `public_origin_missing` (the settings give no public URL; the IRIs of `Grant` come only from the configured public origin).'
 
   /kb/{number}/remote-collaborators/{grant}:
     delete:
@@ -4758,7 +4757,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  federation: {type: string, enum: ['off', 'on']}
                   handle: {type: [string, 'null'], description: '`@username@host`, or null when the account has no USERNAME.'}
                   actor_id: {type: [string, 'null']}
                   is_actor: {type: boolean}

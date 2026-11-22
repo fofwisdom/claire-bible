@@ -138,26 +138,21 @@ def test_e2e_edge_listener_gives_each_request_the_peer_address_that_the_edge_saw
 
 
 def _runtime_values(**changes: str) -> dict[str, str]:
-    values = {"CB_FEDERATION": "1", "CB_EDGE": "1", "CLAIRE_FQDN": "Claire.Example.com"}
+    values = {"CB_EDGE": "1", "CLAIRE_FQDN": "Claire.Example.com"}
     values.update(changes)
     return values
 
 
 def test_cb_manuscript_edge_switch_is_explicit(monkeypatch):
-    for key in ("CB_EDGE", "CB_FEDERATION"):
-        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("CB_EDGE", raising=False)
     validate = cb_manuscript._validate_edge
-    assert validate(_runtime_values(), environment="production", federation_enabled=True) == "claire.example.com"
-    assert validate(_runtime_values(CLAIRE_FQDN="", CLAIRE_PUBLIC_URL="https://claire.example.com/"), environment="production", federation_enabled=True) == "claire.example.com"
-    assert validate(_runtime_values(CB_EDGE="0"), environment="production", federation_enabled=True) == ""
-    assert validate({"CB_FEDERATION": "1", "CLAIRE_FQDN": "claire.example.com"}, environment="production", federation_enabled=True) == ""
-    for values, environment, federation in (
-        (_runtime_values(CB_EDGE="true"), "production", True),
-        (_runtime_values(), "development", True),
-        (_runtime_values(), "production", False),
-    ):
+    assert validate(_runtime_values(), environment="production") == "claire.example.com"
+    assert validate(_runtime_values(CLAIRE_FQDN="", CLAIRE_PUBLIC_URL="https://claire.example.com/"), environment="production") == "claire.example.com"
+    assert validate(_runtime_values(CB_EDGE="0"), environment="production") == ""
+    assert validate({"CLAIRE_FQDN": "claire.example.com"}, environment="production") == ""
+    for values, environment in ((_runtime_values(CB_EDGE="true"), "production"), (_runtime_values(), "development")):
         with pytest.raises(cb_manuscript.ManuscriptError):
-            validate(values, environment=environment, federation_enabled=federation)
+            validate(values, environment=environment)
 
 
 def test_edge_files_have_the_rules_of_the_reverse_proxy():
@@ -193,10 +188,10 @@ def test_compose_model_of_the_edge_has_one_host_port_and_one_mount():
         return json.loads(result.stdout)["services"]
 
     # Without the profile the service does not start, and api has its host port.
-    plain = model("--profile", "federation", "-f", str(ROOT / "docker-compose.yml"))
+    plain = model("-f", str(ROOT / "docker-compose.yml"))
     assert "edge" not in plain and len(plain["api"]["ports"]) == 1 and len(plain["fedify"]["ports"]) == 1
 
-    services = model("--profile", "federation", "--profile", "edge", "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "docker-compose.edge.yml"))
+    services = model("--profile", "edge", "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "docker-compose.edge.yml"))
     edge = services["edge"]
     assert [(port["target"], port["published"]) for port in edge["ports"]] == [(8080, plain["api"]["ports"][0]["published"])]
     assert not services["api"].get("ports") and not services["fedify"].get("ports")
@@ -262,7 +257,8 @@ def test_e2e_edge_image_passes_the_readiness_checks_with_one_upstream(tmp_path):
         assert record["knowledge_self_check"]["failed_paths"] == [] and {form["result"] for form in record["knowledge_self_check"]["signed"].values()} == {"ok"}, record
         check = subprocess.run([sys.executable, "-m", "claire_bible.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=90)
         items = {item["id"]: item for item in json.loads(check.stdout)["data"]["items"]}
-        assert [item_id for item_id, item in items.items() if not item["passed"]] == [], check.stdout
+        # Only the warning GF19 fails: no other server sent a request to this new server.
+        assert [item_id for item_id, item in items.items() if not item["passed"]] == ["GF19"], check.stdout
         assert len(items) == 20
 
         # The federation paths of another host go to Claire, which gives 404: they are paths of the app host only.

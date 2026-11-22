@@ -648,7 +648,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin", "none"),
     ("GET", "/api/admin/federation"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation"): _system("admin", "none"),
-    ("POST", "/api/admin/federation"): _system("admin", "none"),
     # Fedify sidecar design Sections 9.2 and 11 (unit FP2-4): domain blocks and the console section for the admin, the actor state and the followers for the owner of an account.
     ("GET", "/api/admin/federation/reading"): _system("admin", "none"),
     ("HEAD", "/api/admin/federation/reading"): _system("admin", "none"),

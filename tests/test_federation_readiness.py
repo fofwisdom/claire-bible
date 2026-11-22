@@ -1,4 +1,4 @@
-"""Federation readiness checks GF1 to GF20, the ``/api/admin/federation`` switch, and ``claire server check --federation`` (Fedify sidecar design Section 12, unit FP1-6; knowledge federation design Section 14, unit KF6).
+"""Federation readiness checks GF1 to GF20, the state route ``GET /api/admin/federation``, and ``claire server check --federation`` (Fedify sidecar design Section 12, unit FP1-6; knowledge federation design Section 14, unit KF6).
 
 No test calls a public server. The HTTP helpers use mock functions or servers on the loopback address.
 """
@@ -191,13 +191,14 @@ def _write_heartbeat(
                 "knowledge_exchange": {"running": False, "progress_at": received_at, "error": None, "error_at": None},
             }
         ),
-        "traffic": traffic if traffic is not None else _traffic(),
+        # Another server sent one request: the warning GF19 passes on the ready server.
+        "traffic": traffic if traffic is not None else _traffic(verified=1, hosts=1),
     }
     path.write_text(json.dumps(record), encoding="utf-8")
 
 
 def _prepare(tmp_path: Path, *, heartbeat_at: float, **overrides: Any) -> tuple[_Settings, int]:
-    """A network-mode server that passes all the checks: admin, one member, service key, and a heartbeat."""
+    """A network-mode server that passes all the checks: admin, one member, service key, the keys of the server actor, and a heartbeat."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
     conn = dbm.connect(settings.db_file)
     try:
@@ -212,8 +213,21 @@ def _prepare(tmp_path: Path, *, heartbeat_at: float, **overrides: Any) -> tuple[
         conn.close()
     auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path)).close()
     ensure_service_key(service_key_path(tmp_path))
+    # The sidecar makes the keys of the server actor at its first read. GF14 compares the document with the stored key.
+    _seed_actor_keys(settings)
     _write_heartbeat(tmp_path, received_at=heartbeat_at)
     return settings, member
+
+
+def _seed_actor_keys(settings: _Settings, *, kb_number: int | None = None) -> None:
+    secret = SecretService(key_path=federation_readiness.master_key_path(settings.data_dir))
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
+    try:
+        actor_keys.ensure_actor_keys(auth_conn, actor_keys.SERVER_ACTOR_ACCOUNT_ID, secret, now=NOW)
+        if kb_number is not None:
+            actor_keys.ensure_kb_actor_keys(auth_conn, kb_number, secret, now=NOW)
+    finally:
+        auth_conn.close()
 
 
 def _report(settings: _Settings, *, now: float = NOW, request=None, resolve=None, request_timeout: float = 20.0) -> dict[str, dict[str, Any]]:
@@ -260,10 +274,11 @@ def test_all_checks_pass_for_a_ready_server(ready):
     items = _report(ready)
     assert _failed(items) == []
     assert set(items["GF1"]) == {"id", "name", "group", "level", "applies", "passed", "code", "detail", "values"}
-    assert (items["GF14"]["applies"], items["GF15"]["applies"], items["GF16"]["applies"]) == (False, False, False)
+    # Federation has no switch: GF14 and GF16 apply on each server. GF15 needs a shared knowledge base.
+    assert (items["GF14"]["applies"], items["GF15"]["applies"], items["GF16"]["applies"]) == (True, False, True)
     assert items["GF17"]["level"] == "warning"
-    # GF18 applies to production only. GF19 and GF20 apply only while the switch is on.
-    assert [(items[i]["group"], items[i]["level"], items[i]["applies"]) for i in ("GF18", "GF19", "GF20")] == [("operation", "warning", False)] * 3
+    # GF18 applies to production only. GF20 does not apply without a delivery.
+    assert [(items[i]["group"], items[i]["level"], items[i]["applies"]) for i in ("GF18", "GF19", "GF20")] == [("operation", "warning", False), ("operation", "warning", True), ("operation", "warning", False)]
 
 
 def test_gf1_passes_in_single_mode_only_after_the_first_setup(ready):
@@ -278,8 +293,8 @@ def test_gf2_and_gf6_fail_when_there_is_no_heartbeat(ready):
     (ready.data_dir / HEARTBEAT_FILE).unlink()
     # Without the marker of the heartbeat, GF10 cannot tell that the answer came from this sidecar.
     items = _report(ready)
-    assert _failed(items) == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
-    assert items["GF10"]["code"] == "sidecar_unverified"
+    assert _failed(items) == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11", "GF14", "GF16", "GF19", "GF20"]
+    assert (items["GF10"]["code"], items["GF14"]["code"], items["GF19"]["code"]) == ("sidecar_unverified", "sidecar_unverified", "traffic_unknown")
 
 
 def test_gf2_and_gf6_fail_when_the_heartbeat_is_old(ready):
@@ -287,7 +302,7 @@ def test_gf2_and_gf6_fail_when_the_heartbeat_is_old(ready):
     _write_heartbeat(ready.data_dir, received_at=NOW - limit)
     assert _failed(_report(ready)) == []
     _write_heartbeat(ready.data_dir, received_at=NOW - limit - 1)
-    assert _failed(_report(ready)) == ["GF2", "GF6", "GF8", "GF9", "GF10"]
+    assert _failed(_report(ready)) == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF14", "GF16", "GF19", "GF20"]
 
 
 def test_gf2_fails_when_the_contract_major_version_is_different(ready):
@@ -316,7 +331,8 @@ def test_gf3_fails_when_the_service_key_length_is_wrong(ready):
 def test_gf4_fails_without_a_master_key_and_does_not_make_a_key_file(ready, monkeypatch):
     monkeypatch.delenv("CLAIRE_SECRET_KEY")
     key_file = federation_readiness.master_key_path(ready.data_dir)
-    assert _failed(_report(ready)) == ["GF4"]
+    # Without a master key the keys of the server actor cannot be decrypted (GF12).
+    assert _failed(_report(ready)) == ["GF4", "GF12"]
     assert not key_file.exists()
 
 
@@ -324,16 +340,17 @@ def test_gf4_reads_the_master_key_file(ready, monkeypatch):
     monkeypatch.delenv("CLAIRE_SECRET_KEY")
     key_file = federation_readiness.master_key_path(ready.data_dir)
     key_file.write_bytes(b"m" * 32)
-    assert _failed(_report(ready)) == []
+    # The file is a valid master key, but not the key that encrypted the keys of the server actor (GF12).
+    assert _failed(_report(ready)) == ["GF12"]
     key_file.write_bytes(b"m" * 8)
-    assert _failed(_report(ready)) == ["GF4"]
+    assert _failed(_report(ready)) == ["GF4", "GF12"]
     assert key_file.read_bytes() == b"m" * 8
 
 
 def test_gf5_passes_for_an_https_origin_in_production(tmp_path):
     origin = "https://claire.example.com"
     settings, _member = _prepare(tmp_path, heartbeat_at=NOW - 10, environment="production", public_url=origin + "/", fqdn="claire.example.com")
-    assert _failed(_report(settings, request=_public_request(origin))) == []
+    assert _failed(_report(settings, request=_public_request(origin, data_dir=settings.data_dir))) == []
 
 
 def test_gf5_fails_for_an_http_origin_in_production(tmp_path):
@@ -341,8 +358,8 @@ def test_gf5_fails_for_an_http_origin_in_production(tmp_path):
     items = _report(settings)
     assert items["GF5"]["passed"] is False
     assert "https" in items["GF5"]["detail"]
-    # Invalid origin config makes GF5, GF7, GF10, GF13, GF17, and GF18 fail.
-    assert _failed(items) == ["GF5", "GF7", "GF10", "GF13", "GF17", "GF18"]
+    # Invalid origin config makes GF5, GF7, GF10, GF13, GF14, GF16, GF17, and GF18 fail.
+    assert _failed(items) == ["GF5", "GF7", "GF10", "GF13", "GF14", "GF16", "GF17", "GF18"]
 
 
 def test_gf6_fails_when_the_public_self_check_did_not_pass_and_tells_who_answered(ready):
@@ -456,10 +473,6 @@ def _session(settings: _Settings, account_id: int, *, authenticated_ago: float =
         conn.close()
 
 
-def _federation(settings: _Settings) -> str:
-    return _store_call(settings, lambda store: store.federation_state())
-
-
 def _audit_rows(settings: _Settings) -> list[tuple[int, str, str | None]]:
     conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
     try:
@@ -477,32 +490,6 @@ def env(tmp_path, monkeypatch):
         yield SimpleNamespace(client=_Client(tc), settings=settings, member=member, admin=_session(settings, 1))
 
 
-def test_switch_refuses_on_when_a_readiness_check_fails(env):
-    _write_heartbeat(env.settings.data_dir, received_at=time.time(), ok=False, answer=_probe_answer("/.well-known/webfinger"))
-
-    response = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
-
-    assert response.status_code == 400
-    body = response.json()
-    assert body["error"] == "readiness_failed"
-    assert [item["id"] for item in body["failures"]] == ["GF6"]
-    assert _federation(env.settings) == "off"
-    assert _audit_rows(env.settings) == []
-
-
-def test_switch_accepts_off_when_the_readiness_checks_fail(env):
-    _store_call(env.settings, lambda store: store.set_federation_state("on", updated_by=1))
-    (env.settings.data_dir / HEARTBEAT_FILE).unlink()
-    service_key_path(env.settings.data_dir).unlink()
-
-    response = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "off"})
-
-    assert response.status_code == 200
-    assert response.json() == {"federation": "off", "changed": True}
-    assert _federation(env.settings) == "off"
-    assert _audit_rows(env.settings) == [(1, "federation.update", '{"federation": "off"}')]
-
-
 def test_status_shows_the_failed_checks_and_no_heartbeat(env):
     (env.settings.data_dir / HEARTBEAT_FILE).unlink()
 
@@ -510,43 +497,28 @@ def test_status_shows_the_failed_checks_and_no_heartbeat(env):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"federation", "mode", "readiness", "heartbeat"}
-    assert (body["federation"], body["mode"], body["heartbeat"]) == ("off", "network", None)
+    # The answer has no state of a switch: federation has no switch.
+    assert set(body) == {"mode", "readiness", "heartbeat"}
+    assert (body["mode"], body["heartbeat"]) == ("network", None)
     assert body["readiness"]["passed"] is False
-    assert [item["id"] for item in body["readiness"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
+    assert [item["id"] for item in body["readiness"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11", "GF14", "GF16", "GF19", "GF20"]
 
 
-@pytest.mark.parametrize("method,payload", [("GET", None), ("POST", {"federation": "on"})])
-def test_member_and_anonymous_principal_get_404(env, method, payload):
+def test_member_and_anonymous_principal_get_404(env):
     member = _session(env.settings, env.member)
-    kwargs = {} if payload is None else {"json": payload}
-
     for session in (member, None):
-        response = env.client.request(method, "/api/admin/federation", session=session, **kwargs)
+        response = env.client.request("GET", "/api/admin/federation", session=session)
         assert response.status_code == 404
         assert response.text == "Not Found"
-    assert _federation(env.settings) == "off"
 
 
-@pytest.mark.parametrize("payload", [{"federation": "on", "force": True}, {"federation": "enabled"}, {"federation": True}, {}])
-def test_switch_refuses_unknown_fields_and_values(env, payload):
+@pytest.mark.parametrize("payload", [{"federation": "off"}, {"federation": "on"}])
+def test_there_is_no_route_that_changes_a_federation_switch(env, payload):
+    """Federation is a function of each server (FEDERATION_GO_LIVE_DESIGN.md decision GD4). The old route is closed, and a stored value of the old switch has no effect."""
     response = env.client.request("POST", "/api/admin/federation", session=env.admin, json=payload)
-
-    assert response.status_code == 400
-    assert response.json()["error"] == "invalid_request"
-    assert _federation(env.settings) == "off"
-
-
-def test_switch_needs_recent_authentication_and_the_same_origin(env):
-    stale = _session(env.settings, 1, authenticated_ago=STALE)
-
-    no_step_up = env.client.request("POST", "/api/admin/federation", session=stale, json={"federation": "on"})
-    cross_origin = env.client.request("POST", "/api/admin/federation", session=env.admin, headers={"Origin": "https://attacker.example"}, json={"federation": "on"})
-
-    assert no_step_up.status_code == 401
-    assert no_step_up.json()["error"] == "reauth_required"
-    assert cross_origin.status_code == 403
-    assert _federation(env.settings) == "off"
+    assert response.status_code in (404, 405)
+    assert _store_call(env.settings, lambda store: store.get_setting("federation")) is None
+    assert _audit_rows(env.settings) == []
 
 
 # --- claire server check --federation (CLI output) ---
@@ -579,59 +551,45 @@ def test_cli_federation_check_exits_with_1_when_a_check_fails(tmp_path, monkeypa
     assert code == 1
     assert (output["status"], output["exit_code"]) == ("error", 1)
     assert output["data"]["passed"] is False
-    assert [item["id"] for item in output["data"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
+    assert [item["id"] for item in output["data"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11", "GF14", "GF16", "GF19", "GF20"]
 
 
 # --- End-to-end ---
 
 
-def test_e2e_admin_turns_federation_on_and_reads_the_state(env):
-    before = env.client.request("GET", "/api/admin/federation", session=env.admin)
-    assert before.status_code == 200
-    assert before.json()["federation"] == "off"
-    assert before.json()["readiness"]["passed"] is True
-    assert [item["id"] for item in before.json()["readiness"]["items"]] == ALL_IDS
-
-    changed = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
-    assert changed.status_code == 200
-    assert changed.json() == {"federation": "on", "changed": True}
-
-    after = env.client.request("GET", "/api/admin/federation", session=env.admin)
-    assert after.json()["federation"] == "on"
-    assert after.json()["mode"] == "network"
-    assert after.json()["heartbeat"]["self_check"]["ok"] is True
-    assert after.json()["heartbeat"]["contract_version"] == federation_routes.CONTRACT_VERSION
-    assert _federation(env.settings) == "on"
-    assert _audit_rows(env.settings) == [(1, "federation.update", '{"federation": "on"}')]
-
-    again = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
-    assert again.json() == {"federation": "on", "changed": False}
-    assert len(_audit_rows(env.settings)) == 1
+def test_e2e_admin_reads_the_state_of_a_server_that_federates_without_a_switch(env):
+    state = env.client.request("GET", "/api/admin/federation", session=env.admin)
+    assert state.status_code == 200
+    body = state.json()
+    assert body["mode"] == "network" and "federation" not in body
+    assert body["readiness"]["passed"] is True
+    assert [item["id"] for item in body["readiness"]["items"]] == ALL_IDS
+    # The checks of the documents apply at once: there is no switch to turn on first.
+    assert [(item["id"], item["applies"], item["passed"]) for item in body["readiness"]["items"] if item["id"] in ("GF14", "GF16")] == [("GF14", True, True), ("GF16", True, True)]
+    assert body["heartbeat"]["self_check"]["ok"] is True
+    assert body["heartbeat"]["contract_version"] == federation_routes.CONTRACT_VERSION
+    # A value that an older version stored for the switch is not read.
+    _store_call(env.settings, lambda store: store.set_setting("federation", "off", updated_by=1))
+    again = env.client.request("GET", "/api/admin/federation", session=env.admin).json()
+    assert again["readiness"]["passed"] is True and "federation" not in again
+    assert _audit_rows(env.settings) == []
 
 
 # --- Checks GF8 to GF20, trust store, and deadline (KF6, GL1, GL2) ---
 
 
-def _enable_federation(settings: _Settings, *, kb_number: int | None = None, auto_on: bool = False) -> None:
+def _add_shared_kb(settings: _Settings, *, kb_number: int, auto_on: bool = False) -> None:
+    """Add a public shared knowledge base with the keys of its actor."""
     conn = dbm.connect_existing(settings.db_file)
     try:
         store = accounts_store.AccountStore(conn)
-        store.set_federation_state("on", updated_by=1)
         if auto_on:
             store.set_setting("kb_auto_contribution", "on", updated_by=1)
-        if kb_number is not None:
-            conn.execute("INSERT INTO knowledge_bases (seq, label, is_personal, is_public, created_at, updated_at, number, knowledge_type) VALUES (?, 'Shared KB', 0, 1, 1, 1, ?, 'real')", (kb_number, kb_number))
-            conn.commit()
+        conn.execute("INSERT INTO knowledge_bases (seq, label, is_personal, is_public, created_at, updated_at, number, knowledge_type) VALUES (?, 'Shared KB', 0, 1, 1, 1, ?, 'real')", (kb_number, kb_number))
+        conn.commit()
     finally:
         conn.close()
-    secret = SecretService(key_path=federation_readiness.master_key_path(settings.data_dir))
-    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(settings.data_dir))
-    try:
-        actor_keys.ensure_actor_keys(auth_conn, actor_keys.SERVER_ACTOR_ACCOUNT_ID, secret, now=NOW)
-        if kb_number is not None:
-            actor_keys.ensure_kb_actor_keys(auth_conn, kb_number, secret, now=NOW)
-    finally:
-        auth_conn.close()
+    _seed_actor_keys(settings, kb_number=kb_number)
 
 
 def _write_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
@@ -773,7 +731,7 @@ def test_gf10_sends_max_inbox_body_and_the_two_media_types_and_needs_this_sideca
     assert seen == [(federation_readiness.GF10_INBOX_BODY_BYTES, "application/activity+json", agent), (15, 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"', agent)]
 
     def report(custom) -> dict[str, Any]:
-        items = _report(ready, request=_public_request(ready.public_url, overrides={("POST", "/ap/inbox"): custom}))
+        items = _report(ready, request=_public_request(ready.public_url, data_dir=ready.data_dir, overrides={("POST", "/ap/inbox"): custom}))
         assert _failed(items) == ["GF10"]
         return items["GF10"]
 
@@ -830,8 +788,14 @@ def test_gf11_checks_knowledge_loops_progress_and_last_error(ready):
 
 
 def test_gf12_verifies_actor_key_decryption_and_lists_up_to_five_owners(ready, monkeypatch):
-    items = _report(ready)
-    assert items["GF12"]["code"] == "actor_keys_empty"
+    # A server without an actor key (the sidecar did not read the server actor yet).
+    auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(ready.data_dir))
+    try:
+        auth_conn.execute("DELETE FROM actor_keys")
+        auth_conn.commit()
+    finally:
+        auth_conn.close()
+    assert _report(ready)["GF12"]["code"] == "actor_keys_empty"
 
     secret = SecretService(key_path=federation_readiness.master_key_path(ready.data_dir))
     auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(ready.data_dir))
@@ -892,19 +856,17 @@ def test_gf13_rejects_special_use_domains_in_production_and_allows_test_in_dev(t
     origin = f"https://claire.{suffix}"
     prod, _ = _prepare(tmp_path / f"prod_{suffix}", heartbeat_at=NOW - 10, environment="production", public_url=origin, fqdn=f"claire.{suffix}")
     (tmp_path / f"prod_{suffix}").mkdir(exist_ok=True)
-    items = _report(prod, request=_public_request(origin))
+    items = _report(prod, request=_public_request(origin, data_dir=prod.data_dir))
     assert _failed(items) == ["GF13"]
     assert items["GF13"]["code"] == "special_use_host"
 
     if suffix == "test":
         dev, _ = _prepare(tmp_path / "dev_test", heartbeat_at=NOW - 10, environment="development", public_url=origin, fqdn=f"claire.{suffix}")
-        assert _failed(_report(dev, request=_public_request(origin))) == []
+        assert _failed(_report(dev, request=_public_request(origin, data_dir=dev.data_dir))) == []
 
 
-def test_gf14_gf15_gf16_apply_when_federation_is_on_and_detect_faults(ready):
-    _enable_federation(ready, kb_number=77, auto_on=False)
-    # Another server sent a request: GF19 passes.
-    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=1, hosts=1))
+def test_gf14_gf15_gf16_detect_faults(ready):
+    _add_shared_kb(ready, kb_number=77)
     items = _report(ready)
     assert _failed(items) == []
     assert (items["GF14"]["applies"], items["GF15"]["applies"], items["GF16"]["applies"]) == (True, True, True)
@@ -946,17 +908,14 @@ def test_gf14_gf15_gf16_apply_when_federation_is_on_and_detect_faults(ready):
     assert accepts == ["application/activity+json", 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"']
 
 
-def test_gf15_does_not_apply_when_federation_is_on_without_shared_kbs(ready):
-    _enable_federation(ready, kb_number=None)
-    # Another server sent a request: GF19 passes.
-    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=1, hosts=1))
+def test_gf15_does_not_apply_without_shared_kbs(ready):
     items = _report(ready)
     assert _failed(items) == []
     assert items["GF15"]["applies"] is False and items["GF15"]["passed"] is True and items["GF15"]["code"] == "no_shared_kb"
 
 
 def test_gf17_is_a_warning_and_never_fails_the_report(ready):
-    no_cors = _public_request(ready.public_url, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, **CLAIRE}, body=vocabulary.context_json().encode())})
+    no_cors = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, **CLAIRE}, body=vocabulary.context_json().encode())})
     conn = dbm.connect_existing(ready.db_file)
     try:
         report = federation_readiness.check_federation_readiness(conn, ready, now=NOW, request=no_cors)
@@ -966,7 +925,7 @@ def test_gf17_is_a_warning_and_never_fails_the_report(ready):
     by_id = {item.id: item for item in report.items}
     assert by_id["GF17"].level == "warning" and by_id["GF17"].passed is False and by_id["GF17"].code == "ns_context_failed"
 
-    bad_vocab = _public_request(ready.public_url, overrides={("GET", "/ns"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
+    bad_vocab = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ns"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
     items = _report(ready, request=bad_vocab)
     assert items["GF17"]["passed"] is False and items["GF17"]["code"] == "ns_vocabulary_failed"
 
@@ -1012,9 +971,9 @@ def test_default_resolver_gives_the_addresses_of_a_host():
     assert federation_readiness.resolve_host("127.0.0.1") == ["127.0.0.1"]
 
 
-def test_gf19_and_gf20_read_the_traffic_counters_while_federation_is_on(ready):
-    _enable_federation(ready)
+def test_gf19_and_gf20_read_the_traffic_counters(ready):
     # No request of another server and no delivery: GF19 is a failed warning, GF20 does not apply.
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic())
     items = _report(ready)
     assert _failed(items) == ["GF19"]
     assert (items["GF19"]["level"], items["GF19"]["code"], items["GF19"]["values"]) == ("warning", "no_inbound", {"host": "127.0.0.1:8765", "rejected": 0})
@@ -1057,25 +1016,9 @@ def test_request_checks_enforce_shared_deadline(ready):
     assert items["GF17"]["detail"] == "The check did not end in 20 seconds."
 
 
-def test_pq14_switch_blocks_on_kf_required_failure_but_allows_warning_only(env, monkeypatch, capsys):
-    _write_heartbeat(env.settings.data_dir, received_at=time.time(), knowledge_self_check={"checked_at": time.time(), "failed_paths": ["/ap/actors/server"], "answers": [_probe_answer("/ap/actors/server")], "signed": _signed()})
-    blocked = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
-    assert blocked.status_code == 400
-    assert [item["id"] for item in blocked.json()["failures"]] == ["GF8"]
-
-    _write_heartbeat(env.settings.data_dir, received_at=time.time())
+def test_a_failed_warning_does_not_change_the_result_of_the_report_or_the_exit_code(env, monkeypatch, capsys):
     warning_only = _public_request(PUBLIC_URL, data_dir=env.settings.data_dir, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=302, headers={"location": "/other", **CLAIRE}, body=b"")})
     monkeypatch.setattr(federation_readiness, "request_public_origin", warning_only)
-
-    allowed = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
-    assert allowed.status_code == 200
-    assert allowed.json() == {"federation": "on", "changed": True}
-
-    conn = dbm.connect_existing(env.settings.db_file)
-    try:
-        accounts_store.AccountStore(conn).set_federation_state("off", updated_by=1)
-    finally:
-        conn.close()
     monkeypatch.setattr("claire.cli.get_settings", lambda: env.settings)
     code = cli.main(["server", "check", "--federation", "--json"])
     assert code == 0

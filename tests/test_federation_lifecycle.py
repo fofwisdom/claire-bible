@@ -86,7 +86,6 @@ def env(tmp_path):
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
         store.set_setting("mode", "network", updated_by=1)
-        store.set_federation_state("on", updated_by=1)
         members = []
         for public_id, username in ((ALPHA_PUBLIC_ID, "member_alpha"), (BETA_PUBLIC_ID, "member_beta")):
             cur = conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 0, 0)", (public_id, username, username))
@@ -188,11 +187,9 @@ def test_display_name_change_of_an_actor_makes_an_update_actor_task(env):
         store.update_display_name(env.alpha, "Alpha Kim")
         assert _new_tasks(env.settings) == [(env.alpha, "update_actor", None, "pending", None)]
 
-        # A paused account, and a server with federation off, send nothing.
+        # A paused account sends nothing.
         store.update_profile_public(env.beta, 0)
         store.update_display_name(env.beta, "Beta Kim")
-        store.set_federation_state("off", updated_by=1)
-        store.update_display_name(env.alpha, "Alpha Park")
         assert len(_new_tasks(env.settings)) == 1
     finally:
         conn.close()

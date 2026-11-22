@@ -225,7 +225,7 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
   - **v6 (key decryption audit, 2026-11-19)**: adds the table `provider_key_decryptions` (primary key `account_id, provider, fingerprint, process, purpose, minute`; `count`, `first_at`, `last_at`) and the index on `last_at`. `CREATE TABLE IF NOT EXISTS` makes it in an older file; no data changes. See [ACCOUNTS.md](ACCOUNTS.md) §5.8.
 - **[코드]** 저장된 값이 5보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
-- **[코드]** 연합 스위치 `server_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `server_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 그 시점의 claire.db는 v16 그대로였다([FEDERATION.md](FEDERATION.md) §7.1).
+- **[코드]** 예전 연합 스위치 `server_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `server_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 2026-11-22에 스위치를 없앴다(연합은 끌 수 없는 고유 기능, 결정 GD4). 스키마는 바뀌지 않았고, 남아 있는 `federation` 행은 읽지 않는다([FEDERATION.md](FEDERATION.md) §7.1).
 
 ## 운영 경계
 

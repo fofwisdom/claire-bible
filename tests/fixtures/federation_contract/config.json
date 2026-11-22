@@ -5,11 +5,10 @@
   },
   "status": 200,
   "response": {
-    "contract_version": "1.13",
+    "contract_version": "1.14",
     "canonical_origin": "https://claire.example.com",
     "handle_host": "claire.example.com",
     "mode": "network",
-    "federation": "on",
     "software": {
       "name": "claire-bible",
       "version": "0.0.0+fixture"

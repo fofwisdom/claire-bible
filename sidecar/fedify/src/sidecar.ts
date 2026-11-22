@@ -9,7 +9,7 @@
 // - The followers collection shows the total to the public and no follower.
 // - Each answer has the header SIDECAR_HEADER with a random value of this process. The public self-check uses it to see that a request through the public origin gets to this sidecar. The value shows no server data.
 // - Cookie and Authorization headers are removed before a request gets to Fedify. A response never sets a cookie.
-// - When federation is off, each path returns the same 404. The mode is not a condition: the server actor, the knowledge federation, and the account actors work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2); Claire decides which account is an actor.
+// - Federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4). The mode is not a condition: the server actor, the knowledge federation, and the account actors work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2); Claire decides which account is an actor.
 // - The option that permits private network addresses is never set (design Section 13, FS1). A test reads this directory to make sure.
 // - A published object is an Article. Claire supplies its canonical form and decides if it is public. A deleted object gets 410 with a Tombstone.
 // - The outbox collection has one Create for each public object. The item refers to the object by its ID.
@@ -247,7 +247,6 @@ export class Sidecar {
       console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
       return new Response("Service Unavailable", { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "5" } });
     }
-    if (config.federation !== "on") return notFound();
 
     const headers = new Headers(request.headers);
     for (const name of REMOVED_REQUEST_HEADERS) headers.delete(name);
@@ -318,7 +317,7 @@ export class Sidecar {
     }
   }
 
-  // Records what this process got for a self-check request, before the routing. Thus the record exists also while federation is off and for a path that is not a federation path.
+  // Records what this process got for a self-check request, before the routing. Thus the record exists also for a path that is not a federation path.
   #recordProbe(request: Request): void {
     const nonce = request.headers.get(SELF_CHECK_HEADER);
     if (nonce === null) return;
@@ -426,7 +425,7 @@ export class Sidecar {
   }
 
   // Public self-check (design Section 12, GF6): a request through the public origin must get to this sidecar process, with its path and its Host.
-  // The check does not depend on the federation switch: the admin can set the switch to `on` only after this check passes. Thus the status of the answer is not important (it is 404 while federation is off).
+  // The status of the answer is not important: the server actor has the USERNAME of the request only when Claire gives the actor.
   async publicSelfCheck(config: ServerConfig, fetcher: typeof fetch = fetch): Promise<PublicSelfCheck> {
     this.#pruneProbes(this.#now());
     const path = `/.well-known/webfinger?resource=${encodeURIComponent(`acct:${SERVER_ACTOR_USERNAME}@${config.handle_host}`)}`;
@@ -668,7 +667,6 @@ export class Sidecar {
   // Takes the outbound activities of the knowledge federation that are ready from Claire and delivers each one (unit KF3, knowledge.ts). Returns the number of tasks that Claire gave.
   async processKnowledgeOutbox(limit = KNOWLEDGE_OUTBOX_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
     return await processKnowledgeOutbox(this.#knowledgeDeps(config, ctx, await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID })), this.knowledgeDeliveryCounters, limit);
   }
@@ -676,7 +674,6 @@ export class Sidecar {
   // Takes the reads of documents of other servers for curations from Claire and does them with requests that the server actor signs (unit KF3). Returns the number of reads that Claire gave.
   async processKnowledgeRemoteReads(limit = KNOWLEDGE_READ_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
     return await processRemoteReads(this.#knowledgeDeps(config, ctx, await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID })), this.knowledgeDeliveryCounters, limit);
   }
@@ -684,7 +681,6 @@ export class Sidecar {
   // Takes the reads of known servers and of their /kb collections that are due from Claire, and does them with requests that the server actor signs (knowledge.ts). Returns the number of reads that Claire gave.
   async processKnowledgeReads(limit = KNOWLEDGE_READ_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
     const deps = { api: this.#api, documentLoader: await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID }), origin: config.canonical_origin, isBlocked: (host: string) => this.isBlocked(host), now: () => this.#now() * 1000 };
     return await processKnowledgeReads(deps, this.knowledgeReadCounters, limit);
@@ -773,7 +769,6 @@ export class Sidecar {
   // An error in one task does not stop the other tasks. A task without an acknowledgement comes again after its lease.
   async processOutboxTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const tasks = await this.#api.outboxTasks(limit);
     if (tasks.length === 0) return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
@@ -841,7 +836,6 @@ export class Sidecar {
   // Takes the ready client tasks from Claire (contract 1.3) and gives each one to Fedify. Returns the number of tasks that Claire gave.
   async processClientTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const tasks = await this.#api.clientTasks(limit);
     if (tasks.length === 0) return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
@@ -859,7 +853,6 @@ export class Sidecar {
   // Takes the ready tasks of the outbound interactions from Claire (contract 1.6, unit FP4-9) and gives each one to Fedify (notes.ts). Returns the number of tasks that Claire gave.
   async processInteractionTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const tasks = await this.#api.interactionTasks(limit);
     if (tasks.length === 0) return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
@@ -922,7 +915,6 @@ export class Sidecar {
   // Takes the ready thread fetch tasks from Claire (contract 1.5, unit FP4-6) and gives the fetched objects to Claire. Returns the number of tasks that Claire gave. The work is in context.ts.
   async processContextTasks(limit = CONTEXT_TASK_BATCH): Promise<number> {
     const config = await this.config();
-    if (config.federation !== "on") return 0;
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
     return await processContextTasks({ api: this.#api, ctx, origin: config.canonical_origin, isBlocked: (host) => this.isBlocked(host), counters: this.outboxCounters }, limit);
   }

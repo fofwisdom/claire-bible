@@ -14,7 +14,8 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
 | Edge service: one upstream for the external reverse proxy, with the rules of Section 10 in the repository (`CB_EDGE=1`, production only) | Implemented (unit GL3, 2026-11-22). Section 10.1 |
-| Server switch `federation`, readiness checks GF1 to GF20 | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
+| Federation without a switch (owner decision GD4, 2026-11-22): no server setting `federation`, no container switch `CB_FEDERATION`; the sidecar is a service of each installation | Implemented. Section 7.1 |
+| Readiness checks GF1 to GF20 (a report of the state, not a gate) | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
@@ -63,7 +64,7 @@ flowchart LR
 | `src/claire/api/federation_routes.py` | Route table and sealed models of the internal API, `CONTRACT_VERSION`, `read_heartbeat` |
 | `src/claire/store/actor_keys.py` | Key generation, encrypted storage, `ensure_actor_keys`, `load_actor_keys` |
 | `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF20, answer attribution |
-| `src/claire/api/accounts_routes/federation.py` | `GET` and `POST /api/admin/federation` |
+| `src/claire/api/accounts_routes/federation.py` | `GET /api/admin/federation` |
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
 | `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check, knowledge self-check (`/ap/self-check`), loop states |
 | `sidecar/fedify/src/probes.ts` | Answer attribution of a self-check request, path record of the public host, traffic counters |
@@ -74,11 +75,11 @@ flowchart LR
 
 An account is a federation actor only when all these conditions are true:
 
-1. The server setting `federation` is `on`.
-2. The server mode is `network`.
-3. The account status is `active`.
-4. `profile_public` is 1.
-5. The account has a USERNAME.
+1. The account status is `active`.
+2. `profile_public` is 1.
+3. The account has a USERNAME.
+
+The server has no condition: federation has no switch (Section 7.1), and the rule is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2).
 
 All other states give the same 404 on the internal API (`{"error": "not_found"}`) and on the public paths of the sidecar (`Not Found`, `text/plain`). This includes an unknown account, a suspended account, a purged account that was never an actor, and a public ID that is not a positive decimal number of 19 digits or less without a leading zero. An account that was an actor at its purge gives 410 (Section 8.5).
 
@@ -86,7 +87,7 @@ The actor ID contains `accounts.public_id`, not the USERNAME: `{origin}/ap/actor
 
 ## 4. Public Paths of the Sidecar
 
-All paths return 404 when `federation` is `off` or the mode is `single`.
+The paths are the same in the two server modes. No server state makes them 404.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
@@ -111,7 +112,7 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 - The sidecar removes these request headers before Fedify gets the request: `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`. A response has no `Set-Cookie` header.
 - An actor request with an `Accept` header that does not permit an ActivityPub format gets 406.
 - If the internal API is not available, the answer is 503 with `Retry-After: 5`. The sidecar does not give a 404 or an old answer in this condition.
-- The sidecar caches the `config` answer for 5 seconds. Thus a change of the switch or the mode has an effect on NodeInfo after 5 seconds at most. An actor path stops immediately, because Claire refuses the actor record.
+- The sidecar caches the `config` answer for 5 seconds. Thus a change of the mode has an effect on NodeInfo after 5 seconds at most. An actor path stops immediately, because Claire refuses the actor record.
 
 ### 4.1 Actor Document (`Person`)
 
@@ -160,7 +161,7 @@ Answer of an inbox path, in this sequence:
 - One listener gets all activity types. It makes the event of Section 5.7 and sends it to `POST /inbox-events`. Claire decides: the sidecar has no list of the v1 types.
 - Event fields: `object_type` has a value only for an `Undo` (the type of the activity that is undone). `recipient_public_id` is null for the shared inbox and for the inbox of the server actor. `verified_by` names the strongest mechanism that the activity has (`proof`, then `signature`, then the HTTP signature); the sidecar cannot see which mechanism Fedify used.
 - `accepted` with `reply` `accept` for a `Follow`: the sidecar sends `Accept` to the inbox of the remote actor, signed with the key of the actor that was followed. The `Accept` ID is `{actor ID}#accepts/{hash of the Follow ID}`. The object is the `Follow` with IDs only.
-- `rejected` for a `Follow`: the sidecar sends `Reject` only for the reason `recipient_mismatch` and only when the actor that was followed has a key. For the other reasons there is no key to sign with (the account is not an actor, federation is off), or a delivery is not permitted (blocked domain, address that is not permitted).
+- `rejected` for a `Follow`: the sidecar sends `Reject` only for the reason `recipient_mismatch` and only when the actor that was followed has a key. For the other reasons there is no key to sign with (the account is not an actor), or a delivery is not permitted (blocked domain, address that is not permitted).
 - The sidecar drops an activity without a call to Claire when: the actor host is blocked; the activity has no ID or no actor; or the document of the remote actor has no inbox or cannot be read. A `Delete` of an actor whose document is gone is in this group.
 - Blocked domains: the sidecar keeps the list of `/domain-blocks` in memory and reads it again when `domain_blocks_etag` in `config` changes (`config` stays 5 seconds in memory). The subdomain rule is the same as in Claire (Section 5.6). Claire makes the final check for each event.
 - Fedify does not run the listener two times for the same activity ID in the same inbox. Thus a `Follow` that comes again with the same ID gets no second `Accept`.
@@ -283,7 +284,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.13"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.14"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.14 (owner decision GD4: federation has no switch) removed `federation` from the answers of `config` and `heartbeat` and the reason `federation_off` from the decisions of `inbox-events`, `timeline-events`, `context-objects`, and `quote-events`. A sidecar of version 1.13 refuses the `config` answer, because the shapes are sealed.
 - Version 1.13 (units GL1 and GL2 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)) changed `POST /heartbeat` (Section 7.2): new necessary fields `marker`, `public_host`, and `traffic`; `self_check.answer`; `knowledge_self_check.answers`; and `knowledge_self_check.signed` is an object with one result for each signature form (`draft_cavage`, `rfc9421`). Claire refuses a heartbeat of version 1.12 (400 `invalid_request`), records nothing, and GF2 fails. No other route changed.
 - Version 1.12 (unit KF6 of the knowledge federation) added `knowledge_self_check` and `loops` to `POST /heartbeat` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17). No other route changed.
 - Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: while the switch `federation` is on, the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). No shape that existed changed.
@@ -334,8 +336,7 @@ Response: `decision` (`accepted`, `rejected`, `ignored`), `reply` (`accept` or n
 
 Claire makes the decision in this sequence:
 
-1. Federation is not active (the switch is `off`, or the mode is `single`): `rejected`, reason `federation_off`.
-2. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the server uses `http` (development). An address with credentials, without a valid host, or on the origin of this server is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
+1. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the server uses `http` (development). An address with credentials, without a valid host, or on the origin of this server is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
 3. The host of one of these addresses is blocked: `rejected`, reason `blocked_domain`. This check comes before the type check.
 4. The type is outside the v1 set: `ignored`, reason `unsupported_type`. The v1 set is `Follow`; `Undo` with `object_type` `Follow`; `Delete` with `object_iri` equal to `actor.iri`; `Update` with `object_iri` equal to `actor.iri`.
 5. `Delete` of the remote actor: Claire deletes the actor from the followers of all accounts. `accepted`.
@@ -376,12 +377,17 @@ Claire writes one log line for each event with the type, the decision, and the r
 - `ActorKeyPair` hides the private JWK in its `repr`. The end-to-end test examines the sidecar log for private key fields.
 - Sidecar database: `data/fedify/fedify.db` (Fedify `SqliteKvStore` and `SqliteMessageQueue`, WAL mode). The sidecar makes the file with mode 0600 and sets the mode again at each start. A Fedify queue message for a delivery contains the private keys of the sender (a Fedify behavior), thus the file is a secret store. A key in a queued message stays until the delivery completes or the retry policy of Fedify stops.
 
-## 7. Server Switch and Readiness Checks
+## 7. Federation Without a Switch, and the Readiness Checks
 
-### 7.1 Switch
+### 7.1 No Switch
 
-- The switch is the key `federation` in `server_settings` of `claire.db`. Values: `off` and `on`. No row means `off`. An unknown value raises `RuntimeError` (`AccountStore.federation_state`). No schema version change was necessary.
-- `CB_FEDERATION=1` starts the sidecar container only. It does not change this switch.
+Federation is a function of each server (owner decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md), 2026-11-22). It cannot be turned off.
+
+- There is no server setting `federation`. `AccountStore` has no method that reads or sets it, and no route changes it. A row `federation` that an older version stored in `server_settings` stays in the database and is not read.
+- There is no container switch `CB_FEDERATION`. The service `fedify` starts with the other services (Section 9.1). A value `CB_FEDERATION` in an env file is not read.
+- The readiness checks are a report of the state of the server. They do not gate a change (the gate of decision KD13 has no object). When the edge of a server does not send the federation paths to the sidecar, the paths give 404 from Claire, and the report tells it.
+- Which account is an actor is the rule of Section 3. An account pauses its own federation with `profile_public` 0 (Section 8.4).
+- The switch `kb_auto_contribution` of the knowledge federation stays ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 15).
 
 ### 7.2 Checks GF1 to GF20
 
@@ -396,17 +402,17 @@ Claire writes one log line for each event with the type, the decision, and the r
 | GF5 | The environment is not `production`, or the canonical origin starts with `https://`. A runtime configuration that is not valid fails. |
 | GF6 | The heartbeat is recent and its `self_check.ok` is `true`: the WebFinger request of the sidecar came back to the same sidecar process, with its path and its `Host`. |
 | GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` gets an answer of Claire (header `X-Claire-Server`) with status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, uses `_system_ssl_context()`, 65536 bytes at most. |
-| GF8–GF17 | Knowledge federation readiness checks (`group="knowledge"`): paths, signed `/ap/self-check` in the two signature forms, largest inbox body with the two media types of a delivery, sidecar loops, actor key decryption, settings/host check, first-contact docs, KB actor, unsigned read refusal, and `/ns/v1` + `/ns` (warning). See [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17. |
+| GF8–GF17 | Knowledge federation readiness checks (`group="knowledge"`; all apply on each server, and GF15 needs a shared knowledge base): paths, signed `/ap/self-check` in the two signature forms, largest inbox body with the two media types of a delivery, sidecar loops, actor key decryption, settings/host check, first-contact docs, KB actor, unsigned read refusal, and `/ns/v1` + `/ns` (warning). See [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17. |
 | GF18 | Warning, production only. Each address of the public host is a public address, for Claire (`resolve_host`, the system resolver) and for the sidecar (`public_host` of the heartbeat, `Deno.resolveDns`). A loopback or private address fails (`public_host_private`): the checks then do not cross the public edge. The passed item lists the addresses with their class (`cloudflare` for an address in `CLOUDFLARE_NETWORKS`) and tells if an answer of a request check had the header `cf-ray`. |
-| GF19 | Warning, switch `on` only. `traffic.inbound_verified.count` of a recent heartbeat is 1 or more: a request of another server had a signature that verified. |
-| GF20 | Warning, switch `on` only. Does not apply when the heartbeat has no delivery. Passes when `traffic.deliveries.succeeded` is 1 or more; fails when there are only failed tries, with the most frequent class (`dns`, `tls`, `timeout`, `http_4xx`, `http_5xx`, `other`). |
+| GF19 | Warning. `traffic.inbound_verified.count` of a recent heartbeat is 1 or more: a request of another server had a signature that verified. |
+| GF20 | Warning. Does not apply when the heartbeat has no delivery. Passes when `traffic.deliveries.succeeded` is 1 or more; fails when there are only failed tries, with the most frequent class (`dns`, `tls`, `timeout`, `http_4xx`, `http_5xx`, `other`). |
 
 - Each item has `group` (`"account"` for GF1 to GF7, `"knowledge"` for GF8 to GF17, `"operation"` for GF18 to GF20), `level` (`"required"` for GF1 to GF16, `"warning"` for GF17 to GF20), `applies` (`bool`), `passed` (`bool`), `code`, `detail`, and `values`. `report.passed` is true when all required items pass; a failing `warning` item does not make `report.passed` false.
 - The sidecar sends a heartbeat at its start and then each 30 seconds.
 - Each answer of the sidecar has the header `X-Claire-Fedify-Server` with a random value of that sidecar process (the marker). Each answer of the public listener of Claire has the header `X-Claire-Server: api` (`ServerMarkerMiddleware` in `src/claire/api/security.py`). The header values show no server data.
 - Public self-check of the sidecar (`Sidecar.publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. The status of the answer is not important.
 - Each self-check request of the sidecar (GF6, GF8, GF9) has the header `X-Claire-Self-Check` with a nonce. The sidecar records the path with the query and the `Host` of a request with a known nonce, before the routing, in memory, for 60 seconds. A self-check request passes when: the answer has the marker of this process; this process got the request (else `answer_not_live`: a cache gave an old answer, or an intermediary removed the header); the path and the query parameters did not change (else `path_changed`); and the `Host` is the authority of the public origin (else `host_changed`).
-- The sidecar does the self-check and knowledge self-check at each heartbeat, also while `federation` is `off` or the mode is `single` (the WebFinger answer is then 404, with the header). Thus GF6, GF8, and GF9 can pass before the admin sets the switch to `on`. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
+- The sidecar does the self-check and knowledge self-check at each heartbeat, in the two server modes. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
 - GF7 shows that the reverse proxy still sends `/.well-known/oauth-authorization-server` to Claire. The process that does the check (the `api` process or the CLI process) sends the request.
 - The traffic counters are in the memory of the sidecar process, for the last 24 hours, in buckets of one hour (`TrafficCounters` in `sidecar/fedify/src/probes.ts`). They start at zero when the sidecar starts. `inbound_verified` counts each inbox activity that Fedify verified and each request whose signature the sidecar verified (knowledge inbox and collections), without the requests of this server; `hosts` is the number of different hosts. `inbound_rejected` counts the signed requests that did not verify. `deliveries.succeeded` comes from the counter `activitypub.delivery.sent` of Fedify (a small meter provider that reads only this counter) and from the deliveries of the knowledge federation; `deliveries.failed` has the class of each failed try (`onOutboxError` of Fedify, and the result of a knowledge delivery).
 
@@ -464,7 +470,6 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 
 ```json
 {
-  "federation": "off",
   "mode": "network",
   "readiness": {"items": [{"id": "GF1", "name": "...", "group": "account", "level": "required", "applies": true, "passed": true, "code": "mode_network", "detail": "...", "values": {}}], "passed": false},
   "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.13", "sidecar_version": "0.1.0", "queue_depth": 0, "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e", "public_host": {"host": "claire.example.com", "addresses": [{"address": "203.0.113.5", "class": "global"}], "error": null}, "self_check": {"ok": null, "checked_at": null, "answer": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "answers": [], "signed": {"draft_cavage": {"result": "ok", "answer": null}, "rfc9421": {"result": "ok", "answer": null}}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}, "traffic": {"window_seconds": 86400, "inbound_verified": {"count": 0, "hosts": 0, "last_at": null}, "inbound_rejected": {"count": 0, "last_at": null}, "deliveries": {"succeeded": 0, "failed": {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 0, "other": 0}, "last_success_at": null}}}
@@ -474,18 +479,7 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 - `heartbeat` is `null` when there is no record.
 - Each request does all checks again, GF7, GF10, GF14 to GF17 with their network requests also. The result is not cached.
 
-`POST /api/admin/federation` with the body `{"federation": "on"}` or `{"federation": "off"}`:
-
-| Condition | Response |
-| :--- | :--- |
-| Not the same origin | 403 `forbidden` |
-| No recent authentication | 401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential |
-| Body is not an object with the one field `federation` and a known value | 400 `invalid_request` |
-| The value is the current state | 200 `{"federation": "<state>", "changed": false}`. No check, no audit row. |
-| Change to `on` and a required check that applies fails | 400 `{"error": "readiness_failed", "detail": "...", "failures": [...]}`. `failures` contains the required items that apply and did not pass (GF1 to GF13; the warning items GF17 to GF20 do not block). |
-| Change accepted | 200 `{"federation": "<state>", "changed": true}`. Claire writes an `admin_audit` row with the action `federation.update`. |
-
-The change to `off` has no readiness condition.
+There is no `POST /api/admin/federation`: federation has no switch (Section 7.1).
 
 ### 7.4 CLI
 
@@ -525,10 +519,10 @@ uv run claire federation requeue --max-age-hours 72 --apply
 `GET /api/federation/status` returns, with `Cache-Control: no-store`:
 
 ```json
-{"federation": "on", "handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}, "pending_tasks": 0}
+{"handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}, "pending_tasks": 0}
 ```
 
-- `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`, `federation_off`, `profile_not_public`.
+- `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`, `profile_not_public`. The answer has no field `federation`.
 - `handle` and `actor_id` are null only when the account has no USERNAME.
 - `pending_tasks` is the number of outbox tasks of the account with the status `pending` (unit FP3-1).
 
@@ -552,7 +546,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 - `GET /api/admin/federation/domain-blocks` returns `domain_blocks`: a list of `domain`, `note`, `created_at`, in the order of the domain.
 - `POST` with `{"domain": "...", "note": "..."}` adds a block. `note` is optional: 200 characters at most, no control characters. A new block gets 201 with `"created": true`. An existing block gets 200 with `"created": false`, and the row is not changed.
 - `DELETE` with `{"domain": "..."}` removes a block: 200, or 404 `domain_block_not_found`.
-- `POST` and `DELETE` have the guards of `POST /api/admin/federation`: same origin (403 `forbidden`), then recent authentication (401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential).
+- `POST` and `DELETE` have the guards of an admin change: same origin (403 `forbidden`), then recent authentication (401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential).
 - A domain that `normalize_domain` refuses gets 400 `invalid_domain`. Other body errors get 400 `invalid_request` or `invalid_note`.
 - Each change writes an `admin_audit` row: `federation.domain_block_add` or `federation.domain_block_remove`, with the detail `{"domain": "..."}`.
 - A new block does not delete followers that exist. The sidecar reads the new list when the entity tag in `config` changes, after 5 seconds at most.
@@ -560,7 +554,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 **Console sections.**
 
 - `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). The section is the same in both server modes.
-- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF20 in three groups (`account`, `knowledge`, and `operation`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), the addresses of the public host, and the traffic counters, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
+- `/admin/federation` (admin): the state card (federation is always on; the card has no control for it), the readiness checks GF1 to GF20 in three groups (`account`, `knowledge`, and `operation`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), the addresses of the public host, and the traffic counters, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
 ### 7.6 Publishing Routes (Unit FP3-1)
@@ -611,16 +605,15 @@ The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src
 
 ### 8.1 Step-Up Rule for `profile_public` (FD11)
 
-`PATCH /api/me` requires recent authentication when all these conditions are true: `federation` is `on`, the request sets `profile_public` to 1, and the stored value is 0. The check occurs before all writes, so a `display_name` change in the same request is not stored when the request is refused.
+`PATCH /api/me` requires recent authentication when the request sets `profile_public` to 1 and the stored value is 0: the change makes the account a federation actor. The check occurs before all writes, so a `display_name` change in the same request is not stored when the request is refused.
 
 | Condition | Response |
 | :--- | :--- |
 | Session without authentication in the last 15 minutes | 401 `{"error": "reauth_required", "reauth": "/api/auth/reauth"}` with a `WWW-Authenticate` header |
 | Bearer credential (not a session channel) | 403 `{"error": "step_up_requires_session"}` |
 | Change from 1 to 0, or 1 to 1 | No condition |
-| `federation` is `off` | No condition |
 
-- `/settings/account`: when the mode is `network` and `federation` is `on`, the switch has the attribute `data-step-up` (`password` for an account with a password, `session` for an account without one) and a hint paragraph (`data-federation-hint`). The hint says that a change to private pauses federation and does not remove copies on other servers.
+- `/settings/account`: the switch has the attribute `data-step-up` (`password` for an account with a password, `session` for an account without one) and a hint paragraph (`data-federation-hint`). The hint says that a change to private pauses federation and does not remove copies on other servers.
 - `console_account.js` opens a password dialog before it sends the change to public when the attribute is `password`. The dialog calls `POST /api/auth/reauth`. An account without a password has no dialog: the server answers from the session age.
 - Details of the account routes: [`ACCOUNTS.md`](ACCOUNTS.md) §5.3 and §5.5.
 
@@ -635,7 +628,7 @@ The page keeps its HTML format for all `Accept` values. The path has no content 
 
 ### 8.3 Mode Change Refusal
 
-Withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 6, unit KF4): federation works in single mode, so `POST /api/admin/server/mode` changes from `network` to `single` also while `federation` is `on`. A change to single mode still needs no members.
+Withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 6, unit KF4): federation works in single mode, so `POST /api/admin/server/mode` changes from `network` to `single` with no condition of federation. A change to single mode still needs no members.
 
 ### 8.4 Pause
 
@@ -672,8 +665,7 @@ A change of `profile_public` to 0, a suspension, and `federation` `off` make the
 
 ### 9.1 Compose
 
-- Service `fedify` in `docker-compose.yml`, behind the Compose profile `federation`. The service does not start when the profile is not active.
-- `cb-manuscript` adds `--profile federation` to all Compose commands when `CB_FEDERATION=1`. The value must be exactly `0` or `1`.
+- Service `fedify` in `docker-compose.yml`. It has no Compose profile: it starts with the other services (Section 7.1).
 - `CB_FEDIFY_PORT` is the host port of the sidecar on `CB_API_BIND` (default 8790, `.env.dev.example` uses 8791). The container port is always 8790. `cb-manuscript` refuses a `CB_FEDIFY_PORT` that is equal to `CB_API_PORT` or a role host port.
 - `CB_FEDIFY_IMAGE` is the image name (default `claire-bible-fedify`). The tag is `CB_IMAGE_TAG`. The build context is `sidecar/fedify/`.
 - The service starts after `api` is healthy (`depends_on`).
@@ -689,7 +681,7 @@ Mounts of the `fedify` container (no other mount is permitted: `scripts/ci.sh` a
 | `{data}/auth/fedify_service.key` | `/data/auth/fedify_service.key` | read-only |
 
 - The container does not mount `data/auth/` as a directory, the data directory, or `claire.db`.
-- `create_host_path: false` stops the start when a source path does not exist. `cb-manuscript` makes `{data}/run` (mode 0770) and `{data}/fedify` (mode 0700) before a start when `CB_FEDERATION=1`. `claire migrate` makes the service key file.
+- `create_host_path: false` stops the start when a source path does not exist. `cb-manuscript` makes `{data}/run` (mode 0770) and `{data}/fedify` (mode 0700) before each start and before the migration. `claire migrate` makes the service key file.
 
 ### 9.2 Sidecar Environment Variables
 
@@ -718,11 +710,10 @@ deno run --frozen --cached-only --allow-net --allow-read=/data,/app --allow-writ
 
 ### 9.4 Start Sequence
 
-1. Set `CB_FEDERATION=1` (and `CB_FEDIFY_PORT` if necessary) in the env file. With the edge service, set also `CB_EDGE=1` (Section 10.1).
-2. Run `./cb-manuscript update` or `./cb-manuscript up`. `claire migrate` (a step of `install` and `update`) makes the service key.
+1. Set `CB_FEDIFY_PORT` in the env file if the default is not free. With the edge service, set `CB_EDGE=1` (Section 10.1).
+2. Run `./cb-manuscript update` (or `install` on a new server). `claire migrate`, a step of the two commands, makes the service key; the sidecar cannot start without it, so `./cb-manuscript up` alone on a data directory that was never migrated fails at the mount of the key file.
 3. Configure the reverse proxy: the path rules of Section 10, or with the edge service one rule that sends all requests to `CB_API_BIND:CB_API_PORT` (Section 10.1).
-4. Run `./cb-manuscript app server check --federation --json`.
-5. Set the switch with `POST /api/admin/federation`. Read the first item of Section 12 before this step.
+4. Run `./cb-manuscript app server check --federation --json` and repair what the report tells ([`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md)). There is no step that turns federation on: when the report passes, other servers can reach the actors of this server.
 
 ## 10. Reverse Proxy Rules
 
@@ -753,7 +744,7 @@ flowchart LR
     E -->|"all other requests: Unix socket data/run/edge.sock"| A["Claire api (edge listener)"]
 ```
 
-**Switch.** `CB_EDGE` in the env file is exactly `0` or `1`. `cb-manuscript` refuses another value, the value `1` in development (the development stack has host ports for the role hosts and the prototype role, which the edge does not serve), and the value `1` without `CB_FEDERATION=1`. With `CB_EDGE=1`, `cb-manuscript` adds the Compose profile `edge` and the file `docker-compose.edge.yml` to each Compose command, and gives Compose the authority of the public origin in `CB_EDGE_APP_HOST` (from `CLAIRE_FQDN`, or from `CLAIRE_PUBLIC_URL` of an old env file).
+**Switch.** `CB_EDGE` in the env file is exactly `0` or `1`. `cb-manuscript` refuses another value, and the value `1` in development (the development stack has host ports for the role hosts and the prototype role, which the edge does not serve). With `CB_EDGE=1`, `cb-manuscript` adds the Compose profile `edge` and the file `docker-compose.edge.yml` to each Compose command, and gives Compose the authority of the public origin in `CB_EDGE_APP_HOST` (from `CLAIRE_FQDN`, or from `CLAIRE_PUBLIC_URL` of an old env file).
 
 **Compose.**
 
@@ -813,7 +804,7 @@ These statements are true for the code now.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
 16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity. The outbox counters of the sidecar are in memory only; the heartbeat has the number of deliveries that succeeded and the failed tries by class for the last 24 hours (Section 7.2, GF20), without the inbox of each one.
 17. A `Delete` is a request. A remote server can ignore it and keep its copy.
-18. A `delete_actor` task is given only while federation is active. If the admin sets the switch to `off` after a purge, the task, the followers, and the keys of the purged account stay until the switch is `on` again.
+18. A `delete_actor` task waits while the sidecar does not take it: the task, the followers, and the keys of the purged account stay until the sidecar acknowledges the task.
 19. A block of a domain after the handoff does not remove a delivery that is in the queue of the sidecar.
 20. The outbox collection has `Create` items only. It does not list `Update` and `Delete` activities.
 21. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
@@ -823,7 +814,7 @@ These statements are true for the code now.
 These facts are true for the code now. They are choices that the implementation made where the first design was different or did not decide. The other sections give the details.
 
 - `actor_keys` is in `auth.db` version 5 (Section 6). Version 4 was used by the per-account features before FP1.
-- `GET` and `POST /api/admin/federation` control the switch and show the health (Section 7.3). The domain blocks have their own routes, `/api/admin/federation/domain-blocks` (Section 7.5).
+- `GET /api/admin/federation` shows the health (Section 7.3). The domain blocks have their own routes, `/api/admin/federation/domain-blocks` (Section 7.5).
 - `GET /api/federation/status` has the follower count and the pending task count. The follower list is a second route, `GET /api/federation/followers` (Section 7.5).
 - The end-to-end follow test has the remote server in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. The end-to-end test with a separate remote server is the DrFed test stack (Section 27).
 - Keys are generated at the first keys request of the sidecar, not at the `profile_public` change (Section 6).
@@ -855,7 +846,7 @@ These facts are true for the code now. They are choices that the implementation 
 | `tests/test_federation_go_live.py` | Units GL1 and GL2 end to end: a real Claire process and a real sidecar process behind an intermediary in the test process (the public origin). Each fault of the intermediary gives its code in `claire server check --federation --json`: a CDN challenge, a CDN block of the `profile` parameter, a WAF that refuses `application/activity+json`, a removed path prefix, a path to the wrong upstream, a changed `Host`, and a cache with an old answer. The outside probe script runs against the same origin |
 | `sidecar/fedify/tests/probes_test.ts` | Address classes, the path record, the traffic counters with their 24-hour window, the meter provider |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
-| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-check while federation is off. Also the runs of the two files in `sidecar/fedify/e2e/`. |
+| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery, a paused account and the other actors in single mode, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-checks on a new server without an actor. Also the runs of the two files in `sidecar/fedify/e2e/`. |
 | `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks, the CLI command `federation requeue` |
 | `sidecar/fedify/e2e/lifecycle_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-4 end to end: a theme change to private and a display name change through the public API of a real Claire process, `Delete` and `Update(Person)` at a test inbox with a signature check, 410 for the object |
 | `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account, and one end-to-end run in a browser: the native actor in the dialog of `/syndication` |
@@ -1369,7 +1360,7 @@ The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17),
 
 ### 24.4 Storage Rules (Claire, `context-objects`)
 
-1. The answer is `rejected` when federation is not active (`federation_off`), when the account of the task is not an actor (`not_an_actor`), or when `context_fetch` is `off` (`context_fetch_off`).
+1. The answer is `rejected` when the account of the task is not an actor (`not_an_actor`), or when `context_fetch` is `off` (`context_fetch_off`).
 2. Claire reads `context_max_items` objects at most of one request. Each object must pass the rules of a `Create` (Section 18): a permitted remote address of the object and of the author, no blocked domain for these two hosts, and the size limits.
 3. Only an object of the thread is stored: it has the `context` of a stored item of the thread, it is a reply to an object of the thread, or an object of the thread is a reply to it (also through other objects of the same request).
 4. Each stored object is an item of the account that asked, with `in_timeline` = 0 and no announcer. An item that exists keeps its content and its state. The render route sanitizes the HTML, as for each item.

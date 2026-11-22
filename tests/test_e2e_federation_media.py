@@ -44,7 +44,6 @@ def env(tmp_path, request, remote):
     if request.param:
         settings.usercontent_fqdn = USERCONTENT
         settings.media_fqdn = MEDIA
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:

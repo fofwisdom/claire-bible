@@ -55,7 +55,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><body><p>Body</p></body></html>' }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 0, limit: 1000, items: [], next_max_id: null })));
-    await page.route('**/api/federation/status', route => route.fulfill(json({ federation: 'on', handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', followers: { total: 0 }, pending_tasks: 0 })));
+    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', followers: { total: 0 }, pending_tasks: 0 })));
     await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: 0, items: [], next_max_id: null })));
     await page.route('**/api/federation/quotes', route => route.fulfill(json({ requests: [], authorizations: [], counts: { pending: 0, approved: 0 } })));
 
@@ -192,7 +192,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><body><p>Body</p></body></html>' }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 0, limit: 1000, items: [], next_max_id: null })));
-    await page.route('**/api/federation/status', route => route.fulfill(json({ federation: 'on', handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', followers: { total: 0 }, pending_tasks: 0 })));
+    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', followers: { total: 0 }, pending_tasks: 0 })));
 
     await page.goto('/?t=e2e-fedquote-token-0123456789abcde', { waitUntil: 'domcontentloaded' });
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');

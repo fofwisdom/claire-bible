@@ -93,7 +93,7 @@ def test_note_is_not_public_while_its_account_is_not_an_actor_and_a_resolved_act
     ack = fixture("interaction_task_ack")["request"]
     assert internal.call({**ack, "body": {**ack["body"], "mentions": [{"handle": "@dan@other.example", "iri": "https://blocked.example/users/dan"}]}}).status_code == 200
     assert json.loads(_client_rows(internal, "SELECT mentions_json FROM federation_notes WHERE public_id=?", (NOTE_ID,))[0][0])[1]["iri"] is None
-    internal.set_state(federation="off")
+    internal.pause(internal.alice)
     assert internal.get(f"/notes/{NOTE_ID}").status_code == 404
     # A deleted note is gone in all states, the same as a deleted object.
     assert internal.get(f"/notes/{GONE_NOTE_ID}").status_code == 410

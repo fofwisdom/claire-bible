@@ -32,7 +32,6 @@ OBJECTS = "/api/federation/objects"
 @pytest.fixture
 def env(tmp_path):
     settings, alpha, beta = _prepare(tmp_path)
-    _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     # Alpha has one published document in a public theme.
     _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, 516412345678901234)", (alpha,)))

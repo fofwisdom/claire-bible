@@ -162,7 +162,7 @@ class HandlerRefusal(Exception):
 
 
 class JournalError(Exception):
-    """A replay is not possible. ``code`` is ``not_found``, ``not_replayable``, or ``federation_off`` (the switch is off: the row does not change, and the admin can process it again after the switch is on)."""
+    """A replay is not possible. ``code`` is ``not_found`` or ``not_replayable``."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -290,7 +290,7 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
 
     ``signer`` is the IRI of the actor whose signature the sidecar verified; ``verified_by`` is the mechanism (``VERIFIED_BY``); ``recipient`` is the IRI of the inbox owner (a knowledge base actor or an account actor), or ``None`` for the shared inbox.
 
-    No row is made (``rejected``) for these reasons, in this sequence: ``federation_off``, ``invalid_actor``, ``blocked_domain`` (the controls of ``access.exchange_refusal`` for the signer), ``invalid_activity`` (the activity is not a JSON object with an ``id`` that is an ``http`` or ``https`` IRI), ``signer_mismatch`` (the ``id`` is not on the origin of the signer, or the ``actor`` is not the signer and the signer is not the server actor of the origin of the actor), ``domain_quota`` (the registrable domain of the signer has ``remote_domain_daily_activities`` rows, or the activity would take its bytes over ``remote_domain_daily_bytes``, in the last 24 hours).
+    No row is made (``rejected``) for these reasons, in this sequence: ``invalid_actor``, ``blocked_domain`` (the controls of ``access.exchange_refusal`` for the signer), ``invalid_activity`` (the activity is not a JSON object with an ``id`` that is an ``http`` or ``https`` IRI), ``signer_mismatch`` (the ``id`` is not on the origin of the signer, or the ``actor`` is not the signer and the signer is not the server actor of the origin of the actor), ``domain_quota`` (the registrable domain of the signer has ``remote_domain_daily_activities`` rows, or the activity would take its bytes over ``remote_domain_daily_bytes``, in the last 24 hours).
     """
     from ...collaboration import contributions  # the import is here: the limits are admin settings of ``contributions``
 
@@ -414,15 +414,13 @@ def _process(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float
 
 
 def replay(conn: sqlite3.Connection, entry_id: int, *, origin: str, now: float) -> JournalEntry:
-    """Process a failed row again (design Section 13 rule 3). Raise ``JournalError``: ``not_found`` for an unknown row, ``not_replayable`` for a row whose state is not in ``REPLAY_STATES``, ``federation_off`` while the switch ``federation`` is off.
+    """Process a failed row again (design Section 13 rule 3). Raise ``JournalError``: ``not_found`` for an unknown row, ``not_replayable`` for a row whose state is not in ``REPLAY_STATES``.
 
-    The switch is a temporary condition, so it does not change the row: without this check the processing would record ``refused`` with ``federation_off``, and the row could not be processed again. A domain block does change the row to ``refused``: the admin decided to stop the exchange with that server.
+    A domain block changes the row to ``refused``: the admin decided to stop the exchange with that server.
     """
     entry = get_entry(conn, entry_id)
     if entry is None:
         raise JournalError("not_found")
     if entry.status not in REPLAY_STATES:
         raise JournalError("not_replayable")
-    if not access.federation_on(conn):
-        raise JournalError("federation_off")
     return process(conn, entry.id, origin=origin, now=now)

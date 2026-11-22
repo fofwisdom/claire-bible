@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.13";
+export const CONTRACT_VERSION = "1.14";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -22,7 +22,6 @@ export interface ServerConfig {
   canonical_origin: string;
   handle_host: string;
   mode: "single" | "network";
-  federation: "off" | "on";
   software: { name: string; version: string };
   trusted_proxies: string[];
   federated_actors: number;
@@ -143,7 +142,6 @@ export interface Heartbeat {
 
 export interface HeartbeatReply {
   contract_version: string;
-  federation: "off" | "on";
 }
 
 // One inbound activity that Fedify verified (design Section 6.3).
@@ -163,7 +161,7 @@ export interface InboxEvent {
 export interface InboxDecision {
   decision: "accepted" | "rejected" | "ignored";
   reply: "accept" | null;
-  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "not_an_actor" | "recipient_mismatch" | "unsupported_type" | "no_object" | null;
+  reason: "invalid_actor" | "blocked_domain" | "not_an_actor" | "recipient_mismatch" | "unsupported_type" | "no_object" | null;
 }
 
 export interface FollowerItem {
@@ -274,7 +272,7 @@ export interface TimelineNotice {
 // items is the number of items that the event made, changed, or deleted. notices are the automatic notices to send now.
 export interface TimelineDecision {
   decision: "accepted" | "rejected" | "ignored";
-  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "invalid_object" | "too_large" | "not_public" | "not_followed" | "no_item" | "rate_limited" | null;
+  reason: "invalid_actor" | "blocked_domain" | "invalid_object" | "too_large" | "not_public" | "not_followed" | "no_item" | "rate_limited" | null;
   items: number;
   notices: TimelineNotice[];
 }
@@ -300,7 +298,7 @@ export interface ContextTask {
 // The answer to the objects of a thread fetch. stored is the number of new items. refused is the number of objects that Claire did not take.
 export interface ContextObjectsResult {
   decision: "accepted" | "rejected";
-  reason: "federation_off" | "not_an_actor" | "context_fetch_off" | null;
+  reason: "not_an_actor" | "context_fetch_off" | null;
   stored: number;
   refused: number;
 }
@@ -382,7 +380,7 @@ export interface QuoteEvent {
 
 export interface QuoteDecision {
   decision: "accepted" | "rejected" | "ignored";
-  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "no_object" | "invalid_object" | "recipient_mismatch" | "rate_limited" | "quote_refused" | "no_quote" | "not_the_author" | "invalid_authorization" | "unsupported_type" | null;
+  reason: "invalid_actor" | "blocked_domain" | "no_object" | "invalid_object" | "recipient_mismatch" | "rate_limited" | "quote_refused" | "no_quote" | "not_the_author" | "invalid_authorization" | "unsupported_type" | null;
   state: "pending" | "approved" | "refused" | "revoked" | null;
 }
 
@@ -580,7 +578,6 @@ const configShape = sealed({
   canonical_origin: str,
   handle_host: str,
   mode: oneOf("single", "network"),
-  federation: oneOf("off", "on"),
   software: sealed({ name: str, version: str }),
   trusted_proxies: list(str),
   federated_actors: int,
@@ -593,7 +590,7 @@ const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa20
 const decisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
   reply: nullable(oneOf("accept")),
-  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object")),
+  reason: nullable(oneOf("invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object")),
 });
 const followersShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, actor_iri: str, inbox_iri: str, shared_inbox_iri: nullable(str) })), next_max_id: nullable(str) });
 const domainBlocksShape = sealed({ etag: str, domains: list(str) });
@@ -642,20 +639,20 @@ const interactionTasksShape = sealed({
 });
 const quoteDecisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
-  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "no_object", "invalid_object", "recipient_mismatch", "rate_limited", "quote_refused", "no_quote", "not_the_author", "invalid_authorization", "unsupported_type")),
+  reason: nullable(oneOf("invalid_actor", "blocked_domain", "no_object", "invalid_object", "recipient_mismatch", "rate_limited", "quote_refused", "no_quote", "not_the_author", "invalid_authorization", "unsupported_type")),
   state: nullable(oneOf("pending", "approved", "refused", "revoked")),
 });
 const quoteAuthorizationShape = sealed({ id: str, actor_public_id: str, object_public_id: str, quoting_object_iri: str });
 const followingShape = sealed({ public_id: str, total: int });
 const timelineDecisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
-  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited")),
+  reason: nullable(oneOf("invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited")),
   items: int,
   notices: list(sealed({ actor_public_id: str, content: str, language: oneOf("en", "ko") })),
 });
 const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
 const contextTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, object_iri: str, max_items: int, max_depth: int, created_at: num, lease_until: num })) });
-const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("federation_off", "not_an_actor", "context_fetch_off")), stored: int, refused: int });
+const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("not_an_actor", "context_fetch_off")), stored: int, refused: int });
 const knowledgeActivityShape = sealed({ decision: oneOf("processed", "failed", "refused", "duplicate", "rejected"), reason: nullable(str), journal_id: nullable(int) });
 const knowledgeCollectionShape = sealed({ collection: oneOf("kb", "themes"), server: str, document: jsonObject });
 const serverReadsShape = sealed({ servers: list(sealed({ domain: str })) });
@@ -667,7 +664,7 @@ const knowledgeOutboxTasksShape = sealed({ tasks: list(sealed({ id: int, kind: s
 const knowledgeOutboxAckShape = sealed({ id: int, status: oneOf("pending", "delivered", "failed", "refused") });
 const remoteReadsShape = sealed({ reads: list(sealed({ id: int, url: str })) });
 const remoteReadRecordedShape = sealed({ id: int, status: oneOf("pending", "done", "failed"), error_code: nullable(str) });
-const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
+const heartbeatReplyShape = sealed({ contract_version: str });
 
 function sameMajor(version: string): boolean {
   return version.split(".")[0] === CONTRACT_VERSION.split(".")[0];

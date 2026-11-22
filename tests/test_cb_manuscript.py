@@ -740,44 +740,24 @@ def test_empty_telegram_token_does_not_enable_bot_profile(tmp_path, monkeypatch)
     assert "--profile" not in run.call_args.args[0]
 
 
-def _enable_federation(root: Path, *lines: str) -> None:
-    with (root / ".env").open("a", encoding="utf-8") as stream:
-        stream.write("\n".join(("CB_FEDERATION=1", *lines, "")))
-
-
-def test_federation_switch_adds_the_compose_profile(tmp_path, monkeypatch):
-    _write_layout(tmp_path, dev=False)
-    _enable_federation(tmp_path)
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
+def test_the_sidecar_needs_no_compose_profile(tmp_path, monkeypatch):
+    """Federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4): the service fedify starts with the other services."""
+    _write_layout(tmp_path, dev=False, token="telegram-secret")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(["status"], root=tmp_path) == 0
 
     argv = run.call_args.args[0]
-    assert argv[argv.index("--profile") + 1] == "federation"
-    assert argv.count("--profile") == 1
+    assert [argv[i + 1] for i, part in enumerate(argv) if part == "--profile"] == ["bot"]
     assert argv[-1] == "ps"
 
 
-def test_federation_switch_adds_its_profile_after_the_bot_profile(tmp_path, monkeypatch):
-    _write_layout(tmp_path, dev=False, token="telegram-secret")
-    _enable_federation(tmp_path)
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-
-    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        assert cb.main(["status"], root=tmp_path) == 0
-
-    argv = run.call_args.args[0]
-    profiles = [argv[i + 1] for i, part in enumerate(argv) if part == "--profile"]
-    assert profiles == ["bot", "federation"]
-
-
-def test_federation_switch_off_adds_no_profile_and_makes_no_directory(tmp_path, monkeypatch):
+@pytest.mark.parametrize("value", ["0", "1", "yes"])
+def test_a_value_of_the_old_switch_in_the_env_file_is_not_read(tmp_path, monkeypatch, value):
     _write_layout(tmp_path, dev=False)
     with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
-        stream.write("CB_FEDERATION=0\n")
+        stream.write(f"CB_FEDERATION={value}\n")
     monkeypatch.delenv("CB_FEDERATION", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
 
@@ -785,14 +765,11 @@ def test_federation_switch_off_adds_no_profile_and_makes_no_directory(tmp_path, 
         assert cb.main(["up"], root=tmp_path) == 0
 
     assert "--profile" not in run.call_args.args[0]
-    assert not (tmp_path / "data" / "fedify").exists()
-    assert not (tmp_path / "data" / "run").exists()
+    assert (tmp_path / "data" / "fedify").is_dir() and (tmp_path / "data" / "run").is_dir()
 
 
-def test_down_uses_all_profiles_when_federation_is_active(tmp_path, monkeypatch):
+def test_down_uses_all_profiles(tmp_path, monkeypatch):
     _write_layout(tmp_path, dev=False)
-    _enable_federation(tmp_path)
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(["down"], root=tmp_path) == 0
@@ -804,27 +781,23 @@ def test_down_uses_all_profiles_when_federation_is_active(tmp_path, monkeypatch)
 @pytest.mark.parametrize(
     ("lines", "message"),
     [
-        (("CB_FEDERATION=yes",), "CB_FEDERATION must be exactly 0 or 1"),
-        (("CB_FEDERATION=1", "CB_FEDIFY_PORT=8765"), "CB_FEDIFY_PORT .* must be different from CB_API_PORT"),
-        (("CB_FEDERATION=1", "CB_FEDIFY_PORT=70000"), "CB_FEDIFY_PORT must be in range"),
-        (("CB_FEDERATION=1", "CB_FEDIFY_PORT=abc"), "CB_FEDIFY_PORT must be an integer"),
+        (("CB_FEDIFY_PORT=8765",), "CB_FEDIFY_PORT .* must be different from CB_API_PORT"),
+        (("CB_FEDIFY_PORT=70000",), "CB_FEDIFY_PORT must be in range"),
+        (("CB_FEDIFY_PORT=abc",), "CB_FEDIFY_PORT must be an integer"),
     ],
 )
-def test_federation_settings_are_validated_before_a_subprocess(tmp_path, monkeypatch, lines, message):
+def test_sidecar_port_is_validated_before_a_subprocess(tmp_path, monkeypatch, lines, message):
     _write_layout(tmp_path, dev=False)
     with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
         stream.write("\n".join((*lines, "")))
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
     monkeypatch.delenv("CB_FEDIFY_PORT", raising=False)
 
     with pytest.raises(cb.ManuscriptError, match=message):
         cb.load_runtime(cb.Layout(tmp_path))
 
 
-def test_up_with_federation_makes_the_mount_directories_before_compose(tmp_path, monkeypatch):
+def test_up_makes_the_mount_directories_of_the_sidecar_before_compose(tmp_path, monkeypatch):
     _write_layout(tmp_path, dev=False)
-    _enable_federation(tmp_path)
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
     seen: dict[str, bool] = {}
 
     def fake(argv, **_kwargs):
@@ -841,10 +814,8 @@ def test_up_with_federation_makes_the_mount_directories_before_compose(tmp_path,
     assert not (tmp_path / "data" / "auth").exists()
 
 
-def test_install_with_federation_builds_and_starts_with_the_profile_and_makes_directories_before_migration(tmp_path, monkeypatch):
+def test_install_makes_the_directories_of_the_sidecar_before_migration_and_needs_no_profile(tmp_path, monkeypatch):
     _write_layout(tmp_path, dev=False)
-    _enable_federation(tmp_path)
-    monkeypatch.delenv("CB_FEDERATION", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     directories_at_migration: list[bool] = []
 
@@ -864,7 +835,7 @@ def test_install_with_federation_builds_and_starts_with_the_profile_and_makes_di
     build = next(cmd for cmd in commands if cmd[-1:] == ["build"])
     up = next(cmd for cmd in commands if cmd[:2] == ["docker", "compose"] and "up" in cmd[-7:])
     for command in (build, up):
-        assert command[command.index("--profile") + 1] == "federation"
+        assert "--profile" not in command
 
 
 def test_passthrough_preserves_arguments_tty_and_exit_code(tmp_path):

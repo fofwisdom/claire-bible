@@ -90,7 +90,6 @@ TIMELINE_PAGE_MAX = 80
 TIMELINE_FILTERS = ("unread", "starred", "mention")
 READING_AUDIT_ACTION = "federation.reading.update"
 DOCUMENT_ID_MAX_LENGTH = 200
-AUDIT_ACTION = "federation.update"
 AUDIT_DOMAIN_BLOCK_ADD = "federation.domain_block_add"
 AUDIT_DOMAIN_BLOCK_REMOVE = "federation.domain_block_remove"
 DOMAIN_BLOCK_NOTE_MAX_LENGTH = 200
@@ -124,7 +123,7 @@ def _is_account_owner(principal: Principal) -> bool:
 
 def routes(ctx: AccountsContext) -> list[Route]:
     def _admin_change_denied(request: Request, principal: Principal) -> Response | None:
-        """Guards of an admin change: admin, same origin, recent authentication. The sequence is that of ``POST /api/admin/federation``."""
+        """Guards of an admin change: admin, same origin, recent authentication, in this sequence."""
         if not is_admin(principal):
             return not_found()
         if not same_origin(request):
@@ -142,7 +141,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 store = accounts_store.AccountStore(conn)
                 report = federation_readiness.check_federation_readiness(conn, ctx.settings)
                 return {
-                    "federation": store.federation_state(),
                     "mode": store.server_mode(),
                     "readiness": report.to_dict(),
                     "heartbeat": _heartbeat_view(ctx.data_dir),
@@ -153,49 +151,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         # The readiness checks read files and send one HTTP request. They must not stop the event loop.
         data = await asyncio.to_thread(_fetch)
         return JSONResponse(data, headers=_NO_STORE)
-
-    async def admin_federation_post(request: Request) -> Response:
-        principal = request_principal(request)
-        if not is_admin(principal):
-            return not_found()
-        if not same_origin(request):
-            return json_error(403, "forbidden")
-        denied = require_recent_auth(principal)
-        if denied is not None:
-            return denied
-
-        body = await read_json_body(request)
-        target = body.get("federation")
-        # Sealed body: one field, and its value is a known state.
-        if set(body) != {"federation"} or not isinstance(target, str) or target not in accounts_store.FEDERATION_STATES:
-            return json_error(400, "invalid_request", detail=f"The body must be an object with one field, federation, that is one of {sorted(accounts_store.FEDERATION_STATES)}")
-
-        def _execute() -> tuple[int, dict[str, Any]]:
-            conn = open_db(ctx)
-            try:
-                store = accounts_store.AccountStore(conn)
-                if target == store.federation_state():
-                    return 200, {"federation": target, "changed": False}
-                if target == "on":
-                    report = federation_readiness.check_federation_readiness(conn, ctx.settings)
-                    if not report.passed:
-                        return 400, {
-                            "error": "readiness_failed",
-                            "detail": "Federation readiness checks did not pass",
-                            "failures": [item.to_dict() for item in report.items if item.level == "required" and item.applies and not item.passed],
-                        }
-                auth_conn = open_auth_db(ctx)
-                try:
-                    store.set_federation_state(target, updated_by=principal.account_id)
-                    auth_db.record_admin_audit(auth_conn, actor_account_id=principal.account_id, action=AUDIT_ACTION, detail={"federation": target})
-                finally:
-                    auth_conn.close()
-                return 200, {"federation": target, "changed": True}
-            finally:
-                conn.close()
-
-        status_code, data = await asyncio.to_thread(_execute)
-        return JSONResponse(data, status_code=status_code, headers=_NO_STORE)
 
     # --- Reading settings (FEDERATION_REMOTE_READING_DESIGN.md Section 10, FP4-2) ---
 
@@ -507,7 +462,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 store = accounts_store.AccountStore(conn)
                 account = store.get(account_id)
                 # Section 5.1 rule 1 (RD4): only an account that is an actor can follow.
-                if actor_state(account, federation=store.federation_state()) != "active":
+                if actor_state(account) != "active":
                     return 409, {"error": "not_actor"}
                 if federation_store.blocking_domain(conn, host) is not None:
                     return 400, {"error": "blocked_domain"}
@@ -609,7 +564,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 theme = _own_theme(conn, principal, number=number)
                 if theme is None:
                     return 404, {"error": "theme_not_found"}
-                state = actor_state(store.get(account_id), federation=store.federation_state())
+                state = actor_state(store.get(account_id))
                 if state != "active":
                     return 409, {"error": "not_an_actor", "actor_state": state}
                 # Only a document of a public theme can be published (design Section 9.1).
@@ -831,7 +786,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 store = accounts_store.AccountStore(conn)
                 reading = federation_client_store.get_reading_settings(conn)
                 # The sidecar takes only the tasks of an account that is an actor: a task of another account would wait without an end.
-                off = reading["context_fetch"] != "on" or int(reading["context_max_items"]) < 1 or actor_state(store.get(account_id), federation=store.federation_state()) != "active"
+                off = reading["context_fetch"] != "on" or int(reading["context_max_items"]) < 1 or actor_state(store.get(account_id)) != "active"
             finally:
                 conn.close()
             client = open_client_db(ctx)
@@ -937,7 +892,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEDERATION_PUBLISH_API_PATH, federation_publish_post, methods=["POST"]),
         Route(FEDERATION_RETRACT_API_PATH, federation_retract_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_get, methods=["GET"]),
-        Route(ADMIN_FEDERATION_API_PATH, admin_federation_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_get, methods=["GET"]),
         Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_put, methods=["PUT"]),
         Route(FEDERATION_FOLLOWING_API_PATH, federation_following_get, methods=["GET"]),

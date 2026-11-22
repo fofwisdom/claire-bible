@@ -1,6 +1,6 @@
 """Federation readiness checks GF1 to GF20 (Fedify sidecar design Section 12, KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1, FEDERATION_GO_LIVE_DESIGN.md, units FP1-6, KF6, GL1, and GL2).
 
-The admin can set the server setting ``federation`` to ``on`` only when all applicable required checks pass (GF1 to GF7 and GF8 to GF13). ``POST /api/admin/federation`` and ``claire server check --federation`` use ``check_federation_readiness``.
+Federation is a function of each server and has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4). The checks are a report of the state of the server: they do not gate a change. ``GET /api/admin/federation`` and ``claire server check --federation`` use ``check_federation_readiness``.
 
 The checks do not change data. GF4 and GF12 do not make a key file. GF14 and GF15 read actor documents through the public origin, which can make the keys of those actors on a first read. The HTTP checks run at the same time with a 20-second limit and trust the system trust store.
 
@@ -648,10 +648,9 @@ def _invalid_setting_item(key: str, value: Any) -> FederationReadinessItem:
 
 def _check_knowledge_settings(conn: sqlite3.Connection, runtime: WebRuntimeConfig | None) -> FederationReadinessItem:
     name = "Settings of the knowledge federation and the public name"
-    for switch_key in ("federation", auto_contribution.SWITCH_KEY):
-        row = conn.execute("SELECT value FROM server_settings WHERE key=?", (switch_key,)).fetchone()
-        if row is not None and row[0] not in ("off", "on"):
-            return _invalid_setting_item(switch_key, row[0])
+    row = conn.execute("SELECT value FROM server_settings WHERE key=?", (auto_contribution.SWITCH_KEY,)).fetchone()
+    if row is not None and row[0] not in ("off", "on"):
+        return _invalid_setting_item(auto_contribution.SWITCH_KEY, row[0])
     for key in contributions.LIMITS:
         row = conn.execute("SELECT value FROM server_settings WHERE key=?", (key,)).fetchone()
         if row is None:
@@ -936,11 +935,9 @@ def _count(record: Any, key: str) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
-def _check_inbound_traffic(runtime: WebRuntimeConfig | None, federation_on: bool, heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
+def _check_inbound_traffic(runtime: WebRuntimeConfig | None, heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
     """GF19: other servers reach this server (FEDERATION_GO_LIVE_DESIGN.md Section 9.2). The counters are in the memory of the sidecar and start at zero when it starts."""
     name = "Other servers reach this server"
-    if not federation_on:
-        return _not_applicable_federation_off("GF19", name, group="operation", level="warning")
     traffic = _traffic(heartbeat, age)
     if traffic is None:
         return FederationReadinessItem(id="GF19", name=name, group="operation", level="warning", applies=True, passed=False, code="traffic_unknown", detail="There is no recent sidecar heartbeat. The traffic counters are not known.")
@@ -953,11 +950,9 @@ def _check_inbound_traffic(runtime: WebRuntimeConfig | None, federation_on: bool
     return FederationReadinessItem(id="GF19", name=name, group="operation", level="warning", applies=True, passed=False, code="no_inbound", detail=f"No signed request of another server verified in the last 24 hours (not verified: {rejected}). The counters start at zero when the sidecar starts. Search a handle of this server (@username@{host}) on another server to make the first contact.", values={"host": host, "rejected": rejected})
 
 
-def _check_deliveries(federation_on: bool, heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
+def _check_deliveries(heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
     """GF20: deliveries to other servers succeed (FEDERATION_GO_LIVE_DESIGN.md Section 9.2)."""
     name = "Deliveries to other servers succeed"
-    if not federation_on:
-        return _not_applicable_federation_off("GF20", name, group="operation", level="warning")
     traffic = _traffic(heartbeat, age)
     if traffic is None:
         return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=True, passed=False, code="traffic_unknown", detail="There is no recent sidecar heartbeat. The traffic counters are not known.")
@@ -974,31 +969,11 @@ def _check_deliveries(federation_on: bool, heartbeat: dict[str, Any] | None, age
     return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=True, passed=False, code="deliveries_failed", detail=f"No delivery succeeded in the last 24 hours ({failed} failed tries). The most frequent failure is {worst}.", values={"failed": failed, "class": worst})
 
 
-def _not_applicable_federation_off(item_id: str, name: str, *, group: Group = "knowledge", level: Level = "required") -> FederationReadinessItem:
-    return FederationReadinessItem(
-        id=item_id,
-        name=name,
-        group=group,
-        level=level,
-        applies=False,
-        passed=True,
-        code="federation_off",
-        detail="The switch federation is off. The sidecar gives 404 for each federation path while it is off.",
-    )
-
-
 def _lowest_shared_kb_number(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
         "SELECT number FROM knowledge_bases WHERE is_personal=0 AND account_id IS NULL AND is_public=1 AND knowledge_type IN ('real', 'fictional') AND number IS NOT NULL ORDER BY number ASC LIMIT 1"
     ).fetchone()
     return None if row is None else int(row[0])
-
-
-def _safe_federation_state(conn: sqlite3.Connection) -> str:
-    row = conn.execute("SELECT value FROM server_settings WHERE key='federation'").fetchone()
-    if row is not None and row[0] in ("off", "on"):
-        return str(row[0])
-    return "off"
 
 
 def _safe_auto_contribution_on(conn: sqlite3.Connection) -> bool:
@@ -1036,9 +1011,7 @@ def check_federation_readiness(
 
     heartbeat = federation_routes.read_heartbeat(data_dir)
     age = _heartbeat_age(heartbeat, current)
-    federation_state = _safe_federation_state(conn)
-    federation_on = federation_state == "on"
-    expected_auto = federation_on and _safe_auto_contribution_on(conn)
+    expected_auto = _safe_auto_contribution_on(conn)
     lowest_kb = _lowest_shared_kb_number(conn)
 
     # Local / file / DB / heartbeat checks.
@@ -1064,13 +1037,12 @@ def check_federation_readiness(
     request_specs: dict[str, tuple[str, Level, Callable[[], FederationReadinessItem]]] = {
         "GF7": ("OAuth metadata through the public origin", "required", lambda: _check_metadata(probes)),
         "GF10": ("Inbox body of the largest size through the public origin", "required", lambda: _check_inbox_body_limit(probes)),
+        "GF14": ("First-contact documents through the public origin", "required", lambda: _check_first_contact(probes, data_dir)),
+        "GF16": ("Collections refuse an unsigned read", "required", lambda: _check_unsigned_collections(probes, lowest_kb)),
         "GF17": ("JSON-LD context and vocabulary page through the public origin", "warning", lambda: _check_ns_documents(probes)),
     }
-    if federation_on:
-        request_specs["GF14"] = ("First-contact documents through the public origin", "required", lambda: _check_first_contact(probes, data_dir))
-        request_specs["GF16"] = ("Collections refuse an unsigned read", "required", lambda: _check_unsigned_collections(probes, lowest_kb))
-        if lowest_kb is not None:
-            request_specs["GF15"] = ("Knowledge base actor document through the public origin", "required", lambda: _check_kb_actor(probes, data_dir, lowest_kb, expected_auto))
+    if lowest_kb is not None:
+        request_specs["GF15"] = ("Knowledge base actor document through the public origin", "required", lambda: _check_kb_actor(probes, data_dir, lowest_kb, expected_auto))
 
     request_results: dict[str, FederationReadinessItem] = {}
     executor = ThreadPoolExecutor(max_workers=len(request_specs))
@@ -1094,20 +1066,18 @@ def check_federation_readiness(
 
     gf7 = request_results["GF7"]
     gf10 = request_results["GF10"]
-    gf14 = request_results["GF14"] if federation_on else _not_applicable_federation_off("GF14", "First-contact documents through the public origin")
-    if not federation_on:
-        gf15 = _not_applicable_federation_off("GF15", "Knowledge base actor document through the public origin")
-    elif lowest_kb is None:
+    gf14 = request_results["GF14"]
+    if lowest_kb is None:
         gf15 = FederationReadinessItem(id="GF15", name="Knowledge base actor document through the public origin", group="knowledge", level="required", applies=False, passed=True, code="no_shared_kb", detail="There is no shared knowledge base.")
     else:
         gf15 = request_results["GF15"]
-    gf16 = request_results["GF16"] if federation_on else _not_applicable_federation_off("GF16", "Collections refuse an unsigned read")
+    gf16 = request_results["GF16"]
     gf17 = request_results["GF17"]
 
     # Path and traffic (warnings). GF18 reads what the answers of the request checks showed about the CDN.
     gf18 = _check_probe_path(runtime, heartbeat, age, resolve if resolve is not None else resolve_host, probes.via_cdn if probes is not None else None)
-    gf19 = _check_inbound_traffic(runtime, federation_on, heartbeat, age)
-    gf20 = _check_deliveries(federation_on, heartbeat, age)
+    gf19 = _check_inbound_traffic(runtime, heartbeat, age)
+    gf20 = _check_deliveries(heartbeat, age)
 
     items = (gf1, gf2, gf3, gf4, gf5, gf6, gf7, gf8, gf9, gf10, gf11, gf12, gf13, gf14, gf15, gf16, gf17, gf18, gf19, gf20)
     return FederationReadinessReport(items=items, passed=all(item.passed for item in items if item.level == "required"))

@@ -1,7 +1,7 @@
 # Common Development Environment for Contributors
 
 - **Document Identifier**: `DESIGN-CONTRIBUTOR-DEVELOPMENT-ENVIRONMENT-20261118`
-- **Status**: Planned, not implemented for DE1 to DE6 containers/commands (Rev. 2). Locked decisions: CD1 (Section 2, 2026-11-18) and CD4 (`DQ1: A`, `.test` HTTPS origin and DNS role rules implemented in `security.py` and `host_router.py`, 2026-11-19). All other content is a **proposal**. Open questions: DQ2 to DQ7 (Section 13).
+- **Status**: Planned, not implemented for DE1 to DE6 containers/commands (Rev. 2). Locked decisions: CD1 (Section 2, 2026-11-18) and CD4 (`DQ1: A`, `.test` HTTPS origin and DNS role rules implemented in `security.py` and `host_router.py`, 2026-11-19). All other content is a **proposal**. Open questions: DQ2 to DQ7 (Section 13). Decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) (owner, 2026-11-22) removed the switch `federation` and the variable `CB_FEDERATION`: the steps of this design that set them have no object, and the sidecar starts with the other services.
 - **Date**: 2026-11-18
 - **Base commit**: `33748825`. At the time of the reading, the working tree had changes of other work (the expansion modules, schema version 35). The **[code]** facts come from the files at that time.
 - **Related Documents**:
