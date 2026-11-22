@@ -4,20 +4,21 @@
 
 ## Before You Start
 
-1. In your Claire Bible **Account Settings** (`/settings/account`), switch **Extraction mode** to **`Agent Client (client)`**.
+1. In Claire Bible **Account Settings** (`/settings/account`), switch **Extraction mode** to **`Agent Client (client)`**.
 2. Keep **MCP Settings** (`/settings/mcp`) open so you can copy your `/mcp` endpoint URL.
 
 ## Install & Connect via GUI
 
 1. Open **Marketplace management** in Claude.
-2. Enter **`{{MARKETPLACE_REPO}}`** (or `https://github.com/{{MARKETPLACE_REPO}}.git`), sync the marketplace, and install **`claire-claude`**.
-3. In Claude Connectors / MCP settings, add your Claire Bible `/mcp` URL (`https://<your-claire-server>/mcp`).
+2. Enter **`{{MARKETPLACE_REPO}}`** (or `https://github.com/{{MARKETPLACE_REPO}}.git`), sync, and install **`claire`**.
+3. In Claude Connectors / MCP settings, add your remote HTTP server as **`claire`** pointing to `https://<your-claire-server>/mcp`.
 4. Complete the browser OAuth 2.1 flow and approve both `readonly` and `write` scopes.
 
-## Try Your First Extraction
+## Slash Commands Ready to Use
 
-- `List pending Claire Bible sources`
-- `Extract and save pending Claire Bible sources`
+- **`/claire:ingest <url, file, or note>`**: Stage a URL, local document file (PDF, DOCX, ODT, MD, TXT), or note and run isolated extraction via `extractor` in one step.
+- **`/claire:extract`**: Claim and extract queued `pending` sources waiting in your personal KB.
+- **`/claire:query <question>`**: Discover KBs via `kb_list`, search entities and relations, inspect documents, or submit contributions.
 
 <details>
 <summary>CLI / Terminal setup</summary>
@@ -26,7 +27,7 @@
 /plugin marketplace add {{MARKETPLACE_REPO}}
 ```
 
-Then install `claire-claude` and register the MCP server:
+Install `claire`, then register the standalone `claire` MCP server:
 
 ```bash
 claude mcp add --transport http claire https://<your-claire-server>/mcp

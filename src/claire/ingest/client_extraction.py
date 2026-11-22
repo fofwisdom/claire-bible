@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import html
 import json
@@ -22,6 +24,8 @@ from ..extract.frame import format_entity_frame
 from ..extract.prompts import clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, sanitize_rendered_detail
 from ..extract.provider import UnavailableProvider, get_provider
 from ..extract.resolver import _call_provider_embed, is_type_compatible, passes_hard_invariants, resolve_or_create, sync_entity_space_embeddings
+from ..ingest.fetchers.base import FetchError
+from ..ingest.fetchers.textfile import MAX_STAGE_FILE_BYTES, fetch_file_bytes
 from ..ingest.normalize import content_hash as compute_content_hash
 from ..ingest.pipeline import _auto_contribute_document, _match_document_theme, _start_contribution_revisions, stage_raw
 from ..ingest.router import fetch as default_fetch
@@ -283,61 +287,23 @@ def _inspect_document_claim_error(conn: sqlite3.Connection, document_id: str, *,
     return row, None
 
 
-def stage_source(
-    conn: sqlite3.Connection,
-    *,
-    kb_id: int,
-    account_id: int,
-    url_or_text: str,
-    title: str | None = None,
-    source_type: str | None = None,
-    full_content: bool = True,
-    mode: str | None = None,
-    settings: Any = None,
-    data_dir: Path | None = None,
-    fetch_fn: Any = None,
-) -> dict[str, Any]:
-    """Stage full raw source content in the caller personal knowledge base with zero LLM calls when in client mode."""
-    text_or_url = str(url_or_text or "").strip()
-    if not text_or_url:
-        raise ClientExtractionError(400, "source_required", "url_or_text must not be empty.")
+def _resolve_stage_mode(conn: sqlite3.Connection, *, account_id: int, kb_id: int, mode: str | None) -> tuple[str, str]:
+    """Validate optional extraction mode override and resolve effective account mode."""
     if mode is not None and mode not in ("client", "provider"):
         raise ClientExtractionError(400, "invalid_mode", f"Unsupported mode {mode!r}; expected 'client' or 'provider'.")
     account_mode = dbm.resolve_extraction_mode(conn, account_id=account_id, kb_id=kb_id)
-    effective_mode = mode or account_mode
     if mode == "provider":
         raise ClientExtractionError(400, "provider_mode_use_ingest", "Use standard ingest endpoint when mode='provider' is explicitly requested.")
+    return mode or account_mode, account_mode
 
-    prefetched = None
-    is_url = text_or_url.startswith(("http://", "https://"))
-    if not is_url and (title is not None or source_type is not None):
-        fetcher = fetch_fn or default_fetch
-        doc = fetcher(text_or_url, full_content=bool(full_content))
-        if title:
-            doc.title = str(title).strip()
-        if source_type:
-            doc.source_type = str(source_type).strip()
-        if not doc.content_hash and doc.raw_text:
-            doc.content_hash = compute_content_hash(doc.raw_text)
-        prefetched = doc
 
-    report = stage_raw(
-        text_or_url,
-        conn=conn,
-        fetch_fn=fetch_fn,
-        data_dir=data_dir,
-        source="mcp_stage",
-        prefetched=prefetched,
-        full_content=bool(full_content),
-        kb_id=int(kb_id),
-        settings=settings,
-        account_id=int(account_id),
-    )
+def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int, effective_mode: str, account_mode: str, title: str | None, source_type: str | None, allow_title_update: bool) -> dict[str, Any]:
+    """Apply optional metadata overrides after staging and format the standard stage response."""
     if report.error:
         raise ClientExtractionError(400, "stage_failed", report.error)
 
     row = dbm.get_document_row(conn, report.document_id, kb_id=int(kb_id)) if report.document_id else None
-    if row is not None and is_url and (title or source_type):
+    if row is not None and allow_title_update and (title or source_type):
         updates: list[str] = []
         params: list[Any] = []
         if title and not row["title"]:
@@ -373,6 +339,160 @@ def stage_source(
         "full_content": True,
         "message": report.message,
     }
+
+
+def _sanitize_stage_filename(filename: str) -> str:
+    """Validate and extract a safe basename from an uploaded or tool-supplied filename."""
+    raw = str(filename or "").strip()
+    if not raw or "\x00" in raw or "/" in raw or "\\" in raw or ".." in Path(raw).parts:
+        raise ClientExtractionError(400, "invalid_filename", "filename must be a basename without directory paths or '..' segments.")
+    safe_name = Path(raw).name.strip()
+    if not safe_name or safe_name in {".", ".."}:
+        raise ClientExtractionError(400, "invalid_filename", "filename must be a non-empty file name.")
+    return safe_name
+
+
+def stage_source(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    account_id: int,
+    url_or_text: str,
+    title: str | None = None,
+    source_type: str | None = None,
+    full_content: bool = True,
+    mode: str | None = None,
+    settings: Any = None,
+    data_dir: Path | None = None,
+    fetch_fn: Any = None,
+) -> dict[str, Any]:
+    """Stage full raw source content in the caller personal knowledge base with zero LLM calls when in client mode."""
+    text_or_url = str(url_or_text or "").strip()
+    if not text_or_url:
+        raise ClientExtractionError(400, "source_required", "url_or_text must not be empty.")
+    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
+
+    prefetched = None
+    is_url = text_or_url.startswith(("http://", "https://"))
+    if not is_url and (title is not None or source_type is not None):
+        fetcher = fetch_fn or default_fetch
+        doc = fetcher(text_or_url, full_content=bool(full_content))
+        if title:
+            doc.title = str(title).strip()
+        if source_type:
+            doc.source_type = str(source_type).strip()
+        if not doc.content_hash and doc.raw_text:
+            doc.content_hash = compute_content_hash(doc.raw_text)
+        prefetched = doc
+
+    report = stage_raw(
+        text_or_url,
+        conn=conn,
+        fetch_fn=fetch_fn,
+        data_dir=data_dir,
+        source="mcp_stage",
+        prefetched=prefetched,
+        full_content=bool(full_content),
+        kb_id=int(kb_id),
+        settings=settings,
+        account_id=int(account_id),
+    )
+    return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=title, source_type=source_type, allow_title_update=is_url)
+
+
+def stage_file_bytes(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    account_id: int,
+    raw_bytes: bytes,
+    filename: str,
+    title: str | None = None,
+    source_type: str | None = None,
+    full_content: bool = True,
+    mode: str | None = None,
+    settings: Any = None,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Parse raw document bytes (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML) and stage without server LLM calls."""
+    safe_name = _sanitize_stage_filename(filename)
+    if not isinstance(raw_bytes, (bytes, bytearray)) or not raw_bytes:
+        raise ClientExtractionError(400, "empty_file", "Uploaded file content must not be empty.")
+    data = bytes(raw_bytes)
+    if len(data) > MAX_STAGE_FILE_BYTES:
+        raise ClientExtractionError(413, "file_too_large", f"File size {len(data)} bytes exceeds limit of {MAX_STAGE_FILE_BYTES} bytes.")
+    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
+
+    try:
+        doc = fetch_file_bytes(data, filename=safe_name, full_content=bool(full_content), max_bytes=MAX_STAGE_FILE_BYTES)
+    except FetchError as exc:
+        raise ClientExtractionError(400, "stage_failed", str(exc)) from exc
+
+    if title and str(title).strip():
+        doc.title = str(title).strip()
+        if doc.source_type not in ("text",):
+            doc.content_hash = compute_content_hash(doc.title, doc.raw_text)
+    if source_type and str(source_type).strip():
+        doc.source_type = str(source_type).strip()
+    if doc.meta is None:
+        doc.meta = {}
+    doc.meta["original_filename"] = safe_name
+    doc.meta["byte_length"] = len(data)
+
+    report = stage_raw(
+        f"[file] {safe_name}",
+        conn=conn,
+        data_dir=data_dir,
+        source="mcp_stage_file",
+        inbox_kind="file",
+        file_name=safe_name,
+        prefetched=doc,
+        full_content=bool(full_content),
+        kb_id=int(kb_id),
+        settings=settings,
+        account_id=int(account_id),
+    )
+    return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=None, source_type=None, allow_title_update=False)
+
+
+def stage_file_base64(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int,
+    account_id: int,
+    filename: str,
+    content_base64: str,
+    title: str | None = None,
+    source_type: str | None = None,
+    full_content: bool = True,
+    mode: str | None = None,
+    settings: Any = None,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Validate and decode base64 document content, then stage it into the personal knowledge base."""
+    encoded = "".join(str(content_base64 or "").split())
+    if not encoded:
+        raise ClientExtractionError(400, "invalid_base64", "content_base64 must not be empty.")
+    max_encoded_len = ((MAX_STAGE_FILE_BYTES + 2) // 3) * 4
+    if len(encoded) > max_encoded_len:
+        raise ClientExtractionError(413, "file_too_large", f"Encoded file payload exceeds maximum allowed size for {MAX_STAGE_FILE_BYTES} bytes.")
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ClientExtractionError(400, "invalid_base64", f"content_base64 is not valid base64: {exc}") from exc
+    return stage_file_bytes(
+        conn,
+        kb_id=kb_id,
+        account_id=account_id,
+        raw_bytes=decoded,
+        filename=filename,
+        title=title,
+        source_type=source_type,
+        full_content=full_content,
+        mode=mode,
+        settings=settings,
+        data_dir=data_dir,
+    )
 
 
 def list_staged_sources(conn: sqlite3.Connection, *, kb_id: int, account_id: int, status: str | None = "pending", limit: int = 50, now: float | None = None) -> dict[str, Any]:

@@ -501,20 +501,20 @@
 
   /* ── mcp (user slice: endpoint, discovery, snippets, tool catalog, draft scope) ── */
 
-  var MCP_TOOLS = [
-    { name: "resolve_entity", args: [["kb", "string", true], ["name", "string", true]], desc: "이름 · 별칭으로 엔티티 찾기 — 탐색 루프의 진입점" },
-    { name: "search", args: [["kb", "string", true], ["query", "string", true], ["entity_type", "string"], ["near_ids", "array"], ["limit", "integer"]], desc: "FTS5 전문 검색 (LLM 호출 0)" },
-    { name: "neighbors", args: [["kb", "string", true], ["entity_ids", "array", true], ["exclude_ids", "array"], ["limit", "integer"]], desc: "여러 노드의 1홉 이웃 합집합 · degree" },
-    { name: "path", args: [["kb", "string", true], ["from_id", "string", true], ["to_id", "string", true], ["max_hops", "integer"]], desc: "두 노드 사이 최단 경로 (BFS)" },
-    { name: "context", args: [["kb", "string", true], ["entity_ids", "array", true], ["compact", "boolean"]], desc: "observations · 관계 · 출처 종합 (최대 10개 노드)" },
-    { name: "overview", args: [["kb", "string", true]], desc: "엔티티 타입 분포 · 허브 노드 (오리엔테이션)" },
-    { name: "node", args: [["kb", "string", true], ["entity_id", "string", true], ["full", "boolean"]], desc: "노드 1개 상세 (연결 문서 최대 10건)" },
-    { name: "documents", args: [["kb", "string", true], ["limit", "integer"], ["since", "string"], ["query", "string"]], desc: "최신순 문서 목록 (최대 100건)" },
-    { name: "document", args: [["kb", "string", true], ["document_id", "string", true]], desc: "문서 본문 · 메타데이터 (mark_seen 부작용 없음)" },
-    { name: "stats", args: [["kb", "string", true]], desc: "문서 · 엔티티 · 관계 등 규모 요약" },
-    { name: "kb_candidates", args: [["document_id", "string", true]], desc: "문서의 일치 테마·공유 지식베이스 기여 후보 조회" },
-    { name: "kb_submit", args: [["documents", "array", true], ["theme", "string"]], desc: "추출된 문서를 공유 지식베이스로 기여 제출" }
-  ];
+  var MCP_TOOLS = Array.isArray(synd.mcp_tools) ? synd.mcp_tools.map(function (t) {
+    var args = Array.isArray(t.parameters) ? t.parameters.map(function (p) {
+      return typeof p === "string" ? [p, "string", false] : [p.name, p.type || "string", Boolean(p.required)];
+    }) : [];
+    return {
+      name: t.name,
+      title: t.title || t.name,
+      scope: t.scope || "readonly",
+      readOnly: Boolean(t.read_only),
+      annotations: t.annotations || {},
+      args: args,
+      desc: t.description || ""
+    };
+  }) : [];
 
   var MCP_PROPOSED_TOOLS = [
     { name: "synd_targets", scope: "syndication:read", args: [["folder", "string"]], desc: "수집 대상 · 폴더 · 경유 계정 (토큰 제외)" },
@@ -557,20 +557,20 @@
     if (promptEl) {
       var mp = (synd && synd.agent_marketplace) || {};
       var mpRepo = mp.repo || "fofwisdom/claire-agents";
-      var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire-antigravity plugin (.zip) from the latest GitHub Release of https://github.com/{repo} into my Antigravity plugins folder, verify SHA256SUMS, write mcp_config.json inside the claire-antigravity plugin folder with claire URL {mcp_url}, and show the claire-antigravity plugin card so I can sign in.");
+      var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire plugin (claire-antigravity-v*.zip) from the latest GitHub Release of https://github.com/{repo} into ~/.gemini/config/plugins/claire after verifying SHA256SUMS, merge mcpServers.claire={url:{mcp_url}} into ~/.gemini/config/mcp_config.json without overwriting existing entries, and tell me how to sign in under MCP Servers.");
       promptEl.textContent = promptTmpl.replace(/\{repo\}/g, mpRepo).replace(/\{mcp_url\}/g, ep);
     }
-    byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
+    byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "entity_search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
     byId("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
     byId("pref-mcp-stats").innerHTML = [
       ["Streamable HTTP", "stateless · JSON 응답"],
-      [MCP_TOOLS.length + "종", "도구 (kb 필수 · 기여 포함)"],
+      [MCP_TOOLS.length + "종", "도구 (kb · 기여 · 추출 포함)"],
       [tJs("console.js.synd.mcp.stat_channels_val", "OAuth 2.1"), tJs("console.js.synd.mcp.stat_channels_desc", "OAuth 2.1 (primary) · Legacy tokens (deprecated)")],
       ["+" + proposedOn.length, "제안 도구 (미리보기)"]
     ].map(function (p) { return '<div class="pref-stat"><b>' + escapeHtml(p[0]) + "</b><span>" + escapeHtml(p[1]) + "</span></div>"; }).join("");
 
-    byId("pref-mcp-snippet-cli").textContent = 'curl -fsS -X POST "' + ep + '" \\\n  -H "Authorization: Bearer cb_…" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'';
-    byId("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { type: "http", url: ep, headers: { Authorization: "Bearer cb_…" } } } }, null, 2);
+    byId("pref-mcp-snippet-cli").textContent = 'claude mcp add --transport http claire "' + ep + '"';
+    byId("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { url: ep } } }, null, 2);
 
     byId("pref-mcp-tools-tbody").innerHTML = MCP_TOOLS.map(function (t) {
       return '<tr><td><code class="pref-mono">' + escapeHtml(t.name) + '</code></td><td class="pref-mono">' + escapeHtml(argLabel(t.args)) + '</td><td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
@@ -586,7 +586,7 @@
         + '<td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
     }).join("");
 
-    var listed = MCP_TOOLS.map(function (t) { return { name: t.name, description: t.desc, inputSchema: schemaFor(t.args) }; })
+    var listed = MCP_TOOLS.map(function (t) { return { name: t.name, title: t.title, description: t.desc, annotations: t.annotations, inputSchema: schemaFor(t.args) }; })
       .concat(proposedOn.map(function (t) { return { name: t.name, description: "[제안] " + t.desc, inputSchema: schemaFor(t.args) }; }));
     byId("pref-mcp-toolslist").textContent = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: listed } }, null, 2);
   }

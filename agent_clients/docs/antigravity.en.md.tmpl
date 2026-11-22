@@ -2,7 +2,7 @@
 
 [한국어 가이드](./antigravity.ko.md) · [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)
 
-This guide walks you through installing, signing in, and running your first extraction using only the **Antigravity GUI** — no terminal commands or manual JSON editing required.
+Install the Claire Bible `claire` plugin in **Antigravity GUI** and connect the standalone global `claire` OAuth 2.1 MCP server without losing your server configuration on future plugin upgrades.
 
 ---
 
@@ -10,48 +10,38 @@ This guide walks you through installing, signing in, and running your first extr
 
 1. Sign in to your **Claire Bible** web interface.
 2. Open **Account Settings** (`/settings/account`) and switch **Extraction mode** to **`Agent Client (client)`**.
-3. Keep **MCP Settings** (`/settings/mcp`) open in your browser so you can copy the quick setup prompt or download `mcp_config.json`.
+3. Keep **MCP Settings** (`/settings/mcp`) open in your browser to copy the quick setup prompt or download `mcp_config.json`.
 
 ---
 
 ## Method 1 (Recommended): Paste Once in Antigravity Chat
 
-You do not need to know hidden plugin folder paths or edit any JSON files.
+Antigravity installs the `claire` plugin under `~/.gemini/config/plugins/claire` and safely merges `"claire"` into your global `~/.gemini/config/mcp_config.json` without overwriting existing servers.
 
-1. On your Claire Bible **`/settings/mcp`** page, locate **Official Agent Marketplace (GitHub)** and click **Copy** next to **Antigravity quick setup prompt**.
-   - If you are starting from GitHub directly, copy the prompt below and replace `<your-claire-server>` with your server hostname:
+1. On Claire Bible **`/settings/mcp`**, locate **Official Agent Marketplace (GitHub)** and click **Copy** next to **Antigravity quick setup prompt**.
+   - Starting directly from GitHub? Copy below and replace `<your-claire-server>`:
    ```text
-   Install claire-antigravity (.zip) from the latest Release of
-   https://github.com/{{MARKETPLACE_REPO}} into my Antigravity plugins
-   folder, verify SHA256SUMS, write mcp_config.json inside the
-   plugin folder for https://<your-claire-server>/mcp, and show the card.
+   Download claire-antigravity-v{{VERSION}}.zip from the latest Release of
+   https://github.com/{{MARKETPLACE_REPO}}, verify SHA256SUMS, install it into
+   ~/.gemini/config/plugins/claire, and merge claire (https://<your-claire-server>/mcp) into
+   ~/.gemini/config/mcp_config.json while preserving existing entries.
    ```
-2. Open the **Antigravity** app, click **`+ New Conversation`**, paste the prompt, and send it.
-   - *About install-time permission prompts*: Antigravity may ask permission to download the archive and write outside your workspace (`~/.gemini/config/plugins/claire-antigravity`). Because installation runs once, selecting **`1 Yes, allow this time`** and clicking **`Submit`** is sufficient.
-3. **Sign in to Claire Bible (OAuth 2.1)**:
-   - Click **Sign in** on the **Claire Bible** plugin card shown in the chat reply, **OR**
-   - Click **`Customizations`** in the left sidebar -> select **`Installed`** at the top right -> under **`Plugins`**, click **`Claire Bible`** (marked with an orange **`Setup required`** badge).
-   - On `Customizations / claire-antigravity`, click **`Go to Accounts`** on the yellow **`Sign in required.`** banner (or select the **`Accounts`** tab), sign in in your browser, and approve the **`readonly`** and **`write`** scopes.
-
-> **Note**: It is completely normal for **`MCP Servers 0`** (`No MCP servers yet. Use Add to browse the store.`) below `Plugins` to stay empty. Plugin-bundled MCP servers live inside **`Plugins -> Claire Bible`**, not under standalone `MCP Servers`.
+2. Open **Antigravity**, click **`+ New Conversation`**, paste, and send.
+   - When asked to confirm writing under `~/.gemini/config/`, pick **`1 Yes, allow this time`** and click **`Submit`**.
+3. **Sign In to Claire Bible (OAuth 2.1)**:
+   - Open **`Customizations`** -> **`Installed`** -> **`MCP Servers`** -> **`claire`**.
+   - Sign in through your browser and approve both **`readonly`** and **`write`** scopes.
 
 ---
 
-## Method 2 (Point-and-Click): Manual File Setup
+## Method 2 (Point-and-Click): Manual Setup
 
-Use this method if you prefer downloading files yourself. **No text editor or JSON editing is needed.**
-
-> **Important**: The `+` button next to `MCP Servers` opens the Marketplace store (`Use Add to browse the store.`) rather than a custom URL form. Place the downloaded `mcp_config.json` file inside the plugin folder as shown below instead.
-
-### Step 1: Download the `.zip` Bundle and `mcp_config.json`
-1. Open [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest) and download **`claire-antigravity-v{{VERSION}}.zip`**, then double-click to unzip the **`claire-antigravity`** folder.
-2. On your Claire Bible **`/settings/mcp`** page, click **Download server config** to save **`mcp_config.json`**.
-3. Move that **`mcp_config.json`** file directly inside the unzipped **`claire-antigravity`** folder (alongside `plugin.json`).
-
-<details>
-<summary>Creating mcp_config.json manually without opening /settings/mcp</summary>
-
-Save `claire-antigravity/mcp_config.json` with your Claire Bible `/mcp` URL:
+1. Download **`claire-antigravity-v{{VERSION}}.zip`** from [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest) and unzip it to obtain the **`claire`** folder.
+2. Move **`claire`** into your Antigravity plugins directory (`~/.gemini/config/plugins/claire/plugin.json`).
+   - macOS Finder: `Command + Shift + G` -> `~/.gemini/config`
+   - Windows File Explorer: `%USERPROFILE%\.gemini\config`
+   - Linux File Manager: `Ctrl + H` -> `.gemini` -> `config`
+3. In `~/.gemini/config/mcp_config.json` (downloadable from Claire `/settings/mcp` if you have no existing servers yet), merge `"claire"` under `"mcpServers"`:
 
 ```json
 {
@@ -63,103 +53,51 @@ Save `claire-antigravity/mcp_config.json` with your Claire Bible `/mcp` URL:
 }
 ```
 
-</details>
-
-### Step 2: Move `claire-antigravity` Into Antigravity Plugins
-Open the plugins folder for your OS and move the **`claire-antigravity`** folder inside. (If `plugins` does not exist yet inside `.gemini/config`, create an empty `plugins` folder first.)
-
-- **macOS (Finder)**
-  1. Choose **Go -> Go to Folder...** (`Command + Shift + G`).
-  2. Enter `~/.gemini/config/plugins` and press **Return**.
-  3. Drag the `claire-antigravity` folder into that window.
-- **Windows (File Explorer)**
-  1. Click the address bar at the top of File Explorer.
-  2. Paste `%USERPROFILE%\.gemini\config\plugins` and press **Enter**.
-  3. Move the `claire-antigravity` folder into that folder.
-- **Linux (File Manager)**
-  1. Open your Home folder and press `Ctrl + H` to show hidden folders.
-  2. Open `.gemini` -> `config` -> `plugins` and move the `claire-antigravity` folder inside.
-
-### Step 3: Sign In Inside the `Claire Bible` Plugin Page
-1. In **Antigravity**, open **`Customizations`** in the left sidebar and select **`Installed`** at the top right.
-2. Under **`Plugins`**, click **`Claire Bible`** (`Setup required`).
-3. Click **`Go to Accounts`** on the yellow **`Sign in required.`** banner (or open the **`Accounts`** tab) and approve OAuth 2.1 (`readonly` and `write`) in your browser.
+4. In Antigravity **`Customizations -> Installed -> MCP Servers -> claire`**, complete OAuth 2.1 sign-in (`readonly` and `write`).
 
 ---
 
 ## Handling Permission Prompts on First Run (`Allow using this MCP tool?`)
 
-When you run your first Claire Bible prompt, Antigravity displays a permission prompt **`Allow using this MCP tool?`** for `claire-antigravity_claire/<tool_name>` (such as `claire-antigravity_claire/list_staged_sources`) with four options:
+On first tool call, Antigravity displays **`Allow using this MCP tool?`** for `claire/<tool_name>` with four choices:
 
-1. **`1 Yes, allow this time`** — Allow this single call only
-2. **`2 Yes, and always allow in this conversation`** — Allow for the rest of this chat
-3. **`3 Yes, and always allow`** — Always allow without asking again
-4. **`4 No (tell the agent what to do instead)`** — Decline and instruct the agent otherwise
+1. **`1 Yes, allow this time`**
+2. **`2 Yes, and always allow in this conversation`**
+3. **`3 Yes, and always allow`**
+4. **`4 No (tell the agent what to do instead)`**
 
-### What should I pick?
-- **Personal-KB query and extraction tools (`list_staged_sources`, `claim_staged_source`, `get_staged_source`, `get_extraction_spec`, `resolve_entity`, `search`, `neighbors`, `submit_client_extraction`)**:
-  - One extraction invokes 7–9 tools in sequence. Select **`3 Yes, and always allow`** and click **`Submit`** so extraction completes without pausing at every tool call.
-- **Shared-KB contribution tool (`claire-antigravity_claire/kb_submit`)**:
-  - Keep **`1 Yes, allow this time`** if you want an explicit confirmation before submitting documents to a shared knowledge base.
-- **Reviewing or revoking saved grants**:
-  - Open Antigravity **`Settings -> Permission Grants`** anytime to inspect or remove saved allowances.
+- **Personal-KB ingest, extraction & query tools (`extract_stage`, `extract_spec`, `extract_queue`, `extract_claim`, `extract_read`, `extract_submit`, `kb_list`, `entity_search`, `graph_neighbors`, etc.)**: choose **`3 Yes, and always allow`** -> **`Submit`** so multi-step extraction completes smoothly.
+- **Shared-KB contribution (`claire/contrib_submit`)**: keep **`1 Yes, allow this time`** if you want explicit confirmation per contribution.
+- Review or revoke permissions anytime under **`Settings -> Permission Grants`**.
 
 ---
 
-## Verify Connection & Run Your First Extraction
+## Core Workflows Ready to Use
 
-Click any of the starter prompt chips on **`Customizations -> Installed -> Plugins -> Claire Bible`**, or paste one into a new chat:
+1. **Direct URL / Document File Ingest (`claire-ingest`)**:
+   - `Save and extract https://... into my Claire Bible`
+   - `Stage and extract this local PDF/DOCX/MD file into Claire Bible`
+2. **Pending Queue Extraction (`claire-extract`)**:
+   - `Extract pending Claire Bible sources`
+3. **Knowledge Graph Search & Contributions (`claire-query`)**:
+   - `Search my Claire Bible knowledge graph`
 
-- `List pending Claire Bible sources`
-- `Extract and save pending Claire Bible sources`
-- `Search topics in my Claire Bible knowledge graph`
-
-Antigravity delegates raw source reading and extraction to the isolated `claire-extractor` subagent (Claire MCP tools only, zero shell/file tools) and commits validated results into your personal knowledge base.
-
----
-
-## FAQ & Troubleshooting
-
-- **`MCP Servers` shows `0` (`No MCP servers yet. Use Add to browse the store.`).**
-  - That is expected. MCP servers bundled inside a plugin live under **`Plugins -> Claire Bible`** (`MCP` and `Accounts` tabs), not in the standalone `MCP Servers` list.
-- **`Claire Bible` shows `Setup required` and `Sign in required.`.**
-  - OAuth 2.1 sign-in has not completed yet. Click **`Go to Accounts`** (or the **`Accounts`** tab) and sign in via your browser.
-- **I cannot find the `.gemini` folder.**
-  - Folders starting with `.` are hidden by default. Use `Command + Shift + G` in macOS Finder, paste `%USERPROFILE%\.gemini\config\plugins` into Windows File Explorer, or press `Ctrl + H` in Linux file managers.
-- **`Claire Bible` does not appear under `Plugins`.**
-  - Make sure there is no extra nested folder (`plugins/claire-antigravity/claire-antigravity/plugin.json`). The manifest must be at `plugins/claire-antigravity/plugin.json`.
-- **Antigravity keeps prompting `Allow using this MCP tool?`.**
-  - Choose **`3 Yes, and always allow`** and click **`Submit`** once per tool. Manage saved grants later in **`Settings -> Permission Grants`**.
-- **How do I update to a newer version?**
-  - Re-run Method 1, or unzip the new `.zip` over `plugins/claire-antigravity` while keeping your existing `mcp_config.json` and OAuth login.
+When handling URLs or third-party files, the top-level agent stages them cleanly without reading untrusted content directly and delegates extraction solely to the isolated `claire-extractor` subagent.
 
 ---
 
 <details>
-<summary>CLI & Advanced Users (.tar.gz, SHA256SUMS verification, agy CLI)</summary>
+<summary>CLI & Advanced Users (.tar.gz, SHA256SUMS, agy CLI)</summary>
 
-1. Download and verify checksums:
+1. Verify checksum and extract:
    ```bash
    curl -fsSLO "https://github.com/{{MARKETPLACE_REPO}}/releases/download/v{{VERSION}}/claire-antigravity-v{{VERSION}}.tar.gz"
    curl -fsSLO "https://github.com/{{MARKETPLACE_REPO}}/releases/download/v{{VERSION}}/SHA256SUMS"
    sha256sum -c SHA256SUMS --ignore-missing
-   ```
-   *(Use `shasum -a 256 -c SHA256SUMS --ignore-missing` on macOS.)*
-2. Extract and validate:
-   ```bash
    mkdir -p ~/.gemini/config/plugins
    tar -xzf claire-antigravity-v{{VERSION}}.tar.gz -C ~/.gemini/config/plugins
-   agy plugin validate --strict ~/.gemini/config/plugins/claire-antigravity
+   agy plugin validate --strict ~/.gemini/config/plugins/claire
    ```
-3. Write `plugins/claire-antigravity/mcp_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "claire": {
-         "url": "https://<your-claire-server>/mcp"
-       }
-     }
-   }
-   ```
+2. Add `"claire": {"url": "https://<your-claire-server>/mcp"}` inside `~/.gemini/config/mcp_config.json` under `"mcpServers"`.
 
 </details>

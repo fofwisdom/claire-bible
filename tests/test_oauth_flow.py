@@ -241,7 +241,7 @@ def test_authorization_code_flow_with_pkce_and_mcp_access(tmp_path: Path) -> Non
         mcp_data = mcp_resp.json()
         assert "tools" in mcp_data["result"]
         tool_names = [t["name"] for t in mcp_data["result"]["tools"]]
-        assert "search" in tool_names
+        assert "entity_search" in tool_names
 
         # 8. CRITICAL: Test Session Isolation!
         # When telegram /webro or /web is called, it deletes old auth_sessions.

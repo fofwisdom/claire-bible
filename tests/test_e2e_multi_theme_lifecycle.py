@@ -176,7 +176,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert doc_json["theme_label"] == "Project X"
     assert doc_json["title"] == "Project X Guide"
 
-    # Step 6: MCP Tools document() lookup with the required ``kb`` (CT23)
+    # Step 6: MCP Tools doc_get() lookup with the required ``kb`` (CT23)
     import json
     mcp_app = build_mcp_app(s, theme_mgr=tm)
     with TestClient(mcp_app, base_url="http://127.0.0.1:8765") as mcp_client:
@@ -186,7 +186,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": doc_id, "kb": ids.format_public_id(theme1.number)}},
+                "params": {"name": "doc_get", "arguments": {"document_id": doc_id, "kb": ids.format_public_id(theme1.number)}},
             },
         )
         assert r_mcp.status_code == 200

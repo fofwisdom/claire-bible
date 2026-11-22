@@ -7,7 +7,7 @@ Core code branches only on these values. A plugin that gives audio or video uses
 
 from __future__ import annotations
 
-CORE_SOURCE_TYPES: tuple[str, ...] = ("web", "video", "pdf", "odt", "text", "file", "custom")
+CORE_SOURCE_TYPES: tuple[str, ...] = ("web", "video", "pdf", "odt", "docx", "text", "file", "custom")
 
 # Stored documents of the YouTube plugin (claire.youtube). Frozen: no new value joins this list.
 LEGACY_MEDIA_SOURCE_TYPES: tuple[str, ...] = ("youtube",)

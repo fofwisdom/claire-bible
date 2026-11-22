@@ -1,9 +1,10 @@
 id = "claire-claude"
+plugin_name = "claire"
 client_id = "claude"
 target = "claude"
 name = "Claire Bible"
 agent_name = "Claude"
-version = "0.1.2"
+version = "0.2.0"
 license = "MIT"
 required_scopes = ["readonly", "write"]
-description = "Claude plugin for OAuth 2.1 MCP connection, isolated source extraction, and knowledge graph queries against your Claire Bible server."
+description = "Claude plugin providing /claire:ingest, /claire:extract, /claire:query skills and isolated source extraction for your claire MCP server."

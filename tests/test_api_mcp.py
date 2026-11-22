@@ -131,6 +131,17 @@ def test_mcp_readonly_session_tools_list_and_call(tmp_path: Path) -> None:
     tok = _mint_session(s, "readonly")
     app = _app(s)
     with TestClient(app, base_url=s.public_url) as client:
+        init_resp = client.post(
+            "/mcp",
+            json=_rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}, req_id=0),
+            headers={"X-Session": tok},
+        )
+        assert init_resp.status_code == 200
+        init_res = init_resp.json()["result"]
+        assert init_res["serverInfo"]["name"] == "claire"
+        assert init_res["serverInfo"]["title"] == "Claire Bible"
+        assert "kb_list" in init_res["instructions"]
+
         resp = client.post(
             "/mcp",
             json=_rpc("tools/list"),
@@ -138,29 +149,33 @@ def test_mcp_readonly_session_tools_list_and_call(tmp_path: Path) -> None:
         )
         assert resp.status_code == 200
         body = resp.json()
-        names = {t["name"] for t in body["result"]["tools"]}
+        tools = body["result"]["tools"]
+        names = {t["name"] for t in tools}
         assert {
-            "resolve_entity",
-            "neighbors",
-            "search",
-            "context",
-            "overview",
-            "path",
-            "node",
-            "documents",
-            "document",
-            "stats",
+            "kb_list",
+            "kb_overview",
+            "entity_search",
+            "entity_get",
+            "graph_neighbors",
+            "graph_path",
+            "graph_context",
+            "doc_list",
+            "doc_get",
         } <= names
+        by_name = {t["name"]: t for t in tools}
+        assert by_name["kb_list"]["annotations"]["readOnlyHint"] is True
+        assert by_name["extract_stage"]["annotations"]["readOnlyHint"] is False
+        assert by_name["extract_stage"]["annotations"]["openWorldHint"] is True
 
         resp2 = client.post(
             "/mcp",
-            json=_rpc("tools/call", {"name": "stats", "arguments": {"kb": kb_number(s, 0)}}, req_id=2),
+            json=_rpc("tools/call", {"name": "kb_overview", "arguments": {"kb": kb_number(s, 0)}}, req_id=2),
             headers={"X-Session": tok},
         )
         assert resp2.status_code == 200
         body2 = resp2.json()
         payload = json.loads(body2["result"]["content"][0]["text"])
-        assert "documents" in payload and "entities" in payload
+        assert "documents" in payload["stats"] and "entities" in payload["stats"]
 
 
 def test_mcp_owner_bearer_tools_list_and_call(tmp_path: Path) -> None:
@@ -175,7 +190,25 @@ def test_mcp_owner_bearer_tools_list_and_call(tmp_path: Path) -> None:
         assert resp.status_code == 200
         body = resp.json()
         names = {t["name"] for t in body["result"]["tools"]}
-        assert len(names) == 19 and {"kb_candidates", "kb_submit", "stage_source", "list_staged_sources", "claim_staged_source", "renew_staged_claim", "get_extraction_spec", "get_staged_source", "submit_client_extraction"} <= names
+        assert len(names) == 17 and {
+            "kb_list",
+            "kb_overview",
+            "entity_search",
+            "entity_get",
+            "graph_neighbors",
+            "graph_path",
+            "graph_context",
+            "doc_list",
+            "doc_get",
+            "contrib_candidates",
+            "contrib_submit",
+            "extract_spec",
+            "extract_stage",
+            "extract_queue",
+            "extract_claim",
+            "extract_read",
+            "extract_submit",
+        } == names
 
 
 def test_mcp_session_regeneration_invalidates_previous_token(tmp_path: Path) -> None:
@@ -212,10 +245,10 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
         resp1 = client.post("/mcp", json=_rpc("tools/list"))
         assert resp1.status_code == 401
 
-        # 2. tools/call 호출 (stats) -> tool_call SUCCESS 계측
+        # 2. tools/call 호출 (kb_overview) -> tool_call SUCCESS 계측
         resp2 = client.post(
             "/mcp",
-            json=_rpc("tools/call", {"name": "stats", "arguments": {"kb": kb_number(s, 0)}}),
+            json=_rpc("tools/call", {"name": "kb_overview", "arguments": {"kb": kb_number(s, 0)}}),
             headers={"Authorization": f"Bearer {OWNER_TOKEN}"},
         )
         assert resp2.status_code == 200
@@ -227,7 +260,8 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
     assert "http_mcp" in types
     assert "tool_call" in types
     tool_rec = next(r for r in records if r["call_type"] == "tool_call")
-    assert tool_rec["tool_name"] == "stats"
+    assert tool_rec["tool_name"] == "kb_overview"
+    assert tool_rec["client_id"] in ("api:1", "env:owner")
     assert tool_rec["status"] == "SUCCESS"
     assert tool_rec["duration_ms"] is not None
 

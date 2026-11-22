@@ -512,7 +512,7 @@ Review of a contributor proposal (2026-11-16): "When a space about a subject app
 4. **When.** After the extraction of a new document; when a new shared knowledge base gets a signature or seed entities; when a mutual collaboration starts; when the rule is turned on; and after each judgement run. Thus "a short wait" after a new space appears.
 5. **Limits.** At most 50 documents for each run and target (admin setting), and the pending limit of the reputation.
 6. **Safety.** Only an `owner` session with a recent sign-in turns the rule on or makes it wider (Section 6.8). Before it turns on, the console shows a dry run: the documents that would go now to each target (PRINCIPLES D2). The account can pause the rule at once and can withdraw each pending contribution. `/settings/kb` lists each automatic contribution.
-7. **AI of the account.** An account can also use its own AI agent for the selection: the MCP tool `kb_candidates` (read: candidates for a knowledge base or a theme, with scores) and the tool `kb_submit` (scope `write`, Section 6.6). The server itself makes no LLM call for the selection.
+7. **AI of the account.** An account can also use its own AI agent for the selection: the MCP tool `contrib_candidates` (read: candidates for a knowledge base or a theme, with scores) and the tool `contrib_submit` (scope `write`, Section 6.6). The server itself makes no LLM call for the selection.
 8. A rejection of an automatic contribution counts in the approval rate as each other rejection. A rule that sends documents that do not fit lowers the reputation of its account.
 
 ### 9.10 Mutual Collaboration (CT37)
@@ -871,7 +871,7 @@ The purge confirmation has the option "Delete my activity records" (CT19). With 
 ### 13.4 Telegram, MCP, CLI, Search
 
 - Telegram: ingest goes to the personal knowledge base. `/kb` selects the personal knowledge base or a shared knowledge base for search and read. The ingest reply shows the notices of Section 8.7. `/webco` is removed (CT27). The help text has no focus syntax (Section 13.7).
-- MCP: read tools need `kb` (Section 5.2); write tools accept only the personal knowledge base. The ingest tool result has the notices of Section 8.7. New tools `kb_candidates` and `kb_submit` (Section 9.9).
+- MCP: read tools need `kb` (Section 5.2, accepting `"personal"` or an external KB number from `kb_list`); write tools accept only the personal knowledge base. The ingest tool result has the notices of Section 8.7. Contribution tools `contrib_candidates` and `contrib_submit` (Section 9.9).
 - CLI: `claire kb` for knowledge bases, `claire theme` for themes (list, run judgement, adjust).
 - Search stays in one knowledge base. Search across the knowledge bases of a theme is a later change.
 

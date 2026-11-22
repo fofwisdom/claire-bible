@@ -130,8 +130,8 @@ def _mcp(client: TestClient, name: str, arguments: dict) -> dict:
 
 def test_mcp_read_tools_need_kb_as_a_number(kb_env):
     client, _settings, _tm, other = kb_env
-    assert _mcp(client, "stats", {}) == {"error": "kb_required"}
-    assert _mcp(client, "stats", {"kb": str(other.id)}) == {"error": "theme not found"}
-    assert _mcp(client, "stats", {"kb": "Other knowledge base"}) == {"error": "theme not found"}
-    stats = _mcp(client, "stats", {"kb": _number(other)})
-    assert stats.get("documents") == 1
+    assert _mcp(client, "kb_overview", {}) == {"error": "kb_required"}
+    assert _mcp(client, "kb_overview", {"kb": str(other.id)}) == {"error": "kb_not_found"}
+    assert _mcp(client, "kb_overview", {"kb": "Other knowledge base"}) == {"error": "kb_not_found"}
+    overview = _mcp(client, "kb_overview", {"kb": _number(other)})
+    assert overview.get("stats", {}).get("documents") == 1

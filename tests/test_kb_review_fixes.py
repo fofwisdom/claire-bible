@@ -47,9 +47,9 @@ def test_e2e_hidden_copy_is_for_reviewers_only_on_each_read_path(world) -> None:
     assert client.get(f"{world.base}/document/raw?id={copy_id}", headers=world.bearer("cho", "write")).status_code == 404
     # The MCP read tools follow the same rule; the document list does not count hidden documents.
     number = world.kb["number"]
-    assert _mcp(world, world.cho, "document", {"document_id": copy_id, "kb": number}) == {"error": "not found"}
-    assert _mcp(world, world.ann, "document", {"document_id": copy_id, "kb": number})["id"] == copy_id
-    listed = _mcp(world, world.cho, "documents", {"kb": number})
+    assert _mcp(world, world.cho, "doc_get", {"document_id": copy_id, "kb": number}) == {"error": "not_found"}
+    assert _mcp(world, world.ann, "doc_get", {"document_id": copy_id, "kb": number})["id"] == copy_id
+    listed = _mcp(world, world.cho, "doc_list", {"kb": number})
     assert (listed["documents"], listed["omitted"], listed["truncated"]) == ([], 0, False)
     # A duplicate of a hidden copy gives the code and no URL of the copy.
     again = _personal_document(world.settings, world.manager, CHO, "Seoul and Busan are cities of Korea. " * 3, url="https://example.org/cities", extraction=EXTRACTION)

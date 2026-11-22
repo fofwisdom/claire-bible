@@ -5564,8 +5564,8 @@ paths:
 
   /api/client-extraction/stage:
     post:
-      summary: Stage full raw source text in the personal KB without calling a server LLM (AE4/AE5)
-      description: Requires `write` or `owner` scope and targets only the caller's personal KB (`CT4`; foreign `kb`/`kb_id`/`theme` params return 403).
+      summary: Stage full raw source text or document file in the personal KB without calling a server LLM (AE4/AE5)
+      description: Requires `write` or `owner` scope and targets only the caller's personal KB (`CT4`; foreign `kb`/`kb_id`/`theme` params return 403). Accepts URL/text JSON, JSON `filename` + `content_base64`, or `multipart/form-data` `file` upload (PDF, DOCX, ODT, HTML, Markdown, RST, AsciiDoc, TXT; max 20 MiB).
       operationId: stageClientExtractionSource
       x-claire-access: write
       security:
@@ -5582,10 +5582,25 @@ paths:
                 url_or_text: {type: string}
                 url: {type: string}
                 text: {type: string}
+                filename: {type: string, nullable: true}
+                content_base64: {type: string, format: byte, nullable: true}
                 title: {type: string, nullable: true}
                 source_type: {type: string, nullable: true}
                 full_content: {type: boolean, default: true}
                 mode: {type: string, nullable: true}
+                kb: {type: string, nullable: true, description: 'Optional; must omit or pass "personal" / caller personal kb number.'}
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+                filename: {type: string, nullable: true}
+                title: {type: string, nullable: true}
+                source_type: {type: string, nullable: true}
+                full_content: {type: boolean, default: true}
+                mode: {type: string, nullable: true}
+                kb: {type: string, nullable: true}
       responses:
         '200':
           description: Source staged as `pending`.
@@ -5593,9 +5608,11 @@ paths:
             application/json:
               schema: {type: object}
         '400':
-          description: '`invalid_full_content` or missing input.'
+          description: '`invalid_full_content`, `file_required`, or missing input.'
         '403':
           description: '`scope_insufficient` or `kb_ingest_by_contribution` (`CT4`).'
+        '413':
+          description: '`file_too_large` (exceeds 20 MiB limit).'
 
   /api/client-extraction/sources:
     get:

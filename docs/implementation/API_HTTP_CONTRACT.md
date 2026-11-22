@@ -30,8 +30,8 @@
 | `POST` | `/tokens` | `owner` | [Deprecated, `AE3`] 신규 레거시 상시 토큰 생성 (`CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `retired: true` 시 `410 manual_tokens_retired`) |
 | `POST` | `/tokens/revoke` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
 | `DELETE` | `/tokens` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
-| `POST` | `/mcp` | `read` | Model Context Protocol Streamable / Stateless JSON-RPC 2.0 엔드포인트 (19종 도구; 쓰기 도구는 `write` 스코프 필요) |
-| `POST` | `/api/client-extraction/stage` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 개인 KB에 원문 스테이징 (`full_content=True` 기본) |
+| `POST` | `/mcp` | `read` | Model Context Protocol Streamable / Stateless JSON-RPC 2.0 엔드포인트 (서버 `"claire"` v0.2.0, 17종 `<domain>_<action>` 도구 + `ToolAnnotations`; 쓰기 도구는 `write` 스코프 필요) |
+| `POST` | `/api/client-extraction/stage` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 개인 KB에 원문 스테이징 (`url_or_text`/`url`/`text`, JSON `content_base64`+`filename`, 또는 `multipart/form-data` `file` 업로드 — PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC 최대 20 MiB, `full_content=True` 기본) |
 | `GET`/`HEAD` | `/api/client-extraction/sources` | `write` (`CT4` 개인 KB) | 스테이징된 문서 목록 조회 (`status=pending\|all`, `limit`) |
 | `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` (`CT4` 개인 KB) | 추출 임대 획득 (`lease_seconds` 기본 300초, 일회용 `claim_token` 발급) |
 | `POST` | `/api/client-extraction/sources/{document_id}/renew` | `write` (`CT4` 개인 KB) | 활성 추출 임대 연장 (`claim_token`, `lease_seconds`) |
@@ -210,7 +210,7 @@
   - `GET /api/contribution-blocks` `{"documents": [...]}`; `PUT` and `DELETE /api/contribution-blocks/{document}` (scope `owner`): the flag "never contribute"; 404 `document_not_found`.
   - `GET /api/mutual-collaborations` `{"mutual_collaborations": [{"account", "display_name", "state": "pending" | "active", "requested_by_me", "created_at", "decided_at"}]}`; `POST` with `{"account": "<number>"}` (recent sign-in; 201; 404 `account_not_found`; 409 `mutual_exists`); `PUT /api/mutual-collaborations/{account}` accepts the request of that account (recent sign-in; 404 `mutual_not_found`); `DELETE` ends it or removes the request.
   - Admin: `GET` and `PUT /api/admin/auto-contribution`: `{"state": "on" | "off", "settings": {"auto_match_threshold", "auto_run_documents"}}`; the `PUT` body has `state` and the settings; 400 `settings_invalid`.
-  - MCP tools: `kb_candidates` (`kb` or `theme`, `include_uploads`) and `kb_submit` (`documents`, `theme`; not for the scope `readonly`).
+  - MCP tools: `contrib_candidates` (`kb`, `theme`, or `remote_kb`, `include_uploads`) and `contrib_submit` (`document_ids`, `theme`, or `remote_kb`; not for the scope `readonly`).
 - **[코드] Review of the same-subject source merge** ([EXPANSION.md](EXPANSION.md) §3.1). Admin only; the records of the knowledge bases of the admin account.
   - `GET /api/admin/expansion/shadow` (`pending=1`, `limit`, default 50, 0 = all; 400 `limit_invalid`): `{"mode", "report", "records"}`.
   - `PUT /api/admin/expansion/shadow/{record_id}/verdict` with `{"verdict": "same" | "different" | null, "note"}` (note up to 500 characters): `{"ok", "record", "report"}`; 400 `verdict_invalid`; 404 `shadow_record_not_found`. The CLI has no verdict command: a verdict is the decision of a person.

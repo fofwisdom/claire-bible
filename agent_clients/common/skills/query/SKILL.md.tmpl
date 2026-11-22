@@ -1,0 +1,35 @@
+---
+name: {{QUERY_SKILL}}
+description: >-
+  Query and traverse Claire Bible knowledge bases and archived documents using Claire MCP tools. Use when the user asks to discover available KBs, search entities, explore connections, find shortest paths, inspect documents, or submit personal documents to shared KBs.
+---
+
+# Claire Graph and Document Query (`{{QUERY_SKILL}}`)
+
+Use this skill to answer questions from Claire Bible personal and shared knowledge bases using deterministic MCP read tools (`readonly` or `write` OAuth 2.1 scope) with zero server LLM calls.
+
+## Query Rules (`CT23` and Zero-LLM Discipline)
+
+1. **Discover KBs first with `kb_list`**: Call `kb_list()` (zero arguments) when external KB numbers are unknown. For your own personal KB you can pass `kb="personal"` or its external number; for shared KBs pass the exact external `kb` number returned by `kb_list()`.
+2. **Always pass `kb` on scoped read tools**: `kb_overview`, `entity_search`, `entity_get`, `graph_neighbors`, `graph_path`, `graph_context`, `doc_list`, and `doc_get` all require `kb` (`kb_required` if omitted).
+3. **Zero Server LLM Calls / Read-Only**: Read tools inspect SQLite and FTS5 only and never alter unread (`seen`) status. Inspect `truncated`, `omitted`, `documents_truncated`, and `documents_omitted` so capped lists are never mistaken for missing data.
+
+## Exploration & Contribution Loop
+
+1. **Discover & Orient (`kb_list` / `kb_overview`)**:
+   - Call `kb_list()` to list `personal_kb` and accessible shared KBs with document/entity counts.
+   - Call `kb_overview(kb=..., include_stats=True)` when topics or top hubs are unknown.
+2. **Search Entities & Documents (`entity_search` / `doc_list`)**:
+   - Call `entity_search(query=..., entity_type=..., limit=8, kb=...)` to inspect both exact/alias matches (`exact_matches`) and FTS5 full-text matches (`hits`).
+   - Call `doc_list(limit=30, since=..., query=..., kb=...)` to filter documents by ISO8601/date or title/URL substring (max `limit` 100).
+3. **Traverse Frontier (`graph_neighbors` / `graph_path`)**:
+   - Call `graph_neighbors(entity_ids=[...], exclude_ids=[...], limit=50, kb=...)` to expand 1-hop neighbors sorted by `degree` descending, passing visited IDs in `exclude_ids`.
+   - Narrow searches inside a 1-hop neighborhood with `entity_search(query=..., near_ids=[...], kb=...)`.
+   - Call `graph_path(from_id=..., to_id=..., max_hops=4, kb=...)` to find the shortest undirected BFS path directly.
+4. **Gather Grounded Context (`graph_context` / `entity_get` / `doc_get`)**:
+   - Call `graph_context(entity_ids=[...], compact=True, kb=...)` on up to 10 entities (or `compact=False` when full observations and source summaries are required).
+   - Call `entity_get(entity_id=..., full=False, kb=...)` for one entity's full observations, neighbors, and up to 10 linked documents.
+   - Call `doc_get(document_id=..., kb=...)` for one document's complete summary, rendered detail, URL, and metadata.
+5. **Optional Contribution (`contrib_candidates` / `contrib_submit`)**:
+   - When the user asks to contribute personal documents to a shared KB, theme, or federated remote KB, inspect scored matches with `contrib_candidates(kb=..., theme=..., remote_kb=...)` and submit explicitly with `contrib_submit(document_ids=[...], theme=..., remote_kb=...)` (`write` scope required).
+6. **Report Grounded Answer**: Cite entity names, document IDs, and source URLs accurately from tool output without inventing unstated facts.

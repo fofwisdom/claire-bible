@@ -53,7 +53,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?$")
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z0-9_]+)\}\}")
-TOOL_CALL_RE = re.compile(r"(?<![A-Za-z0-9_])([a-z][a-z0-9_]*)\(")
+TOOL_CALL_RE = re.compile(r"(?<![A-Za-z0-9_])((?:mcp__claire__)?[a-z][a-z0-9_]*)\(")
 FRONTMATTER_TOOLS_RE = re.compile(r"^tools:\s*\[([^\]]+)\]\s*$", re.MULTILINE)
 
 SECRET_OR_FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -64,7 +64,10 @@ SECRET_OR_FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("hardcoded production domain", re.compile(r"https://claire\.bible\b")),
     ("legacy self-hosted bundle path", re.compile(r"/clients/[a-z0-9-]+/")),
     ("legacy clients subdomain", re.compile(r"\bclients\.<domain>")),
+    ("legacy double-prefixed server id", re.compile(r"claire-antigravity_claire")),
+    ("legacy mcp tool name", re.compile(r"\b(?:resolve_entity|kb_candidates|kb_submit|stage_source|list_staged_sources|claim_staged_source|renew_staged_claim|get_extraction_spec|get_staged_source|submit_client_extraction)\b")),
 )
+_LEGACY_CLAUDE_PLUGIN_ID_RE = re.compile(r"\bclaire-claude\b(?!-v\d)")
 
 
 class BuildValidationError(ValueError):
@@ -133,22 +136,18 @@ def _validate_marketplace_meta(source_dir: Path) -> dict[str, str]:
     if not SEMVER_RE.fullmatch(version):
         raise BuildValidationError("marketplace.toml: version must match semver")
     description = _require_non_empty_str(meta, "description", context="marketplace.toml")
-    return {
-        "name": name,
-        "repo": repo,
-        "owner_name": owner_name,
-        "version": version,
-        "description": description,
-    }
+    return {"name": name, "repo": repo, "owner_name": owner_name, "version": version, "description": description}
 
 
 def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
-    toml_path = client_dir / "client.toml"
-    raw = _load_toml(toml_path)
+    raw = _load_toml(client_dir / "client.toml")
     ctx = f"clients/{client_dir.name}/client.toml"
     cid = _require_non_empty_str(raw, "id", context=ctx)
     if not ID_RE.fullmatch(cid):
         raise BuildValidationError(f"{ctx}: id must match ^[a-z0-9][a-z0-9-]{{1,63}}$")
+    plugin_name = _require_non_empty_str(raw, "plugin_name", context=ctx)
+    if not ID_RE.fullmatch(plugin_name):
+        raise BuildValidationError(f"{ctx}: plugin_name must match ^[a-z0-9][a-z0-9-]{{1,63}}$")
     client_id = _require_non_empty_str(raw, "client_id", context=ctx)
     if not CLIENT_ID_RE.fullmatch(client_id):
         raise BuildValidationError(f"{ctx}: client_id must match ^[a-z0-9][a-z0-9-]{{1,31}}$")
@@ -170,12 +169,13 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
     if target == "antigravity":
         display_name = _require_non_empty_str(raw, "display_name", context=ctx)
         prompts_raw = raw.get("suggested_prompts")
-        if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 3) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
-            raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 3 non-empty strings")
+        if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 4) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
+            raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 4 non-empty strings")
         suggested_prompts = [p.strip() for p in prompts_raw]
     return {
         "dir": client_dir,
         "id": cid,
+        "plugin_name": plugin_name,
         "client_id": client_id,
         "target": target,
         "name": name,
@@ -209,6 +209,8 @@ def _check_rendered_content(rel_path: str, text: str) -> None:
     for label, pattern in SECRET_OR_FORBIDDEN_PATTERNS:
         if pattern.search(text):
             raise BuildValidationError(f"{rel_path}: forbidden pattern detected ({label})")
+    if rel_path != "manifest.json" and _LEGACY_CLAUDE_PLUGIN_ID_RE.search(text):
+        raise BuildValidationError(f"{rel_path}: forbidden pattern detected (legacy claude plugin id)")
 
 
 def _extract_mcp_tool_names(mcp_tools_file: Path) -> set[str]:
@@ -236,22 +238,39 @@ def _verify_mcp_contracts(rendered_files: dict[str, bytes], mcp_tools_file: Path
         if not rel_path.endswith(".md"):
             continue
         text = raw.decode("utf-8")
+        is_claude_plugin = rel_path.startswith("plugins/claude/")
         fm_match = FRONTMATTER_TOOLS_RE.search(text)
         if fm_match:
             declared = [item.strip() for item in fm_match.group(1).split(",") if item.strip()]
-            missing = [name for name in declared if name not in server_tools]
+            normalized_declared: list[str] = []
+            for item in declared:
+                if is_claude_plugin:
+                    if not item.startswith("mcp__claire__"):
+                        raise BuildValidationError(f"{rel_path}: claude frontmatter tool {item!r} must use mcp__claire__ prefix")
+                    normalized_declared.append(item.removeprefix("mcp__claire__"))
+                else:
+                    if item.startswith("mcp__"):
+                        raise BuildValidationError(f"{rel_path}: non-claude frontmatter tool {item!r} must not use mcp__ prefix")
+                    normalized_declared.append(item)
+            missing = [name for name in normalized_declared if name not in server_tools]
             if missing:
                 raise BuildValidationError(f"{rel_path}: frontmatter declares unknown MCP tools: {missing}")
-        if Path(rel_path).name in ("claire-extractor.md", "SKILL.md", "AGENTS.md"):
+            if Path(rel_path).name not in ("extractor.md", "claire-extractor.md") and "extract_read" in normalized_declared:
+                raise BuildValidationError(f"{rel_path}: non-extractor file must not declare extract_read")
+        if Path(rel_path).name in ("extractor.md", "claire-extractor.md", "SKILL.md", "AGENTS.md"):
             for match in TOOL_CALL_RE.finditer(text):
-                name = match.group(1)
-                if name not in server_tools:
-                    raise BuildValidationError(f"{rel_path}: calls unknown MCP tool {name!r}")
+                raw_name = match.group(1)
+                bare_name = raw_name.removeprefix("mcp__claire__") if raw_name.startswith("mcp__claire__") else raw_name
+                if bare_name not in server_tools:
+                    raise BuildValidationError(f"{rel_path}: calls unknown MCP tool {raw_name!r}")
 
 
 def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) -> str:
     repo = market["repo"]
     version = market["version"]
+    ag_client = next((c for c in clients if c["target"] == "antigravity"), clients[0])
+    ag_ver = ag_client["version"]
+    ag_pkg = f"{ag_client['id']}-v{ag_ver}"
     lines = [
         f"# {market['name']}",
         "",
@@ -261,56 +280,49 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "",
         market["description"],
         "",
+        "## Architecture: Standalone `claire` Server + `claire` Plugin",
+        "",
+        "- Register your remote Claire Bible `/mcp` endpoint once as a standalone `claire` OAuth 2.1 MCP server so Antigravity exposes `claire/<tool>` and Claude exposes `mcp__claire__<tool>` without double prefixes.",
+        "- Install the **`claire`** plugin for your client to add direct URL/file ingest, isolated extraction (`claire-extractor` / `extractor`), and knowledge graph query skills. Upgrading the plugin never overwrites your global server URL.",
+        "",
         "## Supported Agents",
         "",
     ]
     for client in clients:
-        lines.append(f"- **`{client['id']}`** (`{client['target']}`, `v{client['version']}`): {client['description']}")
+        lines.append(f"- **`{client['plugin_name']}`** (`{client['target']}`, `{client['id']}-v{client['version']}`): {client['description']}")
     lines.extend([
         "",
         '<a id="antigravity"></a>',
-        "## Antigravity (GUI 우선 안내 / GUI-First Setup)",
+        "## Antigravity (GUI-First Setup)",
         "",
-        "터미널이나 JSON 편집 없이 Antigravity 앱 화면만으로 적용할 수 있습니다.",
+        "- **Step-by-step guides**: [한국어 가이드](./docs/antigravity.ko.md) · [English Guide](./docs/antigravity.en.md)",
+        f"- **GitHub Releases**: [Download `{ag_pkg}.zip`](https://github.com/{repo}/releases/latest)",
         "",
-        "- **상세 단계별 가이드 (사진 대신 메뉴명·단축키 기준 친절 안내)**:",
-        "  - 한국어: [Antigravity GUI 설치 및 연결 가이드](./docs/antigravity.ko.md)",
-        "  - English: [Antigravity GUI Installation & Setup Guide](./docs/antigravity.en.md)",
-        f"- **GitHub Releases**: [Download `claire-antigravity-v{version}.zip`](https://github.com/{repo}/releases/latest)",
-        "",
-        "### 방법 1 (가장 쉬움): Claire 웹에서 복사해 Antigravity 채팅창에 붙여넣기",
-        "",
-        "1. Claire Bible 웹 **계정 설정**(`/settings/account`)에서 추출 모드를 `client`로 바꿉니다.",
-        "2. **MCP 설정**(`/settings/mcp`)에서 **Antigravity 빠른 설치 문구**를 복사해 Antigravity `+ New Conversation`에 붙여넣습니다.",
-        "3. 채팅에 뜬 카드의 **Sign in** 또는 **Customizations -> Installed -> Plugins -> Claire Bible (`Setup required`) -> Go to Accounts**에서 로그인합니다.",
-        "4. 첫 실행 시 `Allow using this MCP tool?` (`claire-antigravity_claire/...`) 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누르면 반복 확인 없이 동작합니다.",
-        "",
-        "### 방법 2 (마우스 클릭 직접 설치): `.zip` + `mcp_config.json` 내려받아 넣기",
-        "",
-        f"1. [GitHub Releases](https://github.com/{repo}/releases/latest)에서 `claire-antigravity-v{version}.zip`을 내려받아 압축을 풉니다.",
-        "2. Claire `/settings/mcp`에서 **서버 연결 파일 내려받기**(`Download server config`)로 `mcp_config.json`을 받아 `claire-antigravity` 폴더 안에 넣습니다.",
-        "3. OS 파일 탐색기에서 Antigravity 플러그인 폴더(`~/.gemini/config/plugins` 또는 `%USERPROFILE%\\.gemini\\config\\plugins`)에 `claire-antigravity` 폴더를 옮깁니다.",
-        "4. **Customizations -> Installed -> Plugins -> Claire Bible (`Setup required`) -> Go to Accounts**에서 OAuth 2.1 로그인을 완료합니다.",
+        "1. In Claire Bible **Account Settings** (`/settings/account`), switch extraction mode to `client`.",
+        "2. In **MCP Settings** (`/settings/mcp`), copy the **Antigravity quick setup prompt** and paste it into Antigravity `+ New Conversation` (installs `~/.gemini/config/plugins/claire` and merges `mcpServers.claire` into `~/.gemini/config/mcp_config.json`).",
+        "3. Open **`Customizations -> Installed -> MCP Servers -> claire`** and finish OAuth 2.1 login (`readonly`, `write`).",
+        "4. On first run when `Allow using this MCP tool?` (`claire/<tool>`) prompts, pick **`3 Yes, and always allow`** -> **`Submit`**.",
         "",
         '<a id="claude"></a>',
         "## Claude (GUI Marketplace Setup)",
         "",
-        "- **상세 가이드**: [한국어 안내](./docs/claude.ko.md) · [English Guide](./docs/claude.en.md)",
+        "- **Step-by-step guides**: [한국어 안내](./docs/claude.ko.md) · [English Guide](./docs/claude.en.md)",
         "",
-        f"1. Claude **Marketplace management**에 `{repo}` 를 입력해 동기화한 뒤 **`claire-claude`** 를 설치합니다.",
-        "2. 커넥터(MCP) 설정에서 내 Claire Bible 서버 `/mcp` URL(`https://<your-claire-server>/mcp`)을 연결하고 OAuth 2.1(`readonly`, `write`)로 로그인합니다.",
+        f"1. Enter **`{repo}`** in Claude **Marketplace management**, sync, and install **`claire`**.",
+        "2. Add your Claire Bible `/mcp` connector named **`claire`** (`https://<your-claire-server>/mcp`) and sign in via OAuth 2.1 (`readonly`, `write`).",
+        "3. Use `/claire:ingest`, `/claire:extract`, and `/claire:query`.",
         "",
         "<details>",
-        "<summary>CLI &amp; Advanced Verification (터미널 / SHA256SUMS 고급 사용자용)</summary>",
+        "<summary>CLI &amp; Advanced Verification (Terminal / SHA256SUMS)</summary>",
         "",
-        f"- Claude Code CLI: `/plugin marketplace add {repo}` then install `claire-claude`.",
-        f"- Antigravity CLI / checksum check: download `claire-antigravity-v{version}.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases/latest), run `sha256sum -c SHA256SUMS --ignore-missing` (macOS: `shasum -a 256 -c SHA256SUMS --ignore-missing`), and extract into `~/.gemini/config/plugins/`.",
+        f"- Claude CLI: `/plugin marketplace add {repo}` -> install `claire` -> `claude mcp add --transport http claire https://<your-claire-server>/mcp`.",
+        f"- Antigravity CLI / checksum check: download `{ag_pkg}.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases/latest), run `sha256sum -c SHA256SUMS --ignore-missing`, extract into `~/.gemini/config/plugins/`, and add `mcpServers.claire` in `~/.gemini/config/mcp_config.json`.",
         "",
         "</details>",
         "",
         "## Server Authentication Model",
         "",
-        "This repository distributes static client instructions, subagents, skills, and templates only. Zero server tokens or secrets are included. Every Claire Bible instance shares these bundles and authenticates dynamically over OAuth 2.1 (`PKCE S256` or `/device`).",
+        f"This repository (`v{version}`) distributes static client skills, subagents, rules, and templates only. Zero server tokens or secrets are included. Every Claire Bible instance shares these bundles and authenticates dynamically over OAuth 2.1 (`PKCE S256` or `/device`).",
         "",
     ])
     return "\n".join(lines)
@@ -319,34 +331,34 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
 def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) -> bytes:
     repo = market["repo"]
     version = market["version"]
-    ag_version = next((c["version"] for c in clients if c["target"] == "antigravity"), version)
+    ag_client = next((c for c in clients if c["target"] == "antigravity"), clients[0])
+    ag_version = ag_client["version"]
+    ag_asset = f"{ag_client['id']}-v{ag_version}.zip"
+    ag_tar = f"{ag_client['id']}-v{ag_version}.tar.gz"
     lines = [
         f"# Claire Bible Agent Plugins v{version}",
         "",
         f"[한국어 상세 가이드 (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) · [English Setup Guide (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.en.md) · [Claude 가이드 (KO)](https://github.com/{repo}/blob/main/docs/claude.ko.md) · [Claude Guide (EN)](https://github.com/{repo}/blob/main/docs/claude.en.md)",
         "",
-        "## 어떤 파일을 내려받으면 되나요? / Which file do I need?",
+        "## Which file do I need? / 어떤 파일을 내려받으면 되나요?",
         "",
-        "| 사용 중인 앱 / Client | 권장 방법 / Recommended Action | 내려받을 파일 / Asset |",
+        "| Client / 앱 | Recommended Action / 권장 방법 | Asset / 내려받을 파일 |",
         "| :--- | :--- | :--- |",
-        f"| **Antigravity (GUI)** | Claire `/settings/mcp`에서 빠른 설치 문구를 복사해 채팅창에 붙여넣거나, 아래 `.zip`을 내려받아 플러그인 폴더에 넣으세요. | **`claire-antigravity-v{ag_version}.zip`** |",
-        f"| **Claude** | 파일을 내려받을 필요가 없습니다. 마켓플레이스 관리에 `{repo}`를 입력하세요. | 없음 (No download needed) |",
+        f"| **Antigravity (GUI)** | Claire `/settings/mcp`에서 빠른 설치 문구를 복사해 채팅창에 붙여넣거나 아래 `.zip`을 내려받아 `plugins/claire`로 설치하고 `mcp_config.json`에 `claire` 서버를 병합하세요. | **`{ag_asset}`** |",
+        f"| **Claude** | 파일을 내려받을 필요가 없습니다. 마켓플레이스 관리에 `{repo}`를 입력해 **`claire`** 플러그인을 설치하세요. | 없음 (No download needed) |",
         "",
-        "## Antigravity GUI 빠른 적용 3단계",
+        "## Antigravity Quick Setup (3 Steps)",
         "",
-        "1. Claire Bible 웹 **계정 설정**(`/settings/account`)에서 추출 모드를 **`client`**로 바꿉니다.",
-        f"2. **방법 1 (권장)**: Claire **`/settings/mcp`**에서 **Antigravity 빠른 설치 문구**를 복사해 Antigravity `+ New Conversation`에 붙여넣습니다. (또는 **방법 2**: 위 `claire-antigravity-v{ag_version}.zip`을 압축 해제한 폴더 안에 `/settings/mcp`의 **서버 연결 파일 내려받기**로 받은 `mcp_config.json`을 넣고, 플러그인 폴더로 옮깁니다.)",
-        "3. **Customizations -> Installed -> Plugins -> Claire Bible (`Setup required`) -> Go to Accounts**에서 브라우저 OAuth 2.1(`readonly`, `write`) 로그인을 완료합니다. (하단 `MCP Servers 0`은 정상이며, 첫 실행 시 `Allow using this MCP tool?` 창에서는 **`3 Yes, and always allow` -> `Submit`**을 선택하면 됩니다.)",
-        "",
-        f"OS별 폴더 열기 방법(`⌘ + ⇧ + G`, `%USERPROFILE%\\.gemini\\config\\plugins`, `Ctrl + H`)과 FAQ는 [Antigravity 한국어 가이드](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) 또는 [English Guide](https://github.com/{repo}/blob/main/docs/antigravity.en.md)에서 확인하세요.",
+        "1. Switch account extraction mode to **`client`** in Claire `/settings/account`.",
+        f"2. Paste the **Antigravity quick setup prompt** from Claire `/settings/mcp` into Antigravity `+ New Conversation` (or extract `{ag_asset}` into `~/.gemini/config/plugins/` as `claire/` and merge `mcpServers.claire` into `~/.gemini/config/mcp_config.json`).",
+        "3. Open **`Customizations -> Installed -> MCP Servers -> claire`** to finish OAuth 2.1 login (`readonly`, `write`). When `Allow using this MCP tool?` appears (`claire/<tool>`), pick **`3 Yes, and always allow`** -> **`Submit`**.",
         "",
         "<details>",
-        "<summary>체크섬 검증 및 터미널용 아카이브 (SHA256SUMS &amp; .tar.gz for CLI users)</summary>",
-        "",
-        "터미널에서 무결성을 검증하려면 `SHA256SUMS`와 `.tar.gz` (또는 `.zip`)를 함께 받은 뒤 실행하세요:",
+        "<summary>Checksums &amp; CLI Archives (SHA256SUMS &amp; .tar.gz)</summary>",
         "",
         "```bash",
         "sha256sum -c SHA256SUMS --ignore-missing",
+        f"tar -xzf {ag_tar} -C ~/.gemini/config/plugins",
         "```",
         "",
         "*(macOS: `shasum -a 256 -c SHA256SUMS --ignore-missing`)*",
@@ -401,9 +413,10 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     market = _validate_marketplace_meta(source_dir)
 
     common_dir = source_dir / "common"
-    extractor_tmpl = (common_dir / "agents" / "claire-extractor.md.tmpl").read_text(encoding="utf-8")
-    extract_skill_tmpl = (common_dir / "skills" / "claire-extract" / "SKILL.md.tmpl").read_text(encoding="utf-8")
-    query_skill_text = (common_dir / "skills" / "claire-query" / "SKILL.md").read_text(encoding="utf-8")
+    extractor_tmpl = (common_dir / "agents" / "extractor.md.tmpl").read_text(encoding="utf-8")
+    ingest_skill_tmpl = (common_dir / "skills" / "ingest" / "SKILL.md.tmpl").read_text(encoding="utf-8")
+    extract_skill_tmpl = (common_dir / "skills" / "extract" / "SKILL.md.tmpl").read_text(encoding="utf-8")
+    query_skill_tmpl = (common_dir / "skills" / "query" / "SKILL.md.tmpl").read_text(encoding="utf-8")
     agents_md_tmpl = (common_dir / "rules" / "AGENTS.md.tmpl").read_text(encoding="utf-8")
 
     clients_root = source_dir / "clients"
@@ -432,22 +445,63 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     manifest_plugins: list[dict[str, Any]] = []
     claude_marketplace_plugins: list[dict[str, Any]] = []
 
+    mcp_tmpl_path = source_dir / "templates" / "mcp_config.json.tmpl"
+    if not mcp_tmpl_path.is_file():
+        raise BuildValidationError(f"missing required reference template: {mcp_tmpl_path}")
+    mcp_tmpl_text = mcp_tmpl_path.read_text(encoding="utf-8")
+    _check_rendered_content("templates/mcp_config.json.tmpl", mcp_tmpl_text)
+    repo_files["templates/mcp_config.json.tmpl"] = _normalize_text(mcp_tmpl_text)
+
+    extractor_tools_bare = ["extract_spec", "extract_queue", "extract_claim", "extract_read", "extract_submit", "kb_list", "entity_search", "graph_neighbors"]
+
     for client in clients:
         cid = client["id"]
+        plugin_name = client["plugin_name"]
         target = client["target"]
+        if target == "claude":
+            ingest_skill = "ingest"
+            extract_skill = "extract"
+            query_skill = "query"
+            extractor_agent = "extractor"
+            extractor_path = "agents/extractor.md"
+            extractor_tools = "[" + ", ".join(f"mcp__claire__{t}" for t in extractor_tools_bare) + "]"
+        else:
+            ingest_skill = "claire-ingest"
+            extract_skill = "claire-extract"
+            query_skill = "claire-query"
+            extractor_agent = "claire-extractor"
+            extractor_path = "agents/claire-extractor.md"
+            extractor_tools = "[" + ", ".join(extractor_tools_bare) + "]"
+
         replacements = {
             "CLIENT_ID": client["client_id"],
             "AGENT_NAME": client["agent_name"],
             "MARKETPLACE_REPO": market["repo"],
             "PLUGIN_ID": cid,
+            "PLUGIN_NAME": plugin_name,
             "VERSION": client["version"],
+            "INGEST_SKILL": ingest_skill,
+            "EXTRACT_SKILL": extract_skill,
+            "QUERY_SKILL": query_skill,
+            "EXTRACTOR_AGENT": extractor_agent,
+            "EXTRACTOR_PATH": extractor_path,
+            "EXTRACTOR_TOOLS": extractor_tools,
         }
-        plugin_rel_root = f"plugins/{cid}"
+        plugin_rel_root = f"plugins/{target}/{plugin_name}"
         plugin_bundle_files: dict[str, bytes] = {}
+
+        readme_tmpl_path = client["dir"] / "README.md.tmpl"
+        if not readme_tmpl_path.is_file():
+            raise BuildValidationError(f"{client['dir']}: missing README.md.tmpl for {target} target")
+        plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
+        plugin_bundle_files[extractor_path] = _normalize_text(_render_template(extractor_tmpl, replacements))
+        plugin_bundle_files[f"skills/{ingest_skill}/SKILL.md"] = _normalize_text(_render_template(ingest_skill_tmpl, replacements))
+        plugin_bundle_files[f"skills/{extract_skill}/SKILL.md"] = _normalize_text(_render_template(extract_skill_tmpl, replacements))
+        plugin_bundle_files[f"skills/{query_skill}/SKILL.md"] = _normalize_text(_render_template(query_skill_tmpl, replacements))
 
         if target == "claude":
             plugin_manifest = {
-                "name": cid,
+                "name": plugin_name,
                 "version": client["version"],
                 "description": client["description"],
                 "author": {"name": market["owner_name"]},
@@ -455,30 +509,17 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 "license": client["license"],
                 "keywords": ["claire-bible", "mcp", "knowledge-graph", "extraction"],
             }
-            readme_tmpl_path = client["dir"] / "README.md.tmpl"
-            if not readme_tmpl_path.is_file():
-                raise BuildValidationError(f"{client['dir']}: missing README.md.tmpl for claude target")
             plugin_bundle_files[".claude-plugin/plugin.json"] = _json_bytes(plugin_manifest)
-            plugin_bundle_files["agents/claire-extractor.md"] = _normalize_text(_render_template(extractor_tmpl, replacements))
-            plugin_bundle_files["skills/claire-extract/SKILL.md"] = _normalize_text(_render_template(extract_skill_tmpl, replacements))
-            plugin_bundle_files["skills/claire-query/SKILL.md"] = _normalize_text(query_skill_text)
-            plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
             claude_marketplace_plugins.append({
-                "name": cid,
+                "name": plugin_name,
                 "source": f"./{plugin_rel_root}",
                 "description": client["description"],
                 "version": client["version"],
                 "license": client["license"],
             })
         elif target == "antigravity":
-            mcp_tmpl_path = client["dir"] / "mcp_config.json.tmpl"
-            if not mcp_tmpl_path.is_file():
-                raise BuildValidationError(f"{client['dir']}: missing mcp_config.json.tmpl for antigravity target")
-            readme_tmpl_path = client["dir"] / "README.md.tmpl"
-            if not readme_tmpl_path.is_file():
-                raise BuildValidationError(f"{client['dir']}: missing README.md.tmpl for antigravity target")
             antigravity_manifest = {
-                "name": cid,
+                "name": plugin_name,
                 "displayName": client["display_name"],
                 "version": client["version"],
                 "description": client["description"],
@@ -489,12 +530,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 "suggestedPrompts": client["suggested_prompts"],
             }
             plugin_bundle_files["plugin.json"] = _json_bytes(antigravity_manifest)
-            plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
-            plugin_bundle_files["mcp_config.json.tmpl"] = _normalize_text(mcp_tmpl_path.read_text(encoding="utf-8"))
             plugin_bundle_files["rules/AGENTS.md"] = _normalize_text(_render_template(agents_md_tmpl, replacements))
-            plugin_bundle_files["agents/claire-extractor.md"] = _normalize_text(_render_template(extractor_tmpl, replacements))
-            plugin_bundle_files["skills/claire-extract/SKILL.md"] = _normalize_text(_render_template(extract_skill_tmpl, replacements))
-            plugin_bundle_files["skills/claire-query/SKILL.md"] = _normalize_text(query_skill_text)
         else:
             raise BuildValidationError(f"unsupported build adapter for target {target!r}")
 
@@ -525,6 +561,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
 
         manifest_plugins.append({
             "id": cid,
+            "plugin_name": plugin_name,
             "client_id": client["client_id"],
             "target": target,
             "version": client["version"],
@@ -535,8 +572,8 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
 
         tar_name = f"{cid}-v{client['version']}.tar.gz"
         zip_name = f"{cid}-v{client['version']}.zip"
-        release_files[tar_name] = _build_deterministic_tar_gz(cid, plugin_bundle_files)
-        release_files[zip_name] = _build_deterministic_zip(cid, plugin_bundle_files)
+        release_files[tar_name] = _build_deterministic_tar_gz(plugin_name, plugin_bundle_files)
+        release_files[zip_name] = _build_deterministic_zip(plugin_name, plugin_bundle_files)
 
     if not claude_marketplace_plugins:
         raise BuildValidationError("at least one claude target plugin is required for .claude-plugin/marketplace.json")

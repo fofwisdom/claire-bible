@@ -304,13 +304,14 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     assert 'id="pref-mcp-copy-antigravity-prompt"' in en_resp.text
     assert 'id="pref-mcp-antigravity-guide"' in en_resp.text
     assert 'id="pref-mcp-download-mcp-config"' in en_resp.text
-    assert "Go to Accounts" in en_resp.text
+    assert "MCP Servers -&gt; claire" in en_resp.text
     assert "Allow using this MCP tool?" in en_resp.text
     assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.en.md"' in en_resp.text
     assert 'id="pref-mcp-marketplace-repo" class="pref-mono">fofwisdom/claire-agents<' in en_resp.text
     assert 'id="pref-mcp-marketplace-git" class="pref-mono">https://github.com/fofwisdom/claire-agents.git<' in en_resp.text
     assert 'href="https://github.com/fofwisdom/claire-agents/releases"' in en_resp.text
     en_boot = _bootstrap(en_resp.text)
+    assert len(en_boot["syndication"]["mcp_tools"]) == 17
     assert en_boot["syndication"]["agent_marketplace"] == {
         "repo": "fofwisdom/claire-agents",
         "git_url": "https://github.com/fofwisdom/claire-agents.git",
@@ -331,7 +332,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     assert 'id="pref-mcp-antigravity-prompt"' in ko_resp.text
     assert 'id="pref-mcp-copy-antigravity-prompt"' in ko_resp.text
     assert 'id="pref-mcp-download-mcp-config"' in ko_resp.text
-    assert "Go to Accounts" in ko_resp.text
+    assert "MCP Servers -&gt; claire" in ko_resp.text
     assert "Allow using this MCP tool?" in ko_resp.text
     assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.ko.md"' in ko_resp.text
     assert 'id="pref-mcp-marketplace-repo" class="pref-mono">fofwisdom/claire-agents<' in ko_resp.text

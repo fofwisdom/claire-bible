@@ -319,17 +319,17 @@ def test_mcp_candidates_and_submit_with_a_shared_knowledge_base_of_another_serve
     number = ids.format_public_id(theme["number"])
     readonly, write = world.bearer("ben", "readonly"), world.bearer("ben", "write")
 
-    by_theme = _mcp(world, readonly, "kb_candidates", {"theme": number})
+    by_theme = _mcp(world, readonly, "contrib_candidates", {"theme": number})
     assert by_theme["remote_state"] == "on"
     (target,) = by_theme["targets"]
-    assert (target["remote"], target["remote_knowledge_base"], target["server"], target["url"], target["mode"], [d["document"] for d in target["documents"]]) == (True, remote.id, "c.example", remote.url, "pending", [match])
-    assert _mcp(world, readonly, "kb_candidates", {"remote_knowledge_base": remote.id}) == by_theme
-    assert _mcp(world, readonly, "kb_candidates", {"remote_knowledge_base": remote.id + 100}) == {"error": "knowledge_base_not_found"}
-    assert _mcp(world, readonly, "kb_candidates", {"theme": number, "remote_knowledge_base": remote.id}) == {"error": "kb_or_theme_required"}
+    assert (target["remote"], target["remote_kb"], target["server"], target["url"], target["mode"], [d["document"] for d in target["documents"]]) == (True, remote.id, "c.example", remote.url, "pending", [match])
+    assert _mcp(world, readonly, "contrib_candidates", {"remote_kb": remote.id}) == by_theme
+    assert _mcp(world, readonly, "contrib_candidates", {"remote_kb": remote.id + 100}) == {"error": "kb_not_found"}
+    assert _mcp(world, readonly, "contrib_candidates", {"theme": number, "remote_kb": remote.id}) == {"error": "kb_or_theme_required"}
 
     # A direct choice needs a grant of that knowledge base, as ``POST /submissions``.
-    assert _mcp(world, write, "kb_submit", {"documents": [match], "remote_knowledge_base": remote.id}) == {"error": "grant_required"}
-    assert _mcp(world, write, "kb_submit", {"documents": [match], "remote_knowledge_base": remote.id, "theme": number}) == {"error": "remote_knowledge_base_invalid"}
+    assert _mcp(world, write, "contrib_submit", {"document_ids": [match], "remote_kb": remote.id}) == {"error": "grant_required"}
+    assert _mcp(world, write, "contrib_submit", {"document_ids": [match], "remote_kb": remote.id, "theme": number}) == {"error": "remote_kb_invalid"}
     now = time.time()
     conn = dbm.connect(world.settings.db_file)
     try:
@@ -337,10 +337,10 @@ def test_mcp_candidates_and_submit_with_a_shared_knowledge_base_of_another_serve
         conn.commit()
     finally:
         conn.close()
-    assert _mcp(world, readonly, "kb_candidates", {"remote_knowledge_base": remote.id})["targets"][0]["mode"] == "approved"
-    made = _mcp(world, write, "kb_submit", {"documents": [match], "remote_knowledge_base": remote.id})
+    assert _mcp(world, readonly, "contrib_candidates", {"remote_kb": remote.id})["targets"][0]["mode"] == "approved"
+    made = _mcp(world, write, "contrib_submit", {"document_ids": [match], "remote_kb": remote.id})
     (item,) = made["items"]
     assert "code" not in item
-    assert [(t["remote"], t["server"], t["remote_knowledge_base"], t["state"]) for t in item["targets"]] == [(True, "c.example", remote.id, "pending")]
+    assert [(t["remote"], t["server"], t["remote_kb"], t["state"]) for t in item["targets"]] == [(True, "c.example", remote.id, "pending")]
     # The document has a row for that knowledge base now: it is no candidate again.
-    assert _mcp(world, readonly, "kb_candidates", {"remote_knowledge_base": remote.id})["targets"][0]["documents"] == []
+    assert _mcp(world, readonly, "contrib_candidates", {"remote_kb": remote.id})["targets"][0]["documents"] == []

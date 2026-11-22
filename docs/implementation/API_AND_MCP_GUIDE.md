@@ -385,7 +385,7 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 | 메서드 | 경로 | 최소 스코프 | 요청 매개변수 / 본문 | 응답 / 주요 오류 |
 | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/client-extraction/stage` | `write` | JSON `{url_or_text \| url \| text, title?, source_type?, full_content?: bool (기본 true), mode?}` | 200 `{document_id, kb_id, content_hash, raw_chars, extraction_status: "pending", ...}` / 400 `invalid_full_content` |
+| `POST` | `/api/client-extraction/stage` | `write` | JSON `{url_or_text \| url \| text, title?, source_type?, full_content?: bool (기본 true), mode?}`, JSON `{filename, content_base64, ...}`, 또는 `multipart/form-data` `file` (PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC, 최대 20 MiB) | 200 `{document_id, kb_id, content_hash, raw_chars, extraction_status: "pending", ...}` / 400 `invalid_full_content`·`file_required` / 413 `file_too_large` |
 | `GET` | `/api/client-extraction/sources` | `write` | query `status` (기본 `"pending"`, `"all"` 허용), `limit` (기본 `50`) | 200 `{sources: [...], count}` |
 | `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` | 선택 JSON `{client_id?, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at, content_hash, ...}` / 400 `invalid_lease_seconds` / 409 임대 충돌 |
 | `POST` | `/api/client-extraction/sources/{document_id}/renew` | `write` | JSON `{claim_token, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at}` / 400 `invalid_lease_seconds` / 409 |
@@ -409,7 +409,7 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
   - 모든 MCP 도구의 `_kb_id` 해석은 `current_principal`의 `account_id`의 개인 지식 베이스와 공유 지식 베이스(공개)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
 - **DB 연결 분리 및 쓰기 가드**:
   - 읽기 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`로 읽기 전용 연결을 열고 DDL(`init_db`)을 실행하지 않는다.
-  - 쓰기 도구(`kb_submit` 및 `AE5` 클라이언트 추출 쓰기 도구)는 `require_mcp_write_scope()`로 `write`/`owner` 스코프를 강제하고, `AE5` 도구는 호출자 개인 지식베이스만 허용한다(`CT4`).
+  - 쓰기 도구(`contrib_submit` 및 `AE5` 클라이언트 추출 쓰기 도구)는 `require_mcp_write_scope()`로 `write`/`owner` 스코프를 강제하고, `AE5` 도구는 호출자 개인 지식베이스만 허용한다(`CT4`). 또한 `mcp_telemetry.client_id`는 OAuth 인가(`oauth:<id>`), 상시 토큰(`api:<id>`), 세션/환경 채널(`env:*`) 단위로 호출 출처를 기록한다.
 - **포트 보존 호스트 검증**:
   - MCP `TransportSecuritySettings`의 `allowed_hosts`에 포트를 보존한 호스트 값(`localhost:port`, `127.0.0.1:port`, `fqdn:port`)을 등록하여 비표준 포트 환경에서의 DNS 리바인딩 보호와 정상 통신을 양립한다.
 
@@ -468,43 +468,41 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 
 ---
 
-### 3.2 제공 툴셋 (19종 도구)
+### 3.2 제공 툴셋 (17종 도구, 서버 `"claire"` `v0.2.0`)
 
-모든 읽기 도구와 신디케이션 도구는 `kb`(지식베이스 번호, `CT23`)를 사용한다. 클라이언트 추출 도구는 호출자 개인 지식베이스만 대상으로 하며(`CT4`), 쓰기 작업은 `require_mcp_write_scope()`로 `write` 또는 `owner` 스코프를 검사한다.
+`MCPServer("claire", title="Claire Bible", version="0.2.0", instructions=...)`가 `<domain>_<action>` 규칙의 17종 도구와 MCP `ToolAnnotations`(`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`)를 제공한다. 모든 읽기·그래프·문서 도구(`kb_list` 제외)는 `kb`가 필수이며(`kb="personal"` 또는 `kb_list()`가 돌려주는 18자리 번호, `CT23`), 알 수 없거나 접근 권한이 없는 지식베이스는 `kb_not_found`로, 없는 항목은 `not_found`로 통일해 반환한다. 클라이언트 추출 도구는 호출자 개인 지식베이스만 대상으로 하며(`CT4`), 쓰기 작업은 `require_mcp_write_scope()`로 `write` 또는 `owner` 스코프를 검사한다.
 
-#### 1) 읽기 전용 탐색 도구 (10종, `kb` 필수)
+#### 1) 읽기 전용 탐색 도구 (9종)
 
 | 툴 이름 | 입력 파라미터 | 주요 역할 및 특징 |
 |---|---|---|
-| `resolve_entity` | `name: str`, `kb: str\|int?` | **탐색 루프의 진입점**. 이름이나 별칭 문자열로 노드 ID 검색 (정확 일치 -> 별칭 -> FTS5 fuzzy 폴백). |
-| `search` | `query: str`, `entity_type: str?`, `near_ids: list[str]?`, `limit: int?`, `kb: str\|int?` | FTS5 전문 검색. `entity_type` 필터 및 특정 프론티어 근방(`near_ids`) 필터링 지원. LLM 호출 0. |
-| `neighbors` | `entity_ids: list[str]\|str`, `exclude_ids: list[str]?`, `limit: int?`, `kb: str\|int?` | **탐색의 핵심 단위**. 여러 노드의 1홉 이웃을 합집합으로 조회하며 `degree` 포함. `truncated`, `omitted` 반환. |
-| `path` | `from_id: str`, `to_id: str`, `max_hops: int?`, `kb: str\|int?` | 두 노드 사이의 최단 연결 경로(BFS)를 탐색하여 인과/연결 관계 규명. |
-| `context` | `entity_ids: list[str]`, `compact: bool?`, `kb: str\|int?` | 노드들의 observations, 연결 관계, 출처 요약을 종합 반환하는 **탐색 종료 단계 툴** (최대 10개 노드). |
-| `overview` | `kb: str\|int?` | 지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 주요 허브 노드, 핵심 수렴 개요. |
-| `node` | `entity_id: str`, `full: bool?`, `kb: str\|int?` | 단일 노드 상세 정보(타입, 별칭, 속성, 관찰 목록) 및 연결 문서(최대 10건) 조회. |
-| `documents` | `limit: int?`, `since: str?`, `query: str?`, `kb: str\|int?` | 문서 타임라인 목록 조회 (최대 100건 하드캡 및 잘림 표시 제공). |
-| `document` | `document_id: str`, `kb: str\|int?` | 단일 문서 본문 및 메타데이터 열람 (`mark_seen` 부작용 제거, `fetched_at`은 ISO8601 UTC 정규화). |
-| `stats` | `kb: str\|int?` | 데이터베이스 카운트 요약(문서 수, 엔티티 수, 관계 수, 소스 유형별 통계). |
+| `kb_list` | (없음) | 호출자의 개인 지식베이스(`kb="personal"` / 18자리 번호)와 접근 가능한 공유 지식베이스 목록 및 역할 반환. |
+| `kb_overview` | `kb: str\|int`, `include_stats: bool = True` | 엔티티·원천 유형 분포, 주요 허브 노드, 교차 검증 엔티티 및 레코드 통계(`include_stats=True` 기본) 요약. |
+| `entity_search` | `kb: str\|int`, `query: str`, `entity_type: str?`, `near_ids: list[str]?`, `limit: int = 8` | 정확 이름·별칭 일치 및 FTS5 전문 랭킹 결합 검색 (`entity_type`, `near_ids` 1홉 필터 지원, LLM 호출 0). |
+| `entity_get` | `kb: str\|int`, `entity_id: str`, `full: bool = False` | 단일 노드 상세 정보(관찰 목록, 타입 1홉 이웃, 연결 문서 최대 10건) 조회. |
+| `graph_neighbors` | `kb: str\|int`, `entity_ids: list[str]\|str`, `exclude_ids: list[str]?`, `limit: int = 50` | **탐색의 핵심 단위**. 여러 노드의 중복 제거된 1홉 이웃을 `degree` 내림차순으로 합집합 조회 (`truncated`, `omitted` 반환). |
+| `graph_path` | `kb: str\|int`, `from_id: str`, `to_id: str`, `max_hops: int = 4` | 두 노드 사이의 최단 무방향 연결 경로(BFS) 탐색. |
+| `graph_context` | `kb: str\|int`, `entity_ids: list[str]`, `compact: bool = True` | 최대 10개 노드의 관찰, 관계, 출처 요약을 결정론적으로 종합 반환하는 **탐색 종료 단계 툴**. |
+| `doc_list` | `kb: str\|int`, `limit: int = 30`, `since: str?`, `query: str?` | 최신 가시 문서 목록 조회 (`limit` 최대 100 하드캡, `since` ISO8601 UTC 및 제목/URL 부분 검색). |
+| `doc_get` | `kb: str\|int`, `document_id: str` | 단일 문서 제목, 요약, 렌더링 본문, URL 및 메타데이터 조회 (`mark_seen` 부작용 없음, `fetched_at` ISO8601 UTC 정규화). |
 
 #### 2) 지식 베이스 기여 및 신디케이션 도구 (2종)
 
 | 툴 이름 | 입력 파라미터 | 스코프 / 제약 | 주요 역할 |
 |---|---|---|---|
-| `kb_candidates` | `kb: str\|int?`, `theme: str\|int?`, `remote_knowledge_base: int?`, `include_uploads: bool?` | 읽기 | 개인 지식베이스의 문서 중 컬렉션 테마나 원격 공유 지식베이스에 맞는 후보 점수 계산 (LLM 호출 0). |
-| `kb_submit` | `documents: list[str]`, `theme: str\|int?`, `remote_knowledge_base: int?` | `write` | 개인 지식베이스의 문서를 테마 또는 원격 공유 지식베이스에 기여 제출. |
+| `contrib_candidates` | `kb: str\|int?`, `theme: str\|int?`, `remote_kb: int?`, `include_uploads: bool = False` | 읽기 (`readonly`) | 개인 지식베이스의 문서 중 지정한 공유 지식베이스, 테마, 또는 원격 공유 지식베이스에 맞는 후보 점수 계산 (LLM 호출 0). |
+| `contrib_submit` | `document_ids: list[str]`, `theme: str\|int?`, `remote_kb: int?` | `write` | 개인 지식베이스의 문서를 테마 또는 원격 공유 지식베이스에 기여 제출. |
 
-#### 3) 클라이언트 주도 추출 도구 (7종, `AE5` / `AED9`)
+#### 3) 클라이언트 주도 추출 도구 (6종, `AE5` / `AED9`)
 
 | 툴 이름 | 입력 파라미터 | 스코프 / 제약 | 주요 역할 |
 |---|---|---|---|
-| `stage_source` | `url_or_text?`, `url?`, `text?`, `title?`, `source_type?`, `full_content: bool = True`, `mode?`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 서버 LLM 없이 원문을 `pending` 상태로 스테이징 (`full_content=True` 기본). |
-| `list_staged_sources` | `status: str? = "pending"`, `limit: int = 50`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 개인 지식베이스의 스테이징 대기 목록 조회. |
-| `claim_staged_source` | `document_id: str`, `client_id: str?`, `lease_seconds: float\|int = 300.0`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 300초 기본 임대 창(`lease_seconds`)으로 문서를 선점하고 일회용 `claim_token` 발급. |
-| `renew_staged_claim` | `document_id: str`, `claim_token: str`, `lease_seconds: float\|int = 300.0`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 활성 추출 임대 연장. |
-| `get_extraction_spec` | (없음) | 읽기 (`read_only`) | `"agent-extract-v1"` 엄격 JSON 스키마, 활성 온톨로지 타입·domain/range 규칙, AsciiDoc 검증 규칙 반환. |
-| `get_staged_source` | `document_id: str`, `claim_token: str?`, `offset: int = 0`, `limit: int?`, `full_content: bool = True`, `line_offset: int?`, `line_limit: int?`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | 난수 nonce가 포함된 `<untrusted_source_document nonce="..." document_id="..." sha256="...">` 태그로 감싼 원문 조각(기본 `32000`자 또는 줄 슬라이스)과 `expected_content_hash` 반환. |
-| `submit_client_extraction` | `document_id: str`, `claim_token: str`, `expected_content_hash: str`, `payload: dict`, `dry_run: bool = False`, `kb: str\|int?` | `write` (`CT4` 개인 KB) | `ConfigDict(extra="forbid", strict=True)`, 요약·AsciiDoc·근거 span·온톨로지 4계층 검증 및 옵션 B 서버 임베딩 계산 후 원자적 커밋(`extraction_origin = "agent_client"`). |
+| `extract_spec` | (없음) | 읽기 (`readonly`) | `"agent-extract-v1"` 엄격 JSON 스키마, 활성 온톨로지 타입·domain/range 규칙, AsciiDoc 검증 규칙 반환. |
+| `extract_stage` | `url?`, `text?`, `filename?`, `content_base64?`, `title?`, `source_type?`, `full_content: bool = True`, `mode?`, `kb?` | `write` (`CT4` 개인 KB, `openWorldHint: true`) | 서버 LLM 없이 URL, 일반 텍스트 또는 `content_base64` 파일(PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC)을 `pending` 상태로 스테이징. |
+| `extract_queue` | `status: str? = "pending"`, `limit: int = 50`, `kb?` | `write` (`CT4` 개인 KB) | 개인 지식베이스의 스테이징 대기 목록 조회. |
+| `extract_claim` | `document_id: str`, `claim_token: str?`, `client_id: str?`, `lease_seconds: float\|int = 300.0`, `kb?` | `write` (`CT4` 개인 KB) | 300초 기본 임대로 대기 문서를 선점(`client_id` 미지정 시 OAuth 클라이언트 자동 추론)하거나 `claim_token` 전달 시 기존 임대를 연장. |
+| `extract_read` | `document_id: str`, `claim_token: str?`, `offset: int = 0`, `limit: int?`, `full_content: bool = True`, `line_offset: int?`, `line_limit: int?`, `kb?` | `write` (`CT4` 개인 KB, 격리 서브에이전트 전용) | 난수 nonce가 포함된 `<untrusted_source_document nonce="..." document_id="..." sha256="...">` 태그로 감싼 원문 조각(기본 `32000`자 또는 줄 슬라이스)과 `expected_content_hash` 반환. |
+| `extract_submit` | `document_id: str`, `claim_token: str`, `expected_content_hash: str`, `payload: dict`, `dry_run: bool = False`, `kb?` | `write` (`CT4` 개인 KB) | `ConfigDict(extra="forbid", strict=True)`, 요약·AsciiDoc·근거 span·온톨로지 4계층 검증 및 옵션 B 서버 임베딩 계산 후 원자적 커밋(`extraction_origin = "agent_client"`). |
 
 ---
 
@@ -513,28 +511,27 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 서버가 거대한 서브그래프 전체를 한 번에 덤프하지 않고, AI 에이전트가 점진적으로 프론티어를 넓혀가는 탐색 패턴을 권장한다 (클라이언트 추출 루프는 [`EXTRACTION.md`](EXTRACTION.md) §9 참조):
 
 ```text
-[0. 오리엔테이션] ──> overview(kb=0) (지식베이스 전체 도메인 및 허브 감 잡기)
+[0. 지식베이스 확인] ──> kb_list() -> kb_overview(kb="personal" 또는 18자리 번호)
         │
-[1. 진입점 확보]  ──> resolve_entity(name="...", kb=0) 또는 search(query="...", kb=0)
+[1. 진입점 확보]     ──> entity_search(query="...", kb=...)
         │
-[2. 프론티어 확장] ──> neighbors(entity_ids=[...], exclude_ids=[...], limit=30, kb=0)
-        │            (degree 높은 허브 선별 및 유망한 관계 가지 확장)
+[2. 프론티어 확장]   ──> graph_neighbors(entity_ids=[...], exclude_ids=[...], limit=30, kb=...)
+        │               (degree 높은 허브 선별 및 유망한 관계 가지 확장)
         ▼
-[3. 영역 좁히기]  ──> search(query="...", near_ids=[...], kb=0)
+[3. 영역 좁히기]     ──> entity_search(query="...", near_ids=[...], kb=...)
         │
-[4. 심층 종합]    ──> context(entity_ids=[...], compact=True, kb=0) (최종 근거 수집)
+[4. 심층 종합]       ──> graph_context(entity_ids=[...], compact=True, kb=...) (최종 근거 수집)
 ```
 
 ---
 
 ### 3.4 클라이언트별 연결 설정
 
-#### 1) Claude · Google Antigravity 공식 마켓플레이스 (`fofwisdom/claire-agents` + OAuth 2.1, 권장)
-1. 콘솔 `/settings/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스 저장소(`fofwisdom/claire-agents`, 정본 소스 `agent_clients/`, GitHub Actions 자동 동기화)를 이용한다:
-   - **Antigravity (GUI 우선)**: `/settings/mcp`에서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)를 복사해 Antigravity 채팅창에 그대로 붙여넣어 자동 설치하거나, 언어별 상세 GUI 가이드(`docs/antigravity.ko.md` / `docs/antigravity.en.md`)를 따라 GitHub Releases의 `claire-antigravity-v*.zip`과 `/settings/mcp`의 **서버 연결 파일 내려받기**(`#pref-mcp-download-mcp-config`, `mcp_config.json`)를 플러그인 폴더에 넣은 뒤 **Customizations -> Installed -> Plugins -> Claire Bible (`Setup required`) -> Go to Accounts**에서 OAuth 2.1 로그인을 완료한다. (첫 도구 실행 시 `Allow using this MCP tool?` 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누른다. CLI 사용자용 `.tar.gz` 및 `SHA256SUMS` 검증 안내도 가이드 내 접힘 영역으로 제공된다.)
-   - **Claude (GUI 우선)**: 마켓플레이스 관리에 `fofwisdom/claire-agents`를 붙여넣어 동기화(`.claude-plugin/marketplace.json`)한 뒤 `claire-claude`를 설치한다 (`docs/claude.ko.md` / `docs/claude.en.md`).
-2. 번들에는 `agents/claire-extractor.md`(MCP 전용 격리 서브에이전트 지침), `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `assets/logo.svg`, `README.md`, `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다.
-3. 수동/CLI 환경에서 `mcp_config.json` 또는 Claude MCP 설정에 직접 지정할 때는 `url` 형식으로 본인의 Claire Bible 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
+#### 1) Claude · Google Antigravity 공식 마켓플레이스 (`fofwisdom/claire-agents` + OAuth 2.1, Option A 권장)
+1. **Option A(전역 MCP 1회 등록 + 플러그인 분리)**: 원격 `/mcp` 서버는 클라이언트 전역 설정에 `"claire"`라는 키로 한 번 등록하고, 콘솔 `/settings/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스(`fofwisdom/claire-agents` `v0.2.0`, 정본 소스 `agent_clients/`, GitHub Actions 자동 동기화)에서는 규칙·스킬·격리 서브에이전트만 담은 `claire` 플러그인을 설치한다 (업그레이드 시 사용자의 서버 URL을 보존하기 위해 플러그인 내부에는 `mcp_config.json`을 두지 않는다):
+   - **Antigravity (GUI 우선)**: `~/.gemini/config/mcp_config.json`에 `"claire"` 서버(`/settings/mcp`의 `#pref-mcp-download-mcp-config` 내려받기 지원)를 등록하고 **Customizations -> Installed -> MCP Servers -> claire**에서 OAuth 2.1 로그인을 완료한다. 이어서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)나 `docs/antigravity.ko.md` / `docs/antigravity.en.md`를 따라 GitHub Releases의 `claire-antigravity-v*.zip`(루트 `claire/`)을 플러그인 폴더에 설치한다 (`rules/AGENTS.md`, `agents/claire-extractor.md`, `skills/claire-{ingest,extract,query}/SKILL.md`, `assets/logo.svg`, `README.md`). 첫 도구 실행 시 `Allow using this MCP tool?` 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누른다.
+   - **Claude (GUI 우선)**: `claude mcp add --transport http claire <url>`로 전역 `"claire"` MCP 서버를 등록한 뒤, 마켓플레이스 관리에 `fofwisdom/claire-agents`를 붙여넣어 동기화(`.claude-plugin/marketplace.json` -> `./plugins/claude/claire`)하고 `claire` 플러그인을 설치한다 (`agents/extractor.md` `mcp__claire__*`, `skills/{ingest,extract,query}/SKILL.md` -> `/claire:ingest`, `/claire:extract`, `/claire:query`, 가이드 `docs/claude.ko.md` / `docs/claude.en.md`).
+2. 모든 번들에는 비밀키가 포함되지 않으며, 수동/CLI 환경에서 `mcp_config.json`에 직접 지정할 때는 `url` 형식으로 본인의 Claire Bible 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
 ```json
 {
   "mcpServers": {
@@ -572,11 +569,11 @@ curl -s -X POST https://claire.example.com/mcp \
        "id": 1,
        "method": "tools/call",
        "params": {
-         "name": "search",
+         "name": "entity_search",
          "arguments": {
            "query": "OAuth 2.1 PKCE",
            "limit": 3,
-           "kb": 0
+           "kb": "personal"
          }
        }
      }'
@@ -609,7 +606,7 @@ claire token revoke "cb_xX9vY..." --json
 ### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/settings/mcp`, `/settings/tokens`)
 
 - **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
-- **`/settings/mcp` (권장)**: 최상단 빠른 시작 가이드(계정 `extraction_mode`와 독립된 4단계 녹색/붉은색 진행 체크리스트 및 추출·대기 건수), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), Claude·Cursor Git 마켓플레이스 경로와 정적 번들 루트를 겸하는 공통 최상단 URL(`/clients` 또는 `clients.<registrable_domain>`), 활성 `agent_client` 플러그인(`claire.antigravity` 및 추가 클라이언트)의 60초 `?t=` 다운로드 링크(`manifest.json`, `bundle.tar.gz`, `bundle.zip`, `files/...`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
+- **`/settings/mcp` (권장)**: 최상단 빠른 시작 가이드(3단계 녹색/붉은색 진행 체크리스트 — ① `extraction_mode = 'client'`, ② OAuth 2.1 `write` 인가 연결, ③ 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크, `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
 - **`/settings/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
 
 ### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)

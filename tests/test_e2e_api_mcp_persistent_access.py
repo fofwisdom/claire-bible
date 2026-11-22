@@ -150,9 +150,9 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
         mcp_list_body = mcp_list_resp.json()
         assert "result" in mcp_list_body
         tool_names = {t["name"] for t in mcp_list_body["result"]["tools"]}
-        assert "overview" in tool_names
-        assert "documents" in tool_names
-        assert "search" in tool_names
+        assert "kb_overview" in tool_names
+        assert "doc_list" in tool_names
+        assert "entity_search" in tool_names
 
         # 5b. Call tools/call with Claude Desktop readonly token
         mcp_call_resp = client.post(
@@ -162,7 +162,7 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "overview", "arguments": {}},
+                "params": {"name": "kb_overview", "arguments": {}},
             },
         )
         assert mcp_call_resp.status_code == 200

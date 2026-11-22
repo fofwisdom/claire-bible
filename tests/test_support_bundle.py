@@ -719,14 +719,11 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
     mcp_diag = _read_json(f"{root}/diagnostics/mcp.json")
     assert mcp_diag["mcp_runtime"]["transport"] == "streamable_http"
     assert mcp_diag["mcp_runtime"]["endpoint_path"] == "/mcp"
-    assert len(mcp_diag["tools_registered"]) == 19
+    assert len(mcp_diag["tools_registered"]) == 17
     tool_names = {t["name"] for t in mcp_diag["tools_registered"]}
-    assert {"kb_candidates", "kb_submit"} <= tool_names  # the tools of the automatic contribution (design Section 9.9 rule 7)
-    assert {"stage_source", "list_staged_sources", "claim_staged_source", "renew_staged_claim", "get_extraction_spec", "get_staged_source", "submit_client_extraction"} <= tool_names
-    assert "resolve_entity" in tool_names
-    assert "search" in tool_names
-    assert "neighbors" in tool_names
-    assert "stats" in tool_names
+    assert {"contrib_candidates", "contrib_submit"} <= tool_names
+    assert {"extract_stage", "extract_queue", "extract_claim", "extract_spec", "extract_read", "extract_submit"} <= tool_names
+    assert {"kb_list", "kb_overview", "entity_search", "graph_neighbors"} <= tool_names
 
     # 6. pipeline/oauth_summary.json 내용 검증 (토큰 원문 절대 미포함, SHA-256 앞 8자리 확인)
     oauth_sum = _read_json(f"{root}/pipeline/oauth_summary.json")

@@ -1,15 +1,17 @@
 id = "claire-antigravity"
+plugin_name = "claire"
 client_id = "antigravity"
 target = "antigravity"
-name = "Claire Bible (Antigravity)"
+name = "Claire Bible"
 display_name = "Claire Bible"
 agent_name = "Antigravity"
-version = "0.1.2"
+version = "0.2.0"
 license = "MIT"
 required_scopes = ["readonly", "write"]
-description = "Antigravity plugin bundle for OAuth 2.1 MCP connection, isolated source extraction, and knowledge graph queries."
+description = "Antigravity plugin for direct URL/document ingest, isolated source extraction, and knowledge graph queries over the global claire MCP server."
 suggested_prompts = [
-  "대기 중인 Claire Bible 자료 목록 보여 줘 (List pending Claire Bible sources)",
-  "Claire Bible 대기 자료를 안전하게 추출해서 저장해 줘 (Extract and save pending Claire Bible sources)",
-  "내 Claire Bible 지식 그래프에서 관련 주제를 검색해 줘 (Search topics in my Claire Bible knowledge graph)",
+  "URL이나 문서를 Claire Bible에 바로 저장·추출해 줘 (Save and extract a URL or document)",
+  "로컬 문서 파일(PDF/DOCX/MD)을 Claire Bible에 저장해 줘 (Stage and extract a document file)",
+  "대기 중인 Claire Bible 자료를 안전하게 추출해 줘 (Extract pending Claire Bible sources)",
+  "내 Claire Bible 지식 그래프에서 관련 주제를 검색해 줘 (Search my Claire Bible knowledge graph)",
 ]

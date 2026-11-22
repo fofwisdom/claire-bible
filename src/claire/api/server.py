@@ -77,7 +77,7 @@ from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, kb_base_path, namespace_link, request_namespace
-from .principal import Principal, request_principal
+from .principal import PRINCIPAL_STATE_KEY, Principal, request_principal
 from ..ontology.label_language import display_label
 from .mcp_tools import build_mcp_app
 from .oauth import (
@@ -6658,7 +6658,7 @@ def create_app(
         if raw_ref is None or not str(raw_ref).strip():
             return
         ref_str = str(raw_ref).strip()
-        if ref_str == str(personal_kb.id):
+        if ref_str.lower() == "personal" or ref_str == str(personal_kb.id):
             return
         target = None
         try:
@@ -6692,38 +6692,96 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"{name} must be an integer") from exc
 
+    def _parse_bool_flag(raw: Any, default: bool = True) -> bool | None:
+        if raw is None:
+            return default
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            low = raw.strip().lower()
+            if low in ("1", "true", "yes", "on"):
+                return True
+            if low in ("0", "false", "no", "off"):
+                return False
+        return None
+
     async def client_extraction_stage_route(request: Request) -> JSONResponse:
         from ..ingest import client_extraction as ce
 
         theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        body = await _json_object(request)
-        _reject_foreign_kb_param(request, theme, body)
         principal = request_principal(request)
         assert principal.account_id is not None
-        url_or_text = str(body.get("url_or_text") or body.get("url") or body.get("text") or "").strip()
-        title = body.get("title")
-        source_type = body.get("source_type")
-        full_content_raw = body.get("full_content", True)
-        if not isinstance(full_content_raw, bool):
-            return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
-        full_content = full_content_raw
-        mode = body.get("mode")
+        ctype = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+
+        raw_bytes: bytes | None = None
+        filename: str | None = None
+        content_base64: str | None = None
+        url_or_text = ""
+        title: Any = None
+        source_type: Any = None
+        mode: Any = None
+        full_content = True
+
+        if ctype == "multipart/form-data":
+            form = await request.form()
+            kb_val = form.get("kb") or form.get("kb_id") or form.get("theme")
+            _reject_foreign_kb_param(request, theme, {"kb": kb_val} if kb_val is not None else None)
+            uploaded = form.get("file")
+            if uploaded is None or not hasattr(uploaded, "read"):
+                return JSONResponse({"ok": False, "error": "file_required", "message": "multipart form field 'file' is required."}, status_code=400)
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = await uploaded.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > ce.MAX_STAGE_FILE_BYTES:
+                    return JSONResponse({"ok": False, "error": "file_too_large", "message": f"File size exceeds limit of {ce.MAX_STAGE_FILE_BYTES} bytes."}, status_code=413)
+                chunks.append(chunk)
+            raw_bytes = b"".join(chunks)
+            filename = str(getattr(uploaded, "filename", None) or form.get("filename") or "").strip()
+            title = form.get("title")
+            source_type = form.get("source_type")
+            mode = form.get("mode")
+            parsed_fc = _parse_bool_flag(form.get("full_content"), default=True)
+            if parsed_fc is None:
+                return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
+            full_content = parsed_fc
+        else:
+            body = await _json_object(request)
+            _reject_foreign_kb_param(request, theme, body)
+            title = body.get("title")
+            source_type = body.get("source_type")
+            mode = body.get("mode")
+            full_content_raw = body.get("full_content", True)
+            if not isinstance(full_content_raw, bool):
+                return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
+            full_content = full_content_raw
+            if "content_base64" in body or "filename" in body:
+                filename = str(body.get("filename") or "").strip()
+                content_base64 = str(body.get("content_base64") or "")
+            else:
+                url_or_text = str(body.get("url_or_text") or body.get("url") or body.get("text") or "").strip()
 
         def _work() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return ce.stage_source(
-                    conn,
-                    kb_id=theme.id,
-                    account_id=int(principal.account_id),
-                    url_or_text=url_or_text,
-                    title=str(title) if title is not None else None,
-                    source_type=str(source_type) if source_type is not None else None,
-                    full_content=full_content,
-                    mode=str(mode) if mode is not None else None,
-                    settings=theme_settings,
-                    data_dir=Path(s.data_dir) if getattr(s, "data_dir", None) else None,
-                )
+                common_kwargs = {
+                    "kb_id": theme.id,
+                    "account_id": int(principal.account_id),
+                    "title": str(title) if title is not None else None,
+                    "source_type": str(source_type) if source_type is not None else None,
+                    "full_content": full_content,
+                    "mode": str(mode) if mode is not None else None,
+                    "settings": theme_settings,
+                    "data_dir": Path(s.data_dir) if getattr(s, "data_dir", None) else None,
+                }
+                if raw_bytes is not None:
+                    return ce.stage_file_bytes(conn, raw_bytes=raw_bytes, filename=filename or "", **common_kwargs)
+                if content_base64 is not None:
+                    return ce.stage_file_base64(conn, filename=filename or "", content_base64=content_base64, **common_kwargs)
+                return ce.stage_source(conn, url_or_text=url_or_text, **common_kwargs)
             finally:
                 conn.close()
 
@@ -6933,8 +6991,13 @@ def create_app(
         if status_code != 200:
             from ..store.telemetry import record_mcp_telemetry
 
+            principal = getattr(request.state, PRINCIPAL_STATE_KEY, None)
+            client_attr = None
+            if principal is not None and not principal.is_anonymous:
+                client_attr = principal.credential_id or principal.channel
             record_mcp_telemetry(
                 s.data_dir,
+                client_id=client_attr,
                 call_type="http_mcp",
                 tool_name=None,
                 status="UNAUTHORIZED" if status_code == 401 else "ERROR",

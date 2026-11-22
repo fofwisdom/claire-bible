@@ -234,7 +234,7 @@ def _mcp(world, headers: dict, name: str, arguments: dict) -> dict:  # noqa: F81
 
 
 def test_mcp_tools_give_candidates_and_submit_with_the_scope_write(world) -> None:  # noqa: F811
-    """Design Section 9.9 rule 7: the AI agent of the account selects with ``kb_candidates`` (read) and contributes with ``kb_submit`` (scope ``write``)."""
+    """Design Section 9.9 rule 7: the AI agent of the account selects with ``contrib_candidates`` (read) and contributes with ``contrib_submit`` (scope ``write``)."""
     client = world.client
     match = _document(world, BEN, "match", KOREA)
     _document(world, BEN, "space", SPACE)
@@ -249,16 +249,16 @@ def test_mcp_tools_give_candidates_and_submit_with_the_scope_write(world) -> Non
     number = ids.format_public_id(theme["number"])
     readonly, write = world.bearer("ben", "readonly"), world.bearer("ben", "write")
 
-    by_kb = _mcp(world, readonly, "kb_candidates", {"kb": world.kb["number"]})
+    by_kb = _mcp(world, readonly, "contrib_candidates", {"kb": world.kb["number"]})
     assert [(t["label"], [(d["document"], d["score"]) for d in t["documents"]]) for t in by_kb["targets"]] == [("Cities", [(match, 1.0)])]
-    assert _mcp(world, readonly, "kb_candidates", {"theme": number}) == by_kb
-    assert _mcp(world, readonly, "kb_candidates", {}) == {"error": "kb_or_theme_required"}
-    assert _mcp(world, readonly, "kb_candidates", {"theme": "1"}) == {"error": "theme_not_found"}
+    assert _mcp(world, readonly, "contrib_candidates", {"theme": number}) == by_kb
+    assert _mcp(world, readonly, "contrib_candidates", {}) == {"error": "kb_or_theme_required"}
+    assert _mcp(world, readonly, "contrib_candidates", {"theme": "1"}) == {"error": "kb_not_found"}
 
     # A credential with the scope ``readonly`` does not contribute.
-    assert _mcp(world, readonly, "kb_submit", {"documents": [match], "theme": number}) == {"error": "scope_insufficient"}
-    made = _mcp(world, write, "kb_submit", {"documents": [match], "theme": number})
+    assert _mcp(world, readonly, "contrib_submit", {"document_ids": [match], "theme": number}) == {"error": "scope_insufficient"}
+    made = _mcp(world, write, "contrib_submit", {"document_ids": [match], "theme": number})
     # ben is a member and not a reviewer of Cities: the contribution to a theme waits for approval.
     assert [(i["document"], i["routed_by"], i["targets"]) for i in made["items"]] == [(match, "account", [{"kb": world.kb["number"], "label": "Cities", "state": "pending"}])]
     assert _contributions(world, world.kb["id"]) == [(match, "bulk", "pending", False)]
-    assert _mcp(world, write, "kb_submit", {"documents": ["doc_of_nobody"]})["error"] == "document_not_found"
+    assert _mcp(world, write, "contrib_submit", {"document_ids": ["doc_of_nobody"]})["error"] == "document_not_found"

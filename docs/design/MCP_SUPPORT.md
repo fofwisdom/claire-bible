@@ -1,6 +1,6 @@
 # MCP and OAuth 2.1 Support
 
-- **Status**: Implemented (read-only MCP tool set and the OAuth 2.1 authorization server). Design principles only, and a list of proposals that are not implemented. Current behavior: [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3 and 2.5 (token endpoint).
+- **Status**: Implemented (17-tool `<domain>_<action>` MCP toolset under server `"claire"` v0.2.0 and the OAuth 2.1 authorization server). Design principles, current architecture decisions, and remaining open proposals. Current behavior: [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3 and 2.5 (token endpoint).
 - **Date**: 2026-09-22 (implementation), proposals 2026-10-30 · condensed 2026-11-16. The first Korean version (flow diagram, metadata examples, tool table) is in git history before commit `d15ae8e0`.
 - **Protocols**: MCP Streamable HTTP (JSON-RPC 2.0), RFC 6749, RFC 6750, RFC 7636 (PKCE S256), RFC 7591 (dynamic client registration), RFC 8414, RFC 9728, RFC 8693.
 
@@ -18,6 +18,7 @@ External AI agent clients (for example Antigravity / `agy` via [`AGENT_DRIVEN_EX
 6. **Account isolation.** A tool sees only the knowledge of the account of the credential, with the same visibility rules as the REST routes. A knowledge base that the credential cannot see is reported as not found. Reason: MCP must not be a second path around the access rules.
 7. **Standard discovery and one-touch approval.** An unauthenticated call gets 401 with the address of the protected resource metadata, and the client finds the authorization server from it. Dynamic client registration is open. The approval page lets a signed-in user approve with one action, and lets the admin approve from Telegram. Reason: standard clients connect without manual configuration.
 8. **OAuth tokens are separate from web sessions.** A new web session does not end an OAuth connection. A refresh token renews the access token without user action. A token belongs to an account; an account that is suspended, being deleted, or purged cannot renew. Reason: a connected agent must stay connected, but never longer than its account.
+9. **Clean-slate server identity, `<domain>_<action>` toolset, and Option A plugin packaging (`v0.2.0`).** The remote HTTP server identifies globally as `claire` (`MCPServer("claire", title="Claire Bible", version="0.2.0", instructions=...)`) instead of plugin-scoped server names. All 17 tools follow `<domain>_<action>` naming with MCP `ToolAnnotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), `kb_list` discovery, and explicit `kb="personal"` resolution alongside 18-digit external `kb` numbers. Standalone MCP server config lives once in the client's global config while `fofwisdom/claire-agents` plugins bundle only rules, skills, and isolated subagent definitions.
 
 ## Rejected Alternatives
 
@@ -28,15 +29,15 @@ External AI agent clients (for example Antigravity / `agy` via [`AGENT_DRIVEN_EX
 | Tokens copied by hand only | Standard OAuth clients cannot connect, and users copy secrets |
 | Write tools with the same `readonly` scope | No separation between reading and changing knowledge |
 
-## Proposals (Planned, Not Implemented)
+## Proposals (Status Updated 2026-11-22)
 
-These items come from a comparison of the code and the first version on 2026-10-30, examined again on 2026-11-16. Each one is still open. The owner has not decided them.
+These items come from a comparison of the code and the first version on 2026-10-30, examined again on 2026-11-16 and 2026-11-22.
 
-| ID | Proposal |
-| :--- | :--- |
-| MP1 | Record the credential of each tool call (token, OAuth client, or session kind) in the MCP telemetry, and keep a last-use time for OAuth tokens. |
-| MP2 | A revoke endpoint for OAuth tokens (RFC 7009), and a list and revoke view of OAuth connections for the owner. |
-| MP3 | A call limit for each credential, with 429 and `Retry-After`. |
-| MP4 | Correct client configuration examples for a remote HTTP MCP server, also in the output of the CLI token command. |
+| ID | Proposal | Status |
+| :--- | :--- | :--- |
+| MP1 | Record the credential of each tool call (`oauth:<id>`, `api:<id>`, or `env:*` channel) in `mcp_telemetry.client_id`, and keep a last-use time for OAuth tokens. | **Partially implemented** (`mcp_telemetry.client_id` attribution on tool calls and HTTP `/mcp` requests in `mcp_tools.py`/`server.py`; OAuth `last_used_at` remains open) |
+| MP2 | A revoke endpoint for OAuth tokens (RFC 7009), and a list and revoke view of OAuth connections for the owner. | **Implemented** (`/oauth/revoke`, `/api/me/oauth/grants`, `/settings/mcp`) |
+| MP3 | A call limit for each credential, with 429 and `Retry-After`. | **Open** |
+| MP4 | Correct client configuration examples for a remote HTTP MCP server, also in the output of the CLI token command. | **Implemented** (Option A global `claire` HTTP config in `/settings/mcp` and `agent_clients/`; manual token creation deprecated) |
 
 The first version also proposed syndication tools with their own scopes. The syndication design that they depended on is retired (2026-11-16). A later scope model for write tools must follow the credential scopes of [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (CT17).

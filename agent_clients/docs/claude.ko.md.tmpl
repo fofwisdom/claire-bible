@@ -10,14 +10,15 @@
 ## GUI로 설치 및 연결하기
 
 1. Claude 앱에서 **마켓플레이스 관리(Marketplace management)** 화면을 엽니다.
-2. 저장소 입력란에 **`{{MARKETPLACE_REPO}}`** 를 붙여넣고 동기화한 뒤 **`claire-claude`** 플러그인을 설치합니다.
-3. 커넥터(MCP) 설정에서 원격 MCP URL로 본인의 `/mcp` 주소(`https://<내-Claire-서버-주소>/mcp`)를 추가합니다.
+2. 저장소 입력란에 **`{{MARKETPLACE_REPO}}`** 를 붙여넣고 동기화한 뒤 **`claire`** 플러그인을 설치합니다.
+3. 커넥터(MCP) 설정에서 서버 이름을 **`claire`**, 원격 MCP URL을 본인의 `/mcp` 주소(`https://<내-Claire-서버-주소>/mcp`)로 추가합니다.
 4. 브라우저에서 OAuth 2.1 로그인을 완료하고 `readonly` 및 `write` 권한을 승인합니다.
 
-## 첫 추출 요청 예시
+## 바로 사용할 수 있는 슬래시 명령
 
-- `Claire Bible에 대기 중인 자료 목록 보여 줘`
-- `Claire Bible 대기 자료를 안전하게 추출해서 저장해 줘`
+- **`/claire:ingest <URL · 파일 · 메모>`**: 웹 주소, 로컬 문서 파일(PDF/DOCX/ODT/MD/TXT 등), 또는 메모를 바로 서버에 스테이징하고 격리 추출(`extractor`)까지 한 번에 완료합니다.
+- **`/claire:extract`**: 웹·텔레그램·피드에서 수집되어 `pending` 상태인 대기 자료를 꺼내 격리 추출·저장합니다.
+- **`/claire:query <질문>`**: `kb_list`로 지식베이스를 확인하고 엔티티·관계 그래프와 문서를 조회합니다.
 
 <details>
 <summary>터미널 / CLI 사용자용 안내</summary>
@@ -26,7 +27,7 @@
 /plugin marketplace add {{MARKETPLACE_REPO}}
 ```
 
-`claire-claude` 설치 후 MCP 서버를 등록합니다:
+`claire` 플러그인 설치 후 standalone `claire` MCP 서버를 등록합니다:
 
 ```bash
 claude mcp add --transport http claire https://<내-Claire-서버-주소>/mcp

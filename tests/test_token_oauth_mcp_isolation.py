@@ -588,16 +588,16 @@ def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> No
         tok = current_principal.set(p_admin)
         try:
             # Can read own Theme 0
-            r0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
+            r0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
             assert r0.status_code == 200
             data0 = json.loads(r0.json()["result"]["content"][0]["text"])
             assert data0["id"] == "doc_admin_0"
 
-            # Cannot read Member's Theme 2 (returns theme not found)
-            r_cross = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
+            # Cannot read Member's Theme 2 (returns kb_not_found)
+            r_cross = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_cross.status_code == 200
             data_cross = json.loads(r_cross.json()["result"]["content"][0]["text"])
-            assert data_cross == {"error": "theme not found"}
+            assert data_cross == {"error": "kb_not_found"}
         finally:
             current_principal.reset(tok)
 
@@ -606,20 +606,20 @@ def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> No
         tok = current_principal.set(p_member)
         try:
             # Default theme (theme=None) resolves to Bob's default theme (Theme 2)
-            r_def = client.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
+            r_def = client.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_def.status_code == 200
             data_def = json.loads(r_def.json()["result"]["content"][0]["text"])
             assert data_def["id"] == "doc_bob_default"
 
-            # Cannot read Admin's Theme 0 (returns theme not found)
-            r_admin_0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
+            # Cannot read Admin's Theme 0 (returns kb_not_found)
+            r_admin_0 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_admin_0", "kb": kb_number(settings, 0)}}})
             assert r_admin_0.status_code == 200
-            assert json.loads(r_admin_0.json()["result"]["content"][0]["text"]) == {"error": "theme not found"}
+            assert json.loads(r_admin_0.json()["result"]["content"][0]["text"]) == {"error": "kb_not_found"}
 
             # No search in other knowledge bases (CT23): the document of the admin is not in the knowledge base of Bob
-            r_leak = client.post("/mcp", json={"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_admin_1", "kb": kb_number(settings, t2.id)}}})
+            r_leak = client.post("/mcp", json={"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_admin_1", "kb": kb_number(settings, t2.id)}}})
             assert r_leak.status_code == 200
-            assert json.loads(r_leak.json()["result"]["content"][0]["text"]) == {"error": "not found"}
+            assert json.loads(r_leak.json()["result"]["content"][0]["text"]) == {"error": "not_found"}
         finally:
             current_principal.reset(tok)
 
@@ -628,18 +628,18 @@ def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> No
         tok = current_principal.set(p_collab)
         try:
             # Theme 2 is the private personal knowledge base of the account -> allowed
-            r_t2 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
+            r_t2 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_t2.status_code == 200
             assert json.loads(r_t2.json()["result"]["content"][0]["text"])["id"] == "doc_bob_default"
 
             # Theme 3 is a shared knowledge base -> allowed
-            r_t3 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_collab", "kb": kb_number(settings, t3.id)}}})
+            r_t3 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_bob_collab", "kb": kb_number(settings, t3.id)}}})
             assert r_t3.status_code == 200
             data_t3 = json.loads(r_t3.json()["result"]["content"][0]["text"])
             assert data_t3["id"] == "doc_bob_collab"
 
             # Theme 4 is public -> allowed!
-            r_t4 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_public", "kb": kb_number(settings, t4.id)}}})
+            r_t4 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_bob_public", "kb": kb_number(settings, t4.id)}}})
             assert r_t4.status_code == 200
             data_t4 = json.loads(r_t4.json()["result"]["content"][0]["text"])
             assert data_t4["id"] == "doc_bob_public"
@@ -848,7 +848,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         mcp_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_charlie_notes", "kb": kb_number(settings, t_charlie.id)}}},
+            json={"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_charlie_notes", "kb": kb_number(settings, t_charlie.id)}}},
         )
         assert mcp_res.status_code == 200
         doc_data = json.loads(mcp_res.json()["result"]["content"][0]["text"])
@@ -859,18 +859,18 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         mcp_admin_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, t_charlie.id)}}},
+            json={"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, t_charlie.id)}}},
         )
         assert mcp_admin_res.status_code == 200
         admin_doc_data = json.loads(mcp_admin_res.json()["result"]["content"][0]["text"])
-        assert admin_doc_data == {"error": "not found"}
+        assert admin_doc_data == {"error": "not_found"}
 
-        # C. Attempt to explicitly query Admin's Theme 0 -> Theme Not Found!
+        # C. Attempt to explicitly query Admin's Theme 0 -> KB Not Found!
         mcp_theme0_res = client.post(
             "/mcp",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, 0)}}},
+            json={"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "doc_get", "arguments": {"document_id": "doc_top_secret_admin", "kb": kb_number(settings, 0)}}},
         )
         assert mcp_theme0_res.status_code == 200
         theme0_data = json.loads(mcp_theme0_res.json()["result"]["content"][0]["text"])
-        assert theme0_data == {"error": "theme not found"}
+        assert theme0_data == {"error": "kb_not_found"}

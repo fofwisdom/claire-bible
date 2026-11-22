@@ -20,6 +20,7 @@ from ...i18n import get_locale, interpolate, t
 from ...store import accounts as accounts_store
 from ...store import db as dbm
 from ...store.knowledge_base import KnowledgeBaseInfo
+from ..mcp_tools import get_mcp_tools_metadata
 from .common import TEMPLATES_DIR, AccountsContext, escape, format_ts, open_db
 from .console_ui import console_card, console_notice, console_pill
 
@@ -326,6 +327,8 @@ def build_syndication_section(
             "releases_url": f"https://github.com/{marketplace_repo}/releases",
             "antigravity_guide_url": _antigravity_guide_url(marketplace_repo),
         }
+    if slug == "mcp":
+        syndication_bootstrap["mcp_tools"] = get_mcp_tools_metadata()
     return SettingsSectionRender(
         body_html=body_html,
         extra_bootstrap={"syndication": syndication_bootstrap},

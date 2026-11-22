@@ -107,7 +107,7 @@ class FetcherRegistry:
         if t_lower.startswith(("http://", "https://")):
             return "web"
 
-        if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):
+        if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".docx", ".md", ".txt", ".markdown", ".rst", ".adoc", ".asciidoc", ".html", ".htm"))) and os.path.exists(t):
             return "file"
         if t.startswith("file://"):
             return "file"
