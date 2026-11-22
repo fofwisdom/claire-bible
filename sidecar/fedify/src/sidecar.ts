@@ -173,6 +173,14 @@ function sameTarget(sent: string, received: string): boolean {
   return a.pathname === b.pathname && JSON.stringify([...a.searchParams]) === JSON.stringify([...b.searchParams]);
 }
 
+// TLS terminates at the external reverse proxy and the edge forwards plain HTTP without X-Forwarded-Proto.
+// Restore the canonical scheme from Claire's origin so RFC 9421 @target-uri verification sees https:// while keeping the received host, path, and query intact.
+function withCanonicalScheme(requestUrl: string, canonicalOrigin: string): string {
+  const url = new URL(requestUrl);
+  url.protocol = new URL(canonicalOrigin).protocol;
+  return url.href;
+}
+
 export class Sidecar {
   readonly #api: InternalApi;
   readonly #kv: KvStore;
@@ -263,7 +271,7 @@ export class Sidecar {
         return text(503, "Service Unavailable", { "retry-after": "5" });
       }
     }
-    const clean = new Request(request.url, { method: request.method, headers, body: inbox ? body : request.body, redirect: "manual" });
+    const clean = new Request(withCanonicalScheme(request.url, config.canonical_origin), { method: request.method, headers, body: inbox ? body : request.body, redirect: "manual" });
     const collection = KNOWLEDGE_COLLECTION_PATHS.get(path);
     if (collection !== undefined) return await this.#knowledgeCollection(clean, config, collection);
     const kbActor = inbox ? null : KB_ACTOR_PATH.exec(path);
@@ -362,7 +370,7 @@ export class Sidecar {
 
     const headers = new Headers(request.headers);
     for (const name of REMOVED_REQUEST_HEADERS) headers.delete(name);
-    const clean = new Request(request.url, { method: "POST", headers, body });
+    const clean = new Request(withCanonicalScheme(request.url, entry.origin), { method: "POST", headers, body });
 
     try {
       const pair = await this.#getSelfCheckKey();

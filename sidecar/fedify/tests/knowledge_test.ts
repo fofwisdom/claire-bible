@@ -166,10 +166,12 @@ Deno.test("a knowledge activity in the inbox of an actor has that actor as the r
     // The signer is the actor of the key, also when the activity names another actor of that server: Claire compares the two servers.
     await signed("POST", "/ap/inbox", { actor: REMOTE_SERVER, body: activity });
     assert.equal(fake.knowledgePosts.at(-1)?.body.signer, REMOTE_SERVER);
-    // A signature of RFC 9421 with the digest of the body is valid too.
+    // A signature of RFC 9421 with the digest of the body is valid too, including when an external TLS proxy forwards plain HTTP without X-Forwarded-Proto.
     const rfc = await signRequest(new Request(`${ORIGIN}/ap/inbox`, { method: "POST", headers: { "content-type": AS2 }, body: JSON.stringify(activity) }), remoteKeys.privateKey, new URL(`${activity.actor}#main-key`), { spec: "rfc9421", currentTime: Temporal.Instant.fromEpochMilliseconds(fake.now * 1000) });
     assert.match(rfc.headers.get("signature-input") ?? "", /"content-digest"/);
     assert.equal((await sidecar.handle(rfc)).status, 202);
+    const rfcProxied = await signRequest(new Request(`${ORIGIN}/ap/inbox`, { method: "POST", headers: { "content-type": AS2 }, body: JSON.stringify({ ...activity, id: `${activity.id}/http-proxy` }) }), remoteKeys.privateKey, new URL(`${activity.actor}#main-key`), { spec: "rfc9421", currentTime: Temporal.Instant.fromEpochMilliseconds(fake.now * 1000) });
+    assert.equal((await sidecar.handle(new Request(rfcProxied.url.replace(/^https:/, "http:"), { method: rfcProxied.method, headers: rfcProxied.headers, body: await rfcProxied.clone().arrayBuffer() }))).status, 202);
     const calls = knowledgeCalls().length;
 
     const unsigned = await sidecar.handle(new Request(`${ORIGIN}/ap/inbox`, { method: "POST", headers: { "content-type": AS2 }, body: JSON.stringify({ ...activity, id: `${activity.id}/2` }) }));

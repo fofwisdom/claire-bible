@@ -327,3 +327,27 @@ Deno.test("the delivery code reads all follower pages from Claire", async () => 
     restore();
   }
 });
+
+Deno.test("an RFC 9421 signed Follow passes when TLS terminates at a proxy forwarding plain HTTP", async () => {
+  const { fake, deliveries, sidecar, restore } = await setup();
+  try {
+    const follow = fixtureFollow();
+    const document = await follow.toJsonLd() as Record<string, unknown>;
+    const actor = typeof document.actor === "string" ? document.actor : "https://remote.example/users/bob";
+    const signed = await signRequest(
+      new Request(`${ORIGIN}/ap/actors/${ALICE}/inbox`, { method: "POST", headers: { "content-type": AS2 }, body: JSON.stringify(document) }),
+      remoteKeys.privateKey,
+      new URL(`${actor}#main-key`),
+      { spec: "rfc9421" },
+    );
+    assert.match(signed.headers.get("signature-input") ?? "", /"@target-uri"/);
+    const proxied = new Request(signed.url.replace(/^https:/, "http:"), { method: "POST", headers: signed.headers, body: await signed.arrayBuffer() });
+    const response = await sidecar.handle(proxied);
+    assert.equal(response.status, 202);
+    assert.deepEqual(fake.events, [fixture("inbox_event_follow").request.body]);
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].body.type, "Accept");
+  } finally {
+    restore();
+  }
+});

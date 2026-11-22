@@ -437,6 +437,30 @@ Deno.test("knowledgeSelfCheck detects missing routes, a removed path prefix, hos
   assert.equal((await sidecar.handle(savedExpired)).status, 404);
 });
 
+Deno.test("knowledgeSelfCheck passes RFC 9421 when TLS terminates before the HTTP edge without X-Forwarded-Proto", async () => {
+  const fake = fakeClaire();
+  const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
+  const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
+  const config = await sidecar.config();
+  assert.ok(config.canonical_origin.startsWith("https://"));
+
+  const ok = await sidecar.knowledgeSelfCheck(config, through(async (request) => {
+    const headers = new Headers(request.headers);
+    const body = request.method === "POST" ? await request.arrayBuffer() : undefined;
+    return await sidecar.handle(new Request(request.url.replace(/^https:/, "http:"), { method: request.method, headers, body }));
+  }));
+  assert.deepEqual(ok.failed_paths, []);
+  assert.deepEqual(ok.signed, { draft_cavage: { result: "ok", answer: null }, rfc9421: { result: "ok", answer: null } });
+
+  const badHost = await sidecar.knowledgeSelfCheck(config, through(async (request) => {
+    const headers = new Headers(request.headers);
+    headers.set("host", "other.example.com");
+    const body = request.method === "POST" ? await request.arrayBuffer() : undefined;
+    return await sidecar.handle(new Request(request.url.replace(/^https:/, "http:"), { method: request.method, headers, body }));
+  }));
+  assert.equal(badHost.signed.rfc9421.answer?.problem, "host_changed");
+});
+
 Deno.test("runKnowledgeReads and runKnowledgeExchange update heartbeat loop state and clear errors on recovery", async () => {
   const fake = fakeClaire();
   const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
