@@ -1,7 +1,7 @@
 """Tests that the current-state documents still match the repository.
 
-Scope is the documents that describe the present: ``docs/*.md`` and
-``docs/implementation/*.md``. ``docs/design/`` is a historical record and is
+Scope is the documents that describe the present: ``README.md``, ``docs/*.md``,
+and ``docs/implementation/*.md``. ``docs/design/`` is a historical record and is
 not checked here.
 """
 
@@ -18,7 +18,7 @@ from claire.core.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManag
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
-CURRENT_DOCS = sorted([*DOCS.glob("*.md"), *(DOCS / "implementation").glob("*.md")])
+CURRENT_DOCS = sorted([ROOT / "README.md", *DOCS.glob("*.md"), *(DOCS / "implementation").glob("*.md")])
 ENV_DOC = DOCS / "implementation" / "ENVIRONMENT_VARIABLES.md"
 
 _LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
