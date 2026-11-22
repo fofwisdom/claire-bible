@@ -5,7 +5,7 @@
   },
   "status": 200,
   "response": {
-    "contract_version": "1.14",
+    "contract_version": "1.15",
     "canonical_origin": "https://claire.example.com",
     "handle_host": "claire.example.com",
     "mode": "network",
@@ -17,7 +17,7 @@
       "10.0.0.0/8",
       "fd00::/8"
     ],
-    "federated_actors": 1,
+    "federated_actors": 3,
     "limits": {
       "inbox_body_bytes": 1048576
     },

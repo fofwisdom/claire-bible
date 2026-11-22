@@ -4,7 +4,7 @@ Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddlewa
 
 Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6). Unit FP4-8 (contract 1.4) adds the inbound interactions with the account: mentions, reactions to own objects, and the automatic notice for a non-public message (Sections 6.2 rule 4 and 6.6). Unit FP4-9Q (contract 1.7) adds quotes (FEP-044f): ``quote`` in the normal form of an object, ``quote_policy`` in the object record, and the routes of ``federation_quote_routes``.
 
-Actor rule (FK4): an account is an actor only when the server setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
+Actor rule (FEDERATION_GO_LIVE_DESIGN.md decisions GD4 and GD5): each account with the status ``active`` and a USERNAME is an actor, in each server mode. ``profile_public`` is not a condition of the actor: a private profile makes the content of the account private (its published documents, its notes, and its outbox collection), not the account. All other states give the same 404. An actor record has no field from ``auth.db``.
 
 Request and response models are sealed (``extra="forbid"``, ``strict=True``). The JSON fixtures in ``tests/fixtures/federation_contract/`` are the contract that the Python tests and the sidecar tests share.
 """
@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.14"
+CONTRACT_VERSION = "1.15"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -277,6 +277,7 @@ class ActorRecord(_Sealed):
     activated_at: float | None
     updated_at: float
     profile_url: str
+    discoverable: bool
 
 
 class ActorKey(_Sealed):
@@ -706,7 +707,11 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     # Federation has no switch and the mode is not a condition: the server actor, the federation of shared knowledge, and the account actors work in each server (FEDERATION_GO_LIVE_DESIGN.md decision GD4; KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). ``_is_actor`` is the same rule in the two modes.
 
     def _is_actor(account: accounts_store.Account | None) -> bool:
-        return account is not None and account.status == "active" and account.profile_public and bool(account.username)
+        return account is not None and account.status == "active" and bool(account.username)
+
+    def _content_public(account: accounts_store.Account | None) -> bool:
+        """The content of the account is public: the account is an actor and its profile is public (decision GD5)."""
+        return _is_actor(account) and bool(account is not None and account.profile_public)
 
     def _record(account: accounts_store.Account) -> ActorRecord:
         return ActorRecord(
@@ -716,6 +721,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             activated_at=account.activated_at,
             updated_at=account.updated_at,
             profile_url=f"{_runtime().public_origin}/@{account.username}/",
+            discoverable=bool(account.profile_public),
         )
 
     def _domain_blocks(conn: Any) -> tuple[str, list[str]]:
@@ -751,7 +757,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         try:
             mode = store.server_mode()
             blocks_etag, _domains = _domain_blocks(store.conn)
-            federated_actors = int(store.conn.execute("SELECT COUNT(*) FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL").fetchone()[0])
+            federated_actors = int(store.conn.execute("SELECT COUNT(*) FROM accounts WHERE status='active' AND username IS NOT NULL").fetchone()[0])
         finally:
             store.conn.close()
         return _json(
@@ -918,13 +924,13 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if obj is None:
             return missing
         if not undo:
-            # A new reaction needs an object that is public now: its account is an actor and its theme is public. An ``Undo`` removes the row in all states.
+            # A new reaction needs an object that is public now: the content of its account is public and its theme is public. An ``Undo`` removes the row in all states.
             theme = store.conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
             try:
                 owner = store.get(obj.account_id)
             except accounts_store.AccountNotFound:
                 owner = None
-            if not _is_actor(owner) or theme is None or not theme["is_public"]:
+            if not _content_public(owner) or theme is None or not theme["is_public"]:
                 return missing
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
         try:
@@ -938,7 +944,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
     def _note_reaction(store: accounts_store.AccountStore, public_id: int, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
-        """``Like`` or ``Announce`` of an own note, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-9). A new reaction needs a note that is not deleted and whose account is an actor."""
+        """``Like`` or ``Announce`` of an own note, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-9, decision GD7). A new reaction needs a note that is not deleted and whose account is an actor."""
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
         try:
             note = notes_store.get_note(client, public_id)
@@ -1207,6 +1213,10 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         )
 
     def _actor_account_ids(store: accounts_store.AccountStore) -> list[int]:
+        return [int(row[0]) for row in store.conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")]
+
+    def _content_account_ids(store: accounts_store.AccountStore) -> list[int]:
+        """The actors whose content is public (decision GD5). Their published documents and their notes go out; those of an account with a private profile wait."""
         return [int(row[0]) for row in store.conn.execute("SELECT id FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL")]
 
     def outbox_tasks(request: Request) -> Response:
@@ -1215,9 +1225,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return _error(400, "invalid_request")
         store = accounts_store.AccountStore(dbm.connect_existing(settings.db_file))
         try:
-            # Only a task of an account that is an actor now is given. A task of a paused account waits: the sidecar cannot get the key of that account.
-            # A ``delete_actor`` task is the exception: its account is purged, and the task is given.
-            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), include_delete_actor=True)
+            # A ``create`` or an ``update`` of a published document is given only while the content of its account is public: the task of an account with a private profile waits (decision GD5).
+            # An ``update_actor`` and a ``delete`` are given for each actor: they tell nothing of the content, and a ``delete`` removes content. A ``delete_actor`` task is given too: its account is purged.
+            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_content_account_ids(store), actor_account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), include_delete_actor=True)
             items = []
             for task in leased:
                 try:
@@ -1449,10 +1459,10 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             if obj is None:
                 return _not_found()
             account = store.get(obj.account_id)
-            # The object is public only while its account is an actor, its theme is public, and its document is not hidden.
+            # The object is public only while the content of its account is public (an actor with a public profile), its theme is public, and its document is not hidden.
             theme = conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
             document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
-            if not _is_actor(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
+            if not _content_public(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
                 return _not_found()
             share = conn.execute(
                 "SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
@@ -1485,8 +1495,13 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             account = _find_actor(store, public_id=request.path_params["public_id"])
             if account is None:
                 return _not_found()
-            total = federation_store.count_objects(store.conn, account.id, public_themes_only=True)
-            rows = federation_store.list_objects(store.conn, account.id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id, public_themes_only=True)
+            if _content_public(account):
+                total = federation_store.count_objects(store.conn, account.id, public_themes_only=True)
+                rows = federation_store.list_objects(store.conn, account.id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id, public_themes_only=True)
+            else:
+                # Decisions GD5 and GD7: published KB documents stay private when ``profile_public`` is 0, while own notes remain public in the outbox collection.
+                total = 0
+                rows = []
         finally:
             store.conn.close()
         # The outbox collection is the union of the published documents and the own notes, in the sequence of the object number (RT7, unit FP4-9).
@@ -1542,7 +1557,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
-        *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
+        *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, content_account_ids=_content_account_ids),
         # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.
         *knowledge_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin),
     ]

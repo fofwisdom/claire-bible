@@ -227,7 +227,7 @@ def set_item_flag(conn: sqlite3.Connection, account_id: int, item_id: int, flag:
 
 
 def lease_interaction_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int) -> list[client_store.ClientTask]:
-    """Give a lease on the oldest ready tasks of the kinds ``INTERACTION_KINDS`` for the accounts in ``account_ids`` (the accounts that are actors now) and return them. The rule of the lease is that of ``federation_client.lease_client_tasks``."""
+    """Give a lease on the oldest ready tasks of the kinds ``INTERACTION_KINDS`` for the accounts in ``account_ids`` (the accounts that are actors now, decisions GD5 and GD7) and return them. The rule of the lease is that of ``federation_client.lease_client_tasks``."""
     if limit < 1 or lease_seconds <= 0:
         raise ValueError("limit and lease_seconds must be more than 0")
     if not account_ids:

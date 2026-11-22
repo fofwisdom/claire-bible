@@ -6,13 +6,13 @@
       "event_id": "https://remote.example/activities/127",
       "type": "Follow",
       "object_type": null,
-      "recipient_public_id": "216412345678901234",
+      "recipient_public_id": "316412345678901234",
       "actor": {
         "iri": "https://remote.example/users/bob",
         "inbox": "https://remote.example/users/bob/inbox",
         "shared_inbox": "https://remote.example/inbox"
       },
-      "object_iri": "https://claire.example.com/ap/actors/216412345678901234",
+      "object_iri": "https://claire.example.com/ap/actors/316412345678901234",
       "verified_by": "http-signature"
     }
   },

@@ -518,7 +518,7 @@ class AccountStore:
         # 연합 액터의 이름이 바뀌면 팔로워에게 Update(Person)을 보낸다(Fedify 사이드카 설계 §8.1). 이름 변경과 같은 트랜잭션이다.
         if before is not None and str(before[0]) != display_name:
             row = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
-            if row["status"] == "active" and row["profile_public"] and row["username"]:
+            if row["status"] == "active" and row["username"]:
                 from . import federation as federation_store
 
                 federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
@@ -528,6 +528,7 @@ class AccountStore:
     def update_profile_public(self, account_id: int, profile_public: int | bool, *, now: float | None = None) -> Account:
         when = time.time() if now is None else now
         value = 1 if profile_public else 0
+        before = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
         cur = self.conn.execute(
             "UPDATE accounts SET profile_public=?, updated_at=? WHERE id=?",
             (value, when, account_id),
@@ -535,6 +536,11 @@ class AccountStore:
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)
+        # Decision GD7: ``profile_public`` sets ``discoverable`` on the actor document, so a change on an active actor queues ``update_actor`` in the same transaction.
+        if before is not None and int(before["profile_public"]) != value and before["status"] == "active" and before["username"]:
+            from . import federation as federation_store
+
+            federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
         self.conn.commit()
         return self.get(account_id)
 
@@ -688,7 +694,7 @@ class AccountStore:
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
         from . import federation as federation_store
 
-        was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
+        was_actor = bool(current.username)
         federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=not skip_federated_delete, now=when)
         # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
         from . import client_db
@@ -957,7 +963,8 @@ class AccountStore:
             if cur.rowcount != 1:
                 raise AccountStateError(f"account {account_id}: could not update username")
             federation_update_queued = False
-            if current.profile_public:
+            # The account is an actor with each state of its profile (decision GD5): its followers get the new name.
+            if current.username:
                 from . import federation as federation_store
 
                 federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)

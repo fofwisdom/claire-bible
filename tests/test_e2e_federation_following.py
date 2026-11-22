@@ -104,13 +104,13 @@ def test_e2e_follow_accept_unfollow_and_domain_block(env):
     assert ("undo_follow", "https://other.example/users/dan") in _client_rows(env.settings, "SELECT kind, target_iri FROM federation_client_outbox WHERE status='pending'")
 
 
-def test_only_an_actor_can_follow_and_the_limit_applies(env):
+def test_an_actor_with_a_private_profile_can_follow_and_the_limit_applies(env):
     c = env.client
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
-    assert c.request("POST", FOLLOWING, session=env.alpha_session, json={"target": "@carol@remote.example"}).json() == {"error": "not_actor"}
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (env.alpha,)))
     c.request("PUT", "/api/admin/federation/reading", session=env.admin, json={"following_limit": 1})
+    # A follow is not content: an account with a private profile is an actor and can follow (FEDERATION_GO_LIVE_DESIGN.md decision GD5). The sidecar gets its task.
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
     assert c.request("POST", FOLLOWING, session=env.alpha_session, json={"target": "@carol@remote.example"}).status_code == 202
+    assert [(task["kind"], task["target"]) for task in env.sidecar.call("GET", "/client-tasks?limit=10").json()["tasks"]] == [("follow", "@carol@remote.example")]
     assert c.request("POST", FOLLOWING, session=env.alpha_session, json={"target": "@dan@remote.example"}).json() == {"error": "following_limit", "limit": 1}
 
 

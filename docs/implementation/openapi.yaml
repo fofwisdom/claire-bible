@@ -855,7 +855,7 @@ paths:
         server), and `actor`; `mode` is `approved` (a grant in its term), `pending`, or `closed` (its
         server accepts no automatic contributions now; `documents` is empty). `remote_state` is `on`,
         or the reason that the rule has no target on another server now: `no_origin`,
-        `not_a_federation_actor`.
+        `not_a_federation_actor`, `profile_private`.
       operationId: dryRunAutoRule
       x-claire-access: owner
       security:
@@ -1182,7 +1182,7 @@ paths:
         `relations`, `first_seen_at`), and `kb_read` the state of the reads of its `/kb`
         collection (`last_read_at`, `stored`, `refused`, `refused_code`, `error_count`,
         `last_error`, `last_error_at`), or null before the first read. `switches` has
-        `federation`, `kb_auto_contribution`, and `signed_get` (always `required`). In the order
+        `kb_auto_contribution` and `signed_get` (always `required`). In the order
         of the domain (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2, 6.5, and 8.1).
       operationId: listKnownServers
       x-claire-access: admin
@@ -1897,7 +1897,7 @@ paths:
         '404':
           description: '`grant_not_found`.'
         '409':
-          description: '`grant_not_active`, or `public_origin_missing` (the switch `federation` is on and the settings give no public URL; the grant does not change).'
+          description: '`grant_not_active`, or `public_origin_missing` (the settings give no public URL; the grant does not change).'
 
   /api/kb/remote-grants:
     get:
@@ -4659,7 +4659,8 @@ paths:
         uniqueness case-insensitively. Case-only updates update the stored
         display casing without creating a tombstone; changing to a different
         username holds the previous lowercase handle for 7 days and enqueues an
-        update_actor task when federation is active and the profile is public.
+        update_actor task when the account is active with a USERNAME, regardless
+        of profile_public.
       operationId: changeMyUsername
       x-claire-access: owner
       security:
@@ -4742,7 +4743,7 @@ paths:
 
   /api/federation/status:
     get:
-      summary: Read the federation state of the own account (network mode)
+      summary: Read the federation state of the own account
       operationId: getFederationStatus
       x-claire-access: owner
       security:
@@ -4760,23 +4761,25 @@ paths:
                   handle: {type: [string, 'null'], description: '`@username@host`, or null when the account has no USERNAME.'}
                   actor_id: {type: [string, 'null']}
                   is_actor: {type: boolean}
-                  actor_state: {type: string}
+                  actor_state: {type: string, description: '`active`, `account_not_active`, or `no_username`. A private profile is not a condition of the actor.'}
+                  content_public: {type: boolean, description: 'True when the account is an actor and its profile is public (published documents and personal knowledge base content are public). Notes, favourites, boosts, and own-note quotes work for every actor regardless of profile visibility.'}
                   followers:
                     type: object
                     properties:
                       total: {type: integer}
                   pending_tasks: {type: integer, description: Outbox tasks that the sidecar did not take or did not acknowledge.}
         '404':
-          description: Single mode, or not an owner-scope credential.
+          description: Not an owner-scope credential.
 
   /api/federation/publish:
     post:
       summary: Publish one document through the native actor, or publish it again
       description: >-
-        The document must be in a public theme of the caller, must not be hidden,
-        and must have a body. The first call makes the object and a `create` task.
-        A later call makes an `update` task for the same object. The sidecar sends
-        the activity to the followers of the actor. Network mode only.
+        The document must be in a public knowledge base of the caller, must not
+        be hidden, must be extracted, and must have a body. The first call makes
+        the object and a `create` task. A later call makes an `update` task for
+        the same object. The sidecar sends the activity to the followers of the
+        actor.
       operationId: publishFederationDocument
       x-claire-access: write
       security:
@@ -4790,9 +4793,9 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [theme, document_id]
+              required: [kb, document_id]
               properties:
-                theme: {type: string, description: Theme number as a decimal string.}
+                kb: {type: string, description: Knowledge base number as a decimal string.}
                 document_id: {type: string}
       responses:
         '202':
@@ -4822,9 +4825,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '404':
-          description: '`theme_not_found` or `document_not_found`. Also single mode.'
+          description: '`theme_not_found` or `document_not_found`.'
         '409':
-          description: '`not_an_actor`, `theme_not_public`, `document_not_public`, or `document_has_no_body`.'
+          description: '`not_an_actor`, `profile_private` (the account is an actor with a private profile), `theme_not_public`, `document_not_public`, `document_not_extracted`, or `document_has_no_body`.'
           content:
             application/json:
               schema:
@@ -4836,7 +4839,7 @@ paths:
       description: >-
         Writes a tombstone, deletes the object, and makes a `delete` task. The
         object ID returns 410 from then on. A remote server can ignore the
-        `Delete` activity. Network mode only.
+        `Delete` activity.
       operationId: retractFederationObject
       x-claire-access: write
       security:
@@ -4871,11 +4874,11 @@ paths:
         '400':
           description: '`invalid_request`.'
         '404':
-          description: '`object_not_found`. Also single mode.'
+          description: '`object_not_found`.'
 
   /api/federation/notes:
     post:
-      summary: Publish a public note, or a reply to an item of the timeline (network mode)
+      summary: Publish a public note, or a reply to an item of the timeline
       description: >-
         The owner gives plain text. The server makes the HTML (paragraphs, links,
         mentions `@name@host`, hashtags `#tag`) and sanitizes it. The note, its
@@ -4921,7 +4924,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '404':
-          description: '`item_not_found`. Also single mode, or not an owner-scope credential.'
+          description: '`item_not_found`, or not an owner-scope credential.'
         '409':
           description: '`not_actor`, or `own_item` for a quote of an own note.'
           content:
@@ -4933,7 +4936,7 @@ paths:
     parameters:
       - {name: note_id, in: path, required: true, schema: {type: string}, description: Note number as a decimal string.}
     patch:
-      summary: Edit an own note (network mode)
+      summary: Edit an own note
       description: Changes the text, the content warning, the language, or the quote policy. The sidecar sends `Update(Note)`; a change of the quote policy alone does not set `updated`.
       operationId: updateFederationNote
       x-claire-access: owner
@@ -4967,11 +4970,11 @@ paths:
         '400':
           description: The 400 codes of `POST /api/federation/notes`.
         '404':
-          description: '`note_not_found`. Also single mode.'
+          description: '`note_not_found`.'
         '409':
           description: '`not_actor`.'
     delete:
-      summary: Delete an own note (network mode)
+      summary: Delete an own note
       description: The object ID returns 410 from then on. The sidecar sends `Delete` with a `Tombstone`. A remote server can ignore it.
       operationId: deleteFederationNote
       x-claire-access: owner
@@ -4990,13 +4993,13 @@ paths:
                   deleted: {type: boolean}
                   id: {type: string}
         '404':
-          description: '`note_not_found`. Also single mode.'
+          description: '`note_not_found`.'
 
   /api/federation/timeline/{item_id}/favourite:
     parameters:
       - {name: item_id, in: path, required: true, schema: {type: string}}
     post:
-      summary: Favourite the object of an item of the timeline (network mode)
+      summary: Favourite the object of an item of the timeline
       description: Records the state on the item and makes a `like` task. A repeated request changes nothing.
       operationId: favouriteFederationItem
       x-claire-access: owner
@@ -5013,11 +5016,11 @@ paths:
         '400':
           description: '`blocked_domain`.'
         '404':
-          description: '`item_not_found`. Also single mode.'
+          description: '`item_not_found`.'
         '409':
           description: '`not_actor` or `own_item`.'
     delete:
-      summary: Remove the favourite of an item (network mode)
+      summary: Remove the favourite of an item
       description: Makes an `undo_like` task with the ID of the `Like`.
       operationId: unfavouriteFederationItem
       x-claire-access: owner
@@ -5032,7 +5035,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/FederationItemInteraction'}
         '404':
-          description: '`item_not_found`. Also single mode.'
+          description: '`item_not_found`.'
         '409':
           description: '`not_actor` or `own_item`.'
 
@@ -5040,7 +5043,7 @@ paths:
     parameters:
       - {name: item_id, in: path, required: true, schema: {type: string}}
     post:
-      summary: Boost the object of an item of the timeline (network mode)
+      summary: Boost the object of an item of the timeline
       description: Records the state on the item and makes an `announce` task. A repeated request changes nothing.
       operationId: boostFederationItem
       x-claire-access: owner
@@ -5057,11 +5060,11 @@ paths:
         '400':
           description: '`blocked_domain`.'
         '404':
-          description: '`item_not_found`. Also single mode.'
+          description: '`item_not_found`.'
         '409':
           description: '`not_actor` or `own_item`.'
     delete:
-      summary: Remove the boost of an item (network mode)
+      summary: Remove the boost of an item
       description: Makes an `undo_announce` task with the ID of the `Announce`.
       operationId: unboostFederationItem
       x-claire-access: owner
@@ -5076,13 +5079,13 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/FederationItemInteraction'}
         '404':
-          description: '`item_not_found`. Also single mode.'
+          description: '`item_not_found`.'
         '409':
           description: '`not_actor` or `own_item`.'
 
   /api/federation/quotes:
     get:
-      summary: List the quote requests for own objects (network mode)
+      summary: List the quote requests for own objects
       description: >-
         Requests of remote actors to quote an own note or a published document
         (FEP-044f): those that wait for the owner, and the approved ones. The
@@ -5110,13 +5113,13 @@ paths:
                       pending: {type: integer}
                       approved: {type: integer}
         '404':
-          description: Single mode, or not an owner-scope credential.
+          description: Not an owner-scope credential.
 
   /api/federation/quotes/{quote_id}:
     parameters:
       - {name: quote_id, in: path, required: true, schema: {type: string}}
     patch:
-      summary: Approve, refuse, or revoke a quote request (network mode)
+      summary: Approve, refuse, or revoke a quote request
       description: >-
         `approved` or `refused` for a request that waits (a refused request can
         be approved later), `revoked` for an approved request. The sidecar sends
@@ -5150,15 +5153,15 @@ paths:
         '400':
           description: '`invalid_request`.'
         '404':
-          description: '`quote_not_found`. Also single mode.'
+          description: '`quote_not_found`.'
         '409':
-          description: '`invalid_state` (with the `state` of the request), or `not_actor`.'
+          description: '`invalid_state` (with the `state` of the request), `not_actor`, or `profile_private` (when setting `state` to `approved` for a quote of a published document while the profile is private; own notes work for every actor).'
 
   /api/federation/objects/{object_id}:
     parameters:
       - {name: object_id, in: path, required: true, schema: {type: string}, description: Object number of a published document as a decimal string.}
     patch:
-      summary: Set the quote policy of a published document (network mode)
+      summary: Set the quote policy of a published document
       description: A change makes an `update` task; the sidecar sends `Update` of the object with the new `canQuote`. The default of a published document is `manual`.
       operationId: updateFederationObject
       x-claire-access: owner
@@ -5194,7 +5197,7 @@ paths:
         '400':
           description: '`invalid_request` or `invalid_quote_policy`.'
         '404':
-          description: '`object_not_found`. Also single mode.'
+          description: '`object_not_found`.'
 
   /api/feeds:
     get:

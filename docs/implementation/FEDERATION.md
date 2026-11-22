@@ -1,30 +1,30 @@
 # Federation Implementation Reference
 
-Basis: commit `d15ae8e0` (2026-11-16) for Sections 1 to 14 (phases FP1 to FP3, examined again on 2026-11-16). Sections 15 to 27 have the basis of their units (FP4, 2026-11-13 to 2026-11-16). Readers: agents and operators who change or operate the Fedify sidecar federation.
+Basis: 2026-11-22 (phases FP1 to FP4, units GL1 to GL3, owner decisions GD4 to GD7, and contract 1.15; base sections examined from commit `d15ae8e0`). Readers: agents and operators who change or operate the Fedify sidecar federation.
 
-Design principles: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (phases FP1 to FP3) and [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) (phase FP4 and the work that waits). This document tells what the code does now. Section 13 lists choices that the code made in phases FP1 to FP3.
+Design principles: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (phases FP1 to FP3), [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) (phase FP4 and the work that waits), and [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) (units GL1 to GL4 and owner decisions GD1 to GD7). This document tells what the code does now. Section 13 lists choices that the code made in phases FP1 to FP3.
 
 ## 1. Scope and State
 
-Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server can resolve the handle `@username@{host}` to an actor document, get the public keys of the actor, and follow the actor. An account owner can publish documents to followers, follow remote actors, read their posts, and reply, favourite, boost, and quote. The admin can block domains.
+Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server can resolve the handle `@username@{host}` to an actor document, get the public keys of the actor, and follow the actor. An account owner can publish documents to followers (when the profile is public), follow remote actors, read their posts, and reply, favourite, boost, and quote (for every federation actor). The admin can block domains.
 
 | Function | State |
 | :--- | :--- |
-| WebFinger, NodeInfo, actor document, server actor | Implemented |
+| WebFinger, NodeInfo, actor document (`discoverable` from `profile_public`, contract 1.15), server actor | Implemented (Sections 3 and 4.1) |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
 | Edge service: one upstream for the external reverse proxy, with the rules of Section 10 in the repository (`CB_EDGE=1`, production only) | Implemented (unit GL3, 2026-11-22). Section 10.1 |
 | Federation without a switch (owner decision GD4, 2026-11-22): no server setting `federation`, no container switch `CB_FEDERATION`; the sidecar is a service of each installation | Implemented. Section 7.1 |
 | Readiness checks GF1 to GF20 (a report of the state, not a gate) | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
-| Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
-| `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
+| Alternate link on the profile page; `PATCH /api/me` changes `profile_public` with no step-up confirmation (Section 8.1, decision GD6) | Implemented |
+| `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1) |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
 | Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
-| `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1) |
+| `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1). `publish` requires `profile_public` 1 (`409 profile_private`). |
 | Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2) |
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
-| Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
+| Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private KB, purged document, deleted KB) (Section 8.5) | Implemented (FP3-4). `update_profile_public` enqueues `update_actor` (decision GD7). |
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2) |
 | Feed view in `/syndication`: tree of folders and feeds, list, reader in the sandbox frame, link share, star, read state, feed discovery, ingest of one item, merge by URL with the timeline (Section 23). It works in single mode. | Implemented (FP4-F3) |
@@ -34,8 +34,8 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
 | Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
 | Thread fetch: route `POST /api/federation/timeline/{item_id}/context`, task `fetch_context` of the client outbox, internal endpoints `context-tasks` and `context-objects`, contract 1.5, sidecar fetch with `@fedify/backfill` (Section 24) | Implemented (FP4-6) |
-| Outbound interactions: `client.db` version 5 (`federation_notes`), contract 1.6, reply, new note, edit, delete (410), content warning, language, hashtags, favourite and boost with their undo, counters of own notes, compose controls of the client (Section 25) | Implemented (FP4-9). No quote before FP4-9Q. |
-| Quotes (FEP-044f): `client.db` version 6 (quote columns of `federation_notes`, `federation_quote_authorizations`), `claire.db` version 24 (`federation_objects.quote_policy`), contract 1.7, outbound `QuoteRequest` with the quote states, inbound requests with the quote policy, the authorization path `/ap/quote-authorizations/{id}` with 410 after a revoke, quote controls of the client (Section 26) | Implemented (FP4-9Q) |
+| Outbound interactions: `client.db` version 5 (`federation_notes`), contract 1.6, reply, new note, edit, delete (410), content warning, language, hashtags, favourite and boost with their undo, counters of own notes, compose controls of the client (Section 25) | Implemented (FP4-9). Works for every federation actor regardless of `profile_public` (decision GD7). |
+| Quotes (FEP-044f): `client.db` version 6 (quote columns of `federation_notes`, `federation_quote_authorizations`), `claire.db` version 24 (`federation_objects.quote_policy`), contract 1.7, outbound `QuoteRequest` with the quote states, inbound requests with the quote policy, the authorization path `/ap/quote-authorizations/{id}` with 410 after a revoke, quote controls of the client (Section 26) | Implemented (FP4-9Q). Own-note quotes work for all actors; published-KB-document quote approval requires `profile_public` 1 (`409 profile_private`, decision GD7). |
 | End-to-end with a remote server and retention: the DrFed 0.1.0 test stack in Docker with scenarios of a real Claire process and its sidecar, the development switch `allow_private_addresses` (contract 1.8), the retention run of the timeline items in the daily cleanup and in `claire federation prune` | Unit FP4-10 complete. See Section 27. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this server (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25), and deliveries of the quote activities with the fetch of the authorization of an `Accept` (Section 26).
@@ -76,12 +76,43 @@ flowchart LR
 An account is a federation actor only when all these conditions are true:
 
 1. The account status is `active`.
-2. `profile_public` is 1.
-3. The account has a USERNAME.
+2. The account has a USERNAME.
 
-The server has no condition: federation has no switch (Section 7.1), and the rule is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2).
+`profile_public` is not a condition of the actor ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decisions GD5 and GD7, 2026-11-22). Every `active` account with a USERNAME is a federation actor (`_is_actor`). Following Mastodon and Fedify defaults (decision GD7), `Person.discoverable` is `bool(accounts.profile_public)` and `manuallyApprovesFollowers` stays `false` (FD9). Own notes, edits, deletes, favourites, boosts, and quote requests or approvals on own `Note`s work for every federation actor regardless of `profile_public`. `profile_public` 1 gates only personal KB and directory visibility, published KB documents (`Article`), and Knowledge Federation participation (Section 3.1).
 
-All other states give the same 404 on the internal API (`{"error": "not_found"}`) and on the public paths of the sidecar (`Not Found`, `text/plain`). This includes an unknown account, a suspended account, a purged account that was never an actor, and a public ID that is not a positive decimal number of 19 digits or less without a leading zero. An account that was an actor at its purge gives 410 (Section 8.5).
+The server has no condition: federation has no switch (Section 7.1), and the rule is the same in the two server modes (`KNOWLEDGE_FEDERATION_DESIGN.md` Section 15 rule 5, KD2).
+
+All other states give the same 404 on the internal API (`{"error": "not_found"}`) and on the public paths of the sidecar (`Not Found`, `text/plain`). This includes an unknown account, an account without a USERNAME, a suspended account, an account in deletion, a purged account that was never an actor, and a public ID that is not a positive decimal number of 19 digits or less without a leading zero. An account that was an actor at its purge gives 410 (Section 8.5).
+
+### 3.1 Private-Profile Behaviour (`profile_public`)
+
+The profile switch (`profile_public`) controls personal KB visibility, directory listing, KB document publishing, Knowledge Federation offers and public credit, and `Person.discoverable`. It does not turn off the actor or ActivityPub social interactions. The code has two rules: `_is_actor` (the actor rule) and `_content_public` (the actor rule and `profile_public` 1) in `src/claire/api/federation_routes.py`, `actor_state` and `content_public` in `src/claire/api/accounts_routes/console_federation_panels.py`, and `account_content_public` in `src/claire/federation/knowledge/actors.py`.
+
+| Function | Account with a private profile (`profile_public` 0) |
+| :--- | :--- |
+| **Actor & ActivityPub social interactions** | |
+| WebFinger, actor document (`Person` with `discoverable: false`, `manuallyApprovesFollowers: false`), keys, inbox, followers collection, following collection | Same as with a public profile (only `discoverable` changes) |
+| Inbound `Follow` from another server | Auto-accepted (`Accept(Follow)`), same as with a public profile |
+| Follow of a remote actor, remote timeline, mentions, notifications, thread fetch, automatic notice for a non-public message | Same as with a public profile |
+| `Update(Person)` after a change of display name, USERNAME, or `profile_public` (`discoverable`), and `Delete(Person)` at a purge | Enqueued and sent |
+| Own `Note`s (`POST`, `PATCH`, `DELETE /api/federation/notes*`), favourites (`Like`/`Undo`), boosts (`Announce`/`Undo`), and quote requests, approvals, refusals, and revocations on own `Note`s | Permitted for every federation actor (`409 not_actor` only; never `409 profile_private`). `lease_interaction_tasks` leases all `INTERACTION_KINDS` for all actors. |
+| Own `Note`s at `/ap/objects/{id}` (internal `/notes/{id}`) and in `/ap/actors/{id}/outbox` | Served (200 with `Note`, or 410 `Tombstone` when deleted) and included in `outbox` |
+| Inbound `Like`, `Announce`, `Undo`, and `QuoteRequest` for an own `Note` | Accepted and stored according to the note's `quote_policy` |
+| **Personal KB, directory, published KB documents, and Knowledge Federation** | |
+| Web profile `/@{username}/`, personal KB `/kb/{number}/`, and public directory (`/accounts`) | Web profile and personal KB return 404 to non-owners; `/accounts` omits private accounts ([`ACCOUNTS.md`](ACCOUNTS.md)) |
+| `POST /api/federation/publish` | Refused with `409 profile_private`; `syndication_live.js` hides the native actor publish target when `content_public` is false (Section 7.7) |
+| `POST /api/federation/retract` | Permitted; `delete` outbox task proceeds so followers get `Delete` |
+| Published KB `Article` at `/ap/objects/{id}` (internal `/objects/{id}`) | Returns 404 (`410 Tombstone` if deleted) |
+| Published KB `Article` in `/ap/actors/{id}/outbox` | Omitted from `outbox` (own `Note`s stay in `outbox`) |
+| Outbox tasks for published KB documents (`create`, `update`) | Wait until `profile_public` is 1; tasks `update_actor`, `delete`, and `delete_actor` proceed |
+| Inbound `Like`, `Announce`, or `QuoteRequest` for a published KB `Article` | Ignored with `no_object` (`Undo` still deletes existing reaction rows) |
+| `PATCH /api/federation/quotes/{quote_id}` (`state: "approved"`) | Returns `409 profile_private` only when approving a quote of a published KB `Article` while `profile_public` is 0 (`GET /ap/quote-authorizations/{id}` also returns 404 for a published KB `Article` while private); own-note quote approvals, refusals, and revocations succeed |
+| Knowledge Federation `Offer` (`offers.send`, `auto_contribution.remote_state`) | Skipped with `profile_private` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.4 and Section 15.4) |
+| Credit (`attributedTo`) on public shared-KB documents (`actors._credit`) and account name in root-page recent activity (`recent.py`) | Omitted |
+
+- A change to private sends no `Delete` for published KB `Article`s that other servers already received: their copies stay. The hint of the switch tells this to the user. The change enqueues `update_actor` (`Update(Person)` with `discoverable: false`).
+- A change to public enqueues `update_actor` (`Update(Person)` with `discoverable: true`) and releases waiting `create` and `update` outbox tasks for published KB documents to the sidecar at its next poll.
+- The actor document has `url` `{origin}/@{username}/`. For a private profile that page gives 404 to a reader that is not the owner.
 
 The actor ID contains `accounts.public_id`, not the USERNAME: `{origin}/ap/actors/{public_id}`. `{origin}` is the canonical origin that Claire supplies in `config` (`WebRuntimeConfig.public_origin`). The sidecar does not read the request `Host` header to make a URL.
 
@@ -100,8 +131,8 @@ The paths are the same in the two server modes. No server state makes them 404.
 | `POST` | `/ap/inbox` | Shared inbox (Section 4.3) |
 | `GET` | `/ap/actors/{public_id}/followers` | `OrderedCollection` with `totalItems` and no follower |
 | `GET` | `/ap/actors/{public_id}/following` | `OrderedCollection` with `totalItems` only (Section 17) |
-| `GET` | `/ap/actors/{public_id}/outbox` | `OrderedCollection` of the public objects, in pages (Section 4.4) |
-| `GET` | `/ap/objects/{object_public_id}` | Published object of type `Article`, or 410 with a `Tombstone` (Section 4.4) |
+| `GET` | `/ap/actors/{public_id}/outbox` | `OrderedCollection` of public objects (published KB `Article`s when `profile_public` is 1, and own `Note`s for all actors), in pages (Section 4.4) |
+| `GET` | `/ap/objects/{object_public_id}` | Published KB object of type `Article` (when `profile_public` is 1) or own `Note` (for all actors), or 410 with a `Tombstone` (Section 4.4, Section 25) |
 | `GET` | `/ap/quote-authorizations/{id}` | Quote authorization, or 410 after a revoke (Section 26) |
 | `GET` | `/ap/kb`, `/ap/themes` | Collections of shared knowledge for a request that a server actor signed; 404 for each other request ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.6 and 11.2) |
 | `POST` | `/ap/kb/{number}/inbox` | Inbox of a knowledge base actor: only an activity of the knowledge federation ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 10.6) |
@@ -128,6 +159,7 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | `publicKey` | RSA 2048 public key. The key ID is `{actor ID}#main-key`. |
 | `assertionMethod` | Multikey entries for the keys of the actor, with the Ed25519 key |
 | `published` | `accounts.activated_at`. The sidecar sets no value when the account has no activation time. |
+| `discoverable` | `bool(accounts.profile_public)` (`true` when `profile_public` is 1, `false` when 0; Mastodon default, decision GD7, contract 1.15) |
 | `manuallyApprovesFollowers` | `false` |
 
 - `outbox` is `{actor ID}/outbox`, `followers` is `{actor ID}/followers`, and `following` is `{actor ID}/following` (`Sidecar.#person` in `sidecar/fedify/src/sidecar.ts`).
@@ -149,7 +181,6 @@ Answer of an inbox path, in this sequence:
 | :--- | :--- |
 | The method is not `POST` | 405 with `Allow: POST` |
 | The internal API is not available | 503 with `Retry-After: 5` |
-| Federation is not active | 404 |
 | The body is larger than `limits.inbox_body_bytes` of `config` (1048576) | 413. The sidecar stops the read at the limit. |
 | The account of a personal inbox is not an actor | 404 |
 | Fedify cannot verify the signature | 401 |
@@ -170,7 +201,7 @@ Answer of an inbox path, in this sequence:
 
 ### 4.4 Publishing: Task Poller, Objects, and the Outbox Collection (Unit FP3-3)
 
-**Task poller.** `sidecar/fedify/src/main.ts` calls `Sidecar.processOutboxTasks` each 5 seconds. One call takes 10 tasks at most from `GET /outbox-tasks`. When a call gets 10 tasks, the next call follows immediately. Only one poll runs at a time. No task is taken while federation is not active.
+**Task poller.** `sidecar/fedify/src/main.ts` calls `Sidecar.processOutboxTasks` each 5 seconds. One call takes 10 tasks at most from `GET /outbox-tasks`. When a call gets 10 tasks, the next call follows immediately. Only one poll runs at a time.
 
 | Task | Activity | Activity ID |
 | :--- | :--- | :--- |
@@ -187,7 +218,7 @@ Answer of an inbox path, in this sequence:
 - The sidecar gives the activity to Fedify (`sendActivity`), signed with the key of the actor, and then sends the acknowledgement `handed_off`. With the queue of `data/fedify/fedify.db`, Fedify delivers from the queue and tries again after a failure. The ordering key of the queue is the object ID: the activities of one object go to a remote server in sequence.
 - An actor without followers that can get a delivery: the task is `handed_off` and nothing is sent.
 - For `update_actor` the sidecar reads the actor record. For `delete_actor` it reads the keys and the followers that Claire gives for a purged actor while the task waits (Section 8.5). The ordering key of the two actor tasks is the actor ID.
-- `rejected` for an actor task: `not_an_actor` (`update_actor` of an account that is paused or purged now), `no_actor_key` (`delete_actor` of an actor that has no key: no remote server has a key to verify with).
+- `rejected` for an actor task: `not_an_actor` (`update_actor` of an account that is not an actor now: it is not `active`, or it is purged), `no_actor_key` (`delete_actor` of an actor that has no key: no remote server has a key to verify with).
 - `rejected` with an error code, and no delivery: `object_gone` (the object was retracted before the handoff: its `delete` task follows), `object_not_found` (Claire does not show the object, for example the theme is private now), `actor_mismatch` (the object is of a different actor).
 - An error in one task (the internal API or the followers are not available, the actor has no key) gives no acknowledgement for that task and does not stop the other tasks. Claire gives the task again after its lease.
 - Counters: `Sidecar.outboxCounters` has the number of tasks by result (`handed_off`, `rejected`, `failed`, `skipped`) since the start of the process. The counters do not go to Claire.
@@ -201,7 +232,7 @@ Answer of an inbox path, in this sequence:
 | All other conditions | 404, the same body as for all 404 answers |
 | The `Accept` header does not permit an ActivityPub format | 406 |
 
-**Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article`: a reader gets it from the object path. The collection has the objects of public themes only (Section 5.8). An account that is not an actor, and the server actor, get 404.
+**Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article` or `Note`: a reader gets it from the object path. For published KB documents, the collection has only objects of public KBs when `profile_public` is 1; when `profile_public` is 0, published KB documents are omitted while own notes stay in the collection (Section 3.1, Section 25.1). An account that is not an actor, and the server actor, get 404.
 
 ## 5. Internal Federation API
 
@@ -259,36 +290,37 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 | Method | Path | Response fields |
 | :--- | :--- | :--- |
-| `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag` |
-| `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`), `knowledge_self_check` (`checked_at`, `failed_paths`, `signed.result`), `loops` (`knowledge_reads`, `knowledge_exchange`). Response: `contract_version`, `federation`. |
+| `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag`, `allow_private_addresses` |
+| `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `marker`, `public_host` (`host`, `addresses`, `error`), `self_check` (`ok`: true, false, or null; `checked_at`, `answer`), `knowledge_self_check` (`checked_at`, `failed_paths`, `answers`, `signed`), `loops` (`knowledge_reads`, `knowledge_exchange`), `traffic` (`window_seconds`, `inbound_verified`, `inbound_rejected`, `deliveries`). Response: `contract_version`. |
 | `GET` | `/actors/by-username/{username}` | Actor record, or 404. Lookup ignores ASCII letter case (rejects non-ASCII) and returns the stored `username` display case and `profile_url`. |
 | `GET` | `/actors/{public_id}` | Actor record, 404, or 410 `{"error": "gone", "gone_at"}` for a purged actor (Section 8.5) |
-| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `server`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
+| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `server`. 404 when the account is not an actor. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
 | `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor: the exception is a purged actor with a `delete_actor` task that waits. 400 `invalid_request` for a query that is not valid. |
 | `POST` | `/inbox-events` | One verified inbound activity. The response is the decision (Section 5.7). |
-| `GET` | `/actors/{public_id}/outbox` | `public_id`, `total`, `items` (newest first: `id`, `published_at`, `updated_at`), `next_max_id`. The query is that of `/followers`. 404 when the account is not an actor. |
+| `GET` | `/actors/{public_id}/outbox` | `public_id`, `total`, `items` (newest first: `id`, `published_at`, `updated_at`), `next_max_id`. The query is that of `/followers`. 404 when the account is not an actor. Published KB objects are omitted while `profile_public` is 0; own notes stay included for all actors (Section 3.1). |
 | `GET` | `/outbox-tasks` | `tasks`: oldest first, each with `id`, `kind`, `actor_public_id`, `object_public_id`, `created_at`, `lease_until`. Query: `limit` (1 to 50, default 20). The request gives a lease on each task that it returns (Section 5.8). |
 | `POST` | `/outbox-tasks/{id}/ack` | Request: `result` (`handed_off` or `rejected`), `error_code` (null, or 1 to 64 characters of `a-z`, `0-9`, `_`). Response: `id`, `status`. 404 for a task that does not exist. |
-| `GET` | `/objects/{object_public_id}` | Object record: `public_id`, `actor_public_id`, `type` (`Article`), `name`, `content`, `url`, `published_at`, `updated_at`. 404, or 410 `{"error": "gone", "gone_at": ...}` for a deleted object. |
+| `GET` | `/objects/{object_public_id}` | Object record: `public_id`, `actor_public_id`, `type` (`Article`), `name`, `content`, `url`, `published_at`, `updated_at`, `quote_policy`. 404, or 410 `{"error": "gone", "gone_at": ...}` for a deleted object. 404 also while the profile of the account is private (Section 3.1). |
 | `GET` | `/domain-blocks` | `etag`, `domains` (lowercase ASCII, in order). The response has an `ETag` header. A request with the same value in `If-None-Match` gets 304 without a body. |
 
-- Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`. The record has no field from `auth.db`.
-- `federated_actors` is 0 when federation is not active. If not, it is the number of accounts that agree with the actor rule.
-- `/config` answers in all states. It does not return 404 when federation is `off`.
+- Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`, `discoverable` (boolean, `bool(accounts.profile_public)`, contract 1.15). The record has no field from `auth.db`.
+- `federated_actors` is the number of accounts that agree with the actor rule (Section 3): each `active` account with a USERNAME, with a public profile or a private profile.
+- `/config` answers on every server (there is no federation switch).
 - The sidecar does not use `trusted_proxies`.
 - `limits.inbox_body_bytes` is 1048576 (`INBOX_BODY_LIMIT_BYTES`). It is the largest body of a public inbox request that the sidecar must read (unit FP2-3).
 - `domain_blocks_etag` is the entity tag of the `/domain-blocks` response. The sidecar reads `config` at short intervals and can thus see a change of the list without a second request.
-- `/domain-blocks` answers in all states of the federation switch.
+- `/domain-blocks` answers on every server (there is no federation switch).
 - `next_max_id` is the `id` of the last item when the page is full. If not, it is null. `id` is `federation_followers.public_id` as a decimal string.
 - Heartbeat record: Claire writes the request and `received_at` to `{data_dir}/run/federation_heartbeat.json` (temporary file, then `os.replace`). A heartbeat with a different major version is not recorded.
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.14"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.15"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.15 (owner decision GD7, 2026-11-22) adds `discoverable` (`bool`) to `ActorRecord`, mapped to `Person.discoverable` (`bool(accounts.profile_public)`). A sidecar of version 1.14 refuses `1.15` actor records, because the shapes are sealed; Claire and the sidecar must come from the same commit.
 - Version 1.14 (owner decision GD4: federation has no switch) removed `federation` from the answers of `config` and `heartbeat` and the reason `federation_off` from the decisions of `inbox-events`, `timeline-events`, `context-objects`, and `quote-events`. A sidecar of version 1.13 refuses the `config` answer, because the shapes are sealed.
 - Version 1.13 (units GL1 and GL2 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)) changed `POST /heartbeat` (Section 7.2): new necessary fields `marker`, `public_host`, and `traffic`; `self_check.answer`; `knowledge_self_check.answers`; and `knowledge_self_check.signed` is an object with one result for each signature form (`draft_cavage`, `rfc9421`). Claire refuses a heartbeat of version 1.12 (400 `invalid_request`), records nothing, and GF2 fails. No other route changed.
 - Version 1.12 (unit KF6 of the knowledge federation) added `knowledge_self_check` and `loops` to `POST /heartbeat` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17). No other route changed.
-- Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: while the switch `federation` is on, the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). No shape that existed changed.
+- Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2; version 1.14 later removed the `federation` switch). No shape that existed changed.
 - Version 1.10 (unit KF3 of the knowledge federation) added the routes `knowledge-kb-actors`, `knowledge-outbox-tasks`, and `knowledge-remote-reads` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 12.5). No shape that existed changed.
 - Version 1.9 (unit KF2 of the knowledge federation) added `GET` and `POST /knowledge-kb-reads` and changed the answer of `GET /knowledge-collections/{name}` (`document` in place of `items`). The sidecar calls the routes of the knowledge federation from this version ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.4, 10.6, and 11.4).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
@@ -337,13 +369,13 @@ Response: `decision` (`accepted`, `rejected`, `ignored`), `reply` (`accept` or n
 Claire makes the decision in this sequence:
 
 1. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the server uses `http` (development). An address with credentials, without a valid host, or on the origin of this server is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
-3. The host of one of these addresses is blocked: `rejected`, reason `blocked_domain`. This check comes before the type check.
-4. The type is outside the v1 set: `ignored`, reason `unsupported_type`. The v1 set is `Follow`; `Undo` with `object_type` `Follow`; `Delete` with `object_iri` equal to `actor.iri`; `Update` with `object_iri` equal to `actor.iri`.
-5. `Delete` of the remote actor: Claire deletes the actor from the followers of all accounts. `accepted`.
-6. `Update` of the remote actor: Claire replaces the inbox addresses in all rows of the actor. `accepted`.
-7. `Follow` and `Undo(Follow)`: `object_iri` must be `{canonical_origin}/ap/actors/{public_id}`. If not: `rejected`, reason `not_an_actor`. If `recipient_public_id` is not null and is a different ID: `rejected`, reason `recipient_mismatch`.
-8. `Follow`: the account must agree with the actor rule (Section 3). If not: `rejected`, reason `not_an_actor`. Claire stores the follower. `accepted` with `reply` `accept`. A repeated `Follow` keeps the row and its number, replaces the inbox addresses if they are different, and gives the same decision.
-9. `Undo(Follow)`: the account must exist. Claire deletes the row, also for a paused account. `accepted`. A repeated `Undo` gives the same decision.
+2. The host of one of these addresses is blocked: `rejected`, reason `blocked_domain`. This check comes before the type check.
+3. The type is outside the v1 set: `ignored`, reason `unsupported_type`. The v1 set is `Follow`; `Undo` with `object_type` `Follow`; `Delete` with `object_iri` equal to `actor.iri`; `Update` with `object_iri` equal to `actor.iri`.
+4. `Delete` of the remote actor: Claire deletes the actor from the followers of all accounts. `accepted`.
+5. `Update` of the remote actor: Claire replaces the inbox addresses in all rows of the actor. `accepted`.
+6. `Follow` and `Undo(Follow)`: `object_iri` must be `{canonical_origin}/ap/actors/{public_id}`. If not: `rejected`, reason `not_an_actor`. If `recipient_public_id` is not null and is a different ID: `rejected`, reason `recipient_mismatch`.
+7. `Follow`: the account must agree with the actor rule (Section 3). If not: `rejected`, reason `not_an_actor`. Claire stores the follower. `accepted` with `reply` `accept`. A repeated `Follow` keeps the row and its number, replaces the inbox addresses if they are different, and gives the same decision.
+8. `Undo(Follow)`: the account must exist. Claire deletes the row, also for an account that is not an actor now. `accepted`. A repeated `Undo` gives the same decision.
 
 Claire writes one log line for each event with the type, the decision, and the reason. The line has no address.
 
@@ -354,17 +386,17 @@ Claire writes one log line for each event with the type, the decision, and the r
 - A task is ready when its status is `pending` and it has no lease, or its lease ended (`lease_until` is not after the time of the request).
 - `GET /outbox-tasks` returns the oldest ready tasks and sets `lease_until` to the time of the request plus 300 seconds (`OUTBOX_LEASE_SECONDS`). A second request in that time does not get the same task. The request changes data, although the method is `GET`.
 - A task that the sidecar does not acknowledge stays `pending`, and Claire gives it again after its lease.
-- Claire gives only the tasks of accounts that are actors now. When federation is not active the list is empty. A task of a paused account waits, because the sidecar cannot get the key of that account.
+- Claire gives only the tasks of accounts that are actors now. A task of another account waits, because the sidecar cannot get the key of that account. For an actor with a private profile Claire gives only the kinds `update_actor` and `delete`; its `create` and `update` tasks wait until the profile is public (Section 3.1; `lease_outbox_tasks` has `account_ids` for the actors with public content and `actor_account_ids` for all actors).
 - `POST /outbox-tasks/{id}/ack` with `handed_off` sets the status and `handed_off_at`. `rejected` sets the status and `error_code`: the sidecar uses it for a task that it cannot convert, and Claire does not give the task again. A task that has a result does not change: a second acknowledgement returns the first result.
 - The task has IDs only. The sidecar reads the object with `/objects/{id}` when it converts the task.
 
 **Objects.**
 
-- A tombstone of kind `object` gives 410 with `gone_at`. This check comes first, and it does not depend on the federation switch.
-- The record is given only while federation is active, the account of the object is an actor, the theme is public, and the document exists and is not hidden. All other conditions give the same 404.
-- `content` is `documents.detail_html`, or the render of `documents.detail` (`render_to_html`) when there is no compiled HTML. Then the `nh3` sanitizer with its default allowlist cleans it. `name` is the document title.
+- A tombstone of kind `object` gives 410 with `gone_at`. This check comes first.
+- The record is given only while the account of the object is an actor with a public profile (Section 3.1), the KB is public, and the document exists and is not hidden. All other conditions give the same 404.
+- `content` is the summary of the latest extraction (else the document title; at most 500 characters, cut at a word end with `"…"`) as one paragraph and a paragraph with the link to the share page (`_published_object_content`, cleaned with `nh3.clean`), never the body of the document (`detail` or `detail_html`) (RD21, Section 4.4). `name` is the document title.
 - `url` is the share page of the document, `{origin}/p?s={token}`, or null when the document has no share that is in effect. The publish route makes a share.
-- The outbox collection counts and lists only the objects of themes that are public now.
+- For published KB documents, the outbox collection counts and lists only objects of KBs that are public now while `profile_public` is 1; own notes are counted and listed for all actors (Section 4.4, Section 25.1).
 
 ## 6. Keys
 
@@ -386,7 +418,7 @@ Federation is a function of each server (owner decision GD4 of [`FEDERATION_GO_L
 - There is no server setting `federation`. `AccountStore` has no method that reads or sets it, and no route changes it. A row `federation` that an older version stored in `server_settings` stays in the database and is not read.
 - There is no container switch `CB_FEDERATION`. The service `fedify` starts with the other services (Section 9.1). A value `CB_FEDERATION` in an env file is not read.
 - The readiness checks are a report of the state of the server. They do not gate a change (the gate of decision KD13 has no object). When the edge of a server does not send the federation paths to the sidecar, the paths give 404 from Claire, and the report tells it.
-- Which account is an actor is the rule of Section 3. An account pauses its own federation with `profile_public` 0 (Section 8.4).
+- Which account is an actor is the rule of Section 3. An account cannot stop its own actor. With `profile_public` 0 it makes its content private (Section 3.1).
 - The switch `kb_auto_contribution` of the knowledge federation stays ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 15).
 
 ### 7.2 Checks GF1 to GF20
@@ -464,7 +496,7 @@ The same headers do not make sure that a CDN decides the same for a request of a
 
 ### 7.3 Admin API
 
-The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Other principals get 404.
+The route is for the admin only (`ROUTE_POLICY`: `_system("admin")`). Other principals get 404.
 
 `GET /api/admin/federation` returns, with `Cache-Control: no-store`:
 
@@ -472,7 +504,7 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 {
   "mode": "network",
   "readiness": {"items": [{"id": "GF1", "name": "...", "group": "account", "level": "required", "applies": true, "passed": true, "code": "mode_network", "detail": "...", "values": {}}], "passed": false},
-  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.13", "sidecar_version": "0.1.0", "queue_depth": 0, "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e", "public_host": {"host": "claire.example.com", "addresses": [{"address": "203.0.113.5", "class": "global"}], "error": null}, "self_check": {"ok": null, "checked_at": null, "answer": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "answers": [], "signed": {"draft_cavage": {"result": "ok", "answer": null}, "rfc9421": {"result": "ok", "answer": null}}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}, "traffic": {"window_seconds": 86400, "inbound_verified": {"count": 0, "hosts": 0, "last_at": null}, "inbound_rejected": {"count": 0, "last_at": null}, "deliveries": {"succeeded": 0, "failed": {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 0, "other": 0}, "last_success_at": null}}}
+  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.15", "sidecar_version": "0.1.0", "queue_depth": 0, "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e", "public_host": {"host": "claire.example.com", "addresses": [{"address": "203.0.113.5", "class": "global"}], "error": null}, "self_check": {"ok": null, "checked_at": null, "answer": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "answers": [], "signed": {"draft_cavage": {"result": "ok", "answer": null}, "rfc9421": {"result": "ok", "answer": null}}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}, "traffic": {"window_seconds": 86400, "inbound_verified": {"count": 0, "hosts": 0, "last_at": null}, "inbound_rejected": {"count": 0, "last_at": null}, "deliveries": {"succeeded": 0, "failed": {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 0, "other": 0}, "last_success_at": null}}}
 }
 ```
 
@@ -514,15 +546,16 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 ### 7.5 Console and Account Routes (Unit FP2-4)
 
-**Account routes.** The routes are for the owner of an account, in both server modes (`ROUTE_POLICY`: `_any("owner")`; KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, 2026-11-19). The routes use the account of the credential. No route reads an account from the request.
+**Account routes.** All `/api/federation/*` owner and write routes work in both server modes (`ROUTE_POLICY` in `src/claire/api/security.py`: `_any("owner")` for account, client, note, and quote routes; `_any("write", "write")` for publish and retract; `KNOWLEDGE_FEDERATION_DESIGN.md` Section 15 rule 5). The routes use the account of the credential. No route reads an account from the request.
 
 `GET /api/federation/status` returns, with `Cache-Control: no-store`:
 
 ```json
-{"handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}, "pending_tasks": 0}
+{"handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "content_public": true, "followers": {"total": 2}, "pending_tasks": 0}
 ```
 
-- `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`, `profile_not_public`. The answer has no field `federation`.
+- `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`. The answer has no field `federation`.
+- `content_public` is true when the account is an actor and `profile_public` is 1: personal KB content, KB document publishing (`POST /api/federation/publish`), and Knowledge Federation offers are public (Section 3.1). `/settings/federation` shows it in the row `Content`. Own notes, favourites, boosts, and own-note quotes work for all actors regardless of `content_public`.
 - `handle` and `actor_id` are null only when the account has no USERNAME.
 - `pending_tasks` is the number of outbox tasks of the account with the status `pending` (unit FP3-1).
 
@@ -553,7 +586,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 **Console sections.**
 
-- `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). The section is the same in both server modes.
+- `/settings/federation` (owner): handle, actor ID, actor state, `Content` row (public or private, showing `content_public`), follower count, and the follower list with a remove control (`console_account.js`, `console_federation_panels.py`). The section is the same in both server modes.
 - `/admin/federation` (admin): the state card (federation is always on; the card has no control for it), the readiness checks GF1 to GF20 in three groups (`account`, `knowledge`, and `operation`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), the addresses of the public host, and the traffic counters, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
@@ -561,16 +594,18 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 The routes need the scope `write` or `owner`, in both server modes (`ROUTE_POLICY`: `_any("write", "write")`). A `readonly` credential cannot call them. The principal must have an account, and the knowledge base must be the personal knowledge base of that account (`_own_theme`): the admin cannot publish for a member, and a document of a shared knowledge base cannot be published (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
 
-`POST /api/federation/publish` with the body `{"theme": "<theme number>", "document_id": "..."}`:
+`POST /api/federation/publish` with the body `{"kb": "<personal KB number>", "document_id": "..."}`:
 
 | Condition | Response |
 | :--- | :--- |
-| The body is not this object (`theme` is a decimal string, `document_id` has 1 to 200 characters) | 400 `invalid_request` |
-| No theme with this number that the caller can use | 404 `theme_not_found` |
+| The body is not this object (`kb` is a decimal string, `document_id` has 1 to 200 characters) | 400 `invalid_request` |
+| No personal KB with this number that the caller can use | 404 `theme_not_found` |
 | The account is not an actor (Section 3) | 409 `not_an_actor` with `actor_state` |
-| The theme is not public | 409 `theme_not_public` |
-| No document with this ID in the theme | 404 `document_not_found` |
+| The profile of the account is private (Section 3.1) | 409 `profile_private` |
+| The personal KB is not public | 409 `theme_not_public` |
+| No document with this ID in the personal KB | 404 `document_not_found` |
 | The document is hidden | 409 `document_not_public` |
+| The document is not extracted (`extraction_status` is not `extracted`) | 409 `document_not_extracted` |
 | The document has no body (`detail` and `detail_html` are empty) | 409 `document_has_no_body` |
 | Published | 202 with `object` (`id`, `url`, `published_at`, `updated_at`), `task` (`id`, `kind`), `created` |
 
@@ -586,35 +621,30 @@ The routes need the scope `write` or `owner`, in both server modes (`ROUTE_POLIC
 - An object that does not exist, or is of a different account, or is in a theme that the caller cannot use, gets 404 `object_not_found`.
 - If not, one transaction writes the tombstone (`federation_tombstones`, kind `object`), deletes the object row, and makes a `delete` task. The response is 202 with `retracted`, `object_id`, and `task`.
 - A new publish of the same document makes a new object ID. The old ID stays a tombstone.
-- A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8). The object ID gives 410 immediately.
+- A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8). The object ID gives 410 immediately. An actor with a private profile can retract, and the sidecar gets its `delete` task (Section 3.1).
 
 A cookie request that is not from the same origin gets 403 (`AuthenticationMiddleware`). The routes need no recent authentication.
 
 ### 7.7 Native Actor in the Dialog of `/syndication` (Unit FP3-5)
 
-The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/bible/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
+The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/bible/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor with a public profile (`is_actor` and `content_public` of the status), the dialog has one more target below them: the native actor.
 
-- The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. The rule is the same in both server modes.
+- The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` and `content_public` are both true (a private profile hides the native KB publish target). The rule is the same in both server modes.
 - The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee.
-- The button sends `POST /api/federation/publish` with the theme number and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
+- The button sends `POST /api/federation/publish` with the personal KB number (`kb`) and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
 - The button is disabled for a document of a private theme.
 - The dialog has no control for a retract. `POST /api/federation/retract` is an API call.
 - The route `/prototype/syndication` is removed (RD20) and gives 404. The static prototype is on the `prototype` host role: `prototype.` + the registrable domain of `CLAIRE_FQDN`, and `http://127.0.0.1:8769/` in development ([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). It has mock data only and sends nothing to a server.
 
 ## 8. Account Effects
 
-### 8.1 Step-Up Rule for `profile_public` (FD11)
+### 8.1 The Profile Switch Needs No Confirmation of Identity (GD6)
 
-`PATCH /api/me` requires recent authentication when the request sets `profile_public` to 1 and the stored value is 0: the change makes the account a federation actor. The check occurs before all writes, so a `display_name` change in the same request is not stored when the request is refused.
+`PATCH /api/me` changes `profile_public` in the two directions with no recent authentication ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decision GD6, 2026-11-22). The step-up rule FD11 is withdrawn: the account is an actor in the two states, and the switch only changes `discoverable`, personal KB visibility, directory listing, KB publishing, and Knowledge Federation participation (Section 3.1).
 
-| Condition | Response |
-| :--- | :--- |
-| Session without authentication in the last 15 minutes | 401 `{"error": "reauth_required", "reauth": "/api/auth/reauth"}` with a `WWW-Authenticate` header |
-| Bearer credential (not a session channel) | 403 `{"error": "step_up_requires_session"}` |
-| Change from 1 to 0, or 1 to 1 | No condition |
-
-- `/settings/account`: the switch has the attribute `data-step-up` (`password` for an account with a password, `session` for an account without one) and a hint paragraph (`data-federation-hint`). The hint says that a change to private pauses federation and does not remove copies on other servers.
-- `console_account.js` opens a password dialog before it sends the change to public when the attribute is `password`. The dialog calls `POST /api/auth/reauth`. An account without a password has no dialog: the server answers from the session age.
+- A session with an old sign-in and a bearer credential that can call `PATCH /api/me` make the change. The other fields of the same request are written.
+- When `profile_public` changes on an active actor with a USERNAME, `AccountStore.update_profile_public` enqueues an `update_actor` task in the same transaction so `Update(Person)` sends the new `discoverable` value to remote followers (decision GD7, Section 8.5).
+- `/settings/account`: the switch (`#pref-profile-public`) has no attribute `data-step-up`, and `console_account.js` sends the change at once, with no dialog. The hint paragraph (`data-federation-hint`) says that other servers find and follow the account in the two states, that a private profile makes personal KB content private, and that copies on other servers are not removed.
 - Details of the account routes: [`ACCOUNTS.md`](ACCOUNTS.md) §5.3 and §5.5.
 
 ### 8.2 Alternate Link on the Profile Page
@@ -624,15 +654,17 @@ When the account is a federation actor, the profile page `/@{username}/` (not a 
 - `<link rel="alternate" type="application/activity+json" href="{actor ID}">` in the `head`.
 - The header `Link: <{actor ID}>; rel="alternate"; type="application/activity+json"`.
 
-The page keeps its HTML format for all `Accept` values. The path has no content negotiation. The owner of a paused profile sees the page without the link.
+The page keeps its HTML format for all `Accept` values. The path has no content negotiation. The owner of a private profile sees the page with the link, because the account is an actor. Another reader gets 404 for that page (Section 3.1).
 
 ### 8.3 Mode Change Refusal
 
 Withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 6, unit KF4): federation works in single mode, so `POST /api/admin/server/mode` changes from `network` to `single` with no condition of federation. A change to single mode still needs no members.
 
-### 8.4 Pause
+### 8.4 An Account That Stops Being an Actor
 
-A change of `profile_public` to 0, a suspension, and `federation` `off` make the actor paths return 404. Claire sends no activity for these events: a pause is reversible, and a `Delete(Person)` is not. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
+A suspension, and the start of the deletion of an account, make the actor paths return 404. Claire sends no activity for these events: such a state is reversible, and a `Delete(Person)` is not. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
+
+A change of `profile_public` to 0 is not such an event (decisions GD5 and GD7; FD10 is changed): the actor stays and continues to use notes, favourites, boosts, and own-note quotes, while its personal KB, public directory entry, published KB documents, and Knowledge Federation participation become private (Section 3.1).
 
 ### 8.5 Lifecycle Tasks and Privacy Triggers (Unit FP3-4)
 
@@ -648,14 +680,14 @@ A change of `profile_public` to 0, a suspension, and `federation` `off` make the
 - A hidden document makes no task. Claire does not show the object while the document is hidden (Section 5.8).
 - A task of an account that is not an actor now waits (Section 5.8).
 
-**Display name and USERNAME.** `AccountStore.update_display_name` and `AccountStore.change_username` enqueue an `update_actor` task in the transaction of the change when the value changes, federation is active, and `profile_public` is 1. The sidecar keeps the immutable actor ID (`/ap/actors/{public_id}`) and sends `Update(Person)` with the updated `preferredUsername`, `name`, and `url`. For full USERNAME renames, the previous handle is held in `username_tombstones` for 7 days (`reusable_after`), while WebFinger immediately resolves the new handle and rejects the old one.
+**Display name, USERNAME, and profile visibility (`discoverable`).** `AccountStore.update_display_name`, `AccountStore.change_username`, and `AccountStore.update_profile_public` enqueue an `update_actor` task in the transaction of the change when the value changes and the account is an actor (Section 3), with a public profile or with a private profile. The sidecar keeps the immutable actor ID (`/ap/actors/{public_id}`) and sends `Update(Person)` with the updated `preferredUsername`, `name`, `url`, and `discoverable`. For full USERNAME renames, the previous handle is held in `username_tombstones` for 7 days (`reusable_after`), while WebFinger immediately resolves the new handle and rejects the old one.
 
 **Purge.** `AccountStore.purge` calls `purge_account_federation` in the transaction of the purge, before the themes of the account are deleted:
 
 1. Each published object of the account gets a tombstone. There is no `delete` task for an object: the `Delete` of the actor removes the objects on a remote server.
 2. Each `pending` task of the account gets the result `rejected` with the code `account_purged`.
-3. An account that has a USERNAME, and that has `profile_public` 1 or one follower or more, gets an actor tombstone. From then on `/actors/{public_id}` gives 410, and the sidecar answers the actor ID with 410 and a `Tombstone` (`formerType` `Person`). An account that was never an actor gets no tombstone and stays 404.
-4. If federation is active and the account has one follower or more, the purge makes a `delete_actor` task. The followers and the keys stay until the sidecar acknowledges that task. In that time Claire gives the task, the keys, and the followers of the purged account to the sidecar. No other endpoint shows the account.
+3. An account that has a USERNAME was an actor (Section 3), and it gets an actor tombstone. From then on `/actors/{public_id}` gives 410, and the sidecar answers the actor ID with 410 and a `Tombstone` (`formerType` `Person`). An account without a USERNAME was never an actor: it gets no tombstone and stays 404.
+4. If the account has one follower or more, the purge makes a `delete_actor` task. The followers and the keys stay until the sidecar acknowledges that task. In that time Claire gives the task, the keys, and the followers of the purged account to the sidecar. No other endpoint shows the account.
 5. The acknowledgement (`handed_off` or `rejected`) deletes the followers in `claire.db` and the keys in `auth.db`. If there is no `delete_actor` task, the purge deletes the followers, and the admin route deletes the keys, immediately.
 6. If the account row is gone when the sidecar asks for tasks (the USERNAME was released), Claire sets the task to `rejected` with the code `account_missing`.
 
@@ -781,8 +813,8 @@ These statements are true for the code now.
 - The sidecar container has no access to `claire.db`, `auth.db`, `master.key`, or the `.env` values.
 - The sidecar sets the Fedify option `allowPrivateAddress` in one place only, from the config field `allow_private_addresses` (contract 1.8, Section 5.4). Claire gives true only in the environment `development` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` on. A sidecar test (`sidecar/fedify/tests/sidecar_test.ts`) reads the source directory and fails if the option has a constant value or is in a second place.
 - No external identity value (`iss`, `sub`, email, provider ID) is in an internal API response. `tests/test_federation_routes.py` puts values in `account_identities` and searches all responses.
-- While `federation` is off, each federation path returns 404, in each mode. `tests/test_fedify_sidecar.py` examines this with a real Claire process. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): single mode serves the admin at `/@{username}/`. Since contract 1.11 the mode is not a condition: while `federation` is on, the server actor and the account actor of the admin federate in single mode with the rules of network mode (`profile_public`, a USERNAME; Section 15 rule 5, KD2). The account routes of `ROUTE_POLICY` (`/api/federation/*`) stay network mode only.
-- All states that are not federated give the same 404, so a remote client cannot find which private accounts exist.
+- Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): single mode serves the admin at `/@{username}/`. Since contract 1.11 the mode is not a condition: the server actor and the account actor of the admin federate in single mode with the rules of network mode (the actor rule of Section 3; Section 15 rule 5, KD2). `tests/test_fedify_sidecar.py` examines this with a real Claire process.
+- All non-actor states (unknown account, no USERNAME, suspended, in deletion, purged without a prior actor, or invalid public ID) give the same 404, so a remote server cannot distinguish them. Private-profile actors exist as actors and set `discoverable: false` (decisions GD5 and GD7, Section 3).
 - A signature made with the key of one actor is not valid for a different actor (`sidecar/fedify/tests/discovery_e2e_test.ts`).
 
 ## 12. Known Limits
@@ -828,7 +860,7 @@ These facts are true for the code now. They are choices that the implementation 
 - An `ignored` activity increments a counter in the memory of the sidecar and writes a log line. It does not go to the telemetry store (Section 4.3).
 - `claire.db` version 17 has the three tables of FP2 and the index `idx_federation_followers_actor`. Version 18 has the two tables of FP3 and the index `idx_federation_objects_account` ([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)).
 - The inbox event has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision has `reason` (Section 5.7).
-- `rejected` is also the decision for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` (Section 5.7).
+- `rejected` is also the decision for an address that is not permitted, a blocked domain, and a recipient that is not the object of the `Follow` (Section 5.7).
 - `/config` has one limit, `inbox_body_bytes`, and also `federated_actors` (Section 5.3).
 - The Deno flags are `--allow-read=/data,/app` and `--allow-net` without a host list (Section 9.3).
 
@@ -840,13 +872,13 @@ These facts are true for the code now. They are choices that the implementation 
 | `tests/test_actor_keys.py` | `auth.db` version 5 migration, key generation, encryption with the additional authenticated data |
 | `tests/test_schema_v17.py` | `claire.db` version 17 migration, follower key, cursor pages, tombstones, domain form and subdomain rule |
 | `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, outbox task lease and acknowledgement, object record and its public conditions, outbox collection, and two end-to-end runs with a real `api` process: follow events through the socket, and publish on the public listener with the handoff on the socket |
-| `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
+| `tests/test_federation_profile_switch.py` | The profile switch needs no recent authentication (session and bearer credential), switch markup, alternate link, and the switch in a browser with no dialog |
 | `tests/test_federation_readiness.py` | GF1 to GF20, answer attribution, admin API, CLI |
 | `tests/test_edge_listener.py` | Unit GL3: the edge listener with a real Claire process (the peer address of `X-Claire-Edge-Peer` reaches the Cloudflare filter; 400 without one valid address; no meaning on the TCP listener), the switch `CB_EDGE` of `cb-manuscript`, the rule files, the Compose model with the profile `edge` and the overlay, and with `CB_EDGE_TEST=1` the edge image in front of a real Claire process and a real sidecar process: GF1 to GF20, the federation paths of another host, 413 at the edge, and the outside probe |
 | `tests/test_federation_go_live.py` | Units GL1 and GL2 end to end: a real Claire process and a real sidecar process behind an intermediary in the test process (the public origin). Each fault of the intermediary gives its code in `claire server check --federation --json`: a CDN challenge, a CDN block of the `profile` parameter, a WAF that refuses `application/activity+json`, a removed path prefix, a path to the wrong upstream, a changed `Host`, and a cache with an old answer. The outside probe script runs against the same origin |
 | `sidecar/fedify/tests/probes_test.ts` | Address classes, the path record, the traffic counters with their 24-hour window, the meter provider |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
-| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery, a paused account and the other actors in single mode, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-checks on a new server without an actor. Also the runs of the two files in `sidecar/fedify/e2e/`. |
+| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery, an account with a private profile (found with `discoverable: false`, KB documents omitted while own notes stay served) and the other actors in single mode, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-checks on a new server without an actor. Also the runs of the two files in `sidecar/fedify/e2e/`. |
 | `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks, the CLI command `federation requeue` |
 | `sidecar/fedify/e2e/lifecycle_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-4 end to end: a theme change to private and a display name change through the public API of a real Claire process, `Delete` and `Update(Person)` at a test inbox with a signature check, 410 for the object |
 | `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account, and one end-to-end run in a browser: the native actor in the dialog of `/syndication` |
@@ -858,7 +890,7 @@ These facts are true for the code now. They are choices that the implementation 
 | `sidecar/fedify/tests/` | Internal API client, public paths, discovery end-to-end with a signed fetch |
 
 ```bash
-uv run pytest tests/test_federation_internal.py tests/test_actor_keys.py tests/test_federation_routes.py tests/test_federation_step_up.py tests/test_federation_readiness.py tests/test_federation_compose.py tests/test_fedify_sidecar.py -q
+uv run pytest tests/test_federation_internal.py tests/test_actor_keys.py tests/test_federation_routes.py tests/test_federation_profile_switch.py tests/test_federation_readiness.py tests/test_federation_compose.py tests/test_fedify_sidecar.py -q
 ```
 
 Run the Deno commands from `sidecar/fedify/`:
@@ -880,7 +912,7 @@ DrFed is an ActivityPub debugging platform of the Fedify team. It shows objects 
 
 ## 15. Account Feeds (Units FP4-F1 and FP4-F2)
 
-Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 1.3 rule 7 (RD13, RD15). Feeds are first collection of the account. They need no actor and no federation switch, and they work in single mode (the single account) and in network mode (each account). Collection is not ingestion: an item never enters a theme without an action of the owner.
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 1.3 rule 7 (RD13, RD15). Feeds are first collection of the account. They need no actor, and they work in single mode (the single account) and in network mode (each account). Collection is not ingestion: an item never enters a theme without an action of the owner.
 
 ### 15.1 Code
 
@@ -968,7 +1000,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 Flow:
 
-1. `POST /api/federation/following` with `{"target": "@name@host"}` or an actor IRI. Only an account that is an actor can follow (409 `not_actor`). A target on a blocked domain is 400 `blocked_domain`; a value that is not a handle or an IRI is 400 `invalid_target`; at `following_limit` the answer is 409 `following_limit`. A new follow is `pending` and gets a `follow` task in the same transaction (202). The same request again gives the same follow (200).
+1. `POST /api/federation/following` with `{"target": "@name@host"}` or an actor IRI. Only an account that is an actor can follow (409 `not_actor`). An actor with a private profile can follow: a follow is not content (Section 3.1). A target on a blocked domain is 400 `blocked_domain`; a value that is not a handle or an IRI is 400 `invalid_target`; at `following_limit` the answer is 409 `following_limit`. A new follow is `pending` and gets a `follow` task in the same transaction (202). The same request again gives the same follow (200).
 2. The sidecar takes the task (`GET /client-tasks`), resolves the target with WebFinger or a fetch signed by the actor, refuses an actor on a blocked domain (`blocked_domain`) or an actor of an unknown type, sends `Follow` with the ID `{actor}#follows/{following_id}`, and acknowledges with the resolved actor. Claire checks the domain blocks again and stores the actor; a second follow of the same actor is rejected (`already_following`).
 3. An `Accept` or a `Reject` whose `object_iri` is that follow ID, from the same actor, changes the state to `accepted` or `rejected` (RT1: the sidecar does not fetch the object). An answer to another activity is ignored.
 4. `DELETE /api/federation/following/{id}` deletes the follow and makes an `undo_follow` task when the remote server got the `Follow`. The sidecar sends `Undo` with the ID `{actor}#follows/{id}/undo`. Received items stay.
@@ -976,7 +1008,7 @@ Flow:
 6. `DELETE /api/federation/followers` (removal of a follower) makes a `reject_follow` task; the sidecar sends `Reject(Follow)` to that actor.
 7. The actor document has `following`. The collection shows `totalItems` (accepted follows) only.
 
-The internal API gives a client task only for an account that is an actor now; the task of a paused account waits. Only the kinds of contract 1.3 (`follow`, `undo_follow`, `reject_follow`) are given.
+The internal API gives a client task only for an account that is an actor now; the task of another account waits. Only the kinds of contract 1.3 (`follow`, `undo_follow`, `reject_follow`) are given.
 
 | Method | Path | Access | Answer |
 | :--- | :--- | :--- | :--- |
@@ -1063,7 +1095,7 @@ All routes are for the owner of the account, in both server modes. An item of an
 - Stage 3 has the filter all, not published, and published. The published documents come from `GET /api/federation/objects`.
 - Knowledge base view: the context menu (right click) of a document has "open original", "Markdown export" (`GET /document/export`, MD-3), "publish or dispatch", and "toggle star". The article menu of the reader has the Markdown export too.
 - The page has the command palette of the workspace (`command_palette.js`, the `/` key) with the three stages.
-- Stage 1 is the same in both server modes. An account that is not an actor (for example, while `federation` is off) gets the notice `synd.client.not_actor`, and the timeline has only the stored items.
+- Stage 1 is the same in both server modes and for both public and private profiles: an account with a private profile is an actor in `/syndication` and gets no notice about a private profile. An account that is not an actor gets the notice `synd.client.not_actor`, and the timeline has only the stored items.
 - The stage strip of the home page (HW-8) shows the counts of the timeline (`GET /api/federation/timeline?limit=1`) and its three links go to the three stages.
 - Code: `src/bible/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/bible/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.
 
@@ -1235,7 +1267,7 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 ### 22.4 Reactions to Own Objects (Section 6.6 Rules 3 and 4)
 
 1. A `Like`, an `Announce` whose object is on this server, and an `Undo` of one stay inbox events. The sidecar does not fetch the object. For an `Undo`, `object_type` is the type of the activity that is undone, and that activity must be in the `Undo`.
-2. Claire applies the event when `object_iri` is `{origin}/ap/objects/{public_id}`. A new reaction needs a published document whose account is an actor and whose theme is public; Claire stores the actor one time for each object and kind. An `Undo` deletes the row of the same actor in all states of the object. A repeated activity and a repeated `Undo` give `accepted` and change nothing.
+2. Claire applies the event when `object_iri` is `{origin}/ap/objects/{public_id}`. A new reaction needs a published document whose account is an actor with a public profile (Section 3.1) and whose theme is public; Claire stores the actor one time for each object and kind. An `Undo` deletes the row of the same actor in all states of the object. A repeated activity and a repeated `Undo` give `accepted` and change nothing.
 3. An object path without an object gives `ignored` with the reason `no_object`. An object of another server gives `unsupported_type`, as before. The check of the domain blocks comes first.
 4. A reaction makes no item. The counter of an object is the number of its rows; `GET /api/federation/objects` gives `likes` and `announces`.
 
@@ -1394,7 +1426,7 @@ Code: `src/claire/federation/notes.py` (text to HTML), `src/claire/store/federat
 
 ### 25.1 Routes
 
-All routes are for the owner of the account, in both server modes. A note, an edit, a favourite, and a boost need an account that is an actor (409 `not_actor`). A note or an item of another account gives 404.
+All routes are for the owner of the account, in both server modes. A note, an edit, a favourite, a boost, and the removal of a favourite or a boost need an account that is an actor (`409 not_actor`), regardless of `profile_public` (decision GD7, Section 3.1; never `409 profile_private`). The delete of a note needs no actor. A note or an item of another account gives 404.
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
@@ -1411,11 +1443,11 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
-| `GET` | `/notes/{public_id}` | Note record: `public_id`, `actor_public_id`, `type` (`Note`), `content` (HTML), `summary`, `sensitive`, `language`, `in_reply_to`, `audience`, `mentions` (`handle`, `iri`), `tags` (`name`, `href`), `published_at`, `updated_at`, `edited_at`. 404, or 410 `{"error": "gone", "gone_at"}` for a deleted note. The record is given only while federation is active and the account is an actor. |
+| `GET` | `/notes/{public_id}` | Note record: `public_id`, `actor_public_id`, `type` (`Note`), `content` (HTML), `summary`, `sensitive`, `language`, `in_reply_to`, `audience`, `mentions` (`handle`, `iri`), `tags` (`name`, `href`), `published_at`, `updated_at`, `edited_at`. 404, or 410 `{"error": "gone", "gone_at"}` for a deleted note. The record is given while the account is an actor, regardless of `profile_public` (Section 3.1). |
 | `GET` | `/interaction-tasks` | `tasks`: oldest first, each with `id`, `kind`, `actor_public_id`, `ref_id`, `object_iri`, `recipients`, `created_at`, `lease_until`. Query: `limit` (1 to 50, default 20). The lease rule is that of `/outbox-tasks`. |
 | `POST` | `/interaction-tasks/{id}/ack` | Request: `result`, `error_code`, `mentions` (a list of `handle`, `iri`: the handles that the sidecar resolved). Response: `id`, `status`. |
 
-- `GET /actors/{public_id}/outbox` gives the union of the published documents and the notes that are not deleted, in the sequence of the object number. Its shape did not change.
+- `GET /actors/{public_id}/outbox` gives the union of the published KB documents (when `profile_public` is 1) and the own notes that are not deleted (for all actors), in the sequence of the object number. Its shape did not change.
 - The sidecar reads `/objects/{id}` first and `/notes/{id}` only after a 404.
 - `GET /client-tasks` gives the kinds of contract 1.3 only. The seven kinds of this unit are in `/interaction-tasks`, with their own acknowledgement path.
 
@@ -1440,7 +1472,7 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 9. Edit: `PATCH` changes the fields, sets `edited_at`, changes the item, and makes an `update_note` task. The sidecar sends `Update` with the ID `{object}#updates/{updated_at in milliseconds}`; the `Note` has `updated`. The view shows "edited".
 10. Delete: `DELETE` makes the row the tombstone, deletes the item, and makes a `delete_note` task, in one transaction. The sidecar sends `Delete` with a `Tombstone` (ID `{object}#delete`) to the followers and to the actors of the mentions and the audience that Claire knows. `GET /ap/objects/{id}` gives 410 with a `Tombstone` whose `formerType` is `Note`.
 11. Object path: one dispatcher in the sidecar serves the published documents (`Article`) and the notes (`Note`) at `/ap/objects/{id}`. The `Note` of the path has the mentions that have an actor IRI; the path makes no request to a remote server. The outbox collection has one `Create` for each note.
-12. A task of an account that is not an actor waits (rule 11 of the design). A `note` or `update_note` task of a note that the owner deleted before the handoff is `rejected` (`note_removed`).
+12. A task of an account that is not an actor waits (rule 11 of the design). For every federation actor, regardless of `profile_public`, `lease_interaction_tasks` leases all `INTERACTION_KINDS` (`REMOVAL_KINDS` is removed; decision GD7, Section 3.1). A `note` or `update_note` task of a note that the owner deleted before the handoff is `rejected` (`note_removed`).
 
 ### 25.4 Favourite and Boost (Section 5.4 Rule 4)
 
@@ -1452,7 +1484,7 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 
 ### 25.5 Counters of Own Notes (Section 6.6 Rules 1, 3, and 4)
 
-- A `Like`, an `Announce`, and the `Undo` of one for the object path of a note use `federation_object_reactions`, as for a published document (Section 22.4). A new reaction needs a note that is not deleted and whose account is an actor.
+- A `Like`, an `Announce`, and the `Undo` of one for the object path of a note use `federation_object_reactions`, as for a published document (Section 22.4). A new reaction needs a note that is not deleted and whose account is an actor, regardless of `profile_public` (unlike a published KB document, which also requires `profile_public` 1 and a public KB; Section 3.1).
 - A public `Create` whose `inReplyTo` is an own note is an item with `mention` = 1 for the owner of the note, and a reply to an own note passes the timeline rule.
 - `note.likes` and `note.announces` of an item are the numbers of rows.
 
@@ -1497,7 +1529,7 @@ All routes of the owner are in both server modes (`ROUTE_POLICY`). A request or 
 | `POST` | `/api/federation/notes` | Two more fields. `quote_of`: the ID of an item of the timeline that the note quotes. `quote_policy`: `public` (default), `followers`, `manual`, or `nobody`. New errors: 400 `invalid_quote_policy`; 409 `own_item` (a quote of an own note); 404 `item_not_found` and 400 `blocked_domain` also apply to `quote_of`. |
 | `PATCH` | `/api/federation/notes/{note_id}` | One more field: `quote_policy`. A request with `quote_policy` only does not set `edited_at`. |
 | `GET` | `/api/federation/quotes` | `{"requests", "authorizations", "counts"}`. `requests`: the requests that wait for the owner. `authorizations`: the approved requests. 100 of each at most, newest first. `counts`: `pending` and `approved`, the numbers of all rows. |
-| `PATCH` | `/api/federation/quotes/{quote_id}` | Body `{"state"}`: `approved` (from `pending` or `refused`), `refused` (from `pending`), or `revoked` (from `approved`). 200 `{"quote"}`. 404 `quote_not_found`, 409 `invalid_state` (with `state`), 409 `not_actor`, 400 `invalid_request`. |
+| `PATCH` | `/api/federation/quotes/{quote_id}` | Body `{"state"}`: `approved` (from `pending` or `refused`), `refused` (from `pending`), or `revoked` (from `approved`). 200 `{"quote"}`. 404 `quote_not_found`, 409 `invalid_state` (with `state`), 409 `not_actor`, 409 `profile_private` (only when setting `state` to `approved` for a quote of a published KB document while the profile is private; approving a quote of an own note works for all actors, Section 3.1), 400 `invalid_request`. |
 | `PATCH` | `/api/federation/objects/{object_id}` | Body `{"quote_policy"}`. 200 `{"object": {"id", "kb_id", "document_id", "quote_policy"}}`. 404 `object_not_found`, 400 `invalid_quote_policy`. |
 
 - One request of the list: `id`, `state`, `object` (`id`, `url`, `kind`: `note`, `document`, or `gone`; `text`: the start of the note or the title of the document; a document has `kb_id` and `document_id`), `quoting_object` and `quoting_actor` (addresses of the remote server), `authorization` (the public address of an approved request, else null), `created_at`, `updated_at`.
@@ -1537,14 +1569,14 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 ### 26.4 Inbound Requests (Section 6.6 Rule 5) and the Quote Policy (Section 5.4 Rule 6)
 
 1. The sidecar sends a `QuoteRequest` whose object is on this server as a quote event, with the IDs of the object and of the quoting object (`instrument`). It fetches nothing.
-2. Claire applies these checks in sequence: federation is active; the addresses of the actor are permitted and not blocked; the object is a published document or a note that is public now (if not: `ignored`, `no_object`, and no answer goes out); the quoting object is on the host of the actor (`invalid_object`); the inbox is that of the owner or the shared inbox (`recipient_mismatch`); the rate limit (rule 6).
+2. Claire applies these checks in sequence: the addresses of the actor are permitted and not blocked; `quoted_object` checks that the object is a published KB document (account in `content_account_ids`, public KB, not hidden) or an own note that is not deleted (account in `actor_account_ids`; if not: `ignored`, `no_object`, and no answer goes out); the quoting object is on the host of the actor (`invalid_object`); the inbox is that of the owner or the shared inbox (`recipient_mismatch`); the rate limit (rule 6).
 3. Policy: `public` → `approved`. `followers` → `approved` for a follower of the owner (`federation_followers`), else `refused`. `manual` → `pending`. `nobody` → `refused`. The default is `public` for a note and `manual` for a published document.
 4. `approved` makes a `quote_authorize` task: the sidecar sends `Accept` (ID `{actor}#quote-accepts/{id}`) with the request by its ID and the `QuoteAuthorization` in `result`. `refused` makes a `quote_reject` task: `Reject` (ID `{actor}#quote-rejects/{id}`). `pending` makes no task: the request is in `GET /api/federation/quotes`.
 5. A repeated request for the same quoting object keeps the decision and gets the answer again. A `refused` request becomes `approved` when the policy of now approves it; it does not become `pending` again. A request for a revoked authorization gets a `Reject`.
 6. Rate limit: for a new request, Claire counts the requests of the account from the domain of the actor in the last hour. At `mention_rate_per_hour` (reading settings) the decision is `ignored` with `rate_limited`.
-7. The owner approves or refuses a request that waits, and can approve a refused request later (`PATCH /api/federation/quotes/{id}`). The state and the task of the answer are in one transaction.
+7. The owner approves or refuses a request that waits, and can approve a refused request later (`PATCH /api/federation/quotes/{id}`). Approving a quote of a published KB document while `profile_public` is 0 returns `409 profile_private`; approving a quote of an own note, refusing, and revoking work for every federation actor regardless of `profile_public` (Section 3.1). The state and the task of the answer are in one transaction.
 8. Revoke: `revoked` makes a `quote_revoke` task: `Delete` of the authorization (ID `{actor}#quote-revokes/{id}`) to the quoting actor. The authorization path gives 410 from the time of the change.
-9. The authorization path gives the record only while the request is `approved`, the owner is an actor, and the quoted object is public.
+9. The authorization path gives the record only while the request is `approved` and `quoted_object` resolves the quoted object (for a published KB document: owner in `content_account_ids`, public KB, not hidden; for an own note: owner in `actor_account_ids` and not deleted).
 10. When the quoting actor deletes its object, Claire deletes its requests and authorizations.
 11. A change of the policy sends `Update` of the object: an `update_note` task for a note, an `update` task for a published document. A request that has no change makes no task. `canQuote` of the interaction policy (RT9): `public` → automatic approval for the public collection; `followers` → automatic approval for the followers collection; `manual` → automatic approval for the author and manual approval for the public collection; `nobody` → automatic approval for the author.
 
@@ -1560,7 +1592,7 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 - The tree has the folder "Quote requests" when the account has requests that wait or approved requests: each request has the quoting actor, the text of the own object, a link to the quoting post, and "Approve" and "Refuse"; an approved request has "Revoke". The folder shows the number of requests that wait. The list loads with the poll of the timeline.
 - The context menu of a published document in the knowledge base view has "Quote policy…" with a dialog. The list of the knowledge base shows the number of approved quotes with the other counters.
 - The view puts no content of a remote server into the page: an address is text or a link (HTTP only), and the body of a post stays in the sandbox frame.
-- The texts are the catalog keys `synd.quote.*` and `synd.compose.*` in English and Korean.
+- The texts are the catalog keys `synd.quote.*` and `synd.compose.*` in English and Korean. In `src/bible/static/js/syndication_compose.js`, `profile_private` is in `QUOTE_ERRORS` (for published-document quote approvals) and not in `KNOWN_ERRORS`.
 
 ### 26.7 Differences from the Design and Limits
 

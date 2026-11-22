@@ -106,14 +106,18 @@ def test_e2e_mentions_and_replies_of_actors_that_are_not_followed(env):
     # A mention that is not public is not stored (Section 6.6 rule 2).
     assert _timeline(env, _event("Create", ZED, None, object_iri=f"{ZED}/notes/4", public=False, actor_type="Service", mentioned=[BETA_ACTOR]))["reason"] == "not_public"
     # An account that is not an actor gets no item, and an actor of another server in the list is not an account.
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.beta,)))
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.beta,)))
     assert _timeline(env, _event("Create", ZED, _object(f"{ZED}/notes/5", ZED), mentioned=[BETA_ACTOR, CAROL, f"{PUBLIC_URL}/ap/actors/999"]))["reason"] == "not_followed"
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='active' WHERE id=?", (env.beta,)))
+    # An account with a private profile is an actor: it gets its mention (FEDERATION_GO_LIVE_DESIGN.md decision GD5).
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.beta,)))
+    assert _timeline(env, _event("Create", ZED, _object(f"{ZED}/notes/5", ZED), mentioned=[BETA_ACTOR]))["items"] == 1
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (env.beta,)))
     # A domain block applies to a mention.
     c.request("POST", "/api/admin/federation/domain-blocks", session=env.admin, json={"domain": "blocked.example"})
     eve = "https://blocked.example/users/eve"
     assert _timeline(env, _event("Create", eve, _object("https://blocked.example/notes/1", eve, in_reply_to=OBJECT), mentioned=[ALPHA_ACTOR]))["reason"] == "blocked_domain"
-    assert len(_mentions(env, "mention=1")) == 3
+    assert len(_mentions(env, "mention=1")) == 4
     # A list above the limit of the contract is refused.
     assert env.sidecar.call("POST", "/timeline-events", _event("Create", ZED, _object(f"{ZED}/notes/6", ZED), mentioned=[ALPHA_ACTOR] * 17)).status_code == 400
 
@@ -195,9 +199,9 @@ def test_e2e_automatic_notice_for_a_non_public_message(env):
     _db(env.settings, lambda conn: accounts_store.AccountStore(conn).update_locale(env.alpha, "ko"))
     assert private(YURI, 1)["notices"] == [{"actor_public_id": str(ALPHA_PUBLIC_ID), "content": korean, "language": "ko"}]
     # A message to two accounts gets one notice from each account that is an actor. Beta has no locale: the notice is English.
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.beta,)))
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.beta,)))
     assert private(WALT, 1, mentioned=[ALPHA_ACTOR, BETA_ACTOR])["notices"] == [{"actor_public_id": str(ALPHA_PUBLIC_ID), "content": korean, "language": "ko"}]
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (env.beta,)))
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='active' WHERE id=?", (env.beta,)))
     assert private(WALT, 2, mentioned=[ALPHA_ACTOR, BETA_ACTOR])["notices"] == [{"actor_public_id": str(BETA_PUBLIC_ID), "content": english, "language": "en"}]
 
     # Rules that stop a loop: no notice to a Service, an Application, or an actor of an unknown type, and no notice for a reply to an automatic notice.

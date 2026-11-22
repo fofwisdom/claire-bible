@@ -16,7 +16,7 @@ Claire Bible은 '원문 보존', '결정론적 검증', '자동 복구' 철학�
 |---|---|
 | **멀티 테마(단일 DB 파티셔닝)**: 관심사 분리와 오염 방지를 위한 `theme_id` 파티셔닝 (`CLAIRE_MULTI_THEME`) | 범용 B2C 멀티테넌시 및 불특정 다수 셀프 회원가입 |
 | **로컬 계정과 네트워크 모드**: 불변 USERNAME, 초대제 가입, 계정 네임스페이스(`/@USERNAME`), 외부 IdP(OIDC·GitHub) 로그인 | 계정별 서브도메인·커스텀 도메인, SCIM·SAML 직접 지원 |
-| **신디케이션과 연합**: 연결 계정을 통한 ActivityPub·AT 클라이언트, Fedify 사이드카를 통한 공개 프로필 계정의 ActivityPub 액터(FP1 탐색·FP2 팔로워 구현, 발행은 미구현) | Mastodon 호환 클라이언트 API 서버, 테마 액터, 계정 이전, 릴레이 |
+| **신디케이션과 연합**: 연결 계정을 통한 ActivityPub·AT 클라이언트, Fedify 사이드카를 통한 ActivityPub 액터(FP1 탐색·FP2 팔로워·FP3 발행·FP4 연합 클라이언트 및 원격 읽기·피드 구현) | Mastodon 호환 클라이언트 API 서버, 테마 액터, 계정 이전, 릴레이 |
 | **역할 기반 접근 제어(RBAC)**: 지식 관리자(Owner)와 협업자(Collaborator) 간의 권한 분리 | 복잡한 계층형 엔터프라이즈 인사 조직도 연동 |
 | **표준 인증 및 토큰 교환**: RFC 8693 OAuth 2.0 Token Exchange, OIDC Discovery, 세션 프리픽스 게이트 | 외부 상용 IAM/IDaaS 서비스에 대한 강제 종속 |
 | **듀얼 포맷 지식 표현**: Markdown 및 AsciiDoc(.adoc) 듀얼 포맷 파이프라인, 수식(LaTeX/KaTeX), 표(Table) 구조 보존 | 완전 무제한 임의 바이너리 문서 파싱 |

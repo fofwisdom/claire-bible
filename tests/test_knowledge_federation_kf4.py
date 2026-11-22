@@ -190,7 +190,7 @@ def test_answers_and_grants_come_only_from_the_actor_that_owns_them(b: KfWorld) 
 # --- Outbound offers: the checks of the sender (design Section 12.1 rule 2) ------------------------------------
 
 
-def test_an_account_that_is_not_a_federation_actor_sends_no_offer(b: KfWorld) -> None:
+def test_an_account_that_is_not_a_federation_actor_or_has_private_content_sends_no_offer(b: KfWorld) -> None:
     """A is the sender here (the world ``b`` plays it): the remote knowledge base is one of ``https://a.example``."""
     kb_actor = "https://a.example/ap/kb/1846000000000000100"
     document = _personal_document(b.settings, b.manager, 3, "Seoul and Busan are cities of Korea. " * 3, url="https://example.org/cities", extraction=EXTRACTION)
@@ -205,9 +205,13 @@ def test_an_account_that_is_not_a_federation_actor_sends_no_offer(b: KfWorld) ->
     def _send(conn):
         return offers.send(conn, account_id=3, source_kb_id=personal, source_document_id=document, remote_kb=record, submission_item_id=None, pending_limit=1, automatic=False, origin=b.origin, now=b.now)
 
-    # No public profile: the account has no actor that can sign (design Section 12.1 rule 2).
-    b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=3"))
+    # An account that is not active has no actor that can sign (design Section 12.1 rule 2).
+    b.db(lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=3"))
     assert b.db(_send)["reason_code"] == "not_a_federation_actor"
+    b.db(lambda conn: conn.execute("UPDATE accounts SET status='active' WHERE id=3"))
+    # An account with a private profile is an actor, but its content is private: no document of it goes to another server (decision GD5).
+    b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=3"))
+    assert b.db(_send)["reason_code"] == "profile_private"
     b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=3"))
     sent = b.db(_send)
     assert (sent["state"], sent["capability_iri"]) == ("pending", None) and sent["offer_iri"].startswith(f"{b.origin}/ap/actors/")

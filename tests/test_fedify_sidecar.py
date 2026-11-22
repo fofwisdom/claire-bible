@@ -98,7 +98,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
     try:
         store = accounts_store.AccountStore(conn)
         store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
-        # The admin is a federation actor in network mode. Single mode must hide the admin USERNAME again (S9).
+        # The admin is a federation actor in each server mode, with a public profile and with a private profile (FEDERATION_GO_LIVE_DESIGN.md decision GD5).
         store.update_profile_public(1, 1)
         admin_public_id = store.get(1).public_id
         conn.execute(
@@ -168,6 +168,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         assert actor.status_code == 200, actor.text
         doc = actor.json()
         assert (doc["id"], doc["type"], doc["preferredUsername"], doc["name"]) == (actor_url, "Person", "alice", "Alice Kim")
+        assert doc["discoverable"] is True
         assert doc["inbox"] == f"{actor_url}/inbox"
         assert doc["publicKey"]["publicKeyPem"].startswith("-----BEGIN PUBLIC KEY-----")
         assert str(sidecar_port) not in actor.text + finger.text
@@ -205,13 +206,23 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         server = httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10)
         assert server.status_code == 200 and server.json()["type"] == "Application"
         nodeinfo = httpx.get(f"{base}/nodeinfo/2.1", timeout=10).json()
-        assert nodeinfo["software"]["name"] == "claire-bible" and nodeinfo["usage"]["users"]["total"] == 2
+        # Each active account with a USERNAME is an actor: the admin, alice, and the account with a private profile.
+        assert nodeinfo["software"]["name"] == "claire-bible" and nodeinfo["usage"]["users"]["total"] == 3
 
         admin_finger = httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10)
         assert admin_finger.status_code == 200 and "admin_kim" in admin_finger.text
 
-        # An account that is not an actor, and a path of Claire.
-        assert httpx.get(finger_url, params={"resource": f"acct:private_bob@127.0.0.1:{claire_port}"}, timeout=10).status_code == 404
+        # An account with a private profile is an actor (decision GD5): another server finds it, and its collections show no content.
+        bob_url = f"{base}/ap/actors/216412345678901234"
+        bob_finger = httpx.get(finger_url, params={"resource": f"acct:private_bob@127.0.0.1:{claire_port}"}, timeout=10)
+        assert bob_finger.status_code == 200 and "/ap/actors/216412345678901234" in bob_finger.text
+        bob_doc = httpx.get(bob_url, headers={"Accept": "application/activity+json"}, timeout=10)
+        assert bob_doc.status_code == 200 and (bob_doc.json()["type"], bob_doc.json()["preferredUsername"], bob_doc.json()["discoverable"]) == ("Person", "private_bob", False)
+        for collection in ("followers", "outbox"):
+            listed = httpx.get(f"{bob_url}/{collection}", headers={"Accept": "application/activity+json"}, timeout=10)
+            assert listed.status_code == 200 and listed.json()["totalItems"] == 0, (collection, listed.text)
+        # An account that is not there, and a path of Claire.
+        assert httpx.get(finger_url, params={"resource": f"acct:nobody@127.0.0.1:{claire_port}"}, timeout=10).status_code == 404
         assert httpx.get(f"{base}/api/me", timeout=10).status_code == 404
 
         # Followers collection (unit FP2-3): the total comes from Claire, and no follower is shown.
@@ -228,7 +239,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         assert followers.status_code == 200, followers.text
         assert (followers.json()["id"], followers.json()["totalItems"]) == (f"{actor_url}/followers", 2)
         assert "remote.example" not in followers.text
-        assert httpx.get(f"{base}/ap/actors/216412345678901234/followers", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 404
+        assert httpx.get(f"{base}/ap/actors/999999999999999999/followers", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 404
 
         # Inbox (unit FP2-3): POST only, an activity without a signature gets 401, and a body above the limit of Claire gets 413. Claire stores nothing.
         follow = {"@context": "https://www.w3.org/ns/activitystreams", "id": "https://remote.example/activities/1", "type": "Follow", "actor": "https://remote.example/users/mallory", "object": actor_url}
@@ -237,7 +248,9 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
             assert httpx.get(f"{base}{inbox_path}", timeout=10).status_code == 405
             assert httpx.post(f"{base}{inbox_path}", json=follow, headers=activity_headers, timeout=10).status_code == 401
             assert httpx.post(f"{base}{inbox_path}", json={**follow, "summary": "x" * (1024 * 1024)}, headers=activity_headers, timeout=10).status_code == 413
-        assert httpx.post(f"{base}/ap/actors/216412345678901234/inbox", json=follow, headers=activity_headers, timeout=10).status_code == 404
+        # The inbox of the account with a private profile is there: an activity without a signature gets 401. An account that is not there has no inbox.
+        assert httpx.post(f"{base}/ap/actors/216412345678901234/inbox", json=follow, headers=activity_headers, timeout=10).status_code == 401
+        assert httpx.post(f"{base}/ap/actors/999999999999999999/inbox", json=follow, headers=activity_headers, timeout=10).status_code == 404
         conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
         try:
             assert conn.execute("SELECT COUNT(*) FROM federation_followers").fetchone()[0] == 2
@@ -253,16 +266,16 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         # The sidecar database is a secret store (design Section 7 item 5).
         assert (sidecar_db.stat().st_mode & 0o777) == 0o600
 
-        # Single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2): federation has no switch, and the actors work with the same rules. A paused account gives 404.
+        # Single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2): federation has no switch, and the actors work with the same rules. An account with a private profile is an actor in this mode too.
         seed(mode="single")
         conn = dbm.connect_existing(data_dir / "claire.db")
         try:
             accounts_store.AccountStore(conn).update_profile_public(1, 0)
         finally:
             conn.close()
-        paused = httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10)
-        assert paused.status_code == 404 and "admin_kim" not in paused.text
-        assert httpx.get(f"{base}/ap/actors/{admin_public_id}", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 404
+        private = httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10)
+        assert private.status_code == 200 and "admin_kim" in private.text
+        assert httpx.get(f"{base}/ap/actors/{admin_public_id}", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 200
         still = httpx.get(finger_url, params={"resource": f"acct:alice@127.0.0.1:{claire_port}"}, timeout=10)
         assert still.status_code == 200
         assert httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 200

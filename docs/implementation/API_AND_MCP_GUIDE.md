@@ -1,7 +1,7 @@
 # Claire Bible REST API 및 MCP 연결 가이드 (통합 구현본)
 
 - **상태**: **구현 완료 (REST API + M1 MCP 툴셋 + OAuth 2.1 표준 인가 서버)**
-- **기준 커밋**: `d15ae8e0` (2026-11-16). Sections 1.1, 1.7, and 3 were examined again against the code of this commit. The other sections have the basis 2026-10-16.
+- **기준 커밋**: `d15ae8e0` (2026-11-16) 및 2026-11-22 작업 트리(§2.7 결정 GD4–GD7 반영). 1.1·1.7·3절은 `d15ae8e0` 코드 기준으로 재검토했고, 그 외 절의 확인 기준은 2026-10-16이다.
 - **Design principles**: [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md) (decisions of MCP and OAuth, and the open proposals MP1 to MP4)
 - **기준 프로토콜 및 사양**:
   - OpenAPI 3.1.0 ([`openapi.yaml`](openapi.yaml))
@@ -362,19 +362,19 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 }
 ```
 
-### 2.7 연합 발행 API (`/api/federation/*`, 네트워크 모드)
+### 2.7 연합 발행 API (`/api/federation/*`)
 
-네이티브 연합 액터로 문서를 발행하거나 철회한다. 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다(연합에는 서버 스위치가 없다). 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
+네이티브 연합 액터로 개인 지식 베이스 문서를 발행하거나 철회한다. 세 경로 모두 싱글 모드와 네트워크 모드에서 동일하게 동작한다(`ALL_MODES`). `active` 상태이고 USERNAME이 있는 계정은 프로필 공개 여부와 무관하게 모두 연합 액터이며(결정 GD5), 서버 전체 연합 스위치는 없다(결정 GD4). 비공개 프로필 계정도 액터 탐색, 노트 작성·편집·삭제, 좋아요, 부스트, 노트 인용은 모두 사용할 수 있으며(결정 GD7), 개인 지식 베이스 문서 발행(`POST /api/federation/publish`)만 프로필이 공개(`profile_public = 1`)일 때 허용되고 비공개 프로필이면 `409 profile_private`를 반환한다([`FEDERATION.md`](FEDERATION.md) 3.1절). `/api/federation/status`의 `content_public` 필드는 개인 지식 베이스 문서를 공개로 발행할 수 있는지(`is_actor`와 `profile_public = 1`)를 나타낸다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
 
 | 메서드 | 경로 | 스코프 | 기능 |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/federation/status` | `owner` | 핸들, 액터 상태, 팔로워 수, 대기 중인 작업 수 |
-| `POST` | `/api/federation/publish` | `write` | 본문 `{"theme": "<테마 번호>", "document_id": "<문서 ID>"}`. 공개 테마의 숨기지 않은 문서만 발행한다. 처음이면 `create`, 다시 호출하면 같은 객체의 `update` 작업을 만든다. 응답 202 |
+| `GET` | `/api/federation/status` | `owner` | 핸들, 액터 상태, `content_public`(개인 지식 베이스 문서를 공개로 발행할 수 있으면 `true`), 팔로워 수, 대기 중인 작업 수 |
+| `POST` | `/api/federation/publish` | `write` | 본문 `{"kb": "<개인 지식 베이스 번호>", "document_id": "<문서 ID>"}`. 공개 개인 지식 베이스의 숨기지 않은 추출 완료 문서만 발행한다. 처음이면 `create`, 다시 호출하면 같은 객체의 `update` 작업을 만든다. 응답 202 |
 | `POST` | `/api/federation/retract` | `write` | 본문 `{"object_id": "<객체 ID>"}`. 객체를 지우고 팔로워에게 `Delete`를 요청한다. 응답 202 |
 
 - 발행은 비동기다. 202는 Claire가 객체와 작업을 저장했다는 뜻이고, 사이드카가 5초 안에 작업을 가져가 팔로워의 서버로 전달한다.
-- 오류 코드: 400 `invalid_request`, 404 `theme_not_found`·`document_not_found`·`object_not_found`, 409 `not_an_actor`·`theme_not_public`·`document_not_public`·`document_has_no_body`.
-- 철회와 테마 비공개 전환은 원격 서버에 삭제를 **요청**한다. 원격 서버가 사본을 지운다는 보장은 없다.
+- 오류 코드: 400 `invalid_request`, 404 `theme_not_found`·`document_not_found`·`object_not_found`, 409 `not_an_actor`·`profile_private`·`theme_not_public`·`document_not_public`·`document_not_extracted`·`document_has_no_body`.
+- 철회와 개인 지식 베이스 비공개 전환은 원격 서버에 삭제를 **요청**한다. 원격 서버가 사본을 지운다는 보장은 없다.
 - `readonly` 스코프는 발행할 수 없다. 관리자도 다른 계정을 대신해 발행할 수 없다.
 
 ---

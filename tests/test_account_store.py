@@ -284,10 +284,10 @@ def test_change_username_hold_expiry_early_release_and_federation_outbox(conn: s
     tasks = conn.execute("SELECT kind, object_public_id, status FROM federation_outbox WHERE account_id=? ORDER BY id", (alice.id,)).fetchall()
     assert [r[0] for r in tasks] == ["update_actor", "update_actor"]
 
-    # Private account rename does not queue update_actor.
+    # An account with a private profile is an actor too: its rename queues update_actor.
     bob_renamed = store.change_username(bob.id, "Bobby", now=305.0)
-    assert bob_renamed.federation_update_queued is False
-    assert conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=?", (bob.id,)).fetchone()[0] == 0
+    assert bob_renamed.federation_update_queued is True
+    assert [r[0] for r in conn.execute("SELECT kind FROM federation_outbox WHERE account_id=?", (bob.id,))] == ["update_actor"]
 
     # Previous handle is held for 7 days.
     assert store.is_username_retired("Alice", now=300.0 + 3600.0) is True

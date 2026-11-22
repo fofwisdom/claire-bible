@@ -30,9 +30,9 @@ Deno.test("config, actor, and key calls agree with the fixtures", async () => {
 
 Deno.test("a 404 is null", async () => {
   const { api } = client();
-  assert.equal(await api.actorByUsername("private_bob"), null);
-  assert.equal(await api.actor("216412345678901234"), null);
-  assert.equal(await api.actorKeys("216412345678901234"), null);
+  assert.equal(await api.actorByUsername("suspended_carol"), null);
+  assert.equal(await api.actor("316412345678901234"), null);
+  assert.equal(await api.actorKeys("316412345678901234"), null);
 });
 
 Deno.test("heartbeat agrees with the fixture, and a different major version is an error", async () => {
@@ -69,7 +69,7 @@ Deno.test("follower pages and domain blocks agree with the fixtures", async () =
   const first = await api.followers("116412345678901234", { limit: 2 });
   assert.deepEqual(first, fixture("followers").response);
   assert.deepEqual(await api.followers("116412345678901234", { limit: 2, maxId: first!.next_max_id! }), fixture("followers_next").response);
-  assert.equal(await api.followers("216412345678901234"), null);
+  assert.equal(await api.followers("316412345678901234"), null);
   const blocks = await api.domainBlocks();
   assert.deepEqual(blocks, fixture("domain_blocks").response);
   assert.equal(blocks.etag, (await api.config()).domain_blocks_etag);
@@ -101,7 +101,7 @@ Deno.test("client tasks, their acknowledgement, and the following total agree wi
   assert.equal(await api.ackClientTask(1, "handed_off", null, body.actor), "handed_off");
   assert.equal(await api.ackClientTask(999, "rejected", "actor_not_found"), null);
   assert.deepEqual(await api.following("116412345678901234"), fixture("following").response);
-  assert.equal(await api.following("216412345678901234"), null);
+  assert.equal(await api.following("316412345678901234"), null);
   assert.equal(fake.calls[0], `GET ${fixture("client_tasks").request.path}`);
 });
 
@@ -143,8 +143,8 @@ Deno.test("outbox tasks, acknowledgements, objects, and the outbox collection ag
   assert.deepEqual(await api.actorResult("916412345678901234"), { state: "gone", gone_at: 1800000350.0 });
   assert.equal(await api.actor("916412345678901234"), null);
   assert.deepEqual(await api.actorResult("116412345678901234"), { state: "found", record: fixture("actor").response });
-  assert.equal(await api.actorResult("216412345678901234"), null);
-  assert.equal(await api.actorOutbox("216412345678901234"), null);
+  assert.equal(await api.actorResult("316412345678901234"), null);
+  assert.equal(await api.actorOutbox("316412345678901234"), null);
   assert.equal(fake.calls[0], `GET ${fixture("outbox_tasks").request.path}`);
 
   fake.failStatus = 500;

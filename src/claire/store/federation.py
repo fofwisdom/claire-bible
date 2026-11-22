@@ -523,20 +523,32 @@ def count_pending_tasks(conn: sqlite3.Connection, account_id: int) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=? AND status='pending'", (account_id,)).fetchone()[0])
 
 
-def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int, include_delete_actor: bool = False) -> list[OutboxTask]:
-    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` and return them. ``include_delete_actor`` adds the ``delete_actor`` tasks of all accounts: the account of such a task is purged and is in no list of actors.
+def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], actor_account_ids: list[int], now: float, lease_seconds: float, limit: int, include_delete_actor: bool = False) -> list[OutboxTask]:
+    """Give a lease on the oldest ready tasks and return them.
+
+    - ``account_ids``: the accounts whose content is public. Each kind of task of these accounts is given.
+    - ``actor_account_ids``: the accounts that are actors. For an actor that is not in ``account_ids`` (its profile is private) only the kinds ``update_actor`` and ``delete`` are given: they tell nothing of the content of the account, and a ``delete`` removes content. Its ``create`` and ``update`` tasks wait.
+    - ``include_delete_actor`` adds the ``delete_actor`` tasks of all accounts: the account of such a task is purged and is in no list of actors.
 
     A task is ready when its status is ``pending`` and its lease is absent or ended. Thus a task that was not acknowledged is given again after its lease. The caller commits.
     """
     if limit < 1 or lease_seconds <= 0:
         raise ValueError("limit and lease_seconds must be more than 0")
-    if not account_ids and not include_delete_actor:
+    conditions: list[str] = []
+    values: list[int] = []
+    if account_ids:
+        conditions.append(f"account_id IN ({','.join('?' for _ in account_ids)})")
+        values.extend(account_ids)
+    if actor_account_ids:
+        conditions.append(f"(kind IN ('update_actor', 'delete') AND account_id IN ({','.join('?' for _ in actor_account_ids)}))")
+        values.extend(actor_account_ids)
+    if include_delete_actor:
+        conditions.append("kind='delete_actor'")
+    if not conditions:
         return []
-    marks = ",".join("?" for _ in account_ids)
-    owner = f"(account_id IN ({marks}) OR kind='delete_actor')" if include_delete_actor else f"account_id IN ({marks})"
     rows = conn.execute(
-        f"SELECT id FROM federation_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND {owner} ORDER BY id LIMIT ?",
-        (now, *account_ids, limit),
+        f"SELECT id FROM federation_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND ({' OR '.join(conditions)}) ORDER BY id LIMIT ?",
+        (now, *values, limit),
     ).fetchall()
     leased: list[OutboxTask] = []
     for row in rows:

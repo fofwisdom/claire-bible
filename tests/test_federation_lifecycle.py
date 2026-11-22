@@ -187,10 +187,17 @@ def test_display_name_change_of_an_actor_makes_an_update_actor_task(env):
         store.update_display_name(env.alpha, "Alpha Kim")
         assert _new_tasks(env.settings) == [(env.alpha, "update_actor", None, "pending", None)]
 
-        # A paused account sends nothing.
+        # Changing ``profile_public`` queues ``update_actor`` (for ``discoverable``); repeating the same value queues nothing. An account with a private profile is an actor too (decisions GD5 and GD7): its followers get the new name.
+        store.update_profile_public(env.beta, 0)
         store.update_profile_public(env.beta, 0)
         store.update_display_name(env.beta, "Beta Kim")
-        assert len(_new_tasks(env.settings)) == 1
+        assert _new_tasks(env.settings) == [(env.alpha, "update_actor", None, "pending", None), (env.beta, "update_actor", None, "pending", None), (env.beta, "update_actor", None, "pending", None)]
+
+        # An account that is not active is not an actor: it sends nothing.
+        conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.beta,))
+        conn.commit()
+        store.update_display_name(env.beta, "Beta Lee")
+        assert len(_new_tasks(env.settings)) == 3
     finally:
         conn.close()
 
@@ -278,7 +285,8 @@ def test_purge_without_followers_or_with_the_skip_option_makes_no_task(env):
     assert _tombstones(env.settings)[ALPHA_PUBLIC_ID] == "actor" and _tombstones(env.settings)[BETA_PUBLIC_ID] == "actor"
 
 
-def test_purge_of_an_account_that_was_never_an_actor_leaves_no_tombstone(env):
+def test_purge_of_an_account_with_a_private_profile_leaves_the_tombstone_of_its_actor(env):
+    """Decision GD5: an account with a private profile is an actor, so its purge leaves the tombstone of the actor."""
     conn = _connect(env.settings)
     try:
         store = accounts_store.AccountStore(conn)
@@ -286,8 +294,8 @@ def test_purge_of_an_account_that_was_never_an_actor_leaves_no_tombstone(env):
         store.purge(env.beta, data_dir=env.settings.data_dir)
     finally:
         conn.close()
-    assert BETA_PUBLIC_ID not in _tombstones(env.settings)
-    assert _Internal(env.settings).call("GET", f"/actors/{BETA_PUBLIC_ID}").status_code == 404
+    assert _tombstones(env.settings)[BETA_PUBLIC_ID] == "actor"
+    assert _Internal(env.settings).call("GET", f"/actors/{BETA_PUBLIC_ID}").status_code == 410
 
 
 def test_a_task_of_an_account_row_that_is_gone_is_rejected(env):

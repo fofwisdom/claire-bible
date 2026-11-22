@@ -204,7 +204,7 @@ def test_lease_gives_ready_tasks_one_time_until_the_lease_ends_and_ack_is_final(
         first = fed.add_outbox_task(conn, account_id=5, kind="create", object_public_id=70, now=100.0)
         second = fed.add_outbox_task(conn, account_id=5, kind="update", object_public_id=70, now=101.0)
         other = fed.add_outbox_task(conn, account_id=6, kind="create", object_public_id=71, now=102.0)
-        lease = lambda now, accounts=(5, 6), limit=10: [t.id for t in fed.lease_outbox_tasks(conn, account_ids=list(accounts), now=now, lease_seconds=60.0, limit=limit)]  # noqa: E731
+        lease = lambda now, accounts=(5, 6), limit=10: [t.id for t in fed.lease_outbox_tasks(conn, account_ids=list(accounts), actor_account_ids=list(accounts), now=now, lease_seconds=60.0, limit=limit)]  # noqa: E731
 
         assert lease(200.0, limit=1) == [first.id]
         assert lease(200.0, accounts=(5,)) == [second.id]
@@ -291,8 +291,8 @@ def test_only_a_document_of_a_public_theme_of_the_own_account_can_be_published(e
     assert _objects(env.settings) == [] and _tasks(env.settings) == []
 
 
-@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_not_public"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active")])
-def test_an_account_that_is_not_an_actor_cannot_publish(env, change, state):
+@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_private"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active")])
+def test_an_account_with_private_content_or_that_is_not_an_actor_cannot_publish(env, change, state):
     conn = dbm.connect_existing(env.settings.db_file)
     conn.execute(change)
     conn.commit()
@@ -303,7 +303,8 @@ def test_an_account_that_is_not_an_actor_cannot_publish(env, change, state):
         # A suspended account has no valid session.
         assert response.status_code in (401, 403, 404, 409)
     else:
-        assert (response.status_code, response.json()) == (409, {"error": "not_an_actor", "actor_state": state})
+        # The account is an actor. A published document is content, and the content of an account with a private profile is private (decision GD5).
+        assert (response.status_code, response.json()) == (409, {"error": "profile_private"})
     assert _objects(env.settings) == [] and _tasks(env.settings) == []
 
 
@@ -491,7 +492,7 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
                 finally:
                     c.close()
 
-                # An account that is not an actor sees no native target.
+                # An account with a private profile sees no native target: its content is private.
                 c = dbm.connect_existing(settings.db_file)
                 try:
                     accounts_store.AccountStore(c).update_profile_public(alpha, 0)

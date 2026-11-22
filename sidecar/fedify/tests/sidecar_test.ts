@@ -63,6 +63,7 @@ Deno.test("a handle resolves to an actor document with the canonical origin", as
   assert.equal((doc.endpoints as Record<string, unknown>).sharedInbox, `${ORIGIN}/ap/inbox`);
   assert.equal(doc.manuallyApprovesFollowers, false);
   assert.equal(doc.published, "2027-01-15T08:01:40.5Z");
+  assert.equal(doc.discoverable, true);
   const publicKey = doc.publicKey as Record<string, unknown>;
   assert.equal(publicKey.owner, ALICE_URL);
   assert.match(String(publicKey.publicKeyPem), /^-----BEGIN PUBLIC KEY-----/);
@@ -91,14 +92,14 @@ Deno.test("accounts that are not actors get the same 404", async () => {
   const { get } = setup();
   const reference = await get(webfinger("nobody@claire.example.com"), JRD);
   assert.equal(reference.status, 404);
-  for (const path of [webfinger("private_bob@claire.example.com"), webfinger(`${ALICE}@claire.example.com`), webfinger("alice@other.example")]) {
+  for (const path of [webfinger("suspended_carol@claire.example.com"), webfinger(`${ALICE}@claire.example.com`), webfinger("alice@other.example")]) {
     const response = await get(path, JRD);
     assert.equal(response.status, 404, path);
     assert.equal(response.text, reference.text, path);
   }
   const actorReference = await get("/ap/actors/999", AS2);
   assert.equal(actorReference.status, 404);
-  for (const path of ["/ap/actors/216412345678901234", "/ap/actors/alice", "/ap/actors/0116412345678901234"]) {
+  for (const path of ["/ap/actors/316412345678901234", "/ap/actors/alice", "/ap/actors/0116412345678901234"]) {
     const response = await get(path, AS2);
     assert.equal(response.status, 404, path);
     assert.equal(response.text, actorReference.text, path);
@@ -128,7 +129,7 @@ Deno.test("NodeInfo shows the software and federated actors only", async () => {
   assert.deepEqual(info.software, { name: "claire-bible", version: "0.0.0+fixture" });
   assert.deepEqual(info.protocols, ["activitypub"]);
   assert.equal(info.openRegistrations, false);
-  assert.equal((info.usage as { users: { total: number } }).users.total, 1);
+  assert.equal((info.usage as { users: { total: number } }).users.total, 3);
 });
 
 Deno.test("the server actor and NodeInfo work in single mode", async () => {
@@ -508,6 +509,7 @@ Deno.test("update_actor after username rename keeps immutable actor id and deliv
     username: "AliceDev",
     updated_at: 1800000500.0,
     profile_url: `${ORIGIN}/@AliceDev/`,
+    discoverable: false,
   };
   const follower = (fixture("followers").response.items as unknown[])[1];
   const deliveries: Record<string, unknown>[] = [];
@@ -544,6 +546,7 @@ Deno.test("update_actor after username rename keeps immutable actor id and deliv
     assert.equal(person.id, ALICE_URL);
     assert.equal(person.preferredUsername, "AliceDev");
     assert.equal(person.url, `${ORIGIN}/@AliceDev/`);
+    assert.equal(person.discoverable, false);
   } finally {
     globalThis.fetch = realFetch;
   }

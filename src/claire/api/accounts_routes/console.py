@@ -1096,8 +1096,8 @@ def _settings_account_body(
         ("extraction_mode", t("console.settings.account.extraction_mode_label"), _extraction_mode_text(account.extraction_mode)),
     ]
     info_html = console_kv([{"label": label, "value": value, "attrs": {"data-account-field": key}} for key, label, value in info_rows])
-    # Fedify sidecar design Sections 8.1 and 8.4: a public profile is a federation actor, and the change to public needs a step-up.
-    profile_toggle_attrs: dict[str, Any] = {"data-settings-toggle": "profile-public", "data-step-up": "password" if has_password else "session"}
+    # The switch needs no confirmation of identity (FEDERATION_GO_LIVE_DESIGN.md decision GD6). The account is a federation actor in the two states; a private profile makes its content private (decision GD5).
+    profile_toggle_attrs: dict[str, Any] = {"data-settings-toggle": "profile-public"}
     if account.profile_public:
         profile_toggle_attrs["checked"] = True
     profile_toggle_attrs["aria-label"] = t("console.settings.account.profile_public_label")

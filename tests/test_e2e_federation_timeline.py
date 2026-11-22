@@ -120,10 +120,13 @@ def test_e2e_create_announce_reply_update_and_delete(env):
 
 def test_e2e_blocks_limits_and_the_actor_rule(env):
     c = env.client
-    # Beta stops being an actor: only alpha gets the item (Section 6.4 rule 2).
+    # An account with a private profile is an actor: it gets the item as before (FEDERATION_GO_LIVE_DESIGN.md decision GD5).
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.beta,)))
+    assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/9", CAROL)))["items"] == 2
+    # Beta stops being an actor: only alpha gets the item (Section 6.4 rule 2).
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.beta,)))
     assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/10", CAROL)))["items"] == 1
-    assert [row[0] for row in _items(env)] == [env.alpha]
+    assert [row[0] for row in _items(env, "object_iri=?", (f"{CAROL}/notes/10",))] == [env.alpha]
     assert env.sidecar.call("GET", "/timeline-interest?actor=" + CAROL.replace(":", "%3A").replace("/", "%2F")).json() == {"followed": True, "context_fetch": "on", "context_depth": 5}
     assert env.sidecar.call("GET", "/timeline-interest?actor=" + STRANGER.replace(":", "%3A").replace("/", "%2F")).json()["followed"] is False
 

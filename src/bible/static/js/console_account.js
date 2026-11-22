@@ -279,8 +279,7 @@
   var ACTOR_STATE_TEXT = {
     active: tr("console.js.account.federation.state.active"),
     account_not_active: tr("console.js.account.federation.state.account_not_active"),
-    no_username: tr("console.js.account.federation.state.no_username"),
-    profile_not_public: tr("console.js.account.federation.state.profile_not_public")
+    no_username: tr("console.js.account.federation.state.no_username")
   };
 
   function setFederationField(name, text) {
@@ -292,6 +291,8 @@
     setFederationField("handle", status.handle || tr("console.js.account.federation.handle_unset"));
     setFederationField("actor_id", status.actor_id || "-");
     setFederationField("actor_state", ACTOR_STATE_TEXT[status.actor_state] || String(status.actor_state));
+    // An account is an actor with a private profile too. Only its content is then private.
+    setFederationField("content", tr(status.content_public ? "console.js.account.federation.content.public" : "console.js.account.federation.content.private"));
     if (status.followers && typeof status.followers.total === "number") {
       setFederationField("followers_total", status.followers.total.toLocaleString("en-US"));
     }
@@ -609,11 +610,10 @@
     });
   }
 
-  // --- Step-up dialog (Fedify sidecar design Section 8.4). With federation on, the server refuses the profile_public change 0 -> 1 without recent authentication. ---
+  // --- Step-up dialog: a change that needs recent authentication opens it (the USERNAME change). The caller gives the text and the label of the confirm button. The profile switch does not use it. ---
 
   // Resolves to true after POST /api/auth/reauth succeeds, and to false when the user closes the dialog.
-  function openStepUpDialog(options) {
-    var opts = options || {};
+  function openStepUpDialog(opts) {
     return new Promise(function (resolve) {
       var dialog = document.createElement("dialog");
       dialog.className = "console-step-up";
@@ -626,7 +626,7 @@
       title.textContent = tr("console.js.account.stepup.title");
       var text = document.createElement("p");
       text.className = "hint";
-      text.textContent = opts.text || tr("console.js.account.stepup.text");
+      text.textContent = opts.text;
       var label = document.createElement("label");
       label.textContent = tr("console.js.account.stepup.password");
       var field = document.createElement("input");
@@ -645,7 +645,7 @@
       confirm.type = "submit";
       confirm.className = "pref-btn pref-btn-accent";
       confirm.setAttribute("data-step-up-confirm", "");
-      confirm.textContent = opts.confirm || tr("console.js.account.stepup.confirm");
+      confirm.textContent = opts.confirm;
       var cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "pref-btn";
@@ -694,23 +694,16 @@
         var section = input.closest("section") || input.parentElement;
         var checked = input.checked;
         input.disabled = true;
-        // The step-up dialog opens before the change to public is sent. An account without a password has no dialog: the server answers from the session age.
-        var ready = checked && input.getAttribute("data-step-up") === "password" ? openStepUpDialog() : Promise.resolve(true);
-        ready.then(function (confirmed) {
-          if (!confirmed) {
+        // The change needs no confirmation of identity: the switch shows or hides the content of the account.
+        request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
+          if (r.ok) {
+            show(section, tr("console.js.common.saved"), false);
+            var dd = document.querySelector("[data-account-field='profile_public']");
+            if (dd) dd.textContent = checked ? tr("console.js.account.profile.public") : tr("console.js.account.profile.private");
+          } else {
             input.checked = !checked;
-            return null;
+            show(section, errorText(r.status, r.body), true);
           }
-          return request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
-            if (r.ok) {
-              show(section, tr("console.js.common.saved"), false);
-              var dd = document.querySelector("[data-account-field='profile_public']");
-              if (dd) dd.textContent = checked ? tr("console.js.account.profile.public") : tr("console.js.account.profile.private");
-            } else {
-              input.checked = !checked;
-              show(section, errorText(r.status, r.body), true);
-            }
-          });
         }).catch(function () {
           input.checked = !checked;
           show(section, tr("console.js.common.network_error"), true);

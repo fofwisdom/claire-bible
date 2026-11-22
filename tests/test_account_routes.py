@@ -241,9 +241,15 @@ def test_account_store_update_profile_public_unit(client, settings):
         assert updated.profile_public is True
         assert updated.updated_at == 12345.0
 
+        # Repeating the same value queues no second update_actor task.
+        store.update_profile_public(1, True, now=12345.5)
+
         updated2 = store.update_profile_public(1, 0, now=12346.0)
         assert updated2.profile_public is False
         assert updated2.updated_at == 12346.0
+
+        tasks = conn.execute("SELECT kind, account_id FROM federation_outbox ORDER BY id").fetchall()
+        assert [(r[0], r[1]) for r in tasks] == [("update_actor", 1), ("update_actor", 1)]
 
         with pytest.raises(accounts_store.AccountNotFound):
             store.update_profile_public(999999, 1)
@@ -314,8 +320,8 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     assert page.status_code == 200
     assert 'data-settings-toggle="profile-public"' in page.text
     assert '<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"' in page.text
-    # The change to public makes the account a federation actor, so the switch asks for a confirmation of identity (FD11).
-    assert 'data-settings-toggle="profile-public" data-step-up="' in page.text
+    # The switch asks for no confirmation of identity (FEDERATION_GO_LIVE_DESIGN.md decision GD6).
+    assert 'data-settings-toggle="profile-public" data-step-up="' not in page.text
     assert not _profile_switch_checked(page.text)
     assert '<dd data-account-field="profile_public">Private</dd>' in page.text
     assert "data-profile-public-hint" not in page.text

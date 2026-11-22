@@ -198,7 +198,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 ## Fedify 사이드카(연합) 운영
 
-연합 구현의 정본은 [FEDERATION.md](FEDERATION.md)다. 지금 구현은 FP1(탐색)까지이며 받은편지함·팔로워·발행은 없다.
+연합 구현의 정본은 [FEDERATION.md](FEDERATION.md)다. FP1–FP4(탐색, 팔로워, 문서 발행, 연합 클라이언트·원격 읽기·노트·반응·인용·피드)까지 구현되어 있다([FEDERATION.md](FEDERATION.md) §1).
 
 ### 시작과 중지
 
@@ -214,8 +214,12 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 6. 준비 검사는 관문이 아니라 상태 보고다. 통과하면 다른 서버가 이 서버의 액터에 닿을 수 있고, 따로 켜는 단계는 없다. 콘솔 화면 `/admin/federation`은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록을 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다.
 
-계정 하나의 연합을 멈추려면 그 계정의 프로필을 비공개로 바꾼다([FEDERATION.md](FEDERATION.md) §8.4). 서버 전체의 연합을 끄는 방법은 없다.
+프로필을 비공개로 바꾸면(`profile_public = 0`) 액터의 `discoverable`이 `false`로 갱신되고(`Update(Person)`) 웹 프로필·개인 지식 베이스 공개 여부, KB 문서 발행, 지식 연합 제안·기여자 표시만 제한되며 액터 자체는 멈추지 않는다([FEDERATION.md](FEDERATION.md) §3.1). 계정 하나의 연합을 멈추려면 계정을 정지하거나 삭제 예약을 시작해야 하며(액터 경로 404, §8.4), 서버 전체의 연합을 끄는 방법은 없다.
 
+### 파일
+
+| 경로 | 만드는 주체 | 내용 |
+| :--- | :--- | :--- |
 | `data/run/federation.sock` | `api` 프로세스 (기동할 때마다) | 내부 연합 API의 Unix 소켓, 권한 0660. 정상 종료 때 지우고, 남아 있던 소켓 파일은 다음 기동 때 교체한다 |
 | `data/run/federation_heartbeat.json` | `api` 프로세스 | 사이드카가 마지막으로 보낸 heartbeat와 받은 시각. GF2·GF6이 읽는다. 120초보다 오래되면 검사 실패 |
 | `data/auth/fedify_service.key` | `claire migrate` | 내부 연합 API 서명용 서비스 키, 32바이트, 권한 0600. `fedify` 컨테이너에는 이 파일 하나만 읽기 전용으로 마운트된다 |

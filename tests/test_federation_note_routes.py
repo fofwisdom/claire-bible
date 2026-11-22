@@ -88,14 +88,31 @@ def test_note_models_are_sealed_and_bad_requests_are_refused(internal):  # noqa:
     assert internal.get("/notes/816412345678901999").status_code == 404
 
 
-def test_note_is_not_public_while_its_account_is_not_an_actor_and_a_resolved_actor_on_a_blocked_domain_is_not_stored(internal):  # noqa: F811
+def test_note_stays_public_for_private_profile_actor_hides_for_non_actor_and_blocks_bad_domains(internal):  # noqa: F811
     _seed(internal)
     ack = fixture("interaction_task_ack")["request"]
     assert internal.call({**ack, "body": {**ack["body"], "mentions": [{"handle": "@dan@other.example", "iri": "https://blocked.example/users/dan"}]}}).status_code == 200
     assert json.loads(_client_rows(internal, "SELECT mentions_json FROM federation_notes WHERE public_id=?", (NOTE_ID,))[0][0])[1]["iri"] is None
+    # Decision GD7: a private profile hides published KB documents in outbox, while own notes stay public and interaction tasks still lease.
     internal.pause(internal.alice)
+    assert internal.get(f"/notes/{NOTE_ID}").status_code == 200
+    outbox = internal.get("/actors/116412345678901234/outbox").json()
+    assert (outbox["total"], [item["id"] for item in outbox["items"]]) == (1, [str(NOTE_ID)])
+    assert [task["kind"] for task in internal.get("/interaction-tasks?limit=10").json()["tasks"]] == ["delete_note", "like", "announce"]
+    # When the account is not an actor (suspended), own notes return 404 and ready interaction tasks wait, while a deleted note stays 410.
+    client = client_db.connect_client_existing(client_db.client_db_path(internal.settings.db_file))
+    try:
+        client.execute("UPDATE federation_client_outbox SET lease_until=NULL WHERE id IN (11, 12, 13)")
+        client.commit()
+    finally:
+        client.close()
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (internal.alice,))
+        conn.commit()
+    finally:
+        conn.close()
     assert internal.get(f"/notes/{NOTE_ID}").status_code == 404
-    # A deleted note is gone in all states, the same as a deleted object.
     assert internal.get(f"/notes/{GONE_NOTE_ID}").status_code == 410
     assert internal.get("/interaction-tasks?limit=10").json() == {"tasks": []}
 

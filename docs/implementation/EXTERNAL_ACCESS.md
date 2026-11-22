@@ -158,7 +158,7 @@ Fedify 사이드카는 모든 서버에서 뜬다(연합에는 스위치가 없�
 | 접두어 | `/ap/` | 사이드카 |
 
 - `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다. `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
-- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 액터가 아닌 계정(프로필 비공개, USERNAME 없음, 비활성)의 경로는 사이드카가 404를 낸다.
+- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 비공개 프로필 계정도 연합 액터이므로 다른 서버가 탐색·팔로우할 수 있으며, `active` 상태가 아니거나 USERNAME이 없는 계정의 액터 경로만 사이드카가 404를 낸다.
 - 사이드카는 URL을 Claire가 알려 준 정규 origin으로 만들고 요청의 `Host`를 쓰지 않는다. `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` 헤더는 사이드카가 읽지 않고 지운다.
 - 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. proxy는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 사이드카로 넘기는 `Host`는 앱 호스트여야 한다. 사이드카는 본문을 1 MiB까지만 읽고 넘으면 413을 낸다.
 - 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.

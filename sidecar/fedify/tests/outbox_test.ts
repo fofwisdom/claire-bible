@@ -261,7 +261,7 @@ Deno.test("the outbox collection has one Create for each public object, in pages
     assert.equal(second.next, undefined);
 
     // An account that is not an actor, the server actor, and a cursor that is not an ID have no collection.
-    for (const url of [`${ORIGIN}/ap/actors/216412345678901234/outbox`, `${ORIGIN}/ap/actors/server/outbox`, `${ALICE_URL}/outbox?cursor=x`]) {
+    for (const url of [`${ORIGIN}/ap/actors/316412345678901234/outbox`, `${ORIGIN}/ap/actors/server/outbox`, `${ALICE_URL}/outbox?cursor=x`]) {
       assert.equal((await get(url)).status, 404, url);
     }
     // The outbox accepts no activity from a client.
@@ -292,8 +292,8 @@ Deno.test("an update_actor task becomes Update(Person) with the actor document",
     assert.equal((person.publicKey as Record<string, unknown>).publicKeyPem, document.publicKey.publicKeyPem);
     assert.ok(!JSON.stringify(update).includes('"d"'));
 
-    // A paused account sends nothing: the task is rejected.
-    setTasks([{ ...task(9, "update_actor", null), actor_public_id: "216412345678901234" }]);
+    // An account that is not an actor sends nothing: the task is rejected.
+    setTasks([{ ...task(9, "update_actor", null), actor_public_id: "316412345678901234" }]);
     setAck(9, "rejected");
     await sidecar.processOutboxTasks();
     assert.equal(fake.acks[2], "9 rejected not_an_actor");
@@ -328,7 +328,7 @@ Deno.test("a delete_actor task becomes Delete(Person), signed with the keys that
     const gone = await get(purgedUrl);
     assert.equal(gone.status, 410);
     assert.deepEqual(await gone.json(), { "@context": "https://www.w3.org/ns/activitystreams", id: purgedUrl, type: "Tombstone", formerType: "Person", deleted: "2027-01-15T08:05:50Z" });
-    assert.equal((await get(`${ORIGIN}/ap/actors/216412345678901234`)).status, 404);
+    assert.equal((await get(`${ORIGIN}/ap/actors/316412345678901234`)).status, 404);
 
     // After the acknowledgement Claire gives no key. A task that comes again is rejected, and nothing is sent.
     fake.overrides.delete(`GET ${PREFIX}/actors/${purged}/keys`);

@@ -37,6 +37,7 @@ __all__ = [
     "SECURITY_CONTEXT",
     "TABLES",
     "account_actor_iri",
+    "account_content_public",
     "actor_document",
     "add_follower",
     "document_iri",
@@ -259,15 +260,24 @@ def outbox_collection(conn: sqlite3.Connection, number: int, *, origin: str, tot
 
 
 def account_actor_iri(conn: sqlite3.Connection, account_id: int, origin: str) -> str | None:
-    """The IRI of the federation actor of an account of this server, or None when the account is not a federation actor: the account is ``active`` with a public profile and a USERNAME (FEDERATION.md Section 3). The rule is the same in single mode and in network mode (design Section 15 rule 5, KD2)."""
+    """The IRI of the federation actor of an account of this server, or None when the account is not a federation actor: the account is ``active`` and has a USERNAME (FEDERATION.md Section 3). A private profile is not a condition. The rule is the same in single mode and in network mode (design Section 15 rule 5, KD2)."""
     store = accounts_store.AccountStore(conn)
     try:
         account = store.get(int(account_id))
     except accounts_store.AccountNotFound:
         return None
-    if account.status != "active" or not account.profile_public or not account.username:
+    if account.status != "active" or not account.username:
         return None
     return f"{origin}/ap/actors/{ids.format_public_id(account.public_id)}"
+
+
+def account_content_public(conn: sqlite3.Connection, account_id: int) -> bool:
+    """True when the content of an account of this server is public: the account is ``active`` and its profile is public (FEDERATION_GO_LIVE_DESIGN.md decision GD5). An account with a private profile is a federation actor, but no document of it goes to another server and no public document names it."""
+    try:
+        account = accounts_store.AccountStore(conn).get(int(account_id))
+    except accounts_store.AccountNotFound:
+        return False
+    return account.status == "active" and bool(account.profile_public)
 
 
 def local_account_of_actor(conn: sqlite3.Connection, iri: str, origin: str) -> int | None:
@@ -289,6 +299,9 @@ def _credit(conn: sqlite3.Connection, contribution: dict[str, Any], origin: str)
     if contribution["remote_credit_iri"]:
         return str(contribution["remote_credit_iri"])
     if contribution["remote_source_iri"] or contribution["contributor_account_id"] is None:
+        return None
+    # A credit names the account in a public document. An account with a private profile is an actor, but a public page or document does not name it (FEDERATION_GO_LIVE_DESIGN.md decision GD5; the same rule as a public page of this server).
+    if not account_content_public(conn, int(contribution["contributor_account_id"])):
         return None
     return account_actor_iri(conn, int(contribution["contributor_account_id"]), origin)
 

@@ -107,6 +107,8 @@ class _Internal:
         routes = federation_routes.federation_internal_routes(settings, now=lambda: self.now)
         self.client = TestClient(create_internal_federation_app(settings, routes=routes, now=lambda: self.now))
         self.bodies: list[str] = []
+        self.alice: int = 0
+        self.bob: int = 0
 
     def call(self, request: dict):
         body = json.dumps(request["body"]).encode() if "body" in request else b""
@@ -137,7 +139,7 @@ class _Internal:
             store.conn.close()
 
     def pause(self, account_id: int) -> None:
-        """Make the profile of an account private: the account is then not a federation actor (a pause, FD10)."""
+        """Make the profile of an account private: the account stays a federation actor and its content becomes private (FEDERATION_GO_LIVE_DESIGN.md decision GD5)."""
         store = self.store()
         try:
             store.update_profile_public(account_id, 0)
@@ -147,7 +149,7 @@ class _Internal:
 
 @pytest.fixture
 def internal(tmp_path):
-    """A network-mode server. ``alice`` is an actor and has three followers, two published objects, one deleted object, and two outbox tasks. The other accounts are not actors. One domain is blocked."""
+    """A network-mode server. ``alice`` is an actor with a public profile and has three followers, two published objects, one deleted object, and two outbox tasks. ``private_bob`` is an actor with a private profile: its content is private. ``suspended_carol`` and ``deleting_dave`` are not actors. One domain is blocked."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -157,7 +159,7 @@ def internal(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice", display_name="Alice Kim")
         _add_account(conn, 216412345678901234, "private_bob", profile_public=0)
-        _add_account(conn, 316412345678901234, "suspended_carol", status="suspended")
+        carol = _add_account(conn, 316412345678901234, "suspended_carol", status="suspended")
         _add_account(conn, 416412345678901234, "deleting_dave", status="deleting")
         for item in reversed(fixture("followers")["response"]["items"] + fixture("followers_next")["response"]["items"]):
             conn.execute("INSERT INTO federation_followers (public_id, account_id, actor_iri, inbox_iri, shared_inbox_iri, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (int(item["id"]), alice, item["actor_iri"], item["inbox_iri"], item["shared_inbox_iri"], 1800000300.0, 1800000300.0))
@@ -175,7 +177,7 @@ def internal(tmp_path):
         federation_store.add_tombstone(conn, GONE_ACTOR_ID, "actor", gone_at=1800000350.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="create", object_public_id=OBJECT_ID, now=1800000310.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="delete", object_public_id=GONE_OBJECT_ID, now=1800000331.0)
-        # ``private_bob`` is not an actor. Its task waits.
+        # The profile of ``private_bob`` is private: its content is private, and its ``create`` task waits.
         federation_store.add_outbox_task(conn, account_id=bob, kind="create", object_public_id=816412345678901236, now=1800000351.0)
         conn.commit()
     finally:
@@ -189,8 +191,8 @@ def internal(tmp_path):
             client.execute("INSERT INTO federation_following (id, account_id, request, actor_iri, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1800000359.0, 1800000359.0)", (fid, alice, request, actor_iri, state))
         client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (1, ?, 'follow', NULL, 1, 'pending', 1800000360.0)", (alice,))
         client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (2, ?, 'reject_follow', 'https://remote.example/users/erin', NULL, 'pending', 1800000361.0)", (alice,))
-        # private_bob is not an actor: its task waits.
-        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (3, ?, 'undo_follow', 'https://remote.example/users/x', NULL, 'pending', 1800000362.0)", (bob,))
+        # suspended_carol is not an actor: its task waits.
+        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (3, ?, 'undo_follow', 'https://remote.example/users/x', NULL, 'pending', 1800000362.0)", (carol,))
         client.commit()
     finally:
         client.close()
@@ -202,6 +204,7 @@ def internal(tmp_path):
         auth.close()
     client = _Internal(settings)
     client.alice = alice
+    client.bob = bob
     return client
 
 
@@ -328,7 +331,7 @@ def test_heartbeat_refuses_a_request_outside_the_model(internal, body):
 # --- Actor rule FK4: all states that are not federated give the same 404 ---
 
 
-@pytest.mark.parametrize("username, public_id", [("private_bob", 216412345678901234), ("suspended_carol", 316412345678901234), ("deleting_dave", 416412345678901234), ("nobody", 999999999999999999)])
+@pytest.mark.parametrize("username, public_id", [("suspended_carol", 316412345678901234), ("deleting_dave", 416412345678901234), ("nobody", 999999999999999999)])
 def test_non_federated_account_gets_the_same_404(internal, username, public_id):
     reference = internal.get("/actors/by-username/no_such_account")
     assert reference.status_code == 404
@@ -406,7 +409,7 @@ def test_no_identity_field_in_any_response(internal):
     for canary in (CANARY_ISS, CANARY_SUB, CANARY_PROVIDER, "idp-canary"):
         assert canary not in blob
     record = internal.get(f"/actors/{ALICE_PUBLIC_ID}").json()
-    assert set(record) == {"public_id", "username", "display_name", "activated_at", "updated_at", "profile_url"}
+    assert set(record) == {"public_id", "username", "display_name", "activated_at", "updated_at", "profile_url", "discoverable"}
     # The internal account ID and the server role are not in the record.
     assert internal.alice not in record.values() and "member" not in record.values()
 
@@ -521,7 +524,7 @@ def test_delete_and_update_of_a_remote_actor_apply_to_all_accounts(internal):
     [
         ({"actor": {"iri": "http://remote.example/users/bob"}}, "invalid_actor"),
         ({"actor": {"inbox": "http://remote.example/users/bob/inbox"}}, "invalid_actor"),
-        ({"actor": {"iri": "https://claire.example.com/ap/actors/216412345678901234"}}, "invalid_actor"),
+        ({"actor": {"iri": "https://claire.example.com/ap/actors/316412345678901234"}}, "invalid_actor"),
         ({"actor": {"shared_inbox": "https://CLAIRE.example.com/ap/inbox"}}, "invalid_actor"),
         ({"actor": {"iri": "https://user:secret@remote.example/users/bob"}}, "invalid_actor"),
         ({"actor": {"iri": "acct:bob@remote.example"}}, "invalid_actor"),
@@ -546,11 +549,11 @@ def test_follow_through_the_shared_inbox_has_no_recipient(internal):
     assert (internal.alice, BOB_IRI, f"{BOB_IRI}/inbox", "https://remote.example/inbox") in _follower_rows(internal)
 
 
-def test_undo_follow_applies_to_a_paused_account(internal):
+def test_undo_follow_applies_to_an_account_that_is_not_an_actor(internal):
     _post_event(internal, _event())
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
-        conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (internal.alice,))
+        conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (internal.alice,))
         conn.commit()
     finally:
         conn.close()
@@ -678,7 +681,8 @@ def test_outbox_tasks_refuses_a_limit_that_is_not_valid(internal, query):
     assert internal.get("/outbox-tasks?limit=1").json()["tasks"][0]["id"] == 1
 
 
-def test_task_of_an_account_waits_while_the_account_is_not_an_actor(internal):
+def test_content_task_waits_while_the_profile_is_private_and_a_delete_does_not(internal):
+    """Decision GD5: a ``create`` waits while the profile of its account is private. A ``delete`` removes content, and it is given for each actor."""
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
         conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (internal.alice,))
@@ -687,14 +691,69 @@ def test_task_of_an_account_waits_while_the_account_is_not_an_actor(internal):
     finally:
         conn.close()
     tasks = internal.get("/outbox-tasks").json()["tasks"]
-    assert [(t["id"], t["actor_public_id"]) for t in tasks] == [(3, "216412345678901234")]
+    assert [(t["id"], t["kind"], t["actor_public_id"]) for t in tasks] == [(2, "delete", str(ALICE_PUBLIC_ID)), (3, "create", "216412345678901234")]
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
         conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (internal.alice,))
         conn.commit()
     finally:
         conn.close()
+    assert [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]] == [1]
+
+
+def test_task_of_an_account_waits_while_the_account_is_not_an_actor(internal):
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (internal.alice,))
+        conn.commit()
+    finally:
+        conn.close()
+    assert internal.get("/outbox-tasks").json()["tasks"] == []
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("UPDATE accounts SET status='active' WHERE id=?", (internal.alice,))
+        conn.commit()
+    finally:
+        conn.close()
     assert [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]] == [1, 2]
+
+
+def test_account_with_a_private_profile_is_an_actor_with_private_content(internal):
+    """Decisions GD5 and GD7: a private profile sets ``discoverable`` to false and hides published KB documents, not the actor."""
+    public_id = "216412345678901234"
+    by_name = internal.get("/actors/by-username/private_bob")
+    assert by_name.status_code == 200
+    assert by_name.json() == {**by_name.json(), "public_id": public_id, "username": "private_bob", "profile_url": "https://claire.example.com/@private_bob/", "discoverable": False}
+    assert internal.get(f"/actors/{public_id}").json() == by_name.json()
+    keys = internal.get(f"/actors/{public_id}/keys")
+    assert keys.status_code == 200 and sorted(key["alg"] for key in keys.json()["keys"]) == ["ed25519", "rsa2048"]
+    assert internal.get(f"/actors/{public_id}/followers").json()["total"] == 0
+    assert internal.get(f"/actors/{public_id}/following").status_code == 200
+    # A remote actor can follow the account.
+    bob_iri = f"https://claire.example.com/ap/actors/{public_id}"
+    assert _post_event(internal, _event(recipient_public_id=public_id, object_iri=bob_iri)).json() == {"decision": "accepted", "reply": "accept", "reason": None}
+    assert internal.get(f"/actors/{public_id}/followers").json()["total"] == 1
+    # Published KB content is private: the object has the answer of an object that is not there, the outbox has no KB items, and the ``create`` task waits.
+    missing = internal.get("/objects/999999999999999999")
+    hidden = internal.get("/objects/816412345678901236")
+    assert (hidden.status_code, hidden.content) == (404, missing.content)
+    assert internal.get(f"/actors/{public_id}/outbox").json() == {"public_id": public_id, "total": 0, "items": [], "next_max_id": None}
+    assert 3 not in [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]]
+    # A reaction to the private published KB object has the answer of an object that is not there.
+    like = _event("Like", object_iri="https://claire.example.com/ap/objects/816412345678901236", recipient_public_id=None)
+    assert _post_event(internal, like).json() == _post_event(internal, _event("Like", event_id="https://remote.example/activities/900", object_iri="https://claire.example.com/ap/objects/999999999999999999", recipient_public_id=None)).json()
+    # With a public profile, ``discoverable`` becomes true, an ``update_actor`` task is queued, and published KB content is public again.
+    store = internal.store()
+    try:
+        store.update_profile_public(internal.bob, 1)
+    finally:
+        store.conn.close()
+    assert internal.get(f"/actors/{public_id}").json()["discoverable"] is True
+    assert internal.get("/objects/816412345678901236").status_code == 200
+    assert internal.get(f"/actors/{public_id}/outbox").json()["total"] == 1
+    tasks = internal.get("/outbox-tasks").json()["tasks"]
+    assert 3 in [t["id"] for t in tasks]
+    assert ("update_actor", public_id) in [(t["kind"], t["actor_public_id"]) for t in tasks]
 
 
 def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_rendered(internal):

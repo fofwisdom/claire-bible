@@ -1,7 +1,7 @@
 # Federation Go-Live: GF1 to GF17 on a Server Behind a CDN and a WAF
 
 - **Document Identifier**: `DESIGN-FEDERATION-GO-LIVE-20261122`
-- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is implemented (2026-11-22); the current behavior is in FEDERATION.md Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD4 (Section 12) are locked (2026-11-22); GD4 (federation has no switch) is implemented. No open questions remain.
+- **Status**: Units GL1 to GL3 are implemented (2026-11-22): answer attribution, path record, and traffic checks (GL1, GL2) are in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2, and the optional edge service (GL3) is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 10.1. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD7 (Section 12) are locked (2026-11-22) with no open questions: GD4 removes the federation switch, GD5 makes every active account with a USERNAME an actor, GD6 removes step-up authentication from `profile_public`, and GD7 resolves GQ4 using Mastodon and Fedify defaults ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 3.1).
 - **Date**: 2026-11-22
 - **Base commit**: `171257c`
 - **Related Documents**:
@@ -18,7 +18,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 
 ## 1. Goal
 
-1. The server of the owner passes GF1 to GF17, the admin sets `federation` to `on`, an account publishes a document, and a remote server gets it.
+1. The server of the owner passes GF1 to GF17, an account publishes a document, and a remote server gets it (no admin federation switch is needed under GD4).
 2. When a check fails, the report tells which party answered and on which path. The owner can then repair the edge without an agent on the server (PRINCIPLES E4).
 3. A check passes only when the real requests of other servers can also pass, as far as rule 2 of the checks (no request to another server) permits.
 
@@ -60,7 +60,7 @@ The earlier work proved the code: the checks exist, the sidecar works, and two s
 | B2 | **The probes do not look like real traffic.** GF9 sends `application/json`; real deliveries send `application/activity+json` with two signature forms (T5, T6). GF6 and GF8 send the agent of Deno and no ActivityPub `Accept` header. | WAF rules (T12) and bot rules (T11) match exactly these values. A check can pass while real deliveries fail. |
 | B3 | **The hairpin path is not the path of other servers.** The probes go from the LAN to the public name. With a split DNS view, they do not cross the CDN that other servers cross. Without NAT hairpin, they fail while outside requests work. | A false pass or a false failure. The report does not record the path. |
 | B4 | **The routing is written by the operator.** Four path rules, the `Host` header, the signature headers, and a body limit, in a product of a third party (T13). | Each operator repeats the same work; each product has its own faults, such as a path prefix that is removed. A changed path still reaches the sidecar and passes GF8 (T8). |
-| B5 | **No signal after the switch.** No check shows that other servers reach this server or that deliveries succeed (T9). | "GF1 to GF17 pass" does not mean "publishing works". |
+| B5 | **No signal after go-live.** No check shows that other servers reach this server or that deliveries succeed (T9). | "GF1 to GF17 pass" does not mean "publishing works". |
 
 ### 3.3 Principles of This Design
 
@@ -68,7 +68,7 @@ The earlier work proved the code: the checks exist, the sidecar works, and two s
 2. **Probe as a remote server probes (R2).** Same headers, same media types, same signature forms, same sizes.
 3. **Record the path (R3).** Record the address that the public name resolves to and whether the answer crossed the CDN. Give the owner one outside probe.
 4. **Own the routing where possible (R4, option).** A shipped edge service makes the four path rules a tested file of the repository.
-5. **Watch real traffic after the switch (R5, option).** Count verified requests of other servers and the results of deliveries.
+5. **Watch real traffic after go-live (R5, option).** Count verified requests of other servers and the results of deliveries.
 
 ---
 
@@ -133,7 +133,7 @@ Appendix A gives the repair for each code on Cloudflare, on the Sophos WAF, and 
 
 ### 5.4 GF8: Verify What Arrived
 
-GF8 sends each GET with the header `X-Claire-Self-Check: {nonce}`. The sidecar records the method, the path with the query, and the `Host` of each request with a known nonce, in memory, for 60 seconds, as for GF9 (KNOWLEDGE_FEDERATION_DESIGN.md §14.1.4 item 2). The record happens before the routing, so it works while the switch is `off`.
+GF8 sends each GET with the header `X-Claire-Self-Check: {nonce}`. The sidecar records the method, the path with the query, and the `Host` of each request with a known nonce, in memory, for 60 seconds, as for GF9 (KNOWLEDGE_FEDERATION_DESIGN.md §14.1.4 item 2). The record happens before the routing, so it works independently of account or content state (there is no federation switch under GD4).
 
 | Result | Code | Detail |
 | :--- | :--- | :--- |
@@ -141,7 +141,7 @@ GF8 sends each GET with the header `X-Claire-Self-Check: {nonce}`. The sidecar r
 | `Host` changed | `host_changed` | Existing text of GF9 |
 | Marker of this sidecar, but no record of the nonce | `answer_not_live` | "The answer has the marker of this sidecar, but the sidecar did not get the request. A cache gives old answers, or an intermediary removed the header X-Claire-Self-Check." |
 
-GF6 uses the same method for its WebFinger request. Thus a cache in front of the sidecar shows before the switch, and not only in GF15 and GF16 after it.
+GF6 uses the same method for its WebFinger request. Thus a cache in front of the sidecar shows directly in GF6, and not only in GF15 and GF16.
 
 ### 5.5 Contract 1.13
 
@@ -199,13 +199,13 @@ Rules:
 
 ### 8.1 Function
 
-- A service `edge` in `docker-compose.yml` (image of the stable Nginx release, pinned as the other images; license BSD-2-Clause **[external, unverified]**), in the Compose profile `edge`. `CB_EDGE` is exactly `0` or `1`, as `CB_FEDERATION` **[code]** (`cb_manuscript.py`). No value has a default behavior: `cb-manuscript` refuses another value.
+- A service `edge` in `docker-compose.yml` (image of the stable Nginx release, pinned as the other images; license BSD-2-Clause **[external, unverified]**), in the Compose profile `edge`. `CB_EDGE` is exactly `0` or `1` **[code]** (`cb_manuscript.py`). No value has a default behavior: `cb-manuscript` refuses another value.
 - With `CB_EDGE=1`, the edge publishes `CB_API_BIND:CB_API_PORT`. An overlay `docker-compose.edge.yml` removes the host ports of `api` and `fedify` (`ports: !reset []`). The external proxy sends all paths of all hosts of the server to this one upstream.
 - The edge sends the federation paths of the app host (`CLAIRE_FQDN`) to `fedify:8790` and all other requests to Claire. The rules of FEDERATION.md §10 apply to the app host only **[code]**.
 
 ### 8.2 One Reference File
 
-`ops/edge/claire_routes.conf` has the path rules. The edge (HTTP) and the gateway of the development network (TLS) include the same file. This is decision CD8 of the development network design, extended to production.
+`ops/edge/claire/routes.conf` has the path rules. The edge (HTTP) and the gateway of the development network (TLS) include the same file. This is decision CD8 of the development network design, extended to production.
 
 ### 8.3 Rules of the Edge [proposal]
 
@@ -236,7 +236,7 @@ FD6 says: the reverse proxy sends the federation paths to the sidecar; Claire do
 
 ---
 
-## 9. R5: Real Traffic After the Switch (Option, GQ3)
+## 9. R5: Real Traffic After Go-Live (Option, GQ3)
 
 ### 9.1 Counters
 
@@ -250,7 +250,7 @@ The heartbeat gets `traffic` (contract 1.13), in memory, for the last 24 hours (
 
 The source of the delivery results is a hook or the OpenTelemetry spans of Fedify **[unverified: the signal that Fedify 2.4.6 gives for a success; GL2 examines it before the work]**.
 
-### 9.2 Checks (Warning, Switch `on` Only)
+### 9.2 Checks (Warning)
 
 - **GF19: Other servers reach this server.** Passes when `inbound_verified` has one request or more. Fails with: "No other server sent a signed request in the last 24 hours. Search the handle @{username}@{host} on another server to make the first contact (step L5)."
 - **GF20: Deliveries succeed.** Does not apply when there was no delivery. Fails when there are failures and no success: "No delivery succeeded in the last 24 hours. The most frequent failure is {class}."
@@ -295,28 +295,49 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 | :--- | :--- | :--- |
 | GD1 | GQ1: order of the go-live and the acceptance path | A: the go-live of the owner's server (L0 to L6) is the go-live of the federation of accounts and is not a KA step. KA3 and KA4 continue in parallel; KA5 starts after them. |
 | GD2 | GQ2: edge service | A: the edge is an opt-in (`CB_EDGE`), built with GL1. The owner turns it on at step L1. |
-| GD3 | GQ3: traffic after the switch | A: GF19 and GF20 are in the same release as GL1 (one contract change, 1.13). |
+| GD3 | GQ3: traffic after go-live | A: GF19 and GF20 are in the same release as GL1 (one contract change, 1.13). |
 | GD4 | The federation switch (owner, 2026-11-22, after the first report of the owner's server) | Federation is a function of each server that cannot be turned off; it is not a switch. The checks must not need a state that only the switch gives. |
+| GD5 | The actor and the private profile (owner, 2026-11-22, after GD4) | Every `active` account with a USERNAME is an ActivityPub actor by default, even when `profile_public` is 0; `profile_public` does not gate actor existence (content scope resolved in GD7). |
+| GD6 | The confirmation of identity for the profile switch (owner, 2026-11-22) | Changing `profile_public` in either direction needs no recent authentication (FD11 withdrawn). |
+| GD7 | GQ4: notes, favourites, boosts, and quotes with a private profile (owner, 2026-11-22) | Option B: follow Mastodon and Fedify default policies with no Claire-unique ActivityPub restriction on private profiles. `Person.discoverable` reflects `profile_public` (default `false`), `manuallyApprovesFollowers` stays `false` (FD9), and notes, favourites (`Like`), boosts (`Announce`), and note quotes work for every actor in both profile states. Only personal KB and web profile visibility, the public directory, published KB `Article`s, and Knowledge Federation offers and credits require `profile_public = 1`. |
 
 **GD4, facts and consequences.** The first report of the owner's server showed two switches that needed each other: the console switch `federation` needed GF1 to GF13, GF2 and GF6 to GF11 needed the sidecar, and the sidecar started only with the container switch `CB_FEDERATION=1`, which `update` had filled with the default `0`. The decision removes the two switches:
 
 1. There is no server setting `federation`: no method reads or sets it, `POST /api/admin/federation` does not exist, and a row of an older version is not read. The sidecar and the internal API have no state "off" (contract 1.14).
 2. There is no `CB_FEDERATION`: the service `fedify` has no Compose profile and starts with the other services.
 3. The readiness checks are a report of the state, not a gate. Decision KD13 (the gate) and rule 8 of KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.1 have no object. GF14 to GF16, GF19, and GF20 apply on each server.
-4. An account is an actor when it is `active` and has a public profile and a USERNAME (FD3 without the server switch). An account with a public profile is thus an actor from the update, without a new confirmation; a change to public still needs a recent sign-in (FD11), now on each server.
+4. An account is an actor when it is `active` and has a public profile and a USERNAME (FD3 without the server switch). An account with a public profile is thus an actor from the update, without a new confirmation; a change to public still needs a recent sign-in (FD11), now on each server. **Changed** by GD5 and GD6 below: the profile is not a condition of the actor, and the change needs no recent sign-in.
 5. The owner direction "the federation of shared knowledge is on by default" (KNOWLEDGE_FEDERATION_DESIGN.md Section 2) is replaced by the stronger rule: always on. The switch `kb_auto_contribution` stays (KD4).
 6. The edge service stays an option (GD2). Without it, the external reverse proxy needs the path rules of FEDERATION.md Section 10.
+
+**GD5, GD6, and GD7, facts and consequences.** Item 4 of GD4 kept `profile_public` as the gate of the actor and kept step-up confirmation for a change to public. The owner resolved these points in GD5, GD6, and GD7:
+
+1. Each account that is `active` and has a USERNAME is an actor in both server modes; `profile_public` is not a condition. Other servers find the account (WebFinger, actor document) and can follow it (FD3 changed).
+2. Under GD7 (resolving GQ4), Claire follows Mastodon and Fedify default policies with no Claire-unique ActivityPub restriction on private profiles: `Person.discoverable` reflects `profile_public` (default `false`), `manuallyApprovesFollowers` stays `false` (FD9), and toggling `profile_public` on an active actor queues `update_actor` so `Update(Person)` updates remote servers.
+3. Notes (`Create(Note)`, `Update(Note)`, `Delete`), favourites (`Like`, `Undo`), boosts (`Announce`, `Undo`), and quote requests or approvals on own `Note`s work for every actor in both profile states (Option B). Own notes are served at `/ap/objects/{id}` and included in `/ap/actors/{id}/outbox` for all actors.
+4. `profile_public = 1` gates only: (a) web profile `/@{username}/` and personal KB `/kb/{number}/` visibility (404 to non-owners), (b) the public account directory (`/accounts`), (c) published knowledge base documents (`Article`: publishing, object and outbox exposure, `create`/`update` delivery, inbound reactions and quote requests on published documents, and approving a quote of a published document), and (d) Knowledge Federation (outbound offers, automatic contribution remote state, contributor credit on public documents, and recent activity account names).
+5. A change of `profile_public` to 0 is not a pause of the actor (FD10 changed); followers, follows, timeline, mentions, notifications, and notes stay active, and changing `profile_public` in either direction needs no recent sign-in (`PATCH /api/me`, GD6; FD11 withdrawn), so `/settings/account` opens no confirmation dialog.
+
+Implementation details and status codes are in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 3.1.
+
+### GQ4: Notes, Favourites, and Boosts of an Account with a Private Profile [decided: GD7]
+
+| Option | Rule | Effect |
+| :--- | :--- | :--- |
+| A | An account with a private profile writes no note, no favourite, and no boost (409 `profile_private`). It can follow, read, and remove. | Nothing of the account becomes public while the profile is private. A user that wants to answer a post must make the profile public first. |
+| B | The account can write them, and they are public as for each account. Only the published documents and the personal knowledge base stay private. | The usual behaviour of a locked account on other software for replies and reactions, but a note of a "private" account is public, because the server has no other audience. |
+| C | A new audience "followers only" for the notes of an account with a private profile | The nearest to the usual ActivityPub behaviour. It needs a design: the audience in the note record, the delivery to followers only, the object path with an authorized fetch, and the approval of follow requests (FD9 accepts each follow now). |
 
 The questions as they were asked:
 
 ### GQ1: Order of the Go-Live and the Acceptance Path (KD10)
 
-KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4, KA5, and a step starts only after the step before it. The one switch `federation` turns on both kinds of federation (KD13). KA3 is not complete (the scenarios of KF3 to KF5 with real sidecars) and KA4 is not done (T2).
+KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4, KA5, and a step starts only after the step before it. At the time of this question, the one switch `federation` turned on both kinds of federation (KD13, later withdrawn by GD4). KA3 is not complete (the scenarios of KF3 to KF5 with real sidecars) and KA4 is not done (T2).
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
 | A (recommended) | The go-live of the owner's server (L0 to L6) is the go-live of the federation of accounts. It is not a KA step. KA3 and KA4 continue in parallel, and KA5 (calibration) starts after them. | Publishing and following start now. The knowledge federation is on but has no peer until another Claire server on the internet appears; the first such exchange is a part of KA5 anyway (KD14). |
-| B | No production switch before KA3 and KA4 are complete (KD10 in the strict form) | The permanent development network (DE1 to DE5) and the KF3 to KF5 scenarios come first. Publishing waits. |
+| B | No production go-live before KA3 and KA4 are complete (historical option asked when a production switch existed before GD4; KD10 in the strict form) | The permanent development network (DE1 to DE5) and the KF3 to KF5 scenarios come first. Publishing waits. |
 | C | Two switches: one for accounts, one for shared knowledge | Reverses KD13 and adds a switch to the console, the checks, and the sidecar. Not recommended. |
 
 ### GQ2: Edge Service (R4)
@@ -327,7 +348,7 @@ KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4
 | B | Build GL1 first. Decide the edge after the first report of the owner's server. | The data comes first; one more release cycle if the report shows a path fault. |
 | C | No edge. Appendix A goes into EXTERNAL_ACCESS.md as recipes for each product. | No change of the deployment contract; each operator keeps the path rules. |
 
-### GQ3: Traffic After the Switch (R5)
+### GQ3: Traffic After Go-Live (R5)
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
@@ -358,7 +379,7 @@ Choices made in the code of GL1 and GL2 (the implementation document has the det
 
 Choices made in the code of GL3:
 
-1. The edge is for production only: `cb-manuscript` refuses `CB_EDGE=1` in development, because the development stack has host ports for the role hosts and the prototype role. The edge needs `CB_FEDERATION=1`.
+1. The edge is for production only: `cb-manuscript` refuses `CB_EDGE=1` in development, because the development stack has host ports for the role hosts and the prototype role. (The earlier `CB_FEDERATION=1` prerequisite was removed by GD4.)
 2. Section 8.4 said that the edge sets `X-Forwarded-For`. The code uses a separate header, `X-Claire-Edge-Peer`, and Claire puts its value in the peer address of the request. The `X-Forwarded-For` of the external reverse proxy then goes to Claire without a change, and the trusted-proxy rule works as without the edge.
 3. Section 8.3 rule 1 (an unknown `Host` gets no answer) is not in the edge: the edge does not know the legacy hosts, which are in the database. Claire refuses an unknown host, as without the edge. The federation rules apply only to the `Host` of the app.
 4. Section 8.3 rule 2 (a rate limit for `POST` below `/ap/`) is not in the edge. The peer of the edge is the external reverse proxy, so a limit for each peer address is one limit for all servers; a correct key and the values need the data of KA5.

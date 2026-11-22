@@ -7317,32 +7317,6 @@
         "lineCount": 1
       }
     ],
-    "tests/test_federation_step_up.py": [
-      {
-        "rule": "invalid-argument-type",
-        "startColumn": 21,
-        "endColumn": 34,
-        "lineCount": 1
-      },
-      {
-        "rule": "invalid-argument-type",
-        "startColumn": 19,
-        "endColumn": 27,
-        "lineCount": 1
-      },
-      {
-        "rule": "invalid-argument-type",
-        "startColumn": 28,
-        "endColumn": 36,
-        "lineCount": 1
-      },
-      {
-        "rule": "invalid-argument-type",
-        "startColumn": 28,
-        "endColumn": 36,
-        "lineCount": 1
-      }
-    ],
     "tests/test_fedify_sidecar.py": [
       {
         "rule": "no-matching-overload",

@@ -58,7 +58,7 @@ test.describe('federation client view (FP4-5)', () => {
     });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: FRAME_BODY }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 1, limit: 1000, items: [{ id: '1', request: '@carol@remote.example', actor_iri: author.iri, actor_type: 'Person', display_name: 'Carol', state: 'accepted', created_at: 1, updated_at: 1 }], next_max_id: null })));
-    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: '@owner@claire.example', actor_id: 'https://claire.example/ap/actors/1', is_actor: true, actor_state: 'active', followers: { total: 0 }, pending_tasks: 0 })));
+    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: '@owner@claire.example', actor_id: 'https://claire.example/ap/actors/1', is_actor: true, actor_state: 'active', content_public: true, followers: { total: 0 }, pending_tasks: 0 })));
     await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: 0, items: [], next_max_id: null })));
 
     // A login token of the seed database is for one login. This test has its own token.
@@ -151,7 +151,7 @@ test.describe('federation client view (FP4-5)', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('FP4-5: in single mode stage 1 reads the timeline like network mode, and an account that is not an actor gets the notice', async ({ page }) => {
+  test('FP4-5: in single mode stage 1 reads the timeline like network mode, and an active account with a private profile is an actor', async ({ page }) => {
     await page.goto('/?t=e2e-fedsingle-token-0123456789abcd', { waitUntil: 'domcontentloaded' });
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     // The requests of /syndication only. The home page asks the timeline counts for its stage strip, also in single mode.
@@ -161,8 +161,9 @@ test.describe('federation client view (FP4-5)', () => {
     await expect(page.locator('#stagebar')).toBeVisible();
     await expect(page.locator('#panel-kb')).toBeVisible();
     await page.locator('[data-stage-btn="collect"]').click();
-    // The real routes of this server answer: federation is off here, thus the account is not an actor. The view has no "network mode only" text.
-    await expect(page.locator('#client-notice')).toContainText('연합 액터가 아닙니다');
+    // The real routes of this server answer: the account is active and has a USERNAME, thus it is an actor, and notes/interactions work with a private profile (decisions GD5 and GD7). The client notice stays hidden.
+    await expect(page.locator('#client-notice')).toBeHidden();
+    await expect(page.locator('#client-notice')).not.toContainText('연합 액터가 아닙니다');
     await expect(page.locator('#client-notice')).not.toContainText('네트워크 모드');
     await expect(page.locator('#client-following-folder')).toBeVisible();
     await expect(page.locator('.synd-post')).toHaveCount(0);

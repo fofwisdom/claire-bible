@@ -603,14 +603,15 @@
     } catch (_) {}
   }
 
-  /* 네이티브 연합 액터 (Fedify 사이드카 설계 §9.2): 이 계정이 연합 액터일 때만 발행 대상으로 보인다. 단독 모드에서는 상태 경로가 404 이고, 연합 off · 일시 중지에서는 is_actor 가 false 이므로 null 로 남는다. */
+  /* The native federation actor (Fedify sidecar design Section 9.2): the target shows only while this account is an actor with a public profile. For an account that is not an actor, or that has a private profile, the value stays null. */
   let nativeActor = null;
   (async () => {
     try {
       const resp = await fetch("/api/federation/status", { headers: { Accept: "application/json" } });
       if (!resp.ok) return;
       const st = await resp.json();
-      if (st && st.is_actor && st.handle) nativeActor = { handle: String(st.handle) };
+      // A published document is content: the target shows only while the content of the account is public (a public profile).
+      if (st && st.is_actor && st.content_public && st.handle) nativeActor = { handle: String(st.handle) };
     } catch (_) {}
   })();
 

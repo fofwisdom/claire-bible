@@ -182,16 +182,17 @@ def test_status_shows_the_handle_the_actor_id_and_the_condition_that_fails(env):
     _set_public(env.settings, env.alpha, 1)
     active = status()
 
-    # The answer has no state of a server switch: federation has no switch.
+    # The answer has no state of a server switch: federation has no switch. With a private profile the account is an actor and its content is private (decision GD5).
     assert private == {
         "handle": "@member_alpha@127.0.0.1:8765",
         "actor_id": f"{PUBLIC_URL}/ap/actors/{ALPHA_PUBLIC_ID}",
-        "is_actor": False,
-        "actor_state": "profile_not_public",
+        "is_actor": True,
+        "actor_state": "active",
+        "content_public": False,
         "followers": {"total": 1},
         "pending_tasks": 0,
     }
-    assert (active["is_actor"], active["actor_state"]) == (True, "active")
+    assert active == {**private, "content_public": True}
 
 
 def test_status_counts_only_the_followers_of_the_caller(env):

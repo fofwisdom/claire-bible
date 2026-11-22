@@ -17,7 +17,7 @@ docs/
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
-│   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: GL1–GL3 구현(응답 귀속·실제 요청과 같은 검사·경로 기록 GF18·트래픽 GF19–GF20 → implementation/FEDERATION.md §7.2, edge 서비스 → §10.1), GL4(가동 절차 L0–L6)는 소유자 단계, 결정 GD1–GD4(GD4: 연합은 끌 수 없는 고유 기능, 스위치 없음 → implementation/FEDERATION.md §7.1)
+│   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: GL1–GL3 구현(→ implementation/FEDERATION.md §7.2·§10.1), GL4(L0–L6)는 소유자 단계, 결정 GD1–GD7 확정(→ §3.1·§7.1·§8.1)
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
@@ -26,7 +26,7 @@ docs/
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
 │   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html (지식 연합·콘솔 배치 설계와 공용), 첫 프로토타입 shared_knowledge_federation_prototype.html은 참고용
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
-│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3 → implementation/FEDERATION.md
+│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3(결정 GD4–GD7 반영) → implementation/FEDERATION.md
 │   ├── ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md  # → ACCOUNTS.md
 │   ├── AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md  # AED1–AED10, AED11 1단계(Tracks A–D 구현 완료; AED11 2단계 멀티모달 벡터는 후속 설계 범위) → PROVIDERS.md, EXTRACTION.md, INGESTION.md, ACCOUNTS.md, API_AND_MCP_GUIDE.md, API_HTTP_CONTRACT.md, EXTERNAL_ACCESS.md, SCHEMA_VERSIONING.md, COMMANDS.md, GLOSSARY.md
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md     # → DOCUMENT_FORMAT.md
@@ -76,7 +76,7 @@ docs/
 │   ├── JEV_EVALUATION.md       # Jev 평가 절차의 실행 결과 (라벨, 정밀도·재현율, 관문, 역할)
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
-│   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0): 어휘, JSON-LD 컨텍스트, 와이어 계약 빌더·검증기, 계약 픽스처
+│   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0–KF6): 어휘, JSON-LD 컨텍스트, 와이어 계약, 알려진 서버, KB 액터·큐레이션·교차 기여·준비 검사
 │   ├── EXPANSION.md         # 링크 확장과 동일 주제 출처 병합
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름

@@ -1,8 +1,9 @@
-"""Step-up for the ``profile_public`` change and the alternate link on the profile page (Fedify sidecar design Sections 5.1 and 8.4, FD11, unit FP1-4)."""
+"""The ``profile_public`` switch needs no confirmation of identity, and the profile page has the alternate link of the actor (FEDERATION_GO_LIVE_DESIGN.md decisions GD5 and GD6; Fedify sidecar design Section 5.1; FD11 is withdrawn)."""
 
 from __future__ import annotations
 
 import os
+import re
 import socket
 import threading
 import time
@@ -55,9 +56,9 @@ def _isolate(monkeypatch):
     reset_secret_service()
 
 
-def _prepare(tmp_path: Path, **overrides: Any) -> tuple[_Settings, int]:
+def _prepare(tmp_path: Path, **overrides: Any) -> tuple[Any, int]:
     """A network-mode server with the admin and one member. The member has a password and a private profile."""
-    settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
+    settings: Any = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
     conn = dbm.connect(settings.db_file)
     try:
         dbm.init_db(conn)
@@ -69,6 +70,7 @@ def _prepare(tmp_path: Path, **overrides: Any) -> tuple[_Settings, int]:
             (MEMBER_PUBLIC_ID,),
         )
         conn.commit()
+        assert cur.lastrowid is not None
         member = int(cur.lastrowid)
     finally:
         conn.close()
@@ -126,53 +128,30 @@ def env(tmp_path):
         yield SimpleNamespace(client=_Client(tc), settings=settings, member=member)
 
 
-# --- PATCH /api/me (module interface: route, store, and step-up rule) ---
+# --- PATCH /api/me (module interface: route and store) ---
 
 
-def test_change_to_public_needs_recent_authentication(env):
+def test_profile_switch_needs_no_recent_authentication(env):
+    """Decision GD6: a session with an old sign-in changes the switch in the two directions, and the other fields of the same request are written."""
     stale = _session(env.settings, env.member, authenticated_ago=STALE)
 
-    refused = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1})
-    assert refused.status_code == 401
-    assert refused.json() == {"error": "reauth_required", "reauth": "/api/auth/reauth"}
-    assert _is_public(env.settings, env.member) is False
-
-    # No field of a refused request is written.
-    refused = env.client.request("PATCH", "/api/me", session=stale, json={"display_name": "Changed", "profile_public": True})
-    assert refused.status_code == 401
-    assert _store_call(env.settings, lambda store: store.get(env.member).display_name) == "Alpha"
-
-    # A change that is not 0 -> 1 has no new condition.
-    assert env.client.request("PATCH", "/api/me", session=stale, json={"display_name": "Alpha Two"}).status_code == 200
-    assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 0}).status_code == 200
-
-    # Re-authentication on the same session permits the change.
-    assert env.client.request("POST", "/api/auth/reauth", session=stale, json={"password": PASSWORD}).status_code == 200
-    accepted = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1})
+    accepted = env.client.request("PATCH", "/api/me", session=stale, json={"display_name": "Alpha Two", "profile_public": True})
     assert accepted.status_code == 200 and accepted.json()["profile_public"] == 1
     assert _is_public(env.settings, env.member) is True
+    assert _store_call(env.settings, lambda store: store.get(env.member).display_name) == "Alpha Two"
 
-
-def test_pause_and_repeat_never_need_recent_authentication(env):
-    fresh = _session(env.settings, env.member)
-    assert env.client.request("PATCH", "/api/me", session=fresh, json={"profile_public": 1}).status_code == 200
-
-    stale = _session(env.settings, env.member, authenticated_ago=STALE)
-    # 1 -> 1 is not a change to public.
+    # 1 -> 1 and 1 -> 0 are the same.
     assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1}).status_code == 200
-    # 1 -> 0: the user can always pause.
-    paused = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 0})
-    assert paused.status_code == 200 and paused.json()["profile_public"] == 0
-    # 0 -> 1 again needs the step-up.
-    assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 1}).status_code == 401
+    private = env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 0})
+    assert private.status_code == 200 and private.json()["profile_public"] == 0
+    assert _is_public(env.settings, env.member) is False
 
 
-def test_bearer_credential_cannot_make_the_change(env):
+def test_bearer_credential_can_make_the_change(env):
     bearer = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-    refused = env.client.request("PATCH", "/api/me", headers=bearer, json={"profile_public": 1})
-    assert refused.status_code == 403
-    assert refused.json()["error"] == "step_up_requires_session"
-    assert _is_public(env.settings, 1) is False
+    accepted = env.client.request("PATCH", "/api/me", headers=bearer, json={"profile_public": 1})
+    assert accepted.status_code == 200 and accepted.json()["profile_public"] == 1
+    assert _is_public(env.settings, 1) is True
 
 
 def test_a_value_that_is_not_0_or_1_is_refused(env):
@@ -183,17 +162,18 @@ def test_a_value_that_is_not_0_or_1_is_refused(env):
 # --- /settings/account switch ---
 
 
-def test_switch_markup_shows_the_step_up(env):
+def test_switch_markup_has_no_step_up(env):
     session = _session(env.settings, env.member)
-    on = env.client.request("GET", "/settings/account", session=session).text
-    assert 'data-settings-toggle="profile-public" data-step-up="password"' in on
-    assert "data-federation-hint" in on and "are not deleted" in on
+    page = env.client.request("GET", "/settings/account", session=session).text
+    switch = re.search(r'<input id="pref-profile-public"[^>]*>', page)
+    assert switch is not None and 'data-settings-toggle="profile-public"' in switch.group(0) and "data-step-up" not in switch.group(0)
+    assert "data-federation-hint" in page and "are not deleted" in page
 
 
 # --- Alternate link on the profile page ---
 
 
-def test_profile_page_has_the_alternate_link_for_a_federation_actor_only(env):
+def test_profile_page_has_the_alternate_link_of_the_actor(env):
     session = _session(env.settings, env.member)
     actor_link = f'<{PUBLIC_URL}/ap/actors/{MEMBER_PUBLIC_ID}>; rel="alternate"; type="application/activity+json"'
 
@@ -210,17 +190,17 @@ def test_profile_page_has_the_alternate_link_for_a_federation_actor_only(env):
     negotiated = profile(headers={"Accept": "application/activity+json"})
     assert negotiated.headers["content-type"].startswith("text/html")
 
-    # A paused profile: the owner sees the page without the link.
+    # A private profile: the account is an actor as before (decision GD5), so the owner sees the page with the link. The page is content: no other reader gets it.
     assert env.client.request("PATCH", "/api/me", session=session, json={"profile_public": 0}).status_code == 200
     page = profile(session=session)
-    assert page.status_code == 200 and ALTERNATE not in page.text and "link" not in page.headers
+    assert page.status_code == 200 and page.text.count(ALTERNATE) == 1 and page.headers["link"] == actor_link
     assert profile().status_code == 404
 
 
-# --- End-to-end: the step-up dialog in a real browser ---
+# --- End-to-end: the switch in a real browser ---
 
 
-def test_e2e_step_up_dialog_makes_the_profile_public(tmp_path):
+def test_e2e_switch_changes_the_profile_without_a_dialog(tmp_path):
     sync_api = pytest.importorskip("playwright.sync_api")
     uvicorn = pytest.importorskip("uvicorn")
     with socket.socket() as probe:
@@ -249,38 +229,22 @@ def test_e2e_step_up_dialog_makes_the_profile_public(tmp_path):
                 page = ctx.new_page()
                 page.goto(f"{base}/settings/account")
                 toggle = page.locator("#pref-profile-public")
-                dialog = page.locator("dialog[data-step-up-dialog]")
-
-                # Cancel: no change is sent and the switch goes back.
-                toggle.click()
-                dialog.wait_for(state="visible")
-                dialog.locator("[data-step-up-cancel]").click()
-                dialog.wait_for(state="detached")
                 assert toggle.is_checked() is False
-                assert _is_public(settings, member) is False
 
-                # A wrong password keeps the dialog open.
-                toggle.click()
-                dialog.wait_for(state="visible")
-                dialog.locator("input[name='password']").fill("wrong-password-000")
-                dialog.locator("[data-step-up-confirm]").click()
-                dialog.locator("[data-settings-result][data-state='error']").wait_for()
-                assert _is_public(settings, member) is False
-
-                # The correct password sends the change.
-                dialog.locator("input[name='password']").fill(PASSWORD)
-                with page.expect_response(lambda r: r.url.endswith("/api/me") and r.request.method == "PATCH") as patched:
-                    dialog.locator("[data-step-up-confirm]").click()
-                assert patched.value.status == 200
-                dialog.wait_for(state="detached")
-                assert toggle.is_checked() is True
-                assert _is_public(settings, member) is True
-
-                # The change to private has no dialog.
+                # The session has an old sign-in. The change to public is sent at once, with no dialog.
                 with page.expect_response(lambda r: r.url.endswith("/api/me") and r.request.method == "PATCH") as patched:
                     toggle.click()
                 assert patched.value.status == 200
                 assert page.locator("dialog[data-step-up-dialog]").count() == 0
+                assert toggle.is_checked() is True
+                assert _is_public(settings, member) is True
+
+                # The change to private is the same.
+                with page.expect_response(lambda r: r.url.endswith("/api/me") and r.request.method == "PATCH") as patched:
+                    toggle.click()
+                assert patched.value.status == 200
+                assert page.locator("dialog[data-step-up-dialog]").count() == 0
+                assert toggle.is_checked() is False
                 assert _is_public(settings, member) is False
             finally:
                 browser.close()

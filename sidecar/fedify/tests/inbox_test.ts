@@ -279,7 +279,7 @@ Deno.test("inbox paths accept POST only, and are 404 when federation is not acti
       assert.equal(get.status, 405);
       assert.equal(get.headers.get("allow"), "POST");
     }
-    assert.equal((await post("/ap/actors/216412345678901234/inbox", fixtureFollow())).status, 404);
+    assert.equal((await post("/ap/actors/316412345678901234/inbox", fixtureFollow())).status, 404);
     assert.equal((await post(`/ap/actors/${ALICE}`, fixtureFollow())).status, 405);
     assert.deepEqual(fake.events, []);
   } finally {
@@ -305,7 +305,7 @@ Deno.test("the followers collection shows the total and no follower", async () =
     assert.ok(!text.includes("remote.example"), "no follower is in the public collection");
 
     // An account that is not an actor, and the server actor, have no collection.
-    for (const id of ["216412345678901234", "server"]) {
+    for (const id of ["316412345678901234", "server"]) {
       assert.equal((await sidecar.handle(new Request(`${ORIGIN}/ap/actors/${id}/followers`, { headers: { accept: AS2 } }))).status, 404);
     }
   } finally {
@@ -322,7 +322,7 @@ Deno.test("the delivery code reads all follower pages from Claire", async () => 
     assert.equal(recipients[0].inboxId?.href, "https://remote.example/users/u3/inbox");
     assert.equal(recipients[0].endpoints?.sharedInbox?.href, "https://remote.example/inbox");
     assert.equal(recipients[1].endpoints, null);
-    assert.deepEqual(await sidecar.followerRecipients("216412345678901234"), []);
+    assert.deepEqual(await sidecar.followerRecipients("316412345678901234"), []);
   } finally {
     restore();
   }

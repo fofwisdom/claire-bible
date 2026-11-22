@@ -1,12 +1,12 @@
 # Knowledge Federation Implementation Reference
 
-Basis: units KF0 to KF6 (2026-11-19). Readers: agents who work on the federation of shared knowledge.
+Basis: 2026-11-22 (units KF0 to KF6, GL1 to GL3, owner decisions GD4 to GD7, and contract 1.15). Readers: agents who work on the federation of shared knowledge.
 
 Design: [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md). This document tells what the code has now. The general federation (actors of accounts, publishing, remote reading) is in [`FEDERATION.md`](FEDERATION.md). The local shared knowledge bases are in [`THEMES.md`](THEMES.md) Sections 4.7 to 4.12.
 
 ## 1. Scope and State
 
-Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). KF5: the automatic contribution across servers (Section 15). KF6: the readiness checks GF8 to GF17, the knowledge self-check and loop state in the sidecar heartbeat (contract 1.12), `/ap/self-check`, the system trust store for readiness HTTP requests, the gate in `POST /api/admin/federation`, and the console and CLI displays (Section 17). The sidecar does its part of KF1 to KF4 and KF6 (Sections 10.6, 12.7, 13.6, and 17.3). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
+Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). KF4: the contributions across servers, the remote collaborators, and the single mode part of design Section 15 rules 5 and 6 (Section 13). KF5: the automatic contribution across servers (Section 15). KF6: the readiness checks GF8 to GF17, the knowledge self-check and loop state in the sidecar heartbeat (contract 1.12), `/ap/self-check`, the system trust store for readiness HTTP requests, and the console and CLI displays (Section 17; units GL1 and GL2 added answer attribution and GF18 to GF20, and decision GD4 removed the federation switch and its gate). The sidecar does its part of KF1 to KF4 and KF6 (Sections 10.6, 12.7, 13.6, and 17.3). The limits and the checks of a security review of KF1 to KF4 (schema version 33) are in Section 14.
 
 | Function | State |
 | :--- | :--- |
@@ -23,7 +23,7 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | Knowledge readiness checks GF8 to GF17 and contract 1.12 (KF6) | Implemented (Section 17). Units GL1 and GL2 (2026-11-22, contract 1.13) changed the self-checks and added the answer attribution and GF18 to GF20: [`FEDERATION.md`](FEDERATION.md) Section 7.2. Acceptance path steps KA1 to KA5 are pending execution against two running servers. |
 | Registration on `w3id.org` | Owner task, after `claire.bible` serves the two paths |
 
-Since 2026-11-22 federation has no switch (owner decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md); [`FEDERATION.md`](FEDERATION.md) Section 7.1): the server setting `federation` and the reason `federation_off` do not exist, and the knowledge federation works on each server. The switch `kb_auto_contribution` stays.
+Since 2026-11-22 federation has no switch (owner decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md); [`FEDERATION.md`](FEDERATION.md) Section 7.1): the server setting `federation` and the reason `federation_off` do not exist, and the knowledge federation works on each server. The switch `kb_auto_contribution` stays. Under owner decisions GD5 and GD7, every `active` account with a USERNAME is a federation actor, while `profile_public` 1 gates Knowledge Federation outbound offers (`offers.send` skips with `profile_private`; `auto_contribution.remote_state` returns `profile_private`), contributor credit on public documents (`actors.account_content_public`), and account names in root-page recent activity (`recent.py`).
 
 ## 2. Files
 
@@ -93,7 +93,7 @@ Builder: `build_knowledge_base(kb, iris)`.
 | `claire:knowledgeType` | Necessary. |
 | `claire:documentCount`, `claire:entityCount`, `claire:relationCount` | Necessary. |
 | `claire:signature` | Optional: absent for a knowledge base that has no signature. Keys: `entities` (at most 256 rows `[type, norm_name, weight]`), `visible_documents`, `computed_at`. |
-| `claire:acceptsAutomatic` | Optional boolean (unit KF5): `true` when the switches `federation` and `kb_auto_contribution` of its server are on now. The builder always writes it (`kb["accepts_automatic"]`); an object without it is valid, and a reader then does not know the state. |
+| `claire:acceptsAutomatic` | Optional boolean (unit KF5): `true` when the switch `kb_auto_contribution` of its server is on now (there is no `federation` switch). The builder always writes it (`kb["accepts_automatic"]`); an object without it is valid, and a reader then does not know the state. |
 
 ### 4.2 Document: `Article` (kind `document`)
 
@@ -190,7 +190,7 @@ Checks that are not in the validators, because they need data of the server: the
 
 ### 7.1 Routes
 
-The routes `/ns/v1` and `/ns` are implemented (design Section 9.1 rule 3): `GET /ns/v1` gives the text of `context_json()` with `Content-Type: application/ld+json` and `Access-Control-Allow-Origin: *`; `GET /ns` gives `vocabulary_page()`. No authentication, in each mode, also while the switch `federation` is off. No redirect on the server: the redirect (302) from `https://w3id.org/claire-bible/…` to `https://claire.bible/…` is on `w3id.org`.
+The routes `/ns/v1` and `/ns` are implemented (design Section 9.1 rule 3): `GET /ns/v1` gives the text of `context_json()` with `Content-Type: application/ld+json` and `Access-Control-Allow-Origin: *`; `GET /ns` gives `vocabulary_page()`. No authentication, in each mode (there is no `federation` switch). No redirect on the server: the redirect (302) from `https://w3id.org/claire-bible/…` to `https://claire.bible/…` is on `w3id.org`.
 
 ### 7.2 Sidecar
 
@@ -316,13 +316,13 @@ The `kb` collection has the shared knowledge bases only (no owner, public, with 
 
 | Route | Result |
 | :--- | :--- |
-| `GET /api/admin/federation/known-servers` | `{"servers": [...], "switches": {"federation", "kb_auto_contribution", "signed_get": "required"}}` |
+| `GET /api/admin/federation/known-servers` | `{"servers": [...], "switches": {"kb_auto_contribution", "signed_get": "required"}}` |
 | `POST /api/admin/federation/known-servers` | Body `{"domain"}`. 201 `{"server", "created": true}` (audit `federation.known_server_add`), 200 with `created: false` for a known server; 400 `invalid_request`, `invalid_domain`, `own_domain` |
 | `GET /api/admin/federation/journal` | `?status=`, `?limit=` (1 to 200, default 50), `?max_id=`. `{"entries": [...], "next_max_id"}`, newest first; 400 `invalid_status`, `invalid_limit`, `invalid_max_id` |
 | `GET /api/admin/federation/journal/{id}` | `{"entry": {..., "payload"}}`; 404 `journal_entry_not_found` |
 | `POST /api/admin/federation/journal/{id}/replay` | Body `{}`. 200 `{"entry"}` (audit `federation.journal_replay`); 404 `journal_entry_not_found`; 409 `journal_entry_not_replayable` (with `states`) |
 
-The switches have their own routes: `POST /api/admin/federation` (`federation`), `PUT /api/admin/auto-contribution` (`kb_auto_contribution`), and `/api/admin/federation/domain-blocks`. The console section `/admin/federation` (`console_admin.js`) shows the known servers, with the records and the read state of Section 11, and the journal.
+The switch `kb_auto_contribution` uses `PUT /api/admin/auto-contribution`, and domain blocks use `/api/admin/federation/domain-blocks` (there is no `federation` switch). The console section `/admin/federation` (`console_admin.js`) shows the known servers, with the records and the read state of Section 11, and the journal.
 
 ### 10.6 Sidecar (units KF1 and KF2)
 
@@ -339,7 +339,7 @@ Unit KF3 added the knowledge base actors, the outbound activities, and the read 
 
 | File | What it examines |
 | :--- | :--- |
-| `tests/test_knowledge_federation_stores.py` | The migration step (a table of another form is kept), the known servers (sources, admin entry, block state, leases, reads), the access rule, the journal (receive, duplicate, contract error with its code, no handler, handler error and refusal, replay, switch off, block, retention). |
+| `tests/test_knowledge_federation_stores.py` | The migration step (a table of another form is kept), the known servers (sources, admin entry, block state, leases, reads), the access rule, the journal (receive, duplicate, contract error with its code, no handler, handler error and refusal, replay, block, retention). |
 | `tests/test_knowledge_federation_routes.py` | The internal routes through the signed internal app; the admin routes (404 for others, origin, recent sign-in, audit, pages, replay). |
 | `tests/test_knowledge_federation_e2e.py` | The completion criteria with two app objects and two databases (A and B). The sidecars and the network are simulated: the test calls the internal routes of B with the values that a sidecar gives after it verified a signature. |
 | `tests/test_knowledge_federation_internal_contract.py` | Each internal route of the knowledge federation against the fixtures of `tests/fixtures/knowledge_federation/internal/`, and the copy of the context document in the sidecar. |
@@ -352,7 +352,7 @@ Unit KF3 added the knowledge base actors, the outbound activities, and the read 
 - In single mode `/@{username}/…` of the admin is the namespace of the admin, for each reader (single mode has no profile rule). Each other name gets 404.
 - The redirects need an `active` admin with a USERNAME. Before the first setup there is no redirect: `/` with the admin session gives 302 to `/setup`; each other request to `/` gets the page "setup not complete" (503, `Cache-Control: no-store`, `Retry-After: 3600`, `data-setup-state="setup_required"`). On a server without anonymous read, an anonymous request gets the 404 of the route policy first.
 - Rule S9 of the namespace design is withdrawn. The server setting `admin_username_published` (O15) has no effect; a stored row stays. `POST /api/admin/server/mode` to `single` does not write it and its answer is `{"mode": "single", "changed": true}`.
-- Not implemented: the setup confirmation text still says that the USERNAME is public in network mode (design Section 15 rule 4 asks for "both modes"; the text is in the locale catalogs). Design Section 15 rules 5 and 6 (the account actor of the admin in single mode, GF1, and the mode change while `federation` is on) are implemented in unit KF4 (Section 13.7).
+- Not implemented: the setup confirmation text still says that the USERNAME is public in network mode (design Section 15 rule 4 asks for "both modes"; the text is in the locale catalogs). Design Section 15 rules 5 and 6 (the account actor of the admin in single mode, GF1, and the mode change with federation active) are implemented in unit KF4 (Section 13.7).
 
 ## 11. Unit KF2: `/kb` Collections, Remote Knowledge Bases, Themes Across Servers, Root Page
 
@@ -476,7 +476,7 @@ Design: Sections 9.2, 9.3, 10, and 11, with Sections 6, 13, and 14 for the contr
 - Keys: the table `actor_keys` of `auth.db` ([`FEDERATION.md`](FEDERATION.md) Section 6), with `account_id` = minus the number of the knowledge base. Claire makes the two key pairs at the first request for the actor document or the keys. A number is never used again, so a new knowledge base never gets the keys of a deleted one. The keys of a deleted knowledge base are deleted when no task of its actor waits (Section 14).
 - The collections answer only a signed request of a server actor (`access.collection_access`, KS1; each refusal is the same 404). `followers` and `outbox` give `totalItems` only. `documents` is an `OrderedCollection` with `first`; a page (`?page=true`, `&max_id=<contribution>`) has at most 20 items, the newest contribution first. An item has `id`, `type` `Article`, `name`, `url` (optional), `claire:contentHash`, `published`, and `updated` (optional), and no content (P3). The document path gives the `Article` of Section 4.2 with its `claire:extraction`.
 - A document leaves the server only when its contribution is `visible`, its document row is not hidden, and it has a stored extraction (KS5). `content` is the compiled HTML (or the render of the source text) after the `nh3` sanitizer; a reference that starts at the root of this server gets the origin. A relation whose source or target is not an entity of the extraction is not sent.
-- `attributedTo`: for a copy of a remote document, the credit that came; for a local document, the actor of the contributor only when that account is a federation actor ([`FEDERATION.md`](FEDERATION.md) Section 3); else absent. `origin`: only for a copy of a remote document (the document that was copied). `claire:root`: the root that came for such a copy; for each other document its own `id`.
+- `attributedTo`: for a copy of a remote document, the credit that came; for a local document, the actor of the contributor only when that account is a federation actor with a public profile (`actors.account_content_public`, `profile_public` 1; [`FEDERATION.md`](FEDERATION.md) Section 3.1); else absent. `origin`: only for a copy of a remote document (the document that was copied). `claire:root`: the root that came for such a copy; for each other document its own `id`.
 - `sameAs` of an entity: none. Each authority identifier of this server came from another server, and this server does not send it onward (Section 14, KS4).
 
 ### 12.3 Tables (schema version 31)
@@ -588,7 +588,7 @@ Code: `knowledge.ts` (`deliverKnowledgeTask`, `processKnowledgeOutbox`, `readRem
 
 1. The IRI of a document has the public ID of its contribution, so that it stays the same over revisions. The design gives no form.
 2. The root on the wire of a document whose root is on this server is the document itself, and `origin` is absent: the root is in a personal knowledge base, which has no address for other servers (KD3, KS5). A curation from another shared knowledge base of the same server also has no `origin` on the wire.
-3. `attributedTo` is absent for a contributor that is not a federation actor: an account without a public profile gets no address for other servers. The design says "the actor with the credit".
+3. `attributedTo` is absent for a contributor that is not a federation actor, and for a contributor with a private profile (`actors.account_content_public`): a public document does not name an account with a private profile, although the account is an actor ([`FEDERATION.md`](FEDERATION.md) Section 3.1). The design says "the actor with the credit".
 4. The actor document is public (no signed GET): a server needs it to verify a signature before it can know the signer. The collections and the documents need the signed GET.
 5. The curation is asynchronous (202): Claire does not call the sidecar ([`FEDERATION.md`](FEDERATION.md) Section 2), so a read is a row that the sidecar takes.
 6. The followers get an `Update` of the record only for the label, the description, and the knowledge type (since unit KF5 also for `claire:acceptsAutomatic`). The counts and the signature change with each document.
@@ -627,7 +627,7 @@ Design: Sections 9.3, 12.1, 12.2, 13, 14, and 15 rule 5; [`SHARED_KNOWLEDGE_BASE
 | `src/claire/federation/knowledge/offers.py` | The offers that go out (`kf_outbound_offers`: `send`, `skip`, `record_decision`, `result_removed`, `outbound_view`) and the offers that come in (`kf_inbound_offers`: `record_inbound`, `answer_refusal`, `sync`, `actor_deleted`). No function commits. |
 | `src/claire/federation/knowledge/grants.py` | The grants that this server gave (`kf_grants`: `give`, `revoke`, `valid`) and the grants that its accounts got (`kf_received_grants`: `receive`, `receive_revoke`, `capability_for`). No function commits. |
 | `src/claire/federation/knowledge/handlers.py` | The handlers of `offer_contribution`, `accept_offer`, `reject_offer`, `grant`, and `revoke`. |
-| `src/claire/federation/knowledge/actors.py` | `account_actor_iri`, `local_account_of_actor`, `personal_article` (the `Article` of a document of a personal knowledge base for an `Offer`). |
+| `src/claire/federation/knowledge/actors.py` | `account_actor_iri`, `account_content_public` (`active` and `profile_public` 1), `local_account_of_actor`, `personal_article` (the `Article` of a document of a personal knowledge base for an `Offer`). |
 | `src/claire/federation/knowledge/outbox.py` | `sync` calls `offers.sync`, which puts the answers in the outbox. |
 | `src/claire/collaboration/contributions.py` | `submit_to_themes` (the remote targets), `canonical_origin`, `contribute_remote`, `remote_actor_deleted`, and the new keys of `LIMITS`. |
 | `src/claire/store/kb_collab.py` | `pending_count_remote`, `count_pending_among`, `decisions_of_remote_actor`, `remote_actor_deleted`; `add_contribution` takes a remote source without a knowledge base actor. |
@@ -664,7 +664,8 @@ The sender (`offers.send`), in this sequence; each failed check records the targ
 | Check | Reason |
 | :--- | :--- |
 | The domain of the knowledge base is blocked, or the IRI is not one of another server | `blocked_domain` |
-| The account is not a federation actor (`active`, a public profile, a USERNAME; FEDERATION.md Section 3) | `not_a_federation_actor` |
+| The account is not a federation actor (`active` with a USERNAME; FEDERATION.md Section 3) | `not_a_federation_actor` |
+| The profile of the account is private: an offer sends a document of the account to another server with its name, and the content of such an account is private (FEDERATION.md Section 3.1) | `profile_private` |
 | An offer of the same document to the same knowledge base waits or was accepted | `contribution_duplicate` |
 | No grant in its term, and the offers of the account to that knowledge base that wait are at the pending limit of its reputation on this server | `pending_limit` |
 | The document has no extraction that the wire contract can have | `document_not_extracted` |
@@ -746,14 +747,14 @@ WebUI:
 
 ### 13.7 Single Mode (design Section 15 rules 5 and 6)
 
-- The mode is not a condition of the internal routes, of `actors.account_actor_iri`, of the name change `Update(Person)`, of the purge `Delete`, and of the sidecar (each path and each loop): the server actor, the account actor of the admin (with `profile_public` and a USERNAME), and the knowledge federation work in single mode. Since 2026-11-19 the account routes `/api/federation/*` and `/render/remote/{item_id}` are in both modes too ([`FEDERATION.md`](FEDERATION.md) Section 7.5), and `/settings/account` has the USERNAME and the switch `profile_public` in both modes.
+- The mode is not a condition of the internal routes, of `actors.account_actor_iri`, of the name change `Update(Person)`, of the purge `Delete`, and of the sidecar (each path and each loop): the server actor, the account actor of the admin (with a USERNAME), and the knowledge federation work in single mode. Since 2026-11-19 the account routes `/api/federation/*` and `/render/remote/{item_id}` are in both modes too ([`FEDERATION.md`](FEDERATION.md) Section 7.5), and `/settings/account` has the USERNAME and the switch `profile_public` in both modes.
 - Readiness check GF1 passes in network mode, and in single mode when the admin account is `active` and has a USERNAME.
-- `POST /api/admin/server/mode` to `single` no longer refuses while `federation` is on (FEDERATION.md Section 8.3).
+- `POST /api/admin/server/mode` to `single` has no federation condition (`FEDERATION.md` Section 8.3).
 - `/admin/federation` is the same in both modes. The note of single mode is removed (2026-11-19).
 
 ### 13.8 Choices Made in the Code
 
-1. An account that is not a federation actor sends no `Offer`; its target is `skipped` with `not_a_federation_actor` (design Section 12.1 rule 2: "the account needs a handle"; CT33). The submission and its local targets are made as before.
+1. An account that is not a federation actor sends no `Offer`; its target is `skipped` with `not_a_federation_actor` (design Section 12.1 rule 2: "the account needs a handle"; CT33). An actor with a private profile sends no `Offer` too; its target is `skipped` with `profile_private` (`FEDERATION_GO_LIVE_DESIGN.md` decisions GD5 and GD7; `FEDERATION.md` Section 3.1). Both reasons are in `offers.RETRY_REASONS`, so the automatic rule tries the document again after the state changes. The submission and its local targets are made as before.
 2. The `id` of the document in an `Offer` is `{account actor}/documents/{document ID}`. It is an identifier only: no route serves it, because a personal knowledge base has no address for other servers (KD3, KS5). The same document gives the same IRI, so the receiver finds a second offer of it. The copy on the receiver has this IRI as `origin` and `claire:root`.
 3. A remote target is a theme member of the theme of the item (the same rule as a local target), or the direct choice with a grant. A direct choice without a grant is refused (403 `grant_required`): only a collaborator has `contribute_direct` without a membership, and a remote account cannot be a member (design Section 12.2 rule 4).
 4. The pending limit of the sender (shared knowledge base design Section 9.2 rule 5) counts the offers to the knowledge base that wait for an answer; an offer with a grant does not check it.
@@ -771,7 +772,7 @@ WebUI:
 | File | What it examines |
 | :--- | :--- |
 | `tests/test_knowledge_federation_kf4_e2e.py` | The completion criterion with two app objects and two databases (A and B, the mock provider): ben of A contributes to a theme of A that has Cities of B; `Offer` with the account actor as signer; a pending contribution on B with the remote credit; a reviewer of B approves; `Accept` with `result`; the submission page on A shows `accepted`; a direct choice without a grant gets 403; a grant (step-up) and `Grant`; the next contribution is visible without approval; `Revoke` (step-up); an offer that still carries the capability waits for approval; a rejection with a reason code reaches the submission page; the reputation of the remote account on B. The sidecars and the network are simulated by direct calls to the internal routes (the docstring of the file says what is simulated). |
-| `tests/test_knowledge_federation_kf4.py` | The migration step v32; the checks of an inbound `Offer` (refusals, `Reject` at once, duplicate); the limits for each remote account, each domain, and each day; answers and grants only from the actor that owns them; the end of a grant; the checks of the sender (no federation actor, duplicate, pending limit, blocked domain); `Delete` of a remote actor; the sanitizer of the HTML of an offer; the limits and the retention of received grants and inbound rows. |
+| `tests/test_knowledge_federation_kf4.py` | The migration step v32; the checks of an inbound `Offer` (refusals, `Reject` at once, duplicate); the limits for each remote account, each domain, and each day; answers and grants only from the actor that owns them; the end of a grant; the checks of the sender (no federation actor, `profile_private`, duplicate, pending limit, blocked domain); `Delete` of a remote actor; the sanitizer of the HTML of an offer; the limits and the retention of received grants and inbound rows. |
 | `sidecar/fedify/tests/knowledge_test.ts` | An `Offer` task with the signer `account:{public ID}` goes to the inbox of the knowledge base actor with the body unchanged and a signature that verifies with the actor document of the account, in single mode; a task of an account without keys ends `no_actor_key`. |
 | `sidecar/fedify/tests/sidecar_test.ts`, `outbox_test.ts`, `inbox_test.ts`, `tests/test_federation_routes.py`, `tests/test_federation_readiness.py`, `tests/test_e2e_network_mode_transition.py` | Single mode (Section 13.7). |
 
@@ -906,13 +907,13 @@ The fixtures of `objects/`, `activities/`, `invalid/`, and `internal/` were writ
 
 ### 15.4 Sender
 
-Conditions (`auto_contribution.remote_state` and `run_account`): the switch `kb_auto_contribution` of this server (design Section 12.3 rule 1), the canonical origin of this server (`contributions.canonical_origin`; the same value for a request and for a run in the background), and an account that is a federation actor. Else the rule has only local targets.
+Conditions (`auto_contribution.remote_state` and `run_account`): the switch `kb_auto_contribution` of this server (design Section 12.3 rule 1), the canonical origin of this server (`contributions.canonical_origin`, else `remote_state` returns `no_origin`; the same value for a request and for a run in the background), an account that is a federation actor (`not_a_federation_actor`), and a public profile (`actors.account_content_public`, `profile_public` 1, else `profile_private`). Else the rule has only local targets.
 
 | Item | Rule |
 | :--- | :--- |
 | Targets (`remote_targets`) | `memberships`: the remote knowledge bases that gave the account a grant in its term (`grants.kb_iris_in_effect`) and that have a record here. `themes`: the remote members (not excluded) of the themes of the rule (a merged theme is its target). `mutual`: none. A record of a blocked domain is no target. |
 | Score (`remote_candidates`) | The signature of the record (`remote_kbs.signature_rows`, design Section 12.3 rule 2); else the signature of a local theme that has the record as a member. No seed entities: they do not come to this server. The threshold is `auto_match_threshold`. |
-| Not candidates | The exclusions of a local target (hidden, "never contribute", pasted text, upload without `include_uploads`, no extraction), and each document with a row of `kf_outbound_offers` of the account for that knowledge base in any state, also from a submission (`offers.automatic_offered`). A row that was skipped or rejected with a reason of `offers.RETRY_REASONS` (`not_a_federation_actor`, `blocked_domain`, `pending_limit`, `knowledge_base_not_found`, `automatic_not_accepted`) does not count. The duplicate and tombstone checks are on the receiver. |
+| Not candidates | The exclusions of a local target (hidden, "never contribute", pasted text, upload without `include_uploads`, no extraction), and each document with a row of `kf_outbound_offers` of the account for that knowledge base in any state, also from a submission (`offers.automatic_offered`). A row that was skipped or rejected with a reason of `offers.RETRY_REASONS` (`not_a_federation_actor`, `profile_private`, `blocked_domain`, `pending_limit`, `knowledge_base_not_found`, `automatic_not_accepted`, `limit_reached`) does not count. The duplicate and tombstone checks are on the receiver. |
 | Mode | `approved` with a grant in its term (the receiver decides at the end: the reputation of the account there); `pending` without one; `closed` when the record says that the server accepts no automatic contributions (`remote_kbs.accepts_automatic` is False). A record without the key (a read before KF5) is not `closed`: the receiver decides. |
 | Limits | `auto_run_documents` for each run and target; the reputation level of the account on this server (`limited` fewer documents, `low` no run); for `pending`, the pending limit of the level minus the offers to that knowledge base that wait (`offers.pending_outbound`). |
 | Run | One `Offer` with `claire:automatic` for each candidate: `offers.send(automatic=True, submission_item_id=None)` with all checks of Section 13.4, and first `automatic_not_accepted` for a `closed` record. Each offer is its own transaction. A `closed` target gets no row. |
@@ -932,12 +933,12 @@ No new route. Changes ([`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) and the Op
 
 | Route | Change |
 | :--- | :--- |
-| `POST /api/auto-rule/dry-run` | New key `remote_state` (`on`, `no_origin`, `not_a_federation_actor`). Each target has `remote`. A remote target: `{"knowledge_base": null, "label", "remote": true, "remote_id", "server", "url", "actor", "mode", "documents"}`; `mode` can be `closed` (then `documents` is empty). |
+| `POST /api/auto-rule/dry-run` | New key `remote_state` (`on`, `no_origin`, `not_a_federation_actor`, `profile_private`). Each target has `remote`. A remote target: `{"knowledge_base": null, "label", "remote": true, "remote_id", "server", "url", "actor", "mode", "documents"}`; `mode` can be `closed` (then `documents` is empty). |
 | `GET /api/contributions` | Without `origin` and with `origin=auto`: also the automatic offers of the account, newest first with the other items: `{"knowledge_base": null, "label", "number": null, "document", "title", "origin": "auto", "state", "approved", "reason", "contributed_at", "remote_target": {"remote_id", "server", "url", "actor", "result", "with_grant", "delivery", "decided_at"}}`. `state` is the state of the outbound row (`pending`, `accepted`, `rejected`, `removed`, `skipped`). |
 | `GET /submissions`, `GET /submissions/{number}` | A remote target has `automatic` (false: an offer of a submission). An automatic offer has no submission item, so it is not in these views. |
 | `PUT /api/auto-rule`, the admin routes | No change of the form; a run has remote targets. |
 
-WebUI: the dry run dialog (`kb_dialogs.js`) shows a remote target with its label, its server, and a link to its page; the mode `closed` with a note; and a note when `remote_state` is not `on`. `/settings/kb`, tab "Automatic rule": the list of automatic contributions shows a remote target with its server, its state, the reason (`automatic_not_accepted` has its catalog text), and the delivery state; a remote target has no withdrawal. The same rows are in the list "My contributions" of the tab "Submissions". New catalog keys: `kb.dlg.mode_closed`, `kb.dlg.mode_closed_hint`, `kb.dlg.dry_run_remote_no_origin`, `kb.dlg.dry_run_remote_not_a_federation_actor`, `kb.reason.automatic_not_accepted`, `console.js.kb.auto_remote_hint`.
+WebUI: the dry run dialog (`kb_dialogs.js`) shows a remote target with its label, its server, and a link to its page; the mode `closed` with a note; and a note when `remote_state` is not `on`. `/settings/kb`, tab "Automatic rule": the list of automatic contributions shows a remote target with its server, its state, the reason (`automatic_not_accepted` has its catalog text), and the delivery state; a remote target has no withdrawal. The same rows are in the list "My contributions" of the tab "Submissions". New catalog keys: `kb.dlg.mode_closed`, `kb.dlg.mode_closed_hint`, `kb.dlg.dry_run_remote_no_origin`, `kb.dlg.dry_run_remote_not_a_federation_actor`, `kb.dlg.dry_run_remote_profile_private`, `kb.reason.automatic_not_accepted`, `console.js.kb.auto_remote_hint`.
 
 The sidecar needs no change: an automatic `Offer` is an `Offer` of the account actor (Section 13.6). `deno.json` and `deno.lock` did not change.
 
@@ -1015,7 +1016,7 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 | `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF17, `FederationReadinessItem` (`group`, `level`, `applies`, `code`, `values`), `FederationReadinessReport`, `_system_ssl_context()`, `request_public_origin`, 20-second deadline across request checks |
 | `src/claire/store/actor_keys.py` | `load_kb_public_jwks` |
 | `src/claire/api/federation_routes.py` | Contract `1.12`, sealed heartbeat models `KnowledgeSelfCheck`, `SignedSelfCheck`, `LoopState`, `HeartbeatLoops` |
-| `src/claire/api/accounts_routes/federation.py` | Gate `POST /api/admin/federation` (`failures` filters on `level == "required" and applies and not passed`), heartbeat `knowledge_self_check` and `loops` |
+| `src/claire/api/accounts_routes/federation.py` | `GET /api/admin/federation` readiness report, heartbeat `knowledge_self_check` and `loops` (the historical `POST` switch gate was removed under decision GD4) |
 | `src/claire/api/accounts_routes/console_federation_panels.py`, `src/bible/static/js/console_admin.js`, `src/claire/i18n/locales/en.json`, `src/claire/i18n/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
 | `src/claire/cli.py` | `--federation` help (`GF1 to GF17`) and output |
 | `src/claire/api/security.py`, `src/claire/api/host_router.py` | Decision CD4 (`DQ1: A`): `development` accepts `https://<name>.test/` and applies `.test` DNS role rules |
@@ -1030,7 +1031,7 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 | GF10 | Required | Always | `POST {origin}/ap/inbox` with `GF10_INBOX_BODY_BYTES` (`1040384`) and `application/activity+json`, and a small `POST` with `application/ld+json` and the `profile` parameter: no answer is HTTP `413`, and each answer has the marker of the sidecar of the heartbeat in `X-Claire-Fedify-Server` |
 | GF11 | Required | Always | `heartbeat.loops.knowledge_reads` and `knowledge_exchange` have `progress_at` within `300` seconds (`LOOP_MAX_AGE_SECONDS`) |
 | GF12 | Required | Always | Every ciphertext row in `actor_keys` (account actors and negative KB IDs) decrypts with `SecretService`; fails show up to 5 actor IDs |
-| GF13 | Required | Always | `federation` and `kb_auto_contribution` switches, `contributions.LIMITS`, `theme_match_threshold`, `auto_match_threshold`, `auto_run_documents` are valid; in `production`, the public host is not under `.test`, `.example`, `.invalid`, `.localhost`, or `.local` |
+| GF13 | Required | Always | `kb_auto_contribution` switch, `contributions.LIMITS`, `theme_match_threshold`, `auto_match_threshold`, `auto_run_documents` are valid; in `production`, the public host is not under `.test`, `.example`, `.invalid`, `.localhost`, or `.local` |
 | GF14 | Required | Always | `/.well-known/nodeinfo`, `/nodeinfo/2.1`, and `/ap/actors/server` for each of the two media types of a read (`Application`, matching RSA `publicKeyPem` in `auth.db`); each answer comes from the sidecar of the heartbeat |
 | GF15 | Required | At least one shared KB | Lowest-number shared KB `/ap/kb/{number}` (`Group` + `claire:KnowledgeBase`, `claire:acceptsAutomatic` vs `kb_auto_contribution`, matching RSA `publicKeyPem` in `auth.db`) |
 | GF16 | Required | Always | Unsigned `GET` to `/ap/kb`, `/ap/themes`, and `/ap/kb/{number}/documents` returns HTTP `404` from the sidecar of the heartbeat (a 404 of Claire or of an intermediary fails) |
@@ -1047,7 +1048,7 @@ HTTP checks (`fetch_metadata`, `request_public_origin`) use `_system_ssl_context
 
 | File | Scope |
 | :--- | :--- |
-| `tests/test_federation_readiness.py` | GF1 to GF17 pass and failure cases, `SSL_CERT_FILE` loopback TLS, 20-second deadline, `POST /api/admin/federation` gate (`PQ14: A`), CLI `--federation` help and warning exit code |
+| `tests/test_federation_readiness.py` | GF1 to GF17 pass and failure cases, `SSL_CERT_FILE` loopback TLS, 20-second deadline, no `POST /api/admin/federation` switch route (GD4; earlier KF6 gate removed), CLI `--federation` help and warning exit code |
 | `tests/test_federation_routes.py` | Contract 1.12 heartbeat fixture and v1.11 payload rejection |
 | `tests/test_api_security.py`, `tests/test_host_roles.py` | Decision CD4 (`.test` HTTPS development origin and DNS role rules) |
 | `sidecar/fedify/tests/sidecar_test.ts` | `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange` |

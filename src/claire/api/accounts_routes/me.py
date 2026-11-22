@@ -89,16 +89,6 @@ def update_display_name(ctx: AccountsContext, account_id: int, display_name: str
         conn.close()
 
 
-def profile_public_needs_step_up(ctx: AccountsContext, account_id: int) -> bool:
-    """True when the profile is not public now. A change to public makes the account a federation actor (Fedify sidecar design Section 8.4, FD11)."""
-    conn = open_db(ctx)
-    try:
-        store = accounts_store.AccountStore(conn)
-        return not store.get(account_id).profile_public
-    finally:
-        conn.close()
-
-
 def update_profile_public(ctx: AccountsContext, account_id: int, profile_public: int | bool) -> None:
     conn = open_db(ctx)
     try:
@@ -333,11 +323,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return json_error(400, "invalid_entity_language")
         if principal.account_id is None:
             raise RuntimeError("/api/me requires an account principal")
-        # FD11: with federation on, the change 0 -> 1 requires recent authentication. The change 1 -> 0 never does. The check occurs before all writes.
-        if profile_public == 1 and await asyncio.to_thread(profile_public_needs_step_up, ctx, principal.account_id):
-            denied = require_recent_auth(principal)
-            if denied is not None:
-                return denied
+        # A change of ``profile_public`` needs no recent authentication (FEDERATION_GO_LIVE_DESIGN.md decision GD6; FD11 is withdrawn): the switch shows or hides the content of the account, and the account is an actor in the two states.
         if display_name is not None:
             await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
         if profile_public is not None:

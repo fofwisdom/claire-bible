@@ -745,6 +745,7 @@ export class Sidecar {
       publicKey: keys[0]?.cryptographicKey,
       assertionMethods: keys.map((k) => k.multikey),
       published: record.activated_at === null ? null : instant(record.activated_at),
+      discoverable: record.discoverable,
       manuallyApprovesFollowers: false,
     });
   }
@@ -795,7 +796,7 @@ export class Sidecar {
       let activity: Activity;
       if (task.kind === "update_actor") {
         const record = await this.#api.actor(task.actor_public_id);
-        // The account is not an actor now (pause or purge). A pause sends nothing (design Section 8.1).
+        // The account is not an actor now (it is not active, or it is purged). Such an account sends nothing (design Section 8.1).
         if (record === null) return await reject("not_an_actor");
         // The ID has the time of the change, the same rule as for the Update of an object.
         activity = new Update({ id: new URL(`#updates/${Math.round(record.updated_at * 1000)}`, actor), object: await this.#person(ctx, record), ...audience });

@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/internal/federation/v1/actors/by-username/private_bob"
+    "path": "/internal/federation/v1/actors/by-username/suspended_carol"
   },
   "status": 404,
   "response": {

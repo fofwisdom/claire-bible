@@ -133,7 +133,7 @@ def rendered_note_html(note: notes_store.Note, *, origin: str) -> str:
 
 
 def note_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]]) -> list[BaseRoute]:
-    """The routes of this module. The callables are the helpers of ``federation_internal_routes``: the canonical origin, a read connection of ``claire.db`` as an ``AccountStore``, a connection of ``client.db``, and the accounts that are actors now."""
+    """The routes of this module. The callables are the helpers of ``federation_internal_routes``: the canonical origin, a read connection of ``claire.db`` as an ``AccountStore``, a connection of ``client.db``, and the accounts that are actors now (FEDERATION_GO_LIVE_DESIGN.md decisions GD5 and GD7)."""
 
     def _actors() -> dict[int, str]:
         """The accounts that are actors now, with their public IDs."""
@@ -155,11 +155,11 @@ def note_internal_routes(settings: Any, *, now: Callable[[], float], origin: Cal
             client.close()
         if found is None:
             return _not_found()
-        # A deleted note is gone in all states of the federation switch, the same as a deleted object.
+        # A deleted note is gone in all states of the account, the same as a deleted object.
         if found.deleted_at is not None:
             return JSONResponse({"error": "gone", "gone_at": found.deleted_at}, status_code=410, headers=_NO_STORE)
         actor_public_id = _actors().get(found.account_id)
-        # The note is public only while its account is an actor.
+        # Decision GD7: own notes follow Mastodon and Fedify defaults and stay public for each actor regardless of ``profile_public``.
         if actor_public_id is None:
             return _not_found()
         return _json(note_record(found, actor_public_id=actor_public_id, origin=origin()))
@@ -176,7 +176,7 @@ def note_internal_routes(settings: Any, *, now: Callable[[], float], origin: Cal
         store = open_store()
         client = open_client()
         try:
-            # Only a task of an account that is an actor now is given (Section 5.4 rule 11). The task of a paused account waits.
+            # Only a task of an account that is an actor now is given (Section 5.4 rule 11, decision GD7).
             leased = notes_store.lease_interaction_tasks(client, account_ids=list(actors), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit))
             items = []
 

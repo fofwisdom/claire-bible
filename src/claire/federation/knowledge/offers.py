@@ -71,9 +71,9 @@ INBOUND_STATES: tuple[str, ...] = ("pending", "accepted", "rejected", "closed")
 # The time that an inbound row without a contribution stays after its answer.
 INBOUND_RETENTION_SECONDS = 30 * 86400.0
 # The reasons that a remote target gets no offer.
-SKIP_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "document_not_extracted", "document_too_large", "title_too_long", "extraction_too_large", "contribution_duplicate", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
+SKIP_REASONS: tuple[str, ...] = ("not_a_federation_actor", "profile_private", "blocked_domain", "document_not_extracted", "document_too_large", "title_too_long", "extraction_too_large", "contribution_duplicate", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED)
 # The reasons of a skipped target that can change before the next run of the automatic rule: such a row does not keep the document from that knowledge base. A ``Reject`` with ``vocabulary.AUTOMATIC_NOT_ACCEPTED`` or ``vocabulary.LIMIT_REACHED`` is the same: the other server can accept automatic contributions later, and its pending limits can have room later.
-RETRY_REASONS: tuple[str, ...] = ("not_a_federation_actor", "blocked_domain", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED, vocabulary.LIMIT_REACHED)
+RETRY_REASONS: tuple[str, ...] = ("not_a_federation_actor", "profile_private", "blocked_domain", "pending_limit", "knowledge_base_not_found", vocabulary.AUTOMATIC_NOT_ACCEPTED, vocabulary.LIMIT_REACHED)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kf_outbound_offers (
@@ -173,7 +173,7 @@ def pending_outbound(conn: sqlite3.Connection, *, account_id: int, kb_iri: str) 
 def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source_document_id: str, remote_kb: remote_kbs.RemoteKnowledgeBase, submission_item_id: int | None, pending_limit: int, automatic: bool, origin: str, now: float) -> dict[str, Any]:
     """Offer one document of the personal knowledge base of the account to a shared knowledge base of another server: the ``Offer`` goes to the outbox with the account actor as the signer, and the row is ``pending``. A target that cannot get the offer is recorded as ``skipped`` with the reason. Return the row. No commit.
 
-    The checks of the sender, in this sequence: a domain block (``blocked_domain``); the account is a federation actor (``not_a_federation_actor``: an account without a public profile and a USERNAME has no actor that can sign, design Section 12.1 rule 2); an offer of this document to this knowledge base that waits or was accepted (``contribution_duplicate``); the pending limit of the account (``pending_limit``); the document has an extraction (``document_not_extracted``); the limits of one document (KS2: the other server has the same limits). The offer carries the grant of the account for the knowledge base when it has one in its term (design Section 12.2 rule 2); the other server decides if the grant is in effect.
+    The checks of the sender, in this sequence: a domain block (``blocked_domain``); the account is a federation actor (``not_a_federation_actor``: an account that is not ``active`` or has no USERNAME has no actor that can sign, design Section 12.1 rule 2); the content of the account is public (``profile_private``: an offer sends a document of the account to another server with its name, and the content of an account with a private profile is private, FEDERATION_GO_LIVE_DESIGN.md decision GD5); an offer of this document to this knowledge base that waits or was accepted (``contribution_duplicate``); the pending limit of the account (``pending_limit``); the document has an extraction (``document_not_extracted``); the limits of one document (KS2: the other server has the same limits). The offer carries the grant of the account for the knowledge base when it has one in its term (design Section 12.2 rule 2); the other server decides if the grant is in effect.
     ``automatic`` (unit KF5, design Section 12.3): the automatic rule of the account sends the offer. The ``claire:Contribution`` has ``claire:automatic``, and a target whose record says that its server accepts no automatic contributions is skipped first (``automatic_not_accepted``).
     """
     from ...collaboration import contributions  # the import is here: ``contributions`` loads this module for a submission
@@ -189,6 +189,8 @@ def send(conn: sqlite3.Connection, *, account_id: int, source_kb_id: int, source
     actor_iri = actors.account_actor_iri(conn, account_id, origin)
     if actor_iri is None:
         return _skipped("not_a_federation_actor")
+    if not actors.account_content_public(conn, account_id):
+        return _skipped("profile_private")
     if conn.execute("SELECT 1 FROM kf_outbound_offers WHERE account_id=? AND kb_iri=? AND source_document_id=? AND state IN ('pending', 'accepted') LIMIT 1", (int(account_id), remote_kb.iri, source_document_id)).fetchone() is not None:
         return _skipped("contribution_duplicate")
     capability = grants.capability_for(conn, account_id=account_id, kb_iri=remote_kb.iri, now=now)

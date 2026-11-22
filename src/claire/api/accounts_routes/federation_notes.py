@@ -109,7 +109,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return principal.account_id if principal.scope == "owner" and principal.account_id is not None else None
 
     def _actor(conn: Any, account_id: int, *, need_actor: bool = True) -> tuple[accounts_store.AccountStore, accounts_store.Account] | None:
-        """The account of the caller. Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11)."""
+        """The account of the caller. Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11, FEDERATION_GO_LIVE_DESIGN.md decision GD7)."""
         store = accounts_store.AccountStore(conn)
         account = store.get(account_id)
         if need_actor and actor_state(account) != "active":

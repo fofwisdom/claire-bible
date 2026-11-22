@@ -4174,7 +4174,7 @@ def create_app(
                 return None
         finally:
             conn.close()
-        if account.status != "active" or not account.profile_public:
+        if account.status != "active" or not account.username:
             return None
         return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
 

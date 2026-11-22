@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.14";
+export const CONTRACT_VERSION = "1.15";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -39,6 +39,7 @@ export interface ActorRecord {
   activated_at: number | null;
   updated_at: number;
   profile_url: string;
+  discoverable: boolean;
 }
 
 export interface ActorKey {
@@ -585,7 +586,7 @@ const configShape = sealed({
   domain_blocks_etag: str,
   allow_private_addresses: bool,
 });
-const actorShape = sealed({ public_id: str, username: str, display_name: str, activated_at: nullable(num), updated_at: num, profile_url: str });
+const actorShape = sealed({ public_id: str, username: str, display_name: str, activated_at: nullable(num), updated_at: num, profile_url: str, discoverable: bool });
 const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa2048", "ed25519"), public_jwk: stringMap, private_jwk: stringMap })) });
 const decisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),

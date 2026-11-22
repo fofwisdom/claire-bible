@@ -180,8 +180,9 @@ def test_e2e_thread_fetch_limits_switch_and_owner_rule(env):
     assert env.sidecar.call("GET", "/context-tasks").json() == {"tasks": []}
     assert _tasks(env)[-1][4:] == ("rejected", "context_fetch_off")
 
-    # An account that is not an actor makes no task: the sidecar takes no task of such an account.
+    # An account with a private profile is an actor and can read: its request makes a task (FEDERATION_GO_LIVE_DESIGN.md decision GD5).
     _set_reading(env, context_fetch="on")
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.beta,)))
-    assert _ask(env, _item_id(env, env.beta, ROOT), env.beta_session).json() == {"state": "off", "pending": False}
-    assert all(row[0] == env.alpha for row in _tasks(env))
+    assert _ask(env, _item_id(env, env.beta, ROOT), env.beta_session).json() == {"state": "queued", "pending": True}
+    assert _tasks(env)[-1][0] == env.beta
+    assert len(env.sidecar.call("GET", "/context-tasks").json()["tasks"]) == 1

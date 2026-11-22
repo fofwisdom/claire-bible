@@ -166,18 +166,31 @@ def test_e2e_new_note_group_reply_and_refusals(env):
     assert c.request("POST", NOTES, session=env.beta_session, json={"content": "x", "in_reply_to": _item_id(env, PARENT)}).json() == {"error": "item_not_found"}
     c.request("POST", "/api/admin/federation/domain-blocks", session=env.admin, json={"domain": "blocked.example"})
     assert c.request("POST", NOTES, session=env.alpha_session, json={"content": "hi @eve@blocked.example"}).json() == {"error": "blocked_domain"}
-    # Rule 11: an account that is not an actor sends no note, and its tasks wait.
+    # Decisions GD5 and GD7: a private profile follows Mastodon and Fedify defaults. Notes and interaction tasks keep working, while suspending the account stops the actor.
+    for t in _tasks(env):
+        _ack(env, t)
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
-    assert c.request("POST", NOTES, session=env.alpha_session, json={"content": "x"}).json() == {"error": "not_actor"}
-    assert _tasks(env) == []
+    private_note = c.request("POST", NOTES, session=env.alpha_session, json={"content": "private profile note"})
+    assert private_note.status_code == 201
+    private_note_id = private_note.json()["note"]["id"]
+    assert c.request("PATCH", f"{NOTES}/{private_note_id}", session=env.alpha_session, json={"content": "private profile note edited"}).status_code == 200
+    assert sc.call("GET", f"/notes/{private_note_id}").status_code == 200
+    assert [t["kind"] for t in _tasks(env)] == ["note", "update_note"]
+    for t in _tasks(env):
+        _ack(env, t)
+    assert c.request("DELETE", f"{NOTES}/{private_note_id}", session=env.alpha_session).status_code == 200
+    assert sc.call("GET", f"/notes/{private_note_id}").status_code == 410
+    assert [t["kind"] for t in _tasks(env)] == ["delete_note"]
+    for t in _tasks(env):
+        _ack(env, t)
+    # When the account stops being an actor (no USERNAME or suspended), note GET returns 404, tasks wait, and delete returns 410.
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.alpha,)))
     assert sc.call("GET", f"/notes/{note['id']}").status_code == 404
-    # The account can delete its note; the delete task waits.
+    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='active', profile_public=1 WHERE id=?", (env.alpha,)))
     assert c.request("DELETE", f"{NOTES}/{note['id']}", session=env.alpha_session).status_code == 200
     assert sc.call("GET", f"/notes/{note['id']}").status_code == 410
-    _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (env.alpha,)))
-    # The note task of the deleted note is refused, and its delete task follows.
-    assert [(t["kind"], t["ref_id"] == note["id"]) for t in _tasks(env)] == [("note", False), ("delete_note", True)]
-    assert ("note", "rejected", "note_removed") in _client_rows(env.settings, "SELECT kind, status, error_code FROM federation_client_outbox")
+    for t in _tasks(env):
+        _ack(env, t)
 
 
 def test_e2e_favourite_and_boost_with_undo(env):
@@ -210,9 +223,15 @@ def test_e2e_favourite_and_boost_with_undo(env):
     assert _ack(env, again, result="rejected", error_code="actor_not_found")["status"] == "rejected"
     assert c.request("GET", path, session=env.alpha_session).json()["item"]["favourited"] is False
 
-    # Refusals: an item of another account, an own note, and an account that is not an actor.
+    # Refusals: an item of another account and an own note. An account with a private profile follows Mastodon and Fedify defaults (decision GD7) and can boost, favourite, and undo.
     assert c.request("POST", f"{path}/favourite", session=env.beta_session).json() == {"error": "item_not_found"}
     own = c.request("POST", NOTES, session=env.alpha_session, json={"content": "mine"}).json()["item_id"]
     assert c.request("POST", f"{TIMELINE}/{own}/boost", session=env.alpha_session).json() == {"error": "own_item"}
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
-    assert c.request("POST", f"{path}/boost", session=env.alpha_session).json() == {"error": "not_actor"}
+    assert c.request("POST", f"{path}/boost", session=env.alpha_session).json() == {"item_id": item, "favourited": False, "boosted": True}
+    assert c.request("POST", f"{path}/favourite", session=env.alpha_session).json() == {"item_id": item, "favourited": True, "boosted": True}
+    boost_task, like_task = [t for t in _tasks(env) if t["kind"] in ("announce", "like")]
+    _ack(env, boost_task)
+    _ack(env, like_task)
+    assert c.request("DELETE", f"{path}/favourite", session=env.alpha_session).json()["favourited"] is False
+    assert [(t["kind"], t["ref_id"]) for t in _tasks(env) if t["kind"] == "undo_like"] == [("undo_like", str(like_task["id"]))]
