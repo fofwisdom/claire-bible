@@ -1,10 +1,11 @@
 # Claude Agent Client: A Working `claire` Plugin for Claude Code
 
 - **Document Identifier**: `DESIGN-CLAUDE-AGENT-CLIENT-20261122`
-- **Status**: Units CL0 to CL8 are implemented (2026-11-22, marketplace `v0.3.0`): the current state is in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3.4 and 3.1 (consent choice) and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md). Unit CL9 (upload link) is not implemented. Unit CL10 (Cowork and claude.ai plugin support) has no design yet. Owner decisions CD1 to CD4 (Section 10) are locked (2026-11-22).
+- **Status**: Units CL0 to CL8 are implemented (2026-11-22, marketplace `v0.3.0`); superseded in `v0.4.0` by the 2-axis common specification in [`AGENT_CLIENT_COMMON_SPEC.md`](AGENT_CLIENT_COMMON_SPEC.md) (`claire:ingest` / `claire:query` + declarative `[adapter]`, hidden `extract-runner` forked shim, updated `PreToolUse` block message referencing `/claire:ingest`, and 3 Antigravity `suggestedPrompts`). The current state is in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3.4 and 3.1 (consent choice) and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md). Unit CL9 (upload link) is not implemented. Unit CL10 (Cowork and claude.ai plugin support) has no design yet. Owner decisions CD1 to CD4 (Section 10) are locked (2026-11-22).
 - **Date**: 2026-11-22
 - **Base commit**: `ea4804b` (marketplace `v0.2.0`, Option A)
 - **Related Documents**:
+  - [`AGENT_CLIENT_COMMON_SPEC.md`](AGENT_CLIENT_COMMON_SPEC.md) (`v0.4.0` canonical vendor-neutral 2-axis skill and `[adapter]` specification)
   - [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) (`AED3-rev`, `AED8`, the four defense layers in Section 5.4)
   - [`MCP_SUPPORT.md`](MCP_SUPPORT.md) (decision 9: Option A)
   - [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md) (current setup text)
@@ -287,3 +288,15 @@ If item 1 is "no", CL10 needs a second packaging (a plugin-bundled MCP server wi
 | An allow list with many server prefixes | The name of a claude.ai connector is the choice of the user. The build cannot know it. |
 | A subagent-only MCP server (`mcpServers` in the extractor) | Claude Code ignores this field for plugin subagents (T10). |
 | A plugin-bundled MCP server for Claude Code now | It reverses Option A for Claude Code without a need. CD3 keeps this option for the surfaces where Option A cannot work. |
+
+---
+
+## 12. `v0.4.0` Evolution (Superseded 3-Skill Layout)
+
+Marketplace `v0.4.0` retains every empirical lesson (`T1`–`T19`), owner decision (`CD1`–`CD4`), Option A server registration, and 4-layer defense from this design while aligning both Claude and Antigravity under [`AGENT_CLIENT_COMMON_SPEC.md`](AGENT_CLIENT_COMMON_SPEC.md):
+
+1. **2-Axis User-Facing Skills**: The `v0.3.0` 3-skill layout (`/claire:ingest`, `/claire:extract`, `/claire:query`) is superseded by two user-facing skills (`/claire:ingest` and `/claire:query`). Pending queue extraction and empty-queue onboarding (`Flow D`) move into `/claire:ingest`.
+2. **Hidden `extract-runner` Shim**: `skills/extract/SKILL.md` is replaced by `skills/extract-runner/SKILL.md` with `user-invocable: false`, `context: fork`, `agent: claire:extractor`, and the eight extractor `allowed-tools` (`T7`, `T19`). `/claire:ingest` invokes `Skill(claire:extract-runner)` instead of exposing a separate extract command.
+3. **Updated `PreToolUse` Guard Message (`CD1`)**: `hooks/hooks.json` keeps the exact fail-closed `grep` command on `^mcp__.*__extract_read$`, updated to direct blocked callers to `/claire:ingest` (`"Use /claire:ingest, or give the document_id to claire:extractor."`).
+4. **Declarative `[adapter]` & Antigravity `suggestedPrompts`**: `agent_clients/clients/claude/client.toml` and `agent_clients/clients/antigravity/client.toml` declare `[adapter]` settings instead of hardcoded build branches, and Antigravity `suggestedPrompts` is capped at 3 entries.
+5. **CL10 Observation Note**: Section 10.1 observation #1 now checks for the two user-facing commands (`/claire:ingest` and `/claire:query`, with `extract-runner` hidden via `user-invocable: false`).

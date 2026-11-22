@@ -72,17 +72,23 @@ On first tool call, Antigravity displays **`Allow using this MCP tool?`** for `c
 
 ---
 
-## Core Workflows Ready to Use
+## Core Workflows Ready to Use (`v{{VERSION}}`)
 
-1. **Direct URL / Document File Ingest (`claire-ingest`)**:
-   - `Save and extract https://... into my Claire Bible`
-   - `Stage and extract this local PDF/DOCX/MD file into Claire Bible`
-2. **Pending Queue Extraction (`claire-extract`)**:
-   - `Extract pending Claire Bible sources`
-3. **Knowledge Graph Search & Contributions (`claire-query`)**:
-   - `Search my Claire Bible knowledge graph`
+You only need two skills: **`claire-ingest`** and **`claire-query`** (plus the 3 quick starter prompts in `Plugins -> Claire Bible`).
 
-When handling URLs or third-party files, the top-level agent stages them cleanly without reading untrusted content directly and delegates extraction solely to the isolated `claire-extractor` subagent.
+1. **Unified Ingest & Extraction (`claire-ingest`)**:
+   - **URL, File, or Note Ingest**: Saves and extracts a URL, a local file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or a text note into your personal KB in one step.
+   - **Pending Queue Drain**: When invoked with no URL, file, or note (or when asked to process waiting or queued items), drains `pending` items staged from the Web UI, Telegram, or feeds through the isolated `claire-extractor` subagent.
+   - Examples:
+     - URL ingest: `"Save and extract https://example.com/article into my Claire Bible"`
+     - File or note ingest: `"Stage and extract ./notes/spec.pdf into Claire Bible"`
+     - Pending queue drain: `"Process my pending Claire Bible items"`
+2. **Knowledge Graph Query & Contribution (`claire-query`)**:
+   - Discovers accessible KBs, searches entities and relations, inspects documents, and submits contributions to shared KBs only after your confirmation.
+   - Example:
+     - Graph query: `"Search my Claire Bible knowledge graph for Fedify"`
+
+When handling URLs or external files, the top-level agent stages them without reading untrusted content directly and delegates extraction solely to the isolated `claire-extractor` subagent.
 
 ---
 

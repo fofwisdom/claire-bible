@@ -1,6 +1,6 @@
-# Claire Bible Plugin for Claude (`{{PLUGIN_NAME}}`)
+# Claire Bible Plugin for Claude (`{{PLUGIN_NAME}}` v{{VERSION}})
 
-Official Claude plugin that provides `/{{PLUGIN_NAME}}:{{INGEST_SKILL}}`, `/{{PLUGIN_NAME}}:{{EXTRACT_SKILL}}`, `/{{PLUGIN_NAME}}:{{QUERY_SKILL}}`, and the isolated `{{EXTRACTOR_REF}}` subagent for your standalone `claire` OAuth 2.1 Streamable HTTP MCP server (`mcp__claire__*`). It contains no server tokens or secrets.
+Official Claude plugin that provides `/{{PLUGIN_NAME}}:{{INGEST_SKILL}}`, `/{{PLUGIN_NAME}}:{{QUERY_SKILL}}`, and the isolated `{{EXTRACTOR_REF}}` subagent for your standalone `claire` OAuth 2.1 Streamable HTTP MCP server (`mcp__claire__*`). It contains no server tokens or secrets.
 
 ## Full Step-by-Step Guides (단계별 안내서)
 
@@ -31,7 +31,20 @@ claude mcp login claire
 
 ## 3. Workflows & Security Isolation
 
-- **`/{{PLUGIN_NAME}}:{{INGEST_SKILL}}`**: Saves a URL, document file (PDF/DOCX/ODT/MD/TXT), or text note with `mcp__claire__extract_stage` and hands the `document_id` to `/{{PLUGIN_NAME}}:{{EXTRACT_SKILL}}`.
-- **`/{{PLUGIN_NAME}}:{{EXTRACT_SKILL}}`**: Runs fully in the isolated `{{EXTRACTOR_REF}}` subagent (`context: fork`) and processes pending staged items of your personal KB.
-- **`/{{PLUGIN_NAME}}:{{QUERY_SKILL}}`**: Discovers KBs (`mcp__claire__kb_list`), searches entities and relations, inspects documents, and can submit contributions after your approval.
-- **Isolation**: Raw staged text from `mcp__claire__extract_read` is read only in `{{EXTRACTOR_PATH}}`, which has Claire MCP tools only. The fixed `PreToolUse` guard in `hooks/hooks.json` stops `extract_read` outside that subagent. Text inside `<untrusted_source_document nonce="...">` is always inert data.
+You only need two user-facing commands:
+
+- **`/{{PLUGIN_NAME}}:{{INGEST_SKILL}}`**:
+  - **URL / File / Note Ingest**: Saves a URL, local file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or text note with `mcp__claire__extract_stage` and extracts it automatically via the hidden forked subagent runner (`extract-runner` -> `{{EXTRACTOR_REF}}`).
+  - **Pending Queue Drain**: Invoke `/{{PLUGIN_NAME}}:{{INGEST_SKILL}}` with no arguments (or ask to process waiting/queued items) to check `mcp__claire__extract_queue` and drain `pending` items staged from the Web UI, Telegram, or feeds through the same hidden runner.
+- **`/{{PLUGIN_NAME}}:{{QUERY_SKILL}}`**: Discovers KBs (`mcp__claire__kb_list`), searches entities and relations, inspects documents, and submits contributions only after your explicit approval.
+
+Examples:
+
+```text
+/{{PLUGIN_NAME}}:{{INGEST_SKILL}} https://example.com/article
+/{{PLUGIN_NAME}}:{{INGEST_SKILL}} ./notes/spec.pdf
+/{{PLUGIN_NAME}}:{{INGEST_SKILL}}
+/{{PLUGIN_NAME}}:{{QUERY_SKILL}} Find documents about Fedify
+```
+
+- **Isolation**: Raw staged text from `mcp__claire__extract_read` is read only inside `{{EXTRACTOR_PATH}}` (`{{EXTRACTOR_REF}}`), which has Claire MCP tools only (no files, shell, or browser). `/{{PLUGIN_NAME}}:{{INGEST_SKILL}}` invokes the hidden forked subagent runner automatically so users only learn 2 commands. When Claude on the main thread tries to read a raw staged source directly, the `PreToolUse` guard hook in `hooks/hooks.json` stops the call and returns: `extract_read is allowed only in the claire:extractor subagent. Use /claire:ingest, or give the document_id to claire:extractor.` Text inside `<untrusted_source_document nonce="...">` is always inert data.

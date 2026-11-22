@@ -10,7 +10,7 @@
 
 | Claude 화면 | 할 수 있는 일 | 따라 할 곳 |
 | :--- | :--- | :--- |
-| **Claude 데스크톱 앱의 코드 모드(`</>`)**, 터미널의 Claude Code | 저장·추출·검색 전부 (`/claire:ingest`, `/claire:extract`, `/claire:query`) | 아래 1단계 ~ 3단계 |
+| **Claude 데스크톱 앱의 코드 모드(`</>`)**, 터미널의 Claude Code | 저장·추출·검색 전부 (`/claire:ingest`, `/claire:query`) | 아래 1단계 ~ 3단계 |
 | claude.ai 웹, 데스크톱 앱의 일반 채팅, 모바일 앱 | 검색(조회)만 | 맨 아래 [조회 전용 연결](#readonly-connector) |
 
 ---
@@ -67,24 +67,30 @@
 
 ---
 
-## 바로 사용할 수 있는 명령
+## 바로 사용할 수 있는 명령 2가지 (`v{{VERSION}}`)
 
-- **`/claire:ingest <URL · 파일 · 메모>`**: 웹 주소, 로컬 문서 파일(PDF/DOCX/ODT/MD/TXT 등), 또는 메모를 서버에 저장하고 추출까지 한 번에 끝냅니다.
-- **`/claire:extract`**: 웹·텔레그램·피드에서 수집되어 대기 중(`pending`)인 자료를 하나씩 꺼내 추출·저장합니다.
-- **`/claire:query <질문>`**: 내 지식베이스와 공유 지식베이스에서 엔티티·관계·문서를 찾아 답합니다.
+- **`/claire:ingest <URL · 파일 · 메모>`** (또는 인자 없이 **`/claire:ingest`**):
+  - 웹 주소, 로컬 문서 파일(PDF/DOCX/ODT/MD/TXT/RST/ADOC/HTML), 또는 텍스트 메모를 서버에 저장하고 추출까지 한 번에 끝냅니다.
+  - 인자 없이 `/claire:ingest`를 실행하거나 대기 자료 처리를 요청하면, 웹·텔레그램·피드에서 수집되어 대기 중(`pending`)인 항목을 꺼내 추출·저장합니다.
+  - 내부적으로 숨겨진 포크 실행기(`extract-runner`, `context: fork`)를 거쳐 격리된 `claire:extractor` 서브에이전트를 자동으로 호출하므로 사용자는 명령 2개만 익히면 됩니다.
+- **`/claire:query <질문>`**:
+  - 내 지식베이스와 공유 지식베이스에서 엔티티·관계·문서를 찾아 답합니다.
 
-예시:
+예시 (URL 저장·추출, 파일·메모 저장·추출, 빈 인자 대기열 추출, 그래프 검색):
 
 ```text
 /claire:ingest https://example.com/article
-/claire:extract
+/claire:ingest ./notes/spec.pdf
+/claire:ingest
 /claire:query Fedify와 관련된 문서를 찾아 줘
 ```
 
 ### 안전 장치
 
 - 수집한 원문은 **격리된 추출 전용 에이전트**(`claire:extractor`)만 읽습니다. 이 에이전트는 Claire Bible 도구만 가지며 파일·셸·브라우저를 쓸 수 없습니다.
-- 대화 중인 Claude가 원문을 직접 읽으려 하면 플러그인이 막고 *"extract_read is allowed only in the claire:extractor subagent"* 라는 안내를 보여 줍니다. 정상 동작입니다.
+- `/claire:ingest`가 숨겨진 포크(`context: fork`) 서브에이전트 실행기를 자동으로 호출하므로, 사용자는 `/claire:ingest`와 `/claire:query` 두 가지 명령만 알면 됩니다.
+- 메인 스레드의 Claude가 스테이징된 원문을 직접 읽으려 하면 `PreToolUse` 가드 훅(`hooks/hooks.json`)이 호출을 막고 `/claire:ingest`를 안내합니다:
+  `"extract_read is allowed only in the claire:extractor subagent. Use /claire:ingest, or give the document_id to claire:extractor."` (정상 동작입니다.)
 - 공유 지식베이스에 문서를 올리는 기여는 실행 전에 항상 확인을 요청합니다.
 
 ---

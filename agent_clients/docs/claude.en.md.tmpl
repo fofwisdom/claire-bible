@@ -10,7 +10,7 @@ You do not need terminal knowledge. In the **Claude desktop app**, a few mouse c
 
 | Claude surface | What you can do | Where to start |
 | :--- | :--- | :--- |
-| **Code mode (`</>`) of the Claude desktop app**, Claude Code in a terminal | Save, extract, and search (`/claire:ingest`, `/claire:extract`, `/claire:query`) | Steps 1 to 3 below |
+| **Code mode (`</>`) of the Claude desktop app**, Claude Code in a terminal | Save, extract, and search (`/claire:ingest`, `/claire:query`) | Steps 1 to 3 below |
 | claude.ai web, normal chat of the desktop app, mobile app | Search (read) only | [Read-only connection](#readonly-connector) at the end |
 
 ---
@@ -69,25 +69,31 @@ You do not need terminal knowledge. In the **Claude desktop app**, a few mouse c
 
 ---
 
-## Commands Ready to Use
+## Commands Ready to Use (`v{{VERSION}}`)
 
-- **`/claire:ingest <url, file, or note>`**: Saves a web address, a local document file (PDF, DOCX, ODT, MD, TXT, and more), or a note on your server and completes the extraction in one step.
-- **`/claire:extract`**: Takes one waiting (`pending`) source from Web, Telegram, or feed ingestion, extracts it, and saves the result.
-- **`/claire:query <question>`**: Finds entities, relations, and documents in your knowledge base and in shared knowledge bases.
+- **`/claire:ingest <url, file, or note>`** (or **`/claire:ingest`** with no arguments):
+  - Saves a web address, a local file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or a text note on your server and completes extraction in one step.
+  - When run with no arguments (`/claire:ingest`) or asked to process waiting items, drains `pending` items staged from the Web UI, Telegram, or feeds.
+  - Invokes the hidden forked subagent runner (`extract-runner` -> `claire:extractor`) automatically, so you only need to learn two commands.
+- **`/claire:query <question>`**:
+  - Finds entities, relations, and documents in your personal knowledge base and in shared knowledge bases.
 
-Examples:
+Examples (URL ingest, file/note ingest, empty-argument pending queue drain, graph query):
 
 ```text
 /claire:ingest https://example.com/article
-/claire:extract
+/claire:ingest ./notes/spec.pdf
+/claire:ingest
 /claire:query Find documents about Fedify
 ```
 
 ### Safety Controls
 
-- Only the **isolated extraction agent** (`claire:extractor`) reads a collected source. It has only Claire Bible tools. It cannot use files, a shell, or a browser.
-- If the Claude of your conversation tries to read a source directly, the plugin stops the call and shows *"extract_read is allowed only in the claire:extractor subagent"*. This is correct behavior.
-- A contribution of a document to a shared knowledge base always asks you first.
+- Only the **isolated extraction agent** (`claire:extractor`) reads a staged source. It has only Claire Bible MCP tools and cannot use files, a shell, or a browser.
+- `/claire:ingest` invokes the hidden forked subagent runner automatically, so users only learn `/claire:ingest` and `/claire:query`.
+- If Claude on the main thread tries to read a raw staged source directly, the `PreToolUse` guard hook (`hooks/hooks.json`) stops the call and directs you to `/claire:ingest`:
+  `"extract_read is allowed only in the claire:extractor subagent. Use /claire:ingest, or give the document_id to claire:extractor."`
+- Contributing a document to a shared knowledge base always asks for your confirmation first.
 
 ---
 

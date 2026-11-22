@@ -47,20 +47,26 @@ FORBIDDEN_EXTENSIONS: frozenset[str] = frozenset({
 
 ALLOWED_TARGETS: frozenset[str] = frozenset({"antigravity", "claude", "cursor"})
 ALLOWED_SCOPES: frozenset[str] = frozenset({"readonly", "write"})
+ALLOWED_SKILL_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon"})
+ALLOWED_AGENT_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon"})
+ALLOWED_HANDOFF_MODES: frozenset[str] = frozenset({"direct_subagent", "forked_internal_skill"})
+ALLOWED_GUARD_MODES: frozenset[str] = frozenset({"rules", "claude_pre_tool_use_hook"})
+REQUIRED_ADAPTER_KEYS: frozenset[str] = frozenset({"skill_naming", "agent_naming", "tool_prefix", "handoff_mode", "guard_mode", "supports_allowed_tools"})
+ALLOWED_ADAPTER_KEYS: frozenset[str] = REQUIRED_ADAPTER_KEYS | {"internal_runner_skill"}
 
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?$")
+TOOL_PREFIX_RE = re.compile(r"^(?:[a-z][a-z0-9_]*__)?$")
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z0-9_]+)\}\}")
 TOOL_CALL_RE = re.compile(r"(?<![A-Za-z0-9_])((?:mcp__claire__)?[a-z][a-z0-9_]*)\(")
 FRONTMATTER_TOOLS_RE = re.compile(r"^(tools|allowed-tools):\s*\[([^\]]+)\]\s*$", re.MULTILINE)
 FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$")
 
 EXTRACTOR_TOOLS: tuple[str, ...] = ("extract_spec", "extract_queue", "extract_claim", "extract_read", "extract_submit", "kb_list", "entity_search", "graph_neighbors")
-INGEST_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "kb_list")
+INGEST_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "extract_queue", "kb_list")
 QUERY_SKILL_TOOLS: tuple[str, ...] = ("kb_list", "kb_overview", "entity_search", "entity_get", "graph_neighbors", "graph_path", "graph_context", "doc_list", "doc_get")
-CLAUDE_TOOL_PREFIX = "mcp__claire__"
 CLAUDE_FORBIDDEN_FRONTMATTER_KEYS: frozenset[str] = frozenset({"subagent", "mainAgent", "hooks", "mcpServers", "permissionMode", "initialPrompt"})
 CLAUDE_HOOKS_PATH = "hooks/hooks.json"
 CLAUDE_SKILL_TOOL_RE = re.compile(r"^Skill\(([a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*)\)$")
@@ -75,6 +81,7 @@ SECRET_OR_FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("legacy clients subdomain", re.compile(r"\bclients\.<domain>")),
     ("legacy double-prefixed server id", re.compile(r"claire-antigravity_claire")),
     ("legacy mcp tool name", re.compile(r"\b(?:resolve_entity|kb_candidates|kb_submit|stage_source|list_staged_sources|claim_staged_source|renew_staged_claim|get_extraction_spec|get_staged_source|submit_client_extraction)\b")),
+    ("retired extract skill reference", re.compile(r"(?:/claire:extract|\bclaire:extract|\bclaire-extract)(?![a-z0-9_-])")),
 )
 _LEGACY_CLAUDE_PLUGIN_ID_RE = re.compile(r"\bclaire-claude\b(?!-v\d)")
 
@@ -148,6 +155,59 @@ def _validate_marketplace_meta(source_dir: Path) -> dict[str, str]:
     return {"name": name, "repo": repo, "owner_name": owner_name, "version": version, "description": description}
 
 
+def _validate_adapter(raw: dict[str, Any], *, ctx: str) -> dict[str, Any]:
+    """Validate declarative [adapter] keys and allowed contract values."""
+    adapter_raw = raw.get("adapter")
+    if not isinstance(adapter_raw, dict):
+        raise BuildValidationError(f"{ctx}: missing required [adapter] table")
+    unknown = sorted(set(adapter_raw) - ALLOWED_ADAPTER_KEYS)
+    if unknown:
+        raise BuildValidationError(f"{ctx}: unknown [adapter] keys {unknown}")
+    missing = sorted(REQUIRED_ADAPTER_KEYS - set(adapter_raw))
+    if missing:
+        raise BuildValidationError(f"{ctx}: missing required [adapter] keys {missing}")
+
+    skill_naming = _require_non_empty_str(adapter_raw, "skill_naming", context=f"{ctx} [adapter]")
+    if skill_naming not in ALLOWED_SKILL_NAMING:
+        raise BuildValidationError(f"{ctx}: [adapter].skill_naming must be one of {sorted(ALLOWED_SKILL_NAMING)}")
+    agent_naming = _require_non_empty_str(adapter_raw, "agent_naming", context=f"{ctx} [adapter]")
+    if agent_naming not in ALLOWED_AGENT_NAMING:
+        raise BuildValidationError(f"{ctx}: [adapter].agent_naming must be one of {sorted(ALLOWED_AGENT_NAMING)}")
+
+    tool_prefix = adapter_raw.get("tool_prefix")
+    if not isinstance(tool_prefix, str) or not TOOL_PREFIX_RE.fullmatch(tool_prefix):
+        raise BuildValidationError(f"{ctx}: [adapter].tool_prefix must be empty or match ^[a-z][a-z0-9_]*__$")
+
+    handoff_mode = _require_non_empty_str(adapter_raw, "handoff_mode", context=f"{ctx} [adapter]")
+    if handoff_mode not in ALLOWED_HANDOFF_MODES:
+        raise BuildValidationError(f"{ctx}: [adapter].handoff_mode must be one of {sorted(ALLOWED_HANDOFF_MODES)}")
+    guard_mode = _require_non_empty_str(adapter_raw, "guard_mode", context=f"{ctx} [adapter]")
+    if guard_mode not in ALLOWED_GUARD_MODES:
+        raise BuildValidationError(f"{ctx}: [adapter].guard_mode must be one of {sorted(ALLOWED_GUARD_MODES)}")
+
+    supports_allowed_tools = adapter_raw.get("supports_allowed_tools")
+    if not isinstance(supports_allowed_tools, bool):
+        raise BuildValidationError(f"{ctx}: [adapter].supports_allowed_tools must be a boolean")
+
+    internal_runner_skill: str | None = None
+    if handoff_mode == "forked_internal_skill":
+        internal_runner_skill = _require_non_empty_str(adapter_raw, "internal_runner_skill", context=f"{ctx} [adapter]")
+        if not ID_RE.fullmatch(internal_runner_skill):
+            raise BuildValidationError(f"{ctx}: [adapter].internal_runner_skill must match ^[a-z0-9][a-z0-9-]{{1,63}}$")
+    elif "internal_runner_skill" in adapter_raw:
+        raise BuildValidationError(f"{ctx}: [adapter].internal_runner_skill is only valid when handoff_mode == 'forked_internal_skill'")
+
+    return {
+        "skill_naming": skill_naming,
+        "agent_naming": agent_naming,
+        "tool_prefix": tool_prefix,
+        "handoff_mode": handoff_mode,
+        "internal_runner_skill": internal_runner_skill,
+        "guard_mode": guard_mode,
+        "supports_allowed_tools": supports_allowed_tools,
+    }
+
+
 def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
     raw = _load_toml(client_dir / "client.toml")
     ctx = f"clients/{client_dir.name}/client.toml"
@@ -173,13 +233,14 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
     scopes_raw = raw.get("required_scopes")
     if not isinstance(scopes_raw, list) or not scopes_raw or not all(isinstance(s, str) and s in ALLOWED_SCOPES for s in scopes_raw):
         raise BuildValidationError(f"{ctx}: required_scopes must be a non-empty list subset of {sorted(ALLOWED_SCOPES)}")
+    adapter = _validate_adapter(raw, ctx=ctx)
     display_name: str | None = None
     suggested_prompts: list[str] = []
     if target == "antigravity":
         display_name = _require_non_empty_str(raw, "display_name", context=ctx)
         prompts_raw = raw.get("suggested_prompts")
-        if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 4) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
-            raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 4 non-empty strings")
+        if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 3) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
+            raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 3 non-empty strings")
         suggested_prompts = [p.strip() for p in prompts_raw]
     return {
         "dir": client_dir,
@@ -195,6 +256,7 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
         "required_scopes": list(dict.fromkeys(scopes_raw)),
         "description": description,
         "suggested_prompts": suggested_prompts,
+        "adapter": adapter,
     }
 
 
@@ -237,29 +299,72 @@ def _frontmatter(text: str) -> dict[str, str]:
     raise BuildValidationError("frontmatter has no closing --- line")
 
 
-def _claude_tool_list(tools: tuple[str, ...]) -> str:
-    return "[" + ", ".join(f"{CLAUDE_TOOL_PREFIX}{t}" for t in tools) + "]"
+def _format_tool_list(tools: tuple[str, ...], tool_prefix: str = "", extra_items: tuple[str, ...] = ()) -> str:
+    items = [f"{tool_prefix}{t}" for t in tools] + list(extra_items)
+    return "[" + ", ".join(items) + "]"
 
 
-def claude_guard_hooks(extractor_ref: str) -> bytes:
+def claude_guard_hooks(extractor_ref: str, *, ingest_command: str = "/claire:ingest") -> bytes:
     """Return the one fixed hooks file of the Claude bundle (owner decision CD1).
 
     The PreToolUse guard stops extract_read outside the isolated extractor subagent. It fails closed: when
     grep is not available, the command does not exit 0 and the call stops with exit code 2.
     """
-    message = f"Claire Bible: extract_read is allowed only in the {extractor_ref} subagent. Use /claire:extract, or give the document_id to {extractor_ref}."
+    message = f"Claire Bible: extract_read is allowed only in the {extractor_ref} subagent. Use {ingest_command}, or give the document_id to {extractor_ref}."
     command = f"grep -Eq '\"agent_type\" *: *\"{extractor_ref}\"' && exit 0; echo '{message}' >&2; exit 2"
     doc = {"hooks": {"PreToolUse": [{"matcher": "^mcp__.*__extract_read$", "hooks": [{"type": "command", "command": command}]}]}}
     return _json_bytes(doc)
 
 
-def _check_claude_bundle(plugin_rel_root: str, plugin_name: str, bundle_files: dict[str, bytes], extractor_ref: str) -> None:
-    """Gates for the Claude target: fixed hooks file, Claude frontmatter keys, and forked skill references."""
-    hook_paths = sorted(p for p in bundle_files if p.startswith("hooks/"))
-    if hook_paths != [CLAUDE_HOOKS_PATH] or bundle_files[CLAUDE_HOOKS_PATH] != claude_guard_hooks(extractor_ref):
-        raise BuildValidationError(f"{plugin_rel_root}: {CLAUDE_HOOKS_PATH} must be equal to the fixed guard and no other hook file is allowed")
-    agent_refs = {f"{plugin_name}:{Path(p).stem}" for p in bundle_files if p.startswith("agents/") and p.endswith(".md")}
-    skill_refs = {f"{plugin_name}:{Path(p).parent.name}" for p in bundle_files if p.startswith("skills/") and p.endswith("/SKILL.md")}
+def _check_bundle_conformance(
+    plugin_rel_root: str,
+    plugin_name: str,
+    bundle_files: dict[str, bytes],
+    adapter: dict[str, Any],
+    extractor_ref: str,
+    ingest_skill: str,
+    query_skill: str,
+) -> None:
+    """Validate bundle guard mode, skill inventory, frontmatter keys, and forked runner rules."""
+    guard_mode = adapter["guard_mode"]
+    if guard_mode == "claude_pre_tool_use_hook":
+        hook_paths = sorted(p for p in bundle_files if p.startswith("hooks/"))
+        ingest_command = f"/{plugin_name}:{ingest_skill}" if adapter["skill_naming"] == "plugin_colon" else ingest_skill
+        if hook_paths != [CLAUDE_HOOKS_PATH] or bundle_files[CLAUDE_HOOKS_PATH] != claude_guard_hooks(extractor_ref, ingest_command=ingest_command):
+            raise BuildValidationError(f"{plugin_rel_root}: {CLAUDE_HOOKS_PATH} must be equal to the fixed guard and no other hook file is allowed")
+    elif guard_mode == "rules":
+        if any(p.startswith("hooks/") for p in bundle_files):
+            raise BuildValidationError(f"{plugin_rel_root}: hook files are not allowed when guard_mode == 'rules'")
+        if "rules/AGENTS.md" not in bundle_files:
+            raise BuildValidationError(f"{plugin_rel_root}: missing rules/AGENTS.md for guard_mode == 'rules'")
+
+    expected_skills = {ingest_skill, query_skill}
+    runner_skill = adapter.get("internal_runner_skill")
+    if adapter["handoff_mode"] == "forked_internal_skill" and runner_skill:
+        expected_skills.add(runner_skill)
+
+    skill_files = sorted(p for p in bundle_files if p.startswith("skills/"))
+    actual_skills: set[str] = set()
+    for rel_skill in skill_files:
+        parts = Path(rel_skill).parts
+        if len(parts) != 3 or parts[2] != "SKILL.md":
+            raise BuildValidationError(f"{plugin_rel_root}/{rel_skill}: unexpected file in skills directory")
+        actual_skills.add(parts[1])
+    if actual_skills != expected_skills:
+        raise BuildValidationError(f"{plugin_rel_root}: bundle skills {sorted(actual_skills)} must exactly match {sorted(expected_skills)}")
+
+    agent_refs = {
+        f"{plugin_name}:{Path(p).stem}" if adapter["agent_naming"] == "plugin_colon" else Path(p).stem
+        for p in bundle_files
+        if p.startswith("agents/") and p.endswith(".md")
+    }
+    skill_refs = {
+        f"{plugin_name}:{Path(p).parent.name}" if adapter["skill_naming"] == "plugin_colon" else Path(p).parent.name
+        for p in bundle_files
+        if p.startswith("skills/") and p.endswith("/SKILL.md")
+    }
+
+    supports_allowed_tools = adapter["supports_allowed_tools"]
     for rel_file, data in sorted(bundle_files.items()):
         if not rel_file.endswith(".md") or not (rel_file.startswith("agents/") or rel_file.startswith("skills/")):
             continue
@@ -268,24 +373,43 @@ def _check_claude_bundle(plugin_rel_root: str, plugin_name: str, bundle_files: d
             keys = _frontmatter(data.decode("utf-8"))
         except BuildValidationError as exc:
             raise BuildValidationError(f"{repo_rel}: {exc}") from exc
-        forbidden = sorted(CLAUDE_FORBIDDEN_FRONTMATTER_KEYS & set(keys))
-        if forbidden:
-            raise BuildValidationError(f"{repo_rel}: frontmatter keys {forbidden} are not allowed in the claude bundle")
-        if rel_file.startswith("agents/") and "tools" not in keys:
-            raise BuildValidationError(f"{repo_rel}: a claude agent must declare a tools allow list")
-        for fm_match in FRONTMATTER_TOOLS_RE.finditer(data.decode("utf-8")):
-            for item in (i.strip() for i in fm_match.group(2).split(",")):
-                skill_match = CLAUDE_SKILL_TOOL_RE.fullmatch(item)
-                if skill_match and skill_match.group(1) not in skill_refs:
-                    raise BuildValidationError(f"{repo_rel}: {item!r} is not a skill of this bundle")
-        agent_ref = keys.get("agent")
-        if agent_ref is not None:
-            if agent_ref not in agent_refs:
-                raise BuildValidationError(f"{repo_rel}: agent {agent_ref!r} is not an agent of this bundle")
-            if keys.get("context") != "fork":
+
+        if supports_allowed_tools:
+            forbidden = sorted(CLAUDE_FORBIDDEN_FRONTMATTER_KEYS & set(keys))
+            if forbidden:
+                raise BuildValidationError(f"{repo_rel}: frontmatter keys {forbidden} are not allowed when supports_allowed_tools is true")
+            if rel_file.startswith("agents/") and "tools" not in keys:
+                raise BuildValidationError(f"{repo_rel}: agent must declare a tools allow list")
+            for fm_match in FRONTMATTER_TOOLS_RE.finditer(data.decode("utf-8")):
+                for item in (i.strip() for i in fm_match.group(2).split(",")):
+                    skill_match = CLAUDE_SKILL_TOOL_RE.fullmatch(item)
+                    if skill_match and skill_match.group(1) not in skill_refs:
+                        raise BuildValidationError(f"{repo_rel}: {item!r} is not a skill of this bundle")
+        elif "allowed-tools" in keys:
+            raise BuildValidationError(f"{repo_rel}: allowed-tools is not supported when supports_allowed_tools is false")
+
+        if rel_file.startswith("skills/"):
+            skill_dir_name = Path(rel_file).parent.name
+            is_forked = keys.get("context") == "fork"
+            agent_ref = keys.get("agent")
+            if is_forked:
+                if keys.get("user-invocable") != "false":
+                    raise BuildValidationError(f"{repo_rel}: skill with context: fork must set user-invocable: false")
+                if agent_ref != extractor_ref:
+                    if agent_ref not in agent_refs:
+                        raise BuildValidationError(f"{repo_rel}: agent {agent_ref!r} is not an agent of this bundle")
+                    raise BuildValidationError(f"{repo_rel}: skill with context: fork must set agent: {extractor_ref}")
+            elif agent_ref is not None:
+                if agent_ref not in agent_refs:
+                    raise BuildValidationError(f"{repo_rel}: agent {agent_ref!r} is not an agent of this bundle")
                 raise BuildValidationError(f"{repo_rel}: agent requires context: fork")
-        elif keys.get("context") == "fork":
-            raise BuildValidationError(f"{repo_rel}: context: fork requires an agent of this bundle")
+
+            if adapter["handoff_mode"] == "forked_internal_skill" and skill_dir_name == runner_skill:
+                if not is_forked:
+                    raise BuildValidationError(f"{repo_rel}: internal runner skill must set context: fork")
+            elif skill_dir_name in (ingest_skill, query_skill):
+                if is_forked or keys.get("user-invocable") == "false":
+                    raise BuildValidationError(f"{repo_rel}: user-facing skill must not set context: fork or user-invocable: false")
 
 
 def _extract_mcp_tool_names(mcp_tools_file: Path) -> set[str]:
@@ -305,7 +429,11 @@ def _extract_mcp_tool_names(mcp_tools_file: Path) -> set[str]:
     return tools
 
 
-def _verify_mcp_contracts(rendered_files: dict[str, bytes], mcp_tools_file: Path) -> None:
+def _verify_mcp_contracts(
+    rendered_files: dict[str, bytes],
+    mcp_tools_file: Path,
+    bundle_adapters: dict[str, tuple[dict[str, Any], str, str]],
+) -> None:
     if not mcp_tools_file.is_file():
         return
     server_tools = _extract_mcp_tool_names(mcp_tools_file)
@@ -313,30 +441,40 @@ def _verify_mcp_contracts(rendered_files: dict[str, bytes], mcp_tools_file: Path
         if not rel_path.endswith(".md"):
             continue
         text = raw.decode("utf-8")
-        is_claude_plugin = rel_path.startswith("plugins/claude/")
-        fm_keys = _frontmatter(text) if is_claude_plugin else {}
-        forked_extractor_skill = fm_keys.get("context") == "fork" and fm_keys.get("agent", "").endswith(":extractor")
+        bundle_info = next((info for prefix, info in bundle_adapters.items() if rel_path.startswith(prefix)), None)
+        if bundle_info is not None:
+            adapter, extractor_ref, extractor_path = bundle_info
+            tool_prefix = adapter["tool_prefix"]
+            supports_allowed_tools = adapter["supports_allowed_tools"]
+            fm_keys = _frontmatter(text)
+            forked_extractor_skill = fm_keys.get("context") == "fork" and fm_keys.get("agent") == extractor_ref
+            is_extractor_file = rel_path.endswith(f"/{extractor_path}")
+        else:
+            tool_prefix = ""
+            supports_allowed_tools = False
+            forked_extractor_skill = False
+            is_extractor_file = Path(rel_path).name in ("extractor.md", "claire-extractor.md")
+
         for fm_match in FRONTMATTER_TOOLS_RE.finditer(text):
             fm_key = fm_match.group(1)
-            if fm_key == "allowed-tools" and not is_claude_plugin:
-                raise BuildValidationError(f"{rel_path}: allowed-tools is a claude frontmatter key")
+            if fm_key == "allowed-tools" and not supports_allowed_tools:
+                raise BuildValidationError(f"{rel_path}: allowed-tools is not allowed when supports_allowed_tools is false")
             declared = [item.strip() for item in fm_match.group(2).split(",") if item.strip()]
             normalized_declared: list[str] = []
             for item in declared:
-                if is_claude_plugin and fm_key == "allowed-tools" and CLAUDE_SKILL_TOOL_RE.fullmatch(item):
+                if supports_allowed_tools and fm_key == "allowed-tools" and CLAUDE_SKILL_TOOL_RE.fullmatch(item):
                     continue
-                if is_claude_plugin:
-                    if not item.startswith("mcp__claire__"):
-                        raise BuildValidationError(f"{rel_path}: claude frontmatter tool {item!r} must use mcp__claire__ prefix")
-                    normalized_declared.append(item.removeprefix("mcp__claire__"))
+                if tool_prefix:
+                    if not item.startswith(tool_prefix):
+                        raise BuildValidationError(f"{rel_path}: frontmatter tool {item!r} must use {tool_prefix} prefix")
+                    normalized_declared.append(item.removeprefix(tool_prefix))
                 else:
                     if item.startswith("mcp__"):
-                        raise BuildValidationError(f"{rel_path}: non-claude frontmatter tool {item!r} must not use mcp__ prefix")
+                        raise BuildValidationError(f"{rel_path}: frontmatter tool {item!r} must not use mcp__ prefix")
                     normalized_declared.append(item)
             missing = [name for name in normalized_declared if name not in server_tools]
             if missing:
                 raise BuildValidationError(f"{rel_path}: frontmatter declares unknown MCP tools: {missing}")
-            is_extractor_file = Path(rel_path).name in ("extractor.md", "claire-extractor.md")
             if "extract_read" in normalized_declared and not is_extractor_file and not (fm_key == "allowed-tools" and forked_extractor_skill):
                 raise BuildValidationError(f"{rel_path}: non-extractor file must not declare extract_read")
         if Path(rel_path).name in ("extractor.md", "claire-extractor.md", "SKILL.md", "AGENTS.md"):
@@ -365,7 +503,7 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "## Architecture: Standalone `claire` Server + `claire` Plugin",
         "",
         "- Register your remote Claire Bible `/mcp` endpoint once as a standalone `claire` OAuth 2.1 MCP server so Antigravity exposes `claire/<tool>` and Claude exposes `mcp__claire__<tool>` without double prefixes.",
-        "- Install the **`claire`** plugin for your client to add direct URL/file ingest, isolated extraction (`claire-extractor` / `claire:extractor`), and knowledge graph query skills. Upgrading the plugin never overwrites your global server URL.",
+        "- Install the **`claire`** plugin for your client to add the two user-facing skills (`claire-ingest` / `claire-query` on Antigravity; `/claire:ingest` / `/claire:query` on Claude) plus isolated extraction (`claire-extractor` / `claire:extractor`). Upgrading the plugin never overwrites your global server URL.",
         "",
         "## Supported Agents",
         "",
@@ -384,6 +522,7 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "2. In **MCP Settings** (`/settings/mcp`), copy the **Antigravity quick setup prompt** and paste it into Antigravity `+ New Conversation` (installs `~/.gemini/config/plugins/claire` and merges `mcpServers.claire` into `~/.gemini/config/mcp_config.json`).",
         "3. Open **`Customizations -> Installed -> MCP Servers -> claire`** and finish OAuth 2.1 login (`readonly`, `write`).",
         "4. On first run when `Allow using this MCP tool?` (`claire/<tool>`) prompts, pick **`3 Yes, and always allow`** -> **`Submit`**.",
+        "5. Use the 2 skills (`claire-ingest` for URLs, files, notes, or pending items; `claire-query` for graph search) or pick one of the 3 starter suggested prompts.",
         "",
         '<a id="claude"></a>',
         "## Claude (Desktop App Code Mode and Claude Code)",
@@ -392,7 +531,7 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "",
         f"1. In the Claude desktop app (Code mode), open **Plugins -> Add -> Add marketplace**, enter **`{repo}`**, click **Sync**, and click **Add to this computer** next to **`claire`**.",
         "2. In Claire Bible **MCP Settings** (`/settings/mcp`), copy the **Claude quick setup prompt** and paste it into a new Claude conversation. It registers your `/mcp` endpoint as the user-scope server **`claire`** and opens the OAuth 2.1 sign-in (`readonly`, `write`).",
-        "3. Start Claude again and use `/claire:ingest`, `/claire:extract`, and `/claire:query`.",
+        "3. Start Claude again and use `/claire:ingest` (stages URLs, files, or notes and drains pending items via the isolated extractor) and `/claire:query` (searches your knowledge graph).",
         "",
         "<details>",
         "<summary>CLI &amp; Advanced Verification (Terminal / SHA256SUMS)</summary>",
@@ -421,6 +560,11 @@ def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) 
         f"# Claire Bible Agent Plugins v{version}",
         "",
         f"[한국어 상세 가이드 (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) · [English Setup Guide (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.en.md) · [Claude 가이드 (KO)](https://github.com/{repo}/blob/main/docs/claude.ko.md) · [Claude Guide (EN)](https://github.com/{repo}/blob/main/docs/claude.en.md)",
+        "",
+        "## Included 2-Axis User UX",
+        "",
+        "- **Antigravity**: 2 skills (`claire-ingest` for URLs, files, notes, and pending queue items; `claire-query` for graph search and contribution), 3 starter suggested prompts, and the isolated `claire-extractor` subagent.",
+        "- **Claude**: 2 user-facing skills (`/claire:ingest` and `/claire:query`), hidden forked runner (`extract-runner`), isolated `claire:extractor` subagent, and `PreToolUse` `extract_read` guard hook.",
         "",
         "## Which file do I need? / 어떤 파일을 내려받으면 되나요?",
         "",
@@ -497,9 +641,10 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     common_dir = source_dir / "common"
     extractor_tmpl = (common_dir / "agents" / "extractor.md.tmpl").read_text(encoding="utf-8")
     ingest_skill_tmpl = (common_dir / "skills" / "ingest" / "SKILL.md.tmpl").read_text(encoding="utf-8")
-    extract_skill_tmpl = (common_dir / "skills" / "extract" / "SKILL.md.tmpl").read_text(encoding="utf-8")
     query_skill_tmpl = (common_dir / "skills" / "query" / "SKILL.md.tmpl").read_text(encoding="utf-8")
     agents_md_tmpl = (common_dir / "rules" / "AGENTS.md.tmpl").read_text(encoding="utf-8")
+    runner_tmpl_path = common_dir / "runner" / "SKILL.md.tmpl"
+    runner_skill_tmpl = runner_tmpl_path.read_text(encoding="utf-8") if runner_tmpl_path.is_file() else None
 
     clients_root = source_dir / "clients"
     if not clients_root.is_dir():
@@ -526,6 +671,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     release_files: dict[str, bytes] = {}
     manifest_plugins: list[dict[str, Any]] = []
     claude_marketplace_plugins: list[dict[str, Any]] = []
+    bundle_adapters: dict[str, tuple[dict[str, Any], str, str]] = {}
 
     mcp_tmpl_path = source_dir / "templates" / "mcp_config.json.tmpl"
     if not mcp_tmpl_path.is_file():
@@ -538,37 +684,49 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         cid = client["id"]
         plugin_name = client["plugin_name"]
         target = client["target"]
-        if target == "claude":
+        adapter = client["adapter"]
+        tool_prefix = adapter["tool_prefix"]
+
+        if adapter["skill_naming"] == "plugin_colon":
             ingest_skill = "ingest"
-            extract_skill = "extract"
             query_skill = "query"
+            skill_ref_prefix = f"{plugin_name}:"
+        else:
+            ingest_skill = f"{plugin_name}-ingest"
+            query_skill = f"{plugin_name}-query"
+            skill_ref_prefix = ""
+
+        if adapter["agent_naming"] == "plugin_colon":
             extractor_agent = "extractor"
             extractor_ref = f"{plugin_name}:{extractor_agent}"
-            extractor_path = "agents/extractor.md"
-            extractor_tools = _claude_tool_list(EXTRACTOR_TOOLS)
-            extractor_frontmatter = f"tools: {extractor_tools}\nmodel: inherit"
-            ingest_allowed = _claude_tool_list(INGEST_SKILL_TOOLS)[:-1] + f", Skill({plugin_name}:{extract_skill})]"
-            ingest_frontmatter = f'\nargument-hint: "<url | file path | note>"\nallowed-tools: {ingest_allowed}'
-            extract_frontmatter = ""
-            query_frontmatter = f'\nargument-hint: "<question>"\nallowed-tools: {_claude_tool_list(QUERY_SKILL_TOOLS)}'
-            ingest_handoff_note = (
-                f"\n\n## Handoff to `{extractor_ref}` on Claude\n\n"
-                f"To hand a `document_id` to `{extractor_ref}`, invoke the `{plugin_name}:{extract_skill}` skill with the `document_id` as its argument. "
-                "That skill runs in the isolated subagent, and its Claire MCP tools are approved there. "
-                f"Call the Agent tool with subagent type `{extractor_ref}` only when the skill is not available."
-            )
         else:
-            ingest_skill = "claire-ingest"
-            extract_skill = "claire-extract"
-            query_skill = "claire-query"
-            extractor_agent = "claire-extractor"
+            extractor_agent = f"{plugin_name}-extractor"
             extractor_ref = extractor_agent
-            extractor_path = "agents/claire-extractor.md"
-            extractor_tools = "[" + ", ".join(EXTRACTOR_TOOLS) + "]"
+        extractor_path = f"agents/{extractor_agent}.md"
+        extractor_tools = _format_tool_list(EXTRACTOR_TOOLS, tool_prefix)
+
+        runner_skill = adapter.get("internal_runner_skill") or ""
+        runner_ref = f"{skill_ref_prefix}{runner_skill}" if runner_skill else ""
+
+        if adapter["supports_allowed_tools"]:
+            extractor_frontmatter = f"tools: {extractor_tools}\nmodel: inherit"
+            extra_ingest_tools = (f"Skill({runner_ref})",) if adapter["handoff_mode"] == "forked_internal_skill" else ()
+            ingest_allowed = _format_tool_list(INGEST_SKILL_TOOLS, tool_prefix, extra_ingest_tools)
+            ingest_frontmatter = f'\nargument-hint: "[url | file path | note | document_id]"\nallowed-tools: {ingest_allowed}'
+            query_frontmatter = f'\nargument-hint: "<question>"\nallowed-tools: {_format_tool_list(QUERY_SKILL_TOOLS, tool_prefix)}'
+        else:
             extractor_frontmatter = f"subagent: true\nmainAgent: false\ntools: {extractor_tools}"
             ingest_frontmatter = ""
-            extract_frontmatter = ""
             query_frontmatter = ""
+
+        if adapter["handoff_mode"] == "forked_internal_skill":
+            ingest_handoff_note = (
+                f"\n\n## Handoff to `{extractor_ref}` via `{runner_ref}`\n\n"
+                f"To hand a `document_id` to `{extractor_ref}`, call the `{runner_ref}` skill with `document_id` as its argument. "
+                "Never read raw staged sources in the main conversation; that forked skill executes inside the isolated subagent where Claire MCP tools are approved. "
+                f"Call the Agent tool with subagent type `{extractor_ref}` only when `{runner_ref}` is not available."
+            )
+        else:
             ingest_handoff_note = ""
 
         replacements = {
@@ -579,19 +737,20 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             "PLUGIN_NAME": plugin_name,
             "VERSION": client["version"],
             "INGEST_SKILL": ingest_skill,
-            "EXTRACT_SKILL": extract_skill,
             "QUERY_SKILL": query_skill,
+            "INTERNAL_RUNNER_SKILL": runner_skill,
+            "EXTRACT_QUEUE_REF": f"{tool_prefix}extract_queue",
             "EXTRACTOR_AGENT": extractor_agent,
             "EXTRACTOR_REF": extractor_ref,
             "EXTRACTOR_PATH": extractor_path,
             "EXTRACTOR_TOOLS": extractor_tools,
             "EXTRACTOR_FRONTMATTER": extractor_frontmatter,
             "INGEST_SKILL_FRONTMATTER": ingest_frontmatter,
-            "EXTRACT_SKILL_FRONTMATTER": extract_frontmatter,
             "QUERY_SKILL_FRONTMATTER": query_frontmatter,
             "INGEST_HANDOFF_NOTE": ingest_handoff_note,
         }
         plugin_rel_root = f"plugins/{target}/{plugin_name}"
+        bundle_adapters[f"{plugin_rel_root}/"] = (adapter, extractor_ref, extractor_path)
         plugin_bundle_files: dict[str, bytes] = {}
 
         readme_tmpl_path = client["dir"] / "README.md.tmpl"
@@ -600,8 +759,18 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
         plugin_bundle_files[extractor_path] = _normalize_text(_render_template(extractor_tmpl, replacements))
         plugin_bundle_files[f"skills/{ingest_skill}/SKILL.md"] = _normalize_text(_render_template(ingest_skill_tmpl, replacements))
-        plugin_bundle_files[f"skills/{extract_skill}/SKILL.md"] = _normalize_text(_render_template(extract_skill_tmpl, replacements))
         plugin_bundle_files[f"skills/{query_skill}/SKILL.md"] = _normalize_text(_render_template(query_skill_tmpl, replacements))
+
+        if adapter["handoff_mode"] == "forked_internal_skill":
+            if runner_skill_tmpl is None:
+                raise BuildValidationError(f"missing required runner template: {runner_tmpl_path}")
+            plugin_bundle_files[f"skills/{runner_skill}/SKILL.md"] = _normalize_text(_render_template(runner_skill_tmpl, replacements))
+
+        if adapter["guard_mode"] == "claude_pre_tool_use_hook":
+            ingest_command = f"/{plugin_name}:{ingest_skill}" if adapter["skill_naming"] == "plugin_colon" else ingest_skill
+            plugin_bundle_files[CLAUDE_HOOKS_PATH] = claude_guard_hooks(extractor_ref, ingest_command=ingest_command)
+        elif adapter["guard_mode"] == "rules":
+            plugin_bundle_files["rules/AGENTS.md"] = _normalize_text(_render_template(agents_md_tmpl, replacements))
 
         if target == "claude":
             plugin_manifest = {
@@ -614,7 +783,6 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 "keywords": ["claire-bible", "mcp", "knowledge-graph", "extraction"],
             }
             plugin_bundle_files[".claude-plugin/plugin.json"] = _json_bytes(plugin_manifest)
-            plugin_bundle_files[CLAUDE_HOOKS_PATH] = claude_guard_hooks(extractor_ref)
             claude_marketplace_plugins.append({
                 "name": plugin_name,
                 "source": f"./{plugin_rel_root}",
@@ -635,7 +803,6 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 "suggestedPrompts": client["suggested_prompts"],
             }
             plugin_bundle_files["plugin.json"] = _json_bytes(antigravity_manifest)
-            plugin_bundle_files["rules/AGENTS.md"] = _normalize_text(_render_template(agents_md_tmpl, replacements))
         else:
             raise BuildValidationError(f"unsupported build adapter for target {target!r}")
 
@@ -652,10 +819,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 else:
                     plugin_bundle_files[rel_ov] = _normalize_text(raw_text)
 
-        if target == "claude":
-            _check_claude_bundle(plugin_rel_root, plugin_name, plugin_bundle_files, extractor_ref)
-        elif any(p.startswith("hooks/") for p in plugin_bundle_files):
-            raise BuildValidationError(f"{plugin_rel_root}: hook files are not allowed for target {target!r}")
+        _check_bundle_conformance(plugin_rel_root, plugin_name, plugin_bundle_files, adapter, extractor_ref, ingest_skill, query_skill)
 
         file_entries: list[dict[str, Any]] = []
         for rel_file, data in sorted(plugin_bundle_files.items()):
@@ -730,7 +894,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         repo_files[out_rel] = _normalize_text(rendered_doc)
 
     if mcp_tools_file is not None:
-        _verify_mcp_contracts(repo_files, mcp_tools_file)
+        _verify_mcp_contracts(repo_files, mcp_tools_file, bundle_adapters)
 
     checksum_lines = [f"{_sha256_bytes(release_files[name])}  {name}" for name in sorted(release_files)]
     release_files["SHA256SUMS"] = ("\n".join(checksum_lines) + "\n").encode("utf-8")
