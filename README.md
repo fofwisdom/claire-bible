@@ -124,7 +124,7 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 | `claire search` | 하이브리드 검색 (BM25 전문 색인 + 벡터 시맨틱 유사도 + LLM 요약) |
 | `claire theme` | 다중 지식 테마 레지스트리 및 격리 상태 관리 (`list`, `define`, `update`, `delete`, `reset`) |
 | `claire feeds` | 계정 RSS/Atom/JSON Feed 구독 즉시 폴링 (`poll`) |
-| `claire server` | 네트워크 모드(`--network`, G1-G9) 및 연합(`--federation`, GF1-GF7) 준비 상태 점검 (`check`) |
+| `claire server` | 네트워크 모드(`--network`, G1-G9) 및 연합(`--federation`, GF1-GF20) 준비 상태 점검 (`check`) |
 | `claire federation` | Fedify 사이드카 DB 손실 시 아웃박스 작업 복구 (`requeue`) |
 | `claire providers` | `data/providers.json` 기반 LLM/STT/VLM 프로바이더 조회 및 연결 테스트 (`list`, `migrate`, `test`) |
 | `claire support-bundle` | RCA 및 문제 해결용 zstd 압축 Support Bundle 생성·조회·정리 |

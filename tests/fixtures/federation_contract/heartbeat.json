@@ -3,18 +3,53 @@
     "method": "POST",
     "path": "/internal/federation/v1/heartbeat",
     "body": {
-      "contract_version": "1.12",
+      "contract_version": "1.13",
       "sidecar_version": "0.1.0",
       "queue_depth": 3,
+      "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e",
+      "public_host": {
+        "host": "claire.example.com",
+        "addresses": [
+          {
+            "address": "203.0.113.5",
+            "class": "global"
+          }
+        ],
+        "error": null
+      },
       "self_check": {
         "ok": true,
-        "checked_at": 1800000300.0
+        "checked_at": 1800000300.0,
+        "answer": null
       },
       "knowledge_self_check": {
         "checked_at": 1800000300.0,
-        "failed_paths": [],
+        "failed_paths": [
+          "/ap/themes"
+        ],
+        "answers": [
+          {
+            "path": "/ap/themes",
+            "problem": "not_routed",
+            "party": "claire",
+            "status": 404,
+            "error": null,
+            "via_cdn": "cloudflare",
+            "server": "cloudflare",
+            "media_type": "text/plain",
+            "mitigation": null,
+            "received": null
+          }
+        ],
         "signed": {
-          "result": "ok"
+          "draft_cavage": {
+            "result": "ok",
+            "answer": null
+          },
+          "rfc9421": {
+            "result": "ok",
+            "answer": null
+          }
         }
       },
       "loops": {
@@ -30,12 +65,36 @@
           "error": null,
           "error_at": null
         }
+      },
+      "traffic": {
+        "window_seconds": 86400,
+        "inbound_verified": {
+          "count": 4,
+          "hosts": 2,
+          "last_at": 1800000200.0
+        },
+        "inbound_rejected": {
+          "count": 1,
+          "last_at": 1800000100.0
+        },
+        "deliveries": {
+          "succeeded": 3,
+          "failed": {
+            "dns": 0,
+            "tls": 0,
+            "timeout": 1,
+            "http_4xx": 0,
+            "http_5xx": 0,
+            "other": 0
+          },
+          "last_success_at": 1800000250.0
+        }
       }
     }
   },
   "status": 200,
   "response": {
-    "contract_version": "1.12",
+    "contract_version": "1.13",
     "federation": "on"
   }
 }

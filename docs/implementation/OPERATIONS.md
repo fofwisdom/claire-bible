@@ -212,7 +212,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 ./cb-manuscript app server check --federation --json
 ```
 
-6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 서버 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF7 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
+6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 서버 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
 
 사이드카는 `federation`이 `off`인 동안에도 heartbeat마다 공개 자가 검사를 한다. 그래서 리버스 프록시 규칙이 맞으면 스위치를 켜기 전에 GF6이 통과한다([FEDERATION.md](FEDERATION.md) §7.2).
 

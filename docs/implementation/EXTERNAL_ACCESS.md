@@ -163,7 +163,7 @@ Fedify 사이드카를 쓰는 서버(`CB_FEDERATION=1`)에서는 reverse proxy�
 - 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. proxy는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 사이드카로 넘기는 `Host`는 앱 호스트여야 한다. 사이드카는 본문을 1 MiB까지만 읽고 넘으면 413을 낸다.
 - 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.
 - Claire host firewall은 `CB_FEDIFY_PORT`의 source도 reverse proxy의 고정 LAN IP로만 허용한다.
-- 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. `./cb-manuscript app server check --federation --json`으로 실행한다.
+- 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. GF8은 나머지 연합 경로가 경로와 `Host`가 바뀌지 않은 채 사이드카에 닿는지, GF9와 GF10은 실제 전달과 같은 미디어 타입·서명 형식의 `POST`가 통과하는지 확인한다. `./cb-manuscript app server check --federation --json`으로 실행한다.
 
 아래는 위 Nginx 예시의 `server` 블록에 더하는 예시다. 이 저장소의 테스트는 Nginx 설정을 실행하지 않는다.
 
@@ -178,6 +178,33 @@ location = /.well-known/webfinger { proxy_pass http://claire_fedify; proxy_http_
 location = /.well-known/nodeinfo  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
 location ^~ /nodeinfo/            { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
 location ^~ /ap/                  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+```
+
+### 연합 준비 검사 실패 대응
+
+준비 검사(`./cb-manuscript app server check --federation --json` 또는 콘솔 `/admin/federation`)는 실패한 요청에 누가 응답했는지를 코드로 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 아래 표는 코드별 원인과 고칠 곳이다. Cloudflare 항목의 근거는 Cloudflare 공식 문서다. Sophos WAF 항목은 Sophos 커뮤니티 글에서 온 것이며 이 저장소에서 확인하지 않았다[미검증]. 이 저장소의 테스트는 두 제품을 실행하지 않는다.
+
+| 코드 | 원인 | Cloudflare | Sophos WAF [미검증] | Nginx |
+|---|---|---|---|---|
+| `cdn_challenge` | 봇 규칙이나 보안 수준이 챌린지 페이지를 냄. 다른 서버는 챌린지에 답할 수 없다 | Bot Fight Mode는 규칙 엔진 밖에서 돌아 skip·allow 규칙이 통하지 않는다. 끄거나, Super Bot Fight Mode로 올리고 연합 경로에 skip 규칙을 둔다. 연합 경로에 Managed Challenge 규칙과 "I'm Under Attack" 모드를 쓰지 않는다 | — | — |
+| `cdn_block` | CDN의 WAF 규칙이나 IP 규칙 | Security Events에서 규칙을 찾아 연합 경로를 예외로 둔다 | — | — |
+| `cdn_error` | CDN이 원본에 닿지 못함(HTTP 520–530) | 원본 주소, TLS 모드, 원본 쪽 방화벽 | 해당 호스트의 WAF 규칙이 켜져 있는지 | — |
+| `intermediary`(`POST`, GF9·GF10) | WAF가 미디어 타입 `application/activity+json` 또는 `application/ld+json`의 `profile` 매개변수를 거부(OWASP CRS 920420·920470·920600 계열) | — | WAF 로그에서 규칙 ID를 찾아 앱 호스트 규칙의 "Skip filter rules"에 넣는다 | — |
+| `intermediary`(그 밖) | 차단 페이지, 로그인 페이지, URL 변형 | — | 연합 경로에 static URL hardening·form hardening을 쓰지 않는다 | — |
+| `answered_by_claire` | 연합 경로 규칙이 없음 | Tunnel이면 ingress에 네 경로 규칙 | Path-specific routing으로 네 경로를 사이드카 서버에 보냄 | 위 `location` 네 줄 |
+| `answered_by_sidecar` | Claire 경로가 사이드카로 감(`/.well-known/` 전체를 보낸 경우 등) | 경로 규칙을 정확 일치로 | 같음 | `location = /.well-known/webfinger`처럼 정확 일치 |
+| `path_changed` | 규칙이 경로 앞부분을 지움 | — | Path routing이 전체 경로를 유지해야 한다 | `proxy_pass`에 URI 부분을 붙이지 않는다 |
+| `host_changed` | proxy가 `Host`를 upstream 이름으로 바꿈 | — | "Pass host header"를 켠다 | `proxy_set_header Host $host` |
+| `signed_signature_invalid` | proxy가 본문이나 서명 헤더를 바꿈. 한 형식만 실패하면 `Signature-Input`·`Content-Digest` 헤더를 지우는지 본다 | 연합 경로에 본문 변환을 쓰지 않는다 | 연합 경로에 콘텐츠 재작성을 쓰지 않는다 | `sub_filter`·본문 변경 없음 |
+| `inbox_body_too_large` | 본문 한도가 1 MiB보다 작음 | 요금제 한도 확인 | 보호 정책의 본문 한도 | `/ap/`에 `client_max_body_size 1m` 이상 |
+| `answer_not_live`, `sidecar_other` | 사이드카 앞의 캐시가 오래된 응답을 줌(또는 사이드카가 두 개) | 연합 경로에 "Cache Everything" 규칙을 두지 않는다 | — | 연합 경로에 `proxy_cache` 없음 |
+| `dns_error`, `tls_error`, `connect_error`, `probe_timeout` | 서버에서 자기 공개 주소로 가는 경로(hairpin)가 안 됨 | — | 공인 주소에 대한 NAT loopback, 또는 내부 DNS가 WAF 주소를 주게 함 | — |
+| GF18 `public_host_private` | 내부 DNS나 hosts 파일이 공개 이름에 사설 주소를 줌. 검사가 CDN을 거치지 않아 다른 서버와 결과가 다를 수 있다 | — | — | — |
+
+GF18이 실패했거나 CDN을 쓰면 다른 망의 컴퓨터에서 바깥 검사를 실행한다. 이 스크립트는 `curl`만 쓰고 주어진 origin에만 요청하며 파일을 쓰지 않는다([FEDERATION.md](FEDERATION.md) §7.2.3).
+
+```bash
+sh ops/federation_outside_probe.sh https://claire.example.com
 ```
 
 ---

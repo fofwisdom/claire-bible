@@ -278,6 +278,8 @@ export interface KnowledgeDeliveryDeps extends KnowledgeReadDeps {
   checkAddress: (url: URL) => Promise<void>;
   // The request function of the delivery. The sidecar gives pinnedFetch (pinned_fetch.ts), which connects only to an address that it checked, unless the development switch allow_private_addresses is on; without a value the global fetch is used. A PrivateAddressError of it ends the delivery as rejected (inbox_private_address).
   fetch?: typeof fetch;
+  // Gets the outcome of each delivery (the traffic counters of GF20).
+  onDelivery?: (outcome: DeliveryOutcome) => void;
 }
 
 export interface DeliveryOutcome {
@@ -354,6 +356,7 @@ export async function processKnowledgeOutbox(deps: KnowledgeDeliveryDeps, counte
     // One recipient cannot hold the loop: a delivery that is over its time limit comes again later (KS2).
     const outcome = await withDeadline((signal) => deliverKnowledgeTask(deps, task, signal), taskMilliseconds, { result: "retry", error: "delivery_timeout" } as DeliveryOutcome);
     counters[outcome.result] += 1;
+    deps.onDelivery?.(outcome);
     if (outcome.result !== "delivered") console.warn(`knowledge outbox task ${task.id} (${task.kind}) ${outcome.result}: ${outcome.error}`);
     await deps.api.ackKnowledgeOutboxTask(task.id, outcome.result, outcome.error);
   }

@@ -26,9 +26,11 @@
 
 import { type Context, createFederation, type Federation, generateCryptoKeyPair, importJwk, type InboxContext, type KvStore, type MessageQueue, signRequest, verifyRequest } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, CryptographicKey, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.6";
-import { type ActorRecord, type ClientTask, type HeartbeatLoops, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, type KnowledgeSelfCheck, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type SignedSelfCheckCode, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { getUserAgent, preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.6";
+import { type ActorRecord, type ClientTask, type HeartbeatLoops, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, type KnowledgeSelfCheck, type ProbeAnswer, type PublicSelfCheck, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type Traffic, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
+// Answer attribution and traffic counters of the readiness checks (contract 1.13).
+import { classifyAnswer, deliveryFailureClass, deliveryMeterProvider, noAnswer, probeAnswer, SELF_CHECK_HEADER, SIDECAR_HEADER, TrafficCounters } from "./probes.ts";
 // Federation of shared knowledge (units KF1 to KF3).
 import { pinnedFetch } from "./pinned_fetch.ts";
 import { ACCOUNT_SIGNER_PREFIX, KB_ACTOR_PATH, KNOWLEDGE_COLLECTION_PATHS, type KnowledgeDeliveryCounters, type KnowledgeDeliveryDeps, knowledgeDocumentOf, KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH, type KnowledgeReadCounters, processKnowledgeOutbox, processKnowledgeReads, processRemoteReads, publicAddressCheck, SERVER_SIGNER } from "./knowledge.ts";
@@ -44,12 +46,16 @@ import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from ".
 export const SERVER_ACTOR_USERNAME = "claire";
 export const KEY_CACHE_SECONDS = 60;
 export const CONFIG_CACHE_SECONDS = 5;
-export const SIDECAR_HEADER = "x-claire-fedify-server";
+export { SIDECAR_HEADER };
 export const SELF_CHECK_PATH = "/ap/self-check";
 export const SELF_CHECK_TTL_SECONDS = 60;
 export const SELF_CHECK_REQUEST_TIMEOUT_MS = 10_000;
 export const SELF_CHECK_DEADLINE_MS = 20_000;
 export const KNOWLEDGE_SELF_CHECK_PATHS = ["/.well-known/nodeinfo", "/nodeinfo/2.1", "/ap/actors/server", "/ap/kb", "/ap/themes", "/ap/kb/0", "/ap/inbox"] as const;
+// The Accept header of a read of an ActivityPub document, in the two forms that other servers send.
+export const ACTIVITY_ACCEPT = 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"';
+// The two signature forms of a delivery of Fedify (the "double knock").
+export const SIGNATURE_FORMS = { draft_cavage: "draft-cavage-http-signatures-12", rfc9421: "rfc9421" } as const;
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 // The inbox of a knowledge base actor (/ap/kb/{number}/inbox) gets only activities of the knowledge federation. The actor document, its collections, and its documents are the paths of KB_ACTOR_PATH (unit KF3).
@@ -140,27 +146,32 @@ function notFound(): Response {
   return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 }
 
-function classifySelfCheckError(error: unknown): SignedSelfCheckCode {
-  const text = `${(error as { name?: string })?.name ?? ""} ${(error as { message?: string })?.message ?? String(error)}`.toLowerCase();
-  if (/(?:certificate|tls|ssl|handshake|unknown\s*issuer|self[- ]signed|peer.*cert)/.test(text)) return "tls_error";
-  if (/(?:dns|lookup|getaddrinfo|nxdomain|name or service not known|no such host|nodename nor servname|name resolution)/.test(text)) return "dns_error";
-  return "request_failed";
-}
-
 function loopErrorCode(error: unknown): string {
   const raw = error instanceof InternalApiError ? error.code : (error as { name?: string })?.name ?? "error";
   const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64);
   return normalized || "error";
 }
 
-type SelfCheckEntry = {
+// One self-check request that this process sent (GF6, GF8, GF9). The nonce of the request is the key of the entry.
+type ProbeEntry = {
   origin: string;
   host: string;
   createdAt: number;
   expiresAt: number;
-  seen: boolean;
-  result: "ok" | "host_changed" | "signature_invalid" | null;
+  // The path with the query and the Host that this process got for the nonce. null: the request did not come.
+  received: { target: string; host: string } | null;
+  // The signed POST of GF9 only.
+  signed: boolean;
+  signedSeen: boolean;
+  signedResult: "ok" | "signature_invalid" | null;
 };
+
+// The path and the query parameters of two request targets are the same. The percent-encoding of the query can be different.
+function sameTarget(sent: string, received: string): boolean {
+  const a = new URL(sent, "http://probe.invalid");
+  const b = new URL(received, "http://probe.invalid");
+  return a.pathname === b.pathname && JSON.stringify([...a.searchParams]) === JSON.stringify([...b.searchParams]);
+}
 
 export class Sidecar {
   readonly #api: InternalApi;
@@ -183,7 +194,8 @@ export class Sidecar {
   // The paths in #gone that are deleted notes (unit FP4-9): the Tombstone has the former type Note.
   readonly #goneNotes = new Set<string>();
   #selfCheckKey: Promise<CryptoKeyPair> | null = null;
-  readonly #selfChecks = new Map<string, SelfCheckEntry>();
+  readonly #probes = new Map<string, ProbeEntry>();
+  readonly #traffic = new TrafficCounters(() => this.#now());
   readonly #loops: HeartbeatLoops = {
     knowledge_reads: { running: false, progress_at: null, error: null, error_at: null },
     knowledge_exchange: { running: false, progress_at: null, error: null, error_at: null },
@@ -212,6 +224,7 @@ export class Sidecar {
   readonly marker: string = crypto.randomUUID();
 
   async handle(request: Request): Promise<Response> {
+    this.#recordProbe(request);
     const response = await this.#respond(request);
     const headers = new Headers(response.headers);
     headers.set(SIDECAR_HEADER, this.marker);
@@ -272,6 +285,8 @@ export class Sidecar {
       console.error(`request failed: ${(error as Error).name}: ${(error as Error).message}`);
       return text(503, "Service Unavailable", { "retry-after": "5" });
     }
+    // A signed inbox request that Fedify refused (GF19 counts the requests that verified; this number shows the other ones).
+    if (inbox && response.status === 401 && (headers.has("signature") || headers.has("signature-input"))) this.#traffic.inboundRejected();
     // The 403 comes after the signature check of Fedify: a request without a valid signature gets 401 and learns nothing about the blocks (design Section 5.3).
     if (blocked && response.ok) {
       await response.body?.cancel();
@@ -297,16 +312,27 @@ export class Sidecar {
     return await this.#selfCheckKey;
   }
 
-  #pruneSelfChecks(now: number): void {
-    for (const [nonce, entry] of this.#selfChecks) {
-      if (entry.expiresAt <= now) this.#selfChecks.delete(nonce);
+  #pruneProbes(now: number): void {
+    for (const [nonce, entry] of this.#probes) {
+      if (entry.expiresAt <= now) this.#probes.delete(nonce);
     }
+  }
+
+  // Records what this process got for a self-check request, before the routing. Thus the record exists also while federation is off and for a path that is not a federation path.
+  #recordProbe(request: Request): void {
+    const nonce = request.headers.get(SELF_CHECK_HEADER);
+    if (nonce === null) return;
+    const entry = this.#probes.get(nonce);
+    const now = this.#now();
+    if (entry === undefined || entry.received !== null || now < entry.createdAt || now - entry.createdAt > SELF_CHECK_TTL_SECONDS) return;
+    const url = new URL(request.url);
+    entry.received = { target: `${url.pathname}${url.search}`, host: (request.headers.get("host") ?? url.host).toLowerCase() };
   }
 
   // Self-check path POST /ap/self-check (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4 item 2, GF9).
   async #handleSelfCheck(request: Request): Promise<Response> {
     const now = this.#now();
-    this.#pruneSelfChecks(now);
+    this.#pruneProbes(now);
     if (request.method !== "POST") return notFound();
     const body = await readLimited(request, 4096);
     if (body === null) return notFound();
@@ -318,19 +344,20 @@ export class Sidecar {
       return notFound();
     }
     if (typeof nonce !== "string" || !nonce) return notFound();
-    const entry = this.#selfChecks.get(nonce);
-    if (entry === undefined || entry.seen || now < entry.createdAt || now - entry.createdAt > SELF_CHECK_TTL_SECONDS) return notFound();
-    entry.seen = true;
+    const entry = this.#probes.get(nonce);
+    if (entry === undefined || !entry.signed || entry.signedSeen || now < entry.createdAt || now - entry.createdAt > SELF_CHECK_TTL_SECONDS) return notFound();
+    entry.signedSeen = true;
 
-    const requestHost = (request.headers.get("host") ?? new URL(request.url).host).toLowerCase();
-    if (requestHost !== entry.host) {
-      entry.result = "host_changed";
-      return notFound();
-    }
+    const url = new URL(request.url);
+    const requestHost = (request.headers.get("host") ?? url.host).toLowerCase();
+    // An intermediary can remove the self-check header. The body has the nonce too.
+    entry.received ??= { target: `${url.pathname}${url.search}`, host: requestHost };
+    // The sender of the self-check compares the Host and reports host_changed.
+    if (requestHost !== entry.host) return notFound();
 
     const signatureInput = request.headers.get("signature-input");
     if (signatureInput !== null && signatureInput.split("=(").length !== signatureInput.split('"content-digest"').length) {
-      entry.result = "signature_invalid";
+      entry.signedResult = "signature_invalid";
       return notFound();
     }
 
@@ -357,72 +384,98 @@ export class Sidecar {
       };
       const key = await verifyRequest(clean, { documentLoader, contextLoader, currentTime: instant(now) });
       if (key !== null && key.id?.href === keyId.href && key.ownerId?.href === actorUri.href) {
-        entry.result = "ok";
+        entry.signedResult = "ok";
         return new Response(null, { status: 202 });
       }
     } catch {
-      // Verification failed; result stays signature_invalid.
+      // Verification failed; the result stays signature_invalid.
     }
-    entry.result = "signature_invalid";
+    entry.signedResult = "signature_invalid";
     return notFound();
+  }
+
+  // Sends one self-check request to the public origin and tells what went wrong, or null (FEDERATION_GO_LIVE_DESIGN.md Sections 5.1 to 5.4).
+  // The request has the headers of a request of another server (Section 6): the agent of the deliveries of this process and the header of the nonce.
+  async #sendProbe(config: ServerConfig, fetcher: typeof fetch, signal: () => AbortSignal, path: string, signed: boolean, make: (url: string, nonce: string, headers: Record<string, string>) => Request | Promise<Request>): Promise<ProbeAnswer | null> {
+    let host: string;
+    try {
+      host = new URL(config.canonical_origin).host.toLowerCase();
+    } catch (error) {
+      return probeAnswer(path, "not_routed", noAnswer(error));
+    }
+    const nonce = crypto.randomUUID();
+    const started = this.#now();
+    this.#probes.set(nonce, { origin: config.canonical_origin, host, createdAt: started, expiresAt: started + SELF_CHECK_TTL_SECONDS, received: null, signed, signedSeen: false, signedResult: null });
+    let response: Response;
+    try {
+      const request = await make(`${config.canonical_origin}${path}`, nonce, { "user-agent": getUserAgent(), [SELF_CHECK_HEADER]: nonce });
+      response = await fetcher(request, { redirect: "manual", signal: signal() });
+      await response.body?.cancel();
+    } catch (error) {
+      return probeAnswer(path, "not_routed", noAnswer(error));
+    }
+    const answer = classifyAnswer(response, this.marker);
+    if (answer.party !== "sidecar") return probeAnswer(path, "not_routed", answer);
+    const entry = this.#probes.get(nonce);
+    const received = entry?.received ?? null;
+    if (received === null) return probeAnswer(path, "answer_not_live", answer);
+    if (!sameTarget(path, received.target)) return probeAnswer(path, "path_changed", answer, received.target);
+    if (received.host !== host) return probeAnswer(path, "host_changed", answer, received.host);
+    if (signed && !(response.status === 202 && entry?.signedResult === "ok")) return probeAnswer(path, "signature_invalid", answer);
+    return null;
+  }
+
+  // Public self-check (design Section 12, GF6): a request through the public origin must get to this sidecar process, with its path and its Host.
+  // The check does not depend on the federation switch: the admin can set the switch to `on` only after this check passes. Thus the status of the answer is not important (it is 404 while federation is off).
+  async publicSelfCheck(config: ServerConfig, fetcher: typeof fetch = fetch): Promise<PublicSelfCheck> {
+    this.#pruneProbes(this.#now());
+    const path = `/.well-known/webfinger?resource=${encodeURIComponent(`acct:${SERVER_ACTOR_USERNAME}@${config.handle_host}`)}`;
+    const answer = await this.#sendProbe(config, fetcher, () => AbortSignal.timeout(SELF_CHECK_REQUEST_TIMEOUT_MS), path, false, (url, _nonce, headers) => new Request(url, { headers: { ...headers, accept: "application/jrd+json" } }));
+    return { ok: answer === null, checked_at: this.#now(), answer };
   }
 
   async knowledgeSelfCheck(config: ServerConfig, fetcher: typeof fetch = fetch): Promise<KnowledgeSelfCheck> {
     const started = this.#now();
-    this.#pruneSelfChecks(started);
+    this.#pruneProbes(started);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new DOMException("self-check deadline", "TimeoutError")), SELF_CHECK_DEADLINE_MS);
     const requestSignal = (): AbortSignal => AbortSignal.any([controller.signal, AbortSignal.timeout(SELF_CHECK_REQUEST_TIMEOUT_MS)]);
 
-    const checkPath = async (path: string): Promise<string | null> => {
-      try {
-        const response = await fetcher(`${config.canonical_origin}${path}`, { redirect: "manual", signal: requestSignal() });
-        await response.body?.cancel();
-        return response.headers.get(SIDECAR_HEADER) === this.marker ? null : path;
-      } catch {
-        return path;
-      }
-    };
+    const checkPath = (path: string): Promise<ProbeAnswer | null> =>
+      this.#sendProbe(config, fetcher, requestSignal, path, false, (url, _nonce, headers) => new Request(url, { headers: { ...headers, accept: path.startsWith("/ap/") ? ACTIVITY_ACCEPT : "application/json" } }));
 
-    const checkSigned = async (): Promise<SignedSelfCheckCode> => {
-      const nonce = crypto.randomUUID();
-      let originHost: string;
-      try {
-        originHost = new URL(config.canonical_origin).host.toLowerCase();
-      } catch {
-        return "request_failed";
-      }
-      this.#selfChecks.set(nonce, { origin: config.canonical_origin, host: originHost, createdAt: started, expiresAt: started + SELF_CHECK_TTL_SECONDS, seen: false, result: null });
-      const url = `${config.canonical_origin}${SELF_CHECK_PATH}`;
-      const pair = await this.#getSelfCheckKey();
-      const signed = await signRequest(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce }) }), pair.privateKey, new URL(`${url}#main-key`), { currentTime: instant(started) });
-      let response: Response;
-      try {
-        response = await fetcher(signed, { redirect: "manual", signal: requestSignal() });
-        await response.body?.cancel();
-      } catch (error) {
-        return classifySelfCheckError(error);
-      }
-      if (response.headers.get(SIDECAR_HEADER) !== this.marker) return "not_routed";
-      const recorded = this.#selfChecks.get(nonce)?.result ?? null;
-      if (response.status === 202 && recorded === "ok") return "ok";
-      if (recorded === "host_changed" || recorded === "signature_invalid") return recorded;
-      return "not_routed";
-    };
+    // The signed POST has the media type and the form of a delivery. Only the key is the self-check key.
+    const checkSigned = (spec: (typeof SIGNATURE_FORMS)[keyof typeof SIGNATURE_FORMS]): Promise<ProbeAnswer | null> =>
+      this.#sendProbe(config, fetcher, requestSignal, SELF_CHECK_PATH, true, async (url, nonce, headers) => {
+        const pair = await this.#getSelfCheckKey();
+        const body = JSON.stringify({ "@context": AS2_CONTEXT, id: `${url}#${nonce}`, type: "Create", actor: url, nonce });
+        return await signRequest(new Request(url, { method: "POST", headers: { ...headers, "content-type": "application/activity+json" }, body }), pair.privateKey, new URL(`${url}#main-key`), { currentTime: instant(started), spec });
+      });
 
     try {
-      const [pathResults, signedResult] = await Promise.all([
+      const [pathResults, draftCavage, rfc9421] = await Promise.all([
         Promise.all(KNOWLEDGE_SELF_CHECK_PATHS.map((path) => checkPath(path))),
-        checkSigned(),
+        checkSigned(SIGNATURE_FORMS.draft_cavage),
+        checkSigned(SIGNATURE_FORMS.rfc9421),
       ]);
+      const failures = pathResults.filter((answer): answer is ProbeAnswer => answer !== null);
       return {
         checked_at: this.#now(),
-        failed_paths: pathResults.filter((p): p is string => p !== null),
-        signed: { result: signedResult },
+        failed_paths: failures.map((answer) => answer.path),
+        answers: failures.slice(0, 8),
+        signed: {
+          draft_cavage: { result: draftCavage === null ? "ok" : "failed", answer: draftCavage },
+          rfc9421: { result: rfc9421 === null ? "ok" : "failed", answer: rfc9421 },
+        },
       };
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  // The requests of other servers and the deliveries to them in the last 24 hours (GF19, GF20).
+  traffic(): Traffic {
+    return this.#traffic.snapshot();
   }
 
   loops(): HeartbeatLoops {
@@ -486,14 +539,23 @@ export class Sidecar {
   // The key document must be on the server of its owner: the actor of a key on another server is not a signer. A request with a body must have its digest in the signature (Fedify requires this for the draft form; this function requires it for RFC 9421).
   async #requestSigner(request: Request, config: ServerConfig): Promise<string | null> {
     const signatureInput = request.headers.get("signature-input");
-    if (request.method !== "GET" && request.method !== "HEAD" && signatureInput !== null && signatureInput.split("=(").length !== signatureInput.split('"content-digest"').length) return null;
+    // A request without a signature header is not a rejected request: it is an unsigned read.
+    const signed = signatureInput !== null || request.headers.has("signature");
+    if (request.method !== "GET" && request.method !== "HEAD" && signatureInput !== null && signatureInput.split("=(").length !== signatureInput.split('"content-digest"').length) {
+      this.#traffic.inboundRejected();
+      return null;
+    }
     try {
       const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
       const key = await verifyRequest(request, { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader, currentTime: instant(this.#now()) });
-      return key !== null && key.id !== null && key.ownerId !== null && key.id.origin === key.ownerId.origin ? key.ownerId.href : null;
+      const signer = key !== null && key.id !== null && key.ownerId !== null && key.id.origin === key.ownerId.origin ? key.ownerId : null;
+      if (signer !== null) this.#traffic.inboundVerified(signer.hostname, new URL(config.canonical_origin).hostname);
+      else if (signed) this.#traffic.inboundRejected();
+      return signer === null ? null : signer.href;
     } catch (error) {
       // The key could not be read. The request has no valid signature.
       console.warn(`signature check failed: ${(error as Error).name}`);
+      if (signed) this.#traffic.inboundRejected();
       return null;
     }
   }
@@ -594,6 +656,12 @@ export class Sidecar {
       checkAddress: publicAddressCheck(config.allow_private_addresses),
       // The POST of a delivery connects only to the address that it checked (DNS rebinding, KNOWLEDGE_FEDERATION.md Section 14.5). The development switch permits private addresses: then the global fetch is used.
       fetch: config.allow_private_addresses ? undefined : pinnedFetch(),
+      onDelivery: (outcome) => {
+        if (outcome.result === "delivered") this.#traffic.deliverySucceeded();
+        else if (outcome.error === "delivery_timeout") this.#traffic.deliveryFailed("timeout");
+        else if (outcome.error === "inbox_unreachable" || outcome.error === "recipient_unavailable") this.#traffic.deliveryFailed("other");
+        else if (outcome.error !== null && outcome.error.startsWith("inbox_status_")) this.#traffic.deliveryFailed(Number(outcome.error.slice("inbox_status_".length)) >= 500 ? "http_5xx" : "http_4xx");
+      },
     };
   }
 
@@ -868,6 +936,8 @@ export class Sidecar {
       console.warn(`inbox activity ${type} dropped: ${why}`);
     };
     if (activity.id === null || activity.actorId === null) return drop("no activity ID or no actor");
+    // Fedify verified the activity before this listener.
+    this.#traffic.inboundVerified(activity.actorId.hostname, new URL((await this.config()).canonical_origin).hostname);
     if (await this.isBlocked(activity.actorId.hostname)) {
       this.counters.blocked += 1;
       return;
@@ -1085,7 +1155,11 @@ export class Sidecar {
 
   #build(origin: string, allowPrivateAddress: boolean): Federation<void> {
     // allowPrivateAddress is false in production: Fedify then refuses each document address that is not public. The development switch of Claire (contract 1.8) permits a test server at a private address.
-    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, allowPrivateAddress });
+    // The results of the deliveries go to the traffic counters (GF20): the delivery counter of Fedify gives each success, and the error handler gives the class of each failure.
+    const meterProvider = deliveryMeterProvider((success) => {
+      if (success) this.#traffic.deliverySucceeded();
+    }) as NonNullable<Parameters<typeof createFederation<void>>[0]["meterProvider"]>;
+    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, allowPrivateAddress, meterProvider, onOutboxError: (error) => this.#traffic.deliveryFailed(deliveryFailureClass(error)) });
     const inbox = (identifier: string) => new URL(`/ap/actors/${identifier}/inbox`, origin);
     const sharedInbox = new URL("/ap/inbox", origin);
 
@@ -1215,18 +1289,5 @@ export class Sidecar {
       };
     });
     return federation;
-  }
-}
-
-// Public self-check (design Section 12, GF6): a request through the public origin must get to this sidecar process.
-// The check does not depend on the federation switch: the admin can set the switch to `on` only after this check passes. Thus the status of the answer is not important (it is 404 while federation is off). The marker header shows which process answered.
-export async function publicSelfCheck(config: ServerConfig, marker: string, fetcher: typeof fetch = fetch): Promise<boolean> {
-  const url = `${config.canonical_origin}/.well-known/webfinger?resource=${encodeURIComponent(`acct:${SERVER_ACTOR_USERNAME}@${config.handle_host}`)}`;
-  try {
-    const response = await fetcher(url, { headers: { accept: "application/jrd+json" }, redirect: "manual", signal: AbortSignal.timeout(10_000) });
-    await response.body?.cancel();
-    return response.headers.get(SIDECAR_HEADER) === marker;
-  } catch {
-    return false;
   }
 }

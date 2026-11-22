@@ -13,7 +13,7 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | WebFinger, NodeInfo, actor document, server actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
-| Server switch `federation`, readiness checks GF1 to GF17 | Implemented (API, CLI, and the console section `/admin/federation`) |
+| Server switch `federation`, readiness checks GF1 to GF20 | Implemented (API, CLI, and the console section `/admin/federation`). Answer attribution, path record, and traffic counters: Section 7.2 (units GL1 and GL2, 2026-11-22) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
@@ -61,10 +61,11 @@ flowchart LR
 | `src/claire/api/federation_internal.py` | Unix socket listener, `ListenerRouter`, service key, `SignedRequestMiddleware`, `sign_request` |
 | `src/claire/api/federation_routes.py` | Route table and sealed models of the internal API, `CONTRACT_VERSION`, `read_heartbeat` |
 | `src/claire/store/actor_keys.py` | Key generation, encrypted storage, `ensure_actor_keys`, `load_actor_keys` |
-| `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF17 |
+| `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF20, answer attribution |
 | `src/claire/api/accounts_routes/federation.py` | `GET` and `POST /api/admin/federation` |
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
 | `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check, knowledge self-check (`/ap/self-check`), loop states |
+| `sidecar/fedify/src/probes.ts` | Answer attribution of a self-check request, path record of the public host, traffic counters |
 | `sidecar/fedify/src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 
 ## 3. Actor Rule
@@ -280,7 +281,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.12"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.13"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.13 (units GL1 and GL2 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)) changed `POST /heartbeat` (Section 7.2): new necessary fields `marker`, `public_host`, and `traffic`; `self_check.answer`; `knowledge_self_check.answers`; and `knowledge_self_check.signed` is an object with one result for each signature form (`draft_cavage`, `rfc9421`). Claire refuses a heartbeat of version 1.12 (400 `invalid_request`), records nothing, and GF2 fails. No other route changed.
 - Version 1.12 (unit KF6 of the knowledge federation) added `knowledge_self_check` and `loops` to `POST /heartbeat` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17). No other route changed.
 - Version 1.11 (unit KF4 of the knowledge federation) added one value of `signer` of a task of `knowledge-outbox-tasks`: `account:` and the public ID of an account actor, for the `Offer` of a contribution ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 13.6). In the same version the mode is no longer a condition of the internal routes and of the sidecar: while the switch `federation` is on, the server actor, the account actors, and the knowledge federation work in single mode too (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5, KD2). No shape that existed changed.
 - Version 1.10 (unit KF3 of the knowledge federation) added the routes `knowledge-kb-actors`, `knowledge-outbox-tasks`, and `knowledge-remote-reads` ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 12.5). No shape that existed changed.
@@ -379,9 +381,9 @@ Claire writes one log line for each event with the type, the decision, and the r
 - The switch is the key `federation` in `server_settings` of `claire.db`. Values: `off` and `on`. No row means `off`. An unknown value raises `RuntimeError` (`AccountStore.federation_state`). No schema version change was necessary.
 - `CB_FEDERATION=1` starts the sidecar container only. It does not change this switch.
 
-### 7.2 Checks GF1 to GF17
+### 7.2 Checks GF1 to GF20
 
-`check_federation_readiness` in `src/claire/accounts/federation_readiness.py` does all checks. The checks do not change data. Unit KF6 added GF8 to GF17, item fields (`group`, `level`, `applies`, `code`, `values`), the system trust store helper (`_system_ssl_context()`, `SSL_CERT_FILE`), and a shared 20-second deadline for concurrent request checks ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17).
+`check_federation_readiness` in `src/claire/accounts/federation_readiness.py` does all checks. The checks do not change data. Unit KF6 added GF8 to GF17, item fields (`group`, `level`, `applies`, `code`, `values`), the system trust store helper (`_system_ssl_context()`, `SSL_CERT_FILE`), and a shared 20-second deadline for concurrent request checks ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17). Units GL1 and GL2 added the answer attribution (Section 7.2.1), the requests in the form of a request of another server (Section 7.2.2), and GF18 to GF20 (design: [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)).
 
 | ID | Passes when |
 | :--- | :--- |
@@ -390,15 +392,67 @@ Claire writes one log line for each event with the type, the decision, and the r
 | GF3 | `{data_dir}/auth/fedify_service.key` is a regular file with mode 0600 and 32 bytes. |
 | GF4 | `SecretService` can load the master key (`CLAIRE_SECRET_KEY` or `{data_dir}/auth/master.key`). The check does not make a key file. |
 | GF5 | The environment is not `production`, or the canonical origin starts with `https://`. A runtime configuration that is not valid fails. |
-| GF6 | The heartbeat is recent and its `self_check.ok` is `true`. |
-| GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` returns status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, uses `_system_ssl_context()`, 65536 bytes at most. |
-| GF8–GF17 | Knowledge federation readiness checks (`group="knowledge"`): paths, signed `/ap/self-check`, largest inbox body, sidecar loops, actor key decryption, settings/host check, first-contact docs, KB actor, unsigned read refusal, and `/ns/v1` + `/ns` (warning). See [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17. |
+| GF6 | The heartbeat is recent and its `self_check.ok` is `true`: the WebFinger request of the sidecar came back to the same sidecar process, with its path and its `Host`. |
+| GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` gets an answer of Claire (header `X-Claire-Server`) with status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, uses `_system_ssl_context()`, 65536 bytes at most. |
+| GF8–GF17 | Knowledge federation readiness checks (`group="knowledge"`): paths, signed `/ap/self-check` in the two signature forms, largest inbox body with the two media types of a delivery, sidecar loops, actor key decryption, settings/host check, first-contact docs, KB actor, unsigned read refusal, and `/ns/v1` + `/ns` (warning). See [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 17. |
+| GF18 | Warning, production only. Each address of the public host is a public address, for Claire (`resolve_host`, the system resolver) and for the sidecar (`public_host` of the heartbeat, `Deno.resolveDns`). A loopback or private address fails (`public_host_private`): the checks then do not cross the public edge. The passed item lists the addresses with their class (`cloudflare` for an address in `CLOUDFLARE_NETWORKS`) and tells if an answer of a request check had the header `cf-ray`. |
+| GF19 | Warning, switch `on` only. `traffic.inbound_verified.count` of a recent heartbeat is 1 or more: a request of another server had a signature that verified. |
+| GF20 | Warning, switch `on` only. Does not apply when the heartbeat has no delivery. Passes when `traffic.deliveries.succeeded` is 1 or more; fails when there are only failed tries, with the most frequent class (`dns`, `tls`, `timeout`, `http_4xx`, `http_5xx`, `other`). |
 
-- Each item has `group` (`"account"` for GF1 to GF7, `"knowledge"` for GF8 to GF17), `level` (`"required"` for GF1 to GF16, `"warning"` for GF17), `applies` (`bool`), `passed` (`bool`), `code`, `detail`, and `values`. `report.passed` is true when all required items pass; a failing `warning` item does not make `report.passed` false.
+- Each item has `group` (`"account"` for GF1 to GF7, `"knowledge"` for GF8 to GF17, `"operation"` for GF18 to GF20), `level` (`"required"` for GF1 to GF16, `"warning"` for GF17 to GF20), `applies` (`bool`), `passed` (`bool`), `code`, `detail`, and `values`. `report.passed` is true when all required items pass; a failing `warning` item does not make `report.passed` false.
 - The sidecar sends a heartbeat at its start and then each 30 seconds.
-- Public self-check of the sidecar (`publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. Each answer of the sidecar has the header `X-Claire-Fedify-Server` with a random value of that sidecar process. The check passes when the answer has the value of this process. The status of the answer is not important. This shows that the reverse proxy sends the federation paths to this sidecar. The header value shows no server data.
+- Each answer of the sidecar has the header `X-Claire-Fedify-Server` with a random value of that sidecar process (the marker). Each answer of the public listener of Claire has the header `X-Claire-Server: api` (`ServerMarkerMiddleware` in `src/claire/api/security.py`). The header values show no server data.
+- Public self-check of the sidecar (`Sidecar.publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. The status of the answer is not important.
+- Each self-check request of the sidecar (GF6, GF8, GF9) has the header `X-Claire-Self-Check` with a nonce. The sidecar records the path with the query and the `Host` of a request with a known nonce, before the routing, in memory, for 60 seconds. A self-check request passes when: the answer has the marker of this process; this process got the request (else `answer_not_live`: a cache gave an old answer, or an intermediary removed the header); the path and the query parameters did not change (else `path_changed`); and the `Host` is the authority of the public origin (else `host_changed`).
 - The sidecar does the self-check and knowledge self-check at each heartbeat, also while `federation` is `off` or the mode is `single` (the WebFinger answer is then 404, with the header). Thus GF6, GF8, and GF9 can pass before the admin sets the switch to `on`. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
 - GF7 shows that the reverse proxy still sends `/.well-known/oauth-authorization-server` to Claire. The process that does the check (the `api` process or the CLI process) sends the request.
+- The traffic counters are in the memory of the sidecar process, for the last 24 hours, in buckets of one hour (`TrafficCounters` in `sidecar/fedify/src/probes.ts`). They start at zero when the sidecar starts. `inbound_verified` counts each inbox activity that Fedify verified and each request whose signature the sidecar verified (knowledge inbox and collections), without the requests of this server; `hosts` is the number of different hosts. `inbound_rejected` counts the signed requests that did not verify. `deliveries.succeeded` comes from the counter `activitypub.delivery.sent` of Fedify (a small meter provider that reads only this counter) and from the deliveries of the knowledge federation; `deliveries.failed` has the class of each failed try (`onOutboxError` of Fedify, and the result of a knowledge delivery).
+
+#### 7.2.1 Answer Attribution
+
+A request check tells which party answered. `classify_response` (Claire) and `classifyAnswer` (sidecar) use the first rule that matches:
+
+| Party | Rule |
+| :--- | :--- |
+| `none` | No answer. The class of the error is `dns`, `tls`, `connect`, `timeout`, or `other` |
+| `sidecar` | `X-Claire-Fedify-Server` has the marker of the sidecar (for Claire: the `marker` of a recent heartbeat) |
+| `sidecar_other` | `X-Claire-Fedify-Server` has another value |
+| `sidecar_unverified` | Claire only: `X-Claire-Fedify-Server` is present, and there is no recent heartbeat with a marker |
+| `claire` | `X-Claire-Server` is present |
+| `cdn_challenge`, `cdn_block` | `cf-mitigated` is `challenge`, or another value |
+| `cdn_error` | `cf-ray` is present and the status is 520 to 530 |
+| `intermediary` | Each other answer |
+
+A check that expects the sidecar (GF6, GF8, GF9, GF10, GF14, GF15, GF16) or Claire (GF7, GF17) fails with the code of the party when another party answered. The values have `path`, `party`, `source` (`sidecar` or `Claire`: the process that sent the request), and the values of the text.
+
+| Code | Meaning |
+| :--- | :--- |
+| `answered_by_claire`, `answered_by_sidecar` | The public origin sends the path to the wrong upstream |
+| `cdn_challenge`, `cdn_block` (`value`), `cdn_error` (`status`) | The CDN answered itself |
+| `intermediary` (`status`, `server`) | An answer without a marker header of Claire or of the sidecar: a WAF, a login page, another proxy |
+| `sidecar_other` | The marker of another sidecar process: a cache with an old answer, or two sidecars |
+| `sidecar_unverified` | No recent heartbeat to compare the marker with |
+| `path_changed` (`received`), `host_changed` (`received`), `answer_not_live` | Self-checks of the sidecar: what the sidecar got is not what it sent |
+| `signed_signature_invalid` | GF9: the signature did not verify after the reverse proxy |
+| `dns_error`, `tls_error`, `connect_error`, `probe_timeout`, `request_failed` (`error`) | No answer |
+
+GF8 takes the code of the first failed path and gives all failed paths in `values.paths`. GF9 gives the failed signature forms in `values.forms`. GF10 gives the media type of the failed request in `values.media_type`. The heartbeat has the answer record of each failed self-check request (`self_check.answer`, `knowledge_self_check.answers` with 8 records at most, `knowledge_self_check.signed.{form}.answer`): `path`, `problem`, `party`, `status`, `error`, `via_cdn`, `server`, `media_type`, `mitigation` (the value of `cf-mitigated`), and `received`. A header value in a record has only printable ASCII and 64 characters at most.
+
+#### 7.2.2 Requests in the Form of a Request of Another Server
+
+| Check | Request |
+| :--- | :--- |
+| GF6, GF8, GF9 (sidecar) | `User-Agent` of the deliveries of the sidecar (`getUserAgent` of Fedify). GF8: `Accept: application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"` for the paths below `/ap/`, `application/json` for NodeInfo |
+| GF9 | Two `POST /ap/self-check` requests with `Content-Type: application/activity+json` and a body in the form of an activity: one signed in the draft-cavage form and one in the RFC 9421 form (`signRequest` of Fedify, the self-check key). The check passes only when the two forms verify |
+| GF10 | One `POST /ap/inbox` of 1040384 bytes with `application/activity+json`, and one small `POST` with `application/ld+json; profile="https://www.w3.org/ns/activitystreams"`. Each answer must come from the sidecar of the heartbeat, without status 413 |
+| GF14 | The server actor is read two times, with each of the two media types in `Accept` |
+| GF7, GF10, GF14 to GF17 (Claire) | `User-Agent: claire-bible/{version} (+{origin}/)` |
+
+The same headers do not make sure that a CDN decides the same for a request of another server. The outside probe covers that case.
+
+#### 7.2.3 Outside Probe
+
+`ops/federation_outside_probe.sh {origin}` is a POSIX shell script that needs only `curl`. The operator runs it on a computer on another network. It sends the unsigned requests of GF6, GF7, GF8, GF10, GF14, GF16, and GF17 (12 requests) and prints one line for each: `OK` or `FAIL`, the method, the path, the status, the party that answered, the expected party, and the values of `cf-mitigated` and `Server`. The last line is `outside probe: PASS` or `outside probe: FAIL ({n} paths)`. Exit codes: 0 passed, 1 failed, 2 wrong argument. The script writes no file and sends requests to the given origin only.
 
 ### 7.3 Admin API
 
@@ -411,7 +465,7 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
   "federation": "off",
   "mode": "network",
   "readiness": {"items": [{"id": "GF1", "name": "...", "group": "account", "level": "required", "applies": true, "passed": true, "code": "mode_network", "detail": "...", "values": {}}], "passed": false},
-  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 0, "self_check": {"ok": null, "checked_at": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}}
+  "heartbeat": {"received_at": 1800000300.0, "contract_version": "1.13", "sidecar_version": "0.1.0", "queue_depth": 0, "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e", "public_host": {"host": "claire.example.com", "addresses": [{"address": "203.0.113.5", "class": "global"}], "error": null}, "self_check": {"ok": null, "checked_at": null, "answer": null}, "knowledge_self_check": {"checked_at": 1800000300.0, "failed_paths": [], "answers": [], "signed": {"draft_cavage": {"result": "ok", "answer": null}, "rfc9421": {"result": "ok", "answer": null}}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1800000290.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1800000299.0, "error": null, "error_at": null}}, "traffic": {"window_seconds": 86400, "inbound_verified": {"count": 0, "hosts": 0, "last_at": null}, "inbound_rejected": {"count": 0, "last_at": null}, "deliveries": {"succeeded": 0, "failed": {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 0, "other": 0}, "last_success_at": null}}}
 }
 ```
 
@@ -426,7 +480,7 @@ The two routes are for the admin only (`ROUTE_POLICY`: `_system("admin")`). Othe
 | No recent authentication | 401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential |
 | Body is not an object with the one field `federation` and a known value | 400 `invalid_request` |
 | The value is the current state | 200 `{"federation": "<state>", "changed": false}`. No check, no audit row. |
-| Change to `on` and a required check that applies fails | 400 `{"error": "readiness_failed", "detail": "...", "failures": [...]}`. `failures` contains the required items that apply and did not pass (GF1 to GF13; warning items such as GF17 do not block). |
+| Change to `on` and a required check that applies fails | 400 `{"error": "readiness_failed", "detail": "...", "failures": [...]}`. `failures` contains the required items that apply and did not pass (GF1 to GF13; the warning items GF17 to GF20 do not block). |
 | Change accepted | 200 `{"federation": "<state>", "changed": true}`. Claire writes an `admin_audit` row with the action `federation.update`. |
 
 The change to `off` has no readiness condition.
@@ -504,7 +558,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 **Console sections.**
 
 - `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). The section is the same in both server modes.
-- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF17 in two groups (`account` and `knowledge`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
+- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF20 in three groups (`account`, `knowledge`, and `operation`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), the addresses of the public host, and the traffic counters, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
 ### 7.6 Publishing Routes (Unit FP3-1)
@@ -713,11 +767,11 @@ These statements are true for the code now.
 9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost. The admin can send them again with `claire federation requeue` (Section 7.4). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
 11. An inbound `Follow` gets `Reject(Follow)` in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply. A follower removal by the owner sends `Reject(Follow)` (Section 17).
-12. The inbox counters of the sidecar are in memory only. Claire does not get them.
+12. The inbox counters of the sidecar are in memory only. Claire gets only the traffic counters of the heartbeat (Section 7.2): the number of signed requests of other servers that verified and that did not verify, for the last 24 hours. They start at zero when the sidecar starts.
 13. A development server on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
-16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity. The outbox counters of the sidecar are in memory only.
+16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity. The outbox counters of the sidecar are in memory only; the heartbeat has the number of deliveries that succeeded and the failed tries by class for the last 24 hours (Section 7.2, GF20), without the inbox of each one.
 17. A `Delete` is a request. A remote server can ignore it and keep its copy.
 18. A `delete_actor` task is given only while federation is active. If the admin sets the switch to `off` after a purge, the task, the followers, and the keys of the purged account stay until the switch is `on` again.
 19. A block of a domain after the handoff does not remove a delivery that is in the queue of the sidecar.
@@ -756,7 +810,9 @@ These facts are true for the code now. They are choices that the implementation 
 | `tests/test_schema_v17.py` | `claire.db` version 17 migration, follower key, cursor pages, tombstones, domain form and subdomain rule |
 | `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, outbox task lease and acknowledgement, object record and its public conditions, outbox collection, and two end-to-end runs with a real `api` process: follow events through the socket, and publish on the public listener with the handoff on the socket |
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
-| `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
+| `tests/test_federation_readiness.py` | GF1 to GF20, answer attribution, admin API, CLI |
+| `tests/test_federation_go_live.py` | Units GL1 and GL2 end to end: a real Claire process and a real sidecar process behind an intermediary in the test process (the public origin). Each fault of the intermediary gives its code in `claire server check --federation --json`: a CDN challenge, a CDN block of the `profile` parameter, a WAF that refuses `application/activity+json`, a removed path prefix, a path to the wrong upstream, a changed `Host`, and a cache with an old answer. The outside probe script runs against the same origin |
+| `sidecar/fedify/tests/probes_test.ts` | Address classes, the path record, the traffic counters with their 24-hour window, the meter provider |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
 | `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-check while federation is off. Also the runs of the two files in `sidecar/fedify/e2e/`. |
 | `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks, the CLI command `federation requeue` |

@@ -20,7 +20,7 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | Knowledge base actors, curation, revisions, removal at the origin (KF3) | Implemented (Section 12) |
 | Contributions and grants across servers (KF4) | Implemented (Section 13) |
 | Automatic contribution across servers (KF5) | Implemented (Section 15) |
-| Knowledge readiness checks GF8 to GF17 and contract 1.12 (KF6) | Implemented (Section 17). Acceptance path steps KA1 to KA5 are pending execution against two running servers. |
+| Knowledge readiness checks GF8 to GF17 and contract 1.12 (KF6) | Implemented (Section 17). Units GL1 and GL2 (2026-11-22, contract 1.13) changed the self-checks and added the answer attribution and GF18 to GF20: [`FEDERATION.md`](FEDERATION.md) Section 7.2. Acceptance path steps KA1 to KA5 are pending execution against two running servers. |
 | Registration on `w3id.org` | Owner task, after `claire.bible` serves the two paths |
 
 ## 2. Files
@@ -1002,6 +1002,8 @@ The pending limits of the receiver for a remote account and for its domain (Sect
 
 ## 17. Unit KF6: Readiness Checks GF8 to GF17
 
+This section tells unit KF6 as it was at contract 1.12. Units GL1 and GL2 (contract 1.13) changed these parts; [`FEDERATION.md`](FEDERATION.md) Section 7.2 has the current rules: the heartbeat fields of the self-checks (answer records, a result for each of the two signature forms), the codes of a failed request check (the party that answered), the requests of GF8, GF9, GF10, and GF14, and the warning checks GF18 to GF20. The table of Section 17.2 has the current conditions.
+
 Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), and [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](../design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) decision CD4 (`DQ1: A`). No new database table or schema version.
 
 ### 17.1 Files
@@ -1021,15 +1023,15 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 
 | ID | Level | Applies | What Claire examines |
 | :--- | :--- | :--- | :--- |
-| GF8 | Required | Always | `heartbeat.knowledge_self_check.failed_paths` is empty for the 7 paths `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/server`, `/ap/kb`, `/ap/themes`, `/ap/kb/0`, and `/ap/inbox` |
-| GF9 | Required | Always | `heartbeat.knowledge_self_check.signed.result == "ok"` for signed `POST /ap/self-check` through the public origin |
-| GF10 | Required | Always | `POST {origin}/ap/inbox` with `GF10_INBOX_BODY_BYTES` (`1040384`) does not return HTTP `413` and has header `X-Claire-Fedify-Server` |
+| GF8 | Required | Always | `heartbeat.knowledge_self_check.failed_paths` is empty for the 7 paths `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/server`, `/ap/kb`, `/ap/themes`, `/ap/kb/0`, and `/ap/inbox`: each request came back to the same sidecar process with its path and its `Host` |
+| GF9 | Required | Always | `heartbeat.knowledge_self_check.signed.draft_cavage.result` and `signed.rfc9421.result` are `"ok"`: a signed `POST /ap/self-check` with `Content-Type: application/activity+json` verified through the public origin in each of the two signature forms of a delivery |
+| GF10 | Required | Always | `POST {origin}/ap/inbox` with `GF10_INBOX_BODY_BYTES` (`1040384`) and `application/activity+json`, and a small `POST` with `application/ld+json` and the `profile` parameter: no answer is HTTP `413`, and each answer has the marker of the sidecar of the heartbeat in `X-Claire-Fedify-Server` |
 | GF11 | Required | Always | `heartbeat.loops.knowledge_reads` and `knowledge_exchange` have `progress_at` within `300` seconds (`LOOP_MAX_AGE_SECONDS`) |
 | GF12 | Required | Always | Every ciphertext row in `actor_keys` (account actors and negative KB IDs) decrypts with `SecretService`; fails show up to 5 actor IDs |
 | GF13 | Required | Always | `federation` and `kb_auto_contribution` switches, `contributions.LIMITS`, `theme_match_threshold`, `auto_match_threshold`, `auto_run_documents` are valid; in `production`, the public host is not under `.test`, `.example`, `.invalid`, `.localhost`, or `.local` |
-| GF14 | Required | `federation == "on"` | `/.well-known/nodeinfo`, `/nodeinfo/2.1`, and `/ap/actors/server` (`Application`, matching RSA `publicKeyPem` in `auth.db`) |
+| GF14 | Required | `federation == "on"` | `/.well-known/nodeinfo`, `/nodeinfo/2.1`, and `/ap/actors/server` for each of the two media types of a read (`Application`, matching RSA `publicKeyPem` in `auth.db`); each answer comes from the sidecar of the heartbeat |
 | GF15 | Required | `federation == "on"` and at least one shared KB | Lowest-number shared KB `/ap/kb/{number}` (`Group` + `claire:KnowledgeBase`, `claire:acceptsAutomatic` vs `kb_auto_contribution`, matching RSA `publicKeyPem` in `auth.db`) |
-| GF16 | Required | `federation == "on"` | Unsigned `GET` to `/ap/kb`, `/ap/themes`, and `/ap/kb/{number}/documents` returns HTTP `404` |
+| GF16 | Required | `federation == "on"` | Unsigned `GET` to `/ap/kb`, `/ap/themes`, and `/ap/kb/{number}/documents` returns HTTP `404` from the sidecar of the heartbeat (a 404 of Claire or of an intermediary fails) |
 | GF17 | Warning | Always | `GET /ns/v1` (200, `application/ld+json`, `Access-Control-Allow-Origin: *`, current context document) and `GET /ns` (200, `text/html`); never sets `report.passed` to false |
 
 HTTP checks (`fetch_metadata`, `request_public_origin`) use `_system_ssl_context()` (default system CA paths plus `SSL_CERT_FILE`), `trust_env=False`, no redirects, and a 5-second per-request timeout; all active request checks (`GF7`, `GF10`, `GF14` to `GF17`) run concurrently under a shared 20-second deadline.

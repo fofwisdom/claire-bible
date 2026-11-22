@@ -571,7 +571,7 @@ test('/admin/federation: remove a known server with the confirmation of what is 
   expect(errors).toEqual([]);
 });
 
-test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, not-applicable rows, warning item, and sidecar loop state', async ({ page }) => {
+test('/admin/federation: readiness checks GF1-GF20 in three groups with levels, not-applicable rows, warning items, the party of a failed answer, and the sidecar state', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'fedadmin8');
@@ -586,7 +586,8 @@ test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, no
       { id: 'GF5', name: 'Canonical origin uses HTTPS in production', group: 'account', level: 'required', applies: true, passed: true, code: 'https_ok', detail: 'HTTPS ok.', values: {} },
       { id: 'GF6', name: 'Sidecar public self-check', group: 'account', level: 'required', applies: true, passed: true, code: 'webfinger_self_check_ok', detail: 'WebFinger ok.', values: {} },
       { id: 'GF7', name: 'OAuth metadata through the public origin', group: 'account', level: 'required', applies: true, passed: true, code: 'oauth_metadata_ok', detail: 'Metadata ok.', values: {} },
-      { id: 'GF8', name: 'Knowledge federation paths reach this sidecar', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'paths_ok', detail: 'Paths ok.', values: {} },
+      // A failed item has the code of the party that answered (FEDERATION_GO_LIVE_DESIGN.md Section 5.3) and the values of its text.
+      { id: 'GF8', name: 'Knowledge federation paths reach this sidecar', group: 'knowledge', level: 'required', applies: true, passed: false, code: 'intermediary', detail: 'An intermediary answered.', values: { path: '/ap/kb', party: 'intermediary', source: 'sidecar', status: 403, server: 'waf', paths: '/ap/kb, /ap/themes' } },
       { id: 'GF9', name: 'Signed request through the public origin', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'signed_ok', detail: 'Signed ok.', values: {} },
       { id: 'GF10', name: 'Inbox body of the largest size through the public origin', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'inbox_body_ok', detail: 'Inbox body ok.', values: { bytes: 1040384 } },
       { id: 'GF11', name: 'Knowledge federation loops of the sidecar make progress', group: 'knowledge', level: 'required', applies: true, passed: true, code: 'loops_ok', detail: 'Loops ok.', values: {} },
@@ -596,18 +597,24 @@ test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, no
       { id: 'GF15', name: 'Knowledge base actor document through the public origin', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
       { id: 'GF16', name: 'Collections refuse an unsigned read', group: 'knowledge', level: 'required', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
       { id: 'GF17', name: 'JSON-LD context and vocabulary page through the public origin', group: 'knowledge', level: 'warning', applies: true, passed: false, code: 'ns_context_failed', detail: 'Missing CORS header.', values: { problem: 'missing header Access-Control-Allow-Origin: *' } },
+      { id: 'GF18', name: 'The checks take the path of other servers', group: 'operation', level: 'warning', applies: true, passed: false, code: 'public_host_private', detail: 'Private address.', values: { host: 'claire.example.com', address: '192.168.10.5', source: 'sidecar' } },
+      { id: 'GF19', name: 'Other servers reach this server', group: 'operation', level: 'warning', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
+      { id: 'GF20', name: 'Deliveries to other servers succeed', group: 'operation', level: 'warning', applies: false, passed: true, code: 'federation_off', detail: 'Federation is off.', values: {} },
     ];
     return json(route, {
       federation: 'off',
       mode: 'network',
-      readiness: { passed: true, items },
+      readiness: { passed: false, items },
       heartbeat: {
         received_at: nowSec - 3,
-        contract_version: '1.12',
+        contract_version: '1.13',
         sidecar_version: '0.1.0',
         queue_depth: 0,
-        self_check: { ok: true, checked_at: nowSec - 3 },
-        knowledge_self_check: { checked_at: nowSec - 3, failed_paths: [], signed: { result: 'ok' } },
+        marker: '5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e',
+        public_host: { host: 'claire.example.com', addresses: [{ address: '192.168.10.5', class: 'private' }], error: null },
+        self_check: { ok: true, checked_at: nowSec - 3, answer: null },
+        knowledge_self_check: { checked_at: nowSec - 3, failed_paths: ['/ap/kb', '/ap/themes'], answers: [], signed: { draft_cavage: { result: 'ok', answer: null }, rfc9421: { result: 'ok', answer: null } } },
+        traffic: { window_seconds: 86400, inbound_verified: { count: 4, hosts: 2, last_at: nowSec - 60 }, inbound_rejected: { count: 1, last_at: nowSec - 90 }, deliveries: { succeeded: 3, failed: { dns: 0, tls: 0, timeout: 2, http_4xx: 0, http_5xx: 0, other: 0 }, last_success_at: nowSec - 30 } },
         loops: {
           knowledge_reads: { running: false, progress_at: nowSec - 12, error: null, error_at: null },
           knowledge_exchange: { running: false, progress_at: nowSec - 40, error: 'ECONNREFUSED', error_at: nowSec - 20 },
@@ -617,11 +624,12 @@ test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, no
   });
 
   await page.goto('/admin/federation', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#admin-federation-readiness-result')).toContainText('모든 필수 준비 검사를 통과했습니다 (경고 있음).');
+  await expect(page.locator('#admin-federation-readiness-result')).toContainText('통과하지 못한 필수 준비 검사가 있습니다.');
   await expect(page.locator('[data-readiness-group="account"]')).toContainText('계정 연합 (GF1–GF7)');
   await expect(page.locator('[data-readiness-group-summary="account"]')).toContainText('필수 7/7 통과');
   await expect(page.locator('[data-readiness-group="knowledge"]')).toContainText('공유 지식 연합 (GF8–GF17)');
-  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('필수 6/6 통과');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('필수 5/6 통과');
+  await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('1개 실패');
   await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('경고 1개');
   await expect(page.locator('[data-readiness-group-summary="knowledge"]')).toContainText('3개 해당 없음');
 
@@ -634,6 +642,27 @@ test('/admin/federation: readiness checks GF1-GF17 in two groups with levels, no
   await expect(gf17).toHaveAttribute('data-readiness-passed', '0');
   await expect(gf17).toContainText('경고');
   await expect(gf17).toContainText('실패');
+
+  // The failed item tells which party answered, what to do, and all failed paths.
+  const gf8 = page.locator('tr[data-readiness-item="GF8"]');
+  await expect(gf8).toHaveAttribute('data-readiness-passed', '0');
+  await expect(gf8).toContainText('중간 장비가 /ap/kb에 HTTP 403로 응답했습니다 (Server: waf).');
+  await expect(gf8).toContainText('WAF라면 로그에서 규칙 ID를 찾으세요.');
+  await expect(gf8).toContainText('실패한 경로: /ap/kb, /ap/themes.');
+
+  // The third group has the path and the traffic checks. They are warnings.
+  await expect(page.locator('[data-readiness-group="operation"]')).toContainText('경로와 트래픽 (GF18–GF20)');
+  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('경고 1개');
+  await expect(page.locator('[data-readiness-group-summary="operation"]')).toContainText('2개 해당 없음');
+  const gf18 = page.locator('tr[data-readiness-item="GF18"]');
+  await expect(gf18).toHaveAttribute('data-readiness-level', 'warning');
+  await expect(gf18).toContainText('공개 호스트 claire.example.com가 sidecar에서 사설 주소 192.168.10.5로 해석됩니다.');
+  await expect(gf18).toContainText('ops/federation_outside_probe.sh');
+
+  // The sidecar card shows the path record and the traffic counters of the heartbeat.
+  await expect(page.locator('#admin-federation-heartbeat [data-sidecar-row="public_host"]')).toContainText('192.168.10.5 (private)');
+  await expect(page.locator('#admin-federation-heartbeat [data-sidecar-row="traffic_inbound"]')).toContainText('서버 2곳에서 4건 검증 · 검증 실패 1건');
+  await expect(page.locator('#admin-federation-heartbeat [data-sidecar-row="traffic_deliveries"]')).toContainText('성공 3건 · 실패한 시도 2건');
 
   await expect(page.locator('#admin-federation-heartbeat [data-sidecar-loop="knowledge_reads"]')).toContainText('없음');
   await expect(page.locator('#admin-federation-heartbeat [data-sidecar-loop="knowledge_exchange"]')).toContainText('ECONNREFUSED');

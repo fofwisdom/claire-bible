@@ -17,7 +17,7 @@ docs/
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
-│   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: 응답 귀속·실제 요청과 같은 검사·경로 기록(GF18)·edge 서비스·가동 후 트래픽(GF19–GF20) 제안, GQ1–GQ3 소유자 답변 대기, 미구현
+│   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: GL1·GL2 구현(응답 귀속·실제 요청과 같은 검사·경로 기록 GF18·트래픽 GF19–GF20 → implementation/FEDERATION.md §7.2), GL3(edge 서비스) 미구현, GL4(가동 절차 L0–L6)는 소유자 단계, 결정 GD1–GD3
 │   ├── CONSOLE_LAYOUT_DESIGN.md           # 설정 및 관리 콘솔의 배치·탐색 초안 (CL 규칙, CQ 질문), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md

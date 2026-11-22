@@ -1,7 +1,7 @@
 # Federation Go-Live: GF1 to GF17 on a Server Behind a CDN and a WAF
 
 - **Document Identifier**: `DESIGN-FEDERATION-GO-LIVE-20261122`
-- **Status**: Proposal, not implemented. The recommended answers are in the text. Open owner questions: GQ1 to GQ3 (Section 12).
+- **Status**: Units GL1 and GL2 are implemented (2026-11-22); the current behavior is in [`FEDERATION.md`](../implementation/FEDERATION.md) Section 7.2. Unit GL3 (the edge service) is not implemented. Unit GL4 (the go-live steps L0 to L6) is an owner step. Owner decisions GD1 to GD3 (Section 12) are locked (2026-11-22). No open questions remain.
 - **Date**: 2026-11-22
 - **Base commit**: `171257c`
 - **Related Documents**:
@@ -95,12 +95,14 @@ Each probe of a check makes one answer record:
 
 | Field | Value |
 | :--- | :--- |
-| `party` | `sidecar` (the marker of this sidecar), `sidecar_other` (a marker with another value), `claire` (the Claire marker, Section 5.2), `cdn_challenge`, `cdn_block`, `cdn_error`, `intermediary`, `none` |
+| `party` | `sidecar` (the marker of this sidecar), `sidecar_other` (a marker with another value), `sidecar_unverified` (checks of Claire only: a marker, and no recent heartbeat to compare it with), `claire` (the Claire marker, Section 5.2), `cdn_challenge`, `cdn_block`, `cdn_error`, `intermediary`, `none` |
 | `status` | HTTP status, or null for `none` |
 | `error` | For `none` only: `dns`, `tls`, `connect`, `timeout`, `other` |
 | `via_cdn` | `cloudflare` when the answer has the header `cf-ray`, else null |
 | `server` | The `Server` header, at most 64 printable ASCII characters, else null |
 | `media_type` | The media type of the answer, at most 64 characters, else null |
+| `mitigation` | The value of the header `cf-mitigated`, at most 32 characters, else null |
+| `problem`, `received` | Self-checks of the sidecar only: what went wrong (`not_routed`, `path_changed`, `host_changed`, `answer_not_live`, `signature_invalid`) and the path or the `Host` that the sidecar got |
 
 ### 5.2 Classification (first match)
 
@@ -179,7 +181,7 @@ Rules:
 
 ### 7.2 GF18: The Probes Take the Path of Other Servers (Warning)
 
-- Applies: always. Level: warning (KNOWLEDGE_FEDERATION_DESIGN.md §14.1.1 rule 6).
+- Applies: production only, as GF5: a development server has a loopback or private address by its rule. Level: warning (KNOWLEDGE_FEDERATION_DESIGN.md §14.1.1 rule 6).
 - Fails when an address of the public host is `loopback` or `private` for a source. Then the probes do not cross the public edge (a split DNS view or a hosts file), and other servers can get a different answer.
 - Detail: "The public host {host} resolves to the private address {address} for {source}. The checks do not go the way of other servers. Run the outside probe (ops/federation_outside_probe.sh) from another network."
 - Why a warning: rule 2 of the checks forbids a request to another server, so the check cannot prove the outside path.
@@ -287,7 +289,15 @@ The rules of the project apply: unit tests only for interfaces, I/O, and calls o
 
 ---
 
-## 12. Owner Questions
+## 12. Owner Decisions (2026-11-22)
+
+| ID | Question | Decision |
+| :--- | :--- | :--- |
+| GD1 | GQ1: order of the go-live and the acceptance path | A: the go-live of the owner's server (L0 to L6) is the go-live of the federation of accounts and is not a KA step. KA3 and KA4 continue in parallel; KA5 starts after them. |
+| GD2 | GQ2: edge service | A: the edge is an opt-in (`CB_EDGE`), built with GL1. The owner turns it on at step L1. |
+| GD3 | GQ3: traffic after the switch | A: GF19 and GF20 are in the same release as GL1 (one contract change, 1.13). |
+
+The questions as they were asked:
 
 ### GQ1: Order of the Go-Live and the Acceptance Path (KD10)
 
@@ -321,10 +331,20 @@ KD10 orders the remaining checks of the knowledge federation: KA1, KA2, KA3, KA4
 
 | Unit | Scope | Completion criteria |
 | :--- | :--- | :--- |
-| GL1 | R1, R2, R3: answer records, the Claire marker header, GF8 and GF6 path and `Host` verification, the probes of R2, the path record, GF18, contract 1.13, catalog keys, the outside probe script | Each fault mode of Section 11 gives its code and party; the probes send the headers of R2 (a test reads the headers at the intermediary); GF18 fails for a private address of the public host and passes for a global address |
-| GL2 (GQ3) | R5: counters, GF19, GF20 | The DrFed scenario changes the counters; no delivery: GF20 does not apply |
-| GL3 (GQ2) | R4: edge service, overlay, `CB_EDGE` in `cb-manuscript`, Unix socket listener for the edge, shared routing file with the gateway | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `CB_EDGE=0` gives the current topology |
+| GL1 (implemented) | R1, R2, R3: answer records, the Claire marker header, GF8 and GF6 path and `Host` verification, the probes of R2, the path record, GF18, contract 1.13, catalog keys, the outside probe script | Each fault mode of Section 11 gives its code and party; the probes send the headers of R2 (a test reads the headers at the intermediary); GF18 fails for a private address of the public host and passes for a global address |
+| GL2 (implemented) | R5: counters, GF19, GF20 | The DrFed scenario changes the counters; no delivery: GF20 does not apply. Not done: the DrFed scenario was not run (it needs Docker and the gate `CB_DRFED_TEST=1`); the counters have tests of the sidecar code and of the checks |
+| GL3 (GD2, not implemented) | R4: edge service, overlay, `CB_EDGE` in `cb-manuscript`, Unix socket listener for the edge, shared routing file with the gateway | GF1 to GF17 pass on the development network through the edge with one upstream rule; the login rate limit counts the address that the edge saw; `CB_EDGE=0` gives the current topology |
 | GL4 | Steps L0 to L6 (owner) | Section 10 |
+
+Choices made in the code of GL1 and GL2 (the implementation document has the details):
+
+1. GF18 to GF20 have the group `operation` ("Path and traffic") in the report and in the console.
+2. A check of Claire that gets a sidecar marker without a recent heartbeat fails with `sidecar_unverified`. Thus GF10 fails also when there is no heartbeat.
+3. A check that expects Claire (GF7, GF17) and gets an answer of the sidecar fails with `answered_by_sidecar`.
+4. The self-check key and the nonce rules of GF9 did not change. The nonce is in the body and in the header `X-Claire-Self-Check`.
+5. The sidecar compares the path and the decoded query parameters of a self-check request, not the percent-encoding of the query.
+6. The sidecar resolves the public host with `Deno.resolveDns`, which does not read the hosts file. Claire uses the system resolver.
+7. The traffic counters also count the deliveries of the knowledge federation, which do not go through Fedify.
 
 Documents to change with the code: FEDERATION.md §7.2, §9, §10, §12; KNOWLEDGE_FEDERATION.md §17; EXTERNAL_ACCESS.md (Appendix A as recipes; the edge with GQ2 A); COMMANDS.md (the help names GF1 to GF20); the status line of this document.
 

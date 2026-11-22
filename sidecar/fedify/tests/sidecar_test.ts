@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
 import { InternalApi } from "../src/internal_api.ts";
-import { CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, KNOWLEDGE_SELF_CHECK_PATHS, publicSelfCheck, SELF_CHECK_PATH, SELF_CHECK_TTL_SECONDS, Sidecar, SIDECAR_HEADER } from "../src/sidecar.ts";
+import { ACTIVITY_ACCEPT, CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, KNOWLEDGE_SELF_CHECK_PATHS, SELF_CHECK_PATH, SELF_CHECK_TTL_SECONDS, Sidecar, SIDECAR_HEADER } from "../src/sidecar.ts";
+import { CLAIRE_HEADER, SELF_CHECK_HEADER } from "../src/probes.ts";
 import { fakeClaire, fixture, KEY } from "./fixtures.ts";
 
 const ORIGIN = "https://claire.example.com";
@@ -221,25 +222,81 @@ Deno.test("an internal API failure is 503, not 404 and not a cached answer", asy
   assert.equal(response.status, 503);
 });
 
-Deno.test("the public self-check accepts the answer of this sidecar process only, also while federation is off", async () => {
+// A fetch function that sends each request to `handler`, as the public origin does.
+function through(handler: (request: Request) => Response | Promise<Response>): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => await handler(input instanceof Request ? input : new Request(input, init))) as typeof fetch;
+}
+
+Deno.test("the public self-check accepts the answer of this sidecar process only, also while federation is off, and tells who answered", async () => {
   for (const state of [{}, { federation: "off", federated_actors: 0 }]) {
     const { sidecar, fake } = setup();
     fake.config = state;
     const config = await sidecar.config();
-    const requested: string[] = [];
-    const throughProxy = ((input: string | URL | Request) => {
-      requested.push(String(input));
-      return sidecar.handle(new Request(String(input), { headers: { accept: JRD } }));
-    }) as typeof fetch;
-    assert.equal(await publicSelfCheck(config, sidecar.marker, throughProxy), true, JSON.stringify(state));
-    assert.deepEqual(requested, [`${ORIGIN}/.well-known/webfinger?resource=acct%3Aclaire%40claire.example.com`]);
-    // A wrong proxy rule sends the request to Claire, which answers 404 without the marker.
-    assert.equal(await publicSelfCheck(config, sidecar.marker, (() => Promise.resolve(new Response("Not Found", { status: 404 }))) as typeof fetch), false);
+    const requested: Request[] = [];
+    const passed = await sidecar.publicSelfCheck(config, through((request) => {
+      requested.push(request.clone());
+      return sidecar.handle(request);
+    }));
+    assert.deepEqual({ ok: passed.ok, answer: passed.answer }, { ok: true, answer: null }, JSON.stringify(state));
+    assert.equal(requested.length, 1);
+    assert.equal(requested[0].url, `${ORIGIN}/.well-known/webfinger?resource=acct%3Aclaire%40claire.example.com`);
+    // The request has the headers of a request of another server: an agent of Fedify and the JRD media type.
+    assert.match(requested[0].headers.get("user-agent") ?? "", /^Fedify\//);
+    assert.equal(requested[0].headers.get("accept"), JRD);
+
+    // A wrong proxy rule sends the request to Claire, which answers 404 with its own header.
+    const claire = await sidecar.publicSelfCheck(config, through(() => new Response("Not Found", { status: 404, headers: { [CLAIRE_HEADER]: "api" } })));
+    assert.deepEqual([claire.ok, claire.answer?.problem, claire.answer?.party, claire.answer?.status], [false, "not_routed", "claire", 404]);
     // A different sidecar process has a different marker.
     const other = setup().sidecar;
-    assert.equal(await publicSelfCheck(config, sidecar.marker, ((input: string | URL | Request) => other.handle(new Request(String(input)))) as typeof fetch), false);
-    assert.equal(await publicSelfCheck(config, sidecar.marker, (() => Promise.reject(new Error("network"))) as typeof fetch), false);
+    const otherProcess = await sidecar.publicSelfCheck(config, through((request) => other.handle(request)));
+    assert.deepEqual([otherProcess.ok, otherProcess.answer?.party], [false, "sidecar_other"]);
+    const network = await sidecar.publicSelfCheck(config, (() => Promise.reject(new Error("connection refused"))) as typeof fetch);
+    assert.deepEqual([network.ok, network.answer?.party, network.answer?.error], [false, "none", "connect"]);
   }
+});
+
+Deno.test("a self-check tells a CDN challenge, a CDN block, a CDN error, and an intermediary", async () => {
+  const { sidecar } = setup();
+  const config = await sidecar.config();
+  const cases: Array<[Response, string, Record<string, unknown>]> = [
+    [new Response("<html>", { status: 403, headers: { "cf-mitigated": "challenge", "cf-ray": "1-ICN", "content-type": "text/html; charset=UTF-8", server: "cloudflare" } }), "cdn_challenge", { via_cdn: "cloudflare", media_type: "text/html", mitigation: "challenge", server: "cloudflare" }],
+    [new Response("", { status: 403, headers: { "cf-mitigated": "block", "cf-ray": "1-ICN" } }), "cdn_block", { mitigation: "block" }],
+    [new Response("", { status: 522, headers: { "cf-ray": "1-ICN" } }), "cdn_error", { status: 522 }],
+    [new Response("blocked", { status: 403, headers: { server: "waf name with a very long text that is longer than the limit of sixty-four characters" } }), "intermediary", { via_cdn: null, server: "waf name with a very long text that is longer than the limit of " }],
+  ];
+  for (const [response, party, fields] of cases) {
+    const result = await sidecar.publicSelfCheck(config, through(() => response));
+    assert.equal(result.answer?.party, party);
+    assert.equal(result.answer?.problem, "not_routed");
+    for (const [key, value] of Object.entries(fields)) assert.equal((result.answer as unknown as Record<string, unknown>)[key], value, `${party} ${key}`);
+  }
+});
+
+Deno.test("a self-check tells a changed path, a changed Host, and an answer that this process did not make", async () => {
+  const { sidecar } = setup();
+  const config = await sidecar.config();
+  // The proxy removes the prefix /.well-known: the request still gets to this process, on another path.
+  const stripped = await sidecar.publicSelfCheck(config, through((request) => sidecar.handle(new Request(request.url.replace("/.well-known/webfinger", "/webfinger"), request))));
+  assert.deepEqual([stripped.answer?.problem, stripped.answer?.received], ["path_changed", "/webfinger?resource=acct%3Aclaire%40claire.example.com"]);
+  // The proxy sets the Host of the upstream.
+  const host = await sidecar.publicSelfCheck(config, through((request) => {
+    const headers = new Headers(request.headers);
+    headers.set("host", "10.0.0.5:8790");
+    return sidecar.handle(new Request(request.url, { headers }));
+  }));
+  assert.deepEqual([host.answer?.problem, host.answer?.received], ["host_changed", "10.0.0.5:8790"]);
+  // A cache gives an old answer with the marker of this process, and the request does not come to this process.
+  const cached = await sidecar.handle(new Request(`${ORIGIN}/.well-known/webfinger?resource=acct%3Aclaire%40claire.example.com`));
+  const stale = await sidecar.publicSelfCheck(config, through(() => new Response("Not Found", { status: 404, headers: cached.headers })));
+  assert.deepEqual([stale.ok, stale.answer?.problem, stale.answer?.party], [false, "answer_not_live", "sidecar"]);
+  // An intermediary that removes the self-check header gives the same result.
+  const noHeader = await sidecar.publicSelfCheck(config, through((request) => {
+    const headers = new Headers(request.headers);
+    headers.delete(SELF_CHECK_HEADER);
+    return sidecar.handle(new Request(request.url, { headers }));
+  }));
+  assert.equal(noHeader.answer?.problem, "answer_not_live");
 });
 
 Deno.test("each answer has the marker header, and it shows no server data", async () => {
@@ -277,32 +334,43 @@ Deno.test("the source permits private network addresses only through the develop
   assert.deepEqual(found, ["sidecar.ts"]);
   const sidecar = Deno.readTextFileSync(new URL("../src/sidecar.ts", import.meta.url));
   assert.ok(sidecar.includes(`this.#build(config.canonical_origin, config.allow_private_addresses)`));
-  assert.ok(sidecar.includes(`createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, ${option} })`));
+  assert.ok(sidecar.includes(`createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, ${option}, meterProvider, onOutboxError:`));
 });
 
-Deno.test("knowledgeSelfCheck passes through sidecar while federation is off and rejects nonce replay", async () => {
+Deno.test("knowledgeSelfCheck passes through sidecar while federation is off, sends the two signature forms of a delivery, and rejects nonce replay", async () => {
   const fake = fakeClaire();
   fake.config = { federation: "off" };
   const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
   const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
   const config = await sidecar.config();
-  let capturedSigned: Request | null = null;
+  const signed: Request[] = [];
+  const reads: Request[] = [];
 
-  const result = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    if (new URL(req.url).pathname === SELF_CHECK_PATH && req.method === "POST") {
-      capturedSigned = req.clone();
-    }
-    return await sidecar.handle(req);
-  });
+  const result = await sidecar.knowledgeSelfCheck(config, through((request) => {
+    if (new URL(request.url).pathname === SELF_CHECK_PATH && request.method === "POST") signed.push(request.clone());
+    else reads.push(request.clone());
+    return sidecar.handle(request);
+  }));
 
   assert.equal(result.checked_at, fake.now);
   assert.deepEqual(result.failed_paths, []);
-  assert.equal(result.signed.result, "ok");
-  assert.ok(capturedSigned !== null);
+  assert.deepEqual(result.answers, []);
+  assert.deepEqual(result.signed, { draft_cavage: { result: "ok", answer: null }, rfc9421: { result: "ok", answer: null } });
+
+  // The signed requests have the media type of a delivery. One has the draft form (Signature only) and one has the RFC 9421 form (Signature-Input).
+  assert.equal(signed.length, 2);
+  for (const request of signed) {
+    assert.equal(request.headers.get("content-type"), "application/activity+json");
+    assert.match(request.headers.get("user-agent") ?? "", /^Fedify\//);
+  }
+  assert.deepEqual(signed.map((request) => request.headers.has("signature-input")).sort(), [false, true]);
+  // The reads have the Accept header of a read of another server.
+  assert.equal(reads.length, KNOWLEDGE_SELF_CHECK_PATHS.length);
+  assert.equal(reads.find((request) => request.url.endsWith("/ap/kb"))?.headers.get("accept"), ACTIVITY_ACCEPT);
+  assert.equal(reads.find((request) => request.url.endsWith("/nodeinfo/2.1"))?.headers.get("accept"), "application/json");
 
   // Replay of the same signed self-check request gets 404.
-  const replay = await sidecar.handle(capturedSigned);
+  const replay = await sidecar.handle(signed[0]);
   assert.equal(replay.status, 404);
 
   // GET and unknown nonces also get 404.
@@ -310,61 +378,75 @@ Deno.test("knowledgeSelfCheck passes through sidecar while federation is off and
   assert.equal((await sidecar.handle(new Request(`${config.canonical_origin}${SELF_CHECK_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: "unknown" }) }))).status, 404);
 });
 
-Deno.test("knowledgeSelfCheck detects missing routes, host changes, signature changes, TLS errors, and DNS errors", async () => {
+Deno.test("knowledgeSelfCheck detects missing routes, a removed path prefix, host changes, signature changes, a block of one media type, TLS errors, and DNS errors", async () => {
   const fake = fakeClaire();
   const api = new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now });
   const sidecar = new Sidecar({ api, kv: new MemoryKvStore(), now: () => fake.now });
   const config = await sidecar.config();
 
-  // Reverse proxy drops /ap/themes and /ap/self-check.
-  const missingProxy = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    const path = new URL(req.url).pathname;
-    if (path === "/ap/themes" || path === SELF_CHECK_PATH) return new Response("not here", { status: 404 });
-    return await sidecar.handle(req);
-  });
+  // The reverse proxy sends /ap/themes and /ap/self-check to Claire.
+  const missingProxy = await sidecar.knowledgeSelfCheck(config, through((request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/ap/themes" || path === SELF_CHECK_PATH) return new Response("not here", { status: 404, headers: { [CLAIRE_HEADER]: "api" } });
+    return sidecar.handle(request);
+  }));
   assert.deepEqual(missingProxy.failed_paths, ["/ap/themes"]);
-  assert.equal(missingProxy.signed.result, "not_routed");
+  assert.deepEqual(missingProxy.answers.map((answer) => [answer.path, answer.problem, answer.party]), [["/ap/themes", "not_routed", "claire"]]);
+  assert.deepEqual([missingProxy.signed.draft_cavage.result, missingProxy.signed.draft_cavage.answer?.party, missingProxy.signed.rfc9421.answer?.problem], ["failed", "claire", "not_routed"]);
 
-  // Reverse proxy alters Host header.
-  const hostChanged = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    if (new URL(req.url).pathname === SELF_CHECK_PATH) {
-      const headers = new Headers(req.headers);
-      headers.set("host", "127.0.0.1:8000");
-      return await sidecar.handle(new Request(req.url, { method: req.method, headers, body: await req.arrayBuffer() }));
-    }
-    return await sidecar.handle(req);
-  });
+  // The reverse proxy removes the prefix /ap. Each request gets to this process, so the marker alone shows no fault.
+  const stripped = await sidecar.knowledgeSelfCheck(config, through((request) => sidecar.handle(new Request(request.url.replace("/ap/", "/"), request))));
+  assert.deepEqual(stripped.failed_paths, KNOWLEDGE_SELF_CHECK_PATHS.filter((path) => path.startsWith("/ap/")));
+  assert.deepEqual([stripped.answers[0].problem, stripped.answers[0].received], ["path_changed", "/actors/server"]);
+  assert.equal(stripped.signed.draft_cavage.answer?.problem, "path_changed");
+
+  // The reverse proxy alters the Host header.
+  const hostChanged = await sidecar.knowledgeSelfCheck(config, through(async (request) => {
+    if (new URL(request.url).pathname !== SELF_CHECK_PATH) return await sidecar.handle(request);
+    const headers = new Headers(request.headers);
+    headers.set("host", "127.0.0.1:8000");
+    return await sidecar.handle(new Request(request.url, { method: request.method, headers, body: await request.arrayBuffer() }));
+  }));
   assert.deepEqual(hostChanged.failed_paths, []);
-  assert.equal(hostChanged.signed.result, "host_changed");
+  assert.deepEqual([hostChanged.signed.draft_cavage.answer?.problem, hostChanged.signed.rfc9421.answer?.problem], ["host_changed", "host_changed"]);
 
-  // Reverse proxy alters the signed body.
-  const bodyChanged = await sidecar.knowledgeSelfCheck(config, async (input, init) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    if (new URL(req.url).pathname === SELF_CHECK_PATH) {
-      const raw = JSON.parse(await req.text()) as { nonce: string };
-      return await sidecar.handle(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify({ nonce: raw.nonce, extra: true }) }));
-    }
-    return await sidecar.handle(req);
-  });
-  assert.equal(bodyChanged.signed.result, "signature_invalid");
+  // The reverse proxy alters the signed body.
+  const bodyChanged = await sidecar.knowledgeSelfCheck(config, through(async (request) => {
+    if (new URL(request.url).pathname !== SELF_CHECK_PATH) return await sidecar.handle(request);
+    const raw = JSON.parse(await request.text()) as Record<string, unknown>;
+    return await sidecar.handle(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...raw, extra: true }) }));
+  }));
+  assert.deepEqual([bodyChanged.signed.draft_cavage.answer?.problem, bodyChanged.signed.rfc9421.answer?.problem], ["signature_invalid", "signature_invalid"]);
 
-  // TLS and DNS fetch failures map to signed codes.
+  // An intermediary removes the Signature-Input header: only the RFC 9421 form fails.
+  const oneForm = await sidecar.knowledgeSelfCheck(config, through(async (request) => {
+    if (!request.headers.has("signature-input")) return await sidecar.handle(request);
+    const headers = new Headers(request.headers);
+    headers.delete("signature-input");
+    return await sidecar.handle(new Request(request.url, { method: request.method, headers, body: await request.arrayBuffer() }));
+  }));
+  assert.deepEqual([oneForm.signed.draft_cavage.result, oneForm.signed.rfc9421.result, oneForm.signed.rfc9421.answer?.problem], ["ok", "failed", "signature_invalid"]);
+
+  // A WAF refuses the media type of a delivery.
+  const waf = await sidecar.knowledgeSelfCheck(config, through((request) => (request.headers.get("content-type") === "application/activity+json" ? new Response("blocked", { status: 403, headers: { server: "waf" } }) : sidecar.handle(request))));
+  assert.deepEqual(waf.failed_paths, []);
+  assert.deepEqual([waf.signed.draft_cavage.answer?.party, waf.signed.draft_cavage.answer?.status, waf.signed.draft_cavage.answer?.server], ["intermediary", 403, "waf"]);
+
+  // TLS and DNS failures have their class.
   const tlsFail = await sidecar.knowledgeSelfCheck(config, () => Promise.reject(new Error("certificate verify failed")));
   assert.deepEqual(tlsFail.failed_paths, [...KNOWLEDGE_SELF_CHECK_PATHS]);
-  assert.equal(tlsFail.signed.result, "tls_error");
+  assert.equal(tlsFail.answers.length, KNOWLEDGE_SELF_CHECK_PATHS.length);
+  assert.deepEqual([tlsFail.signed.draft_cavage.answer?.party, tlsFail.signed.draft_cavage.answer?.error], ["none", "tls"]);
 
   const dnsFail = await sidecar.knowledgeSelfCheck(config, () => Promise.reject(new Error("getaddrinfo ENOTFOUND")));
-  assert.equal(dnsFail.signed.result, "dns_error");
+  assert.equal(dnsFail.signed.rfc9421.answer?.error, "dns");
 
   // Expired nonce cannot be reused after SELF_CHECK_TTL_SECONDS.
   let savedExpired: Request | null = null;
-  await sidecar.knowledgeSelfCheck(config, (input, init) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    if (new URL(req.url).pathname === SELF_CHECK_PATH) savedExpired = req.clone();
-    return Promise.resolve(new Response(null, { status: 503 }));
-  });
+  await sidecar.knowledgeSelfCheck(config, through((request) => {
+    if (new URL(request.url).pathname === SELF_CHECK_PATH) savedExpired = request.clone();
+    return new Response(null, { status: 503 });
+  }));
   fake.now += SELF_CHECK_TTL_SECONDS + 1;
   assert.ok(savedExpired !== null);
   assert.equal((await sidecar.handle(savedExpired)).status, 404);

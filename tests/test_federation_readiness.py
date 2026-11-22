@@ -1,4 +1,4 @@
-"""Federation readiness checks GF1 to GF17, the ``/api/admin/federation`` switch, and ``claire server check --federation`` (Fedify sidecar design Section 12, unit FP1-6; knowledge federation design Section 14, unit KF6).
+"""Federation readiness checks GF1 to GF20, the ``/api/admin/federation`` switch, and ``claire server check --federation`` (Fedify sidecar design Section 12, unit FP1-6; knowledge federation design Section 14, unit KF6).
 
 No test calls a public server. The HTTP helpers use mock functions or servers on the loopback address.
 """
@@ -40,7 +40,11 @@ PUBLIC_URL = "http://127.0.0.1:8765"
 OWNER_TOKEN = "owner-" + "o" * 32
 NOW = 1_800_000_000.0
 STALE = 16 * 60.0
-ALL_IDS = [f"GF{i}" for i in range(1, 18)]
+ALL_IDS = [f"GF{i}" for i in range(1, 21)]
+# The marker of the sidecar in the heartbeat. An answer of the sidecar has it in the header X-Claire-Fedify-Server.
+MARKER = "marker-of-this-sidecar"
+SIDECAR = {"x-claire-fedify-server": MARKER}
+CLAIRE = {"x-claire-server": "api"}
 
 
 @dataclass
@@ -67,14 +71,6 @@ def _isolate(monkeypatch):
     reset_secret_service()
     yield
     reset_secret_service()
-
-
-def _metadata_fetch(issuer: str = PUBLIC_URL, status: int = 200):
-    def fetch(url: str) -> tuple[int, bytes]:
-        assert url == issuer + "/.well-known/oauth-authorization-server"
-        return status, json.dumps({"issuer": issuer, "token_endpoint": issuer + "/oauth/token"}).encode()
-
-    return fetch
 
 
 def _stored_pem(data_dir: Path | None, *, account_id: int | None = None, kb_number: int | None = None) -> str:
@@ -107,20 +103,22 @@ def _public_request(
             if isinstance(custom, Exception):
                 raise custom
             return custom
+        if key == ("GET", "/.well-known/oauth-authorization-server"):
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json", **CLAIRE}, body=json.dumps({"issuer": origin, "token_endpoint": origin + "/oauth/token"}).encode())
         if key == ("POST", "/ap/inbox"):
-            return federation_readiness.HttpResponse(status=401, headers={"x-claire-fedify-server": "1"}, body=b"")
+            return federation_readiness.HttpResponse(status=401, headers={**SIDECAR}, body=b"")
         if key == ("GET", "/ns/v1"):
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, "access-control-allow-origin": "*"}, body=vocabulary.context_json().encode("utf-8"))
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, "access-control-allow-origin": "*", **CLAIRE}, body=vocabulary.context_json().encode("utf-8"))
         if key == ("GET", "/ns"):
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": "text/html; charset=utf-8"}, body=b"<!doctype html><title>Claire NS</title>")
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "text/html; charset=utf-8", **CLAIRE}, body=b"<!doctype html><title>Claire NS</title>")
         if key == ("GET", "/.well-known/nodeinfo"):
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json"}, body=json.dumps({"links": [{"rel": "http://nodeinfo.diaspora.software/ns/schema/2.1", "href": f"{origin}/nodeinfo/2.1"}]}).encode("utf-8"))
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json", **SIDECAR}, body=json.dumps({"links": [{"rel": "http://nodeinfo.diaspora.software/ns/schema/2.1", "href": f"{origin}/nodeinfo/2.1"}]}).encode("utf-8"))
         if key == ("GET", "/nodeinfo/2.1"):
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json"}, body=json.dumps({"version": "2.1", "software": {"name": federation_routes.SOFTWARE_NAME, "version": federation_routes.software_version()}, "protocols": ["activitypub"]}).encode("utf-8"))
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json", **SIDECAR}, body=json.dumps({"version": "2.1", "software": {"name": federation_routes.SOFTWARE_NAME, "version": federation_routes.software_version()}, "protocols": ["activitypub"]}).encode("utf-8"))
         if key == ("GET", "/ap/actors/server"):
             actor_id = f"{origin}/ap/actors/server"
             doc = {"type": "Application", "id": actor_id, "inbox": f"{origin}/ap/inbox", "publicKey": {"id": f"{actor_id}#main-key", "owner": actor_id, "publicKeyPem": _stored_pem(data_dir, account_id=actor_keys.SERVER_ACTOR_ACCOUNT_ID)}}
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json"}, body=json.dumps(doc).encode("utf-8"))
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json", **SIDECAR}, body=json.dumps(doc).encode("utf-8"))
         if method == "GET" and path.startswith("/ap/kb/") and path.count("/") == 3:
             kb_text = path.removeprefix("/ap/kb/")
             kb_number = int(kb_text)
@@ -135,12 +133,27 @@ def _public_request(
                 vocabulary.ACCEPTS_AUTOMATIC: accepts_automatic,
                 "publicKey": {"id": f"{actor_id}#main-key", "owner": actor_id, "publicKeyPem": _stored_pem(data_dir, kb_number=kb_number)},
             }
-            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json"}, body=json.dumps(doc).encode("utf-8"))
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json", **SIDECAR}, body=json.dumps(doc).encode("utf-8"))
         if method == "GET" and (path in {"/ap/kb", "/ap/themes"} or path.endswith("/documents")):
-            return federation_readiness.HttpResponse(status=404, headers={"content-type": "application/json"}, body=b"{}")
+            return federation_readiness.HttpResponse(status=404, headers={"content-type": "application/json", **SIDECAR}, body=b"{}")
         return federation_readiness.HttpResponse(status=404, headers={}, body=b"")
 
     return requester
+
+
+def _probe_answer(path: str, problem: str = "not_routed", party: str = "claire", **fields: Any) -> dict[str, Any]:
+    """One failed self-check request in the heartbeat (contract 1.13)."""
+    return {"path": path, "problem": problem, "party": party, "status": 404, "error": None, "via_cdn": None, "server": None, "media_type": None, "mitigation": None, "received": None, **fields}
+
+
+def _signed(draft_cavage: dict[str, Any] | None = None, rfc9421: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The two signed self-checks. An answer record makes the form fail."""
+    return {key: {"result": "ok" if answer is None else "failed", "answer": answer} for key, answer in (("draft_cavage", draft_cavage), ("rfc9421", rfc9421))}
+
+
+def _traffic(verified: int = 0, hosts: int = 0, rejected: int = 0, succeeded: int = 0, **failed: int) -> dict[str, Any]:
+    failures = {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 0, "other": 0, **failed}
+    return {"window_seconds": 86400, "inbound_verified": {"count": verified, "hosts": hosts, "last_at": None}, "inbound_rejected": {"count": rejected, "last_at": None}, "deliveries": {"succeeded": succeeded, "failed": failures, "last_success_at": None}}
 
 
 def _write_heartbeat(
@@ -149,8 +162,11 @@ def _write_heartbeat(
     received_at: float,
     contract_version: str = federation_routes.CONTRACT_VERSION,
     ok: bool | None = True,
+    answer: dict[str, Any] | None = None,
     knowledge_self_check: dict[str, Any] | None = None,
     loops: dict[str, Any] | None = None,
+    public_host: dict[str, Any] | None = None,
+    traffic: dict[str, Any] | None = None,
 ) -> None:
     path = data_dir / HEARTBEAT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,11 +175,13 @@ def _write_heartbeat(
         "contract_version": contract_version,
         "sidecar_version": "0.1.0",
         "queue_depth": 0,
-        "self_check": {"ok": ok, "checked_at": received_at if ok is not None else None},
+        "marker": MARKER,
+        "public_host": public_host if public_host is not None else {"host": "claire.example.com", "addresses": [{"address": "9.9.9.9", "class": "global"}], "error": None},
+        "self_check": {"ok": ok, "checked_at": received_at if ok is not None else None, "answer": answer},
         "knowledge_self_check": (
             knowledge_self_check
             if knowledge_self_check is not None
-            else {"checked_at": received_at, "failed_paths": [], "signed": {"result": "ok"}}
+            else {"checked_at": received_at, "failed_paths": [], "answers": [], "signed": _signed()}
         ),
         "loops": (
             loops
@@ -173,6 +191,7 @@ def _write_heartbeat(
                 "knowledge_exchange": {"running": False, "progress_at": received_at, "error": None, "error_at": None},
             }
         ),
+        "traffic": traffic if traffic is not None else _traffic(),
     }
     path.write_text(json.dumps(record), encoding="utf-8")
 
@@ -197,15 +216,15 @@ def _prepare(tmp_path: Path, *, heartbeat_at: float, **overrides: Any) -> tuple[
     return settings, member
 
 
-def _report(settings: _Settings, *, now: float = NOW, fetch=None, request=None, request_timeout: float = 20.0) -> dict[str, dict[str, Any]]:
+def _report(settings: _Settings, *, now: float = NOW, request=None, resolve=None, request_timeout: float = 20.0) -> dict[str, dict[str, Any]]:
     conn = dbm.connect_existing(settings.db_file)
     try:
         report = federation_readiness.check_federation_readiness(
             conn,
             settings,
             now=now,
-            fetch=fetch or _metadata_fetch(settings.public_url.rstrip("/")),
             request=request or _public_request(settings.public_url.rstrip("/"), data_dir=settings.data_dir),
+            resolve=resolve or (lambda host: ["9.9.9.9"]),
             request_timeout=request_timeout,
         )
     finally:
@@ -234,7 +253,7 @@ def ready(tmp_path):
     return settings
 
 
-# --- Checks GF1 to GF17 (module interface and file I/O) ---
+# --- Checks GF1 to GF20 (module interface and file I/O) ---
 
 
 def test_all_checks_pass_for_a_ready_server(ready):
@@ -243,6 +262,8 @@ def test_all_checks_pass_for_a_ready_server(ready):
     assert set(items["GF1"]) == {"id", "name", "group", "level", "applies", "passed", "code", "detail", "values"}
     assert (items["GF14"]["applies"], items["GF15"]["applies"], items["GF16"]["applies"]) == (False, False, False)
     assert items["GF17"]["level"] == "warning"
+    # GF18 applies to production only. GF19 and GF20 apply only while the switch is on.
+    assert [(items[i]["group"], items[i]["level"], items[i]["applies"]) for i in ("GF18", "GF19", "GF20")] == [("operation", "warning", False)] * 3
 
 
 def test_gf1_passes_in_single_mode_only_after_the_first_setup(ready):
@@ -255,7 +276,10 @@ def test_gf1_passes_in_single_mode_only_after_the_first_setup(ready):
 
 def test_gf2_and_gf6_fail_when_there_is_no_heartbeat(ready):
     (ready.data_dir / HEARTBEAT_FILE).unlink()
-    assert _failed(_report(ready)) == ["GF2", "GF6", "GF8", "GF9", "GF11"]
+    # Without the marker of the heartbeat, GF10 cannot tell that the answer came from this sidecar.
+    items = _report(ready)
+    assert _failed(items) == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
+    assert items["GF10"]["code"] == "sidecar_unverified"
 
 
 def test_gf2_and_gf6_fail_when_the_heartbeat_is_old(ready):
@@ -263,7 +287,7 @@ def test_gf2_and_gf6_fail_when_the_heartbeat_is_old(ready):
     _write_heartbeat(ready.data_dir, received_at=NOW - limit)
     assert _failed(_report(ready)) == []
     _write_heartbeat(ready.data_dir, received_at=NOW - limit - 1)
-    assert _failed(_report(ready)) == ["GF2", "GF6", "GF8", "GF9"]
+    assert _failed(_report(ready)) == ["GF2", "GF6", "GF8", "GF9", "GF10"]
 
 
 def test_gf2_fails_when_the_contract_major_version_is_different(ready):
@@ -309,7 +333,7 @@ def test_gf4_reads_the_master_key_file(ready, monkeypatch):
 def test_gf5_passes_for_an_https_origin_in_production(tmp_path):
     origin = "https://claire.example.com"
     settings, _member = _prepare(tmp_path, heartbeat_at=NOW - 10, environment="production", public_url=origin + "/", fqdn="claire.example.com")
-    assert _failed(_report(settings, fetch=_metadata_fetch(origin), request=_public_request(origin))) == []
+    assert _failed(_report(settings, request=_public_request(origin))) == []
 
 
 def test_gf5_fails_for_an_http_origin_in_production(tmp_path):
@@ -317,31 +341,67 @@ def test_gf5_fails_for_an_http_origin_in_production(tmp_path):
     items = _report(settings)
     assert items["GF5"]["passed"] is False
     assert "https" in items["GF5"]["detail"]
-    # Invalid origin config makes GF5, GF7, GF10, GF13, and GF17 fail.
-    assert _failed(items) == ["GF5", "GF7", "GF10", "GF13", "GF17"]
+    # Invalid origin config makes GF5, GF7, GF10, GF13, GF17, and GF18 fail.
+    assert _failed(items) == ["GF5", "GF7", "GF10", "GF13", "GF17", "GF18"]
 
 
-@pytest.mark.parametrize("ok", [False, None])
-def test_gf6_fails_when_the_public_self_check_did_not_pass(ready, ok):
-    _write_heartbeat(ready.data_dir, received_at=NOW - 10, ok=ok)
-    assert _failed(_report(ready)) == ["GF6"]
+def test_gf6_fails_when_the_public_self_check_did_not_pass_and_tells_who_answered(ready):
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, ok=None)
+    items = _report(ready)
+    assert _failed(items) == ["GF6"]
+    assert items["GF6"]["code"] == "webfinger_self_check_pending"
+    # The code comes from the party of the answer of the self-check request (contract 1.13).
+    cases = [
+        (_probe_answer("/.well-known/webfinger"), "answered_by_claire"),
+        (_probe_answer("/.well-known/webfinger", party="cdn_challenge", status=403, via_cdn="cloudflare", mitigation="challenge"), "cdn_challenge"),
+        (_probe_answer("/.well-known/webfinger", party="cdn_block", status=403, mitigation="block"), "cdn_block"),
+        (_probe_answer("/.well-known/webfinger", party="cdn_error", status=522), "cdn_error"),
+        (_probe_answer("/.well-known/webfinger", party="intermediary", status=403, server="waf"), "intermediary"),
+        (_probe_answer("/.well-known/webfinger", party="sidecar_other"), "sidecar_other"),
+        (_probe_answer("/.well-known/webfinger", party="none", status=None, error="dns"), "dns_error"),
+        (_probe_answer("/.well-known/webfinger", party="none", status=None, error="tls"), "tls_error"),
+        (_probe_answer("/.well-known/webfinger", party="none", status=None, error="connect"), "connect_error"),
+        (_probe_answer("/.well-known/webfinger", party="none", status=None, error="timeout"), "probe_timeout"),
+        (_probe_answer("/.well-known/webfinger", problem="path_changed", party="sidecar", received="/webfinger"), "path_changed"),
+        (_probe_answer("/.well-known/webfinger", problem="host_changed", party="sidecar", received="10.0.0.5:8790"), "host_changed"),
+        (_probe_answer("/.well-known/webfinger", problem="answer_not_live", party="sidecar"), "answer_not_live"),
+    ]
+    for answer, code in cases:
+        _write_heartbeat(ready.data_dir, received_at=NOW - 10, ok=False, answer=answer)
+        items = _report(ready)
+        assert _failed(items) == ["GF6"]
+        assert (items["GF6"]["code"], items["GF6"]["values"]["path"], items["GF6"]["values"]["party"]) == (code, "/.well-known/webfinger", answer["party"])
+    assert items["GF6"]["values"]["source"] == "sidecar"
 
 
-def test_gf7_fails_when_the_public_origin_does_not_return_the_claire_metadata(ready):
-    def unreachable(url: str) -> tuple[int, bytes]:
-        raise OSError("connection refused")
+def test_gf7_fails_when_the_public_origin_does_not_return_the_claire_metadata_and_tells_who_answered(ready):
+    path = "/.well-known/oauth-authorization-server"
 
-    assert _failed(_report(ready, fetch=_metadata_fetch(status=404))) == ["GF7"]
-    assert _failed(_report(ready, fetch=_metadata_fetch("https://other.example"))) == ["GF7"]
-    assert _failed(_report(ready, fetch=lambda url: (200, b"<html>sidecar</html>"))) == ["GF7"]
-    assert _failed(_report(ready, fetch=unreachable)) == ["GF7"]
+    def report(custom) -> dict[str, Any]:
+        return _report(ready, request=_public_request(PUBLIC_URL, data_dir=ready.data_dir, overrides={("GET", path): custom}))["GF7"]
+
+    response = federation_readiness.HttpResponse
+    assert report(response(status=404, headers={**CLAIRE}, body=b""))["code"] == "oauth_unexpected_status"
+    assert report(response(status=200, headers={**CLAIRE}, body=json.dumps({"issuer": "https://other.example"}).encode()))["code"] == "oauth_metadata_mismatch"
+    # A wrong proxy rule sends the path to the sidecar.
+    item = report(response(status=404, headers={**SIDECAR}, body=b"Not Found"))
+    assert (item["passed"], item["code"], item["values"]["path"]) == (False, "answered_by_sidecar", path)
+    # A CDN, another intermediary, and no answer.
+    assert report(response(status=403, headers={"cf-mitigated": "challenge", "cf-ray": "1-ICN", "content-type": "text/html"}, body=b"<html>"))["code"] == "cdn_challenge"
+    item = report(response(status=200, headers={"server": "waf"}, body=b"<html>login</html>"))
+    assert (item["code"], item["values"]["server"], item["values"]["status"]) == ("intermediary", "waf", 200)
+    item = report(OSError("connection refused"))
+    assert (item["code"], item["values"]["error"]) == ("request_failed", "OSError")
+    assert report(ConnectionRefusedError("connection refused"))["code"] == "connect_error"
 
 
-def test_default_fetch_does_not_follow_a_redirect():
+def test_default_request_does_not_follow_a_redirect_and_sends_the_agent_of_the_checks(ready):
     """Call to the external library httpx. The server is on the loopback address."""
+    seen: list[str] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
+            seen.append(self.headers.get("User-Agent", ""))
             self.send_response(302)
             self.send_header("Location", "/other")
             self.send_header("Content-Length", "0")
@@ -354,12 +414,19 @@ def test_default_fetch_does_not_follow_a_redirect():
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     try:
-        status, body = federation_readiness.fetch_metadata(f"http://127.0.0.1:{httpd.server_address[1]}/.well-known/oauth-authorization-server")
+        response = federation_readiness.request_public_origin("GET", f"http://127.0.0.1:{httpd.server_address[1]}/.well-known/oauth-authorization-server")
+        # The checks of Claire send an agent in the form of fediverse software, not the default agent of httpx (FEDERATION_GO_LIVE_DESIGN.md Section 6).
+        origin = f"http://127.0.0.1:{httpd.server_address[1]}"
+        ready.public_url = origin + "/"
+        ready.fqdn = origin.removeprefix("http://")
+        item = _report(ready, request=federation_readiness.request_public_origin)["GF7"]
     finally:
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
-    assert (status, body) == (302, b"")
+    assert (response.status, response.body) == (302, b"")
+    assert item["code"] == "intermediary"
+    assert f"{federation_routes.SOFTWARE_NAME}/{federation_routes.software_version()} (+{origin}/)" in seen
 
 
 # --- /api/admin/federation (module interface: route, policy, store, audit) ---
@@ -404,7 +471,6 @@ def _audit_rows(settings: _Settings) -> list[tuple[int, str, str | None]]:
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     settings, member = _prepare(tmp_path, heartbeat_at=time.time())
-    monkeypatch.setattr(federation_readiness, "fetch_metadata", _metadata_fetch())
     monkeypatch.setattr(federation_readiness, "request_public_origin", _public_request(PUBLIC_URL, data_dir=settings.data_dir))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
     with TestClient(app, base_url=PUBLIC_URL) as tc:
@@ -412,7 +478,7 @@ def env(tmp_path, monkeypatch):
 
 
 def test_switch_refuses_on_when_a_readiness_check_fails(env):
-    _write_heartbeat(env.settings.data_dir, received_at=time.time(), ok=False)
+    _write_heartbeat(env.settings.data_dir, received_at=time.time(), ok=False, answer=_probe_answer("/.well-known/webfinger"))
 
     response = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
 
@@ -447,7 +513,7 @@ def test_status_shows_the_failed_checks_and_no_heartbeat(env):
     assert set(body) == {"federation", "mode", "readiness", "heartbeat"}
     assert (body["federation"], body["mode"], body["heartbeat"]) == ("off", "network", None)
     assert body["readiness"]["passed"] is False
-    assert [item["id"] for item in body["readiness"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF11"]
+    assert [item["id"] for item in body["readiness"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
 
 
 @pytest.mark.parametrize("method,payload", [("GET", None), ("POST", {"federation": "on"})])
@@ -488,7 +554,6 @@ def test_switch_needs_recent_authentication_and_the_same_origin(env):
 
 def _run_cli(capsys, settings: _Settings, monkeypatch, argv: list[str]) -> tuple[int, dict[str, Any]]:
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    monkeypatch.setattr(federation_readiness, "fetch_metadata", _metadata_fetch(settings.public_url.rstrip("/")))
     monkeypatch.setattr(federation_readiness, "request_public_origin", _public_request(settings.public_url.rstrip("/"), data_dir=settings.data_dir))
     code = cli.main(argv)
     return code, json.loads(capsys.readouterr().out)
@@ -514,7 +579,7 @@ def test_cli_federation_check_exits_with_1_when_a_check_fails(tmp_path, monkeypa
     assert code == 1
     assert (output["status"], output["exit_code"]) == ("error", 1)
     assert output["data"]["passed"] is False
-    assert [item["id"] for item in output["data"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF11"]
+    assert [item["id"] for item in output["data"]["items"] if not item["passed"]] == ["GF2", "GF6", "GF8", "GF9", "GF10", "GF11"]
 
 
 # --- End-to-end ---
@@ -544,7 +609,7 @@ def test_e2e_admin_turns_federation_on_and_reads_the_state(env):
     assert len(_audit_rows(env.settings)) == 1
 
 
-# --- Checks GF8 to GF17, trust store, and deadline (KF6) ---
+# --- Checks GF8 to GF20, trust store, and deadline (KF6, GL1, GL2) ---
 
 
 def _enable_federation(settings: _Settings, *, kb_number: int | None = None, auto_on: bool = False) -> None:
@@ -626,9 +691,6 @@ def test_http_helpers_use_ssl_cert_file_and_enforce_response_size(tmp_path, monk
     thread.start()
     try:
         origin = f"https://127.0.0.1:{httpd.server_address[1]}"
-        status, body = federation_readiness.fetch_metadata(f"{origin}/.well-known/oauth-authorization-server")
-        assert (status, body) == (200, b'{"ok":true}')
-
         resp = federation_readiness.request_public_origin("GET", f"{origin}/ok")
         assert resp.status == 200
         assert resp.headers["x-claire-fedify-server"] == "1"
@@ -645,63 +707,95 @@ def test_http_helpers_use_ssl_cert_file_and_enforce_response_size(tmp_path, monk
         thread.join(timeout=5)
 
 
-def test_gf8_fails_when_knowledge_paths_are_not_routed_or_pending(ready):
-    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": ["/ap/kb", "/ap/themes"], "signed": {"result": "ok"}})
+def test_gf8_fails_when_knowledge_paths_are_not_routed_or_pending_and_tells_who_answered(ready):
+    answers = [_probe_answer("/ap/kb", party="intermediary", status=403, server="waf"), _probe_answer("/ap/themes")]
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": ["/ap/kb", "/ap/themes"], "answers": answers, "signed": _signed()})
     items = _report(ready)
     assert _failed(items) == ["GF8"]
-    assert items["GF8"]["code"] == "paths_not_routed"
-    assert items["GF8"]["values"] == {"paths": "/ap/kb, /ap/themes"}
+    # The code comes from the first failed path. The values have all failed paths.
+    assert items["GF8"]["code"] == "intermediary"
+    assert items["GF8"]["values"] == {"path": "/ap/kb", "party": "intermediary", "source": "sidecar", "status": 403, "server": "waf", "paths": "/ap/kb, /ap/themes"}
+    assert "/ap/kb, /ap/themes" in items["GF8"]["detail"]
 
-    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": None, "failed_paths": [], "signed": {"result": "ok"}})
+    # A reverse proxy that removes the prefix /ap still reaches the sidecar: the path that the sidecar got shows the fault.
+    stripped = [_probe_answer("/ap/actors/server", problem="path_changed", party="sidecar", received="/actors/server")]
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": ["/ap/actors/server"], "answers": stripped, "signed": _signed()})
+    items = _report(ready)
+    assert (items["GF8"]["code"], items["GF8"]["values"]["received"]) == ("path_changed", "/actors/server")
+
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": None, "failed_paths": [], "answers": [], "signed": _signed()})
     items = _report(ready)
     assert _failed(items) == ["GF8"]
     assert items["GF8"]["code"] == "knowledge_self_check_pending"
 
 
 @pytest.mark.parametrize(
-    ("result", "expected_code"),
+    ("answer", "expected_code"),
     [
-        ("not_routed", "signed_not_routed"),
-        ("host_changed", "signed_host_changed"),
-        ("signature_invalid", "signed_signature_invalid"),
-        ("tls_error", "signed_tls_error"),
-        ("dns_error", "signed_dns_error"),
-        ("HTTP 502", "signed_request_failed"),
+        (_probe_answer("/ap/self-check"), "answered_by_claire"),
+        (_probe_answer("/ap/self-check", problem="host_changed", party="sidecar", received="10.0.0.5:8790"), "host_changed"),
+        (_probe_answer("/ap/self-check", problem="signature_invalid", party="sidecar"), "signed_signature_invalid"),
+        (_probe_answer("/ap/self-check", party="none", status=None, error="tls"), "tls_error"),
+        (_probe_answer("/ap/self-check", party="none", status=None, error="dns"), "dns_error"),
+        (_probe_answer("/ap/self-check", party="intermediary", status=403, server="waf"), "intermediary"),
+        (_probe_answer("/ap/self-check", party="cdn_challenge", status=403, mitigation="challenge"), "cdn_challenge"),
     ],
 )
-def test_gf9_maps_each_signed_self_check_failure_code(ready, result, expected_code):
-    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": [], "signed": {"result": result}})
+def test_gf9_needs_the_two_signature_forms_and_maps_each_failure(ready, answer, expected_code):
+    # Both forms fail.
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": [], "answers": [], "signed": _signed(answer, answer)})
     items = _report(ready)
     assert _failed(items) == ["GF9"]
-    assert items["GF9"]["code"] == expected_code
+    assert (items["GF9"]["code"], items["GF9"]["values"]["forms"]) == (expected_code, "draft-cavage, RFC 9421")
+    # One form fails: a server that sends that form cannot deliver.
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": [], "answers": [], "signed": _signed(None, answer)})
+    items = _report(ready)
+    assert _failed(items) == ["GF9"]
+    assert (items["GF9"]["code"], items["GF9"]["values"]["forms"]) == (expected_code, "RFC 9421")
+    # A form without a result: the self-check was not done.
+    pending = _signed()
+    pending["rfc9421"]["result"] = None
+    _write_heartbeat(ready.data_dir, received_at=NOW - 5, knowledge_self_check={"checked_at": NOW - 5, "failed_paths": [], "answers": [], "signed": pending})
+    assert _report(ready)["GF9"]["code"] == "knowledge_self_check_pending"
 
 
-def test_gf10_sends_max_inbox_body_and_checks_status_and_sidecar_header(ready):
-    seen_lengths: list[int] = []
+def test_gf10_sends_max_inbox_body_and_the_two_media_types_and_needs_this_sidecar(ready):
+    seen: list[tuple[int, str, str]] = []
 
     def inspect_request(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> federation_readiness.HttpResponse:
         if method == "POST" and url.endswith("/ap/inbox"):
-            assert body is not None
-            seen_lengths.append(len(body))
+            assert body is not None and headers is not None
+            seen.append((len(body), headers["Content-Type"], headers["User-Agent"]))
         return _public_request(ready.public_url, data_dir=ready.data_dir)(method, url, headers=headers, body=body)
 
     assert _failed(_report(ready, request=inspect_request)) == []
-    assert seen_lengths == [federation_readiness.GF10_INBOX_BODY_BYTES]
+    agent = f"{federation_routes.SOFTWARE_NAME}/{federation_routes.software_version()} (+{PUBLIC_URL}/)"
+    assert seen == [(federation_readiness.GF10_INBOX_BODY_BYTES, "application/activity+json", agent), (15, 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"', agent)]
 
-    too_big = _public_request(ready.public_url, overrides={("POST", "/ap/inbox"): federation_readiness.HttpResponse(status=413, headers={"x-claire-fedify-server": "1"}, body=b"")})
-    items = _report(ready, request=too_big)
-    assert _failed(items) == ["GF10"]
-    assert items["GF10"]["code"] == "inbox_body_too_large"
+    def report(custom) -> dict[str, Any]:
+        items = _report(ready, request=_public_request(ready.public_url, overrides={("POST", "/ap/inbox"): custom}))
+        assert _failed(items) == ["GF10"]
+        return items["GF10"]
 
-    not_sidecar = _public_request(ready.public_url, overrides={("POST", "/ap/inbox"): federation_readiness.HttpResponse(status=404, headers={}, body=b"")})
-    items = _report(ready, request=not_sidecar)
-    assert _failed(items) == ["GF10"]
-    assert items["GF10"]["code"] == "inbox_not_sidecar"
+    response = federation_readiness.HttpResponse
+    assert report(response(status=413, headers={**SIDECAR}, body=b""))["code"] == "inbox_body_too_large"
+    assert report(response(status=413, headers={"server": "waf"}, body=b""))["code"] == "inbox_body_too_large"
+    assert report(response(status=404, headers={**CLAIRE}, body=b""))["code"] == "answered_by_claire"
+    # A WAF that refuses the media type of a delivery.
+    item = report(response(status=403, headers={"server": "waf"}, body=b"blocked"))
+    assert (item["code"], item["values"]["media_type"], item["values"]["server"]) == ("intermediary", "application/activity+json", "waf")
+    # The marker of another sidecar process is not the marker of the heartbeat.
+    assert report(response(status=401, headers={"x-claire-fedify-server": "another"}, body=b""))["code"] == "sidecar_other"
+    assert report(OSError("refused"))["code"] == "request_failed"
 
-    conn_err = _public_request(ready.public_url, overrides={("POST", "/ap/inbox"): OSError("refused")})
-    items = _report(ready, request=conn_err)
-    assert _failed(items) == ["GF10"]
-    assert items["GF10"]["code"] == "request_failed"
+    # A WAF that refuses only the profile parameter of the second media type.
+    def profile_blocked(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> federation_readiness.HttpResponse:
+        if method == "POST" and headers is not None and "profile=" in headers["Content-Type"]:
+            return response(status=403, headers={"cf-mitigated": "block", "cf-ray": "1-ICN"}, body=b"")
+        return _public_request(ready.public_url, data_dir=ready.data_dir)(method, url, headers=headers, body=body)
+
+    item = _report(ready, request=profile_blocked)["GF10"]
+    assert (item["code"], item["values"]["media_type"], item["values"]["value"]) == ("cdn_block", 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"', "block")
 
 
 def test_gf11_checks_knowledge_loops_progress_and_last_error(ready):
@@ -798,61 +892,150 @@ def test_gf13_rejects_special_use_domains_in_production_and_allows_test_in_dev(t
     origin = f"https://claire.{suffix}"
     prod, _ = _prepare(tmp_path / f"prod_{suffix}", heartbeat_at=NOW - 10, environment="production", public_url=origin, fqdn=f"claire.{suffix}")
     (tmp_path / f"prod_{suffix}").mkdir(exist_ok=True)
-    items = _report(prod, fetch=_metadata_fetch(origin), request=_public_request(origin))
+    items = _report(prod, request=_public_request(origin))
     assert _failed(items) == ["GF13"]
     assert items["GF13"]["code"] == "special_use_host"
 
     if suffix == "test":
         dev, _ = _prepare(tmp_path / "dev_test", heartbeat_at=NOW - 10, environment="development", public_url=origin, fqdn=f"claire.{suffix}")
-        assert _failed(_report(dev, fetch=_metadata_fetch(origin), request=_public_request(origin))) == []
+        assert _failed(_report(dev, request=_public_request(origin))) == []
 
 
 def test_gf14_gf15_gf16_apply_when_federation_is_on_and_detect_faults(ready):
     _enable_federation(ready, kb_number=77, auto_on=False)
+    # Another server sent a request: GF19 passes.
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=1, hosts=1))
     items = _report(ready)
     assert _failed(items) == []
     assert (items["GF14"]["applies"], items["GF15"]["applies"], items["GF16"]["applies"]) == (True, True, True)
 
-    bad_nodeinfo = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/.well-known/nodeinfo"): federation_readiness.HttpResponse(status=404, headers={}, body=b"")})
+    bad_nodeinfo = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/.well-known/nodeinfo"): federation_readiness.HttpResponse(status=404, headers={**SIDECAR}, body=b"")})
     assert _report(ready, request=bad_nodeinfo)["GF14"]["code"] == "nodeinfo_failed"
+    # A proxy that sends /nodeinfo/ to Claire.
+    to_claire = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/nodeinfo/2.1"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
+    gf14 = _report(ready, request=to_claire)["GF14"]
+    assert (gf14["code"], gf14["values"]["path"]) == ("answered_by_claire", "/nodeinfo/2.1")
 
     mismatch_actor_id = f"{ready.public_url}/ap/actors/server"
     wrong_key_doc = {"type": "Application", "id": mismatch_actor_id, "inbox": f"{ready.public_url}/ap/inbox", "publicKey": {"id": f"{mismatch_actor_id}#main-key", "owner": mismatch_actor_id, "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nOTHER\n-----END PUBLIC KEY-----\n"}}
-    bad_key = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/actors/server"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json"}, body=json.dumps(wrong_key_doc).encode())})
+    bad_key = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/actors/server"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json", **SIDECAR}, body=json.dumps(wrong_key_doc).encode())})
     assert _report(ready, request=bad_key)["GF14"]["code"] == "server_actor_key_mismatch"
 
     stale_auto = _public_request(ready.public_url, data_dir=ready.data_dir, accepts_automatic=True)
     assert _report(ready, request=stale_auto)["GF15"]["code"] == "kb_actor_accepts_automatic_mismatch"
 
-    bad_kb_type = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/kb/77"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json"}, body=b"{}")})
+    bad_kb_type = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/kb/77"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/json", **SIDECAR}, body=b"{}")})
     assert _report(ready, request=bad_kb_type)["GF15"]["code"] == "kb_actor_failed"
 
-    open_collection = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/themes"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json"}, body=b"{}")})
+    open_collection = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/themes"): federation_readiness.HttpResponse(status=200, headers={"content-type": "application/activity+json", **SIDECAR}, body=b"{}")})
     gf16_fail = _report(ready, request=open_collection)["GF16"]
     assert gf16_fail["passed"] is False and gf16_fail["code"] == "collection_not_refused"
+    # A 404 of Claire does not show that the sidecar refuses the read.
+    claire_404 = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ap/kb"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
+    assert _report(ready, request=claire_404)["GF16"]["code"] == "answered_by_claire"
+
+    # The server actor must come for each of the two media types of a read.
+    accepts: list[str] = []
+
+    def record_accept(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> federation_readiness.HttpResponse:
+        if url.endswith("/ap/actors/server") and headers is not None:
+            accepts.append(headers["Accept"])
+        return _public_request(ready.public_url, data_dir=ready.data_dir)(method, url, headers=headers, body=body)
+
+    assert _failed(_report(ready, request=record_accept)) == []
+    assert accepts == ["application/activity+json", 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"']
 
 
 def test_gf15_does_not_apply_when_federation_is_on_without_shared_kbs(ready):
     _enable_federation(ready, kb_number=None)
+    # Another server sent a request: GF19 passes.
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=1, hosts=1))
     items = _report(ready)
     assert _failed(items) == []
     assert items["GF15"]["applies"] is False and items["GF15"]["passed"] is True and items["GF15"]["code"] == "no_shared_kb"
 
 
 def test_gf17_is_a_warning_and_never_fails_the_report(ready):
-    no_cors = _public_request(ready.public_url, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE}, body=vocabulary.context_json().encode())})
+    no_cors = _public_request(ready.public_url, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, **CLAIRE}, body=vocabulary.context_json().encode())})
     conn = dbm.connect_existing(ready.db_file)
     try:
-        report = federation_readiness.check_federation_readiness(conn, ready, now=NOW, fetch=_metadata_fetch(ready.public_url), request=no_cors)
+        report = federation_readiness.check_federation_readiness(conn, ready, now=NOW, request=no_cors)
     finally:
         conn.close()
     assert report.passed is True
     by_id = {item.id: item for item in report.items}
     assert by_id["GF17"].level == "warning" and by_id["GF17"].passed is False and by_id["GF17"].code == "ns_context_failed"
 
-    bad_vocab = _public_request(ready.public_url, overrides={("GET", "/ns"): federation_readiness.HttpResponse(status=404, headers={}, body=b"")})
+    bad_vocab = _public_request(ready.public_url, overrides={("GET", "/ns"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
     items = _report(ready, request=bad_vocab)
     assert items["GF17"]["passed"] is False and items["GF17"]["code"] == "ns_vocabulary_failed"
+
+
+def test_gf18_tells_when_the_checks_do_not_take_the_path_of_other_servers(tmp_path):
+    origin = "https://claire.example.com"
+    settings, _member = _prepare(tmp_path, heartbeat_at=NOW - 10, environment="production", public_url=origin + "/", fqdn="claire.example.com")
+    hosts: list[str] = []
+
+    def resolve(host: str) -> list[str]:
+        hosts.append(host)
+        return ["104.16.0.1"]
+
+    # The answers of the request checks show the CDN, and the address of Claire is an address of that CDN.
+    def through_cdn(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> federation_readiness.HttpResponse:
+        response = _public_request(origin, data_dir=settings.data_dir)(method, url, headers=headers, body=body)
+        return federation_readiness.HttpResponse(status=response.status, headers={**response.headers, "cf-ray": "1-ICN"}, body=response.body)
+
+    items = _report(settings, request=through_cdn, resolve=resolve)
+    assert _failed(items) == []
+    assert hosts == ["claire.example.com"]
+    assert (items["GF18"]["applies"], items["GF18"]["code"], items["GF18"]["values"]) == (True, "public_host_global", {"host": "claire.example.com", "addresses": "104.16.0.1 (cloudflare), 9.9.9.9 (global)", "via_cdn": "cloudflare"})
+
+    # A split DNS view: the sidecar gets a LAN address. The warning does not change the report result.
+    _write_heartbeat(settings.data_dir, received_at=NOW - 10, public_host={"host": "claire.example.com", "addresses": [{"address": "192.168.10.5", "class": "private"}], "error": None})
+    items = _report(settings, request=_public_request(origin, data_dir=settings.data_dir))
+    assert _failed(items) == ["GF18"]
+    assert (items["GF18"]["level"], items["GF18"]["code"], items["GF18"]["values"]) == ("warning", "public_host_private", {"host": "claire.example.com", "address": "192.168.10.5", "source": "sidecar"})
+    assert "ops/federation_outside_probe.sh" in items["GF18"]["detail"]
+
+    _write_heartbeat(settings.data_dir, received_at=NOW - 10)
+    items = _report(settings, request=_public_request(origin, data_dir=settings.data_dir), resolve=lambda host: ["127.0.0.1"])
+    assert (items["GF18"]["code"], items["GF18"]["values"]["source"]) == ("public_host_private", "Claire")
+
+    def no_name(host: str) -> list[str]:
+        raise OSError("name not known")
+
+    assert _report(settings, request=_public_request(origin, data_dir=settings.data_dir), resolve=no_name)["GF18"]["code"] == "public_host_unresolved"
+
+
+def test_default_resolver_gives_the_addresses_of_a_host():
+    """Call to the system resolver. The name is an address, so no DNS request is made."""
+    assert federation_readiness.resolve_host("127.0.0.1") == ["127.0.0.1"]
+
+
+def test_gf19_and_gf20_read_the_traffic_counters_while_federation_is_on(ready):
+    _enable_federation(ready)
+    # No request of another server and no delivery: GF19 is a failed warning, GF20 does not apply.
+    items = _report(ready)
+    assert _failed(items) == ["GF19"]
+    assert (items["GF19"]["level"], items["GF19"]["code"], items["GF19"]["values"]) == ("warning", "no_inbound", {"host": "127.0.0.1:8765", "rejected": 0})
+    assert (items["GF20"]["applies"], items["GF20"]["code"]) == (False, "no_deliveries")
+
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=5, hosts=2, rejected=1, succeeded=3, timeout=1))
+    items = _report(ready)
+    assert _failed(items) == []
+    assert (items["GF19"]["code"], items["GF19"]["values"]) == ("inbound_ok", {"count": 5, "hosts": 2, "rejected": 1})
+    assert (items["GF20"]["code"], items["GF20"]["values"]) == ("deliveries_ok", {"succeeded": 3, "failed": 1})
+
+    _write_heartbeat(ready.data_dir, received_at=NOW - 10, traffic=_traffic(verified=1, hosts=1, http_4xx=4, dns=1))
+    items = _report(ready)
+    assert _failed(items) == ["GF20"]
+    assert (items["GF20"]["level"], items["GF20"]["code"], items["GF20"]["values"]) == ("warning", "deliveries_failed", {"failed": 5, "class": "http_4xx"})
+
+    # The counters are in the memory of the sidecar: without a recent heartbeat they are not known.
+    limit = federation_readiness.HEARTBEAT_MAX_AGE_SECONDS
+    _write_heartbeat(ready.data_dir, received_at=NOW - limit - 1, traffic=_traffic(verified=5, hosts=2, succeeded=3))
+    items = _report(ready)
+    assert (items["GF19"]["code"], items["GF20"]["code"]) == ("traffic_unknown", "traffic_unknown")
 
 
 def test_request_checks_enforce_shared_deadline(ready):
@@ -875,13 +1058,13 @@ def test_request_checks_enforce_shared_deadline(ready):
 
 
 def test_pq14_switch_blocks_on_kf_required_failure_but_allows_warning_only(env, monkeypatch, capsys):
-    _write_heartbeat(env.settings.data_dir, received_at=time.time(), knowledge_self_check={"checked_at": time.time(), "failed_paths": ["/ap/actors/server"], "signed": {"result": "ok"}})
+    _write_heartbeat(env.settings.data_dir, received_at=time.time(), knowledge_self_check={"checked_at": time.time(), "failed_paths": ["/ap/actors/server"], "answers": [_probe_answer("/ap/actors/server")], "signed": _signed()})
     blocked = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
     assert blocked.status_code == 400
     assert [item["id"] for item in blocked.json()["failures"]] == ["GF8"]
 
     _write_heartbeat(env.settings.data_dir, received_at=time.time())
-    warning_only = _public_request(PUBLIC_URL, data_dir=env.settings.data_dir, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=302, headers={"location": "/other"}, body=b"")})
+    warning_only = _public_request(PUBLIC_URL, data_dir=env.settings.data_dir, overrides={("GET", "/ns/v1"): federation_readiness.HttpResponse(status=302, headers={"location": "/other", **CLAIRE}, body=b"")})
     monkeypatch.setattr(federation_readiness, "request_public_origin", warning_only)
 
     allowed = env.client.request("POST", "/api/admin/federation", session=env.admin, json={"federation": "on"})
@@ -894,7 +1077,6 @@ def test_pq14_switch_blocks_on_kf_required_failure_but_allows_warning_only(env, 
     finally:
         conn.close()
     monkeypatch.setattr("claire.cli.get_settings", lambda: env.settings)
-    monkeypatch.setattr(federation_readiness, "fetch_metadata", _metadata_fetch(PUBLIC_URL))
     code = cli.main(["server", "check", "--federation", "--json"])
     assert code == 0
     cli_out = json.loads(capsys.readouterr().out)
@@ -904,4 +1086,4 @@ def test_pq14_switch_blocks_on_kf_required_failure_but_allows_warning_only(env, 
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["server", "check", "--help"])
     captured = capsys.readouterr().out
-    assert "GF1" in captured and "GF17" in captured
+    assert "GF1" in captured and "GF20" in captured

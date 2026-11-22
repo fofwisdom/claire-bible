@@ -302,19 +302,33 @@ def test_response_models_are_sealed():
             model.model_validate({**body, "extra_field": 1})
 
 
+def _heartbeat_body(**changes) -> bytes:
+    """The heartbeat of the fixture with changed top-level fields. A value ``...`` removes the field."""
+    body = {**fixture("heartbeat")["request"]["body"], **changes}
+    return json.dumps({key: value for key, value in body.items() if value is not ...}).encode("utf-8")
+
+
+_HEARTBEAT_1_12 = b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}'
+
+
 @pytest.mark.parametrize(
     "body",
     [
         b"",
         b"[]",
-        b'{"contract_version": "1.12"}',
-        b'{"contract_version": "1.11", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
-        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
-        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}}',
-        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": "3", "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
-        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}, "extra": 1}',
-        b'{"contract_version": "one", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "ok"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
-        b'{"contract_version": "1.12", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "knowledge_self_check": {"checked_at": 1.0, "failed_paths": [], "signed": {"result": "bad_code"}}, "loops": {"knowledge_reads": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}, "knowledge_exchange": {"running": false, "progress_at": 1.0, "error": null, "error_at": null}}}',
+        b'{"contract_version": "1.13"}',
+        # A sidecar of contract 1.12 has no marker, no path record, no answer records, and no traffic counters. An absent field gets no default value.
+        _HEARTBEAT_1_12,
+        _heartbeat_body(marker=...),
+        _heartbeat_body(public_host=...),
+        _heartbeat_body(traffic=...),
+        _heartbeat_body(queue_depth="3"),
+        _heartbeat_body(extra=1),
+        _heartbeat_body(contract_version="one"),
+        _heartbeat_body(marker="short"),
+        _heartbeat_body(self_check={"ok": True, "checked_at": 1.0}),
+        _heartbeat_body(self_check={"ok": False, "checked_at": 1.0, "answer": {"path": "/x", "problem": "not_routed", "party": "bad_party", "status": 404, "error": None, "via_cdn": None, "server": None, "media_type": None, "mitigation": None, "received": None}}),
+        _heartbeat_body(public_host={"host": "claire.example.com", "addresses": [{"address": "203.0.113.5", "class": "public"}], "error": None}),
     ],
 )
 def test_heartbeat_refuses_a_request_outside_the_model(internal, body):

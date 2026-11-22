@@ -1,18 +1,23 @@
-"""Federation readiness checks GF1 to GF17 (Fedify sidecar design Section 12, KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1, units FP1-6 and KF6).
+"""Federation readiness checks GF1 to GF20 (Fedify sidecar design Section 12, KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1, FEDERATION_GO_LIVE_DESIGN.md, units FP1-6, KF6, GL1, and GL2).
 
 The admin can set the server setting ``federation`` to ``on`` only when all applicable required checks pass (GF1 to GF7 and GF8 to GF13). ``POST /api/admin/federation`` and ``claire server check --federation`` use ``check_federation_readiness``.
 
 The checks do not change data. GF4 and GF12 do not make a key file. GF14 and GF15 read actor documents through the public origin, which can make the keys of those actors on a first read. The HTTP checks run at the same time with a 20-second limit and trust the system trust store.
+
+Each request check tells which party answered (``classify_response``): the sidecar, Claire, the CDN, another intermediary, or nobody. The code of a failed item comes from that party. The requests have the headers and the media types of a request of another server.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import math
 import os
+import socket
 import sqlite3
 import ssl
 import stat
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -26,7 +31,7 @@ from ..collaboration import auto_contribution, contributions, theme_judgement
 from ..core import ids
 from ..api import federation_routes
 from ..api.federation_internal import SERVICE_KEY_BYTES, service_key_path
-from ..api.security import WebRuntimeConfig
+from ..api.security import SERVER_MARKER_HEADER, WebRuntimeConfig, is_cloudflare_ip
 from ..federation.knowledge import actors as kf_actors
 from ..federation.knowledge import vocabulary
 from ..store import accounts as accounts_store
@@ -35,25 +40,31 @@ from ..store import db as dbm
 from ..store.secrets import SecretError, SecretService
 
 __all__ = [
+    "ACTIVITY_MEDIA_TYPE",
+    "Answer",
     "FederationReadinessItem",
     "FederationReadinessReport",
     "GF10_INBOX_BODY_BYTES",
     "HEARTBEAT_MAX_AGE_SECONDS",
     "HttpResponse",
+    "LD_ACTIVITY_MEDIA_TYPE",
     "LOOP_MAX_AGE_SECONDS",
     "METADATA_FETCH_TIMEOUT_SECONDS",
     "METADATA_MAX_BYTES",
     "METADATA_PATH",
-    "MetadataFetch",
     "PublicRequest",
     "READINESS_RESPONSE_MAX_BYTES",
     "REQUEST_CHECKS_TIMEOUT_SECONDS",
+    "ResolveHost",
     "ResponseTooLargeError",
+    "SIDECAR_MARKER_HEADER",
     "check_federation_readiness",
-    "fetch_metadata",
+    "classify_exception",
+    "classify_response",
     "heartbeat_is_recent",
     "master_key_path",
     "request_public_origin",
+    "resolve_host",
 ]
 
 # The sidecar sends a heartbeat about each 30 seconds. The limit permits three lost heartbeats.
@@ -67,11 +78,19 @@ READINESS_RESPONSE_MAX_BYTES = 256 * 1024
 REQUEST_CHECKS_TIMEOUT_SECONDS = 20.0
 SERVICE_KEY_MODE = 0o600
 GF10_INBOX_BODY_BYTES = federation_routes.INBOX_BODY_LIMIT_BYTES - 8192
+SIDECAR_MARKER_HEADER = "x-claire-fedify-server"
+# The two media types that other servers send for an ActivityPub document (FEDERATION_GO_LIVE_DESIGN.md Section 6).
+ACTIVITY_MEDIA_TYPE = "application/activity+json"
+LD_ACTIVITY_MEDIA_TYPE = 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"'
 _SPECIAL_USE_SUFFIXES = ("test", "example", "invalid", "localhost", "local")
 _KNOWLEDGE_LOOPS = ("knowledge_reads", "knowledge_exchange")
+_SIGNATURE_FORMS = (("draft_cavage", "draft-cavage"), ("rfc9421", "RFC 9421"))
+_HEADER_TEXT_MAX = 64
 
-MetadataFetch = Callable[[str], tuple[int, bytes]]
 PublicRequest = Callable[..., "HttpResponse"]
+ResolveHost = Callable[[str], list[str]]
+Group = Literal["account", "knowledge", "operation"]
+Level = Literal["required", "warning"]
 
 
 class ResponseTooLargeError(ValueError):
@@ -89,8 +108,8 @@ class HttpResponse:
 class FederationReadinessItem:
     id: str
     name: str
-    group: Literal["account", "knowledge"]
-    level: Literal["required", "warning"]
+    group: Group
+    level: Level
     applies: bool
     passed: bool
     code: str
@@ -131,12 +150,6 @@ def _system_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=cafile)
 
 
-def fetch_metadata(url: str) -> tuple[int, bytes]:
-    """Default fetch for GF7: one GET, a short timeout, no redirects, no environment proxy settings, system trust store."""
-    response = httpx.get(url, timeout=METADATA_FETCH_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False, verify=_system_ssl_context(), headers={"Accept": "application/json"})
-    return response.status_code, response.content
-
-
 def request_public_origin(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> HttpResponse:
     """Send one HTTP request to the public origin: short timeout, no redirects, no environment proxy settings, system trust store, bounded response."""
     with httpx.Client(timeout=METADATA_FETCH_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False, verify=_system_ssl_context()) as client:
@@ -152,6 +165,167 @@ def request_public_origin(method: str, url: str, *, headers: dict[str, str] | No
                     raise ResponseTooLargeError("response too large")
                 chunks.append(chunk)
             return HttpResponse(status=response.status_code, headers={k.lower(): v for k, v in response.headers.items()}, body=b"".join(chunks))
+
+
+def resolve_host(host: str) -> list[str]:
+    """The addresses of ``host`` for this process, as the system resolver gives them (GF18)."""
+    found: list[str] = []
+    for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM):
+        address = str(info[4][0]).split("%", 1)[0]
+        if address not in found:
+            found.append(address)
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """Which party answered one request to the public origin (FEDERATION_GO_LIVE_DESIGN.md Section 5.1)."""
+
+    party: Literal["sidecar", "sidecar_other", "sidecar_unverified", "claire", "cdn_challenge", "cdn_block", "cdn_error", "intermediary", "none"]
+    status: int | None = None
+    error: Literal["dns", "tls", "connect", "timeout", "other"] | None = None
+    via_cdn: str | None = None
+    server: str | None = None
+    media_type: str | None = None
+    mitigation: str | None = None
+    # The name of the error type of a request that got no answer (requests of Claire only).
+    error_name: str | None = None
+    # The path or the Host that the sidecar got (self-checks of the sidecar only).
+    received: str | None = None
+    problem: Literal["not_routed", "path_changed", "host_changed", "answer_not_live", "signature_invalid"] = "not_routed"
+
+
+def _header_text(value: str | None, limit: int = _HEADER_TEXT_MAX) -> str | None:
+    """Printable ASCII with a length limit. A header of an intermediary is not trusted text."""
+    if value is None:
+        return None
+    clean = "".join(ch for ch in value if " " <= ch <= "~").strip()[:limit]
+    return clean or None
+
+
+def classify_response(response: HttpResponse, marker: str | None) -> Answer:
+    """Tell which party made ``response``. ``marker`` is the marker of the sidecar from a recent heartbeat, or ``None`` when there is no recent heartbeat."""
+    headers = response.headers
+    mitigation = _header_text(headers.get("cf-mitigated"), 32)
+    via_cdn = "cloudflare" if "cf-ray" in headers else None
+    seen = headers.get(SIDECAR_MARKER_HEADER)
+    party: Any
+    if seen is not None:
+        party = "sidecar_unverified" if marker is None else "sidecar" if seen == marker else "sidecar_other"
+    elif SERVER_MARKER_HEADER in headers:
+        party = "claire"
+    elif mitigation is not None:
+        party = "cdn_challenge" if mitigation.lower() == "challenge" else "cdn_block"
+    elif via_cdn is not None and 520 <= response.status <= 530:
+        party = "cdn_error"
+    else:
+        party = "intermediary"
+    return Answer(party=party, status=response.status, via_cdn=via_cdn, server=_header_text(headers.get("server")), media_type=_header_text(_media_type(headers)), mitigation=mitigation)
+
+
+def classify_exception(exc: BaseException) -> Answer:
+    """The class of a request that got no answer."""
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    text = " ".join(f"{type(item).__name__} {item}" for item in chain).lower()
+    error: Any
+    if any(isinstance(item, (httpx.TimeoutException, TimeoutError)) for item in chain):
+        error = "timeout"
+    elif any(isinstance(item, ssl.SSLError) for item in chain) or "certificate" in text or "ssl" in text:
+        error = "tls"
+    elif any(isinstance(item, socket.gaierror) for item in chain) or "name or service not known" in text or "name resolution" in text or "nodename nor servname" in text:
+        error = "dns"
+    elif any(isinstance(item, (httpx.ConnectError, ConnectionError)) for item in chain):
+        error = "connect"
+    else:
+        error = "other"
+    return Answer(party="none", error=error, error_name=type(exc).__name__)
+
+
+def _heartbeat_answer(record: Any) -> Answer | None:
+    """The answer record of a failed self-check request of the sidecar (contract 1.13), or ``None`` when the heartbeat has no valid record."""
+    if not isinstance(record, dict) or not isinstance(record.get("party"), str) or not isinstance(record.get("problem"), str):
+        return None
+    status = record.get("status")
+    return Answer(party=record["party"], status=status if isinstance(status, int) and not isinstance(status, bool) else None, error=record.get("error"), via_cdn=record.get("via_cdn"), server=_header_text(record.get("server")), media_type=_header_text(record.get("media_type")), mitigation=_header_text(record.get("mitigation"), 32), received=_header_text(record.get("received"), 256), problem=record["problem"])
+
+
+def _attribution(path: str, answer: Answer, *, expected: Literal["sidecar", "claire"], source: Literal["sidecar", "Claire"]) -> tuple[str, str, dict[str, Any]]:
+    """The code, the detail, and the values of a request that the expected party did not answer correctly (FEDERATION_GO_LIVE_DESIGN.md Section 5.3)."""
+    server = answer.server or "unknown"
+    status = answer.status if answer.status is not None else 0
+    values: dict[str, Any] = {"path": path, "party": answer.party, "source": source}
+    if answer.via_cdn is not None:
+        values["via_cdn"] = answer.via_cdn
+    if answer.problem == "path_changed":
+        received = answer.received or "unknown"
+        return "path_changed", f"The sidecar got {received} for {path}. The reverse proxy must send the full path without a change.", {**values, "received": received}
+    if answer.problem == "host_changed":
+        received = answer.received or "unknown"
+        return "host_changed", f"The sidecar got the Host {received} for {path}. The reverse proxy must send the Host of the request without a change, because the signature includes it.", {**values, "received": received}
+    if answer.problem == "answer_not_live":
+        return "answer_not_live", f"The answer for {path} has the marker of this sidecar, but the sidecar did not get the request. A cache gives old answers, or an intermediary removed the header X-Claire-Self-Check.", values
+    if answer.problem == "signature_invalid":
+        return "signed_signature_invalid", "The signature of the self-check request did not verify after the reverse proxy. The proxy must send the body and the headers Date, Digest, Content-Digest, Signature, and Signature-Input without a change.", values
+    party = answer.party
+    if party == "claire" and expected == "sidecar":
+        return "answered_by_claire", f"The public origin sends {path} to Claire. It must send this path to the sidecar.", {**values, "status": status}
+    if party in ("sidecar", "sidecar_other", "sidecar_unverified") and expected == "claire":
+        return "answered_by_sidecar", f"The public origin sends {path} to the sidecar. It must send this path to Claire.", {**values, "status": status}
+    if party == "sidecar_other":
+        return "sidecar_other", f"The answer for {path} came from a different sidecar process. A cache can give old answers, or two sidecars run.", values
+    if party == "sidecar_unverified":
+        return "sidecar_unverified", f"The answer for {path} has a sidecar marker, but there is no recent sidecar heartbeat to compare it with.", values
+    if party == "cdn_challenge":
+        return "cdn_challenge", f"The CDN answered {path} with a challenge (cf-mitigated: challenge). Other servers cannot answer a challenge. Turn off the bot rule that makes the challenge for the federation paths.", {**values, "status": status}
+    if party == "cdn_block":
+        mitigation = answer.mitigation or "unknown"
+        return "cdn_block", f"The CDN blocked {path} (cf-mitigated: {mitigation}). Examine the security events of the CDN for this path.", {**values, "status": status, "value": mitigation}
+    if party == "cdn_error":
+        return "cdn_error", f"The CDN did not get an answer from the origin for {path} (HTTP {status}). Examine the connection from the CDN to the reverse proxy.", {**values, "status": status}
+    if party == "none":
+        if answer.error == "dns":
+            return "dns_error", f"{source} cannot resolve the name of the public origin (request for {path}).", values
+        if answer.error == "tls":
+            return "tls_error", f"{source} cannot verify the TLS certificate of the public origin (request for {path}). Give it the certificate authority of the origin.", values
+        if answer.error == "connect":
+            return "connect_error", f"{source} cannot connect to the public origin (request for {path}). Examine the route from the server to its own public address.", values
+        if answer.error == "timeout":
+            return "probe_timeout", f"The request of {source} for {path} got no answer in time. Examine the route from the server to its own public address.", values
+        name = answer.error_name or "unknown"
+        return "request_failed", f"The request to the public origin failed ({name}).", {**values, "error": name}
+    return "intermediary", f"An intermediary answered {path} with HTTP {status} (Server: {server}). The answer has no marker header of Claire or of the sidecar. If it is a WAF, find the rule ID in its log. Rules for the media type application/activity+json can block ActivityPub requests.", {**values, "status": status, "server": server}
+
+
+class _Probes:
+    """Sends the requests of the checks of Claire and keeps what each answer shows about the path (GF18)."""
+
+    def __init__(self, requester: PublicRequest, origin: str, marker: str | None, user_agent: str) -> None:
+        self._requester = requester
+        self.origin = origin
+        self._marker = marker
+        self._user_agent = user_agent
+        self._lock = threading.Lock()
+        self.via_cdn: str | None = None
+
+    def send(self, method: str, path: str, *, headers: dict[str, str], body: bytes | None = None) -> tuple[HttpResponse | None, Answer]:
+        try:
+            response = self._requester(method, f"{self.origin}{path}", headers={**headers, "User-Agent": self._user_agent}, body=body)
+        except Exception as exc:  # noqa: BLE001  # A failed request is a failed check, not an error of the caller.
+            return None, classify_exception(exc)
+        answer = classify_response(response, self._marker)
+        if answer.via_cdn is not None:
+            with self._lock:
+                self.via_cdn = answer.via_cdn
+        return response, answer
+
+
+def _failed_item(item_id: str, name: str, group: Group, level: Level, path: str, answer: Answer, *, expected: Literal["sidecar", "claire"], source: Literal["sidecar", "Claire"], extra: dict[str, Any] | None = None, suffix: str = "") -> FederationReadinessItem:
+    code, detail, values = _attribution(path, answer, expected=expected, source=source)
+    return FederationReadinessItem(id=item_id, name=name, group=group, level=level, applies=True, passed=False, code=code, detail=detail + suffix, values={**values, **(extra or {})})
 
 
 def master_key_path(data_dir: Path | str) -> Path:
@@ -293,29 +467,30 @@ def _check_self_check(heartbeat: dict[str, Any] | None, age: float | None) -> Fe
     if ok is True:
         return FederationReadinessItem(id="GF6", name=name, group="account", level="required", applies=True, passed=True, code="webfinger_self_check_ok", detail="The sidecar got its own WebFinger response through the public origin.")
     if ok is False:
+        record = self_check.get("answer") if isinstance(self_check, dict) else None
+        answer = _heartbeat_answer(record)
+        if answer is not None:
+            return _failed_item("GF6", name, "account", "required", "/.well-known/webfinger", answer, expected="sidecar", source="sidecar")
         return FederationReadinessItem(id="GF6", name=name, group="account", level="required", applies=True, passed=False, code="webfinger_self_check_failed", detail="The public self-check of the sidecar failed. Examine the reverse proxy rules for the federation paths.")
     return FederationReadinessItem(id="GF6", name=name, group="account", level="required", applies=True, passed=False, code="webfinger_self_check_pending", detail="The sidecar did not do the public self-check yet.")
 
 
-def _check_metadata(runtime: WebRuntimeConfig | None, fetch: MetadataFetch) -> FederationReadinessItem:
+def _check_metadata(probes: _Probes | None) -> FederationReadinessItem:
     name = "OAuth metadata through the public origin"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    issuer = runtime.public_origin.rstrip("/")
-    try:
-        status, body = fetch(issuer + METADATA_PATH)
-    except Exception as exc:  # noqa: BLE001  # A failed request is a failed check, not an error of the caller.
-        err = type(exc).__name__
-        return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="request_failed", detail=f"The request to the public origin failed ({err}).", values={"error": err})
-    if status != 200:
-        return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="oauth_unexpected_status", detail=f"The public origin returned HTTP status {status} for the OAuth metadata.", values={"status": status})
-    if len(body) > METADATA_MAX_BYTES:
+    response, answer = probes.send("GET", METADATA_PATH, headers={"Accept": "application/json"})
+    if response is None or answer.party != "claire":
+        return _failed_item("GF7", name, "account", "required", METADATA_PATH, answer, expected="claire", source="Claire")
+    if response.status != 200:
+        return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="oauth_unexpected_status", detail=f"The public origin returned HTTP status {response.status} for the OAuth metadata.", values={"status": response.status})
+    if len(response.body) > METADATA_MAX_BYTES:
         return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="oauth_too_large", detail="The OAuth metadata response is too large.")
     try:
-        document = json.loads(body)
+        document = json.loads(response.body)
     except (ValueError, TypeError):
         document = None
-    if not isinstance(document, dict) or document.get("issuer") != issuer:
+    if not isinstance(document, dict) or document.get("issuer") != probes.origin:
         return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=False, code="oauth_metadata_mismatch", detail="The response is not the OAuth metadata of this server. Examine the reverse proxy rules.")
     return FederationReadinessItem(id="GF7", name=name, group="account", level="required", applies=True, passed=True, code="oauth_metadata_ok", detail="The public origin returns the OAuth metadata of this server.")
 
@@ -329,18 +504,15 @@ def _check_knowledge_paths(heartbeat: dict[str, Any] | None, age: float | None) 
     if not isinstance(ksc, dict) or ksc.get("checked_at") is None or not isinstance(failed, list) or not all(isinstance(p, str) for p in failed):
         return FederationReadinessItem(id="GF8", name=name, group="knowledge", level="required", applies=True, passed=False, code="knowledge_self_check_pending", detail="The sidecar did not do the knowledge self-check yet.")
     if not failed:
-        return FederationReadinessItem(id="GF8", name=name, group="knowledge", level="required", applies=True, passed=True, code="paths_ok", detail="All knowledge federation paths reach this sidecar.")
+        return FederationReadinessItem(id="GF8", name=name, group="knowledge", level="required", applies=True, passed=True, code="paths_ok", detail="All knowledge federation paths reach this sidecar, each with its path and its Host.")
     paths = ", ".join(failed)
-    return FederationReadinessItem(id="GF8", name=name, group="knowledge", level="required", applies=True, passed=False, code="paths_not_routed", detail=f"The public origin does not send these paths to this sidecar: {paths}. Examine the reverse proxy rules: exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/.", values={"paths": paths})
-
-
-_GF9_DETAILS = {
-    "not_routed": ("signed_not_routed", "The signed self-check request did not reach this sidecar. Examine the reverse proxy rules for the prefix /ap/."),
-    "host_changed": ("signed_host_changed", "The reverse proxy changed the Host header. It must send the Host of the request without a change, because the signature includes it."),
-    "signature_invalid": ("signed_signature_invalid", "The signature of the self-check request did not verify after the reverse proxy. The proxy must send the body and the headers Date, Digest, Content-Digest, Signature, and Signature-Input without a change."),
-    "tls_error": ("signed_tls_error", "The sidecar cannot verify the TLS certificate of the public origin. Give the sidecar the certificate authority of the origin."),
-    "dns_error": ("signed_dns_error", "The sidecar cannot resolve the name of the public origin."),
-}
+    records = ksc.get("answers")
+    first = records[0] if isinstance(records, list) and records else None
+    answer = _heartbeat_answer(first)
+    if answer is None or not isinstance(first, dict) or not isinstance(first.get("path"), str):
+        return FederationReadinessItem(id="GF8", name=name, group="knowledge", level="required", applies=True, passed=False, code="paths_not_routed", detail=f"The public origin does not send these paths to this sidecar: {paths}. Examine the reverse proxy rules: exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/.", values={"paths": paths})
+    # The code and the detail come from the first failed path. The values have all failed paths.
+    return _failed_item("GF8", name, "knowledge", "required", first["path"], answer, expected="sidecar", source="sidecar", extra={"paths": paths}, suffix=f" Paths with a failure: {paths}.")
 
 
 def _check_signed_self_check(heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
@@ -349,37 +521,39 @@ def _check_signed_self_check(heartbeat: dict[str, Any] | None, age: float | None
         return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code="knowledge_no_recent_heartbeat", detail="There is no recent sidecar heartbeat. The result of the knowledge self-check is not known.")
     ksc = heartbeat.get("knowledge_self_check")
     signed = ksc.get("signed") if isinstance(ksc, dict) else None
-    result = signed.get("result") if isinstance(signed, dict) else None
-    if result is None:
-        return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code="knowledge_self_check_pending", detail="The sidecar did not do the knowledge self-check yet.")
-    if result == "ok":
-        return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=True, code="signed_ok", detail="A signed request reaches this sidecar through the public origin without a change of its signature parts.")
-    if result in _GF9_DETAILS:
-        code, detail = _GF9_DETAILS[result]
-        return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code=code, detail=detail)
-    err = str(result)
-    return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code="signed_request_failed", detail=f"The self-check request to the public origin failed ({err}).", values={"error": err})
+    forms: list[tuple[str, dict[str, Any]]] = []
+    for key, label in _SIGNATURE_FORMS:
+        form = signed.get(key) if isinstance(signed, dict) else None
+        if not isinstance(form, dict) or form.get("result") is None:
+            return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code="knowledge_self_check_pending", detail="The sidecar did not do the knowledge self-check yet.")
+        forms.append((label, form))
+    failed = [(label, form) for label, form in forms if form["result"] != "ok"]
+    if not failed:
+        return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=True, code="signed_ok", detail="A signed request in each of the two signature forms of a delivery reaches this sidecar through the public origin without a change of its signature parts.")
+    forms_text = ", ".join(label for label, _form in failed)
+    answer = _heartbeat_answer(failed[0][1].get("answer"))
+    if answer is None:
+        return FederationReadinessItem(id="GF9", name=name, group="knowledge", level="required", applies=True, passed=False, code="signed_request_failed", detail=f"The signed self-check request to the public origin failed (signature form: {forms_text}).", values={"forms": forms_text})
+    # A delivery of another server has the media type application/activity+json and one of the two forms. A form that fails here fails for the servers that use it.
+    return _failed_item("GF9", name, "knowledge", "required", "/ap/self-check", answer, expected="sidecar", source="sidecar", extra={"forms": forms_text}, suffix=f" Signature form with a failure: {forms_text}.")
 
 
-def _check_inbox_body_limit(runtime: WebRuntimeConfig | None, requester: PublicRequest) -> FederationReadinessItem:
+def _check_inbox_body_limit(probes: _Probes | None) -> FederationReadinessItem:
     name = "Inbox body of the largest size through the public origin"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    origin = runtime.public_origin.rstrip("/")
     size = GF10_INBOX_BODY_BYTES
     prefix = b'{"summary":"'
     suffix = b'"}'
-    payload = prefix + (b"x" * (size - len(prefix) - len(suffix))) + suffix
-    try:
-        resp = requester("POST", f"{origin}/ap/inbox", headers={"Content-Type": "application/activity+json"}, body=payload)
-    except Exception as exc:  # noqa: BLE001
-        err = type(exc).__name__
-        return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=False, code="request_failed", detail=f"The request to the public origin failed ({err}).", values={"error": err})
-    if resp.status == 413:
-        return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=False, code="inbox_body_too_large", detail=f"The public origin refused an inbox body of {size} bytes (HTTP {resp.status}). The reverse proxy must accept a request body of {size} bytes or more on the paths below /ap/.", values={"bytes": size, "status": resp.status})
-    if not resp.headers.get("x-claire-fedify-server"):
-        return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=False, code="inbox_not_sidecar", detail="The answer did not come from a sidecar (no header X-Claire-Fedify-Server). Examine the reverse proxy rules for the prefix /ap/.")
-    return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=True, code="inbox_body_ok", detail=f"The public origin accepts an inbox body of {size} bytes.", values={"bytes": size})
+    large = prefix + (b"x" * (size - len(prefix) - len(suffix))) + suffix
+    # The two media types of a delivery. A WAF rule can refuse one of them, or the profile parameter of the second one.
+    for media_type, payload in ((ACTIVITY_MEDIA_TYPE, large), (LD_ACTIVITY_MEDIA_TYPE, b'{"summary":"x"}')):
+        response, answer = probes.send("POST", "/ap/inbox", headers={"Content-Type": media_type}, body=payload)
+        if response is not None and response.status == 413:
+            return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=False, code="inbox_body_too_large", detail=f"The public origin refused an inbox body of {len(payload)} bytes (HTTP {response.status}). The reverse proxy must accept a request body of {size} bytes or more on the paths below /ap/.", values={"bytes": size, "status": response.status, "party": answer.party})
+        if response is None or answer.party != "sidecar":
+            return _failed_item("GF10", name, "knowledge", "required", "/ap/inbox", answer, expected="sidecar", source="Claire", extra={"media_type": media_type}, suffix=f" Media type of the request: {media_type}.")
+    return FederationReadinessItem(id="GF10", name=name, group="knowledge", level="required", applies=True, passed=True, code="inbox_body_ok", detail=f"The public origin accepts an inbox body of {size} bytes and the two media types of a delivery.", values={"bytes": size})
 
 
 def _check_knowledge_loops(heartbeat: dict[str, Any] | None, current: float) -> FederationReadinessItem:
@@ -516,11 +690,11 @@ def _check_knowledge_settings(conn: sqlite3.Connection, runtime: WebRuntimeConfi
     return FederationReadinessItem(id="GF13", name=name, group="knowledge", level="required", applies=True, passed=True, code="settings_ok", detail="The settings of the knowledge federation and the public name are valid.")
 
 
-def _check_first_contact(runtime: WebRuntimeConfig | None, data_dir: Path, requester: PublicRequest) -> FederationReadinessItem:
+def _check_first_contact(probes: _Probes | None, data_dir: Path) -> FederationReadinessItem:
     name = "First-contact documents through the public origin"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    origin = runtime.public_origin.rstrip("/")
+    origin = probes.origin
 
     def nodeinfo_fail(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=False, code="nodeinfo_failed", detail=f"NodeInfo through the public origin: {problem}.", values={"problem": problem})
@@ -528,10 +702,12 @@ def _check_first_contact(runtime: WebRuntimeConfig | None, data_dir: Path, reque
     def actor_fail(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=False, code="server_actor_failed", detail=f"The server actor through the public origin: {problem}.", values={"problem": problem})
 
-    try:
-        disco = requester("GET", f"{origin}/.well-known/nodeinfo", headers={"Accept": "application/json"})
-    except Exception as exc:  # noqa: BLE001
-        return nodeinfo_fail(f"request failed ({type(exc).__name__})")
+    def not_sidecar(path: str, answer: Answer) -> FederationReadinessItem:
+        return _failed_item("GF14", name, "knowledge", "required", path, answer, expected="sidecar", source="Claire")
+
+    disco, answer = probes.send("GET", "/.well-known/nodeinfo", headers={"Accept": "application/json"})
+    if disco is None or answer.party != "sidecar":
+        return not_sidecar("/.well-known/nodeinfo", answer)
     if disco.status != 200:
         return nodeinfo_fail(f"HTTP status {disco.status} at /.well-known/nodeinfo")
     try:
@@ -543,10 +719,9 @@ def _check_first_contact(runtime: WebRuntimeConfig | None, data_dir: Path, reque
     if not isinstance(links, list) or not any(isinstance(link, dict) and link.get("href") == expected_nodeinfo_href for link in links):
         return nodeinfo_fail("missing link to /nodeinfo/2.1")
 
-    try:
-        info = requester("GET", expected_nodeinfo_href, headers={"Accept": "application/json"})
-    except Exception as exc:  # noqa: BLE001
-        return nodeinfo_fail(f"request failed ({type(exc).__name__})")
+    info, answer = probes.send("GET", "/nodeinfo/2.1", headers={"Accept": "application/json"})
+    if info is None or answer.party != "sidecar":
+        return not_sidecar("/nodeinfo/2.1", answer)
     if info.status != 200:
         return nodeinfo_fail(f"HTTP status {info.status} at /nodeinfo/2.1")
     try:
@@ -560,57 +735,56 @@ def _check_first_contact(runtime: WebRuntimeConfig | None, data_dir: Path, reque
     if not isinstance(protocols, list) or "activitypub" not in protocols:
         return nodeinfo_fail("activitypub is missing in protocols")
 
-    try:
-        actor_resp = requester("GET", f"{origin}/ap/actors/server", headers={"Accept": "application/activity+json"})
-    except Exception as exc:  # noqa: BLE001
-        return actor_fail(f"request failed ({type(exc).__name__})")
-    if actor_resp.status != 200:
-        return actor_fail(f"HTTP status {actor_resp.status}")
-    try:
-        actor_doc = json.loads(actor_resp.body)
-    except (ValueError, TypeError):
-        actor_doc = None
-    if not isinstance(actor_doc, dict):
-        return actor_fail("invalid JSON")
-    actor_types = actor_doc.get("type")
-    if isinstance(actor_types, str):
-        has_app_type = actor_types == "Application"
-    elif isinstance(actor_types, list):
-        has_app_type = "Application" in actor_types
-    else:
-        has_app_type = False
     expected_id = f"{origin}/ap/actors/server"
-    if not has_app_type:
-        return actor_fail("type is not Application")
-    if actor_doc.get("id") != expected_id:
-        return actor_fail("id does not match the public origin")
-    inbox = actor_doc.get("inbox")
-    if not isinstance(inbox, str) or not inbox.startswith(f"{origin}/"):
-        return actor_fail("inbox is not on the public origin")
-    pub_key = actor_doc.get("publicKey")
-    if not isinstance(pub_key, dict) or pub_key.get("owner") != expected_id or not isinstance(pub_key.get("publicKeyPem"), str) or not pub_key["publicKeyPem"].strip():
-        return actor_fail("publicKey is missing or invalid")
-
     stored_pem = _stored_rsa_pem(data_dir, account_id=actor_keys.SERVER_ACTOR_ACCOUNT_ID)
-    if stored_pem is None or pub_key["publicKeyPem"].strip() != stored_pem.strip():
-        return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=False, code="server_actor_key_mismatch", detail="The public key of the server actor through the public origin is not the stored key. Examine caches between the reverse proxy and the sidecar.")
+    # Other servers ask for an actor with one of the two media types. Each form must give the document.
+    for accept in (ACTIVITY_MEDIA_TYPE, LD_ACTIVITY_MEDIA_TYPE):
+        actor_resp, answer = probes.send("GET", "/ap/actors/server", headers={"Accept": accept})
+        if actor_resp is None or answer.party != "sidecar":
+            return not_sidecar("/ap/actors/server", answer)
+        if actor_resp.status != 200:
+            return actor_fail(f"HTTP status {actor_resp.status} for Accept: {accept}")
+        try:
+            actor_doc = json.loads(actor_resp.body)
+        except (ValueError, TypeError):
+            actor_doc = None
+        if not isinstance(actor_doc, dict):
+            return actor_fail("invalid JSON")
+        actor_types = actor_doc.get("type")
+        if isinstance(actor_types, str):
+            has_app_type = actor_types == "Application"
+        elif isinstance(actor_types, list):
+            has_app_type = "Application" in actor_types
+        else:
+            has_app_type = False
+        if not has_app_type:
+            return actor_fail("type is not Application")
+        if actor_doc.get("id") != expected_id:
+            return actor_fail("id does not match the public origin")
+        inbox = actor_doc.get("inbox")
+        if not isinstance(inbox, str) or not inbox.startswith(f"{origin}/"):
+            return actor_fail("inbox is not on the public origin")
+        pub_key = actor_doc.get("publicKey")
+        if not isinstance(pub_key, dict) or pub_key.get("owner") != expected_id or not isinstance(pub_key.get("publicKeyPem"), str) or not pub_key["publicKeyPem"].strip():
+            return actor_fail("publicKey is missing or invalid")
+        if stored_pem is None or pub_key["publicKeyPem"].strip() != stored_pem.strip():
+            return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=False, code="server_actor_key_mismatch", detail="The public key of the server actor through the public origin is not the stored key. Examine caches between the reverse proxy and the sidecar.")
     return FederationReadinessItem(id="GF14", name=name, group="knowledge", level="required", applies=True, passed=True, code="first_contact_ok", detail="NodeInfo and the server actor document are valid through the public origin.")
 
 
-def _check_kb_actor(runtime: WebRuntimeConfig | None, data_dir: Path, kb_number: int, expected_auto: bool, requester: PublicRequest) -> FederationReadinessItem:
+def _check_kb_actor(probes: _Probes | None, data_dir: Path, kb_number: int, expected_auto: bool) -> FederationReadinessItem:
     name = "Knowledge base actor document through the public origin"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF15", name=name, group="knowledge", level="required", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    origin = runtime.public_origin.rstrip("/")
+    origin = probes.origin
     num_text = str(kb_number)
 
     def fail(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF15", name=name, group="knowledge", level="required", applies=True, passed=False, code="kb_actor_failed", detail=f"The actor document of the knowledge base {num_text} through the public origin: {problem}.", values={"number": num_text, "problem": problem})
 
-    try:
-        resp = requester("GET", f"{origin}/ap/kb/{num_text}", headers={"Accept": "application/activity+json"})
-    except Exception as exc:  # noqa: BLE001
-        return fail(f"request failed ({type(exc).__name__})")
+    resp, answer = probes.send("GET", f"/ap/kb/{num_text}", headers={"Accept": ACTIVITY_MEDIA_TYPE})
+    if resp is None or answer.party != "sidecar":
+        return _failed_item("GF15", name, "knowledge", "required", f"/ap/kb/{num_text}", answer, expected="sidecar", source="Claire", extra={"number": num_text})
     if resp.status != 200:
         return fail(f"HTTP status {resp.status}")
     if _media_type(resp.headers) != "application/activity+json":
@@ -648,30 +822,27 @@ def _check_kb_actor(runtime: WebRuntimeConfig | None, data_dir: Path, kb_number:
     return FederationReadinessItem(id="GF15", name=name, group="knowledge", level="required", applies=True, passed=True, code="kb_actor_ok", detail=f"The actor document of the knowledge base {num_text} is valid through the public origin.", values={"number": num_text})
 
 
-def _check_unsigned_collections(runtime: WebRuntimeConfig | None, kb_number: int | None, requester: PublicRequest) -> FederationReadinessItem:
+def _check_unsigned_collections(probes: _Probes | None, kb_number: int | None) -> FederationReadinessItem:
     name = "Collections refuse an unsigned read"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF16", name=name, group="knowledge", level="required", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    origin = runtime.public_origin.rstrip("/")
     paths = ["/ap/kb", "/ap/themes"]
     if kb_number is not None:
         paths.append(f"/ap/kb/{kb_number}/documents")
     for path in paths:
-        try:
-            resp = requester("GET", f"{origin}{path}", headers={"Accept": "application/activity+json"})
-        except Exception as exc:  # noqa: BLE001
-            err = type(exc).__name__
-            return FederationReadinessItem(id="GF16", name=name, group="knowledge", level="required", applies=True, passed=False, code="request_failed", detail=f"The request to the public origin failed ({err}).", values={"error": err})
+        resp, answer = probes.send("GET", path, headers={"Accept": ACTIVITY_MEDIA_TYPE})
+        # A 404 of Claire or of an intermediary does not show that the sidecar refuses the read.
+        if resp is None or answer.party != "sidecar":
+            return _failed_item("GF16", name, "knowledge", "required", path, answer, expected="sidecar", source="Claire")
         if resp.status != 404:
             return FederationReadinessItem(id="GF16", name=name, group="knowledge", level="required", applies=True, passed=False, code="collection_not_refused", detail=f"The public origin gave HTTP {resp.status} for an unsigned read of {path}. A collection of shared knowledge must give 404 to a request without a signature (KS1). Examine caches in front of the sidecar.", values={"status": resp.status, "path": path})
     return FederationReadinessItem(id="GF16", name=name, group="knowledge", level="required", applies=True, passed=True, code="collections_refused_unsigned", detail="Collections refuse an unsigned read with HTTP 404.")
 
 
-def _check_ns_documents(runtime: WebRuntimeConfig | None, requester: PublicRequest) -> FederationReadinessItem:
+def _check_ns_documents(probes: _Probes | None) -> FederationReadinessItem:
     name = "JSON-LD context and vocabulary page through the public origin"
-    if runtime is None:
+    if probes is None:
         return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
-    origin = runtime.public_origin.rstrip("/")
 
     def fail_context(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="ns_context_failed", detail=f"GET /ns/v1 through the public origin: {problem}.", values={"problem": problem})
@@ -679,10 +850,9 @@ def _check_ns_documents(runtime: WebRuntimeConfig | None, requester: PublicReque
     def fail_vocab(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="ns_vocabulary_failed", detail=f"GET /ns through the public origin: {problem}.", values={"problem": problem})
 
-    try:
-        ctx_resp = requester("GET", f"{origin}/ns/v1", headers={"Accept": "application/ld+json, application/json"})
-    except Exception as exc:  # noqa: BLE001
-        return fail_context(f"request failed ({type(exc).__name__})")
+    ctx_resp, answer = probes.send("GET", "/ns/v1", headers={"Accept": "application/ld+json, application/json"})
+    if ctx_resp is None or answer.party != "claire":
+        return _failed_item("GF17", name, "knowledge", "warning", "/ns/v1", answer, expected="claire", source="Claire")
     if 300 <= ctx_resp.status < 400:
         return fail_context(f"unexpected redirect (HTTP {ctx_resp.status})")
     if ctx_resp.status != 200:
@@ -699,10 +869,9 @@ def _check_ns_documents(runtime: WebRuntimeConfig | None, requester: PublicReque
     if ctx_doc != vocabulary.context_document():
         return fail_context("body is not the context document of this version")
 
-    try:
-        vocab_resp = requester("GET", f"{origin}/ns", headers={"Accept": "text/html"})
-    except Exception as exc:  # noqa: BLE001
-        return fail_vocab(f"request failed ({type(exc).__name__})")
+    vocab_resp, answer = probes.send("GET", "/ns", headers={"Accept": "text/html"})
+    if vocab_resp is None or answer.party != "claire":
+        return _failed_item("GF17", name, "knowledge", "warning", "/ns", answer, expected="claire", source="Claire")
     if 300 <= vocab_resp.status < 400:
         return fail_vocab(f"unexpected redirect (HTTP {vocab_resp.status})")
     if vocab_resp.status != 200:
@@ -713,12 +882,104 @@ def _check_ns_documents(runtime: WebRuntimeConfig | None, requester: PublicReque
     return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=True, code="ns_ok", detail="The JSON-LD context and vocabulary page are served through the public origin.")
 
 
-def _not_applicable_federation_off(item_id: str, name: str) -> FederationReadinessItem:
+def _address_class(address: str) -> str:
+    """The class of an address of the public host: ``loopback``, ``private``, ``cloudflare``, or ``global``."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return "private"
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    if ip.is_loopback:
+        return "loopback"
+    if not ip.is_global:
+        return "private"
+    return "cloudflare" if is_cloudflare_ip(ip) else "global"
+
+
+def _check_probe_path(runtime: WebRuntimeConfig | None, heartbeat: dict[str, Any] | None, age: float | None, resolver: ResolveHost, via_cdn: str | None) -> FederationReadinessItem:
+    """GF18: the self-check requests take the path of the requests of other servers (FEDERATION_GO_LIVE_DESIGN.md Section 7.2). The check cannot prove the path from outside, so it is a warning."""
+    name = "The checks take the path of other servers"
+    if runtime is None:
+        return FederationReadinessItem(id="GF18", name=name, group="operation", level="warning", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
+    if runtime.environment != "production":
+        return FederationReadinessItem(id="GF18", name=name, group="operation", level="warning", applies=False, passed=True, code="production_only", detail=f"The environment is {runtime.environment}. This check applies to production only.", values={"environment": runtime.environment})
+    host = runtime.expected_authority.rsplit(":", 1)[0] if not runtime.expected_authority.startswith("[") else runtime.expected_authority
+    sources: list[tuple[str, list[tuple[str, str]] | None]] = []
+    try:
+        sources.append(("Claire", [(address, _address_class(address)) for address in resolver(host)]))
+    except OSError:
+        sources.append(("Claire", None))
+    record = heartbeat.get("public_host") if isinstance(heartbeat, dict) and _is_recent(age) else None
+    if isinstance(record, dict) and isinstance(record.get("addresses"), list):
+        addresses = [str(entry.get("address")) for entry in record["addresses"] if isinstance(entry, dict) and isinstance(entry.get("address"), str)]
+        sources.append(("sidecar", None if record.get("error") is not None or not addresses else [(address, _address_class(address)) for address in addresses]))
+    for source, addresses in sources:
+        if addresses is None or not addresses:
+            return FederationReadinessItem(id="GF18", name=name, group="operation", level="warning", applies=True, passed=False, code="public_host_unresolved", detail=f"{source} cannot resolve the public host {host}.", values={"host": host, "source": source})
+        for address, address_class in addresses:
+            if address_class in ("loopback", "private"):
+                return FederationReadinessItem(id="GF18", name=name, group="operation", level="warning", applies=True, passed=False, code="public_host_private", detail=f"The public host {host} resolves to the private address {address} for {source}. The checks do not go the way of other servers. Run the outside probe (ops/federation_outside_probe.sh) from another network.", values={"host": host, "address": address, "source": source})
+    listed = ", ".join(f"{address} ({address_class})" for _source, addresses in sources for address, address_class in (addresses or []))
+    cdn = via_cdn or "none"
+    return FederationReadinessItem(id="GF18", name=name, group="operation", level="warning", applies=True, passed=True, code="public_host_global", detail=f"The public host {host} resolves to public addresses: {listed}. CDN in the answers: {cdn}.", values={"host": host, "addresses": listed, "via_cdn": cdn})
+
+
+def _traffic(heartbeat: dict[str, Any] | None, age: float | None) -> dict[str, Any] | None:
+    record = heartbeat.get("traffic") if isinstance(heartbeat, dict) and _is_recent(age) else None
+    return record if isinstance(record, dict) else None
+
+
+def _count(record: Any, key: str) -> int:
+    value = record.get(key) if isinstance(record, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _check_inbound_traffic(runtime: WebRuntimeConfig | None, federation_on: bool, heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
+    """GF19: other servers reach this server (FEDERATION_GO_LIVE_DESIGN.md Section 9.2). The counters are in the memory of the sidecar and start at zero when it starts."""
+    name = "Other servers reach this server"
+    if not federation_on:
+        return _not_applicable_federation_off("GF19", name, group="operation", level="warning")
+    traffic = _traffic(heartbeat, age)
+    if traffic is None:
+        return FederationReadinessItem(id="GF19", name=name, group="operation", level="warning", applies=True, passed=False, code="traffic_unknown", detail="There is no recent sidecar heartbeat. The traffic counters are not known.")
+    verified = traffic.get("inbound_verified")
+    count, hosts = _count(verified, "count"), _count(verified, "hosts")
+    rejected = _count(traffic.get("inbound_rejected"), "count")
+    if count > 0:
+        return FederationReadinessItem(id="GF19", name=name, group="operation", level="warning", applies=True, passed=True, code="inbound_ok", detail=f"{count} signed requests of {hosts} other servers verified in the last 24 hours (not verified: {rejected}).", values={"count": count, "hosts": hosts, "rejected": rejected})
+    host = runtime.expected_authority if runtime is not None else "unknown"
+    return FederationReadinessItem(id="GF19", name=name, group="operation", level="warning", applies=True, passed=False, code="no_inbound", detail=f"No signed request of another server verified in the last 24 hours (not verified: {rejected}). The counters start at zero when the sidecar starts. Search a handle of this server (@username@{host}) on another server to make the first contact.", values={"host": host, "rejected": rejected})
+
+
+def _check_deliveries(federation_on: bool, heartbeat: dict[str, Any] | None, age: float | None) -> FederationReadinessItem:
+    """GF20: deliveries to other servers succeed (FEDERATION_GO_LIVE_DESIGN.md Section 9.2)."""
+    name = "Deliveries to other servers succeed"
+    if not federation_on:
+        return _not_applicable_federation_off("GF20", name, group="operation", level="warning")
+    traffic = _traffic(heartbeat, age)
+    if traffic is None:
+        return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=True, passed=False, code="traffic_unknown", detail="There is no recent sidecar heartbeat. The traffic counters are not known.")
+    deliveries = traffic.get("deliveries")
+    succeeded = _count(deliveries, "succeeded")
+    failures = deliveries.get("failed") if isinstance(deliveries, dict) else None
+    by_class = {key: _count(failures, key) for key in ("dns", "tls", "timeout", "http_4xx", "http_5xx", "other")}
+    failed = sum(by_class.values())
+    if succeeded == 0 and failed == 0:
+        return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=False, passed=True, code="no_deliveries", detail="There was no delivery in the last 24 hours.")
+    if succeeded > 0:
+        return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=True, passed=True, code="deliveries_ok", detail=f"{succeeded} deliveries succeeded in the last 24 hours (failed tries: {failed}).", values={"succeeded": succeeded, "failed": failed})
+    worst = max(by_class, key=lambda key: by_class[key])
+    return FederationReadinessItem(id="GF20", name=name, group="operation", level="warning", applies=True, passed=False, code="deliveries_failed", detail=f"No delivery succeeded in the last 24 hours ({failed} failed tries). The most frequent failure is {worst}.", values={"failed": failed, "class": worst})
+
+
+def _not_applicable_federation_off(item_id: str, name: str, *, group: Group = "knowledge", level: Level = "required") -> FederationReadinessItem:
     return FederationReadinessItem(
         id=item_id,
         name=name,
-        group="knowledge",
-        level="required",
+        group=group,
+        level=level,
         applies=False,
         passed=True,
         code="federation_off",
@@ -745,8 +1006,8 @@ def _safe_auto_contribution_on(conn: sqlite3.Connection) -> bool:
     return row is not None and row[0] == "on"
 
 
-def _timeout_item(item_id: str, name: str, level: Literal["required", "warning"]) -> FederationReadinessItem:
-    group: Literal["account", "knowledge"] = "account" if item_id == "GF7" else "knowledge"
+def _timeout_item(item_id: str, name: str, level: Level) -> FederationReadinessItem:
+    group: Group = "account" if item_id == "GF7" else "knowledge"
     return FederationReadinessItem(id=item_id, name=name, group=group, level=level, applies=True, passed=False, code="check_timeout", detail="The check did not end in 20 seconds.")
 
 
@@ -755,14 +1016,14 @@ def check_federation_readiness(
     settings: Any,
     *,
     now: float | None = None,
-    fetch: MetadataFetch | None = None,
     request: PublicRequest | None = None,
+    resolve: ResolveHost | None = None,
     request_timeout: float = REQUEST_CHECKS_TIMEOUT_SECONDS,
 ) -> FederationReadinessReport:
-    """Do the checks GF1 to GF17 and return the report. ``report.passed`` is ``True`` when all required items pass.
+    """Do the checks GF1 to GF20 and return the report. ``report.passed`` is ``True`` when all required items pass.
 
     ``conn`` is a connection to ``claire.db``. ``settings`` gives ``data_dir`` and the values that ``WebRuntimeConfig.from_settings`` reads.
-    ``now``, ``fetch``, ``request``, and ``request_timeout`` are for tests.
+    ``now``, ``request``, ``resolve``, and ``request_timeout`` are for tests.
     """
     current = time.time() if now is None else now
     data_dir = Path(getattr(settings, "data_dir"))
@@ -770,7 +1031,7 @@ def check_federation_readiness(
     config_error = ""
     try:
         runtime = WebRuntimeConfig.from_settings(settings)
-    except Exception as exc:  # noqa: BLE001  # Settings that are not valid make GF5, GF7, GF10, and GF13 to GF17 fail.
+    except Exception as exc:  # noqa: BLE001  # Settings that are not valid make GF5, GF7, GF10, and GF13 to GF18 fail.
         config_error = str(exc) or type(exc).__name__
 
     heartbeat = federation_routes.read_heartbeat(data_dir)
@@ -793,20 +1054,23 @@ def check_federation_readiness(
     gf12 = _check_actor_keys(data_dir)
     gf13 = _check_knowledge_settings(conn, runtime)
 
-    # Request checks run concurrently with a shared deadline.
-    active_fetch = fetch if fetch is not None else fetch_metadata
-    active_request = request if request is not None else request_public_origin
+    # Request checks run concurrently with a shared deadline. Each request has the agent form of fediverse software, and each answer is compared with the marker of the sidecar of the heartbeat.
+    probes: _Probes | None = None
+    if runtime is not None:
+        origin = runtime.public_origin.rstrip("/")
+        marker = heartbeat.get("marker") if isinstance(heartbeat, dict) and _is_recent(age) else None
+        probes = _Probes(request if request is not None else request_public_origin, origin, marker if isinstance(marker, str) and marker else None, f"{federation_routes.SOFTWARE_NAME}/{federation_routes.software_version()} (+{origin}/)")
 
-    request_specs: dict[str, tuple[str, Literal["required", "warning"], Callable[[], FederationReadinessItem]]] = {
-        "GF7": ("OAuth metadata through the public origin", "required", lambda: _check_metadata(runtime, active_fetch)),
-        "GF10": ("Inbox body of the largest size through the public origin", "required", lambda: _check_inbox_body_limit(runtime, active_request)),
-        "GF17": ("JSON-LD context and vocabulary page through the public origin", "warning", lambda: _check_ns_documents(runtime, active_request)),
+    request_specs: dict[str, tuple[str, Level, Callable[[], FederationReadinessItem]]] = {
+        "GF7": ("OAuth metadata through the public origin", "required", lambda: _check_metadata(probes)),
+        "GF10": ("Inbox body of the largest size through the public origin", "required", lambda: _check_inbox_body_limit(probes)),
+        "GF17": ("JSON-LD context and vocabulary page through the public origin", "warning", lambda: _check_ns_documents(probes)),
     }
     if federation_on:
-        request_specs["GF14"] = ("First-contact documents through the public origin", "required", lambda: _check_first_contact(runtime, data_dir, active_request))
-        request_specs["GF16"] = ("Collections refuse an unsigned read", "required", lambda: _check_unsigned_collections(runtime, lowest_kb, active_request))
+        request_specs["GF14"] = ("First-contact documents through the public origin", "required", lambda: _check_first_contact(probes, data_dir))
+        request_specs["GF16"] = ("Collections refuse an unsigned read", "required", lambda: _check_unsigned_collections(probes, lowest_kb))
         if lowest_kb is not None:
-            request_specs["GF15"] = ("Knowledge base actor document through the public origin", "required", lambda: _check_kb_actor(runtime, data_dir, lowest_kb, expected_auto, active_request))
+            request_specs["GF15"] = ("Knowledge base actor document through the public origin", "required", lambda: _check_kb_actor(probes, data_dir, lowest_kb, expected_auto))
 
     request_results: dict[str, FederationReadinessItem] = {}
     executor = ThreadPoolExecutor(max_workers=len(request_specs))
@@ -820,7 +1084,7 @@ def check_federation_readiness(
                     request_results[item_id] = future.result()
                 except Exception as exc:  # noqa: BLE001
                     err = type(exc).__name__
-                    group: Literal["account", "knowledge"] = "account" if item_id == "GF7" else "knowledge"
+                    group: Group = "account" if item_id == "GF7" else "knowledge"
                     request_results[item_id] = FederationReadinessItem(id=item_id, name=item_name, group=group, level=item_level, applies=True, passed=False, code="request_failed", detail=f"The request to the public origin failed ({err}).", values={"error": err})
             else:
                 future.cancel()
@@ -840,5 +1104,10 @@ def check_federation_readiness(
     gf16 = request_results["GF16"] if federation_on else _not_applicable_federation_off("GF16", "Collections refuse an unsigned read")
     gf17 = request_results["GF17"]
 
-    items = (gf1, gf2, gf3, gf4, gf5, gf6, gf7, gf8, gf9, gf10, gf11, gf12, gf13, gf14, gf15, gf16, gf17)
+    # Path and traffic (warnings). GF18 reads what the answers of the request checks showed about the CDN.
+    gf18 = _check_probe_path(runtime, heartbeat, age, resolve if resolve is not None else resolve_host, probes.via_cdn if probes is not None else None)
+    gf19 = _check_inbound_traffic(runtime, federation_on, heartbeat, age)
+    gf20 = _check_deliveries(federation_on, heartbeat, age)
+
+    items = (gf1, gf2, gf3, gf4, gf5, gf6, gf7, gf8, gf9, gf10, gf11, gf12, gf13, gf14, gf15, gf16, gf17, gf18, gf19, gf20)
     return FederationReadinessReport(items=items, passed=all(item.passed for item in items if item.level == "required"))

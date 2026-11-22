@@ -16,7 +16,8 @@ import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
 import { KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
-import { OUTBOX_TASK_BATCH, publicSelfCheck, Sidecar } from "./sidecar.ts";
+import { resolvePublicHost } from "./probes.ts";
+import { OUTBOX_TASK_BATCH, Sidecar } from "./sidecar.ts";
 
 export const SIDECAR_VERSION = "0.1.0";
 const HEARTBEAT_SECONDS = 30;
@@ -63,18 +64,22 @@ if (import.meta.main) {
     try {
       const config = await sidecar.config();
       // The self-checks run also while federation is off: GF6, GF8, and GF9 must pass before the admin sets the switch to `on`.
-      const [ok, knowledgeSelfCheck] = await Promise.all([
-        publicSelfCheck(config, sidecar.marker),
+      // The path record (GF18) tells which addresses the public host has for this process.
+      const [selfCheck, knowledgeSelfCheck, publicHost] = await Promise.all([
+        sidecar.publicSelfCheck(config),
         sidecar.knowledgeSelfCheck(config),
+        resolvePublicHost(config.canonical_origin),
       ]);
-      const selfCheck = { ok, checked_at: Date.now() / 1000 };
       await api.heartbeat({
         contract_version: CONTRACT_VERSION,
         sidecar_version: SIDECAR_VERSION,
         queue_depth: queueDepth(db),
+        marker: sidecar.marker,
+        public_host: publicHost,
         self_check: selfCheck,
         knowledge_self_check: knowledgeSelfCheck,
         loops: sidecar.loops(),
+        traffic: sidecar.traffic(),
       });
     } catch (error) {
       console.error(`heartbeat failed: ${(error as Error).message}`);

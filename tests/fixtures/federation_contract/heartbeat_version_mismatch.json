@@ -6,15 +6,30 @@
       "contract_version": "2.0",
       "sidecar_version": "9.0.0",
       "queue_depth": 0,
+      "marker": "5b1f6f0e-3c56-4d0a-9d55-0c1a2b3c4d5e",
+      "public_host": {
+        "host": "claire.example.com",
+        "addresses": [],
+        "error": "dns"
+      },
       "self_check": {
         "ok": null,
-        "checked_at": null
+        "checked_at": null,
+        "answer": null
       },
       "knowledge_self_check": {
         "checked_at": null,
         "failed_paths": null,
+        "answers": [],
         "signed": {
-          "result": null
+          "draft_cavage": {
+            "result": null,
+            "answer": null
+          },
+          "rfc9421": {
+            "result": null,
+            "answer": null
+          }
         }
       },
       "loops": {
@@ -29,6 +44,30 @@
           "progress_at": null,
           "error": null,
           "error_at": null
+        }
+      },
+      "traffic": {
+        "window_seconds": 86400,
+        "inbound_verified": {
+          "count": 0,
+          "hosts": 0,
+          "last_at": null
+        },
+        "inbound_rejected": {
+          "count": 0,
+          "last_at": null
+        },
+        "deliveries": {
+          "succeeded": 0,
+          "failed": {
+            "dns": 0,
+            "tls": 0,
+            "timeout": 0,
+            "http_4xx": 0,
+            "http_5xx": 0,
+            "other": 0
+          },
+          "last_success_at": null
         }
       }
     }

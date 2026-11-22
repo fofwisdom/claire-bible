@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.12"
+CONTRACT_VERSION = "1.13"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -135,20 +135,49 @@ class ConfigResponse(_Sealed):
     allow_private_addresses: bool
 
 
+AnswerParty = Literal["sidecar", "sidecar_other", "claire", "cdn_challenge", "cdn_block", "cdn_error", "intermediary", "none"]
+AnswerError = Literal["dns", "tls", "connect", "timeout", "other"]
+ProbeProblem = Literal["not_routed", "path_changed", "host_changed", "answer_not_live", "signature_invalid"]
+_HeaderText = Annotated[str, Field(min_length=1, max_length=64)]
+_ProbePath = Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class ProbeAnswer(_Sealed):
+    """One failed self-check request of the sidecar: what went wrong and which party answered (FEDERATION_GO_LIVE_DESIGN.md Section 5, contract 1.13)."""
+
+    path: _ProbePath
+    problem: ProbeProblem
+    party: AnswerParty
+    status: Annotated[int, Field(ge=100, le=599)] | None
+    error: AnswerError | None
+    via_cdn: Literal["cloudflare"] | None
+    server: _HeaderText | None
+    media_type: _HeaderText | None
+    mitigation: Annotated[str, Field(min_length=1, max_length=32)] | None
+    # The path with the query (problem ``path_changed``) or the Host (problem ``host_changed``) that the sidecar got.
+    received: _ProbePath | None
+
+
 class SelfCheck(_Sealed):
     """Result of the public self-check of the sidecar (design Section 12, GF6). ``ok`` is ``None`` before the first check."""
 
     ok: bool | None
     checked_at: float | None
-
-
-SignedSelfCheckResult = Literal["ok", "not_routed", "host_changed", "signature_invalid", "tls_error", "dns_error", "request_failed"]
+    answer: ProbeAnswer | None
 
 
 class SignedSelfCheck(_Sealed):
-    """Result of the signed POST self-check of the sidecar (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4, GF9)."""
+    """Result of one signed POST self-check of the sidecar (KNOWLEDGE_FEDERATION_DESIGN.md Section 14.1.4, GF9)."""
 
-    result: SignedSelfCheckResult | None
+    result: Literal["ok", "failed"] | None
+    answer: ProbeAnswer | None
+
+
+class SignedSelfChecks(_Sealed):
+    """One signed POST for each signature form of a delivery (FEDERATION_GO_LIVE_DESIGN.md Section 6)."""
+
+    draft_cavage: SignedSelfCheck
+    rfc9421: SignedSelfCheck
 
 
 class KnowledgeSelfCheck(_Sealed):
@@ -156,7 +185,57 @@ class KnowledgeSelfCheck(_Sealed):
 
     checked_at: float | None
     failed_paths: Annotated[list[Annotated[str, Field(min_length=1, max_length=128)]], Field(max_length=16)] | None
-    signed: SignedSelfCheck
+    answers: Annotated[list[ProbeAnswer], Field(max_length=8)]
+    signed: SignedSelfChecks
+
+
+class PublicHostAddress(_Sealed):
+    address: Annotated[str, Field(min_length=2, max_length=64)]
+    # The JSON name is ``class``.
+    address_class: Literal["loopback", "private", "global"] = Field(alias="class")
+
+
+class PublicHost(_Sealed):
+    """The addresses that the host of the public origin has for the sidecar process (FEDERATION_GO_LIVE_DESIGN.md Section 7.1, GF18)."""
+
+    host: Annotated[str, Field(max_length=255)]
+    addresses: Annotated[list[PublicHostAddress], Field(max_length=16)]
+    error: Literal["dns"] | None
+
+
+class TrafficInboundVerified(_Sealed):
+    count: int = Field(ge=0)
+    hosts: int = Field(ge=0)
+    last_at: float | None
+
+
+class TrafficInboundRejected(_Sealed):
+    count: int = Field(ge=0)
+    last_at: float | None
+
+
+class TrafficDeliveryFailures(_Sealed):
+    dns: int = Field(ge=0)
+    tls: int = Field(ge=0)
+    timeout: int = Field(ge=0)
+    http_4xx: int = Field(ge=0)
+    http_5xx: int = Field(ge=0)
+    other: int = Field(ge=0)
+
+
+class TrafficDeliveries(_Sealed):
+    succeeded: int = Field(ge=0)
+    failed: TrafficDeliveryFailures
+    last_success_at: float | None
+
+
+class Traffic(_Sealed):
+    """Requests of other servers and deliveries to them, from the memory of the sidecar process (FEDERATION_GO_LIVE_DESIGN.md Section 9.1, GF19 and GF20)."""
+
+    window_seconds: int = Field(ge=1)
+    inbound_verified: TrafficInboundVerified
+    inbound_rejected: TrafficInboundRejected
+    deliveries: TrafficDeliveries
 
 
 class LoopState(_Sealed):
@@ -179,9 +258,13 @@ class HeartbeatRequest(_Sealed):
     contract_version: str = Field(pattern=r"^[0-9]{1,4}\.[0-9]{1,4}$")
     sidecar_version: str = Field(min_length=1, max_length=64)
     queue_depth: int = Field(ge=0)
+    # The random value of the sidecar process. Each answer of the sidecar has it in the header ``X-Claire-Fedify-Server``.
+    marker: str = Field(pattern=r"^[A-Za-z0-9_-]{8,64}$")
+    public_host: PublicHost
     self_check: SelfCheck
     knowledge_self_check: KnowledgeSelfCheck
     loops: HeartbeatLoops
+    traffic: Traffic
 
 
 class HeartbeatResponse(_Sealed):
@@ -702,7 +785,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return _error(400, "invalid_request")
         if body.contract_version.split(".")[0] != CONTRACT_VERSION.split(".")[0]:
             return _error(409, "contract_version_mismatch")
-        record = {"received_at": now(), **body.model_dump(mode="json")}
+        record = {"received_at": now(), **body.model_dump(mode="json", by_alias=True)}
         path = data_dir / HEARTBEAT_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")

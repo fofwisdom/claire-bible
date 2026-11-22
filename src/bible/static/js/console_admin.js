@@ -878,7 +878,16 @@
       if (item.code) {
         var codeKey = "console.js.admin.readiness.code." + item.code;
         var localized = tr(codeKey, item.values || {});
-        if (localized !== codeKey) detailText = localized;
+        if (localized !== codeKey) {
+          detailText = localized;
+          // A failed item whose code comes from the party of the answer also tells all failed paths (GF8), the signature form (GF9), or the media type of the request (GF10).
+          var ownText = { paths_not_routed: true, signed_request_failed: true };
+          if (!item.passed && item.values && !ownText[item.code]) {
+            ["paths", "forms", "media_type"].forEach(function (name) {
+              if (item.values[name]) detailText += " " + tr("console.js.admin.readiness.suffix." + name, item.values);
+            });
+          }
+        }
       }
       return { name: nameText, detail: detailText };
     }
@@ -892,7 +901,7 @@
         setResult(readinessResult, tr("console.js.admin.readiness.some_failed"), true);
         return;
       }
-      var groups = ["account", "knowledge"];
+      var groups = ["account", "knowledge", "operation"];
       var ungrouped = items.filter(function (item) { return groups.indexOf(item.group) === -1; });
       var renderGroup = function (groupId, groupItems) {
         if (!groupItems.length) return;
@@ -983,6 +992,17 @@
       } else {
         var check = heartbeat.self_check || {};
         var loops = heartbeat.loops || {};
+        var host = heartbeat.public_host || {};
+        var hostText = (host.addresses || []).map(function (entry) { return entry.address + " (" + entry["class"] + ")"; }).join(", ") || tr("console.js.admin.sidecar.public_host_unresolved");
+        var traffic = heartbeat.traffic;
+        var inboundText = tr("console.js.admin.sidecar.traffic_unavailable");
+        var deliveryText = inboundText;
+        if (traffic && traffic.inbound_verified && traffic.inbound_rejected && traffic.deliveries) {
+          var failedTries = 0;
+          Object.keys(traffic.deliveries.failed || {}).forEach(function (name) { failedTries += Number(traffic.deliveries.failed[name]) || 0; });
+          inboundText = tr("console.js.admin.sidecar.traffic_inbound_summary", { count: traffic.inbound_verified.count, hosts: traffic.inbound_verified.hosts, rejected: traffic.inbound_rejected.count });
+          deliveryText = tr("console.js.admin.sidecar.traffic_deliveries_summary", { succeeded: traffic.deliveries.succeeded, failed: failedTries });
+        }
         rows = [
           [tr("console.js.admin.sidecar.last_heartbeat"), formatTs(heartbeat.received_at)],
           [tr("console.js.admin.sidecar.contract_version"), heartbeat.contract_version],
@@ -990,7 +1010,10 @@
           [tr("console.js.admin.sidecar.queue_depth"), heartbeat.queue_depth],
           [tr("console.js.admin.sidecar.self_check"), check.ok === true ? tr("console.js.admin.readiness.passed") : (check.ok === false ? tr("console.js.admin.readiness.failed") : tr("console.js.admin.sidecar.self_check_pending"))],
           [tr("console.js.admin.sidecar.loop_knowledge_reads"), formatLoopState(loops.knowledge_reads), "knowledge_reads"],
-          [tr("console.js.admin.sidecar.loop_knowledge_exchange"), formatLoopState(loops.knowledge_exchange), "knowledge_exchange"]
+          [tr("console.js.admin.sidecar.loop_knowledge_exchange"), formatLoopState(loops.knowledge_exchange), "knowledge_exchange"],
+          [tr("console.js.admin.sidecar.public_host"), hostText, null, "public_host"],
+          [tr("console.js.admin.sidecar.traffic_inbound"), inboundText, null, "traffic_inbound"],
+          [tr("console.js.admin.sidecar.traffic_deliveries"), deliveryText, null, "traffic_deliveries"]
         ];
       }
       heartbeatDl.setAttribute("data-heartbeat", heartbeat ? "present" : "absent");
@@ -999,6 +1022,7 @@
         dt.textContent = row[0];
         var dd = document.createElement("dd");
         if (row[2]) dd.setAttribute("data-sidecar-loop", row[2]);
+        if (row[3]) dd.setAttribute("data-sidecar-row", row[3]);
         dd.textContent = row[1] == null ? "-" : String(row[1]);
         heartbeatDl.appendChild(dt);
         heartbeatDl.appendChild(dd);

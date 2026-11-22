@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.12";
+export const CONTRACT_VERSION = "1.13";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -53,12 +53,67 @@ export interface ActorKeys {
   keys: ActorKey[];
 }
 
-export type SignedSelfCheckCode = "ok" | "not_routed" | "host_changed" | "signature_invalid" | "tls_error" | "dns_error" | "request_failed";
+// The party that answered a self-check request (FEDERATION_GO_LIVE_DESIGN.md Section 5, contract 1.13).
+export type AnswerParty = "sidecar" | "sidecar_other" | "claire" | "cdn_challenge" | "cdn_block" | "cdn_error" | "intermediary" | "none";
+export type AnswerError = "dns" | "tls" | "connect" | "timeout" | "other";
+// not_routed: the answer did not come from this sidecar. answer_not_live: the answer has the marker of this sidecar, but this sidecar did not get the request.
+export type ProbeProblem = "not_routed" | "path_changed" | "host_changed" | "answer_not_live" | "signature_invalid";
+
+// One failed self-check request.
+export interface ProbeAnswer {
+  path: string;
+  problem: ProbeProblem;
+  party: AnswerParty;
+  status: number | null;
+  error: AnswerError | null;
+  via_cdn: "cloudflare" | null;
+  server: string | null;
+  media_type: string | null;
+  mitigation: string | null;
+  // The path and the query that this sidecar got (problem path_changed).
+  received: string | null;
+}
+
+export interface SignedSelfCheck {
+  result: "ok" | "failed" | null;
+  answer: ProbeAnswer | null;
+}
 
 export interface KnowledgeSelfCheck {
   checked_at: number | null;
   failed_paths: string[] | null;
-  signed: { result: SignedSelfCheckCode | null };
+  // The records of the failed GET requests, 8 at most.
+  answers: ProbeAnswer[];
+  // One signed POST for each signature form that a delivery of Fedify uses.
+  signed: { draft_cavage: SignedSelfCheck; rfc9421: SignedSelfCheck };
+}
+
+export interface PublicSelfCheck {
+  ok: boolean | null;
+  checked_at: number | null;
+  answer: ProbeAnswer | null;
+}
+
+export interface PublicHostAddress {
+  address: string;
+  class: "loopback" | "private" | "global";
+}
+
+// The addresses that the host of the public origin has for this process.
+export interface PublicHost {
+  host: string;
+  addresses: PublicHostAddress[];
+  error: "dns" | null;
+}
+
+export type DeliveryFailureClass = "dns" | "tls" | "timeout" | "http_4xx" | "http_5xx" | "other";
+
+// Requests of other servers and deliveries to them in the last `window_seconds` seconds, from the memory of this process.
+export interface Traffic {
+  window_seconds: number;
+  inbound_verified: { count: number; hosts: number; last_at: number | null };
+  inbound_rejected: { count: number; last_at: number | null };
+  deliveries: { succeeded: number; failed: Record<DeliveryFailureClass, number>; last_success_at: number | null };
 }
 
 export interface LoopState {
@@ -77,9 +132,13 @@ export interface Heartbeat {
   contract_version: string;
   sidecar_version: string;
   queue_depth: number;
-  self_check: { ok: boolean | null; checked_at: number | null };
+  // The random value of this sidecar process (the header X-Claire-Fedify-Server of each answer).
+  marker: string;
+  public_host: PublicHost;
+  self_check: PublicSelfCheck;
   knowledge_self_check: KnowledgeSelfCheck;
   loops: HeartbeatLoops;
+  traffic: Traffic;
 }
 
 export interface HeartbeatReply {

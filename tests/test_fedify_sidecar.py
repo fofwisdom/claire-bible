@@ -362,11 +362,13 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         finger = httpx.get(f"http://127.0.0.1:{sidecar_port}/.well-known/webfinger", params={"resource": f"acct:claire@127.0.0.1:{sidecar_port}"}, timeout=10)
         assert finger.status_code == 404 and finger.text == "Not Found"
 
-        # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire.
+        # The readiness checks that depend on the sidecar pass. GF7 and GF17 fail here only because this test has no reverse proxy that sends /ns and /.well-known/oauth-authorization-server to Claire: the report tells that the sidecar answered these paths.
         check = subprocess.run([sys.executable, "-m", "claire_bible.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
         report = json.loads(check.stdout)
         items = {item["id"]: item["passed"] for item in report["data"]["items"]}
-        assert items == {f"GF{i}": (i not in (7, 17)) for i in range(1, 18)}, check.stdout
+        assert items == {f"GF{i}": (i not in (7, 17)) for i in range(1, 21)}, check.stdout
+        codes = {item["id"]: item["code"] for item in report["data"]["items"]}
+        assert (codes["GF7"], codes["GF17"]) == ("answered_by_sidecar", "answered_by_sidecar"), check.stdout
     finally:
         if sidecar is not None:
             _stop(sidecar)

@@ -58,6 +58,8 @@ __all__ = [
     "CLOUDFLARE_IPV4_CIDRS",
     "CLOUDFLARE_IPV6_CIDRS",
     "CLOUDFLARE_NETWORKS",
+    "SERVER_MARKER_HEADER",
+    "ServerMarkerMiddleware",
     "CloudflareIPFilterMiddleware",
     "MAX_REQUEST_BODY",
     "ALL_MODES",
@@ -1653,6 +1655,32 @@ class CloudflareIPFilterMiddleware:
         await self.app(scope, receive, send)
 
 
+# Each answer of the public listener has this header. A federation readiness check uses it to tell an answer of Claire from an answer of the sidecar, a CDN, or another intermediary (FEDERATION_GO_LIVE_DESIGN.md Section 5.2). The value is a constant: the header shows only that the software is Claire, as the marker header of the sidecar does.
+SERVER_MARKER_HEADER = "x-claire-server"
+_SERVER_MARKER = (SERVER_MARKER_HEADER.encode("ascii"), b"api")
+
+
+class ServerMarkerMiddleware:
+    """Add ``SERVER_MARKER_HEADER`` to each HTTP answer."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_marked(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = [(key, value) for key, value in message.get("headers") or () if key.lower() != _SERVER_MARKER[0]]
+                headers.append(_SERVER_MARKER)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_marked)
+
+
 class CORSPolicyMiddleware:
     _ALLOWED_METHODS = frozenset({"GET", "HEAD", "POST"})
     _ALLOWED_HEADERS = frozenset({"authorization", "content-type"})
@@ -2675,6 +2703,7 @@ def wrap_web_app(
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)
     secured = SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)
+    secured = ServerMarkerMiddleware(secured)
     # The internal federation API (docs/implementation/FEDERATION.md) is selected by the listener, not by the Host header. It is outside all public middleware.
     data_dir = getattr(settings, "data_dir", None)
     if data_dir is None:
