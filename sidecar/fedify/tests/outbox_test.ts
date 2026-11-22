@@ -340,3 +340,24 @@ Deno.test("a delete_actor task becomes Delete(Person), signed with the keys that
     restore();
   }
 });
+
+Deno.test("outbox pagination keeps https links when requests arrive over http behind a TLS proxy", async () => {
+  const { fake, sidecar, restore } = setup();
+  try {
+    const outbox = `${PREFIX}/actors/${ALICE}/outbox`;
+    const item = (id: string, at: number) => ({ id, published_at: at, updated_at: at });
+    fake.overrides.set(`GET ${outbox}?limit=20`, { status: 200, response: { public_id: ALICE, total: 1, items: [item(OBJECT, 1800000310.0)], next_max_id: null } });
+
+    const rootResp = await sidecar.handle(new Request(`http://claire.example.com/ap/actors/${ALICE}/outbox`, { headers: { accept: AS2 } }));
+    assert.equal(rootResp.status, 200);
+    const root = await rootResp.json();
+    assert.match(root.first, /^https:\/\/claire\.example\.com\/ap\/actors\/116412345678901234\/outbox\?cursor=/);
+
+    const pageResp = await sidecar.handle(new Request(`http://claire.example.com/ap/actors/${ALICE}/outbox?cursor=`, { headers: { accept: AS2 } }));
+    assert.equal(pageResp.status, 200);
+    const page = await pageResp.json();
+    assert.equal(page.partOf, `${ALICE_URL}/outbox`);
+  } finally {
+    restore();
+  }
+});

@@ -157,6 +157,8 @@ def test_support_bundle_has_the_subsystem_members_without_secrets(tmp_path: Path
     assert runtime["server_settings"]["id_salt"]["value"] == "***REDACTED***"
 
     server = json.loads(members["federation/server_queues.json"])
+    assert server["federation_objects"] == {"total": 0}
+    assert any(f["code"] == "SIDECAR_SIGNED_CHECK_FAILED" for f in server["heartbeat_findings"]) is False
     assert server["kf_outbox"]["groups"][0]["status"] == "pending"
     assert server["kf_outbox_errors"] == [{"error_code": "http_503", "recipient_domain": "b.example", "count": 1, "last_at": server["kf_outbox_errors"][0]["last_at"]}]
     assert server["kf_outbox_retries"]["pending_overdue_1h"] == 1
@@ -166,6 +168,9 @@ def test_support_bundle_has_the_subsystem_members_without_secrets(tmp_path: Path
     client = json.loads(members["federation/client_db.json"])
     assert client["quick_check"] == "ok"
     assert client["client_meta"]["schema_version"] == str(client_db.CLIENT_SCHEMA_VERSION)
+    assert client["federation_notes"] == {"total": 0, "active": 0, "deleted": 0, "published_in_period": 0}
+    assert client["federation_object_reactions"]["by_kind"] == {}
+    assert client["federation_quote_authorizations"] == {"by_state": {}}
     assert client["feeds"]["failing"] == 1 and client["feeds"]["poll_overdue_1h"] == 1
     assert client["feeds"]["by_last_status"][0]["last_status"] == 403
     assert client["feeds"]["error_samples"][0]["error"] == "HTTP 403 for [URL]"
@@ -365,3 +370,96 @@ def test_web_push_task_state_file_is_written_with_a_limit_and_read_with_its_age(
     assert sender.read_task_state(tmp_path, now=1100.0 + 2 * sender.STATE_WRITE_INTERVAL + 61)["state"] == "overdue"
     path.write_text("not json", encoding="utf-8")
     assert sender.read_task_state(tmp_path, now=1110.0)["state"] == "unreadable"
+
+
+def test_account_and_server_bundles_include_safe_federation_diagnostics(tmp_path: Path):
+    from claire.ops.account_support_bundle import create_account_support_bundle
+    from claire.store import accounts as accounts_store
+
+    now = time.time()
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    store = accounts_store.AccountStore(conn)
+    store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
+    store.set_setting("mode", "network", updated_by=1)
+    conn.execute("INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (7, 716412345678901234, 'fow', 'member', 'active', 'FoW', 1, ?, ?, ?)", (now - 1000, now - 1000, now - 1000))
+    conn.execute("INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (8, 816412345678901234, 'other', 'member', 'active', 'Other', 1, ?, ?, ?)", (now - 1000, now - 1000, now - 1000))
+    conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (70, 70, 'fow kb', 1, 1, ?, ?, 7, 516412345678901234)", (now - 500, now - 500))
+    conn.execute("INSERT INTO federation_followers (public_id, account_id, actor_iri, inbox_iri, created_at, updated_at) VALUES (916412345678901234, 7, 'https://secret-remote.example/users/r1', 'https://secret-remote.example/users/r1/inbox', ?, ?)", (now - 300, now - 300))
+    conn.execute("INSERT INTO federation_followers (public_id, account_id, actor_iri, inbox_iri, created_at, updated_at) VALUES (926412345678901234, 8, 'https://secret-other.example/users/r2', 'https://secret-other.example/users/r2/inbox', ?, ?)", (now - 300, now - 300))
+    conn.execute("INSERT INTO federation_outbox (account_id, kind, status, error_code, created_at) VALUES (7, 'create', 'rejected', 'object_not_found', ?)", (now - 120,))
+    conn.execute("INSERT INTO federation_outbox (account_id, kind, status, error_code, created_at) VALUES (8, 'create', 'rejected', 'other_account_err', ?)", (now - 120,))
+    conn.commit()
+    conn.close()
+
+    cconn = client_db.connect_client_db(client_db.client_db_path(db_file))
+    cconn.execute("INSERT INTO federation_following (account_id, request, actor_iri, state, created_at, updated_at) VALUES (7, '@bob@remote.example', 'https://secret-remote.example/users/bob', 'accepted', ?, ?)", (now - 200, now - 200))
+    cconn.execute("INSERT INTO federation_client_outbox (account_id, kind, target_iri, status, error_code, created_at) VALUES (7, 'note', 'https://secret-remote.example/obj/1', 'rejected', 'delivery_failed', ?)", (now - 90,))
+    cconn.execute("INSERT INTO federation_client_outbox (account_id, kind, target_iri, status, error_code, created_at) VALUES (8, 'note', 'https://secret-other.example/obj/2', 'rejected', 'other_client_err', ?)", (now - 90,))
+    cconn.execute("INSERT INTO federation_notes (public_id, account_id, content_text, content_html, published_at, updated_at, quote_policy) VALUES (117660457792953794, 7, 'SECRET NOTE TEXT ALPHA', '<p>SECRET NOTE HTML ALPHA</p>', ?, ?, 'public')", (now - 60, now - 60))
+    cconn.execute("INSERT INTO federation_notes (public_id, account_id, content_text, content_html, published_at, updated_at, quote_policy) VALUES (217660457792953794, 8, 'OTHER ACCOUNT NOTE TEXT', '<p>OTHER</p>', ?, ?, 'public')", (now - 60, now - 60))
+    cconn.execute("INSERT INTO federation_object_reactions (object_public_id, account_id, kind, actor_iri, activity_iri, received_at) VALUES (117660457792953794, 7, 'announce', 'https://secret-remote.example/users/bob', 'https://secret-remote.example/act/1', ?)", (now - 30,))
+    cconn.execute("INSERT INTO federation_object_reactions (object_public_id, account_id, kind, actor_iri, activity_iri, received_at) VALUES (217660457792953794, 8, 'like', 'https://secret-other.example/users/z', 'https://secret-other.example/act/2', ?)", (now - 30,))
+    cconn.execute("INSERT INTO federation_quote_authorizations (account_id, object_public_id, quoting_object_iri, quoting_actor_iri, request_iri, state, created_at, updated_at) VALUES (7, 117660457792953794, 'https://secret-remote.example/q/1', 'https://secret-remote.example/users/bob', 'https://secret-remote.example/qr/1', 'pending', ?, ?)", (now - 20, now - 20))
+    cconn.commit()
+    cconn.close()
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "federation_heartbeat.json").write_text(
+        json.dumps(
+            {
+                "received_at": now - 15,
+                "contract_version": "1.15",
+                "sidecar_version": "0.1.0",
+                "queue_depth": 0,
+                "self_check": {"ok": True, "answer": None},
+                "knowledge_self_check": {
+                    "checked_at": now - 15,
+                    "failed_paths": [],
+                    "answers": [],
+                    "signed": {
+                        "draft_cavage": {"result": "ok", "answer": None},
+                        "rfc9421": {"result": "failed", "answer": {"problem": "signature_invalid", "status": 404}},
+                    },
+                },
+                "traffic": {
+                    "window_seconds": 86400,
+                    "inbound_verified": {"count": 2, "hosts": 1, "last_at": now - 20},
+                    "inbound_rejected": {"count": 34, "last_at": now - 18},
+                    "deliveries": {"succeeded": 1, "failed": {"dns": 0, "tls": 0, "timeout": 0, "http_4xx": 0, "http_5xx": 2, "other": 0}, "last_success_at": now - 25},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings: Any = StubSettings(db_file=db_file, data_dir=tmp_path)
+    acct_info = create_account_support_bundle(settings, account_id=7, days=1, now_epoch=now)
+    acct_members = _members(acct_info.filepath)
+    acct_blob = b"\n".join(acct_members.values()).decode("utf-8", errors="replace")
+    for forbidden in ("SECRET NOTE TEXT ALPHA", "SECRET NOTE HTML ALPHA", "OTHER ACCOUNT NOTE TEXT", "secret-remote.example", "secret-other.example", "other_account_err", "other_client_err", "217660457792953794"):
+        assert forbidden not in acct_blob, forbidden
+
+    fed = json.loads(acct_members["federation/summary.json"])
+    acct_manifest = json.loads(acct_members["manifest.json"])
+    assert fed["actor"]["is_actor"] is True and fed["actor"]["handle"] == "@fow@127.0.0.1:8765"
+    assert fed["followers"] == {"total": 1}
+    assert fed["notes"]["total"] == 1 and fed["notes"]["recent"][0]["public_id"] == "117660457792953794" and fed["notes"]["recent"][0]["announces"] == 1
+    assert fed["reactions"]["by_kind"] == {"announce": 1}
+    assert fed["quotes"]["by_state"] == {"pending": 1}
+    assert fed["sidecar"]["signed_checks"]["rfc9421"] == {"result": "failed", "problem": "signature_invalid", "status": 404}
+    assert fed["sidecar"]["traffic"]["inbound_rejected_count"] == 34 and fed["sidecar"]["traffic"]["deliveries_failed_total"] == 2
+    expected_codes = {"SIDECAR_SIGNED_CHECK_FAILED", "INBOUND_SIGNATURES_REJECTED", "DELIVERIES_FAILED", "OUTBOX_TASKS_REJECTED", "CLIENT_OUTBOX_TASKS_REJECTED"}
+    assert {f["code"] for f in fed["findings"]} == expected_codes
+    assert acct_manifest["counts"]["federation_findings"] == len(expected_codes)
+    assert acct_manifest["counts"]["federation_notes"] == 1
+
+    srv_members = _members(create_support_bundle(settings, days=1, now_epoch=now).filepath)
+    srv_manifest = json.loads(srv_members["manifest.json"])
+    srv_client = json.loads(srv_members["federation/client_db.json"])
+    assert set(srv_manifest["federation_findings"]) == {"SIDECAR_SIGNED_CHECK_FAILED", "INBOUND_SIGNATURES_REJECTED", "DELIVERIES_FAILED"}
+    assert srv_client["federation_notes"]["total"] == 2
+    assert srv_client["federation_object_reactions"]["by_kind"] == {"announce": 1, "like": 1}
+    assert srv_client["federation_quote_authorizations"] == {"by_state": {"pending": 1}}

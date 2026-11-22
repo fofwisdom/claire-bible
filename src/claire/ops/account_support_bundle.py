@@ -3,8 +3,9 @@
 관리자의 서버 전체 번들(``support_bundle.create_support_bundle``)과 달리 호출 계정의 데이터만 담는다.
 
 - 담는 것: 계정 상태 요약(비밀 없음), 소유 테마 목록과 집계, 소유 테마의 적재 대기열 요약·실패 항목, 소유 테마 문서의 프로바이더 텔레메트리,
-  선택한 대상 문서의 추적 정보, 빌드 정보, 그 계정의 알림 요약과 웹 푸시 기기(푸시 서비스 호스트 이름만. 엔드포인트·구독 키·알림 매개변수는 담지 않는다).
-- 담지 않는 것: 호스트·마운트·저장소 진단, 설정 값, 로그 파일, OAuth·MCP 기록, 다른 계정의 테마·문서, 문서 본문(``raw_text``·``detail``),
+  선택한 대상 문서의 추적 정보, 빌드 정보, 그 계정의 알림 요약과 웹 푸시 기기(푸시 서비스 호스트 이름만. 엔드포인트·구독 키·알림 매개변수는 담지 않는다),
+  그리고 그 계정의 연합 상태 요약(액터 상태·사이드카 점검·팔로워/발행 문서/노트/반응/아웃박스 오류 수만. 노트 본문·원격 액터 주소·키는 담지 않는다).
+- 담지 않는 것: 호스트·마운트·저장소 진단, 설정 값, 로그 파일, OAuth·MCP 기록, 다른 계정의 테마·문서, 문서·노트 본문(``raw_text``·``detail``),
   비밀(토큰·키 원문).
 - 등록부와 다운로드 경로는 서버 번들과 같다(``support_bundles``와 sidecar). ``account_id`` 열로 소유 계정을 구분한다.
 """
@@ -305,6 +306,16 @@ def _notifications(settings: Settings, account_id: int, cutoff: float, now: floa
         return {"state": "error", "error": type(exc).__name__, "findings": [], "devices": []}
 
 
+def _federation(settings: Settings, account_id: int, cutoff: float, now: float) -> dict[str, Any]:
+    """The federation status, sidecar checks, and note/reaction/outbox counts of the account. A failure does not stop the bundle."""
+    from .support_bundle_federation import collect_account_federation
+
+    try:
+        return collect_account_federation(settings, account_id=account_id, now=now, since=cutoff)
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "error", "error": type(exc).__name__, "findings": []}
+
+
 def create_account_support_bundle(
     settings: Settings | None = None,
     *,
@@ -347,6 +358,7 @@ def create_account_support_bundle(
         conn.close()
     telemetry = _telemetry(s, doc_ids, cutoff)
     notification_state = _notifications(s, account_id, cutoff, now)
+    federation_state = _federation(s, account_id, cutoff, now)
     build = _get_build_identity()
 
     tmp_path = archive_path.with_name(f".{archive_path.name}.tmp")
@@ -360,6 +372,7 @@ def create_account_support_bundle(
                     _add_json(tar, f"{root}/pipeline/failed_items.json", failed_items)
                     _add_json(tar, f"{root}/telemetry/provider_records.json", telemetry)
                     _add_json(tar, f"{root}/notifications/summary.json", notification_state)
+                    _add_json(tar, f"{root}/federation/summary.json", federation_state)
                     if tracked is not None:
                         _add_json(tar, f"{root}/tracked_document/target_resolution.json", tracked)
                     _add_json(tar, f"{root}/diagnostics/build.json", build)
@@ -382,6 +395,8 @@ def create_account_support_bundle(
                                 "telemetry_records": len(telemetry),
                                 "notification_devices": len(notification_state.get("devices", [])),
                                 "notification_findings": len(notification_state.get("findings", [])),
+                                "federation_findings": len(federation_state.get("findings", [])),
+                                "federation_notes": int(((federation_state.get("notes") or {}).get("total")) or 0),
                             },
                             "git_commit": build.get("git_commit"),
                             "request_context": sanitize_sensitive_data(request_context or {}),

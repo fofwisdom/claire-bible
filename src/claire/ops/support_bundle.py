@@ -1636,6 +1636,7 @@ def create_support_bundle(
                     ("notifications/summary.json", "NOTIFICATIONS", lambda: notification_collectors.collect_notifications(s, now=now, since=cutoff_epoch)),
                 )
                 notification_findings: list[str] = []
+                federation_findings: list[str] = []
                 for member, warning_code, collect in subsystem_members:
                     try:
                         member_report, member_warnings = collect()
@@ -1646,6 +1647,8 @@ def create_support_bundle(
                     if member == "notifications/summary.json" and isinstance(member_report.get("findings"), list):
                         # The manifest names the findings, so that a reader sees a notification problem without the member.
                         notification_findings = [str(item.get("code")) for item in member_report["findings"] if isinstance(item, dict)]
+                    elif member == "federation/server_queues.json" and isinstance(member_report.get("heartbeat_findings"), list):
+                        federation_findings = [str(item.get("code")) for item in member_report["heartbeat_findings"] if isinstance(item, dict)]
                     _add_tar_bytes(
                         tar,
                         f"{root_arcname}/{member}",
@@ -1908,6 +1911,7 @@ def create_support_bundle(
                         "file_present": bool(active_ingest_snapshot.get("file_present", False)),
                     },
                     "notification_findings": notification_findings,
+                    "federation_findings": federation_findings,
                     "target": sanitize_sensitive_data(target_info) if target_info else None,
                     "request_context": sanitize_sensitive_data(request_context or {}),
                 }

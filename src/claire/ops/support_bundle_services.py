@@ -250,7 +250,9 @@ def collect_server_federation(settings: Any, *, now: float, since: float) -> tup
         _guard(report, "federation_outbox", warnings, code, lambda: _status_summary(conn, "federation_outbox", status="status", time_column="created_at", group=("kind",)))
         _guard(report, "federation_outbox_errors", warnings, code, lambda: _code_counts(conn, "federation_outbox", code="error_code", time_column="created_at", since=since, group=("kind",)))
         _guard(report, "federation_followers", warnings, code, lambda: {"total": _count(conn, "federation_followers")})
+        _guard(report, "federation_objects", warnings, code, lambda: {"total": _count(conn, "federation_objects")})
         _guard(report, "federation_domain_blocks", warnings, code, lambda: {"total": _count(conn, "federation_domain_blocks")})
+        _guard(report, "heartbeat_findings", warnings, code, lambda: _heartbeat_findings(settings, now=now))
         _guard(report, "kf_outbox", warnings, code, lambda: _status_summary(conn, "kf_outbox", status="status", time_column="created_at", group=("kind",)))
         _guard(report, "kf_outbox_errors", warnings, code, lambda: _code_counts(conn, "kf_outbox", code="error_code", time_column="created_at", since=since, group=("recipient_domain",)))
         _guard(report, "kf_outbox_retries", warnings, code, lambda: _retries(conn, now))
@@ -267,6 +269,13 @@ def collect_server_federation(settings: Any, *, now: float, since: float) -> tup
     finally:
         conn.close()
     return report, warnings
+
+
+def _heartbeat_findings(settings: Any, *, now: float) -> list[dict[str, str]]:
+    from ..api.federation_routes import read_heartbeat
+    from .support_bundle_federation import sidecar_findings
+
+    return sidecar_findings(read_heartbeat(Path(settings.data_dir)), now=now)[1]
 
 
 def _count(conn: sqlite3.Connection, table: str) -> int | str:
@@ -421,6 +430,9 @@ def collect_client_db(settings: Any, *, now: float, since: float) -> tuple[dict[
         _guard(report, "federation_client_outbox_errors", warnings, code, lambda: _code_counts(conn, "federation_client_outbox", code="error_code", time_column="created_at", since=since, group=("kind",)))
         _guard(report, "federation_following", warnings, code, lambda: _status_summary(conn, "federation_following", status="state", time_column="updated_at"))
         _guard(report, "federation_timeline_items", warnings, code, lambda: _timeline(conn, since))
+        _guard(report, "federation_notes", warnings, code, lambda: _notes(conn, since))
+        _guard(report, "federation_object_reactions", warnings, code, lambda: _reactions(conn, since))
+        _guard(report, "federation_quote_authorizations", warnings, code, lambda: _quotes(conn))
         _guard(report, "federation_media_cache", warnings, code, lambda: _media_cache(conn))
         _guard(report, "feeds", warnings, code, lambda: _feeds(conn, now, since))
     finally:
@@ -436,6 +448,35 @@ def _timeline(conn: sqlite3.Connection, since: float) -> Any:
         (since,),
     ).fetchone()
     return {"total": int(row[0]), "accounts": int(row[1]), "oldest_received_at": row[2], "newest_received_at": row[3], "received_in_period": int(row[4] or 0), "mentions": int(row[5] or 0)}
+
+
+def _notes(conn: sqlite3.Connection, since: float) -> Any:
+    if "federation_notes" not in _tables(conn):
+        return {"state": "absent"}
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END), SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END), SUM(CASE WHEN published_at >= ? THEN 1 ELSE 0 END) FROM federation_notes",
+        (since,),
+    ).fetchone()
+    return {"total": int(row[0]), "active": int(row[1] or 0), "deleted": int(row[2] or 0), "published_in_period": int(row[3] or 0)}
+
+
+def _reactions(conn: sqlite3.Connection, since: float) -> Any:
+    if "federation_object_reactions" not in _tables(conn):
+        return {"state": "absent"}
+    rows = conn.execute("SELECT kind, COUNT(*), MAX(received_at) FROM federation_object_reactions GROUP BY kind ORDER BY kind").fetchall()
+    in_period = conn.execute("SELECT COUNT(*), MAX(received_at) FROM federation_object_reactions WHERE received_at >= ?", (since,)).fetchone()
+    return {
+        "by_kind": {str(r[0]): int(r[1]) for r in rows},
+        "received_in_period": int(in_period[0]),
+        "newest_at": in_period[1],
+    }
+
+
+def _quotes(conn: sqlite3.Connection) -> Any:
+    if "federation_quote_authorizations" not in _tables(conn):
+        return {"state": "absent"}
+    rows = conn.execute("SELECT state, COUNT(*) FROM federation_quote_authorizations GROUP BY state ORDER BY state").fetchall()
+    return {"by_state": {str(r[0]): int(r[1]) for r in rows}}
 
 
 def _media_cache(conn: sqlite3.Connection) -> Any:
