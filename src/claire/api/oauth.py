@@ -324,6 +324,10 @@ main { max-width: 32rem; width: 100%; }
 .callout { border-left: 3px solid var(--danger); background: var(--danger-bg); color: var(--danger); padding: .75rem; border-radius: 6px; font-size: .9rem; margin: .75rem 0; display: flex; gap: .5rem; align-items: flex-start; }
 .errors { border-left: 3px solid var(--danger); background: var(--danger-bg); color: var(--danger); padding: .75rem; border-radius: 6px; font-size: .9rem; margin: 0 0 1rem; display: flex; gap: .5rem; align-items: center; }
 label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
+label.choice { display: flex; gap: .6rem; align-items: flex-start; font-weight: 400; border: 1px solid var(--line); border-radius: 8px; padding: .75rem; margin: 0 0 .75rem; }
+label.choice input { margin-top: .3rem; }
+label.choice .hint { margin: 0; }
+form:has(input[name=grant_write]:not(:checked)) .step-up { display: none; }
 input[type=text], input[type=password] { width: 100%; padding: .55rem .65rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 button, a.btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; width: 100%; padding: .65rem 1rem; font: inherit; font-weight: 600; border-radius: 8px; cursor: pointer; text-decoration: none; border: 1px solid transparent; margin-top: .65rem; }
 button.primary, a.btn.primary { background: var(--accent); color: #fff; }
@@ -375,13 +379,24 @@ def _render_authorize_page(
 
     hidden_tx = f'<input type="hidden" name="tx" value="{esc_tx}">' if tx_id else ""
     subtitle = _h(t("auth.oauth.subtitle", account=account_name)) if (has_valid_cookie and account_name) else _h(t("auth.oauth.session_required"))
+    # The user can clear the write scope (design CLAUDE_AGENT_CLIENT_DESIGN.md, unit CL6). The password field is not
+    # "required" in HTML, because a read-only approval needs no step-up. The server examines the password when write stays.
+    write_choice_html = ""
+    if has_valid_cookie and "write" in scope.split():
+        write_choice_html = (
+            '<input type="hidden" name="write_choice" value="1">'
+            '<label class="choice"><input type="checkbox" name="grant_write" value="1" checked>'
+            f'<span><strong>{_h(t("auth.oauth.grant_write_label"))}</strong><br><span class="hint">{_h(t("auth.oauth.grant_write_hint"))}</span></span></label>'
+        )
     step_up_html = ""
     if has_valid_cookie and needs_step_up:
         step_up_html = (
+            '<div class="step-up">'
             f'<div class="callout" data-passkey-reauth="1" data-allow-credentials="{_h(allow_credentials_json)}">'
             f'{_svg_icon("shield")}<div><strong>{_h(t("auth.oauth.step_up_title"))}</strong><br><span>{_h(t("auth.oauth.step_up_hint"))}</span></div></div>'
             f'<label for="step_up_password">{_h(t("auth.field.password"))}</label>'
-            f'<input id="step_up_password" name="step_up_password" type="password" required autocomplete="current-password">'
+            f'<input id="step_up_password" name="step_up_password" type="password" autocomplete="current-password">'
+            "</div>"
         )
 
     if has_valid_cookie:
@@ -395,6 +410,7 @@ def _render_authorize_page(
             <input type="hidden" name="code_challenge_method" value="{esc_method}">
             <input type="hidden" name="scope" value="{esc_scope}">
             <input type="hidden" name="action" value="approve">
+            {write_choice_html}
             {step_up_html}
             <button type="submit" class="primary">{_svg_icon("check")} {_h(t("auth.oauth.approve"))}</button>
         </form>
@@ -729,6 +745,11 @@ async def handle_authorize(request: Request) -> Response:
 
         if code_challenge_method != "S256" or not code_challenge:
             return JSONResponse({"error": "invalid_request", "error_description": "PKCE S256 code_challenge is required"}, status_code=400)
+
+        # Scope narrowing (RFC 6749 Section 3.3): the consent form offers the write choice with the marker "write_choice".
+        # A form without the marker keeps the requested scope.
+        if "write" in scope.split() and str(form.get("write_choice") or "") == "1" and str(form.get("grant_write") or "") != "1":
+            scope = "readonly"
 
         account_label = authed_acc.username or authed_acc.display_name or f"account:{authed_acc.id}"
         if "write" in scope.split() and not _session_has_recent_auth(binding.authenticated_at):

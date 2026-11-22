@@ -3933,6 +3933,8 @@
   "auth.oauth.scope_label": "요청된 권한 범위",
   "auth.oauth.scope_readonly": "문서·엔티티·관계·검색 인덱스 읽기",
   "auth.oauth.scope_write": "쓰기 권한 요청: 이 클라이언트가 지식 베이스에 추출 결과를 적재·제출할 수 있습니다.",
+  "auth.oauth.grant_write_label": "쓰기 권한 허용",
+  "auth.oauth.grant_write_hint": "채팅 앱의 커넥터처럼 조회만 할 연결이면 체크를 끄세요. 그러면 애플리케이션은 readonly 권한만 받습니다.",
   "auth.oauth.step_up_title": "쓰기 권한 부여를 위한 비밀번호 확인",
   "auth.oauth.step_up_hint": "쓰기 권한을 승인하려면 최근 인증 확인이 필요합니다.",
   "auth.oauth.step_up_invalid": "현재 비밀번호가 올바르지 않습니다.",

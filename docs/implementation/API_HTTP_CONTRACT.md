@@ -10,7 +10,7 @@
 | `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "server": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 (`owner`·`collaborator` 요청에는 현재 활성 적재 프로바이더의 선택 가능 사고 수준 메타 `ingest_effort`를 포함한다) |
 | `POST` | `/oauth/register` | `public` | OAuth 2.1 동적 클라이언트 등록 (RFC 7591) |
-| `GET`/`POST` | `/oauth/authorize` | `public` | OAuth 2.1 `S256` PKCE 인가·동의 화면(`/login?tx=` 경유, `write` 스코프는 단계 인증 요구) |
+| `GET`/`POST` | `/oauth/authorize` | `public` | OAuth 2.1 `S256` PKCE 인가·동의 화면(`/login?tx=` 경유, `write` 스코프는 단계 인증 요구; 동의 폼에서 `grant_write` 체크를 끄면 `readonly`만 발급) |
 | `POST` | `/oauth/token` | `public` | OAuth 2.1 토큰 엔드포인트 (`authorization_code` PKCE `S256`, `refresh_token` 회전·재사용 시 패밀리 전체 폐기, `urn:ietf:params:oauth:grant-type:device_code`, RFC 8693 `token-exchange`, [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md) §2.5, §3.1) |
 | `POST` | `/oauth/revoke` | `public` | RFC 7009 OAuth 토큰 폐기 |
 | `POST` | `/oauth/device_authorization` | `public` | RFC 8628 Device Authorization 요청 (`device_code`, `user_code`) |

@@ -871,3 +871,80 @@ def test_oauth_authorize_and_grants_hardening_e2e(tmp_path: Path) -> None:
         client.cookies.clear()
         assert client.post("/mcp", headers={"Authorization": f"Bearer {a1}"}, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).status_code == 401
         assert client.post("/mcp", headers={"Authorization": f"Bearer {a2}"}, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).status_code == 200
+
+
+def test_oauth_consent_write_choice_narrows_scope_to_readonly(tmp_path: Path) -> None:
+    """The consent form lets the user clear the write scope; the token is then readonly and write tools refuse it (unit CL6)."""
+    import json
+    import time
+    from urllib.parse import parse_qs, urlparse
+    from claire.store import accounts as accounts_store
+
+    s = _settings(tmp_path)
+    app = _app(s)
+    with TestClient(app, base_url=s.public_url) as client:
+        conn = dbm.connect(s.db_file)
+        accounts_store.AccountStore(conn).complete_setup(1, username="adminuser", display_name="Admin")
+        member = accounts_store.AccountStore(conn).create_member(username="alice", display_name="Alice")
+        stale_session = accounts_store.create_account_session(conn, account_id=member.id, scope="owner", now=time.time() - 3600)
+        conn.close()
+
+        reg = client.post("/oauth/register", json={"client_name": "Chat connector", "redirect_uris": ["http://127.0.0.1:9876/cb"]}).json()
+        cid = reg["client_id"]
+        verifier = "cl6-verifier-1234567890-abcdefghijklmnopqrs"
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
+
+        client.cookies.set("claire_session", stale_session, domain="127.0.0.1")
+        consent = client.get(
+            f"/oauth/authorize?response_type=code&client_id={cid}&redirect_uri=http://127.0.0.1:9876/cb&state=s1&code_challenge={challenge}&code_challenge_method=S256&scope=readonly%20write"
+        )
+        assert consent.status_code == 200
+        assert 'name="write_choice" value="1"' in consent.text
+        assert 'type="checkbox" name="grant_write" value="1" checked' in consent.text
+        assert "Allow write access" in consent.text
+        # A read-only approval must be possible with an empty password field.
+        assert 'name="step_up_password" type="password" autocomplete' in consent.text
+
+        readonly_consent = client.get(
+            f"/oauth/authorize?response_type=code&client_id={cid}&redirect_uri=http://127.0.0.1:9876/cb&state=s0&code_challenge={challenge}&code_challenge_method=S256&scope=readonly"
+        )
+        assert 'name="grant_write"' not in readonly_consent.text
+
+        form = {
+            "client_id": cid,
+            "redirect_uri": "http://127.0.0.1:9876/cb",
+            "state": "s1",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "readonly write",
+            "action": "approve",
+            "write_choice": "1",
+        }
+        # The box stays selected and the session is stale: the step-up rule does not change.
+        kept = client.post("/oauth/authorize", data={**form, "grant_write": "1"}, headers={"Origin": s.public_url})
+        assert kept.status_code == 403
+
+        # The box is cleared: no password is necessary and the code carries readonly only.
+        narrowed = client.post("/oauth/authorize", data=form, headers={"Origin": s.public_url}, follow_redirects=False)
+        assert narrowed.status_code == 302
+        code = parse_qs(urlparse(narrowed.headers["location"]).query)["code"][0]
+        tok = client.post(
+            "/oauth/token",
+            data={"grant_type": "authorization_code", "code": code, "client_id": cid, "redirect_uri": "http://127.0.0.1:9876/cb", "code_verifier": verifier},
+        )
+        assert tok.status_code == 200
+        token = tok.json()
+        assert token["scope"] == "readonly"
+
+        escalate = client.post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": token["refresh_token"], "client_id": cid, "scope": "readonly write"})
+        assert escalate.status_code == 400
+
+        client.cookies.clear()
+        call = client.post(
+            "/mcp",
+            headers={"Authorization": f"Bearer {token['access_token']}"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "extract_read", "arguments": {"document_id": "doc_missing"}}},
+        )
+        assert call.status_code == 200
+        payload = json.loads(call.json()["result"]["content"][0]["text"])
+        assert payload == {"error": "scope_insufficient", "required_scope": "write"}

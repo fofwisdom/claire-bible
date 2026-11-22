@@ -1,7 +1,7 @@
 # Claude Agent Client: A Working `claire` Plugin for Claude Code
 
 - **Document Identifier**: `DESIGN-CLAUDE-AGENT-CLIENT-20261122`
-- **Status**: Units CL0 to CL5, CL7, and CL8 are implemented (2026-11-22, marketplace `v0.3.0`): the current state is in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4 and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md). Units CL6 (consent checkbox) and CL9 (upload link) are not implemented. Unit CL10 (Cowork and claude.ai plugin support) has no design yet. Owner decisions CD1 to CD4 (Section 10) are locked (2026-11-22).
+- **Status**: Units CL0 to CL8 are implemented (2026-11-22, marketplace `v0.3.0`): the current state is in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Sections 3.4 and 3.1 (consent choice) and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md). Unit CL9 (upload link) is not implemented. Unit CL10 (Cowork and claude.ai plugin support) has no design yet. Owner decisions CD1 to CD4 (Section 10) are locked (2026-11-22).
 - **Date**: 2026-11-22
 - **Base commit**: `ea4804b` (marketplace `v0.2.0`, Option A)
 - **Related Documents**:
@@ -175,7 +175,7 @@ The catalog must not contain the product names that `AED8` retired from the page
 
 ### CL6. Query-only connectors on chat surfaces
 
-- The consent screen shows each requested scope as a checkbox. The user can clear `write`. The server then issues a token with fewer scopes and returns the granted scope in the token response (RFC 6749 Section 3.3).
+- When the client requests `write`, the consent screen shows one checkbox for it, selected by default. The user can clear it. The server then issues a `readonly` token, asks for no step-up, and returns the granted scope in the token response (RFC 6749 Section 3.3). The form has a marker field, so a request without the marker keeps the requested scope. The device flow does not change.
 - The Claude guide tells chat-surface users to clear `write`. With `readonly`, the server refuses `extract_read` and other write tools (T13). The defense does not depend on the chat model.
 - Other clients do not change: when the user keeps all boxes, the token is the same as today.
 
@@ -248,7 +248,7 @@ Optional [proposal]: run `claude plugin validate` in the marketplace check workf
 | CL1, CL2, CL8 | Bundle, guard, version, build gates (Section 7), unit tests | Implemented |
 | CL3, CL4, CL7 | Setup block, plugin README, `MCP_SUPPORT.md` correction | Implemented |
 | CL5 | `/settings/mcp` rows, catalog keys, E2E test | Implemented |
-| CL6 | Consent checkbox, smaller token scope (CD2) | Open |
+| CL6 | Consent checkbox, smaller token scope (CD2), unit test and E2E test | Implemented |
 | CL9 | Upload link tool (CD4) | Open |
 | CL10 | Plugin support in Cowork and claude.ai (CD3) | No design. It needs the observations of Section 10.1. |
 

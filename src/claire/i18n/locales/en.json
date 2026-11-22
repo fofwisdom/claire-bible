@@ -3933,6 +3933,8 @@
   "auth.oauth.scope_label": "Requested Scopes",
   "auth.oauth.scope_readonly": "Read documents, entities, relations, and search indexes.",
   "auth.oauth.scope_write": "Write permission requested: this client can stage and submit extractions to your knowledge base.",
+  "auth.oauth.grant_write_label": "Allow write access",
+  "auth.oauth.grant_write_hint": "Clear this box for a read-only connection, for example a connector in a chat app. The application then gets the readonly scope only.",
   "auth.oauth.step_up_title": "Confirm password to grant write access",
   "auth.oauth.step_up_hint": "Your session requires recent authentication to approve write access.",
   "auth.oauth.step_up_invalid": "Current password is incorrect.",
