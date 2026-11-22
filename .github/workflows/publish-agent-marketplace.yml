@@ -104,7 +104,8 @@ jobs:
             git config user.email "claire-agents-bot[bot]@users.noreply.github.com"
             git tag -a "${tag}" -m "Release ${tag} synced from fofwisdom/claire-bible@${SOURCE_SHA}"
             git push origin "${tag}"
-            gh release create "${tag}" /tmp/claire-agents-dist/releases/* --repo "${MARKETPLACE_REPO}" --title "${tag}" --notes "Automated release synced from fofwisdom/claire-bible@${SOURCE_SHA}."
+            gh release create "${tag}" /tmp/claire-agents-dist/releases/* --repo "${MARKETPLACE_REPO}" --title "${tag}" --notes-file /tmp/claire-agents-dist/release_notes.md
           else
-            echo "Tag ${tag} already exists in ${MARKETPLACE_REPO}; skipping release creation."
+            echo "Tag ${tag} already exists in ${MARKETPLACE_REPO}; updating release notes."
+            gh release edit "${tag}" --repo "${MARKETPLACE_REPO}" --notes-file /tmp/claire-agents-dist/release_notes.md || true
           fi

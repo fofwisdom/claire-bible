@@ -1,0 +1,17 @@
+# Claire Bible Plugin for Antigravity (`claire-antigravity`)
+
+Connect Google Antigravity to your Claire Bible server over OAuth 2.1 (`/mcp`) for isolated source extraction and knowledge graph queries. Zero server tokens or secrets are included in this plugin.
+
+## Full Step-by-Step GUI Guides (단계별 GUI 설치 안내서)
+
+- **한국어 상세 가이드**: [`docs/antigravity.ko.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/antigravity.ko.md)
+- **English Setup Guide**: [`docs/antigravity.en.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/antigravity.en.md)
+
+## Quick Summary (요약)
+
+1. **방법 1 (권장 — 채팅창에 붙여넣어 자동 설치 / Recommended — Paste Once in Chat)**:
+   Open **Settings -> MCP** (`/settings/mcp`) on your Claire Bible server, click **Copy** on **Antigravity quick setup prompt**, and paste it into a new Antigravity chat window. Then click **Authenticate** next to `claire` under **Customizations -> Installed -> MCP Servers**.
+2. **방법 2 (순수 GUI 마우스 클릭 설치 / Point-and-Click Setup)**:
+   Download `claire-antigravity-v{{VERSION}}.zip` from [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest), unzip it into your Antigravity plugins folder (`~/.gemini/config/plugins/` on macOS/Linux or `%USERPROFILE%\.gemini\config\plugins` on Windows), and add `https://<your-claire-server>/mcp` as MCP server `claire` under **Customizations -> Installed -> MCP Servers -> Add MCP Server (+)**.
+
+> **Note**: GUI users do **not** need to rename or manually edit `mcp_config.json.tmpl`.

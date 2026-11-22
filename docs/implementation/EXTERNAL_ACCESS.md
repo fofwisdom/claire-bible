@@ -272,7 +272,7 @@ Claire Bible은 시스템 소유자(Owner), 쓰기(Write), 읽기 전용(Readonl
 
 ### 공식 에이전트 마켓플레이스 (`fofwisdom/claire-agents` 및 OAuth 2.1)
 
-본체 저장소 `agent_clients/` 소스를 `scripts/build_agent_marketplace.py`와 GitHub Actions로 검증·동기화해 전용 공개 저장소(`fofwisdom/claire-agents`)로 배포한다 (`claire-claude` · `.claude-plugin/marketplace.json`, `claire-antigravity` · GitHub Releases `.tar.gz`/`.zip` + `SHA256SUMS`). 번들에는 `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다:
+본체 저장소 `agent_clients/` 소스를 `scripts/build_agent_marketplace.py`와 GitHub Actions로 검증·동기화해 전용 공개 저장소(`fofwisdom/claire-agents`)로 배포한다 (`claire-claude` · `.claude-plugin/marketplace.json`, `claire-antigravity` · GitHub Releases `.zip`/`.tar.gz` + `SHA256SUMS` + GUI 우선 설치 가이드 `docs/{antigravity,claude}.{ko,en}.md`). `/settings/mcp`에서는 Antigravity 채팅창에 바로 붙여넣을 수 있는 빠른 설치 문구(`#pref-mcp-antigravity-prompt`)와 현재 로케일에 맞춘 설치 가이드 링크(`#pref-mcp-antigravity-guide`)를 제공한다. 번들에는 `agents/claire-extractor.md`, `skills/claire-extract/SKILL.md`, `skills/claire-query/SKILL.md`(및 Antigravity용 `README.md`, `mcp_config.json.tmpl`, `rules/AGENTS.md`)가 포함되며 비밀키는 포함하지 않는다:
 
 ```json
 {

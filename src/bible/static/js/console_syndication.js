@@ -553,6 +553,13 @@
     var proposedOn = MCP_PROPOSED_TOOLS.filter(proposedToolOn);
     var ep = mcpEndpoint();
     byId("pref-mcp-endpoint").textContent = ep;
+    var promptEl = byId("pref-mcp-antigravity-prompt");
+    if (promptEl) {
+      var mp = (synd && synd.agent_marketplace) || {};
+      var mpRepo = mp.repo || "fofwisdom/claire-agents";
+      var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire-antigravity plugin (.zip) from the latest GitHub Release of https://github.com/{repo} into my Antigravity plugins folder, verify SHA256SUMS, and set the claire MCP server URL to {mcp_url}.");
+      promptEl.textContent = promptTmpl.replace(/\{repo\}/g, mpRepo).replace(/\{mcp_url\}/g, ep);
+    }
     byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
     byId("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
     byId("pref-mcp-stats").innerHTML = [
@@ -617,7 +624,7 @@
       if (copy) {
         var text = byId(copy.getAttribute("data-copy-target")).textContent;
         if (!navigator.clipboard) { showToast(text); return; }
-        navigator.clipboard.writeText(text).then(function () { showToast("엔드포인트를 복사했습니다"); }, function () { showToast(text); });
+        navigator.clipboard.writeText(text).then(function () { showToast(tJs("console.js.synd.mcp.copied", "Copied to clipboard.")); }, function () { showToast(text); });
         return;
       }
       var revokeBtn = e.target.closest("[data-oauth-revoke-grant]");

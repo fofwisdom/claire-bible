@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...core import ids
-from ...i18n import interpolate, t
+from ...i18n import get_locale, interpolate, t
 from ...store import accounts as accounts_store
 from ...store import db as dbm
 from ...store.knowledge_base import KnowledgeBaseInfo
@@ -181,32 +181,49 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
     )
 
 
+def _antigravity_guide_url(repo: str) -> str:
+    lang = "ko" if get_locale() == "ko" else "en"
+    return f"https://github.com/{repo}/blob/main/docs/antigravity.{lang}.md"
+
+
 def _render_agent_marketplace_block(repo: str) -> str:
     git_url = f"https://github.com/{repo}.git"
     releases_url = f"https://github.com/{repo}/releases"
+    ag_guide_url = _antigravity_guide_url(repo)
+    default_prompt = t("console.js.synd.mcp.antigravity_prompt", repo=repo, mcp_url="/mcp")
     agent_guidance = console_notice(
         f'<ul style="margin:0;padding-left:1.1rem;display:grid;gap:4px">'
-        f'<li>{escape(t("console.synd.mcp.marketplace_guide_claude", repo=repo))}</li>'
         f'<li>{escape(t("console.synd.mcp.marketplace_guide_antigravity"))}</li>'
+        f'<li>{escape(t("console.synd.mcp.marketplace_guide_claude", repo=repo))}</li>'
         "</ul>"
     )
     body_html = (
         f'<p class="pref-desc">{escape(t("console.synd.mcp.marketplace_desc"))}</p>'
         '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_ag_prompt_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_ag_prompt_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-antigravity-prompt" class="pref-mono" style="white-space:normal;word-break:break-word;max-width:100%">{escape(default_prompt)}</code>'
+        f'<button type="button" class="pref-btn pref-btn-accent" id="pref-mcp-copy-antigravity-prompt" data-copy-target="pref-mcp-antigravity-prompt">{escape(t("console.common.copy"))}</button></div>'
+        "</div>"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_releases_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_releases_desc"))}</span></div>'
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        f'<a id="pref-mcp-antigravity-guide" class="pref-btn pref-btn-accent" href="{escape(ag_guide_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_ag_guide_link"))}</a>'
+        f'<a id="pref-mcp-marketplace-releases" class="pref-btn" href="{escape(releases_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_releases_link"))}</a>'
+        "</div></div>"
+        '<div class="pref-row">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_repo_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_repo_desc"))}</span></div>'
         f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-repo" class="pref-mono">{escape(repo)}</code>'
         f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-marketplace-repo">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
-        '<div class="pref-row">'
+        f'<div style="margin:8px 0 4px">{agent_guidance}</div>'
+        '<details class="pref-disclosure" id="pref-mcp-marketplace-advanced" style="margin-top:8px">'
+        f'<summary>{escape(t("console.synd.mcp.marketplace_advanced_summary"))}</summary>'
+        '<div class="pref-row" style="margin-top:8px">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_git_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_git_desc"))}</span></div>'
         f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-git" class="pref-mono">{escape(git_url)}</code>'
         f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-marketplace-git">{escape(t("console.common.copy"))}</button></div>'
         "</div>"
-        '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_releases_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_releases_desc"))}</span></div>'
-        f'<a id="pref-mcp-marketplace-releases" class="pref-btn" href="{escape(releases_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_releases_link"))}</a>'
-        "</div>"
-        f'<div style="margin:8px 0 4px">{agent_guidance}</div>'
+        "</details>"
     )
     return console_card(
         escape(t("console.synd.mcp.marketplace_title")),
@@ -306,6 +323,7 @@ def build_syndication_section(
             "repo": marketplace_repo,
             "git_url": f"https://github.com/{marketplace_repo}.git",
             "releases_url": f"https://github.com/{marketplace_repo}/releases",
+            "antigravity_guide_url": _antigravity_guide_url(marketplace_repo),
         }
     return SettingsSectionRender(
         body_html=body_html,

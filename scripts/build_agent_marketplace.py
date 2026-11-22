@@ -165,17 +165,27 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
     scopes_raw = raw.get("required_scopes")
     if not isinstance(scopes_raw, list) or not scopes_raw or not all(isinstance(s, str) and s in ALLOWED_SCOPES for s in scopes_raw):
         raise BuildValidationError(f"{ctx}: required_scopes must be a non-empty list subset of {sorted(ALLOWED_SCOPES)}")
+    display_name: str | None = None
+    suggested_prompts: list[str] = []
+    if target == "antigravity":
+        display_name = _require_non_empty_str(raw, "display_name", context=ctx)
+        prompts_raw = raw.get("suggested_prompts")
+        if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 3) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
+            raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 3 non-empty strings")
+        suggested_prompts = [p.strip() for p in prompts_raw]
     return {
         "dir": client_dir,
         "id": cid,
         "client_id": client_id,
         "target": target,
         "name": name,
+        "display_name": display_name,
         "agent_name": agent_name,
         "version": version,
         "license": license_name,
         "required_scopes": list(dict.fromkeys(scopes_raw)),
         "description": description,
+        "suggested_prompts": suggested_prompts,
     }
 
 
@@ -241,10 +251,13 @@ def _verify_mcp_contracts(rendered_files: dict[str, bytes], mcp_tools_file: Path
 
 def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) -> str:
     repo = market["repo"]
+    version = market["version"]
     lines = [
         f"# {market['name']}",
         "",
         f"> Automated mirror generated from [fofwisdom/claire-bible](https://github.com/fofwisdom/claire-bible) (`agent_clients/`). Do not edit files in this repository manually; submit changes to `fofwisdom/claire-bible`.",
+        "",
+        "[한국어 안내](#antigravity) · [English](#antigravity) · [Antigravity GUI 가이드 (KO)](./docs/antigravity.ko.md) · [Antigravity GUI Guide (EN)](./docs/antigravity.en.md) · [Claude 가이드 (KO)](./docs/claude.ko.md) · [Claude Guide (EN)](./docs/claude.en.md)",
         "",
         market["description"],
         "",
@@ -255,18 +268,43 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         lines.append(f"- **`{client['id']}`** (`{client['target']}`, `v{client['version']}`): {client['description']}")
     lines.extend([
         "",
-        "## Installation",
+        '<a id="antigravity"></a>',
+        "## Antigravity (GUI 우선 안내 / GUI-First Setup)",
         "",
-        "### Claude (Claude Desktop / Claude Code)",
+        "터미널이나 JSON 편집 없이 Antigravity 앱 화면만으로 적용할 수 있습니다.",
         "",
-        f"1. Open Claude Marketplace settings, enter `{repo}` (or `https://github.com/{repo}.git`), and sync.",
-        f"2. Or run `/plugin marketplace add {repo}` in Claude Code CLI, then install `claire-claude`.",
-        "3. Connect your Claire Bible server `/mcp` endpoint (`https://<your-claire-server>/mcp`) using OAuth 2.1 with `readonly` and `write` scopes.",
+        "- **상세 단계별 가이드 (사진 대신 메뉴명·단축키 기준 친절 안내)**:",
+        "  - 한국어: [Antigravity GUI 설치 및 연결 가이드](./docs/antigravity.ko.md)",
+        "  - English: [Antigravity GUI Installation & Setup Guide](./docs/antigravity.en.md)",
+        f"- **GitHub Releases**: [Download `claire-antigravity-v{version}.zip`](https://github.com/{repo}/releases/latest)",
         "",
-        "### Antigravity",
+        "### 방법 1 (가장 쉬움): Claire 웹에서 복사해 Antigravity 채팅창에 붙여넣기",
         "",
-        f"1. Download `claire-antigravity-v<version>.tar.gz` (or `.zip`) and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases).",
-        "2. Verify checksums, extract into `~/.gemini/config/plugins/`, and set your Claire Bible server `/mcp` URL (`https://<your-claire-server>/mcp`) in `mcp_config.json`.",
+        "1. Claire Bible 웹 **계정 설정**(`/settings/account`)에서 추출 모드를 `client`로 바꿉니다.",
+        "2. **MCP 설정**(`/settings/mcp`)에서 **Antigravity 빠른 설치 문구**를 복사해 Antigravity 새 채팅창에 붙여넣습니다.",
+        "3. 설치 완료 후 **Customizations -> Installed -> MCP Servers**에서 `claire` 옆 **Authenticate**를 눌러 로그인합니다.",
+        "",
+        "### 방법 2 (마우스 클릭 직접 설치): `.zip` 내려받아 넣기",
+        "",
+        f"1. [GitHub Releases](https://github.com/{repo}/releases/latest)에서 `claire-antigravity-v{version}.zip`을 내려받아 압축을 풉니다.",
+        "2. OS 파일 탐색기에서 Antigravity 플러그인 폴더(`~/.gemini/config/plugins` 또는 `%USERPROFILE%\\.gemini\\config\\plugins`)에 `claire-antigravity` 폴더를 넣습니다.",
+        "3. Antigravity **Customizations -> Installed -> MCP Servers -> Add MCP Server (+)**에서 이름 `claire`와 내 서버의 `/mcp` URL을 입력하고 **Authenticate**를 누릅니다.",
+        "",
+        '<a id="claude"></a>',
+        "## Claude (GUI Marketplace Setup)",
+        "",
+        "- **상세 가이드**: [한국어 안내](./docs/claude.ko.md) · [English Guide](./docs/claude.en.md)",
+        "",
+        f"1. Claude **Marketplace management**에 `{repo}` 를 입력해 동기화한 뒤 **`claire-claude`** 를 설치합니다.",
+        "2. 커넥터(MCP) 설정에서 내 Claire Bible 서버 `/mcp` URL(`https://<your-claire-server>/mcp`)을 연결하고 OAuth 2.1(`readonly`, `write`)로 로그인합니다.",
+        "",
+        "<details>",
+        "<summary>CLI &amp; Advanced Verification (터미널 / SHA256SUMS 고급 사용자용)</summary>",
+        "",
+        f"- Claude Code CLI: `/plugin marketplace add {repo}` then install `claire-claude`.",
+        f"- Antigravity CLI / checksum check: download `claire-antigravity-v{version}.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases/latest), run `sha256sum -c SHA256SUMS --ignore-missing` (macOS: `shasum -a 256 -c SHA256SUMS --ignore-missing`), and extract into `~/.gemini/config/plugins/`.",
+        "",
+        "</details>",
         "",
         "## Server Authentication Model",
         "",
@@ -274,6 +312,49 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "",
     ])
     return "\n".join(lines)
+
+
+def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) -> bytes:
+    repo = market["repo"]
+    version = market["version"]
+    ag_version = next((c["version"] for c in clients if c["target"] == "antigravity"), version)
+    lines = [
+        f"# Claire Bible Agent Plugins v{version}",
+        "",
+        f"[한국어 상세 가이드 (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) · [English Setup Guide (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.en.md) · [Claude 가이드 (KO)](https://github.com/{repo}/blob/main/docs/claude.ko.md) · [Claude Guide (EN)](https://github.com/{repo}/blob/main/docs/claude.en.md)",
+        "",
+        "## 어떤 파일을 내려받으면 되나요? / Which file do I need?",
+        "",
+        "| 사용 중인 앱 / Client | 권장 방법 / Recommended Action | 내려받을 파일 / Asset |",
+        "| :--- | :--- | :--- |",
+        f"| **Antigravity (GUI)** | Claire `/settings/mcp`에서 빠른 설치 문구를 복사해 채팅창에 붙여넣거나, 아래 `.zip`을 내려받아 플러그인 폴더에 넣으세요. | **`claire-antigravity-v{ag_version}.zip`** |",
+        f"| **Claude** | 파일을 내려받을 필요가 없습니다. 마켓플레이스 관리에 `{repo}`를 입력하세요. | 없음 (No download needed) |",
+        "",
+        "## Antigravity GUI 빠른 적용 3단계",
+        "",
+        "1. Claire Bible 웹 **계정 설정**(`/settings/account`)에서 추출 모드를 **`client`**로 바꿉니다.",
+        f"2. **방법 1 (권장)**: Claire **`/settings/mcp`**에서 **Antigravity 빠른 설치 문구**를 복사해 Antigravity 채팅창에 그대로 붙여넣습니다. (또는 **방법 2**: 위 `claire-antigravity-v{ag_version}.zip`을 압축 해제해 플러그인 폴더에 넣고 **Customizations -> Installed -> MCP Servers -> Add MCP Server (+)**로 `/mcp` URL을 등록합니다.)",
+        "3. `claire` 서버 옆 **Authenticate**를 눌러 브라우저에서 OAuth 2.1(`readonly`, `write`) 로그인을 완료합니다.",
+        "",
+        f"OS별 폴더 열기 방법(`⌘ + ⇧ + G`, `%USERPROFILE%\\.gemini\\config\\plugins`, `Ctrl + H`)과 FAQ는 [Antigravity 한국어 가이드](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) 또는 [English Guide](https://github.com/{repo}/blob/main/docs/antigravity.en.md)에서 확인하세요.",
+        "",
+        "<details>",
+        "<summary>체크섬 검증 및 터미널용 아카이브 (SHA256SUMS &amp; .tar.gz for CLI users)</summary>",
+        "",
+        "터미널에서 무결성을 검증하려면 `SHA256SUMS`와 `.tar.gz` (또는 `.zip`)를 함께 받은 뒤 실행하세요:",
+        "",
+        "```bash",
+        "sha256sum -c SHA256SUMS --ignore-missing",
+        "```",
+        "",
+        "*(macOS: `shasum -a 256 -c SHA256SUMS --ignore-missing`)*",
+        "",
+        "</details>",
+        "",
+    ]
+    text = "\n".join(lines)
+    _check_rendered_content("release_notes.md", text)
+    return _normalize_text(text)
 
 
 def _json_bytes(obj: Any, *, sort_keys: bool = False) -> bytes:
@@ -391,24 +472,21 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             mcp_tmpl_path = client["dir"] / "mcp_config.json.tmpl"
             if not mcp_tmpl_path.is_file():
                 raise BuildValidationError(f"{client['dir']}: missing mcp_config.json.tmpl for antigravity target")
-            declared_files = [
-                "mcp_config.json.tmpl",
-                "rules/AGENTS.md",
-                "agents/claire-extractor.md",
-                "skills/claire-extract/SKILL.md",
-                "skills/claire-query/SKILL.md",
-            ]
+            readme_tmpl_path = client["dir"] / "README.md.tmpl"
+            if not readme_tmpl_path.is_file():
+                raise BuildValidationError(f"{client['dir']}: missing README.md.tmpl for antigravity target")
             antigravity_manifest = {
                 "name": cid,
+                "displayName": client["display_name"],
                 "version": client["version"],
                 "description": client["description"],
-                "license": client["license"],
                 "author": {"name": market["owner_name"]},
-                "client_id": client["client_id"],
-                "required_scopes": client["required_scopes"],
-                "files": declared_files,
+                "homepage": f"https://github.com/{market['repo']}#antigravity",
+                "repository": f"https://github.com/{market['repo']}",
+                "suggestedPrompts": client["suggested_prompts"],
             }
             plugin_bundle_files["plugin.json"] = _json_bytes(antigravity_manifest)
+            plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
             plugin_bundle_files["mcp_config.json.tmpl"] = _normalize_text(mcp_tmpl_path.read_text(encoding="utf-8"))
             plugin_bundle_files["rules/AGENTS.md"] = _normalize_text(_render_template(agents_md_tmpl, replacements))
             plugin_bundle_files["agents/claire-extractor.md"] = _normalize_text(_render_template(extractor_tmpl, replacements))
@@ -485,6 +563,22 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     _check_rendered_content("README.md", readme_bytes.decode("utf-8"))
     repo_files["README.md"] = readme_bytes
 
+    docs_dir = source_dir / "docs"
+    if not docs_dir.is_dir():
+        raise BuildValidationError(f"missing docs directory: {docs_dir}")
+    doc_replacements = {
+        "MARKETPLACE_REPO": market["repo"],
+        "VERSION": market["version"],
+    }
+    for doc_name in ("antigravity.ko.md.tmpl", "antigravity.en.md.tmpl", "claude.ko.md.tmpl", "claude.en.md.tmpl"):
+        doc_path = docs_dir / doc_name
+        if not doc_path.is_file():
+            raise BuildValidationError(f"missing guide template: {doc_path}")
+        rendered_doc = _render_template(doc_path.read_text(encoding="utf-8"), doc_replacements)
+        out_rel = f"docs/{doc_name[:-5]}"
+        _check_rendered_content(out_rel, rendered_doc)
+        repo_files[out_rel] = _normalize_text(rendered_doc)
+
     if mcp_tools_file is not None:
         _verify_mcp_contracts(repo_files, mcp_tools_file)
 
@@ -494,7 +588,20 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     return repo_files, release_files
 
 
-def write_build_outputs(out_dir: Path, repo_files: dict[str, bytes], release_files: dict[str, bytes]) -> None:
+def build_release_notes(source_dir: Path) -> bytes:
+    """Validate source metadata and render GitHub Release notes."""
+    _validate_source_tree(source_dir)
+    market = _validate_marketplace_meta(source_dir)
+    clients_root = source_dir / "clients"
+    if not clients_root.is_dir():
+        raise BuildValidationError(f"missing clients directory: {clients_root}")
+    clients = [_validate_client_meta(entry) for entry in sorted(clients_root.iterdir(), key=lambda p: p.name) if entry.is_dir()]
+    if not clients:
+        raise BuildValidationError("no client definitions found under agent_clients/clients/")
+    return render_release_notes(market, clients)
+
+
+def write_build_outputs(out_dir: Path, repo_files: dict[str, bytes], release_files: dict[str, bytes], *, release_notes: bytes | None = None) -> None:
     """Write built repo and release outputs cleanly to out_dir."""
     repo_out = out_dir / "repo"
     releases_out = out_dir / "releases"
@@ -510,6 +617,8 @@ def write_build_outputs(out_dir: Path, repo_files: dict[str, bytes], release_fil
         dest = releases_out / filename
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
+    if release_notes is not None:
+        (out_dir / "release_notes.md").write_bytes(release_notes)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -525,11 +634,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         repo_files, release_files = build_marketplace(args.source, mcp_tools_file=args.mcp_tools_file)
+        release_notes = build_release_notes(args.source)
         if args.out is not None:
-            write_build_outputs(args.out, repo_files, release_files)
+            write_build_outputs(args.out, repo_files, release_files, release_notes=release_notes)
         elif args.check:
             with tempfile.TemporaryDirectory() as tmp_dir:
-                write_build_outputs(Path(tmp_dir), repo_files, release_files)
+                write_build_outputs(Path(tmp_dir), repo_files, release_files, release_notes=release_notes)
     except BuildValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

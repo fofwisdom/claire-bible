@@ -1,29 +1,36 @@
-# Claire Bible Plugin for Claude
+# Claire Bible Plugin for Claude (`claire-claude`)
 
-This plugin connects Claude to any Claire Bible server over OAuth 2.1 Streamable HTTP (`/mcp`) and provides the isolated `claire-extractor` subagent plus the `claire-extract` and `claire-query` skills.
+This plugin connects Claude to any Claire Bible server over OAuth 2.1 Streamable HTTP (`/mcp`) and provides the isolated `claire-extractor` subagent plus the `claire-extract` and `claire-query` skills. Zero server tokens or secrets are included.
 
-## 1. Install the Plugin
+## Full Step-by-Step Guides (단계별 안내서)
 
-Add the marketplace repository in Claude Desktop or Claude Code:
+- **한국어 안내서**: [`docs/claude.ko.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/claude.ko.md)
+- **English Setup Guide**: [`docs/claude.en.md`](https://github.com/{{MARKETPLACE_REPO}}/blob/main/docs/claude.en.md)
 
-- In Claude Marketplace management, enter `{{MARKETPLACE_REPO}}` (or `https://github.com/{{MARKETPLACE_REPO}}.git`) and click sync.
-- Or run in Claude Code CLI:
+## 1. Install the Plugin (GUI)
+
+1. Open **Marketplace management** in Claude.
+2. Enter `{{MARKETPLACE_REPO}}` (or `https://github.com/{{MARKETPLACE_REPO}}.git`) and sync.
+3. Install **`claire-claude`**.
+
+## 2. Connect Your Claire Bible Server (`/mcp`)
+
+Add your Claire Bible server `/mcp` connector URL (`https://<your-claire-server>/mcp`) in Claude Connectors / MCP settings, then sign in via OAuth 2.1 (`PKCE S256`) and grant `readonly` and `write` scopes.
+
+<details>
+<summary>CLI / Terminal setup (for Claude CLI users)</summary>
 
 ```text
 /plugin marketplace add {{MARKETPLACE_REPO}}
 ```
 
-Then install `claire-claude`.
+Then install `claire-claude` and add your MCP connector:
 
-## 2. Connect Your Claire Bible Server (`/mcp`)
-
-Do not embed static tokens or secrets in project files. Configure your Claire Bible server `/mcp` connector URL (`https://<your-claire-server>/mcp`) in Claude:
-
-```text
+```bash
 claude mcp add --transport http claire https://<your-claire-server>/mcp
 ```
 
-Authenticate through OAuth 2.1 (`PKCE S256` or `/device`) and grant both `readonly` and `write` scopes.
+</details>
 
 ## 3. Security Model
 

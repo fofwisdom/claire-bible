@@ -1,0 +1,121 @@
+# Antigravity GUI Installation & Setup Guide (English)
+
+[한국어 가이드](./antigravity.ko.md) · [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)
+
+This guide walks you through installing and connecting the Claire Bible plugin using only the **Antigravity GUI** — no terminal commands or manual JSON editing required.
+
+---
+
+## Before You Start (1 Minute)
+
+1. Sign in to your **Claire Bible** web interface.
+2. Open **Account Settings** (`/settings/account`) and switch **Extraction mode** to **`Agent Client (client)`**.
+3. Open **MCP Settings** (`/settings/mcp`) in your browser so your `/mcp` endpoint URL and quick setup prompt are ready to copy.
+
+---
+
+## Method 1 (Recommended): Paste Once in Antigravity Chat
+
+You do not need to know where hidden plugin folders live or edit any configuration files.
+
+1. On your Claire Bible **`/settings/mcp`** page, locate **Official Agent Marketplace (GitHub)** and click **Copy** next to **Antigravity quick setup prompt**.
+   - If you are starting from GitHub directly, copy the prompt below and replace `https://<your-claire-server>/mcp` with your server's `/mcp` URL from `/settings/mcp`:
+   ```text
+   Install the claire-antigravity plugin (.zip) from the latest GitHub Release of https://github.com/{{MARKETPLACE_REPO}} into my Antigravity plugins folder, verify SHA256SUMS, and set the claire MCP server URL to https://<your-claire-server>/mcp.
+   ```
+2. Open the **Antigravity** app, start a **New Conversation**, paste the prompt, and send it.
+3. Once Antigravity finishes installing the bundle, open **Customizations -> Installed -> MCP Servers** in the left sidebar.
+4. Click **Authenticate** next to `claire`, sign in to your Claire Bible server in the browser, and approve the `readonly` and `write` scopes.
+
+---
+
+## Method 2 (Point-and-Click): Manual GUI Installation
+
+Use this method if you prefer downloading the plugin yourself or if your environment restricts agent downloads. **No JSON file editing is needed.**
+
+### Step 1: Download the `.zip` Bundle
+1. Open the [GitHub Releases page](https://github.com/{{MARKETPLACE_REPO}}/releases/latest).
+2. Under **Assets**, click **`claire-antigravity-v{{VERSION}}.zip`** to download it. (You do not need the `.tar.gz` file.)
+3. Double-click the downloaded `.zip` file to extract the **`claire-antigravity`** folder. Check that `plugin.json` sits directly inside `claire-antigravity/`.
+
+### Step 2: Move the Folder Into Antigravity Plugins
+Open the plugins folder for your OS and move the extracted **`claire-antigravity`** folder inside. (If `plugins` does not exist yet inside `.gemini/config`, create an empty `plugins` folder first.)
+
+- **macOS (Finder)**
+  1. In Finder, choose **Go -> Go to Folder...** (`Command + Shift + G`).
+  2. Enter `~/.gemini/config/plugins` and press **Return**.
+  3. Drag the `claire-antigravity` folder into that window.
+- **Windows (File Explorer)**
+  1. Click the address bar at the top of File Explorer.
+  2. Paste `%USERPROFILE%\.gemini\config\plugins` and press **Enter**.
+  3. Move the `claire-antigravity` folder into that folder.
+- **Linux (File Manager)**
+  1. Open your Home folder and press `Ctrl + H` to show hidden folders.
+  2. Open `.gemini` -> `config` -> `plugins` and move the `claire-antigravity` folder inside.
+
+### Step 3: Add the MCP Server in Antigravity GUI
+1. In the **Antigravity** app, open **Customizations -> Installed** in the left sidebar.
+2. Confirm **`Claire Bible`** appears and is enabled.
+3. Scroll to **MCP Servers** and click **Add MCP Server (+)**.
+4. Enter:
+   - **Name**: `claire`
+   - **URL**: Your Claire Bible `/mcp` URL copied from `/settings/mcp` (for example, `https://claire.example.com/mcp`)
+5. Save, then click **Authenticate** next to `claire` to approve OAuth 2.1 (`readonly` and `write`).
+
+> **Avoid duplicate servers**: If you already ran Method 1, the `claire` MCP server is already configured. Choose either Method 1 or Method 2 — do not add a second `claire` entry.
+
+---
+
+## Verify Connection & Run Your First Extraction
+
+Click any of the starter prompt chips on the **Claire Bible** plugin card in Antigravity, or paste one into a new chat:
+
+- `List pending Claire Bible sources`
+- `Extract and save pending Claire Bible sources`
+- `Search topics in my Claire Bible knowledge graph`
+
+Antigravity automatically delegates source reading and extraction to the isolated `claire-extractor` subagent (Claire MCP tools only, zero shell/file tools) and commits validated results into your personal knowledge base.
+
+---
+
+## FAQ & Troubleshooting
+
+- **I cannot find the `.gemini` folder.**
+  - Folders starting with `.` are hidden by default. Use `Command + Shift + G` on macOS Finder, paste `%USERPROFILE%\.gemini\config\plugins` into the Windows File Explorer address bar, or press `Ctrl + H` in Linux file managers.
+- **`Claire Bible` does not appear under Customizations -> Installed.**
+  - Make sure you did not create an extra nested folder (`plugins/claire-antigravity/claire-antigravity/plugin.json`). The file `plugin.json` must be directly at `plugins/claire-antigravity/plugin.json`.
+- **Do I need to edit `mcp_config.json.tmpl` inside the folder?**
+  - **No.** Leave `mcp_config.json.tmpl` untouched when configuring the server via **Add MCP Server (+)** in the GUI.
+- **How do I update to a newer version?**
+  - Run Method 1 again, or download the new `.zip` and replace the `plugins/claire-antigravity` folder. Your MCP server URL and OAuth login remain intact.
+
+---
+
+<details>
+<summary>CLI & Advanced Users (.tar.gz, SHA256SUMS verification, agy CLI)</summary>
+
+1. Download and verify checksums:
+   ```bash
+   curl -fsSLO "https://github.com/{{MARKETPLACE_REPO}}/releases/download/v{{VERSION}}/claire-antigravity-v{{VERSION}}.tar.gz"
+   curl -fsSLO "https://github.com/{{MARKETPLACE_REPO}}/releases/download/v{{VERSION}}/SHA256SUMS"
+   sha256sum -c SHA256SUMS --ignore-missing
+   ```
+   *(Use `shasum -a 256 -c SHA256SUMS --ignore-missing` on macOS.)*
+2. Extract and optionally validate:
+   ```bash
+   mkdir -p ~/.gemini/config/plugins
+   tar -xzf claire-antigravity-v{{VERSION}}.tar.gz -C ~/.gemini/config/plugins
+   agy plugin validate --strict ~/.gemini/config/plugins/claire-antigravity
+   ```
+3. Manual `mcp_config.json` template:
+   ```json
+   {
+     "mcpServers": {
+       "claire": {
+         "url": "https://<your-claire-server>/mcp"
+       }
+     }
+   }
+   ```
+
+</details>
