@@ -63,7 +63,7 @@ test('Korean /settings/mcp provides localized Antigravity prompt and Korean GUI 
 
   const promptEl = page.locator('#pref-mcp-antigravity-prompt');
   await expect(promptEl).toContainText(`${origin}/mcp`);
-  await expect(promptEl).toContainText('Antigravity 플러그인 폴더');
+  await expect(promptEl).toContainText('~/.gemini/config/plugins/claire에 설치');
 
   await expectNoRawKeys(page, '#panel-mcp');
   expect(errors).toEqual([]);

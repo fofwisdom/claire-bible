@@ -55,7 +55,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     claude_dir = repo_a / "plugins" / "claude" / "claire"
     claude_plugin = json.loads((claude_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert claude_plugin["name"] == "claire"
-    assert claude_plugin["version"] == "0.2.0"
+    assert claude_plugin["version"] == "0.3.0"
     assert claude_plugin["repository"] == "https://github.com/fofwisdom/claire-agents"
     claude_extractor = (claude_dir / "agents" / "extractor.md").read_text(encoding="utf-8")
     assert "mcp__claire__extract_read" in claude_extractor
@@ -64,12 +64,34 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "extract_read" in (claude_dir / "skills" / "extract" / "SKILL.md").read_text(encoding="utf-8")
     assert "kb_list()" in (claude_dir / "skills" / "query" / "SKILL.md").read_text(encoding="utf-8")
     assert "/claire:ingest" in (claude_dir / "README.md").read_text(encoding="utf-8")
+    assert "--scope user" in (claude_dir / "README.md").read_text(encoding="utf-8")
+
+    extractor_fm = builder._frontmatter(claude_extractor)
+    assert set(extractor_fm) == {"name", "description", "tools", "model"}
+    assert extractor_fm["name"] == "extractor"
+    extract_fm = builder._frontmatter((claude_dir / "skills" / "extract" / "SKILL.md").read_text(encoding="utf-8"))
+    assert extract_fm["context"] == "fork"
+    assert extract_fm["agent"] == "claire:extractor"
+    assert extract_fm["allowed-tools"] == extractor_fm["tools"]
+    ingest_fm = builder._frontmatter((claude_dir / "skills" / "ingest" / "SKILL.md").read_text(encoding="utf-8"))
+    assert ingest_fm["allowed-tools"] == "[mcp__claire__extract_stage, mcp__claire__kb_list, Skill(claire:extract)]"
+    query_fm = builder._frontmatter((claude_dir / "skills" / "query" / "SKILL.md").read_text(encoding="utf-8"))
+    assert "extract_read" not in query_fm["allowed-tools"]
+    assert "contrib_submit" not in query_fm["allowed-tools"]
+
+    hooks_bytes = (claude_dir / "hooks" / "hooks.json").read_bytes()
+    assert hooks_bytes == builder.claude_guard_hooks("claire:extractor")
+    guard = json.loads(hooks_bytes)["hooks"]["PreToolUse"]
+    assert len(guard) == 1 and guard[0]["matcher"] == "^mcp__.*__extract_read$"
+    assert guard[0]["hooks"][0]["command"].endswith("exit 2")
+    assert not (repo_a / "plugins" / "antigravity" / "claire" / "hooks").exists()
+    assert "subagent: true" in (repo_a / "plugins" / "antigravity" / "claire" / "agents" / "claire-extractor.md").read_text(encoding="utf-8")
 
     ag_dir = repo_a / "plugins" / "antigravity" / "claire"
     ag_plugin = json.loads((ag_dir / "plugin.json").read_text(encoding="utf-8"))
     assert ag_plugin["name"] == "claire"
     assert ag_plugin["displayName"] == "Claire Bible"
-    assert ag_plugin["version"] == "0.2.0"
+    assert ag_plugin["version"] == "0.3.0"
     assert ag_plugin["logo"] == "assets/logo.svg"
     assert (ag_dir / "assets" / "logo.svg").is_file()
     assert not (ag_dir / "mcp_config.json.tmpl").exists()
@@ -121,17 +143,21 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
             assert "Allow using this MCP tool?" in guide_text
             assert "Yes, and always allow" in guide_text
             assert "Add MCP Server (+)" not in guide_text
-            assert "claire-antigravity-v0.2.0.zip" in guide_text
-            in_text_block = False
-            for line in guide_text.splitlines():
-                if line.strip() == "```text":
-                    in_text_block = True
-                    continue
-                if in_text_block and line.strip() == "```":
-                    in_text_block = False
-                    continue
-                if in_text_block:
-                    assert len(line) <= 100, f"{guide_name} text block line too long: {line!r}"
+            assert "claire-antigravity-v0.3.0.zip" in guide_text
+        else:
+            assert "claude mcp add --transport http --scope user claire https://" in guide_text
+            assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in guide_text
+            assert "claude mcp login claire" in guide_text
+        in_text_block = False
+        for line in guide_text.splitlines():
+            if line.strip() == "```text":
+                in_text_block = True
+                continue
+            if in_text_block and line.strip() == "```":
+                in_text_block = False
+                continue
+            if in_text_block:
+                assert len(line) <= 100, f"{guide_name} text block line too long: {line!r}"
 
     top_readme = (repo_a / "README.md").read_text(encoding="utf-8")
     assert "docs/antigravity.ko.md" in top_readme
@@ -143,7 +169,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     notes_b = (out_b / "release_notes.md").read_bytes()
     assert notes_a == notes_b
     notes_text = notes_a.decode("utf-8")
-    assert "claire-antigravity-v0.2.0.zip" in notes_text
+    assert "claire-antigravity-v0.3.0.zip" in notes_text
     assert "MCP Servers -> claire" in notes_text
     assert "Allow using this MCP tool?" in notes_text
     assert "docs/antigravity.ko.md" in notes_text
@@ -162,17 +188,18 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert any(f["path"] == "assets/logo.svg" for f in manifest_ag["files"])
     assert any(f["path"] == "skills/claire-ingest/SKILL.md" for f in manifest_ag["files"])
 
-    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.2.0.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.3.0.tar.gz", "r:gz") as tf:
         assert "claire/plugin.json" in tf.getnames()
         assert "claire/assets/logo.svg" in tf.getnames()
         assert "claire/README.md" in tf.getnames()
         assert "claire/skills/claire-ingest/SKILL.md" in tf.getnames()
         assert "claire/mcp_config.json.tmpl" not in tf.getnames()
-    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.2.0.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.3.0.zip", "r") as zf:
         assert "claire/.claude-plugin/plugin.json" in zf.namelist()
         assert "claire/skills/ingest/SKILL.md" in zf.namelist()
         assert "claire/skills/query/SKILL.md" in zf.namelist()
         assert "claire/agents/extractor.md" in zf.namelist()
+        assert "claire/hooks/hooks.json" in zf.namelist()
 
 
 def test_marketplace_builder_security_and_contract_rejections(tmp_path: Path) -> None:
@@ -214,3 +241,51 @@ def test_marketplace_builder_security_and_contract_rejections(tmp_path: Path) ->
     q_tmpl.write_text(q_tmpl.read_text(encoding="utf-8") + "\nUse claire-antigravity_claire/overview() here.\n", encoding="utf-8")
     with pytest.raises(builder.BuildValidationError, match="legacy double-prefixed server id"):
         builder.build_marketplace(legacy_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+
+def test_claude_bundle_gates_reject_hooks_frontmatter_and_bad_references(tmp_path: Path) -> None:
+    claude_overrides = Path("clients") / "claude" / "overrides"
+
+    hook_src = _copy_source_tree(tmp_path / "hook")
+    (hook_src / claude_overrides / "hooks").mkdir(parents=True)
+    (hook_src / claude_overrides / "hooks" / "hooks.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="fixed guard"):
+        builder.build_marketplace(hook_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    extra_hook_src = _copy_source_tree(tmp_path / "extra_hook")
+    (extra_hook_src / claude_overrides / "hooks").mkdir(parents=True)
+    (extra_hook_src / claude_overrides / "hooks" / "more.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="fixed guard"):
+        builder.build_marketplace(extra_hook_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    ag_hook_src = _copy_source_tree(tmp_path / "ag_hook")
+    (ag_hook_src / "clients" / "antigravity" / "overrides" / "hooks").mkdir(parents=True)
+    (ag_hook_src / "clients" / "antigravity" / "overrides" / "hooks" / "hooks.json").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="hook files are not allowed"):
+        builder.build_marketplace(ag_hook_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    extract_override = claude_overrides / "skills" / "extract" / "SKILL.md.tmpl"
+
+    fm_src = _copy_source_tree(tmp_path / "frontmatter")
+    fm_path = fm_src / extract_override
+    fm_path.write_text(fm_path.read_text(encoding="utf-8").replace("context: fork\n", "context: fork\npermissionMode: bypassPermissions\n"), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="permissionMode"):
+        builder.build_marketplace(fm_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    agent_src = _copy_source_tree(tmp_path / "agent_ref")
+    agent_path = agent_src / extract_override
+    agent_path.write_text(agent_path.read_text(encoding="utf-8").replace("agent: {{EXTRACTOR_REF}}", "agent: general-purpose"), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="is not an agent of this bundle"):
+        builder.build_marketplace(agent_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    main_read_src = _copy_source_tree(tmp_path / "main_read")
+    main_read_path = main_read_src / extract_override
+    main_read_path.write_text(main_read_path.read_text(encoding="utf-8").replace("context: fork\nagent: {{EXTRACTOR_REF}}\n", ""), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="must not declare extract_read"):
+        builder.build_marketplace(main_read_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    skill_src = _copy_source_tree(tmp_path / "skill_ref")
+    skill_path = skill_src / extract_override
+    skill_path.write_text(skill_path.read_text(encoding="utf-8").replace("allowed-tools: {{EXTRACTOR_TOOLS}}", "allowed-tools: [Skill(claire:missing)]"), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="is not a skill of this bundle"):
+        builder.build_marketplace(skill_src, mcp_tools_file=MCP_TOOLS_FILE)

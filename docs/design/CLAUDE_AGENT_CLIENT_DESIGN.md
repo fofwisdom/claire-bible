@@ -1,7 +1,7 @@
 # Claude Agent Client: A Working `claire` Plugin for Claude Code
 
 - **Document Identifier**: `DESIGN-CLAUDE-AGENT-CLIENT-20261122`
-- **Status**: Proposal. Not implemented. Units CL1 to CL8 are ready to implement after owner question CQ1. Units CL6 and CL9 wait for CQ2 and CQ4. Unit CL0 is an owner measurement for CQ3.
+- **Status**: Units CL0 to CL5, CL7, and CL8 are implemented (2026-11-22, marketplace `v0.3.0`): the current state is in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4 and [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md). Units CL6 (consent checkbox) and CL9 (upload link) are not implemented. Unit CL10 (Cowork and claude.ai plugin support) has no design yet. Owner decisions CD1 to CD4 (Section 10) are locked (2026-11-22).
 - **Date**: 2026-11-22
 - **Base commit**: `ea4804b` (marketplace `v0.2.0`, Option A)
 - **Related Documents**:
@@ -45,7 +45,10 @@ This design makes the Claude target work from zero to the first committed extrac
 | T13 | `extract_read`, `extract_stage`, `extract_claim`, `extract_submit`, and `contrib_submit` need scope `write`. The consent screen approves the requested scope as one value. | [code] `mcp_tools.py`, `oauth.py` |
 | T14 | To ingest a local file, the top-level agent puts the base64 text of the file into an `extract_stage` call. A 200 KB file gives about 270 KB of base64 text in the context of the main agent. | [code] ingest skill |
 | T15 | `MCP_SUPPORT.md` Goal says that Claude is retired from the design scope. `AED8` says that Claude stays supported as an `agent_client`. The two texts do not agree. | [code] |
-| T16 | Which Claude Desktop surface opens "Marketplace management" (the term in the guides), and if the plugin works in Cowork, are not known. | [unverified] |
+| T16 | In the Claude desktop app, Code mode (`</>`), the page "플러그인" has the button "추가", the dialog "마켓플레이스 추가" (a URL field for `owner/repo`, button "동기화"), the button "이 컴퓨터에 추가" for a plugin, and the dialog "마켓플레이스 관리". That dialog says that it lists the marketplaces that Claude Code added on this computer. The desktop app and the `claude` command thus use the same plugin store. | [decision] owner screenshots, 2026-11-22 |
+| T17 | The plugin page of the desktop app also lists connectors and the MCP servers of plugins. If the plugin works in Cowork, and how a user-scope MCP server signs in from that page, are not known. | [decision] owner screenshot; rest [unverified] |
+| T18 | `claude plugin install <plugin> --marketplace <owner/repo>` adds the marketplace and installs the plugin in one step (Claude Code 2.1.275 or later). `claude mcp login <name>` opens the OAuth sign-in in the browser. | [measured] CLI help |
+| T19 | A subagent that the Agent tool starts asks for permission for each MCP tool. A skill with `context: fork` gets the tools of its `allowed-tools` without a prompt. A model call of a skill needs the permission `Skill(<plugin>:<skill>)`. | [measured] |
 
 ---
 
@@ -56,13 +59,13 @@ Goals:
 1. **G1**: A Claude Code user copies one command block from `/settings/mcp`, signs in one time in the browser, and runs `/claire:ingest <url>` to a committed extraction.
 2. **G2**: The four defense layers hold. A deterministic check enforces Layer 1, not only text.
 3. **G3**: `/settings/mcp` gives Claude the same level of help as Antigravity.
-4. **G4**: The bundle stays declarative. The build accepts no file of code. The only executable item is one fixed guard line that the build writes itself (CQ1).
+4. **G4**: The bundle stays declarative. The build accepts no file of code. The only executable item is one fixed guard line that the build writes itself (CD1).
 
 Non-goals:
 
 - A server provider that calls Claude (retired by `AED8`).
 - A change of Option A for Claude Code. The server stays one global `claire` registration.
-- Plugin support in Cowork or claude.ai before measurement CL0 and decision CQ3.
+- Plugin support in Cowork or claude.ai in this version. It is unit CL10 (CD3) and waits for the observations of Section 10.1.
 - A submission to the Anthropic plugin directory (it needs a PNG icon, and the build reads text files only).
 
 ---
@@ -73,7 +76,7 @@ Non-goals:
 | :--- | :--- | :--- | :--- |
 | Claude Code (terminal, IDE extensions, Code tab of Claude Desktop) | Supported | `claude mcp add --transport http --scope user claire <url>` (tools `mcp__claire__*`) | `/claire:ingest`, `/claire:extract`, `/claire:query`, contribution |
 | claude.ai web, Claude Desktop chat, mobile | Query only (CL6) | Custom connector, scope `readonly` | Read tools only. The server refuses raw source reads. |
-| Cowork | Not supported yet | Not known (T16) | Decide after CL0 (CQ3) |
+| Cowork | Not supported yet | Not known (T17) | Unit CL10 (CD3) |
 
 Reason for query only on chat surfaces: these surfaces have no plugin subagent and no hook. A raw source there would enter a context that also has web, mail, and file tools. Layer 1 cannot hold.
 
@@ -89,12 +92,12 @@ Change the rendered Claude bundle as follows. The build keeps one common source.
 | :--- | :--- |
 | `agents/extractor.md` | Frontmatter for Claude: `name: extractor`, `description`, `tools` (the eight `mcp__claire__*` tools, unchanged), `model: inherit`. Remove `subagent` and `mainAgent`. The body is unchanged. |
 | `skills/extract/SKILL.md` | Add `context: fork`, `agent: claire:extractor`, `argument-hint: "[document_id]"`, and `allowed-tools` with the eight extractor tools. Write the body as direct instructions to the subagent, because the body becomes the subagent prompt. Use `$ARGUMENTS` for the optional `document_id`. |
-| `skills/ingest/SKILL.md` | Add `argument-hint: "<url | file path | note>"` and `allowed-tools: mcp__claire__extract_stage mcp__claire__kb_list`. The main thread stages the source. It then calls the Agent tool with subagent type `claire:extractor` and gives only the `document_id`. |
+| `skills/ingest/SKILL.md` | Add `argument-hint: "<url | file path | note>"` and `allowed-tools` with `mcp__claire__extract_stage`, `mcp__claire__kb_list`, and `Skill(claire:extract)`. The main thread stages the source. It then invokes the `claire:extract` skill with only the `document_id`. The handoff goes through the skill, not through the Agent tool, because only the forked skill gets its tools without permission prompts (T19). |
 | `skills/query/SKILL.md` | Add `argument-hint: "<question>"` and `allowed-tools` with the nine read tools (`kb_list`, `kb_overview`, `entity_search`, `entity_get`, `graph_neighbors`, `graph_path`, `graph_context`, `doc_list`, `doc_get`). `contrib_candidates` and `contrib_submit` stay outside `allowed-tools`, so a contribution always asks the user. |
 | `hooks/hooks.json` | New. The Layer 1 guard (CL2). |
 | `README.md` | New install block (CL4) and the one-step line `/plugin install claire --marketplace fofwisdom/claire-agents` (Claude Code 2.1.275 or later). |
 
-All references to the extractor in Claude text use the name `claire:extractor`.
+All references to the extractor in Claude text use the name `claire:extractor`. The common templates get this name from the placeholder `{{EXTRACTOR_REF}}`, and the frontmatter of each target from placeholders that the build fills. The Antigravity bundle text does not change.
 
 Result: `/claire:extract` runs fully in the isolated subagent. The top-level agent does not see the raw source, because the skill never runs on the main thread.
 
@@ -128,12 +131,12 @@ Rules:
 4. Only `extract_read` returns raw source text. Other tools do not need the guard.
 5. The build rejects a Claude bundle whose `hooks/hooks.json` is not equal to the constant, and rejects hooks in any other file. The rule for forbidden file types does not change.
 
-This is code that runs on the computer of the user. It needs owner decision CQ1.
+This is code that runs on the computer of the user. Owner decision CD1 permits it.
 
 ### CL3. MCP registration (Option A kept)
 
 - The plugin supports one registration: the server name `claire`, added with `--scope user`. The canonical command is `claude mcp add --transport http --scope user claire https://<server>/mcp`.
-- Sign-in: start `claude`, type `/mcp`, select `claire`, and select Authenticate. The browser opens the existing OAuth 2.1 flow (dynamic client registration, PKCE S256).
+- Sign-in: `claude mcp login claire`, or `/mcp` in a conversation. The browser opens the existing OAuth 2.1 flow (dynamic client registration, PKCE S256).
 - The extractor does not use connector tools (`claude.ai <Name>`). The guides say this, and the troubleshooting section tells the user to add the `claire` registration.
 
 ### CL4. One setup block
@@ -141,23 +144,34 @@ This is code that runs on the computer of the user. It needs owner decision CQ1.
 `/settings/mcp` and the guides show this block. The page fills in the server URL:
 
 ```bash
-claude plugin marketplace add fofwisdom/claire-agents
-claude plugin install claire@claire-agents
+claude plugin install claire --marketplace fofwisdom/claire-agents
 claude mcp add --transport http --scope user claire https://<server>/mcp
+claude mcp login claire
 ```
 
-Then the user signs in with `/mcp` (CL3). Updates: `claude plugin marketplace update claire-agents`, then `claude plugin update claire@claire-agents`, then a restart. The guides also tell how to turn on auto-update for the marketplace in `/plugin` (T12). A fork operator gets the repository from `CLAIRE_AGENT_MARKETPLACE_REPO`, and the marketplace name comes from `marketplace.toml`.
+The first line needs only the repository, so it is also correct for a fork (T18). Updates: `claude plugin marketplace update claire-agents`, then `claude plugin update claire@claire-agents`, then a restart. The guides also tell how to turn on auto-update for the marketplace in `/plugin` (T12). A fork operator gets the repository from `CLAIRE_AGENT_MARKETPLACE_REPO`.
+
+### CL0. Guide for users without IT knowledge (owner instruction, 2026-11-22)
+
+The guides `docs/claude.{ko,en}.md` follow the pattern of the Antigravity guide. A user needs no terminal:
+
+1. **Plugin, mouse clicks only**: Code mode of the Claude desktop app, "플러그인" -> "추가" -> "마켓플레이스 추가" -> `fofwisdom/claire-agents` -> "동기화" -> "이 컴퓨터에 추가" (T16).
+2. **Server, one pasted prompt**: the user copies the Claude quick setup prompt from `/settings/mcp` and pastes it into a new conversation. Claude runs the CL4 block. The prompt tells Claude to continue when a step is already done, to stop when the `claude` command is not found, and to change no other setting.
+3. **Check**: `/claire:query` shows the list of knowledge bases.
+
+The guide has a table of surfaces, a troubleshooting table, and a collapsed part for terminal users. Limits: the English labels of the desktop app are translations of the Korean labels of the screenshots, and the availability of the `claude` command in a desktop conversation is not measured [unverified]. The troubleshooting table covers the case that the command is not found.
 
 ### CL5. `/settings/mcp` for Claude
 
 In the card `#pref-mcp-client-bundles`, add rows for Claude with the same pattern as Antigravity:
 
-1. **Claude Code setup commands**: `<code id="pref-mcp-claude-setup">` with the CL4 block and a copy button `#pref-mcp-copy-claude-setup`. `console_syndication.js` puts in the endpoint, the same way it does for `#pref-mcp-antigravity-prompt`.
-2. **Claude guide link**: `#pref-mcp-claude-guide`, for the language of the page (`docs/claude.ko.md` or `docs/claude.en.md`). Add `claude_guide_url` to the `agent_marketplace` bootstrap.
-3. Change `#pref-mcp-snippet-cli` to `claude mcp add --transport http --scope user claire "<endpoint>"`.
-4. Change the Claude notice line: Claude Code commands and `/mcp` sign-in, not "Marketplace management".
+1. **Claude quick setup prompt**: `<code id="pref-mcp-claude-prompt">` with a copy button `#pref-mcp-copy-claude-prompt` (catalog key `console.js.synd.mcp.claude_prompt`). `console_syndication.js` puts in the endpoint, the same way it does for `#pref-mcp-antigravity-prompt`.
+2. **Terminal commands**: `<code id="pref-mcp-claude-setup">` with the CL4 block and a copy button, in the collapsed part of the card.
+3. **Claude guide link**: `#pref-mcp-claude-guide`, for the language of the page (`docs/claude.ko.md` or `docs/claude.en.md`). Add `claude_guide_url` to the `agent_marketplace` bootstrap.
+4. Change `#pref-mcp-snippet-cli` to `claude mcp add --transport http --scope user claire "<endpoint>"`.
+5. Change the Claude notice line to the steps of CL0.
 
-Use catalog keys in `en.json` and `ko.json` from the start. Build the rows with `console_ui.py` and use `.pref-btn` classes (AGENTS.md console rules).
+The catalog must not contain the product names that `AED8` retired from the page text (a test enforces this). The page text thus says "Claude app" and "Claude terminal commands". Use catalog keys in `en.json` and `ko.json` from the start. Build the rows with `console_ui.py` and use `.pref-btn` classes (AGENTS.md console rules).
 
 ### CL6. Query-only connectors on chat surfaces
 
@@ -165,23 +179,23 @@ Use catalog keys in `en.json` and `ko.json` from the start. Build the rows with 
 - The Claude guide tells chat-surface users to clear `write`. With `readonly`, the server refuses `extract_read` and other write tools (T13). The defense does not depend on the chat model.
 - Other clients do not change: when the user keeps all boxes, the token is the same as today.
 
-This changes the server consent flow. It needs owner decision CQ2.
+This changes the server consent flow. Owner decision CD2 permits it.
 
 ### CL7. Guides and documents
 
-- Write `agent_clients/docs/claude.{ko,en}.md` again: the surface table (Section 4), the CL4 block, `/mcp` sign-in, permission prompts in Claude Code, checks (`/plugin` shows `claire` as installed, `/agents` shows `claire:extractor`, `/mcp` shows `claire` as connected), and troubleshooting (scope `local`, connector tool names, no update without a version change).
+- Write `agent_clients/docs/claude.{ko,en}.md` again as the guide of CL0, with the surface table (Section 4), the CL4 block for terminal users, and troubleshooting (scope `local`, connector tool names, no update without a version change).
 - Correct the Goal of `MCP_SUPPORT.md` to agree with `AED8` (T15).
 - When CL1 to CL5 are implemented, record the current state in `API_AND_MCP_GUIDE.md` and `EXTERNAL_ACCESS.md`, and give this document an implemented status line.
 
 ### CL8. Version
 
-Set the Claude client version and the marketplace version to `0.3.0`. Without a version change, Claude Code users do not get the new bundle (T12). The Antigravity client version stays `0.2.0` if its bundle does not change.
+Set the marketplace version and the versions of the two clients to `0.3.0`. Without a version change, Claude Code users do not get the new bundle (T12). The Antigravity bundle text does not change, but its guide makes the name of the release file from the marketplace version, so the two clients keep one version.
 
 ### CL9. Upload link for local files (proposal)
 
 A new MCP tool gives a single-use upload URL for the personal knowledge base of the caller. The agent sends the file with `curl -F file=@<path> <url>`, and the answer gives the `document_id`. The file bytes do not go through the model context (T14). This also helps Antigravity.
 
-Limits: the URL is valid for 10 minutes and for one upload. It is bound to the account and the personal knowledge base, it has the 20 MiB limit, and it uses the same staging path. Logs record only a hash of the URL. The tool count changes from 17 to 18, which is an MCP contract change. It needs owner decision CQ4.
+Limits: the URL is valid for 10 minutes and for one upload. It is bound to the account and the personal knowledge base, it has the 20 MiB limit, and it uses the same staging path. Logs record only a hash of the URL. The tool count changes from 17 to 18, which is an MCP contract change. Owner decision CD4 permits it.
 
 ---
 
@@ -205,8 +219,9 @@ In `scripts/build_agent_marketplace.py`:
 1. Write frontmatter for each target. Reject `subagent:` and `mainAgent:` in Claude files.
 2. Write `hooks/hooks.json` for Claude from the constant (CL2). Reject any other hook content.
 3. Accept `extract_read` in `allowed-tools` only in a skill that has `context: fork` and `agent: claire:extractor`.
-4. Reject an `agent:` value that does not name an agent in the same bundle.
-5. Keep the current gates: no script files, no symbolic links, no executable bits, the secret scan, and the tool contract check against `mcp_tools.py`.
+4. Reject an `agent:` value that does not name an agent in the same bundle, and a `Skill(...)` entry that does not name a skill in the same bundle.
+5. Reject hook files for a target that is not Claude.
+6. Keep the current gates: no script files, no symbolic links, no executable bits, the secret scan, and the tool contract check against `mcp_tools.py`.
 
 Optional [proposal]: run `claude plugin validate` in the marketplace check workflow. This needs the Claude Code package in CI.
 
@@ -216,38 +231,49 @@ Optional [proposal]: run `claude plugin validate` in the marketplace check workf
 
 - **Unit tests** (`tests/test_agent_marketplace_build.py`, the interface and the file output of the build): the Claude frontmatter, the exact hook file, the `allowed-tools` rule, the `agent:` reference rule, and the version.
 - **E2E test** (`e2e/mcp_claude_setup.spec.js`, run only through `scripts/e2e.sh`): in English and Korean, `#pref-mcp-claude-setup` has the page origin with `/mcp`, `--scope user`, and the marketplace repository. The copy button puts the same text on the clipboard. `#pref-mcp-claude-guide` points to the guide for the page language.
-- **Acceptance on Claude Code** (development server, a temporary `CLAUDE_CONFIG_DIR`):
-  1. Run the CL4 block. `/mcp` shows `claire` as connected after sign-in.
-  2. `/claire:ingest <url>` gives a committed extraction, and the hook log shows `extract_read` only with `agent_type: "claire:extractor"`.
-  3. A request to the main agent to call `extract_read` itself is blocked with the guard message.
-  4. `/claire:extract` processes one pending document.
-  5. `/claire:query <question>` answers with document IDs.
-  6. Find out if `allowed-tools` in a forked skill removes the permission prompts in the subagent [unverified]. If not, the guide tells the user to allow each tool one time.
-- **Known limit to examine**: the guard on native Windows. Claude Code runs shell commands through Git Bash there [unverified].
+- **Acceptance on Claude Code** [measured] (2026-11-22, Claude Code 2.1.329, the built `v0.3.0` bundle with `--plugin-dir`, a development server with a temporary database, the server `claire` given by `--mcp-config` with a development token, no tools approved in advance):
+  1. `/claire:ingest <note>`: `extract_stage` on the main thread, then the `claire:extract` skill. In the subagent: `extract_spec`, `extract_claim`, `extract_read`, `entity_search`, `extract_submit` (dry run), `extract_submit` (commit), `extract_queue`. The extraction was committed with no permission refusal.
+  2. `/claire:extract <document_id>`: all tool calls in the subagent, committed. The source had an injected instruction to run a shell command. The subagent did not follow it.
+  3. A request to the main agent to call `extract_read` itself was blocked with the guard message.
+  4. `/claire:query <question>`: `kb_list`, `entity_search`, `graph_context`, `entity_get`, and an answer with the document ID.
+- **Not measured**: the OAuth sign-in from Claude (`claude mcp login`), the steps of CL0 in the desktop app, and the guard on native Windows, where Claude Code runs shell commands through Git Bash [unverified].
 
 ---
 
 ## 9. Work Units and Order
 
-| Unit | Content | Depends on |
+| Unit | Content | State |
 | :--- | :--- | :--- |
-| CL0 | Owner measurement in Claude Desktop: where the plugin loads, which tool prefix a connector gets in Cowork, and if hooks run there | None |
-| CL1, CL2, CL8 | Bundle, guard, version, build gates (Section 7), unit tests | CQ1 for CL2 |
-| CL3, CL4, CL7 | Guides, plugin README, `MCP_SUPPORT.md` correction | CL1 |
-| CL5 | `/settings/mcp` rows, catalog keys, E2E test | CL4 text |
-| CL6 | Consent checkboxes, smaller token scope | CQ2 |
-| CL9 | Upload link tool | CQ4 |
+| CL0 | Guide for users without IT knowledge (`docs/claude.{ko,en}.md`) | Implemented |
+| CL1, CL2, CL8 | Bundle, guard, version, build gates (Section 7), unit tests | Implemented |
+| CL3, CL4, CL7 | Setup block, plugin README, `MCP_SUPPORT.md` correction | Implemented |
+| CL5 | `/settings/mcp` rows, catalog keys, E2E test | Implemented |
+| CL6 | Consent checkbox, smaller token scope (CD2) | Open |
+| CL9 | Upload link tool (CD4) | Open |
+| CL10 | Plugin support in Cowork and claude.ai (CD3) | No design. It needs the observations of Section 10.1. |
 
 ---
 
-## 10. Open Owner Questions
+## 10. Owner Decisions (2026-11-22)
 
-| ID | Question | Recommendation |
-| :--- | :--- | :--- |
-| CQ1 | Can the Claude bundle contain the one fixed guard command of CL2? It runs on the computer of the user, but the build writes it, and the build accepts no other hook. | Yes. Without it, Layer 1 on Claude depends only on text, because Claude Code loads no rules file (T2, T4). A `prompt` hook is not deterministic and has a cost for each call. |
-| CQ2 | Can the consent screen let the user clear the `write` scope (CL6)? | Yes. Chat surfaces then get a server-enforced read-only connection, and other clients do not change. |
-| CQ3 | Do you want plugin support in Cowork and claude.ai? It can need a plugin-bundled MCP server with a `userConfig` URL (tools `mcp__plugin_claire_claire__*`). This is a different packaging from Option A for those surfaces. | Do CL0 first. Decide with the measured data. |
-| CQ4 | Can the MCP surface get the upload link tool of CL9 (17 to 18 tools)? | Yes, as a separate release after CL1 to CL5. |
+| ID | Decision |
+| :--- | :--- |
+| CD1 | The Claude bundle contains the one fixed guard command of CL2. The build writes it and accepts no other hook. |
+| CD2 | The consent screen lets the user clear the `write` scope (CL6). |
+| CD3 | Plugin support in Cowork and claude.ai is a goal (CL10). The packaging for those surfaces can be different from Option A. |
+| CD4 | The MCP surface gets the upload link tool of CL9. |
+
+The owner also replaced the measurement unit CL0 of the first version with the guide of Section 5 (CL0).
+
+### 10.1 Observations that CL10 needs
+
+CL10 has no design, because these facts are not known. A person who follows the guide in the desktop app can see them:
+
+1. In a Cowork conversation, does the `claire` plugin show its three commands?
+2. On the plugin page, after the setup of the guide, does `claire` show in the list "커넥터", and does it have a sign-in control?
+3. In Cowork, does a request to read a waiting source directly show the guard message of CL2?
+
+If item 1 is "no", CL10 needs a second packaging (a plugin-bundled MCP server with a `userConfig` URL, tools `mcp__plugin_claire_claire__*`). If item 3 is "no", Cowork has no Layer 1 control, and extraction must stay off that surface.
 
 ---
 
@@ -260,4 +286,4 @@ Optional [proposal]: run `claude plugin validate` in the marketplace check workf
 | An extractor with a deny list (`disallowedTools`) | Other MCP tools (mail, drive) stay open to the extractor. |
 | An allow list with many server prefixes | The name of a claude.ai connector is the choice of the user. The build cannot know it. |
 | A subagent-only MCP server (`mcpServers` in the extractor) | Claude Code ignores this field for plugin subagents (T10). |
-| A plugin-bundled MCP server for Claude Code now | It reverses Option A for Claude Code without a need. CQ3 keeps this option for the surfaces where Option A cannot work. |
+| A plugin-bundled MCP server for Claude Code now | It reverses Option A for Claude Code without a need. CD3 keeps this option for the surfaces where Option A cannot work. |

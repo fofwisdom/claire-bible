@@ -560,6 +560,21 @@
       var promptTmpl = tJs("console.js.synd.mcp.antigravity_prompt", "Install the claire plugin (claire-antigravity-v*.zip) from the latest GitHub Release of https://github.com/{repo} into ~/.gemini/config/plugins/claire after verifying SHA256SUMS, merge mcpServers.claire={url:{mcp_url}} into ~/.gemini/config/mcp_config.json without overwriting existing entries, and tell me how to sign in under MCP Servers.");
       promptEl.textContent = promptTmpl.replace(/\{repo\}/g, mpRepo).replace(/\{mcp_url\}/g, ep);
     }
+    var claudePromptEl = byId("pref-mcp-claude-prompt");
+    if (claudePromptEl) {
+      var cmp = (synd && synd.agent_marketplace) || {};
+      var cmpRepo = cmp.repo || "fofwisdom/claire-agents";
+      var claudeTmpl = tJs("console.js.synd.mcp.claude_prompt", "Set up Claire Bible on this computer. Run these commands in order, one at a time, and tell me each result.\n1) claude plugin install claire --marketplace {repo}\n2) claude mcp add --transport http --scope user claire {mcp_url}\n3) claude mcp login claire\nIf a step says that it is already done, continue with the next step. If the claude command is not found, stop and tell me. Do not change other settings. At the end, tell me to restart Claude.");
+      claudePromptEl.textContent = claudeTmpl.replace(/\{repo\}/g, cmpRepo).replace(/\{mcp_url\}/g, ep);
+      var claudeSetupEl = byId("pref-mcp-claude-setup");
+      if (claudeSetupEl) {
+        claudeSetupEl.textContent = [
+          "claude plugin install claire --marketplace " + cmpRepo,
+          'claude mcp add --transport http --scope user claire "' + ep + '"',
+          "claude mcp login claire"
+        ].join("\n");
+      }
+    }
     byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "entity_search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
     byId("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
     byId("pref-mcp-stats").innerHTML = [
@@ -569,7 +584,7 @@
       ["+" + proposedOn.length, "제안 도구 (미리보기)"]
     ].map(function (p) { return '<div class="pref-stat"><b>' + escapeHtml(p[0]) + "</b><span>" + escapeHtml(p[1]) + "</span></div>"; }).join("");
 
-    byId("pref-mcp-snippet-cli").textContent = 'claude mcp add --transport http claire "' + ep + '"';
+    byId("pref-mcp-snippet-cli").textContent = 'claude mcp add --transport http --scope user claire "' + ep + '"';
     byId("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { url: ep } } }, null, 2);
 
     byId("pref-mcp-tools-tbody").innerHTML = MCP_TOOLS.map(function (t) {

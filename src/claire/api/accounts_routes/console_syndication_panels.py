@@ -187,11 +187,27 @@ def _antigravity_guide_url(repo: str) -> str:
     return f"https://github.com/{repo}/blob/main/docs/antigravity.{lang}.md"
 
 
+def _claude_guide_url(repo: str) -> str:
+    lang = "ko" if get_locale() == "ko" else "en"
+    return f"https://github.com/{repo}/blob/main/docs/claude.{lang}.md"
+
+
+def claude_setup_commands(repo: str, mcp_url: str) -> str:
+    """Return the terminal setup block of the Claude target (design unit CL4)."""
+    return "\n".join((
+        f"claude plugin install claire --marketplace {repo}",
+        f'claude mcp add --transport http --scope user claire "{mcp_url}"',
+        "claude mcp login claire",
+    ))
+
+
 def _render_agent_marketplace_block(repo: str) -> str:
     git_url = f"https://github.com/{repo}.git"
     releases_url = f"https://github.com/{repo}/releases"
     ag_guide_url = _antigravity_guide_url(repo)
+    claude_guide_url = _claude_guide_url(repo)
     default_prompt = t("console.js.synd.mcp.antigravity_prompt", repo=repo, mcp_url="/mcp")
+    claude_prompt = t("console.js.synd.mcp.claude_prompt", repo=repo, mcp_url="/mcp")
     agent_guidance = console_notice(
         f'<ul style="margin:0;padding-left:1.1rem;display:grid;gap:4px">'
         f'<li>{escape(t("console.synd.mcp.marketplace_guide_antigravity"))}</li>'
@@ -213,6 +229,16 @@ def _render_agent_marketplace_block(repo: str) -> str:
         f'<button type="button" class="pref-btn" id="pref-mcp-download-mcp-config">{escape(t("console.synd.mcp.marketplace_download_config"))}</button>'
         "</div></div>"
         '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_claude_prompt_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_claude_prompt_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-claude-prompt" class="pref-mono" style="white-space:pre-wrap;word-break:break-word;max-width:100%">{escape(claude_prompt)}</code>'
+        f'<button type="button" class="pref-btn pref-btn-accent" id="pref-mcp-copy-claude-prompt" data-copy-target="pref-mcp-claude-prompt">{escape(t("console.common.copy"))}</button></div>'
+        "</div>"
+        '<div class="pref-row">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_claude_guide_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_claude_guide_desc"))}</span></div>'
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        f'<a id="pref-mcp-claude-guide" class="pref-btn pref-btn-accent" href="{escape(claude_guide_url)}" target="_blank" rel="noopener noreferrer">{escape(t("console.synd.mcp.marketplace_claude_guide_link"))}</a>'
+        "</div></div>"
+        '<div class="pref-row">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_repo_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_repo_desc"))}</span></div>'
         f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-repo" class="pref-mono">{escape(repo)}</code>'
         f'<button type="button" class="pref-btn" data-copy-target="pref-mcp-marketplace-repo">{escape(t("console.common.copy"))}</button></div>'
@@ -220,6 +246,11 @@ def _render_agent_marketplace_block(repo: str) -> str:
         f'<div style="margin:8px 0 4px">{agent_guidance}</div>'
         '<details class="pref-disclosure" id="pref-mcp-marketplace-advanced" style="margin-top:8px">'
         f'<summary>{escape(t("console.synd.mcp.marketplace_advanced_summary"))}</summary>'
+        '<div class="pref-row" style="margin-top:8px">'
+        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_claude_setup_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_claude_setup_desc"))}</span></div>'
+        f'<div class="pref-endpoint"><code id="pref-mcp-claude-setup" class="pref-mono" style="white-space:pre-wrap;word-break:break-word;max-width:100%">{escape(claude_setup_commands(repo, "/mcp"))}</code>'
+        f'<button type="button" class="pref-btn" id="pref-mcp-copy-claude-setup" data-copy-target="pref-mcp-claude-setup">{escape(t("console.common.copy"))}</button></div>'
+        "</div>"
         '<div class="pref-row" style="margin-top:8px">'
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.marketplace_git_label"))}</strong><span>{escape(t("console.synd.mcp.marketplace_git_desc"))}</span></div>'
         f'<div class="pref-endpoint"><code id="pref-mcp-marketplace-git" class="pref-mono">{escape(git_url)}</code>'
@@ -326,6 +357,7 @@ def build_syndication_section(
             "git_url": f"https://github.com/{marketplace_repo}.git",
             "releases_url": f"https://github.com/{marketplace_repo}/releases",
             "antigravity_guide_url": _antigravity_guide_url(marketplace_repo),
+            "claude_guide_url": _claude_guide_url(marketplace_repo),
         }
     if slug == "mcp":
         syndication_bootstrap["mcp_tools"] = get_mcp_tools_metadata()

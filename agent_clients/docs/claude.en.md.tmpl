@@ -2,35 +2,141 @@
 
 [한국어 가이드](./claude.ko.md) · [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)
 
-## Before You Start
+You do not need terminal knowledge. In the **Claude desktop app**, a few mouse clicks and one pasted prompt connect the Claire Bible `claire` plugin to your Claire Bible server. Then you can save and extract URLs and documents and search your knowledge graph.
 
-1. In Claire Bible **Account Settings** (`/settings/account`), switch **Extraction mode** to **`Agent Client (client)`**.
-2. Keep **MCP Settings** (`/settings/mcp`) open so you can copy your `/mcp` endpoint URL.
+---
 
-## Install & Connect via GUI
+## Where Does It Work?
 
-1. Open **Marketplace management** in Claude.
-2. Enter **`{{MARKETPLACE_REPO}}`** (or `https://github.com/{{MARKETPLACE_REPO}}.git`), sync, and install **`claire`**.
-3. In Claude Connectors / MCP settings, add your remote HTTP server as **`claire`** pointing to `https://<your-claire-server>/mcp`.
-4. Complete the browser OAuth 2.1 flow and approve both `readonly` and `write` scopes.
+| Claude surface | What you can do | Where to start |
+| :--- | :--- | :--- |
+| **Code mode (`</>`) of the Claude desktop app**, Claude Code in a terminal | Save, extract, and search (`/claire:ingest`, `/claire:extract`, `/claire:query`) | Steps 1 to 3 below |
+| claude.ai web, normal chat of the desktop app, mobile app | Search (read) only | [Read-only connection](#readonly-connector) at the end |
 
-## Slash Commands Ready to Use
+---
 
-- **`/claire:ingest <url, file, or note>`**: Stage a URL, local document file (PDF, DOCX, ODT, MD, TXT), or note and run isolated extraction via `extractor` in one step.
-- **`/claire:extract`**: Claim and extract queued `pending` sources waiting in your personal KB.
-- **`/claire:query <question>`**: Discover KBs via `kb_list`, search entities and relations, inspect documents, or submit contributions.
+## Before You Start (1 Minute)
 
-<details>
-<summary>CLI / Terminal setup</summary>
+1. Sign in to your **Claire Bible web page**.
+2. In **Account Settings** (`/settings/account`), switch **Extraction mode** to **`Agent Client (client)`**.
+3. Keep **MCP Settings** (`/settings/mcp`) open. You copy the **Claude quick setup prompt** from this page.
+
+---
+
+## Step 1: Install the Plugin (Mouse Clicks Only)
+
+1. Open the **Claude desktop app** and select the **`</>`** icon (Code mode) at the top of the window.
+2. Click **`Plugins`** in the left menu.
+3. Click **`Add`** at the top right and open the **`Add marketplace`** dialog.
+4. Paste this text into the **URL** field and click **`Sync`**.
+   ```text
+   {{MARKETPLACE_REPO}}
+   ```
+   - The notice *"Only add marketplaces you trust"* is normal. This is the official Claire Bible repository, and it contains no server passwords or tokens.
+5. Next to the **Claire Bible** (`claire`) plugin in the list, click **`Add to this computer`**.
+
+---
+
+## Step 2: Connect Your Claire Bible Server (Paste One Prompt)
+
+1. On the Claire Bible **`/settings/mcp`** page, in the **Official Agent Marketplace (GitHub)** card, click **Copy** next to the **`Claude quick setup prompt`**.
+   - To start from GitHub, copy this prompt and replace only `<your-claire-server>` with the address of your server:
+   ```text
+   Set up Claire Bible on this computer. Run these commands in order, one at a time,
+   and tell me each result.
+   1) claude plugin install claire --marketplace {{MARKETPLACE_REPO}}
+   2) claude mcp add --transport http --scope user claire https://<your-claire-server>/mcp
+   3) claude mcp login claire
+   If a step says that it is already done, continue with the next step.
+   If the claude command is not found, stop and tell me.
+   Do not change other settings. At the end, tell me to restart Claude.
+   ```
+2. Click **`+ New`** at the top left of the Claude app, paste the prompt, and send it.
+   - *Permission to run commands*: when Claude asks if it can run these commands, select **Allow**. All three commands change only the Claire Bible setup.
+3. **Claire Bible sign-in (OAuth 2.1)**: command 3 opens your browser. Sign in to Claire Bible and approve the **`readonly`** and **`write`** scopes.
+4. Quit the Claude app fully and open it again.
+
+---
+
+## Step 3: Make Sure It Works
+
+1. In the left menu, open **`Plugins`** and make sure that **Claire Bible** (`claire`) is shown.
+2. Open a new conversation with **`+ New`** and send this line:
+   ```text
+   /claire:query Show the list of my knowledge bases
+   ```
+3. When the answer shows the names and document counts of your knowledge bases, the connection is complete.
+
+---
+
+## Commands Ready to Use
+
+- **`/claire:ingest <url, file, or note>`**: Saves a web address, a local document file (PDF, DOCX, ODT, MD, TXT, and more), or a note on your server and completes the extraction in one step.
+- **`/claire:extract`**: Takes one waiting (`pending`) source from Web, Telegram, or feed ingestion, extracts it, and saves the result.
+- **`/claire:query <question>`**: Finds entities, relations, and documents in your knowledge base and in shared knowledge bases.
+
+Examples:
 
 ```text
-/plugin marketplace add {{MARKETPLACE_REPO}}
+/claire:ingest https://example.com/article
+/claire:extract
+/claire:query Find documents about Fedify
 ```
 
-Install `claire`, then register the standalone `claire` MCP server:
+### Safety Controls
+
+- Only the **isolated extraction agent** (`claire:extractor`) reads a collected source. It has only Claire Bible tools. It cannot use files, a shell, or a browser.
+- If the Claude of your conversation tries to read a source directly, the plugin stops the call and shows *"extract_read is allowed only in the claire:extractor subagent"*. This is correct behavior.
+- A contribution of a document to a shared knowledge base always asks you first.
+
+---
+
+## Update or Remove the Plugin
+
+1. In the left menu, open **`Plugins`** and open the **`Manage marketplaces`** dialog.
+2. Click **`…`** next to **`claire-agents`** to update or remove it. (When you remove the marketplace, the `claire` plugin is removed too.)
+3. Start the Claude app again after an update.
+
+---
+
+## Troubleshooting
+
+| Symptom | Solution |
+| :--- | :--- |
+| `/claire:query` or another command answers that it *cannot find the tools* | Do Step 2 again. The server must be registered with the name **`claire`**. A server that you add as a Claude **connector** has a different name, and the plugin cannot use it. |
+| It works in one folder but not in a different folder | The server is registered for that folder only. Run the Step 2 prompt (it has `--scope user`) again. |
+| Claude answers that the *claude command is not found* | Ask Claude *"Tell me how to install the Claude Code command-line tool"*, install it, and do Step 2 again. |
+| You missed the browser sign-in window | In a new conversation, send *"Run the command claude mcp login claire"*. |
+| You signed in, but the answer says that there is no `write` scope | You cleared **Allow write access** on the approval page. Sign in again as above and keep the box selected. |
+| A new version does not apply | Update `claire-agents` in **`Manage marketplaces`**, and start the app again. |
+
+<a id="readonly-connector"></a>
+
+---
+
+## claude.ai Web, Normal Chat, and Mobile: Read-Only Connection
+
+These surfaces have no isolated extraction agent, so they support **search (read) only**.
+
+1. In the **Connectors** settings of Claude, add a custom connector and enter your `/mcp` address (`https://<your-claire-server>/mcp`).
+2. When you connect, the Claire Bible approval page opens. **Clear** the **`Allow write access`** box and approve. (Only `readonly` is granted.)
+3. Ask in the chat, for example *"Find documents about a topic in Claire Bible"*.
+
+To save and extract, use Code mode with the setup of Steps 1 to 3.
+
+<details>
+<summary>Terminal / CLI setup</summary>
+
+Run these three lines in Claude Code 2.1.275 or later.
 
 ```bash
-claude mcp add --transport http claire https://<your-claire-server>/mcp
+claude plugin install claire --marketplace {{MARKETPLACE_REPO}}
+claude mcp add --transport http --scope user claire https://<your-claire-server>/mcp
+claude mcp login claire
 ```
+
+- Without `--scope user`, the server is registered for the current folder only.
+- In a conversation, `/mcp` shows the connection state of `claire`, and `/agents` shows `claire:extractor`.
+- Update: run `claude plugin marketplace update claire-agents`, then `claude plugin update claire@claire-agents`, and start Claude Code again.
 
 </details>

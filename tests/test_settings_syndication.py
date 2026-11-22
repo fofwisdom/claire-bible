@@ -317,7 +317,14 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
         "git_url": "https://github.com/fofwisdom/claire-agents.git",
         "releases_url": "https://github.com/fofwisdom/claire-agents/releases",
         "antigravity_guide_url": "https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.en.md",
+        "claude_guide_url": "https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.en.md",
     }
+    for claude_id in ("pref-mcp-claude-prompt", "pref-mcp-copy-claude-prompt", "pref-mcp-claude-guide", "pref-mcp-claude-setup", "pref-mcp-copy-claude-setup"):
+        assert f'id="{claude_id}"' in en_resp.text, claude_id
+    assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.en.md"' in en_resp.text
+    assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in en_resp.text
+    assert "claude mcp add --transport http --scope user claire" in en_resp.text
+    assert "Marketplace management" not in en_resp.text
     assert "Antigravity · Cursor · MCP Clients" in en_resp.text
     en_bundles_section = en_resp.text.split('id="pref-mcp-client-bundles"', 1)[1].split('id="pref-mcp-tools-tbody"', 1)[0]
     en_without_prompt = re.sub(r'<code id="pref-mcp-antigravity-prompt"[^>]*>.*?</code>', "", en_bundles_section, flags=re.S)
@@ -339,6 +346,9 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     assert 'href="https://github.com/fofwisdom/claire-agents/releases"' in ko_resp.text
     ko_boot = _bootstrap(ko_resp.text)
     assert ko_boot["syndication"]["agent_marketplace"]["antigravity_guide_url"] == "https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.ko.md"
+    assert ko_boot["syndication"]["agent_marketplace"]["claude_guide_url"] == "https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.ko.md"
+    assert 'id="pref-mcp-claude-prompt"' in ko_resp.text
+    assert "Claude 빠른 설정 문구" in ko_resp.text
     ko_bundles_section = ko_resp.text.split('id="pref-mcp-client-bundles"', 1)[1].split('id="pref-mcp-tools-tbody"', 1)[0]
     ko_without_prompt = re.sub(r'<code id="pref-mcp-antigravity-prompt"[^>]*>.*?</code>', "", ko_bundles_section, flags=re.S)
     for jargon in ("~/.gemini/config/plugins/", "SHA256SUMS", "mcp_config.json"):
@@ -358,6 +368,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     rendered_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=override_settings)
     assert "fork-owner/fork-claire-agents" in rendered_override.body_html
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fork-owner/fork-claire-agents"
+    assert "claude plugin install claire --marketplace fork-owner/fork-claire-agents" in rendered_override.body_html
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["antigravity_guide_url"] == "https://github.com/fork-owner/fork-claire-agents/blob/main/docs/antigravity.en.md"
 
     invalid_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=SimpleNamespace(agent_marketplace_repo="javascript:alert(1)"))
