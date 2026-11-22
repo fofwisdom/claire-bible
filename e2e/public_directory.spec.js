@@ -8,9 +8,12 @@ test.use({ serviceWorkers: 'block' });
 test('single mode: the admin makes the profile public on the account page, and /accounts lists the admin', async ({ page, request }) => {
   const errors = watchErrors(page);
 
-  // Before the change: the admin has no public profile, thus the directory is empty. The old paths give 404.
+  // Before the change: the admin has a private profile, so the directory is empty. The actor profile URL still serves 200 with rel="alternate", and the old explore paths give 404.
   expect((await request.get('/explore/accounts')).status()).toBe(404);
   expect((await request.get('/explore/federation')).status()).toBe(404);
+  const profileRes = await request.get('/@e2eadmin/');
+  expect(profileRes.status()).toBe(200);
+  expect(await profileRes.text()).toContain('rel="alternate" type="application/activity+json"');
   const before = await request.get('/accounts', { headers: { Accept: 'application/json' } });
   expect(before.status()).toBe(200);
   expect((await before.json()).totalItems).toBe(0);

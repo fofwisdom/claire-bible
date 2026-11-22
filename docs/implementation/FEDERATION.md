@@ -99,7 +99,7 @@ The profile switch (`profile_public`) controls personal KB visibility, directory
 | Own `Note`s at `/ap/objects/{id}` (internal `/notes/{id}`) and in `/ap/actors/{id}/outbox` | Served (200 with `Note`, or 410 `Tombstone` when deleted) and included in `outbox` |
 | Inbound `Like`, `Announce`, `Undo`, and `QuoteRequest` for an own `Note` | Accepted and stored according to the note's `quote_policy` |
 | **Personal KB, directory, published KB documents, and Knowledge Federation** | |
-| Web profile `/@{username}/`, personal KB `/kb/{number}/`, and public directory (`/accounts`) | Web profile and personal KB return 404 to non-owners; `/accounts` omits private accounts ([`ACCOUNTS.md`](ACCOUNTS.md)) |
+| Web profile `/@{username}/`, personal KB `/kb/{number}/`, and public directory (`/accounts`) | In network mode, `GET`/`HEAD /@{username}/` returns an HTTP 200 minimal private-profile page (`noindex, nofollow`, `X-Robots-Tag`, `rel="alternate"`, `Link` header, `Cache-Control: no-store`, display name, `@username@{host}` handle, private KB notice, and zero workspace data) to non-owners; personal KB subpaths (`/@{username}/graph`, `/@{username}/documents`, and other subpaths), `/kb/{number}/`, and write routes (`PATCH`/`DELETE /@{username}/`, and related routes) still return 404 to non-owners; `/accounts` omits private accounts ([`ACCOUNTS.md`](ACCOUNTS.md)) |
 | `POST /api/federation/publish` | Refused with `409 profile_private`; `syndication_live.js` hides the native actor publish target when `content_public` is false (Section 7.7) |
 | `POST /api/federation/retract` | Permitted; `delete` outbox task proceeds so followers get `Delete` |
 | Published KB `Article` at `/ap/objects/{id}` (internal `/objects/{id}`) | Returns 404 (`410 Tombstone` if deleted) |
@@ -112,7 +112,7 @@ The profile switch (`profile_public`) controls personal KB visibility, directory
 
 - A change to private sends no `Delete` for published KB `Article`s that other servers already received: their copies stay. The hint of the switch tells this to the user. The change enqueues `update_actor` (`Update(Person)` with `discoverable: false`).
 - A change to public enqueues `update_actor` (`Update(Person)` with `discoverable: true`) and releases waiting `create` and `update` outbox tasks for published KB documents to the sidecar at its next poll.
-- The actor document has `url` `{origin}/@{username}/`. For a private profile that page gives 404 to a reader that is not the owner.
+- The actor document has `url` `{origin}/@{username}/`. In network mode, for a private profile, `GET`/`HEAD /@{username}/` returns an HTTP 200 minimal private-profile page (`noindex, nofollow`, `X-Robots-Tag`, `rel="alternate"`, `Link` header, `Cache-Control: no-store`, display name, `@username@{host}` handle, private KB notice, and zero workspace data) to a reader that is not the owner, while personal KB subpaths (`/@{username}/graph`, `/@{username}/documents`, and other subpaths), `/kb/{number}/`, and write routes return 404 (Section 8.2).
 
 The actor ID contains `accounts.public_id`, not the USERNAME: `{origin}/ap/actors/{public_id}`. `{origin}` is the canonical origin that Claire supplies in `config` (`WebRuntimeConfig.public_origin`). The sidecar does not read the request `Host` header to make a URL.
 
@@ -649,12 +649,12 @@ The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src
 
 ### 8.2 Alternate Link on the Profile Page
 
-When the account is a federation actor, the profile page `/@{username}/` (not a theme page) has:
+When the account is a federation actor, `GET`/`HEAD /@{username}/` (not a pinned KB page) has:
 
-- `<link rel="alternate" type="application/activity+json" href="{actor ID}">` in the `head`.
-- The header `Link: <{actor ID}>; rel="alternate"; type="application/activity+json"`.
+- `<link rel="alternate" type="application/activity+json" href="{origin}/ap/actors/{public_id}">` in the `head`.
+- The header `Link: <{origin}/ap/actors/{public_id}>; rel="alternate"; type="application/activity+json"`.
 
-The page keeps its HTML format for all `Accept` values. The path has no content negotiation. The owner of a private profile sees the page with the link, because the account is an actor. Another reader gets 404 for that page (Section 3.1).
+The page keeps its HTML format for all `Accept` values. The path has no content negotiation. Single mode `/@{username}/` for the admin also emits the `<link rel="alternate">` element and the `Link` header. In network mode, the owner of a private profile sees the full profile page with the link, while a non-owner who requests `GET`/`HEAD /@{username}/` on a private profile receives an HTTP 200 minimal private-profile page (`noindex, nofollow`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: no-store`, display name, `@username@{host}` handle, private KB notice, and zero workspace data) that also includes `<link rel="alternate">` and the `Link` header; personal KB subpaths (`/@{username}/graph`, `/@{username}/documents`, and other subpaths), `/kb/{number}/`, and write routes return 404 to non-owners (Section 3.1).
 
 ### 8.3 Mode Change Refusal
 

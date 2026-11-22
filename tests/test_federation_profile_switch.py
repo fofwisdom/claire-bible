@@ -190,11 +190,32 @@ def test_profile_page_has_the_alternate_link_of_the_actor(env):
     negotiated = profile(headers={"Accept": "application/activity+json"})
     assert negotiated.headers["content-type"].startswith("text/html")
 
-    # A private profile: the account is an actor as before (decision GD5), so the owner sees the page with the link. The page is content: no other reader gets it.
+    # Private profile: owner sees workspace; non-owners get 200 basic landing page on GET/HEAD /@{username}/ while personal KB subpaths remain 404.
     assert env.client.request("PATCH", "/api/me", session=session, json={"profile_public": 0}).status_code == 200
     page = profile(session=session)
-    assert page.status_code == 200 and page.text.count(ALTERNATE) == 1 and page.headers["link"] == actor_link
-    assert profile().status_code == 404
+    assert page.status_code == 200 and 'data-profile-state="private"' not in page.text and page.text.count(ALTERNATE) == 1 and page.headers["link"] == actor_link
+
+    anon = profile()
+    assert anon.status_code == 200
+    assert anon.headers["content-type"].startswith("text/html")
+    assert anon.headers["x-robots-tag"] == "noindex, nofollow"
+    assert anon.headers["link"] == actor_link
+    assert 'data-profile-state="private"' in anon.text
+    assert '<meta name="robots" content="noindex, nofollow">' in anon.text
+    assert anon.text.count(ALTERNATE) == 1 and anon.text.index(ALTERNATE) < anon.text.index("</head>")
+    assert "@member_alpha@" in anon.text
+    assert "personal knowledge base is private" in anon.text
+    assert "Knowledge graph" not in anon.text
+
+    anon_ap = profile(headers={"Accept": "application/activity+json"})
+    assert anon_ap.status_code == 200 and anon_ap.headers["content-type"].startswith("text/html")
+
+    head = env.client.request("HEAD", "/@member_alpha/")
+    assert head.status_code == 200 and head.headers["link"] == actor_link and head.headers["x-robots-tag"] == "noindex, nofollow"
+
+    assert env.client.request("GET", "/@member_alpha/?doc=secret").status_code == 200 and 'data-profile-state="private"' in env.client.request("GET", "/@member_alpha/?doc=secret").text
+    assert env.client.request("GET", "/@member_alpha/graph").status_code == 404
+    assert env.client.request("GET", "/@member_alpha/documents").status_code == 404
 
 
 # --- End-to-end: the switch in a real browser ---
@@ -224,6 +245,17 @@ def test_e2e_switch_changes_the_profile_without_a_dialog(tmp_path):
             except Exception as exc:  # noqa: BLE001
                 pytest.skip(f"Playwright Chromium is not available: {exc}")
             try:
+                anon_ctx = browser.new_context()
+                anon_page = anon_ctx.new_page()
+                priv_res = anon_page.goto(f"{base}/@member_alpha/", wait_until="domcontentloaded")
+                assert priv_res is not None and priv_res.status == 200
+                assert anon_page.locator('[data-profile-state="private"]').is_visible()
+                assert f"@member_alpha@127.0.0.1:{port}" in anon_page.locator(".profile-handle").inner_text()
+                assert "noindex" in (anon_page.locator('meta[name="robots"]').get_attribute("content") or "")
+                assert anon_page.locator(f'link[rel="alternate"][type="application/activity+json"][href="{base}/ap/actors/{MEMBER_PUBLIC_ID}"]').count() == 1
+                graph_res = anon_ctx.request.get(f"{base}/@member_alpha/graph")
+                assert graph_res.status == 404
+
                 ctx = browser.new_context()
                 ctx.add_cookies([{"name": "claire_session", "value": stale, "url": base}])
                 page = ctx.new_page()
@@ -239,6 +271,9 @@ def test_e2e_switch_changes_the_profile_without_a_dialog(tmp_path):
                 assert toggle.is_checked() is True
                 assert _is_public(settings, member) is True
 
+                anon_page.goto(f"{base}/@member_alpha/", wait_until="domcontentloaded")
+                assert anon_page.locator('[data-profile-state="private"]').count() == 0
+
                 # The change to private is the same.
                 with page.expect_response(lambda r: r.url.endswith("/api/me") and r.request.method == "PATCH") as patched:
                     toggle.click()
@@ -246,6 +281,10 @@ def test_e2e_switch_changes_the_profile_without_a_dialog(tmp_path):
                 assert page.locator("dialog[data-step-up-dialog]").count() == 0
                 assert toggle.is_checked() is False
                 assert _is_public(settings, member) is False
+
+                anon_page.goto(f"{base}/@member_alpha/", wait_until="domcontentloaded")
+                assert anon_page.locator('[data-profile-state="private"]').is_visible()
+                assert anon_ctx.request.get(f"{base}/@member_alpha/graph").status == 404
             finally:
                 browser.close()
     finally:

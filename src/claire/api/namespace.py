@@ -110,6 +110,8 @@ class ResolvedNamespace:
     prefix: str
     # 요청 경로에 접두가 실제로 있었는가(N4·N5 판정과 canonical 링크용)
     via_prefix: bool
+    # Set only for non-owner GET/HEAD on ``/@{username}/`` when ``profile_public`` is 0 in network mode.
+    private_profile_view: bool = False
 
 
 class NamespaceDirectory(Protocol):
@@ -445,6 +447,7 @@ class NamespaceResolverMiddleware:
         directory = self.directory
         query_string = scope.get("query_string", b"") or b""
         owner: Account | None = None
+        private_profile_view = False
         if parsed.kb_number is not None:
             return self._kb_path(mode, parsed, principal, query_string, any_surface=any_surface)
         if parsed.username is not None:
@@ -458,9 +461,11 @@ class NamespaceResolverMiddleware:
                 if directory.tombstone_was_public(parsed.username) is True:
                     return PlainTextResponse("Gone", status_code=410)
                 return _not_found()
-            # N1: 본인이 아니면(관리자 포함) 공개 프로필만 보인다. Single mode has no profile rule: the knowledge base of the admin was at the root for each reader, and it is at ``/@{username}/`` now.
+            # N1: 본인이 아니면(관리자 포함) 공개 프로필만 보인다. Single mode has no profile rule: the knowledge base of the admin was at the root for each reader, and it is at ``/@{username}/`` now. Under Option A, GET/HEAD on ``/@{username}/`` renders a minimal 200 profile page without workspace data so ActivityPub Person.url resolves cleanly; all personal KB subpaths and write methods remain 404.
             if mode == "network" and principal.account_id != owner.id and not owner.profile_public:
-                return _not_found()
+                if any_surface or parsed.theme_number is not None or parsed.inner_path != "/" or str(scope.get("method", "")).upper() not in ("GET", "HEAD"):
+                    return _not_found()
+                private_profile_view = True
         elif parsed.theme_number is not None:
             # Old link ``/themes/{number}/…`` with the number of a knowledge base (design Section 7): 308 only.
             return self._old_theme_link(mode, parsed, principal, query_string)
@@ -495,7 +500,7 @@ class NamespaceResolverMiddleware:
 
         assert owner is not None and owner.username is not None
         return _Outcome(
-            ResolvedNamespace(mode, owner.id, owner.username, None, f"/@{owner.username}", bool(parsed.prefix)),
+            ResolvedNamespace(mode, owner.id, owner.username, None, f"/@{owner.username}", bool(parsed.prefix), private_profile_view),
             public_id=owner.public_id,
         )
 

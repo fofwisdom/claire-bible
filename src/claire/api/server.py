@@ -77,7 +77,7 @@ from . import public_kb_routes
 from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, kb_base_path, namespace_link, request_namespace
-from .principal import request_principal
+from .principal import Principal, request_principal
 from ..ontology.label_language import display_label
 from .mcp_tools import build_mcp_app
 from .oauth import (
@@ -992,6 +992,35 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "no-store"})
 
+    def _directory_viewer_nav(request: Request, principal: Principal) -> tuple[int | None, str | None, str]:
+        """Resolve viewer account ID, username, and auth nav links for directory and profile templates."""
+        viewer_id = principal.account_id
+        if viewer_id is None:
+            cookie_present, cookie_token = read_session_cookie(request.scope)
+            if cookie_present and cookie_token:
+                conn_s = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    binding = accounts_store.validate_session_binding(conn_s, cookie_token)
+                    if binding is not None:
+                        viewer_id = binding.account_id
+                finally:
+                    conn_s.close()
+        viewer_username = None
+        if viewer_id is not None:
+            try:
+                viewer_username = namespace_directory.account(viewer_id).username
+            except Exception:
+                pass
+        if viewer_id is not None:
+            home_url = f"/@{viewer_username}/" if viewer_username else "/me"
+            nav_auth = (
+                f'<a href="{html.escape(home_url)}">{html.escape(_t("directory.my_workspace"))}</a>'
+                f'<form method="post" action="/logout"><button type="submit" class="link">{html.escape(_t("common.action.logout"))}</button></form>'
+            )
+        else:
+            nav_auth = f'<a href="/login">{html.escape(_t("directory.login"))}</a>'
+        return viewer_id, viewer_username, nav_auth
+
     async def public_directory_route(request: Request, *, root_page: bool = False) -> Response:
         """``GET /accounts``: the public account directory, in both server modes (HTML or JSON with the collection contract). With ``root_page``, the root page of network mode: the themes, the recent activity across servers, and the first accounts."""
         query = collections.parse_collection_query(request.query_params)
@@ -1017,38 +1046,11 @@ def create_app(
         base_origin = _public_origin(request).rstrip("/")
         collection_url = f"{base_origin}/accounts"
 
-        account_id = principal.account_id
-        if account_id is None:
-            cookie_present, cookie_token = read_session_cookie(request.scope)
-            if cookie_present and cookie_token:
-                conn_s = dbm.connect_existing(s.db_file, readonly=True)
-                try:
-                    binding = accounts_store.validate_session_binding(conn_s, cookie_token)
-                    if binding is not None:
-                        account_id = binding.account_id
-                finally:
-                    conn_s.close()
+        account_id, username, nav_auth = await asyncio.to_thread(_directory_viewer_nav, request, principal)
 
         if root_page or collections.wants_html(request):
             template_path = Path(__file__).resolve().parent / "templates" / "public_directory.html"
             template_text = template_path.read_text(encoding="utf-8")
-
-            username = None
-            if account_id is not None:
-                try:
-                    acc = namespace_directory.account(account_id)
-                    username = acc.username
-                except Exception:
-                    pass
-
-            if account_id is not None:
-                home_url = f"/@{username}/" if username else "/me"
-                nav_auth = (
-                    f'<a href="{html.escape(home_url)}">{html.escape(_t("directory.my_workspace"))}</a>'
-                    f'<form method="post" action="/logout"><button type="submit" class="link">{html.escape(_t("common.action.logout"))}</button></form>'
-                )
-            else:
-                nav_auth = f'<a href="/login">{html.escape(_t("directory.login"))}</a>'
 
             if not accounts:
                 if account_id is not None:
@@ -4128,6 +4130,9 @@ def create_app(
                 return PlainTextResponse("Not Found", status_code=404)
             return await public_directory_route(request, root_page=True)
 
+        if ns is not None and ns.private_profile_view and ns.account_id is not None:
+            return await asyncio.to_thread(_render_private_profile_page, request, ns.account_id)
+
         scope = request_auth_scope(request)
         principal = request_principal(request)
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
@@ -4155,13 +4160,54 @@ def create_app(
         )
         # The profile page of a federation actor points to the actor ID (Fedify sidecar design Section 5.1 rule 2). The path has no content negotiation.
         headers: dict[str, str] = {}
-        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_kb_id is None:
+        if ns is not None and ns.username is not None and ns.pinned_kb_id is None:
             actor_url = await asyncio.to_thread(_profile_actor_url, account_id)
             if actor_url is not None:
                 link_tag = f'<link rel="alternate" type="application/activity+json" href="{html.escape(actor_url, quote=True)}">'
                 html_text = html_text.replace("</head>", f"{link_tag}\n</head>", 1)
                 headers["Link"] = f'<{actor_url}>; rel="alternate"; type="application/activity+json"'
         return HTMLResponse(html_text, headers=headers)
+
+    def _render_private_profile_page(request: Request, account_id: int) -> Response:
+        """Render the HTTP 200 basic profile page for a private account at ``/@{username}/`` with no workspace data."""
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            try:
+                account = accounts_store.AccountStore(conn).get(account_id)
+            except accounts_store.AccountNotFound:
+                return PlainTextResponse("Not Found", status_code=404)
+        finally:
+            conn.close()
+        if account.status != "active" or not account.username:
+            return PlainTextResponse("Not Found", status_code=404)
+        runtime = WebRuntimeConfig.from_settings(s)
+        actor_url = f"{runtime.public_origin}/ap/actors/{account.public_id}"
+        handle = f"@{account.username}@{runtime.expected_authority}"
+        display_name = account.display_name or account.username
+        _, _, nav_auth = _directory_viewer_nav(request, request_principal(request))
+        template_path = Path(__file__).resolve().parent / "templates" / "private_profile.html"
+        rendered = string.Template(template_path.read_text(encoding="utf-8")).safe_substitute(
+            html_lang=html.escape(get_locale(), quote=True),
+            actor_url=html.escape(actor_url, quote=True),
+            title=html.escape(display_name),
+            nav_label=html.escape(_t("directory.nav_label"), quote=True),
+            directory_title=html.escape(_t("directory.title")),
+            nav_auth=nav_auth,
+            display_name=html.escape(display_name),
+            handle=html.escape(handle),
+            notice=html.escape(_t("profile.private.notice")),
+            back_directory=html.escape(_t("profile.private.back_directory")),
+        )
+        rendered = get_web_ui_renderer().inject_favicon_head_tags(rendered)
+        headers = {
+            "Link": f'<{actor_url}>; rel="alternate"; type="application/activity+json"',
+            "X-Robots-Tag": "noindex, nofollow",
+            "Cache-Control": "no-store",
+            "Vary": "Cookie, Authorization, Accept-Language",
+        }
+        if request.method == "HEAD":
+            return Response(status_code=200, headers=headers, media_type="text/html; charset=utf-8")
+        return HTMLResponse(rendered, status_code=200, headers=headers)
 
     def _profile_actor_url(account_id: int) -> str | None:
         """Actor ID of the account, or ``None`` when the account is not a federation actor (FK4)."""
