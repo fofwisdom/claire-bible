@@ -523,11 +523,11 @@ def count_pending_tasks(conn: sqlite3.Connection, account_id: int) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=? AND status='pending'", (account_id,)).fetchone()[0])
 
 
-def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], actor_account_ids: list[int], now: float, lease_seconds: float, limit: int, include_delete_actor: bool = False) -> list[OutboxTask]:
+def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], actor_account_ids: list[int] | None = None, now: float, lease_seconds: float, limit: int, include_delete_actor: bool = False) -> list[OutboxTask]:
     """Give a lease on the oldest ready tasks and return them.
 
-    - ``account_ids``: the accounts whose content is public. Each kind of task of these accounts is given.
-    - ``actor_account_ids``: the accounts that are actors. For an actor that is not in ``account_ids`` (its profile is private) only the kinds ``update_actor`` and ``delete`` are given: they tell nothing of the content of the account, and a ``delete`` removes content. Its ``create`` and ``update`` tasks wait.
+    - ``account_ids``: the active accounts with a USERNAME (each kind of task of these accounts is given).
+    - ``actor_account_ids``: optional additional actor accounts limited to ``update_actor`` and ``delete`` tasks.
     - ``include_delete_actor`` adds the ``delete_actor`` tasks of all accounts: the account of such a task is purged and is in no list of actors.
 
     A task is ready when its status is ``pending`` and its lease is absent or ended. Thus a task that was not acknowledged is given again after its lease. The caller commits.

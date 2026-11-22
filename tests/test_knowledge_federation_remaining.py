@@ -123,7 +123,7 @@ def test_the_recent_activity_has_the_three_kinds_and_names_only_a_public_account
         conn.execute(offer, ("o4", 3, "x", "https://d.example/ap/kb/1", "d.example", "doc_4", "accepted", "https://d.example/ap/kb/1/documents/4", 500.0))
         conn.execute(offer, ("o5", 3, "x", cities.iri, "c.example", "doc_5", "pending", None, None))
         federation_store.add_domain_block(conn, "d.example", created_by=1, now=1.0)
-        # ann has no public profile now: she is not named.
+        # Decision GD8: ann has a private profile but is still an active account with a USERNAME, so she is named.
         conn.execute("UPDATE accounts SET profile_public=0 WHERE id=2")
         copy = "INSERT INTO kb_contributions (public_id, kb_id, document_id, origin, curator_account_id, state, approved_at, approved_by_account_id, contributed_at, updated_at, remote_source_kb_iri, remote_source_iri, remote_root_iri) VALUES (?, ?, ?, 'curation', 2, ?, ?, 2, ?, ?, ?, ?, ?)"
         conn.execute(copy, (1846000000000000901, kb_id, "copy_1", "visible", 400.0, 400.0, 400.0, cities.iri, f"{cities.iri}/documents/9", f"{cities.iri}/documents/9"))
@@ -137,7 +137,7 @@ def test_the_recent_activity_has_the_three_kinds_and_names_only_a_public_account
     curation, ben, ann = recent[0], recent[1], recent[2]
     assert (curation["server"], curation["label"], curation["url"], curation["knowledge_base"]["number"], curation["knowledge_base"]["label"]) == ("c.example", "Cities of C", cities.url, kb["number"], "Cities")
     assert (ben["server"], ben["label"], ben["url"], ben["account"]) == ("c.example", "Cities of C", cities.url, {"username": "ben", "display_name": "Ben"})
-    assert ann["account"] is None
+    assert ann["account"] == {"username": "ann", "display_name": "Ann"}
     # No item has a document of a personal knowledge base or its title.
     text = json.dumps(recent)
     assert "doc_" not in text and "documents/" not in text and "title" not in text

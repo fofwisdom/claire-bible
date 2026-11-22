@@ -10,7 +10,7 @@ The design gives three kinds. Each item has ``kind``, ``at`` (seconds), and ``se
 
 Privacy rules (the data is public):
 
-- ``account`` names an account only while it is ``active`` with a public profile and a USERNAME: ``{"username", "display_name"}``. Else ``account`` is None and the item does not name the account.
+- ``account`` names an account when it is ``active`` and has a USERNAME: ``{"username", "display_name"}`` (FEDERATION_GO_LIVE_DESIGN.md decision GD8). Else ``account`` is None.
 - No item has a document or its title: the document of an offer is a document of a personal knowledge base (KD3, KS5).
 - An item of a domain that a block applies to now is not in the result.
 
@@ -34,14 +34,14 @@ KINDS = ("remote_knowledge_base", "accepted_contribution", "curation")
 
 
 def _public_account(conn: sqlite3.Connection, account_id: int | None) -> dict[str, Any] | None:
-    """The name of an account for a public page, or None when the account must not be named (not ``active``, no public profile, or no USERNAME)."""
+    """The name of an active account with a USERNAME, or None when the account is deleted or inactive."""
     if account_id is None:
         return None
     try:
         account = accounts_store.AccountStore(conn).get(int(account_id))
     except accounts_store.AccountNotFound:
         return None
-    if account.status != "active" or not account.profile_public or not account.username:
+    if account.status != "active" or not account.username:
         return None
     return {"username": account.username, "display_name": account.display_name}
 

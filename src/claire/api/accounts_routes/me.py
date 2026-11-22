@@ -95,6 +95,9 @@ def update_profile_public(ctx: AccountsContext, account_id: int, profile_public:
         accounts_store.AccountStore(conn).update_profile_public(account_id, profile_public)
     finally:
         conn.close()
+    from .. import server as _server
+
+    _server._sitemap_cache.clear()
 
 
 def update_personal_source_public(ctx: AccountsContext, account_id: int, value: bool) -> None:

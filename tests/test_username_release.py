@@ -316,6 +316,12 @@ def test_retired_username_rejected_until_release(conn: sqlite3.Connection, auth_
     assert preview["account_id"] == member.id
     assert preview["has_410_marker"] is True
 
+    # A private-profile purge also leaves a 410 marker under GD8.
+    priv_member = store.create_member(username="priv_cat", display_name="Private", profile_public=False)
+    store.purge(priv_member.id)
+    assert store.preview_release_username("priv_cat", auth_conn=auth_conn)["has_410_marker"] is True
+    store.release_username("priv_cat", released_by=1, auth_conn=auth_conn)
+
     success = store.release_username("charlie_cat", released_by=1, auth_conn=auth_conn)
     assert success is True
     assert store.is_username_retired("charlie_cat") is False

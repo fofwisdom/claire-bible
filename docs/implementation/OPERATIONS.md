@@ -214,7 +214,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 6. 준비 검사는 관문이 아니라 상태 보고다. 통과하면 다른 서버가 이 서버의 액터에 닿을 수 있고, 따로 켜는 단계는 없다. 콘솔 화면 `/admin/federation`은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록을 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다.
 
-프로필을 비공개로 바꾸면(`profile_public = 0`) 액터의 `discoverable`이 `false`로 갱신되고(`Update(Person)`) 공개 디렉터리 노출·개인 지식 베이스 전체 접근(`/@{username}/`은 최소 안내 페이지만 200 응답), KB 문서 발행, 지식 연합 제안·기여자 표시만 제한되며 액터 자체는 멈추지 않는다([FEDERATION.md](FEDERATION.md) §3.1). 계정 하나의 연합을 멈추려면 계정을 정지하거나 삭제 예약을 시작해야 하며(액터 경로 404, §8.4), 서버 전체의 연합을 끄는 방법은 없다.
+프로필을 비공개로 바꾸면(`profile_public = 0`) 액터의 `discoverable`이 `false`로 갱신되고(`Update(Person)`) 공개 디렉터리(`/accounts`) 노출, 네트워크 모드 `/sitemap.xml`의 개인 지식 베이스 포함, 검색 색인 허용(HTML `/@{username}/`·`/@{username}/kb`에 `noindex, nofollow` 부착)만 꺼지며, `/@{username}/` 해석·개인 지식 베이스 공개 여부(`is_public`이 별도 제어)·KB 문서 발행·지식 연합 제안·기여자 표시와 액터 자체는 멈추지 않는다([FEDERATION.md](FEDERATION.md) §3.1). 계정 하나의 연합을 멈추려면 계정을 정지하거나 삭제 예약을 시작해야 하며(액터 경로 404, §8.4), 서버 전체의 연합을 끄는 방법은 없다.
 
 ### 파일
 

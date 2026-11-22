@@ -518,8 +518,10 @@ def test_account_kb_collection_and_old_account_themes_link_in_network_mode(tmp_p
         # /kb?joined=true at the root: the memberships of the requester.
         assert [kb["label"] for kb in client.get("/kb?joined=true", headers=bob).json()["knowledge_bases"]] == ["Rivers"]
         assert len(client.get("/kb", headers=bob).json()["knowledge_bases"]) == 2
-        # N1: a profile that is not public hides its collection from each other account.
-        assert client.get("/@carol/kb", headers=bob).status_code == 404
+        # Decision GD8: an active account with a USERNAME opens its namespace collection regardless of ``profile_public``.
+        carol_kb = client.get("/@carol/kb", headers={**bob, "Accept": "application/json"})
+        assert carol_kb.status_code == 200
+        assert carol_kb.json()["knowledge_bases"] == [] and carol_kb.json()["personal_kb"] is None
         # Old link /@{u}/themes: 308 to /@{u}/kb, with the query.
         old = client.get("/@alice/themes?page=true", headers=bob)
         assert (old.status_code, old.headers["location"]) == (308, "/@alice/kb?page=true")

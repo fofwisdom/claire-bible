@@ -149,7 +149,7 @@ class _Internal:
 
 @pytest.fixture
 def internal(tmp_path):
-    """A network-mode server. ``alice`` is an actor with a public profile and has three followers, two published objects, one deleted object, and two outbox tasks. ``private_bob`` is an actor with a private profile: its content is private. ``suspended_carol`` and ``deleting_dave`` are not actors. One domain is blocked."""
+    """A network-mode server. ``alice`` is an actor with a public profile and has three followers, two published objects, one deleted object, and two outbox tasks. ``private_bob`` is an actor with ``profile_public=0``. ``suspended_carol`` and ``deleting_dave`` are not actors (so Carol's task 3 and object stay unpublished). One domain is blocked."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -166,19 +166,19 @@ def internal(tmp_path):
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=1800000300.0)
         bob = conn.execute("SELECT id FROM accounts WHERE username='private_bob'").fetchone()[0]
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (?, ?, 'alice public', 0, 1, 1, 1, ?, 516412345678901234)", (ALICE_THEME_ID, ALICE_THEME_ID, alice))
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (32, 32, 'bob public', 0, 1, 1, 1, ?, 516412345678901235)", (bob,))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (32, 32, 'carol public', 0, 1, 1, 1, ?, 516412345678901235)", (carol,))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-published', ?, 'Published Title', 'Hello **world**', 'md', ?, 0, 1)", (ALICE_THEME_ID, '<p>Hello <strong>world</strong></p><script>alert(1)</script>'))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-second', ?, 'Second', 'Second *body*', 'md', 0, 1)", (ALICE_THEME_ID,))
-        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-bob', 32, 'Of Bob', 'x', 'md', 0, 1)")
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-carol', 32, 'Of Carol', 'x', 'md', 0, 1)")
         conn.execute("INSERT INTO doc_shares (token, kb_id, document_id, created_at, expires_at) VALUES ('sharetoken123456', ?, 'doc-published', 1, NULL)", (ALICE_THEME_ID,))
-        for public_id, document_id, account_id, kb_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-bob", bob, 32, 1800000350.0, 1800000350.0)):
+        for public_id, document_id, account_id, kb_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-carol", carol, 32, 1800000350.0, 1800000350.0)):
             conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, kb_id, document_id, account_id, published_at, updated_at))
         federation_store.add_tombstone(conn, GONE_OBJECT_ID, "object", gone_at=1800000330.0)
         federation_store.add_tombstone(conn, GONE_ACTOR_ID, "actor", gone_at=1800000350.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="create", object_public_id=OBJECT_ID, now=1800000310.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="delete", object_public_id=GONE_OBJECT_ID, now=1800000331.0)
-        # The profile of ``private_bob`` is private: its content is private, and its ``create`` task waits.
-        federation_store.add_outbox_task(conn, account_id=bob, kind="create", object_public_id=816412345678901236, now=1800000351.0)
+        # ``suspended_carol`` is not an actor: its ``create`` task waits.
+        federation_store.add_outbox_task(conn, account_id=carol, kind="create", object_public_id=816412345678901236, now=1800000351.0)
         conn.commit()
     finally:
         conn.close()
@@ -681,24 +681,16 @@ def test_outbox_tasks_refuses_a_limit_that_is_not_valid(internal, query):
     assert internal.get("/outbox-tasks?limit=1").json()["tasks"][0]["id"] == 1
 
 
-def test_content_task_waits_while_the_profile_is_private_and_a_delete_does_not(internal):
-    """Decision GD5: a ``create`` waits while the profile of its account is private. A ``delete`` removes content, and it is given for each actor."""
+def test_outbox_tasks_include_create_and_delete_for_private_profile_actors(internal):
+    """Decision GD8: ``create`` and ``delete`` outbox tasks are leased for every active actor regardless of ``profile_public``."""
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
         conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (internal.alice,))
-        conn.execute("UPDATE accounts SET profile_public=1 WHERE username='private_bob'")
         conn.commit()
     finally:
         conn.close()
     tasks = internal.get("/outbox-tasks").json()["tasks"]
-    assert [(t["id"], t["kind"], t["actor_public_id"]) for t in tasks] == [(2, "delete", str(ALICE_PUBLIC_ID)), (3, "create", "216412345678901234")]
-    conn = dbm.connect_existing(internal.settings.db_file)
-    try:
-        conn.execute("UPDATE accounts SET profile_public=1 WHERE id=?", (internal.alice,))
-        conn.commit()
-    finally:
-        conn.close()
-    assert [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]] == [1]
+    assert [(t["id"], t["kind"], t["actor_public_id"]) for t in tasks] == [(1, "create", str(ALICE_PUBLIC_ID)), (2, "delete", str(ALICE_PUBLIC_ID))]
 
 
 def test_task_of_an_account_waits_while_the_account_is_not_an_actor(internal):
@@ -718,8 +710,8 @@ def test_task_of_an_account_waits_while_the_account_is_not_an_actor(internal):
     assert [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]] == [1, 2]
 
 
-def test_account_with_a_private_profile_is_an_actor_with_private_content(internal):
-    """Decisions GD5 and GD7: a private profile sets ``discoverable`` to false and hides published KB documents, not the actor."""
+def test_account_with_a_private_profile_is_an_actor_with_discoverable_false(internal):
+    """Decisions GD5, GD7, and GD8: a private profile sets ``discoverable`` to false, while public-KB published objects, outbox, reactions, and actor endpoints stay active."""
     public_id = "216412345678901234"
     by_name = internal.get("/actors/by-username/private_bob")
     assert by_name.status_code == 200
@@ -733,26 +725,32 @@ def test_account_with_a_private_profile_is_an_actor_with_private_content(interna
     bob_iri = f"https://claire.example.com/ap/actors/{public_id}"
     assert _post_event(internal, _event(recipient_public_id=public_id, object_iri=bob_iri)).json() == {"decision": "accepted", "reply": "accept", "reason": None}
     assert internal.get(f"/actors/{public_id}/followers").json()["total"] == 1
-    # Published KB content is private: the object has the answer of an object that is not there, the outbox has no KB items, and the ``create`` task waits.
-    missing = internal.get("/objects/999999999999999999")
-    hidden = internal.get("/objects/816412345678901236")
-    assert (hidden.status_code, hidden.content) == (404, missing.content)
-    assert internal.get(f"/actors/{public_id}/outbox").json() == {"public_id": public_id, "total": 0, "items": [], "next_max_id": None}
-    assert 3 not in [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]]
-    # A reaction to the private published KB object has the answer of an object that is not there.
-    like = _event("Like", object_iri="https://claire.example.com/ap/objects/816412345678901236", recipient_public_id=None)
-    assert _post_event(internal, like).json() == _post_event(internal, _event("Like", event_id="https://remote.example/activities/900", object_iri="https://claire.example.com/ap/objects/999999999999999999", recipient_public_id=None)).json()
-    # With a public profile, ``discoverable`` becomes true, an ``update_actor`` task is queued, and published KB content is public again.
+    # Seed a public personal KB object for ``private_bob``: under GD8 it is served and leased even while ``profile_public=0``.
+    bob_obj_id = 816412345678901237
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (33, 33, 'bob personal public', 1, 1, 1, 1, ?, 516412345678901236)", (internal.bob,))
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-bob', 33, 'Of Bob', 'x', 'md', 0, 1)")
+        conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 33, 'doc-bob', ?, 1800000350.0, 1800000350.0)", (bob_obj_id, internal.bob, internal.bob))
+        bob_task = federation_store.add_outbox_task(conn, account_id=internal.bob, kind="create", object_public_id=bob_obj_id, now=1800000351.0)
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert internal.get(f"/objects/{bob_obj_id}").status_code == 200
+    assert internal.get(f"/actors/{public_id}/outbox").json()["total"] == 1
+    assert bob_task.id in [t["id"] for t in internal.get("/outbox-tasks").json()["tasks"]]
+    like = _event("Like", object_iri=f"https://claire.example.com/ap/objects/{bob_obj_id}", recipient_public_id=None)
+    assert _post_event(internal, like).json() == {"decision": "accepted", "reply": None, "reason": None}
+
+    # Setting profile_public=1 flips ``discoverable`` to True and queues ``update_actor``.
     store = internal.store()
     try:
         store.update_profile_public(internal.bob, 1)
     finally:
         store.conn.close()
     assert internal.get(f"/actors/{public_id}").json()["discoverable"] is True
-    assert internal.get("/objects/816412345678901236").status_code == 200
-    assert internal.get(f"/actors/{public_id}/outbox").json()["total"] == 1
     tasks = internal.get("/outbox-tasks").json()["tasks"]
-    assert 3 in [t["id"] for t in tasks]
     assert ("update_actor", public_id) in [(t["kind"], t["actor_public_id"]) for t in tasks]
 
 
@@ -772,7 +770,6 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
         "UPDATE knowledge_bases SET is_public=0 WHERE id=31",
         "UPDATE documents SET hidden=1 WHERE id='doc-published'",
         "DELETE FROM documents WHERE id='doc-published'",
-        "UPDATE accounts SET profile_public=0 WHERE username='alice'",
         "UPDATE accounts SET status='suspended' WHERE username='alice'",
     ],
 )

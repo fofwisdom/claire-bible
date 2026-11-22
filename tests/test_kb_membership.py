@@ -230,10 +230,10 @@ def test_join_with_open_ban_and_remove(world) -> None:
     _set(world, join_policy="open")
     joined = client.post(join, headers=world.bearer["ben"])
     assert (joined.status_code, joined.json()["membership"]["state"]) == (201, "active")
-    # dee has a profile that is not public: the collection gives no username for it.
+    # Decision GD8: active accounts with a USERNAME show username in network-mode member lists regardless of ``profile_public``.
     assert client.post(join, headers=world.bearer["dee"]).status_code == 201
     listed = {m["account"]: m for m in client.get(f"{world.base}/members").json()["members"]}
-    assert "username" not in listed[world.public["dee"]] and listed[world.public["dee"]]["display_name"] == "Dee"
+    assert listed[world.public["dee"]]["username"] == "dee" and listed[world.public["dee"]]["display_name"] == "Dee"
 
     # Ban: no step-up (moderators must act fast). A banned account reads, cannot join again, and cannot leave.
     ben_url = f"{world.base}/members/{world.public['ben']}"

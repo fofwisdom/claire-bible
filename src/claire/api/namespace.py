@@ -110,8 +110,6 @@ class ResolvedNamespace:
     prefix: str
     # 요청 경로에 접두가 실제로 있었는가(N4·N5 판정과 canonical 링크용)
     via_prefix: bool
-    # Set only for non-owner GET/HEAD on ``/@{username}/`` when ``profile_public`` is 0 in network mode.
-    private_profile_view: bool = False
 
 
 class NamespaceDirectory(Protocol):
@@ -125,8 +123,8 @@ class NamespaceDirectory(Protocol):
 
     def account(self, account_id: int) -> Account: ...
 
-    def tombstone_was_public(self, username: str) -> bool | None:
-        """퇴역 이름이면 ``was_public``, 퇴역 이름이 아니면 None(§8.9 410 판정)."""
+    def has_active_tombstone(self, username: str) -> bool:
+        """Return True when the retired username still has an active hold and must return 410 Gone."""
         ...
 
     def theme_by_number(self, number: int) -> Any | None:
@@ -447,7 +445,6 @@ class NamespaceResolverMiddleware:
         directory = self.directory
         query_string = scope.get("query_string", b"") or b""
         owner: Account | None = None
-        private_profile_view = False
         if parsed.kb_number is not None:
             return self._kb_path(mode, parsed, principal, query_string, any_surface=any_surface)
         if parsed.username is not None:
@@ -458,14 +455,10 @@ class NamespaceResolverMiddleware:
                     return _not_found()
             owner = directory.account_by_username(parsed.username)
             if owner is None or owner.status != "active":
-                if directory.tombstone_was_public(parsed.username) is True:
+                if directory.has_active_tombstone(parsed.username):
                     return PlainTextResponse("Gone", status_code=410)
                 return _not_found()
-            # N1: 본인이 아니면(관리자 포함) 공개 프로필만 보인다. Single mode has no profile rule: the knowledge base of the admin was at the root for each reader, and it is at ``/@{username}/`` now. Under Option A, GET/HEAD on ``/@{username}/`` renders a minimal 200 profile page without workspace data so ActivityPub Person.url resolves cleanly; all personal KB subpaths and write methods remain 404.
-            if mode == "network" and principal.account_id != owner.id and not owner.profile_public:
-                if any_surface or parsed.theme_number is not None or parsed.inner_path != "/" or str(scope.get("method", "")).upper() not in ("GET", "HEAD"):
-                    return _not_found()
-                private_profile_view = True
+            # Decision GD8: each active account with a USERNAME opens ``/@{username}/...`` in network mode regardless of ``profile_public``; ``profile_public`` controls only directory listing, ActivityPub ``discoverable``, and search indexing.
         elif parsed.theme_number is not None:
             # Old link ``/themes/{number}/…`` with the number of a knowledge base (design Section 7): 308 only.
             return self._old_theme_link(mode, parsed, principal, query_string)
@@ -500,7 +493,7 @@ class NamespaceResolverMiddleware:
 
         assert owner is not None and owner.username is not None
         return _Outcome(
-            ResolvedNamespace(mode, owner.id, owner.username, None, f"/@{owner.username}", bool(parsed.prefix), private_profile_view),
+            ResolvedNamespace(mode, owner.id, owner.username, None, f"/@{owner.username}", bool(parsed.prefix)),
             public_id=owner.public_id,
         )
 
@@ -518,9 +511,6 @@ class NamespaceResolverMiddleware:
         except accounts_store.AccountNotFound:
             return _not_found()
         if owner.status != "active" or owner.username is None:
-            return _not_found()
-        # 리다이렉트가 비공개 프로필의 USERNAME을 드러내지 않게 한다(N1과 같은 기준).
-        if principal.account_id != owner.id and not owner.profile_public:
             return _not_found()
         return _redirect(_location(f"/@{owner.username}{inner_path}", query_string))
 
@@ -583,7 +573,7 @@ class _Snapshot:
     admin: Account | None = None
     by_id: dict[int, Account] | None = None
     by_username: dict[str, Account] | None = None
-    tombstones: dict[str, tuple[bool, float | None]] | None = None
+    tombstones: dict[str, float | None] | None = None
     themes_by_number: dict[int, Any] | None = None
 
 
@@ -627,17 +617,17 @@ class SqliteNamespaceDirectory:
             if "server_settings" in tables:
                 mode = store.server_mode()
             accounts = store.list_accounts() if "accounts" in tables else []
-            tombstones: dict[str, tuple[bool, float | None]] = {}
+            tombstones: dict[str, float | None] = {}
             if "username_tombstones" in tables:
                 tombstone_cols = _table_columns(conn, "username_tombstones")
                 if "reusable_after" in tombstone_cols:
-                    rows = conn.execute("SELECT username, was_public, reusable_after FROM username_tombstones WHERE released_at IS NULL").fetchall()
+                    rows = conn.execute("SELECT username, reusable_after FROM username_tombstones WHERE released_at IS NULL").fetchall()
                     for row in rows:
-                        tombstones[str(row[0]).lower()] = (bool(row[1]), None if row[2] is None else float(row[2]))
+                        tombstones[str(row[0]).lower()] = None if row[1] is None else float(row[1])
                 else:
-                    rows = conn.execute("SELECT username, was_public FROM username_tombstones WHERE released_at IS NULL").fetchall()
+                    rows = conn.execute("SELECT username FROM username_tombstones WHERE released_at IS NULL").fetchall()
                     for row in rows:
-                        tombstones[str(row[0]).lower()] = (bool(row[1]), None)
+                        tombstones[str(row[0]).lower()] = None
             themes: dict[int, Any] = {}
             if "knowledge_bases" in tables and "number" in _table_columns(conn, "knowledge_bases"):
                 for row in conn.execute("SELECT * FROM knowledge_bases WHERE number IS NOT NULL").fetchall():
@@ -690,16 +680,17 @@ class SqliteNamespaceDirectory:
             raise accounts_store.AccountNotFound(account_id)
         return account
 
-    def tombstone_was_public(self, username: str) -> bool | None:
+    def has_active_tombstone(self, username: str) -> bool:
         if not username.isascii():
-            return None
-        entry = (self._current().tombstones or {}).get(username.lower())
-        if entry is None:
-            return None
-        was_public, reusable_after = entry
+            return False
+        tombstones = self._current().tombstones or {}
+        key = username.lower()
+        if key not in tombstones:
+            return False
+        reusable_after = tombstones[key]
         if reusable_after is not None and time.time() >= reusable_after:
-            return None
-        return was_public
+            return False
+        return True
 
     def theme_by_number(self, number: int) -> Any | None:
         return (self._current().themes_by_number or {}).get(number)

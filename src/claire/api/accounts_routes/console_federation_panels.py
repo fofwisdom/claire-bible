@@ -47,18 +47,13 @@ ACTOR_STATES = ("active", "account_not_active", "no_username")
 def actor_state(account: accounts_store.Account) -> ActorState:
     """Return ``active`` when the account is a federation actor. If not, return the first condition of the actor rule that fails. The rule is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 
-    The sequence is: account status, USERNAME. Federation has no server switch, and ``profile_public`` is not a condition of the actor (FEDERATION_GO_LIVE_DESIGN.md decisions GD4 and GD5): ``content_public`` tells if the content of the account is public.
+    The sequence is: account status, USERNAME. Federation has no server switch, and ``profile_public`` controls only directory listing, ActivityPub ``discoverable``, and search indexing (FEDERATION_GO_LIVE_DESIGN.md decisions GD4, GD5, and GD8).
     """
     if account.status != "active":
         return "account_not_active"
     if not account.username:
         return "no_username"
     return "active"
-
-
-def content_public(account: accounts_store.Account) -> bool:
-    """True when the personal knowledge base content and published documents of the account are public on other servers: the account is an actor and its profile is public (decisions GD5 and GD7). With a private profile, other servers find the account with ``discoverable`` false and can follow it, and notes, favourites, and boosts work for each actor, while published documents and shared knowledge base offers stay private."""
-    return actor_state(account) == "active" and bool(account.profile_public)
 
 
 def account_federation_status(ctx: AccountsContext, conn: sqlite3.Connection, account_id: int) -> dict[str, Any]:
@@ -74,7 +69,7 @@ def account_federation_status(ctx: AccountsContext, conn: sqlite3.Connection, ac
         "actor_id": f"{ctx.config.public_origin}/ap/actors/{account.public_id}" if account.username else None,
         "is_actor": state == "active",
         "actor_state": state,
-        "content_public": content_public(account),
+        "discoverable": bool(account.profile_public),
         "followers": {"total": federation_store.count_followers(conn, account.id)},
         # Outbox tasks that the sidecar did not take or did not acknowledge.
         "pending_tasks": federation_store.count_pending_tasks(conn, account.id),
@@ -101,7 +96,7 @@ def settings_federation_body(ctx: AccountsContext, *, account: accounts_store.Ac
         ("handle", t("console.federation.actor.handle"), status["handle"] or t("console.federation.actor.handle_unset")),
         ("actor_id", t("console.federation.actor.id"), status["actor_id"] or "-"),
         ("actor_state", t("console.federation.actor.state"), t(f"console.federation.actor_state.{state}")),
-        ("content", t("console.federation.actor.content"), t("console.federation.content.public" if status["content_public"] else "console.federation.content.private")),
+        ("discoverable", t("console.federation.actor.discoverable"), t("console.federation.discoverable.on" if status["discoverable"] else "console.federation.discoverable.off")),
         ("followers_total", t("console.federation.actor.followers"), f"{status['followers']['total']:,}"),
     )
     info_html = console_kv([{"label": label, "value": value, "attrs": {"data-federation-field": key}} for key, label, value in rows])

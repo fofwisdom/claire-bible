@@ -405,7 +405,7 @@ async def test_single_mode_admin_namespace_is_at_username(app_factory, world):
     assert res.status == 200
     assert body["ns"] == {
         "mode": "single", "account_id": 1, "username": ADMIN_NAME, "pinned_kb_id": None,
-        "prefix": f"/@{ADMIN_NAME}", "via_prefix": True, "private_profile_view": False,
+        "prefix": f"/@{ADMIN_NAME}", "via_prefix": True,
     }
     assert body["bootstrap"] == {"api-base": f"/@{ADMIN_NAME}/", "root-base": "/", "storage-key": f"a{world.admin_public_id}"}
     assert body["link"] == f"{DEV_ORIGIN}/@{ADMIN_NAME}/graph"
@@ -432,7 +432,7 @@ async def test_single_mode_before_setup_keeps_the_root_paths(app_factory, world)
     assert res.status == 200
     assert res.json()["ns"] == {
         "mode": "single", "account_id": 1, "username": None, "pinned_kb_id": None,
-        "prefix": "", "via_prefix": False, "private_profile_view": False,
+        "prefix": "", "via_prefix": False,
     }
     assert res.json()["link"] == f"{DEV_ORIGIN}/graph"
     home = await _call(app, "/")
@@ -545,29 +545,30 @@ async def test_network_account_prefix_resolution(app_factory, world, fake_sessio
     assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
     pinned = await _call(app, f"/kb/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
     assert pinned.status == 200 and pinned.json()["ns"]["pinned_kb_id"] == 11 and pinned.json()["ns"]["account_id"] is None
-    # The personal knowledge base of an account with a private profile: no redirect that shows the USERNAME.
-    assert (await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
+    # Personal knowledge base redirect depends solely on KB ``is_public`` (decision GD8), not ``profile_public``.
+    carol_link = await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)
+    assert carol_link.status == 308 and carol_link.headers["location"] == "/@carol/"
 
 
 @pytest.mark.asyncio
 async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, world, fake_sessions):
     world.set_mode("network")
     app = app_factory()
-    # Non-owners on GET /@carol/ get 200 with private_profile_view=True; workspace subpaths and writes remain 404.
+    # Decision GD8: active accounts with a USERNAME always resolve ``/@{username}/...`` regardless of ``profile_public``; writes remain gated by principal/KB access.
     alice_root = await _call(app, "/@carol/", token=ALICE_OWNER)
-    assert alice_root.status == 200 and alice_root.json()["ns"]["private_profile_view"] is True
+    assert alice_root.status == 200 and alice_root.json()["ns"]["account_id"] == world.carol and alice_root.json()["ns"]["username"] == "carol"
     owner_root = await _call(app, "/@carol/", token=OWNER_TOKEN)
-    assert owner_root.status == 200 and owner_root.json()["ns"]["private_profile_view"] is True
+    assert owner_root.status == 200 and owner_root.json()["ns"]["account_id"] == world.carol
     carol_root = await _call(app, "/@carol/", token=CAROL_OWNER)
-    assert carol_root.status == 200 and carol_root.json()["ns"]["private_profile_view"] is False
-    assert (await _call(app, "/@carol/graph", token=ALICE_OWNER)).status == 404
-    assert (await _call(app, "/@carol/graph", token=OWNER_TOKEN)).status == 404
-    assert (await _call(app, "/@carol/", method="PATCH", token=ALICE_OWNER)).status == 404
+    assert carol_root.status == 200 and carol_root.json()["ns"]["account_id"] == world.carol
+    assert (await _call(app, "/@carol/graph", token=ALICE_OWNER)).status == 200
+    assert (await _call(app, "/@carol/graph", token=OWNER_TOKEN)).status == 200
+    assert (await _call(app, "/@carol/", method="PATCH", token=ALICE_OWNER)).status == 405
     assert (await _call(app, "/@nobody_here/", token=OWNER_TOKEN)).status == 404
     assert (await _call(app, "/@dave/", token=OWNER_TOKEN)).status == 404  # active가 아님
-    assert (await _call(app, "/@zed/", token=OWNER_TOKEN)).status == 410  # 공개였던 퇴역 이름
+    assert (await _call(app, "/@zed/", token=OWNER_TOKEN)).status == 410  # active tombstone returns 410 regardless of was_public
     assert (await _call(app, "/@ZED/", token=OWNER_TOKEN)).status == 410
-    assert (await _call(app, "/@yan/", token=OWNER_TOKEN)).status == 404  # 비공개였던 퇴역 이름
+    assert (await _call(app, "/@yan/", token=OWNER_TOKEN)).status == 410  # retired private-profile name also returns 410 until released
 
     # Mixed-case display handle responds 200 across case variants with stored casing in ResolvedNamespace.
     world.execute("UPDATE accounts SET username='AliceDev' WHERE id=?", (world.alice,))
@@ -617,7 +618,10 @@ async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
         old = await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=token)
         assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
     assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=CAROL_OWNER)).status == 200
-    # 공개 테마라도 소유자 프로필이 비공개면 USERNAME을 드러내지 않는다.
+    # Decision GD8: personal KB redirect depends solely on KB ``is_public``, not ``profile_public``.
+    carol_old = await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)
+    assert carol_old.status == 308 and carol_old.headers["location"] == "/@carol/"
+    world.execute("UPDATE knowledge_bases SET is_public=0 WHERE number=?", (N_CAROL_PUBLIC,))
     assert (await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
     assert (await _call(app, f"/themes/{BASE + 999}/")).status == 404
 

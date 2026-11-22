@@ -265,11 +265,11 @@ def test_e2e_case_preserving_usernames_and_rename_lifecycle(tmp_path: Path) -> N
         assert reused.status_code == 201
         bob_session = _cookie_session(reused)
 
-        # Private profile rename returns 404 on old handle and auto-expires after 7 days. The account is an actor with a private profile too, so its followers get the new name.
+        # Private profile rename also returns 410 on old handle and auto-expires after 7 days (decision GD8).
         bob_rename = client.request("POST", "/api/me/username", session=bob_session, json={"username": "Bobby"})
         assert bob_rename.status_code == 200
         assert bob_rename.json()["federation_update_queued"] is True
-        assert client.request("GET", "/@bob/", session=admin_session).status_code == 404
+        assert client.request("GET", "/@bob/", session=admin_session).status_code == 410
 
         conn = dbm.connect_existing(settings.db_file)
         try:

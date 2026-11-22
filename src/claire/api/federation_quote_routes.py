@@ -85,13 +85,13 @@ class QuoteAuthorizationRecord(_Sealed):
     quoting_object_iri: str
 
 
-def quoted_object(conn: Any, client: Any, public_id: int, *, content_ids: list[int], actor_ids: list[int]) -> tuple[int, str] | None:
-    """The account and the quote policy of an own object that is public now: a published document (its account is in ``content_ids``, its theme is public, and its document is not hidden) or a note that is not deleted (its account is in ``actor_ids``). If not, ``None``. ``content_ids`` are the actors with a public profile (FEDERATION_GO_LIVE_DESIGN.md decisions GD5 and GD7); ``actor_ids`` are all actors."""
+def quoted_object(conn: Any, client: Any, public_id: int, *, actor_ids: list[int]) -> tuple[int, str] | None:
+    """The account and the quote policy of an own object that is public now: a published document (its account is in ``actor_ids``, its theme is public, and its document is not hidden) or a note that is not deleted (its account is in ``actor_ids``). If not, ``None``."""
     obj = federation_store.get_object(conn, public_id)
     if obj is not None:
         theme = conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
         document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
-        if obj.account_id not in content_ids or theme is None or not theme["is_public"] or document is None or document["hidden"]:
+        if obj.account_id not in actor_ids or theme is None or not theme["is_public"] or document is None or document["hidden"]:
             return None
         return obj.account_id, obj.quote_policy
     note = notes_store.get_note(client, public_id)
@@ -108,8 +108,8 @@ def _same_origin(first: str, second: str) -> bool:
     return bool(a.netloc) and (a.scheme.lower(), a.netloc.lower()) == (b.scheme.lower(), b.netloc.lower())
 
 
-def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]], content_account_ids: Callable[[Any], list[int]]) -> list[BaseRoute]:
-    """The routes of this module. The callables are the helpers of ``federation_internal_routes``. ``actor_account_ids`` gives all actors (for own notes); ``content_account_ids`` gives the actors with a public profile (for published documents, FEDERATION_GO_LIVE_DESIGN.md decisions GD5 and GD7)."""
+def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]]) -> list[BaseRoute]:
+    """The routes of this module. The callables are the helpers of ``federation_internal_routes``. ``actor_account_ids`` gives all actors (FEDERATION_GO_LIVE_DESIGN.md decision GD8)."""
 
     def answer(decision: Any, reason: Any = None, state: Any = None) -> QuoteEventResponse:
         return QuoteEventResponse(decision=decision, reason=reason, state=state)
@@ -117,7 +117,7 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
     def _request(store: Any, client: Any, canonical: str, event: QuoteEventRequest) -> QuoteEventResponse:
         """A ``QuoteRequest`` for an own object (Section 6.6 rule 5): apply the quote policy of the object."""
         public_id = _local_object_public_id(canonical, event.object_iri)
-        target = None if public_id is None else quoted_object(store.conn, client, public_id, content_ids=content_account_ids(store), actor_ids=actor_account_ids(store))
+        target = None if public_id is None else quoted_object(store.conn, client, public_id, actor_ids=actor_account_ids(store))
         if public_id is None or target is None:
             return answer("ignored", "no_object")
         account_id, policy = target
@@ -206,7 +206,7 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             if row.state == "revoked":
                 return JSONResponse({"error": "gone", "gone_at": row.updated_at}, status_code=410, headers=_NO_STORE)
             # A request that waits or that is refused has no public form. The authorization is public only while the quoted object is public.
-            if row.state != "approved" or quoted_object(store.conn, client, row.object_public_id, content_ids=content_account_ids(store), actor_ids=actor_account_ids(store)) is None:
+            if row.state != "approved" or quoted_object(store.conn, client, row.object_public_id, actor_ids=actor_account_ids(store)) is None:
                 return _not_found()
             actor_public_id = str(store.get(row.account_id).public_id)
         finally:

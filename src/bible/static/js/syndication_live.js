@@ -603,15 +603,14 @@
     } catch (_) {}
   }
 
-  /* The native federation actor (Fedify sidecar design Section 9.2): the target shows only while this account is an actor with a public profile. For an account that is not an actor, or that has a private profile, the value stays null. */
+  /* The native federation actor (Fedify sidecar design Section 9.2): active when this account is a federation actor. */
   let nativeActor = null;
   (async () => {
     try {
       const resp = await fetch("/api/federation/status", { headers: { Accept: "application/json" } });
       if (!resp.ok) return;
       const st = await resp.json();
-      // A published document is content: the target shows only while the content of the account is public (a public profile).
-      if (st && st.is_actor && st.content_public && st.handle) nativeActor = { handle: String(st.handle) };
+      if (st && st.is_actor && st.handle) nativeActor = { handle: String(st.handle) };
     } catch (_) {}
   })();
 

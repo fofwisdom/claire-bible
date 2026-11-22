@@ -855,7 +855,7 @@ paths:
         server), and `actor`; `mode` is `approved` (a grant in its term), `pending`, or `closed` (its
         server accepts no automatic contributions now; `documents` is empty). `remote_state` is `on`,
         or the reason that the rule has no target on another server now: `no_origin`,
-        `not_a_federation_actor`, `profile_private`.
+        `not_a_federation_actor`.
       operationId: dryRunAutoRule
       x-claire-access: owner
       security:
@@ -4762,7 +4762,7 @@ paths:
                   actor_id: {type: [string, 'null']}
                   is_actor: {type: boolean}
                   actor_state: {type: string, description: '`active`, `account_not_active`, or `no_username`. A private profile is not a condition of the actor.'}
-                  content_public: {type: boolean, description: 'True when the account is an actor and its profile is public (published documents and personal knowledge base content are public). Notes, favourites, boosts, and own-note quotes work for every actor regardless of profile visibility.'}
+                  discoverable: {type: boolean, description: 'True when the account profile is public (Person.discoverable is true, listed in /accounts, and indexed by search engines).'}
                   followers:
                     type: object
                     properties:
@@ -4827,7 +4827,7 @@ paths:
         '404':
           description: '`theme_not_found` or `document_not_found`.'
         '409':
-          description: '`not_an_actor`, `profile_private` (the account is an actor with a private profile), `theme_not_public`, `document_not_public`, `document_not_extracted`, or `document_has_no_body`.'
+          description: '`not_an_actor`, `theme_not_public`, `document_not_public`, `document_not_extracted`, or `document_has_no_body`.'
           content:
             application/json:
               schema:
@@ -5155,7 +5155,7 @@ paths:
         '404':
           description: '`quote_not_found`.'
         '409':
-          description: '`invalid_state` (with the `state` of the request), `not_actor`, or `profile_private` (when setting `state` to `approved` for a quote of a published document while the profile is private; own notes work for every actor).'
+          description: '`invalid_state` (with the `state` of the request), or `not_actor`.'
 
   /api/federation/objects/{object_id}:
     parameters:

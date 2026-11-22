@@ -291,21 +291,20 @@ def test_only_a_document_of_a_public_theme_of_the_own_account_can_be_published(e
     assert _objects(env.settings) == [] and _tasks(env.settings) == []
 
 
-@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_private"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active")])
-def test_an_account_with_private_content_or_that_is_not_an_actor_cannot_publish(env, change, state):
+def test_suspended_account_cannot_publish_while_private_profile_actor_can_publish_public_kb(env):
+    """Decision GD8: active actors can publish from a public KB regardless of ``profile_public``; suspended accounts cannot."""
     conn = dbm.connect_existing(env.settings.db_file)
-    conn.execute(change)
+    conn.execute("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'")
     conn.commit()
     conn.close()
-    session = env.alpha_session
-    response = _publish(env, session_token=session)
-    if state == "account_not_active":
-        # A suspended account has no valid session.
-        assert response.status_code in (401, 403, 404, 409)
-    else:
-        # The account is an actor. A published document is content, and the content of an account with a private profile is private (decision GD5).
-        assert (response.status_code, response.json()) == (409, {"error": "profile_private"})
-    assert _objects(env.settings) == [] and _tasks(env.settings) == []
+    assert _publish(env, session_token=env.alpha_session).status_code == 202
+
+    conn = dbm.connect_existing(env.settings.db_file)
+    conn.execute("UPDATE accounts SET status='suspended' WHERE username='member_alpha'")
+    conn.commit()
+    conn.close()
+    suspended = _publish(env, session_token=env.alpha_session)
+    assert suspended.status_code in (401, 403, 404, 409)
 
 
 def test_each_task_has_the_account_of_the_caller_and_the_admin_cannot_publish_for_a_member(env):
@@ -492,7 +491,7 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
                 finally:
                     c.close()
 
-                # An account with a private profile sees no native target: its content is private.
+                # Under GD8, an account with profile_public=0 still sees the native publish target when its personal KB is public.
                 c = dbm.connect_existing(settings.db_file)
                 try:
                     accounts_store.AccountStore(c).update_profile_public(alpha, 0)
@@ -503,8 +502,8 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
                 page = ctx.new_page()
                 page.goto(f"{base}/syndication?theme={ALPHA_THEME}")
                 page.locator("[data-quick-dispatch='doc-a']").first.click()
-                page.locator("#btn-confirm-dispatch").wait_for(state="visible")
-                assert page.locator("#dispatch-native").count() == 0
+                page.locator("#dispatch-native").wait_for(state="visible")
+                assert not page.locator("#btn-native-publish").is_disabled()
                 ctx.close()
             finally:
                 browser.close()

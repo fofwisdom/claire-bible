@@ -302,32 +302,29 @@ def test_e2e_quote_policy_of_a_published_document(env):
     assert sc.call("GET", f"/quote-authorizations/{task['ref_id']}").status_code == 404
 
 
-def test_e2e_quote_policy_with_private_profile_follows_gd7(env):
-    """Decisions GD5 and GD7: with a private profile, quote requests and approvals on own notes work, while published KB documents return ``409 profile_private`` on approval and ``no_object``/``404`` externally."""
+def test_e2e_quote_policy_works_with_private_profile_for_both_documents_and_notes(env):
+    """Decision GD8: with ``profile_public=0``, quote requests and approvals work for both published public-KB documents and own notes."""
     c, sc = env.client, env.sidecar
     made = _note(env, content="Quote note while private", quote_policy="manual")
     note = made["note"]
     [note_task] = _tasks(env)
     _ack(env, note_task)
 
-    # Seed a pending quote request for the published KB document while public, then switch profile to private.
-    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/10")["state"] == "pending"
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
 
-    # A new QuoteRequest on a published KB document is ignored (`no_object`).
-    assert _quote_event(env, "QuoteRequest", YURI, OBJECT, instrument=f"{YURI}/notes/11")["reason"] == "no_object"
-    # Approving the pending quote of a published KB document fails with 409 `profile_private`; refusing it works.
+    # A QuoteRequest and owner approval on a published KB document work while profile_public=0 (as long as the KB is public).
+    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/10")["state"] == "pending"
     listed = c.request("GET", QUOTES, session=env.alpha_session).json()
     doc_req_id = listed["requests"][0]["id"]
-    refused = c.request("PATCH", f"{QUOTES}/{doc_req_id}", session=env.alpha_session, json={"state": "approved"})
-    assert (refused.status_code, refused.json()) == (409, {"error": "profile_private"})
-    assert c.request("PATCH", f"{QUOTES}/{doc_req_id}", session=env.alpha_session, json={"state": "refused"}).status_code == 200
-    [rej] = _tasks(env)
-    assert (rej["kind"], rej["ref_id"]) == ("quote_reject", doc_req_id)
-    _ack(env, rej)
+    approved_doc = c.request("PATCH", f"{QUOTES}/{doc_req_id}", session=env.alpha_session, json={"state": "approved"})
+    assert approved_doc.status_code == 200 and approved_doc.json()["quote"]["state"] == "approved"
+    [doc_auth_task] = _tasks(env)
+    assert (doc_auth_task["kind"], doc_auth_task["ref_id"]) == ("quote_authorize", doc_req_id)
+    _ack(env, doc_auth_task)
+    assert sc.call("GET", f"/quote-authorizations/{doc_req_id}").status_code == 200
 
-    # A QuoteRequest and approval on an own note work while the profile is private, and its authorization is public.
-    assert _quote_event(env, "QuoteRequest", STRANGER, note["url"], instrument=f"{STRANGER}/notes/12")["state"] == "pending"
+    # A QuoteRequest and approval on an own note also work while profile_public=0.
+    assert _quote_event(env, "QuoteRequest", YURI, note["url"], instrument=f"{YURI}/notes/12")["state"] == "pending"
     note_req_id = c.request("GET", QUOTES, session=env.alpha_session).json()["requests"][0]["id"]
     approved = c.request("PATCH", f"{QUOTES}/{note_req_id}", session=env.alpha_session, json={"state": "approved"})
     assert approved.status_code == 200 and approved.json()["quote"]["state"] == "approved"

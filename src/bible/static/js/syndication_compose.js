@@ -20,7 +20,7 @@
 
   const AVAILABLE = cfg.authScope === "owner";
   const KNOWN_ERRORS = ["not_actor", "empty_content", "content_too_long", "summary_too_long", "too_many_mentions", "too_many_tags", "invalid_language", "invalid_mention", "blocked_domain", "item_not_found", "note_not_found", "own_item", "invalid_quote_policy"];
-  const QUOTE_ERRORS = ["quote_not_found", "invalid_state", "object_not_found", "profile_private"];
+  const QUOTE_ERRORS = ["quote_not_found", "invalid_state", "object_not_found"];
   const QUOTE_STATES = ["pending", "approved", "refused", "revoked"];
   // mode: "new", "reply", "quote", or "edit". item: the item of a reply, of a quote, or of an edit.
   const S = { mode: "new", item: null, busy: false };

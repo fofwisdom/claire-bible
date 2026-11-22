@@ -209,12 +209,11 @@ def test_an_account_that_is_not_a_federation_actor_or_has_private_content_sends_
     b.db(lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=3"))
     assert b.db(_send)["reason_code"] == "not_a_federation_actor"
     b.db(lambda conn: conn.execute("UPDATE accounts SET status='active' WHERE id=3"))
-    # An account with a private profile is an actor, but its content is private: no document of it goes to another server (decision GD5).
+    # Decision GD8: an active actor sends offers regardless of ``profile_public``.
     b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=3"))
-    assert b.db(_send)["reason_code"] == "profile_private"
-    b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=3"))
     sent = b.db(_send)
     assert (sent["state"], sent["capability_iri"]) == ("pending", None) and sent["offer_iri"].startswith(f"{b.origin}/ap/actors/")
+    b.db(lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id=3"))
     # The same document again, and the pending limit of the sender (shared knowledge base design Section 9.2 rule 5).
     assert b.db(_send)["reason_code"] == "contribution_duplicate"
     second = _personal_document(b.settings, b.manager, 3, "Daegu is a city of Korea. " * 3, url="https://example.org/daegu", extraction=EXTRACTION)

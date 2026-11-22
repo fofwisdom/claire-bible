@@ -1,6 +1,6 @@
 # 멀티 계정 네임스페이스와 단일 FQDN URI 통제 설계
 
-- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. **Retired (owner, 2026-11-19): this design gets no more implementation.** The plans that were not implemented are retired: the network-only views under `/explore` (§4.4; the collections `/themes` and `/kb` and the root page are the views of both modes, and the public account directory is `/accounts` in both modes: KNOWLEDGE_FEDERATION_DESIGN.md §8.3, KD15), §14 item 7 (the feed items moved to `/api/feeds/items` in `client.db`), and §14 item 8 (contributions to shared knowledge bases replace the publications between accounts: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9). The path `/explore` and its two routes are removed. Federation is not a condition of the mode: it works in both modes (KNOWLEDGE_FEDERATION_DESIGN.md §15). 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
+- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. **Retired (owner, 2026-11-19): this design gets no more implementation.** The plans that were not implemented are retired: the network-only views under `/explore` (§4.4; the collections `/themes` and `/kb` and the root page are the views of both modes, and the public account directory is `/accounts` in both modes: KNOWLEDGE_FEDERATION_DESIGN.md §8.3, KD15), §14 item 7 (the feed items moved to `/api/feeds/items` in `client.db`), and §14 item 8 (contributions to shared knowledge bases replace the publications between accounts: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9). The path `/explore` and its two routes are removed. Federation is not a condition of the mode: it works in both modes (KNOWLEDGE_FEDERATION_DESIGN.md §15). **Decision GD8 (owner, 2026-11-22, [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) §12):** rule N1 (§6.3, hiding `profile_public=0` accounts with 404) is withdrawn; every `active` account with a USERNAME resolves at `/@{username}/...` in network mode, retired or renamed username tombstones always return 410 Gone, `profile_public` governs discovery (`/accounts`, `Person.discoverable`) and search indexing (`noindex, nofollow`, `/sitemap.xml`) only, and personal KB visibility follows `theme.is_public`. 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
 - **작성일**: 2026-11-02 · 기준 커밋 `f420b8f`
 - **개정 이력**
   - Rev. 1 (2026-11-02): 초안
@@ -97,12 +97,12 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | `/` | 관리자 기본 테마 홈 (현재 WebUI) | 공개 계정·테마 목록 (D4) |
 | 계정 홈 | `/` | `/@{username}/` |
 | 테마 | `/themes`, `/themes/{번호}/` | `/@{username}/themes`, `/@{username}/themes/{번호}/` |
-| USERNAME 노출 | 없음. `/@…`은 관리자 이름이어도 404 | 공개 프로필 계정은 노출 |
+| USERNAME 노출 | 설계 당시 없음(S9). 이후 S9 철회(2026-11-16)로 관리자 USERNAME 공개 | 설계 당시 공개 프로필만. 이후 GD8(2026-11-22)로 `profile_public`과 무관하게 모든 활성 계정의 `/@{username}/` 해석 |
 | 초대·IdP 가입 | 비활성 (`/invite/*` 404) | 초대제 (D9) |
 | 통합 뷰 (`/explore/*`) | 404 | 제공 (§4.4) |
 | CLI 프로바이더 | 관리자 | 관리자만 (§10) |
 
-*싱글 모드의 `/`, 계정 홈, USERNAME 노출(S9)은 [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) CT33과 [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §15로 바뀐다 (2026-11-16).*
+*싱글 모드의 `/`, 계정 홈, USERNAME 노출(S9)은 [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) CT33과 [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §15로 바뀌며, 네트워크 모드의 비공개 프로필 404 은닉(N1)은 [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) §12 결정 GD8로 철회된다 (2026-11-22).*
 
 ### 4.2 저장과 전환
 
@@ -245,7 +245,7 @@ inner-path    = "/" [ 기존 라우트 경로 ]                   ; "/", "/graph
 
 | ID | 규칙 |
 | :--- | :--- |
-| N1 | 경로가 `/@`로 시작하면 USERNAME을 해석한다. 다음 경우는 모두 같은 404다: 싱글 모드, 계정 없음, 계정이 `active`가 아님, `Principal`이 대상 계정 본인이 아닌데(익명 및 관리자 포함 타 계정) 공개 프로필(`profile_public=1`)이 아님(Rev. 2.3 정밀화). 예외로, 공개 프로필이었다가 삭제된 계정은 410이다(§8.9) |
+| N1 | **[철회 · 변경: GD8 (2026-11-22), [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) §12]** 설계 당시에는 `Principal`이 본인이 아니고 `profile_public=0`이면 `/@` 경로를 404로 숨겼다. **GD8 이후:** 네트워크 모드에서는 `profile_public`과 무관하게 `active` 상태이고 USERNAME이 있는 모든 계정의 `/@{username}/` 네임스페이스를 해석한다(싱글 모드는 활성 관리자 USERNAME만 해석하며, 미존재·비활성·USERNAME 없음은 404). 개인 지식 베이스 작업 공간과 하위 경로(`/@{u}/graph`, `/@{u}/documents`, `/kb/{번호}/`)의 비소유자 열람은 `theme.is_public`만 결정하고, 비공개 개인 지식 베이스(`is_public=0`)의 `GET`·`HEAD /@{u}/`는 비소유자에게 기본 프로필 안내 페이지(200)를 돌려준다. 퇴역·이름 변경 보호 기간의 USERNAME은 `profile_public`과 무관하게 항상 410이다(§8.9) |
 | N2 | `scope`는 제자리에서 고치지 않고 얕은 복사(`dict(scope)`)해 바깥 `SafeAccessLogMiddleware`가 원본 경로를 기록하게 한다. 접두(`/@{u}`와 뒤따르는 `/themes/{번호}`)를 떼어 `scope["state"]["claire_namespace_prefix"]`에 기록하고 남은 경로(비어 있으면 `/`)를 `scope["path"]`로 바꾼다(`Mount("/static")` 등 정적 마운트가 `root_path` 접두 불일치로 404를 내지 않도록 `scope["root_path"]`는 라우트·링크 생성 헬퍼에만 노출하고 정적 마운트 경로에는 주입하지 않는다, Rev. 2.3). 요청 상태에는 `namespace_account_id`와 `pinned_theme_id`(내부 ID)를 기록한다. 번호가 그 계정의 테마가 아니면 404다 |
 | N2' | 루트의 `/themes/{번호}/`는 싱글 모드에서 관리자 테마 고정이다. 네트워크 모드에서는 `Principal`이 그 테마의 열람 권한(공개 테마 또는 본인 소유/위임)을 가질 때만 `/@{owner}/themes/{번호}/`로 308 보내고, 권한이 없으면 존재를 숨기는 404다(Rev. 2.3) |
 | N3 | 접두가 없는 `namespaced` 경로는 `AuthenticationMiddleware`가 `Principal`을 확정한 뒤에 계정을 정한다(Rev. 2.3). 싱글 모드는 관리자 네임스페이스다. 네트워크 모드는 `Principal.account_id`를 쓰고, 익명(`Principal.account_id is None`)이면 `CLAIRE_ANONYMOUS_READONLY=1`이어도 404다. 브라우저 확장·단축어처럼 토큰으로 `POST /ingest`를 부르는 기존 클라이언트는 그대로 동작한다. 단, 루트 `GET /`는 별도 `root` 표면 규칙(§4.4, §6.2, §9.1)을 따른다 |
@@ -284,7 +284,7 @@ inner-path    = "/" [ 기존 라우트 경로 ]                   ; "/", "/graph
 - 서버가 만드는 절대 링크는 `public_origin + namespace_prefix + 내부 경로`다. sitemap, canonical, OG 태그, 공유 페이지 링크, 컬렉션의 `id`·`first`·`next`·`prev`가 여기에 해당한다. 문서 링크의 접두는 문서의 테마 → 계정에서 만든다.
 - **`/?t=…` 매직 링크와 로그인·설정 후 이동지 (Rev. 2.3)**: `./cb-manuscript app auth` 매직 링크(`/?t=…`), `/login`, `/setup` 완료 뒤의 기본 리다이렉트 목적지는 싱글 모드면 `/`, 네트워크 모드면 세션이 귀속된 계정의 홈(`/@{account.username}/`)이다(하드코딩 `"/"`와 관리자 이름 고정을 두지 않는다).
 - 공유 페이지는 네트워크 모드에서만 작성자 계정 링크를 싣는다.
-- `sitemap.xml`: 싱글 모드는 현재와 같다. 네트워크 모드는 공개 프로필 계정의 공개 테마 문서를 네임스페이스 URL로 싣는다.
+- `sitemap.xml`: 싱글 모드는 관리자 공개 지식 베이스 문서를 싣는다. 네트워크 모드는 검색 색인이 허용된(`profile_public=1`) 계정의 공개 개인 지식 베이스(`is_public=1`) 문서와 공개 공유 지식 베이스 문서를 네임스페이스 주소로 싣고, `profile_public=0` 계정의 개인 지식 베이스는 제외한다(GD8).
 
 ### 6.7 미들웨어 순서 (Rev. 2.3: 2단계 분리)
 
@@ -301,7 +301,7 @@ flowchart LR
     C -->|media| M["무쿠키 / 서명 URL 검증 -> MediaStore"]
 ```
 
-- **왜 2단계로 나누는가 (Rev. 2.3)**: `CORSPolicyMiddleware`와 `AuthenticationMiddleware`가 `ROUTE_POLICY`를 찾으려면 접두를 뗀 정규 경로가 먼저 필요하지만, `N1`(`profile_public=0` 본인 열람)·`N2'`(열람 권한 확인 뒤 308)·`N3`(무접두사 경로를 `Principal.account_id`로 귀속)는 `Principal`이 결정된 뒤에야 실행할 수 있고 DB 예외도 `ErrorBoundaryMiddleware` 안쪽에서 정제되어야 한다. 따라서 `PrefixParser`(순수 구문 분리·정규화)는 `CORS` 앞에, `NamespaceResolver`(계정·테마 DB 조회와 가시성 판정)는 `Authentication` 바로 뒤에 둔다.
+- **왜 2단계로 나누는가 (Rev. 2.3)**: `CORSPolicyMiddleware`와 `AuthenticationMiddleware`가 `ROUTE_POLICY`를 찾으려면 접두를 뗀 정규 경로가 먼저 필요하지만, `N2'`(열람 권한 확인 뒤 308)·`N3`(무접두사 경로를 `Principal.account_id`로 귀속)·개인 지식 베이스 가시성 판정(GD8 이후 `theme.is_public=0` 본인 열람, 이전 `N1`)은 `Principal`이 결정된 뒤에야 실행할 수 있고 DB 예외도 `ErrorBoundaryMiddleware` 안쪽에서 정제되어야 한다. 따라서 `PrefixParser`(순수 구문 분리·정규화)는 `CORS` 앞에, `NamespaceResolver`(계정·테마 DB 조회와 가시성 판정)는 `Authentication` 바로 뒤에 둔다.
 - 계정과 테마 번호 조회는 메모리 캐시로 하고, 변경되면 무효화한다(`TokenStore`의 mtime 재적재와 같은 방식).
 - `SafeAccessLog`는 복사 전 원본 `scope`에서 원래 경로를 기록한다. 네트워크 모드에서 USERNAME은 공개값이다.
 
@@ -591,12 +591,12 @@ class Principal:
 **가입 단계**
 - USERNAME(§8.1), 표시 이름, 비밀번호(또는 IdP 연결)를 받는다.
 - 성공하면 계정을 `active`로 만들고, 기본 테마를 만들고, 세션을 발급한다.
-- 기본 `profile_public`은 0이다. 디렉터리에 나타나려면 본인이 켜야 한다.
+- 계정의 기본 `profile_public`과 멤버 기본 개인 지식 베이스의 기본 `is_public`은 0이다. 공개 디렉터리(`/accounts`) 노출·검색 색인 허용은 `profile_public`이, 개인 지식 베이스 공개 여부는 `is_public`이 제어한다(GD8).
 
 ### 8.9 퇴역 USERNAME 정보 초기화와 디스크 정리 (R11, Rev. 2.3)
 
 - 계정이 `purged`가 될 때 DB 외래 키 `ON DELETE CASCADE`로 테마·문서 행을 지우는 것에 더해, 다른 테마에서 더 이상 참조하지 않는 디스크 산출물(`data/raw/artifacts/`, `data/raw/files/`, `data/images/`, 프레젠테이션 컴파일 HTML·캐시, 해당 계정이 만든 `graph_bundle` 아카이브)을 참조 카운트 확인 뒤 함께 삭제한다(Rev. 2.3).
-- 계정이 `purged`가 되어도 USERNAME은 퇴역 목록에 남는다. `/@{name}`은 공개 프로필이었던 계정이면 410(삭제된 계정 안내), 아니면 404다.
+- 계정이 `purged`가 되어도 USERNAME은 퇴역 목록에 남는다. **GD8 변경(2026-11-22):** `was_public` 분기를 제거해 퇴역·이름 변경 보호 기간의 `/@{name}`은 `profile_public`과 무관하게 항상 410(삭제·이동 안내)을 응답한다(정보 초기화 또는 7일 이름 변경 보호 만료 뒤 404).
 - 관리자가 `/admin/accounts`의 퇴역 목록에서 "정보 초기화"를 호출해야만 그 USERNAME을 다시 쓸 수 있다.
 - **미리보기(기본)**: 지울 잔여 항목을 보여 준다.
   - 410 안내 표식
@@ -809,7 +809,7 @@ BEGIN SELECT RAISE(ABORT, 'username is immutable'); END;
 CREATE TABLE IF NOT EXISTS username_tombstones (
     username TEXT PRIMARY KEY,
     account_id INTEGER NOT NULL,
-    was_public INTEGER NOT NULL DEFAULT 0,    -- 1이면 /@{name}이 410
+    was_public INTEGER NOT NULL DEFAULT 0,    -- 역사적 열: 설계 당시 1이면 410 분기용이었으나 GD8(2026-11-22)로 항상 410 반환
     retired_at REAL NOT NULL,
     released_at REAL,                         -- 정보 초기화 시각. NULL이면 재사용 불가
     released_by INTEGER

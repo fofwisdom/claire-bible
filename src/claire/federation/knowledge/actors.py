@@ -11,7 +11,7 @@ Rules:
 - The collections ``followers``, ``outbox``, and ``documents`` answer only a signed request of a server actor (``access.collection_access``). ``followers`` and ``outbox`` give the number of items only.
 - Only a visible document leaves the server (KS5): a ``visible`` contribution whose document is not hidden and has an extraction.
 - A holder never gives a remote object as its own (design Section 10.1 rule 2): a copy of a document of another server has ``origin`` (the document that was copied), the root of that document, and its credit.
-- The credit of a local document (``attributedTo``) is the actor of the contributor only when that account is a federation actor (FEDERATION.md Section 3). For each other account the field is absent: an account that is not public does not get an address for other servers.
+- The credit of a local document (``attributedTo``) is the actor of the contributor when that account is an active federation actor (FEDERATION.md Section 3; FEDERATION_GO_LIVE_DESIGN.md decision GD8). For an inactive or deleted account, the field is absent.
 - The root of a document whose root is on this server is the document itself (its own ``id``): the root document is in a personal knowledge base, which never leaves the server (KD3, KS5).
 """
 
@@ -37,7 +37,6 @@ __all__ = [
     "SECURITY_CONTEXT",
     "TABLES",
     "account_actor_iri",
-    "account_content_public",
     "actor_document",
     "add_follower",
     "document_iri",
@@ -271,15 +270,6 @@ def account_actor_iri(conn: sqlite3.Connection, account_id: int, origin: str) ->
     return f"{origin}/ap/actors/{ids.format_public_id(account.public_id)}"
 
 
-def account_content_public(conn: sqlite3.Connection, account_id: int) -> bool:
-    """True when the content of an account of this server is public: the account is ``active`` and its profile is public (FEDERATION_GO_LIVE_DESIGN.md decision GD5). An account with a private profile is a federation actor, but no document of it goes to another server and no public document names it."""
-    try:
-        account = accounts_store.AccountStore(conn).get(int(account_id))
-    except accounts_store.AccountNotFound:
-        return False
-    return account.status == "active" and bool(account.profile_public)
-
-
 def local_account_of_actor(conn: sqlite3.Connection, iri: str, origin: str) -> int | None:
     """The account of this server whose federation actor has the IRI (``{origin}/ap/actors/{public ID}``), or None when the IRI is not such an actor now."""
     prefix = f"{origin}/ap/actors/"
@@ -299,9 +289,6 @@ def _credit(conn: sqlite3.Connection, contribution: dict[str, Any], origin: str)
     if contribution["remote_credit_iri"]:
         return str(contribution["remote_credit_iri"])
     if contribution["remote_source_iri"] or contribution["contributor_account_id"] is None:
-        return None
-    # A credit names the account in a public document. An account with a private profile is an actor, but a public page or document does not name it (FEDERATION_GO_LIVE_DESIGN.md decision GD5; the same rule as a public page of this server).
-    if not account_content_public(conn, int(contribution["contributor_account_id"])):
         return None
     return account_actor_iri(conn, int(contribution["contributor_account_id"]), origin)
 

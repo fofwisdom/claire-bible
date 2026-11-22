@@ -29,7 +29,7 @@ from ...store import federation_quotes as quotes_store
 from ..principal import request_principal
 from ..security import read_json_body
 from .common import AccountsContext, json_error, not_found, open_client_db, open_db
-from .console_federation_panels import actor_state, content_public
+from .console_federation_panels import actor_state
 
 FEDERATION_QUOTES_API_PATH = "/api/federation/quotes"
 FEDERATION_OBJECTS_API_PATH = "/api/federation/objects"
@@ -122,9 +122,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # A request of another account gives the same answer as no request.
                 if row is None or row.account_id != account_id:
                     return 404, {"error": "quote_not_found"}
-                # An approval of a published document makes a public authorization for private knowledge base content (decisions GD5 and GD7). Own notes work for each actor, and refusals or revocations remove authorizations.
-                if body["state"] == "approved" and federation_store.get_object(conn, row.object_public_id) is not None and not content_public(account):
-                    return 409, {"error": "profile_private"}
                 # The state and the task of the answer are in one transaction.
                 changed = quotes_store.set_authorization_state(client, row.id, body["state"], now=time.time())
                 if changed is None:

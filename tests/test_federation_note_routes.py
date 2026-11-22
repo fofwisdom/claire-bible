@@ -93,11 +93,19 @@ def test_note_stays_public_for_private_profile_actor_hides_for_non_actor_and_blo
     ack = fixture("interaction_task_ack")["request"]
     assert internal.call({**ack, "body": {**ack["body"], "mentions": [{"handle": "@dan@other.example", "iri": "https://blocked.example/users/dan"}]}}).status_code == 200
     assert json.loads(_client_rows(internal, "SELECT mentions_json FROM federation_notes WHERE public_id=?", (NOTE_ID,))[0][0])[1]["iri"] is None
-    # Decision GD7: a private profile hides published KB documents in outbox, while own notes stay public and interaction tasks still lease.
+    # Decision GD8: with a private profile, own notes and public-KB published objects stay public in outbox and interaction tasks still lease; hiding the KB leaves own notes public.
     internal.pause(internal.alice)
     assert internal.get(f"/notes/{NOTE_ID}").status_code == 200
     outbox = internal.get("/actors/116412345678901234/outbox").json()
-    assert (outbox["total"], [item["id"] for item in outbox["items"]]) == (1, [str(NOTE_ID)])
+    assert (outbox["total"], [item["id"] for item in outbox["items"]]) == (3, [str(NOTE_ID), "816412345678901235", "816412345678901234"])
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE account_id=?", (internal.alice,))
+        conn.commit()
+    finally:
+        conn.close()
+    notes_only_outbox = internal.get("/actors/116412345678901234/outbox").json()
+    assert (notes_only_outbox["total"], [item["id"] for item in notes_only_outbox["items"]]) == (1, [str(NOTE_ID)])
     assert [task["kind"] for task in internal.get("/interaction-tasks?limit=10").json()["tasks"]] == ["delete_note", "like", "announce"]
     # When the account is not an actor (suspended), own notes return 404 and ready interaction tasks wait, while a deleted note stays 410.
     client = client_db.connect_client_existing(client_db.client_db_path(internal.settings.db_file))

@@ -58,7 +58,7 @@ test.describe('federation client view (FP4-5)', () => {
     });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: FRAME_BODY }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 1, limit: 1000, items: [{ id: '1', request: '@carol@remote.example', actor_iri: author.iri, actor_type: 'Person', display_name: 'Carol', state: 'accepted', created_at: 1, updated_at: 1 }], next_max_id: null })));
-    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: '@owner@claire.example', actor_id: 'https://claire.example/ap/actors/1', is_actor: true, actor_state: 'active', content_public: true, followers: { total: 0 }, pending_tasks: 0 })));
+    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: '@owner@claire.example', actor_id: 'https://claire.example/ap/actors/1', is_actor: true, actor_state: 'active', discoverable: true, followers: { total: 0 }, pending_tasks: 0 })));
     await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: 0, items: [], next_max_id: null })));
 
     // A login token of the seed database is for one login. This test has its own token.

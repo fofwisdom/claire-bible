@@ -847,16 +847,21 @@ def create_app(
         else:
             collection_url = f"{origin}{ns.prefix}/kb"
             if collections.wants_html(request):
-                return HTMLResponse(
-                    get_web_ui_renderer().render_graph_html(
-                        s,
-                        include_private=principal.account_id == ns.account_id and principal.scope in ("owner", "readonly"),
-                        theme=None,
-                        host=request.headers.get("host"),
-                        request=request,
-                        account_id=ns.account_id,
-                    )
+                html_text = get_web_ui_renderer().render_graph_html(
+                    s,
+                    include_private=principal.account_id == ns.account_id and principal.scope in ("owner", "readonly"),
+                    theme=None,
+                    host=request.headers.get("host"),
+                    request=request,
+                    account_id=ns.account_id,
                 )
+                headers: dict[str, str] = {}
+                if ns.mode == "network" and ns.account_id is not None:
+                    _, is_profile_public = await asyncio.to_thread(_profile_actor_info, ns.account_id)
+                    if not is_profile_public:
+                        html_text = html_text.replace('<meta name="robots" content="index, follow"/>', '<meta name="robots" content="noindex, nofollow"/>', 1)
+                        headers["X-Robots-Tag"] = "noindex, nofollow"
+                return HTMLResponse(html_text, headers=headers)
 
         def _build() -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
             # ``CLAIRE_MULTI_THEME=0``: only the knowledge base 0 is served, so the collection has no shared knowledge base.
@@ -1364,7 +1369,7 @@ def create_app(
         return kb
 
     def _member_view(row: dict[str, Any], *, mode: str) -> dict[str, Any]:
-        """One member for a response. The account is its public number. The username goes only in network mode and for a public profile (S9, N1)."""
+        """One member for a response. The account is its public number. The username is included in network mode for any account with a USERNAME (decision GD8)."""
         view: dict[str, Any] = {
             "number": ids.format_public_id(int(row["membership_public_id"])),
             "account": ids.format_public_id(int(row["account_public_id"])),
@@ -1374,7 +1379,7 @@ def create_app(
             "requested_at": row["requested_at"],
             "decided_at": row["decided_at"],
         }
-        if mode == "network" and row["profile_public"] and row["username"]:
+        if mode == "network" and row["username"]:
             view["username"] = row["username"]
         return view
 
@@ -4130,9 +4135,6 @@ def create_app(
                 return PlainTextResponse("Not Found", status_code=404)
             return await public_directory_route(request, root_page=True)
 
-        if ns is not None and ns.private_profile_view and ns.account_id is not None:
-            return await asyncio.to_thread(_render_private_profile_page, request, ns.account_id)
-
         scope = request_auth_scope(request)
         principal = request_principal(request)
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
@@ -4146,7 +4148,9 @@ def create_app(
         if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_kb_id is not None):
             try:
                 theme, _, _ = _get_theme_ctx(request)
-            except HTTPException:
+            except HTTPException as exc:
+                if exc.status_code == 404 and ns is not None and ns.account_id is not None and ns.pinned_kb_id is None and principal.account_id != ns.account_id:
+                    return await asyncio.to_thread(_render_private_profile_page, request, ns.account_id, ns.mode)
                 raise
             except Exception:
                 pass
@@ -4161,15 +4165,18 @@ def create_app(
         # The profile page of a federation actor points to the actor ID (Fedify sidecar design Section 5.1 rule 2). The path has no content negotiation.
         headers: dict[str, str] = {}
         if ns is not None and ns.username is not None and ns.pinned_kb_id is None:
-            actor_url = await asyncio.to_thread(_profile_actor_url, account_id)
+            actor_url, is_profile_public = await asyncio.to_thread(_profile_actor_info, account_id)
             if actor_url is not None:
                 link_tag = f'<link rel="alternate" type="application/activity+json" href="{html.escape(actor_url, quote=True)}">'
                 html_text = html_text.replace("</head>", f"{link_tag}\n</head>", 1)
                 headers["Link"] = f'<{actor_url}>; rel="alternate"; type="application/activity+json"'
+            if ns.mode == "network" and not is_profile_public:
+                html_text = html_text.replace('<meta name="robots" content="index, follow"/>', '<meta name="robots" content="noindex, nofollow"/>', 1)
+                headers["X-Robots-Tag"] = "noindex, nofollow"
         return HTMLResponse(html_text, headers=headers)
 
-    def _render_private_profile_page(request: Request, account_id: int) -> Response:
-        """Render the HTTP 200 basic profile page for a private account at ``/@{username}/`` with no workspace data."""
+    def _render_private_profile_page(request: Request, account_id: int, mode: str = "network") -> Response:
+        """Render the HTTP 200 basic profile page when an account has no readable personal knowledge base at ``/@{username}/``."""
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             try:
@@ -4184,10 +4191,13 @@ def create_app(
         actor_url = f"{runtime.public_origin}/ap/actors/{account.public_id}"
         handle = f"@{account.username}@{runtime.expected_authority}"
         display_name = account.display_name or account.username
+        noindex = mode == "network" and not account.profile_public
+        robots_meta = "noindex, nofollow" if noindex else "index, follow"
         _, _, nav_auth = _directory_viewer_nav(request, request_principal(request))
         template_path = Path(__file__).resolve().parent / "templates" / "private_profile.html"
         rendered = string.Template(template_path.read_text(encoding="utf-8")).safe_substitute(
             html_lang=html.escape(get_locale(), quote=True),
+            robots_meta=robots_meta,
             actor_url=html.escape(actor_url, quote=True),
             title=html.escape(display_name),
             nav_label=html.escape(_t("directory.nav_label"), quote=True),
@@ -4201,28 +4211,29 @@ def create_app(
         rendered = get_web_ui_renderer().inject_favicon_head_tags(rendered)
         headers = {
             "Link": f'<{actor_url}>; rel="alternate"; type="application/activity+json"',
-            "X-Robots-Tag": "noindex, nofollow",
             "Cache-Control": "no-store",
             "Vary": "Cookie, Authorization, Accept-Language",
         }
+        if noindex:
+            headers["X-Robots-Tag"] = "noindex, nofollow"
         if request.method == "HEAD":
             return Response(status_code=200, headers=headers, media_type="text/html; charset=utf-8")
         return HTMLResponse(rendered, status_code=200, headers=headers)
 
-    def _profile_actor_url(account_id: int) -> str | None:
-        """Actor ID of the account, or ``None`` when the account is not a federation actor (FK4)."""
+    def _profile_actor_info(account_id: int) -> tuple[str | None, bool]:
+        """Return ``(actor_url, profile_public)`` for the profile head and robots metadata (FK4, GD8)."""
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             store = accounts_store.AccountStore(conn)
             try:
                 account = store.get(account_id)
             except accounts_store.AccountNotFound:
-                return None
+                return None, False
         finally:
             conn.close()
-        if account.status != "active" or not account.username:
-            return None
-        return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
+        is_actor = account.status == "active" and bool(account.username)
+        actor_url = f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}" if is_actor else None
+        return actor_url, bool(account.profile_public)
 
     def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, KnowledgeBaseInfo | None]:
         try:
@@ -4672,7 +4683,22 @@ def create_app(
             t_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             target_dbs = [(t_settings.db_file, theme.id)]
         elif getattr(s, "multi_theme", False) and theme_mgr is not None:
+            private_personal_accounts: set[int] = set()
+            if s.db_file.is_file():
+                conn_mode = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    mode_row = conn_mode.execute("SELECT value FROM server_settings WHERE key='mode'").fetchone()
+                    if mode_row is not None and str(mode_row[0]) == "network":
+                        private_personal_accounts = {
+                            int(r[0]) for r in conn_mode.execute("SELECT id FROM accounts WHERE profile_public=0 OR status!='active'").fetchall()
+                        }
+                except Exception:
+                    private_personal_accounts = set()
+                finally:
+                    conn_mode.close()
             for t in theme_mgr.list_kbs():
+                if getattr(t, "is_personal", False) and getattr(t, "account_id", None) in private_personal_accounts:
+                    continue
                 if getattr(t, "is_public", True):
                     t_settings = theme_mgr.get_settings_for_kb(t.id, s)
                     target_dbs.append((t_settings.db_file, t.id))

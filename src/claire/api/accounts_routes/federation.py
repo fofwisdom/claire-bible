@@ -66,7 +66,7 @@ from .admin import is_admin
 from .common import AccountsContext, json_error, not_found, open_auth_db, open_client_db, open_db, require_recent_auth, same_origin
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 from . import federation_notes
-from .console_federation_panels import account_federation_status, actor_state, admin_federation_body, content_public, domain_block_view
+from .console_federation_panels import account_federation_status, actor_state, admin_federation_body, domain_block_view
 
 ADMIN_FEDERATION_API_PATH = "/api/admin/federation"
 ADMIN_FEDERATION_PATH = "/admin/federation"
@@ -568,10 +568,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 state = actor_state(account)
                 if state != "active":
                     return 409, {"error": "not_an_actor", "actor_state": state}
-                # A published document is content. The content of an account with a private profile is private (decision GD5).
-                if not content_public(account):
-                    return 409, {"error": "profile_private"}
-                # Only a document of a public theme can be published (design Section 9.1).
+                # Only a document of a public knowledge base can be published (design Section 9.1, decision GD8).
                 if not theme["is_public"]:
                     return 409, {"error": "theme_not_public"}
                 document = dbm.get_document_row(conn, document_id, kb_id=int(theme["id"]))

@@ -291,8 +291,8 @@
     setFederationField("handle", status.handle || tr("console.js.account.federation.handle_unset"));
     setFederationField("actor_id", status.actor_id || "-");
     setFederationField("actor_state", ACTOR_STATE_TEXT[status.actor_state] || String(status.actor_state));
-    // An account is an actor with a private profile too. Only its content is then private.
-    setFederationField("content", tr(status.content_public ? "console.js.account.federation.content.public" : "console.js.account.federation.content.private"));
+    // An account is an actor regardless of profile discoverability.
+    setFederationField("discoverable", tr(status.discoverable ? "console.js.account.federation.discoverable.on" : "console.js.account.federation.discoverable.off"));
     if (status.followers && typeof status.followers.total === "number") {
       setFederationField("followers_total", status.followers.total.toLocaleString("en-US"));
     }

@@ -688,7 +688,7 @@ class AccountStore:
                 "ON CONFLICT(username) DO UPDATE SET "
                 "account_id=excluded.account_id, was_public=excluded.was_public, retired_at=excluded.retired_at, "
                 "released_at=NULL, released_by=NULL, reusable_after=NULL",
-                (retired_norm, current.id, 1 if current.profile_public else 0, when),
+                (retired_norm, current.id, 1, when),
             )
 
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
@@ -807,7 +807,7 @@ class AccountStore:
             "reusable_after": reusable_after,
             "reason": "rename" if reusable_after is not None else "purge",
             "was_public": was_public,
-            "has_410_marker": was_public,
+            "has_410_marker": True,
             "reserved_invitations": reserved_invitations,
             "public_directory_entries": public_directory_entries,
             "residual_sessions": residual_sessions,
@@ -949,7 +949,7 @@ class AccountStore:
                     "ON CONFLICT(username) DO UPDATE SET "
                     "account_id=excluded.account_id, was_public=excluded.was_public, retired_at=excluded.retired_at, "
                     "released_at=NULL, released_by=NULL, reusable_after=excluded.reusable_after",
-                    (old_norm, account_id, 1 if current.profile_public else 0, when, retired_until),
+                    (old_norm, account_id, 1, when, retired_until),
                 )
             try:
                 cur = self.conn.execute(
