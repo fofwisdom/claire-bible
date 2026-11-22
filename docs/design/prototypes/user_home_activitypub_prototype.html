@@ -1,0 +1,3863 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="text-scale" content="scale"/>
+<meta name="color-scheme" content="light dark"/>
+<script>
+try {
+  var savedScheme = localStorage.getItem("claireProtoColorScheme");
+  if (savedScheme === "light" || savedScheme === "dark") {
+    document.querySelector('meta[name="color-scheme"]').content = savedScheme;
+  } else {
+    document.querySelector('meta[name="color-scheme"]').content = "light dark";
+  }
+} catch (_) {}
+</script>
+<meta name="robots" content="index, follow"/>
+<link rel="alternate" type="application/activity+json" href="https://claire.example/ap/actors/202604120001847291"/>
+<title>박민지 (@minji@claire.example) · 유저 홈 ActivityPub 프로토타입</title>
+<style>
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+:root {
+  --bg-light: #ffffff;
+  --bg-dark: #0e1116;
+  --fg-light: #1f2328;
+  --fg-dark: #d7dbe0;
+  --muted-light: #656d76;
+  --muted-dark: #8b949e;
+  --bar-bg-light: #f6f8fa;
+  --bar-bg-dark: #161b22;
+  --border-light: #d0d7de;
+  --border-dark: #2a2f37;
+  --panel-bg-light: #f6f8fa;
+  --panel-bg-dark: #10151c;
+  --card-bg-light: #ffffff;
+  --card-bg-dark: #161b22;
+  --hover-light: #eef1f4;
+  --hover-dark: #1c222b;
+  --active-light: #ddf4ff;
+  --active-dark: #1f2937;
+  --chip-bg-light: #eaeef2;
+  --chip-bg-dark: #1f2937;
+  --sec-bg-light: #eaeef2;
+  --sec-bg-dark: #272e38;
+  --sec-fg-light: #24292f;
+  --sec-fg-dark: #d7dbe0;
+  --accent-light: #0969da;
+  --accent-dark: #58a6ff;
+  --accent2-light: #1a7f37;
+  --accent2-dark: #7ee787;
+  --btn-bg-light: #1f883d;
+  --btn-bg-dark: #238636;
+  --btn-fg-light: #ffffff;
+  --btn-fg-dark: #ffffff;
+  --ap-light: #8250df;
+  --ap-dark: #d2a8ff;
+  --ap-bg-light: #fbefff;
+  --ap-bg-dark: #2a193f;
+  --warn-light: #9a6700;
+  --warn-dark: #d29922;
+  --warn-bg-light: #fff8c5;
+  --warn-bg-dark: #332300;
+  --danger-light: #cf222e;
+  --danger-dark: #f85149;
+  --danger-bg-light: #ffebe9;
+  --danger-bg-dark: #38161a;
+  --shadow-light: rgba(31, 35, 40, 0.18);
+  --shadow-dark: rgba(1, 4, 9, 0.6);
+  --backdrop-light: rgba(15, 23, 42, 0.44);
+  --backdrop-dark: rgba(1, 4, 9, 0.68);
+  --scroll-track-light: #eef1f4;
+  --scroll-track-dark: #161b22;
+  --scroll-thumb-light: #6e7781;
+  --scroll-thumb-dark: #7d8590;
+
+  --bg: var(--bg-light);
+  --fg: var(--fg-light);
+  --muted: var(--muted-light);
+  --bar-bg: var(--bar-bg-light);
+  --border: var(--border-light);
+  --panel-bg: var(--panel-bg-light);
+  --card-bg: var(--card-bg-light);
+  --hover: var(--hover-light);
+  --active: var(--active-light);
+  --chip-bg: var(--chip-bg-light);
+  --sec-bg: var(--sec-bg-light);
+  --sec-fg: var(--sec-fg-light);
+  --accent: var(--accent-light);
+  --accent2: var(--accent2-light);
+  --btn-bg: var(--btn-bg-light);
+  --btn-fg: var(--btn-fg-light);
+  --ap: var(--ap-light);
+  --ap-bg: var(--ap-bg-light);
+  --warn: var(--warn-light);
+  --warn-bg: var(--warn-bg-light);
+  --danger: var(--danger-light);
+  --danger-bg: var(--danger-bg-light);
+  --shadow: var(--shadow-light);
+  --backdrop: var(--backdrop-light);
+  --scroll-track: var(--scroll-track-light);
+  --scroll-thumb: var(--scroll-thumb-light);
+
+  --stage-collect: var(--ap);
+  --stage-ingest: var(--accent2);
+  --stage-publish: var(--warn);
+  --mono: "D2Coding", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+
+  color-scheme: light dark;
+  accent-color: var(--accent);
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+  --bg: var(--bg-dark);
+  --fg: var(--fg-dark);
+  --muted: var(--muted-dark);
+  --bar-bg: var(--bar-bg-dark);
+  --border: var(--border-dark);
+  --panel-bg: var(--panel-bg-dark);
+  --card-bg: var(--card-bg-dark);
+  --hover: var(--hover-dark);
+  --active: var(--active-dark);
+  --chip-bg: var(--chip-bg-dark);
+  --sec-bg: var(--sec-bg-dark);
+  --sec-fg: var(--sec-fg-dark);
+  --accent: var(--accent-dark);
+  --accent2: var(--accent2-dark);
+  --btn-bg: var(--btn-bg-dark);
+  --btn-fg: var(--btn-fg-dark);
+  --ap: var(--ap-dark);
+  --ap-bg: var(--ap-bg-dark);
+  --warn: var(--warn-dark);
+  --warn-bg: var(--warn-bg-dark);
+  --danger: var(--danger-dark);
+  --danger-bg: var(--danger-bg-dark);
+  --shadow: var(--shadow-dark);
+  --backdrop: var(--backdrop-dark);
+  --scroll-track: var(--scroll-track-dark);
+  --scroll-thumb: var(--scroll-thumb-dark);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) {
+    --bg: var(--bg-dark);
+    --fg: var(--fg-dark);
+    --muted: var(--muted-dark);
+    --bar-bg: var(--bar-bg-dark);
+    --border: var(--border-dark);
+    --panel-bg: var(--panel-bg-dark);
+    --card-bg: var(--card-bg-dark);
+    --hover: var(--hover-dark);
+    --active: var(--active-dark);
+    --chip-bg: var(--chip-bg-dark);
+    --sec-bg: var(--sec-bg-dark);
+    --sec-fg: var(--sec-fg-dark);
+    --accent: var(--accent-dark);
+    --accent2: var(--accent2-dark);
+    --btn-bg: var(--btn-bg-dark);
+    --btn-fg: var(--btn-fg-dark);
+    --ap: var(--ap-dark);
+    --ap-bg: var(--ap-bg-dark);
+    --warn: var(--warn-dark);
+    --warn-bg: var(--warn-bg-dark);
+    --danger: var(--danger-dark);
+    --danger-bg: var(--danger-bg-dark);
+    --shadow: var(--shadow-dark);
+    --backdrop: var(--backdrop-dark);
+    --scroll-track: var(--scroll-track-dark);
+    --scroll-thumb: var(--scroll-thumb-dark);
+  }
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --bg: light-dark(var(--bg-light), var(--bg-dark));
+    --fg: light-dark(var(--fg-light), var(--fg-dark));
+    --muted: light-dark(var(--muted-light), var(--muted-dark));
+    --bar-bg: light-dark(var(--bar-bg-light), var(--bar-bg-dark));
+    --border: light-dark(var(--border-light), var(--border-dark));
+    --panel-bg: light-dark(var(--panel-bg-light), var(--panel-bg-dark));
+    --card-bg: light-dark(var(--card-bg-light), var(--card-bg-dark));
+    --hover: light-dark(var(--hover-light), var(--hover-dark));
+    --active: light-dark(var(--active-light), var(--active-dark));
+    --chip-bg: light-dark(var(--chip-bg-light), var(--chip-bg-dark));
+    --sec-bg: light-dark(var(--sec-bg-light), var(--sec-bg-dark));
+    --sec-fg: light-dark(var(--sec-fg-light), var(--sec-fg-dark));
+    --accent: light-dark(var(--accent-light), var(--accent-dark));
+    --accent2: light-dark(var(--accent2-light), var(--accent2-dark));
+    --btn-bg: light-dark(var(--btn-bg-light), var(--btn-bg-dark));
+    --btn-fg: light-dark(var(--btn-fg-light), var(--btn-fg-dark));
+    --ap: light-dark(var(--ap-light), var(--ap-dark));
+    --ap-bg: light-dark(var(--ap-bg-light), var(--ap-bg-dark));
+    --warn: light-dark(var(--warn-light), var(--warn-dark));
+    --warn-bg: light-dark(var(--warn-bg-light), var(--warn-bg-dark));
+    --danger: light-dark(var(--danger-light), var(--danger-dark));
+    --danger-bg: light-dark(var(--danger-bg-light), var(--danger-bg-dark));
+    --shadow: light-dark(var(--shadow-light), var(--shadow-dark));
+    --backdrop: light-dark(var(--backdrop-light), var(--backdrop-dark));
+    --scroll-track: light-dark(var(--scroll-track-light), var(--scroll-track-dark));
+    --scroll-thumb: light-dark(var(--scroll-thumb-light), var(--scroll-thumb-dark));
+    accent-color: light-dark(var(--accent-light), var(--accent-dark));
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+}
+
+@supports not (scrollbar-color: auto) {
+  .scroller, #homewrap, #doclist, #drawerscroll, dialog .dlg-bd {
+    scrollbar-width: auto;
+  }
+  .scroller::-webkit-scrollbar, #homewrap::-webkit-scrollbar, #doclist::-webkit-scrollbar, #drawerscroll::-webkit-scrollbar, dialog .dlg-bd::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scroller::-webkit-scrollbar-thumb, #homewrap::-webkit-scrollbar-thumb, #doclist::-webkit-scrollbar-thumb, #drawerscroll::-webkit-scrollbar-thumb, dialog .dlg-bd::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+  }
+  .scroller::-webkit-scrollbar-track, #homewrap::-webkit-scrollbar-track, #doclist::-webkit-scrollbar-track, #drawerscroll::-webkit-scrollbar-track, dialog .dlg-bd::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+  }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  background: var(--chip-bg);
+  border-radius: 4px;
+  padding: 0.0625rem 0.3125rem;
+}
+
+h1, h2, h3, .ap-article-title {
+  text-wrap: balance;
+}
+
+.ap-post-body p, .ap-quote-body, .ap-private-notice p, .ap-article-summary {
+  text-wrap: pretty;
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:where(button) {
+  transition: background-color 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out, scale 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button) {
+    transition: none;
+  }
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.lineicon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+
+[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+/* Color-scheme toggle icon branching (no JS dependency) */
+#themebtn .theme-icon-sun { display: none; }
+#themebtn .theme-icon-moon { display: inline-flex; }
+:root:has(> head > meta[name="color-scheme"][content="dark"]) #themebtn .theme-icon-sun { display: inline-flex; }
+:root:has(> head > meta[name="color-scheme"][content="dark"]) #themebtn .theme-icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) #themebtn .theme-icon-sun { display: inline-flex; }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) #themebtn .theme-icon-moon { display: none; }
+}
+
+/* Unified Claire Bible Application Bar (compact single row on desktop) */
+.appbar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.4375rem 0.75rem;
+  min-block-size: 3rem;
+  flex-shrink: 0;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.bar-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.appbar .brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  display: inline-block;
+  flex: none;
+}
+
+.theme-plain-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 6px;
+  background: var(--sec-bg);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.appbar-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.appbar-palette-slot {
+  display: flex;
+  align-items: center;
+  flex: 1 1 12rem;
+  max-width: 22rem;
+  min-width: 8rem;
+}
+
+.palette-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-block-size: 2rem;
+  padding: 0.1875rem 0.5rem 0.1875rem 0.625rem;
+  gap: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--muted);
+  font-size: 0.78125rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-trigger:hover {
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+
+.palette-trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-trigger kbd {
+  flex: none;
+  min-width: 1.125rem;
+  padding: 0 0.3125rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--sec-bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  text-align: center;
+}
+
+.center-tab-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.center-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-block-size: 1.875rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.center-tab-btn:hover {
+  background: var(--hover);
+}
+
+.center-tab-btn[aria-current="page"] {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.appbar-end {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.bar-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-block-size: 1.875rem;
+  min-inline-size: 1.875rem;
+  padding: 0 0.375rem;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.78125rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.bar-icon-btn:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+
+.bar-icon-btn:active {
+  scale: 0.96;
+}
+
+.bar-icon-btn[aria-current="page"] {
+  background: var(--sec-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bar-icon-btn[hidden], .bar-ingest-btn[hidden], .center-tab-group[hidden] {
+  display: none !important;
+}
+
+.bar-ingest-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-block-size: 1.875rem;
+  padding: 0 0.625rem;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.78125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bar-ingest-btn:hover {
+  filter: brightness(1.06);
+}
+
+.bar-ingest-btn:active {
+  scale: 0.97;
+}
+
+.notify-count {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 0 0.3125rem;
+  line-height: 1.3;
+}
+
+@media (max-width: 720px) {
+  .appbar {
+    flex-wrap: wrap;
+    padding: 0.375rem 0.625rem;
+  }
+  .appbar-center {
+    order: 10;
+    flex: 1 0 100%;
+  }
+  .appbar-palette-slot {
+    max-width: none;
+  }
+  .center-tab-group, #listtoggle {
+    display: none;
+  }
+  .bar-ingest-btn .btn-label {
+    display: none;
+  }
+}
+
+/* Workspace 3-Pane Shell */
+#workspace-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  background: var(--panel-bg);
+  overflow: hidden;
+}
+
+#viewport-frame {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  transition: max-width 0.2s ease;
+}
+
+body[data-preview-width="820"] #viewport-frame {
+  max-width: 820px;
+  border-inline: 1px solid var(--border);
+  box-shadow: 0 0 24px var(--shadow);
+}
+
+body[data-preview-width="375"] #viewport-frame {
+  max-width: 375px;
+  border-inline: 1px solid var(--border);
+  box-shadow: 0 0 24px var(--shadow);
+}
+
+#wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 0px;
+  overflow: hidden;
+  transition: grid-template-columns 0.2s ease;
+}
+
+body.list-closed #wrap {
+  grid-template-columns: 0px minmax(0, 1fr) 0px;
+}
+
+body.ctx-open #wrap {
+  grid-template-columns: 260px minmax(0, 1fr) 340px;
+}
+
+body.list-closed.ctx-open #wrap {
+  grid-template-columns: 0px minmax(0, 1fr) 340px;
+}
+
+body[data-scenario="visitor-private"] #wrap {
+  grid-template-columns: 0px minmax(0, 1fr) 0px;
+}
+
+@media (max-width: 1020px) {
+  #wrap, body.ctx-open #wrap, body.list-closed.ctx-open #wrap {
+    grid-template-columns: 0px minmax(0, 1fr) 0px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #wrap, #viewport-frame {
+    transition: none;
+  }
+}
+
+/* Left List Pane */
+#docs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+body.list-closed #docs,
+body[data-scenario="visitor-private"] #docs {
+  visibility: hidden;
+  border-right: 0;
+}
+
+.dhead {
+  min-block-size: 2.75rem;
+  padding: 0.375rem 0.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+
+.list-switch {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.list-switch-btn {
+  padding: 0.1875rem 0.5625rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--sec-bg);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.list-switch-btn[aria-pressed="true"] {
+  background: var(--card-bg);
+  color: var(--fg);
+  border-color: var(--accent2);
+  border-bottom-width: 2px;
+}
+
+.list-filter {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.list-filter input {
+  width: 100%;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  font-size: 0.78125rem;
+}
+
+#doclist {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.docitem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5625rem 0.6875rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.docitem:hover {
+  background: var(--hover);
+}
+
+.docitem.active {
+  background: var(--active);
+  border-left: 3px solid var(--accent2);
+}
+
+.docitem-title {
+  display: block;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.docitem-meta {
+  display: block;
+  font-size: 0.71875rem;
+  color: var(--muted);
+  margin-top: 0.1875rem;
+}
+
+/* Center Home Pane */
+#centerwrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bar-bg);
+}
+
+#homewrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  container-type: inline-size;
+  container-name: home;
+}
+
+.home-inner {
+  max-width: 66rem;
+  margin: 0 auto;
+  padding: 1.125rem 1.25rem 5.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+/* ActivityPub Profile Card (Container-Aware) */
+.ap-profile-shell {
+  container-type: inline-size;
+  container-name: profile;
+  view-transition-name: ap-profile-card;
+}
+
+.ap-profile-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ap-profile-top {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.ap-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+.ap-avatar {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ap) 22%, var(--panel-bg)), color-mix(in srgb, var(--accent) 22%, var(--panel-bg)));
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1.125rem;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.ap-id-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.ap-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.5rem;
+}
+
+.ap-display-name {
+  margin: 0;
+  font-size: clamp(1.25rem, 1.05rem + 0.6vw, 1.625rem);
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.ap-handle-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.625rem;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.ap-handle-code {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--fg);
+  background: var(--chip-bg);
+  padding: 0.0625rem 0.4375rem;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+.ap-profile-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.ap-bio-proposal {
+  margin: 0;
+  padding: 0.4375rem 0.625rem;
+  border: 1px dashed var(--warn);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn-bg) 42%, transparent);
+  font-size: 0.8125rem;
+  color: var(--fg);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.ap-profile-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.875rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78125rem;
+  color: var(--muted);
+}
+
+.ap-stats-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.ap-stat-pill strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-tech-chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+@media (min-width: 720px) {
+  .ap-profile-top {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+}
+
+@supports (container-type: inline-size) {
+  @media (min-width: 720px) {
+    .ap-profile-top {
+      flex-direction: column;
+    }
+  }
+  @container profile (min-width: 560px) {
+    .ap-profile-top {
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+  }
+  @container profile (max-width: 559px) {
+    .ap-tech-chips {
+      margin-left: 0;
+    }
+  }
+}
+
+/* Badges, Chips, Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3125rem;
+  min-block-size: 1.9375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--hover);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+
+.btn:active {
+  scale: 0.97;
+}
+
+.btn.pri {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-color: transparent;
+}
+
+.btn.pri:hover {
+  filter: brightness(1.06);
+}
+
+.btn.ap {
+  background: var(--ap);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.btn.ap:hover {
+  filter: brightness(1.08);
+}
+
+.btn.on {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn.sm {
+  min-block-size: 1.625rem;
+  padding: 0.125rem 0.4375rem;
+  font-size: 0.75rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.4375rem;
+  border-radius: 999px;
+  font-size: 0.71875rem;
+  font-weight: 600;
+  background: var(--chip-bg);
+  color: var(--muted);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.chip.ap {
+  color: var(--ap);
+  background: var(--ap-bg);
+  border-color: color-mix(in srgb, var(--ap) 35%, transparent);
+}
+
+.chip.kb {
+  color: var(--accent2);
+  background: color-mix(in srgb, var(--accent2) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent2) 35%, transparent);
+}
+
+.chip.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+.chip.danger {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.chip.proposed {
+  border-style: dashed;
+  border-color: var(--warn);
+  color: var(--warn);
+  background: transparent;
+  font-size: 0.65625rem;
+}
+
+/* Private Personal KB Notice (Visitor-Private scenario) */
+.ap-private-notice {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.75rem 0.9375rem;
+  font-size: 0.8125rem;
+}
+
+.ap-private-notice strong {
+  display: block;
+  margin-bottom: 0.1875rem;
+}
+
+.ap-private-notice p {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Proposal A: Accessible Tabbed Interface with Scrollable Row, Edge Fades & Anchor Underline */
+.home-tabs-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.home-tablist-wrap {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+  border-radius: 8px 8px 0 0;
+  padding-inline: 0.375rem;
+}
+
+.home-tablist {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: inline proximity;
+  scroll-padding-inline: 2.5rem;
+  scrollbar-width: none;
+  --fade-size: 2.5rem;
+  --fade-dir: right;
+  --fade-start-pos: 0;
+  --fade-end-pos: 100%;
+  mask:
+    linear-gradient(black, black) no-clip subtract,
+    linear-gradient(to var(--fade-dir), black, transparent) var(--fade-start-pos) 0 / var(--fade-start) 100% no-repeat no-clip,
+    linear-gradient(to var(--fade-dir), transparent, black) var(--fade-end-pos) 0 / var(--fade-end) 100% no-repeat no-clip;
+  animation: reveal-fade-start linear both, hide-fade-end linear both;
+  animation-timeline: scroll(self inline);
+  animation-range: 0 var(--fade-size), calc(100% - var(--fade-size)) 100%;
+}
+
+.home-tablist::-webkit-scrollbar {
+  display: none;
+}
+
+.home-tablist.more-start {
+  --fade-start: var(--fade-size);
+}
+
+.home-tablist.more-end {
+  --fade-end: var(--fade-size);
+}
+
+@keyframes reveal-fade-start {
+  to { --fade-start: var(--fade-size); }
+}
+
+@keyframes hide-fade-end {
+  from { --fade-end: var(--fade-size); }
+}
+
+.home-tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.625rem 0.875rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84375rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.home-tab:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.home-tab[aria-selected="true"] {
+  color: var(--accent);
+  anchor-name: --active-home-tab;
+}
+
+@supports (position-anchor: auto) {
+  .home-tablist::before {
+    content: "";
+    position: absolute;
+    position-anchor: --active-home-tab;
+    inset-block-start: calc(anchor(bottom) - 2.5px);
+    inset-inline-start: anchor(left);
+    inset-inline-end: anchor(right);
+    border-block-end: 2.5px solid var(--accent);
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .home-tablist::before {
+      transition: inset 0.2s ease-out;
+    }
+  }
+}
+
+@supports not (position-anchor: auto) {
+  .home-tab[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    border-block-end: 2.5px solid var(--accent);
+  }
+}
+
+.home-tabpanels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.home-tabpanels > [role="tabpanel"] {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.tabpanel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+/* Proposal B: Container-Query Two-Column Split */
+.layout-b-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  align-items: start;
+}
+
+@media (min-width: 820px) {
+  .layout-b-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(16.5rem, 0.85fr);
+  }
+}
+
+@supports (container-type: inline-size) {
+  @media (min-width: 820px) {
+    .layout-b-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @container home (min-width: 820px) {
+    .layout-b-grid {
+      grid-template-columns: minmax(0, 1.35fr) minmax(16.5rem, 0.85fr);
+    }
+  }
+}
+
+/* Timeline Section & Toolbar */
+.tl-shell {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+
+.tl-head-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.tl-title {
+  margin: 0;
+  font-size: 0.84375rem;
+  font-weight: 700;
+  color: var(--ap);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tl-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tl-filter-btn {
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tl-filter-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.tl-filter-btn[aria-pressed="true"] {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tl-search {
+  min-inline-size: 10rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.78125rem;
+}
+
+.tl-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Defer rendering strictly for items below the initial fold */
+.ap-post:nth-child(n+4) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 11rem;
+}
+
+.ap-post {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ap-post:last-child {
+  border-bottom: 0;
+}
+
+.ap-post:hover {
+  background: color-mix(in srgb, var(--hover) 45%, transparent);
+}
+
+.ap-post.is-tombstone {
+  opacity: 0.72;
+  background: var(--panel-bg);
+}
+
+.ap-post-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ap-post-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.ap-post-author {
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.ap-post-actions-top {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.ap-post-body {
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.ap-post-body p {
+  margin: 0 0 0.4375rem;
+}
+
+.ap-post-body p:last-child {
+  margin-bottom: 0;
+}
+
+.ap-reply-ctx {
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+.ap-cw {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  padding: 0.4375rem 0.625rem;
+  background: color-mix(in srgb, var(--warn-bg) 35%, var(--panel-bg));
+}
+
+.ap-cw summary {
+  cursor: pointer;
+  font-size: 0.78125rem;
+  font-weight: 700;
+  color: var(--warn);
+}
+
+.ap-cw[open] summary {
+  margin-bottom: 0.4375rem;
+}
+
+.ap-article-box {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent2);
+  border-radius: 7px;
+  padding: 0.6875rem 0.8125rem;
+  background: var(--panel-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.ap-article-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.ap-article-summary {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.ap-article-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  margin-top: 0.125rem;
+}
+
+.ap-quote-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ap);
+  border-radius: 6px;
+  padding: 0.5rem 0.6875rem;
+  background: var(--panel-bg);
+  font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ap-quote-card.pending {
+  border-style: dashed;
+  border-left-style: solid;
+  border-left-color: var(--warn);
+}
+
+.ap-quote-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ap-quote-body {
+  margin: 0;
+  color: var(--fg);
+}
+
+.ap-post-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.625rem;
+  padding-top: 0.25rem;
+}
+
+.ap-reactions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3125rem;
+}
+
+.rx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.4375rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.rx-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.rx-btn[aria-pressed="true"] {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ap-post-hover-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.75;
+}
+
+.ap-post:hover .ap-post-hover-tools,
+.ap-post:focus-within .ap-post-hover-tools {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ap-post-hover-tools {
+    opacity: 1;
+  }
+}
+
+/* Existing Claire Home Overview Cards (WEBUI.md §4.3) */
+.home-facts {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78125rem;
+}
+
+.home-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+}
+
+.home-flow-stage {
+  display: block;
+  padding: 0.5625rem 0.875rem;
+  border-left: 3px solid var(--stage);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.home-flow-stage:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+
+.home-flow-stage b {
+  color: var(--stage);
+}
+
+.home-flow-counts {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+@container home (min-width: 720px) {
+  .home-flow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.875rem;
+}
+
+.home-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+  font-size: 0.8125rem;
+}
+
+.home-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5625rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-card h2 {
+  margin: 0;
+  font-size: 0.78125rem;
+  font-weight: 700;
+  color: var(--accent2);
+}
+
+.home-span2 {
+  grid-column: 1 / -1;
+}
+
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-block-size: 2.25rem;
+  padding: 0.4375rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-row:last-child {
+  border-bottom: 0;
+}
+
+.home-row:hover {
+  background: var(--hover);
+}
+
+.home-row-kind {
+  flex: none;
+  width: 2.75rem;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
+.home-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-row-title {
+  display: block;
+  font-weight: 600;
+}
+
+.home-row-sub {
+  display: block;
+  font-size: 0.71875rem;
+  color: var(--muted);
+}
+
+.home-map-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  padding: 0.75rem;
+}
+
+@container home (min-width: 680px) {
+  .home-map-body {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+}
+
+.home-mini {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  min-block-size: 10.5rem;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  padding: 0.5rem 0.625rem;
+}
+
+.home-mini canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.home-mini-hint {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+
+.home-map-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 0.75rem;
+}
+
+.home-map-col-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.home-map-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-block-size: 2rem;
+  padding: 0.3125rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.78125rem;
+}
+
+.home-map-row:last-child {
+  border-bottom: 0;
+}
+
+.home-map-row:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.home-map-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Right Context Panel */
+#detailpane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+body:not(.ctx-open) #detailpane,
+body[data-scenario="visitor-private"] #detailpane {
+  visibility: hidden;
+  border-left: 0;
+}
+
+@media (max-width: 1020px) {
+  body.ctx-open #detailpane {
+    position: fixed;
+    inset: 3rem 0 0 auto;
+    width: min(22rem, 92vw);
+    z-index: 45;
+    box-shadow: -8px 0 28px var(--shadow);
+  }
+}
+
+#detailhead {
+  min-block-size: 2.75rem;
+  padding: 0.375rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+
+#drawerscroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ctx-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3125rem 0.625rem;
+  padding: 0.5625rem 0.6875rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+.ctx-kv dt {
+  color: var(--muted);
+}
+
+.ctx-kv dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
+/* Popover Overlays (Viewport-Aware Dropdowns + Top-Layer Transitions) */
+[popover] {
+  opacity: 0;
+  padding: 0.375rem;
+  min-inline-size: 13.5rem;
+  max-inline-size: min(20rem, calc(100vw - 1rem));
+  background: var(--card-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px var(--shadow);
+  font-size: 0.8125rem;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.16s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [popover] {
+    transform: translateY(-0.25rem) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [popover] {
+    transition-duration: 0.08s;
+  }
+}
+
+[popover]:is(:popover-open, .\:popover-open):where(:not([data-closing])) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  opacity: 1;
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [popover]:is(:popover-open, .\:popover-open):where(:not([data-closing])) {
+    transform: translateY(0) scale(1);
+    @starting-style {
+      transform: translateY(-0.25rem) scale(0.97);
+    }
+  }
+}
+
+@supports (position-area: block-end) {
+  [popover].anchored-overlay {
+    inset: auto;
+    margin: 0;
+    margin-block-start: 0.375rem;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+
+@supports not (position-area: block-end) {
+  [popover].anchored-overlay {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+  }
+}
+
+.pop-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.4375rem 0.625rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.8125rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pop-item:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+
+.pop-item.danger {
+  color: var(--danger);
+}
+
+.pop-sep {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0.125rem;
+}
+
+/* Modal Dialogs (Light-Dismiss, Scroll Containment, Top-Layer Entry/Exit) */
+dialog {
+  opacity: 0;
+  padding: 0;
+  width: min(36rem, 94vw);
+  max-height: 88dvh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--fg);
+  box-shadow: 0 16px 44px var(--shadow);
+  margin: auto;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog {
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog {
+    transition-duration: 0.1s;
+  }
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog[open]:where(:not([data-closing])) {
+  opacity: 1;
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog[open]:where(:not([data-closing])) {
+    transform: scale(1);
+    @starting-style {
+      transform: scale(0.94);
+    }
+  }
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: transparent;
+  transition-property: background-color, display, overlay;
+  transition-duration: 0.2s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+dialog[open]:where(:not([data-closing]))::backdrop {
+  background-color: var(--backdrop);
+  backdrop-filter: blur(2px);
+  @starting-style {
+    background-color: transparent;
+  }
+}
+
+.dlg-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+
+.dlg-hd h2 {
+  margin: 0;
+  font-size: 0.9375rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+}
+
+.dlg-bd {
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: 64dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dlg-ft {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.field-lbl {
+  display: block;
+  font-size: 0.78125rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.field-ctrl {
+  width: 100%;
+  padding: 0.4375rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.code-pre {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* View Transitions Respecting Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Toast Notification */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 4.5rem;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  padding: 0.4375rem 0.875rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  z-index: 90;
+}
+
+#toast.show {
+  opacity: 0.96;
+}
+
+/* Prototype Dock (Collapsible & Unobtrusive) */
+#proto-dock {
+  position: fixed;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 60;
+  max-width: min(31rem, calc(100vw - 1.5rem));
+  background: var(--card-bg);
+  border: 1px dashed var(--warn);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px var(--shadow);
+  font-size: 0.75rem;
+}
+
+#proto-dock-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.75rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--warn);
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+#proto-dock-body {
+  padding: 0 0.75rem 0.75rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  max-height: 55dvh;
+  overflow-y: auto;
+}
+
+#proto-dock.is-collapsed #proto-dock-body {
+  display: none;
+}
+
+.proto-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding-top: 0.375rem;
+}
+
+.proto-lbl {
+  min-width: 4.5rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.proto-eval summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.proto-eval ul {
+  margin: 0.375rem 0 0;
+  padding-left: 1.125rem;
+  color: var(--muted);
+}
+
+.proto-eval li {
+  margin-bottom: 0.25rem;
+}
+</style>
+</head>
+<body class="list-closed" data-scenario="owner-public" data-layout="A" data-preview-width="auto">
+
+<header class="appbar" id="bar">
+  <div class="bar-brand-group">
+    <a class="brand" href="#home" id="brand-link" title="유저 홈으로 이동">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Claire Bible
+    </a>
+    <span class="theme-plain-display" id="bar-kb-pill">
+      <span data-icon="book"></span>
+      <span>개인 지식 베이스</span>
+    </span>
+    <button type="button" id="listtoggle" class="bar-icon-btn" aria-pressed="false" title="문서 목록 열기/닫기" aria-label="문서 목록 열기/닫기">
+      <span data-icon="sidebar"></span>
+    </button>
+  </div>
+
+  <div class="appbar-center">
+    <div class="appbar-palette-slot">
+      <button id="palettetrigger" type="button" class="palette-trigger" commandfor="dlg-palette" command="show-modal" title="명령 팔레트 열기 (/)">
+        <span data-icon="search"></span>
+        <span class="palette-trigger-label">검색 또는 이동…</span>
+        <kbd aria-hidden="true">/</kbd>
+      </button>
+    </div>
+    <div class="center-tab-group" id="bar-center-views" role="navigation" aria-label="작업 공간 보기">
+      <button type="button" class="center-tab-btn" aria-current="page">
+        <span data-icon="home"></span>
+        <span>유저 홈</span>
+      </button>
+      <button type="button" class="center-tab-btn" id="bar-btn-graph">
+        <span data-icon="share"></span>
+        <span>지식 그래프</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="appbar-end">
+    <button type="button" id="btn-owner-compose" class="bar-ingest-btn" commandfor="dlg-compose" command="show-modal">
+      <span data-icon="plus"></span>
+      <span class="btn-label">새 노트</span>
+    </button>
+    <button type="button" id="notifybtn" class="bar-icon-btn" title="알림" aria-label="알림">
+      <span data-icon="bell"></span>
+      <span class="notify-count">3</span>
+    </button>
+    <button type="button" id="themebtn" class="bar-icon-btn" title="밝은/어두운 테마 전환" aria-label="밝은/어두운 테마 전환">
+      <span class="theme-icon-moon" data-icon="moon" aria-hidden="true"></span>
+      <span class="theme-icon-sun" data-icon="sun" aria-hidden="true"></span>
+    </button>
+    <a id="homelinkbtn" class="bar-icon-btn" href="#home" aria-current="page" title="유저 홈" aria-label="유저 홈">
+      <span data-icon="home"></span>
+    </a>
+    <a id="syndlink" class="bar-icon-btn" href="#syndication" title="신디케이션 (/syndication)" aria-label="신디케이션">
+      <span data-icon="inbox"></span>
+    </a>
+    <button type="button" id="hamburger-btn" class="bar-icon-btn" commandfor="pop-hamburger-menu" command="toggle-popover" aria-expanded="false" title="메뉴" aria-label="메뉴">
+      <span data-icon="menu"></span>
+    </button>
+  </div>
+</header>
+
+<div id="pop-hamburger-menu" popover="auto" class="anchored-overlay">
+  <button type="button" class="pop-item" id="menu-open-list"><span>문서 목록 전환</span><span data-icon="sidebar"></span></button>
+  <button type="button" class="pop-item" id="menu-open-json" commandfor="dlg-ap-json" command="show-modal"><span>Actor JSON-LD 보기</span><span data-icon="code"></span></button>
+  <hr class="pop-sep"/>
+  <a class="pop-item" href="#syndication" id="menu-synd-link"><span>신디케이션 (/syndication)</span><span data-icon="inbox"></span></a>
+  <a class="pop-item" href="#settings" id="menu-settings-link"><span>설정 콘솔 (/settings/account)</span><span data-icon="settings"></span></a>
+</div>
+
+<div id="pop-actor-more" popover="auto" class="anchored-overlay">
+  <button type="button" class="pop-item" id="actor-copy-iri"><span>Actor ID (IRI) 복사</span><span data-icon="copy"></span></button>
+  <button type="button" class="pop-item" commandfor="dlg-ap-json" command="show-modal" id="actor-inspect-json"><span>Person JSON-LD 검사</span><span data-icon="code"></span></button>
+  <a class="pop-item" href="#directory"><span>공개 계정 디렉터리 (/directory)</span><span data-icon="external"></span></a>
+</div>
+
+<div id="pop-post-actions" popover="auto" class="anchored-overlay">
+  <button type="button" class="pop-item" data-post-act="copy-url"><span>객체 주소 (/ap/objects/...) 복사</span><span data-icon="copy"></span></button>
+  <button type="button" class="pop-item" data-post-act="inspect-json"><span>ActivityPub JSON-LD 검사</span><span data-icon="code"></span></button>
+  <button type="button" class="pop-item" data-post-act="open-kb-doc" id="pop-act-open-doc" hidden><span>연결된 KB 문서 열기</span><span data-icon="book"></span></button>
+  <hr class="pop-sep" data-owner-only="1"/>
+  <button type="button" class="pop-item" data-post-act="cycle-quote" data-owner-only="1"><span>인용 정책 전환 (quote_policy)</span><span data-icon="quote"></span></button>
+  <button type="button" class="pop-item danger" data-post-act="delete-note" id="pop-act-delete" data-owner-only="1"><span>삭제 (410 Gone · Tombstone)</span><span data-icon="trash"></span></button>
+</div>
+
+<div id="workspace-stage">
+  <div id="viewport-frame">
+    <div id="wrap">
+      <aside id="docs" aria-label="문서 목록">
+        <div class="dhead">
+          <div class="list-switch" role="group" aria-label="목록 전환">
+            <button type="button" class="list-switch-btn" aria-pressed="true">문서</button>
+            <button type="button" class="list-switch-btn" aria-pressed="false">엔티티</button>
+          </div>
+          <span class="chip" id="doc-count-chip">18건</span>
+        </div>
+        <div class="list-filter">
+          <input type="search" id="doc-filter-input" placeholder="문서 제목 검색…" aria-label="문서 목록 필터"/>
+        </div>
+        <div id="doclist" role="list"></div>
+      </aside>
+
+      <div id="centerwrap">
+        <main id="homewrap" aria-label="유저 홈">
+          <div class="home-inner" id="home-inner"></div>
+        </main>
+      </div>
+
+      <aside id="detailpane" aria-label="문맥 패널">
+        <div id="detailhead">
+          <strong id="detailtitle">문맥 패널</strong>
+          <button type="button" class="btn sm" id="detailclose" title="문맥 패널 닫기" aria-label="문맥 패널 닫기">
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <div id="drawerscroll"></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Dialogs -->
+<dialog id="dlg-follow" closedby="any" aria-labelledby="dlg-follow-title">
+  <div class="dlg-hd">
+    <h2 id="dlg-follow-title"><span data-icon="userPlus"></span>원격 팔로우 · ActivityPub</h2>
+    <button type="button" class="btn sm" commandfor="dlg-follow" command="close" aria-label="닫기"><span data-icon="close"></span></button>
+  </div>
+  <div class="dlg-bd">
+    <div>
+      <span class="field-lbl">WebFinger 핸들</span>
+      <div style="display:flex;gap:0.375rem;align-items:center;flex-wrap:wrap">
+        <code class="ap-handle-code" id="follow-handle-val">@minji@claire.example</code>
+        <button type="button" class="btn sm" id="follow-copy-handle"><span data-icon="copy"></span>핸들 복사</button>
+      </div>
+    </div>
+    <div>
+      <span class="field-lbl">Actor ID (<code>application/activity+json</code>)</span>
+      <div style="display:flex;gap:0.375rem;align-items:center;flex-wrap:wrap">
+        <code class="ap-handle-code">https://claire.example/ap/actors/202604120001847291</code>
+        <button type="button" class="btn sm" id="follow-copy-iri"><span data-icon="copy"></span>IRI 복사</button>
+      </div>
+    </div>
+    <div>
+      <label class="field-lbl" for="remote-domain-input">내 연합 서버 도메인 (예: mastodon.example)</label>
+      <input id="remote-domain-input" class="field-ctrl" type="text" value="mastodon.example" placeholder="example.social"/>
+    </div>
+    <div>
+      <span class="field-lbl">원격 상호작용 URL 미리보기</span>
+      <pre class="code-pre" id="remote-follow-preview"></pre>
+    </div>
+    <p style="margin:0;color:var(--muted);font-size:0.75rem"><code>manuallyApprovesFollowers: false</code> 설정에 따라 팔로우 요청 시 <code>Accept(Follow)</code>가 자동 전송됩니다.</p>
+  </div>
+  <div class="dlg-ft">
+    <button type="button" class="btn" commandfor="dlg-follow" command="close">닫기</button>
+    <button type="button" class="btn ap" id="follow-go-btn"><span data-icon="external"></span>원격 서버에서 팔로우 열기</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-compose" closedby="any" aria-labelledby="dlg-compose-title">
+  <div class="dlg-hd">
+    <h2 id="dlg-compose-title"><span data-icon="edit"></span>새 공개 노트 작성 (Note)</h2>
+    <button type="button" class="btn sm" commandfor="dlg-compose" command="close" aria-label="닫기"><span data-icon="close"></span></button>
+  </div>
+  <form id="compose-form">
+    <div class="dlg-bd">
+      <div>
+        <label class="field-lbl" for="compose-cw">콘텐츠 경고 (summary, 선택)</label>
+        <input id="compose-cw" class="field-ctrl" type="text" maxlength="140" placeholder="예: 스포일러 · 논문 초안 메모"/>
+      </div>
+      <div>
+        <label class="field-lbl" for="compose-text">본문 (공개 아웃박스 전용 · 500자)</label>
+        <textarea id="compose-text" class="field-ctrl" rows="4" maxlength="500" required placeholder="지식 그래프 정리 메모나 @handle 멘션, #해시태그를 입력해 보세요."></textarea>
+        <div style="display:flex;justify-content:space-between;margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">
+          <span><code>to: Public</code> · <code>cc: followers</code></span>
+          <span id="compose-chars">0 / 500</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.625rem">
+        <div>
+          <label class="field-lbl" for="compose-lang">언어</label>
+          <select id="compose-lang" class="field-ctrl">
+            <option value="ko" selected>한국어 (ko)</option>
+            <option value="en">English (en)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-lbl" for="compose-quote-policy">인용 정책 (FEP-044f)</label>
+          <select id="compose-quote-policy" class="field-ctrl">
+            <option value="public" selected>public (누구나)</option>
+            <option value="followers">followers (팔로워만)</option>
+            <option value="manual">manual (수동 승인)</option>
+            <option value="nobody">nobody (허용 안 함)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-ft">
+      <button type="button" class="btn" commandfor="dlg-compose" command="close">취소</button>
+      <button type="submit" class="btn pri"><span data-icon="send"></span>노트 발행</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-ap-json" closedby="any" aria-labelledby="dlg-ap-json-title">
+  <div class="dlg-hd">
+    <h2 id="dlg-ap-json-title"><span data-icon="code"></span>ActivityPub JSON-LD 검사</h2>
+    <button type="button" class="btn sm" commandfor="dlg-ap-json" command="close" aria-label="닫기"><span data-icon="close"></span></button>
+  </div>
+  <div class="dlg-bd">
+    <p id="ap-json-caption" style="margin:0;font-size:0.78125rem;color:var(--muted)"></p>
+    <pre class="code-pre" id="ap-json-pre"></pre>
+  </div>
+  <div class="dlg-ft">
+    <button type="button" class="btn" id="ap-json-copy"><span data-icon="copy"></span>JSON 복사</button>
+    <button type="button" class="btn pri" commandfor="dlg-ap-json" command="close">확인</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-thread" closedby="any" aria-labelledby="dlg-thread-title">
+  <div class="dlg-hd">
+    <h2 id="dlg-thread-title"><span data-icon="message"></span>스레드 및 인용 상태</h2>
+    <button type="button" class="btn sm" commandfor="dlg-thread" command="close" aria-label="닫기"><span data-icon="close"></span></button>
+  </div>
+  <div class="dlg-bd" id="dlg-thread-body"></div>
+  <div class="dlg-ft">
+    <button type="button" class="btn pri" commandfor="dlg-thread" command="close">닫기</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-palette" closedby="any" aria-labelledby="dlg-palette-title">
+  <div class="dlg-hd">
+    <h2 id="dlg-palette-title"><span data-icon="search"></span>빠른 이동 · 명령 팔레트</h2>
+    <button type="button" class="btn sm" commandfor="dlg-palette" command="close" aria-label="닫기"><span data-icon="close"></span></button>
+  </div>
+  <div class="dlg-bd">
+    <input id="pal-input" class="field-ctrl" type="search" placeholder="명령 또는 문서 제목 입력…"/>
+    <div id="pal-results" style="display:flex;flex-direction:column;gap:0.25rem"></div>
+  </div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- Collapsible Prototype Evaluation Dock -->
+<aside id="proto-dock" aria-label="시각 프로토타입 조절기">
+  <button type="button" id="proto-dock-toggle" aria-expanded="true">
+    <span>시각 프로토타입 조절 · 목업 데이터 (실제 네트워크 없음)</span>
+    <span data-icon="chevronDown"></span>
+  </button>
+  <div id="proto-dock-body">
+    <div class="proto-row">
+      <span class="proto-lbl">배치 안</span>
+      <button type="button" class="btn sm on" data-layout-opt="A">A 프로필+탭 (권장)</button>
+      <button type="button" class="btn sm" data-layout-opt="B">B 프로필+2열 병렬</button>
+      <button type="button" class="btn sm" data-layout-opt="C">C 기존 개요 통합</button>
+    </div>
+    <div class="proto-row">
+      <span class="proto-lbl">방문자</span>
+      <button type="button" class="btn sm on" data-scenario-opt="owner-public">소유자 (공개 KB)</button>
+      <button type="button" class="btn sm" data-scenario-opt="visitor-public">방문자 (공개 KB)</button>
+      <button type="button" class="btn sm" data-scenario-opt="visitor-private">방문자 (비공개 KB)</button>
+    </div>
+    <div class="proto-row">
+      <span class="proto-lbl">탐색/색인</span>
+      <button type="button" class="btn sm on" id="proto-discoverable-btn" aria-pressed="true">profile_public = 1 (discoverable)</button>
+    </div>
+    <div class="proto-row">
+      <span class="proto-lbl">폭 미리보기</span>
+      <button type="button" class="btn sm on" data-width-opt="auto">자동</button>
+      <button type="button" class="btn sm" data-width-opt="820">820px</button>
+      <button type="button" class="btn sm" data-width-opt="375">375px</button>
+      <span class="proto-lbl" style="min-width:auto;margin-left:0.375rem">색상</span>
+      <select id="proto-scheme-select" class="field-ctrl" style="width:auto;padding:0.125rem 0.375rem;font-size:0.75rem" aria-label="색상 테마 선택">
+        <option value="system">시스템</option>
+        <option value="light">라이트</option>
+        <option value="dark">다크</option>
+      </select>
+    </div>
+    <details class="proto-eval">
+      <summary>3개 배치 안 및 설계 근거 비교</summary>
+      <ul>
+        <li><b>안 A (프로필+탭, 권장)</b>: 상단에 ActivityPub 프로필을 두고 탭으로 <code>타임라인</code>과 <code>지식 베이스 개요</code>를 전환합니다. 개인 KB가 비공개(<code>is_public=0</code>)일 때도 동일한 상단 프로필과 공개 <code>Note</code> 타임라인이 자연스럽게 유지되며, 첫 화면 스크롤 밀도가 가장 균형적입니다.</li>
+        <li><b>안 B (프로필+2열 병렬)</b>: 넓은 화면(<code>@container home (min-width: 820px)</code>)에서 타임라인과 KB 핵심 지표를 동시에 봅니다. 단, 문서 문맥 패널이나 좌측 목록을 동시에 열면 컨테이너 폭이 줄어 1열로 접힙니다.</li>
+        <li><b>안 C (기존 개요 통합)</b>: 기존 <code>#homewrap</code>의 지식 맵·최근 적재 카드를 주 화면으로 두고 타임라인을 카드 하나와 <code>&lt;details&gt;</code>로 접어 넣습니다. ActivityPub 정체성이 다소 약합니다.</li>
+        <li><b>점선 표기 (제안)</b>: <code>FEDERATION.md §4.1</code> 기준 현재 <code>Person</code> 문서에 없는 <code>summary</code>(소개글) 필드는 점선 테두리와 <code>제안</code> 칩으로 구분했습니다.</li>
+      </ul>
+    </details>
+  </div>
+</aside>
+
+<script>
+"use strict";
+
+/* 16x16 Monochrome Line Icons (Principle G1, currentColor only, zero emojis) */
+const ICONS = {
+  book: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h4.2c.5 0 .8.3.8.8v10.2c-.6-.4-1.2-.5-1.8-.5H3V2.5zm10 0H8.8c-.5 0-.8.3-.8.8v10.2c.6-.4 1.2-.5 1.8-.5H13V2.5z"/></svg>',
+  sidebar: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>',
+  search: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>',
+  home: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7.5 8 2.5l5.5 5v6H9.8V9.8H6.2v3.7H2.5z"/></svg>',
+  share: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="12" cy="3.5" r="1.5"/><circle cx="4" cy="8" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="m5.4 7.2 5.2-2.9M5.4 8.8l5.2 2.9"/></svg>',
+  plus: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+  bell: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.2 10.5V6.8a3.8 3.8 0 0 1 7.6 0v3.7l1.2 1.5H3l1.2-1.5zm2.4 2.5a1.5 1.5 0 0 0 2.8 0"/></svg>',
+  moon: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.6 10.2A5.2 5.2 0 0 1 5.8 3.4a5.3 5.3 0 1 0 6.8 6.8z"/></svg>',
+  sun: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1"/></svg>',
+  inbox: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11l.5 6v3H2v-3l.5-6zm0 6h3.2l1 1.5h2.6l1-1.5H13.5"/></svg>',
+  menu: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.2h11M2.5 8h11M2.5 11.8h11"/></svg>',
+  close: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>',
+  copy: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M3.5 10.5H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/></svg>',
+  code: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 4.5-3 3.5 3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5 7 12.5"/></svg>',
+  external: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/></svg>',
+  userPlus: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.2" cy="5" r="2.3"/><path d="M2.2 13a4 4 0 0 1 8 0M12.2 5v4.4M10 7.2h4.4"/></svg>',
+  more: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/></svg>',
+  star: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m8 2.2 1.8 3.7 4.1.6-3 2.9.7 4.1L8 11.6l-3.6 1.9.7-4.1-3-2.9 4.1-.6z"/></svg>',
+  repeat: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 2.5 13.5 4.5l-2 2M2.5 8V6.5a2 2 0 0 1 2-2h9M4.5 13.5 2.5 11.5l2-2M13.5 8v1.5a2 2 0 0 1-2 2h-9"/></svg>',
+  quote: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6.5h3v4H3.5zm0 0c0-2 1-3 2.5-3.5M9.5 6.5h3v4h-3zm0 0c0-2 1-3 2.5-3.5"/></svg>',
+  message: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v8H6.2L3 14v-2.5h-.5z"/></svg>',
+  edit: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m10.8 2.8 2.4 2.4-7.2 7.2-3 .6.6-3z"/></svg>',
+  send: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2 8 11.5-5.5L10 14 7.5 9.5zM7.5 9.5 13.5 2.5"/></svg>',
+  trash: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>',
+  globe: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.8 2 1.8 9 0 11M8 2.5c-1.8 2-1.8 9 0 11"/></svg>',
+  lock: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>',
+  settings: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M12.2 3.8l-1.1 1.1M4.9 11.1l-1.1 1.1"/></svg>',
+  chevronDown: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>',
+  rss: '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="12" r="1.2"/><path d="M3 7.5A5.5 5.5 0 0 1 8.5 13M3 3.5A9.5 9.5 0 0 1 12.5 13"/></svg>'
+};
+
+function hydrateIcons(root) {
+  (root || document).querySelectorAll("[data-icon]").forEach((el) => {
+    const key = el.getAttribute("data-icon");
+    if (key && ICONS[key]) el.innerHTML = ICONS[key];
+  });
+}
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* Mock Domain Data (Fictional *.example only per Principle B4) */
+const ACTOR = {
+  public_id: "202604120001847291",
+  username: "minji",
+  display_name: "박민지",
+  handle: "@minji@claire.example",
+  actor_url: "https://claire.example/ap/actors/202604120001847291",
+  profile_url: "https://claire.example/@minji/",
+  outbox_url: "https://claire.example/ap/actors/202604120001847291/outbox",
+  followers_url: "https://claire.example/ap/actors/202604120001847291/followers",
+  following_url: "https://claire.example/ap/actors/202604120001847291/following",
+  shared_inbox: "https://claire.example/ap/inbox",
+  activated_at: "2026-04-12T09:15:00Z",
+  followers: 142,
+  following: 38,
+  manuallyApprovesFollowers: false,
+  proposed_bio: "분산 웹 프로토콜, 지식 그래프 정합성, 한국어 기술 문서 보존을 기록하는 개인 아카이브입니다."
+};
+
+const KB_DOCS = [
+  { id: "doc-101", title: "ActivityPub FEP-044f 인용 승인 구조 분석", source_type: "web", fetched_at: "2026-11-22", entities: 14, share_token: "k9x2m7q1p4v8", url: "https://spec.example/fep-044f", summary: "원격 인용 요청(QuoteRequest)을 수락/거절/철회할 때 Authorization 스탬프 객체의 수명주기와 410 Gone 철회 응답이 어떻게 동작하는지 정리했습니다.", model: "gemini-3.8-flash" },
+  { id: "doc-102", title: "Fedify HTTP Signature와 Object Integrity Proofs 비교", source_type: "pdf", fetched_at: "2026-11-21", entities: 19, share_token: "n4p8r2w6t1z3", url: "https://fedify.example/integrity-proofs", summary: "공유 인박스 전달 시 서명 검증 순서(proof → signature → HTTP signature)와 키 캐시 무효화 시나리오를 비교 분석했습니다.", model: "gemini-3.8-pro" },
+  { id: "doc-103", title: "SQLite WAL 모드와 다중 DB 분리 설계 메모", source_type: "note", fetched_at: "2026-11-19", entities: 11, share_token: "b7v3c9m2x5k8", url: "https://notes.example/sqlite-wal-split", summary: "정본 지식 DB(claire.db)와 클라이언트 활동 DB(client.db)를 물리적으로 분리할 때 트랜잭션 경계와 ID 번호 공간 공유 전략을 다룹니다.", model: "gemini-3.8-flash" },
+  { id: "doc-104", title: "CSS Custom Highlight API 기반 개체명 표시 보안 검토", source_type: "web", fetched_at: "2026-11-16", entities: 9, share_token: "q2w5e8r1t4y7", url: "https://web.example/custom-highlight", summary: "DOM 트리를 변형하지 않고 본문 내 엔티티 범위를 강조 표시하여 추출 입력과 저장 본문의 오염 경로를 원천 차단하는 기법입니다.", model: "gemini-3.8-flash" },
+  { id: "doc-105", title: "한국어 문어체 요약의 정보 밀도 평가 기준", source_type: "pdf", fetched_at: "2026-11-12", entities: 16, share_token: "m3n6b9v2c5x8", url: "https://eval.example/ko-summary", summary: "추출 요약에서 메타 서두를 배제하고 500자 한도 내 핵심 주장을 유지하기 위한 결정론적 검증 규칙을 정리했습니다.", model: "gemini-3.8-pro" }
+];
+
+const KB_ENTITIES = [
+  { name: "FEP-044f", type: "Concept", degree: 18, color: "#0969da", desc: "ActivityPub 인용 권한 협상 표준 제안" },
+  { name: "Fedify", type: "Tool", degree: 15, color: "#1a7f37", desc: "ActivityPub 서버 및 사이드카 프레임워크" },
+  { name: "Object Integrity Proofs", type: "Protocol", degree: 12, color: "#8250df", desc: "객체 무결성 서명 규격" },
+  { name: "SQLite WAL", type: "Concept", degree: 11, color: "#9a6700", desc: "동시 읽기를 지원하는 Write-Ahead Logging" },
+  { name: "CSS Custom Highlight", type: "API", degree: 9, color: "#bf3989", desc: "DOM 무변경 범위 강조 브라우저 API" },
+  { name: "WebFinger", type: "Protocol", degree: 8, color: "#8250df", desc: "acct: URI 기반 연합 액터 탐색 규약" }
+];
+
+let outboxItems = [
+  {
+    id: "7001001001",
+    kind: "Note",
+    published_at: "2026-11-22T22:10:00Z",
+    edited_at: "2026-11-22T22:24:00Z",
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    content: "개인 지식 베이스가 비공개(`is_public=0`)여도 연합 액터 정체성과 공개 `Note` 아웃박스는 독립적으로 유지되는 모델(GD8)을 정리하고 있습니다. #ActivityPub #ClaireBible",
+    tags: ["ActivityPub", "ClaireBible"],
+    mentions: [],
+    in_reply_to: null,
+    quote_policy: "public",
+    quote: null,
+    likes: 14,
+    announces: 4,
+    quotes: 2,
+    liked: false,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001002",
+    kind: "Article",
+    published_at: "2026-11-22T15:30:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    doc_id: "doc-101",
+    article_title: "ActivityPub FEP-044f 인용 승인 구조 분석",
+    article_summary: "원격 인용 요청(QuoteRequest)을 수락/거절/철회할 때 Authorization 스탬프 객체의 수명주기와 410 Gone 철회 응답이 어떻게 동작하는지 정리했습니다.",
+    share_url: "https://claire.example/p?s=k9x2m7q1p4v8",
+    source_type: "web",
+    entity_count: 14,
+    quote_policy: "manual",
+    quote: null,
+    likes: 23,
+    announces: 9,
+    quotes: 3,
+    liked: true,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001003",
+    kind: "Note",
+    published_at: "2026-11-21T19:45:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    content: "원격 서버가 인용 승인을 반환하기 전까지는 타임라인에서도 점선(provisional) 상태로 대기 표시를 두는 편이 프로토콜 상태와 정확히 일치합니다. @hana@social.example 의견 감사합니다.",
+    tags: ["FEP044f"],
+    mentions: ["@hana@social.example"],
+    in_reply_to: "https://social.example/users/hana/statuses/98124",
+    in_reply_to_author: "@hana@social.example",
+    in_reply_to_excerpt: "인용 승인(Accept) 도착 전에 원격 노트를 먼저 렌더링할 때 어떤 UI 상태를 쓰시나요?",
+    quote_policy: "followers",
+    quote: {
+      state: "approved",
+      author: "@dev@fedify.example",
+      iri: "https://fedify.example/notes/fep-044f-stamp",
+      excerpt: "Authorization 스탬프 URL을 /ap/quote-authorizations/{id}에 두고 철회 시 410 Tombstone을 반환하면 원격 검증이 명확해집니다."
+    },
+    likes: 11,
+    announces: 2,
+    quotes: 1,
+    liked: false,
+    boosted: true,
+    deleted: false
+  },
+  {
+    id: "7001001004",
+    kind: "Note",
+    published_at: "2026-11-21T08:15:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: true,
+    summary: "미발표 벤치마크 초안 · 수치 검증 전 메모",
+    content: "서명 검증 단계에서 `Object Integrity Proofs`를 먼저 확인하고 실패 시 `HTTP Signature`로 내려가는 비용 차이를 로컬 Docker 테스트 스택에서 측정해 보았습니다. 최종 수치는 재현 스크립트 확정 후 KB 문서로 발행할 예정입니다.",
+    tags: ["Benchmark"],
+    mentions: [],
+    in_reply_to: null,
+    quote_policy: "manual",
+    quote: {
+      state: "pending",
+      author: "@research@archive.example",
+      iri: "https://archive.example/posts/5519",
+      excerpt: "다중 키 서명 검증 지연 시간 비교 표본 데이터셋 v0.3 공개."
+    },
+    likes: 6,
+    announces: 1,
+    quotes: 0,
+    liked: false,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001005",
+    kind: "Article",
+    published_at: "2026-11-20T14:00:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    doc_id: "doc-102",
+    article_title: "Fedify HTTP Signature와 Object Integrity Proofs 비교",
+    article_summary: "공유 인박스 전달 시 서명 검증 순서(proof → signature → HTTP signature)와 키 캐시 무효화 시나리오를 비교 분석했습니다.",
+    share_url: "https://claire.example/p?s=n4p8r2w6t1z3",
+    source_type: "pdf",
+    entity_count: 19,
+    quote_policy: "manual",
+    quote: null,
+    likes: 31,
+    announces: 12,
+    quotes: 4,
+    liked: false,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001006",
+    kind: "Note",
+    published_at: "2026-11-18T11:20:00Z",
+    edited_at: null,
+    language: "en",
+    sensitive: false,
+    summary: null,
+    content: "Splitting canonical knowledge tables from ActivityPub client timelines into separate SQLite files keeps migrations clean and prevents telemetry noise from touching core facts. #SQLite #Architecture",
+    tags: ["SQLite", "Architecture"],
+    mentions: [],
+    in_reply_to: null,
+    quote_policy: "public",
+    quote: null,
+    likes: 18,
+    announces: 5,
+    quotes: 1,
+    liked: false,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001007",
+    kind: "Article",
+    published_at: "2026-11-16T09:05:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    doc_id: "doc-104",
+    article_title: "CSS Custom Highlight API 기반 개체명 표시 보안 검토",
+    article_summary: "DOM 트리를 변형하지 않고 본문 내 엔티티 범위를 강조 표시하여 추출 입력과 저장 본문의 오염 경로를 원천 차단하는 기법입니다.",
+    share_url: "https://claire.example/p?s=q2w5e8r1t4y7",
+    source_type: "web",
+    entity_count: 9,
+    quote_policy: "public",
+    quote: null,
+    likes: 15,
+    announces: 3,
+    quotes: 0,
+    liked: false,
+    boosted: false,
+    deleted: false
+  },
+  {
+    id: "7001001008",
+    kind: "Note",
+    published_at: "2026-11-14T21:40:00Z",
+    edited_at: null,
+    language: "ko",
+    sensitive: false,
+    summary: null,
+    content: "이전 읽기 기록 없이도 유저 홈에서 최근 적재와 지식 맵 허브를 한눈에 확인하고 바로 그래프나 문서 읽기로 진입할 수 있게 구조를 다듬고 있습니다.",
+    tags: ["WebUI"],
+    mentions: [],
+    in_reply_to: null,
+    quote_policy: "nobody",
+    quote: null,
+    likes: 9,
+    announces: 1,
+    quotes: 0,
+    liked: false,
+    boosted: false,
+    deleted: false
+  }
+];
+
+/* Prototype State */
+const state = {
+  layout: "A",
+  scenario: "owner-public",
+  discoverable: true,
+  activeTab: "timeline",
+  tlFilter: "all",
+  tlQuery: "",
+  docFilter: "",
+  selectedDocId: null,
+  activePostMenuId: null,
+  lastJsonObj: null
+};
+
+const toastEl = $("#toast");
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+}
+
+/* Color Scheme Two-State Toggle (Header) + Three-State Sync (Dock) */
+const SCHEME_KEY = "claireProtoColorScheme";
+const darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
+const metaScheme = document.querySelector('meta[name="color-scheme"]');
+
+function getSystemScheme() {
+  return darkMQ.matches ? "dark" : "light";
+}
+
+function getStoredScheme() {
+  try {
+    const v = localStorage.getItem(SCHEME_KEY);
+    return v === "light" || v === "dark" ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function getRenderedScheme() {
+  return getStoredScheme() || getSystemScheme();
+}
+
+function applyScheme(storedValue) {
+  metaScheme.content = storedValue || "light dark";
+  const sel = $("#proto-scheme-select");
+  if (sel) {
+    sel.value = storedValue || "system";
+    sel.options[0].textContent = `시스템 (현재 ${getSystemScheme() === "dark" ? "다크" : "라이트"})`;
+  }
+}
+
+function setSchemePreference(mode) {
+  try {
+    if (mode === "light" || mode === "dark") {
+      localStorage.setItem(SCHEME_KEY, mode);
+    } else {
+      localStorage.removeItem(SCHEME_KEY);
+    }
+  } catch (_) {}
+  applyScheme(mode === "light" || mode === "dark" ? mode : null);
+}
+
+$("#themebtn").addEventListener("click", () => {
+  const target = getRenderedScheme() === "dark" ? "light" : "dark";
+  if (target === getSystemScheme()) {
+    setSchemePreference(null);
+    toast("색상 테마를 시스템 기본값으로 복원했습니다.");
+  } else {
+    setSchemePreference(target);
+    toast(target === "dark" ? "다크 테마로 전환했습니다." : "라이트 테마로 전환했습니다.");
+  }
+});
+
+$("#proto-scheme-select").addEventListener("change", (e) => {
+  setSchemePreference(e.target.value);
+});
+
+darkMQ.addEventListener("change", () => {
+  applyScheme(getStoredScheme());
+});
+
+window.addEventListener("storage", (e) => {
+  if (e.key === SCHEME_KEY) applyScheme(getStoredScheme());
+});
+
+/* Top-Layer Exit Transition Fallback (animate-to-from-top-layer) */
+let supportsDisplayTransition;
+function canTransitionDisplay() {
+  if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+  if (!window.CSS?.supports?.("transition-behavior", "allow-discrete") || !document.body) {
+    return false;
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+  document.body.appendChild(probe);
+  getComputedStyle(probe).display;
+  probe.style.display = "none";
+  supportsDisplayTransition = getComputedStyle(probe).display === "block";
+  probe.remove();
+  return supportsDisplayTransition;
+}
+
+function supportsTopLayerExit() {
+  return Boolean(window.CSS?.supports?.("overlay", "auto") && canTransitionDisplay());
+}
+
+async function closeTopLayer(el) {
+  if (!el) return;
+  if (!supportsTopLayerExit()) {
+    el.setAttribute("data-closing", "");
+    const animations = el.getAnimations ? el.getAnimations({ subtree: true }) : [];
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((r) => setTimeout(r, 400))
+      ]);
+    }
+    if (!el.hasAttribute("data-closing")) return;
+    el.removeAttribute("data-closing");
+  }
+  if (el.tagName === "DIALOG" && el.open) el.close();
+}
+
+/* Light-Dismiss Fallback for <dialog closedby="any"> */
+$$("dialog").forEach((dlg) => {
+  dlg.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeTopLayer(dlg);
+  });
+  if (!("closedBy" in HTMLDialogElement.prototype)) {
+    dlg.addEventListener("click", (event) => {
+      if (event.target !== dlg) return;
+      const rect = dlg.getBoundingClientRect();
+      const inside = rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
+      if (!inside) closeTopLayer(dlg);
+    });
+  }
+});
+
+/* Declarative commandfor / command Fallback for older browsers */
+if (!("commandForElement" in HTMLButtonElement.prototype)) {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[commandfor][command]");
+    if (!btn) return;
+    const target = document.getElementById(btn.getAttribute("commandfor"));
+    if (!target) return;
+    const cmd = btn.getAttribute("command");
+    if (cmd === "show-modal" && typeof target.showModal === "function") {
+      target.showModal();
+    } else if (cmd === "close" && target.tagName === "DIALOG") {
+      closeTopLayer(target);
+    } else if (cmd === "toggle-popover" && typeof target.togglePopover === "function") {
+      target.togglePopover({ source: btn });
+    }
+  });
+}
+
+/* Popover Anchor Positioning Fallback when position-area is unsupported */
+const lastPopoverTrigger = new WeakMap();
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[commandfor]");
+  if (!btn) return;
+  const target = document.getElementById(btn.getAttribute("commandfor"));
+  if (target && target.hasAttribute("popover")) {
+    lastPopoverTrigger.set(target, btn);
+  }
+}, true);
+
+$$("[popover]").forEach((pop) => {
+  pop.addEventListener("toggle", (e) => {
+    const trig = lastPopoverTrigger.get(pop);
+    if (trig) trig.setAttribute("aria-expanded", e.newState === "open" ? "true" : "false");
+  });
+  if (!CSS.supports("position-area", "block-end")) {
+    pop.addEventListener("beforetoggle", (e) => {
+      if (e.newState !== "open") return;
+      const trig = lastPopoverTrigger.get(pop);
+      if (!trig) return;
+      requestAnimationFrame(() => {
+        const r = trig.getBoundingClientRect();
+        const pw = pop.offsetWidth || 220;
+        const left = Math.max(8, Math.min(r.right - pw, window.innerWidth - pw - 8));
+        const top = Math.min(r.bottom + 6, window.innerHeight - (pop.offsetHeight || 160) - 8);
+        pop.style.left = `${left}px`;
+        pop.style.top = `${Math.max(8, top)}px`;
+      });
+    });
+  }
+});
+
+/* Formatting Helpers */
+function relTime(iso) {
+  const ref = new Date("2026-11-22T23:40:00Z").getTime();
+  const ts = new Date(iso).getTime();
+  const diffMin = Math.max(1, Math.round((ref - ts) / 60000));
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}시간 전`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay}일 전`;
+}
+
+function visibleTimelineItems() {
+  const isPrivateVisitor = state.scenario === "visitor-private";
+  return outboxItems.filter((item) => {
+    if (isPrivateVisitor && item.kind === "Article") return false;
+    if (state.tlFilter === "note" && item.kind !== "Note") return false;
+    if (state.tlFilter === "article" && item.kind !== "Article") return false;
+    if (state.tlFilter === "quote" && !item.quote && !item.in_reply_to) return false;
+    if (state.tlQuery.trim()) {
+      const q = state.tlQuery.trim().toLowerCase();
+      const hay = [item.content, item.article_title, item.article_summary, item.summary, ...(item.tags || [])].filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/* JSON-LD Builders (Accurate to FEDERATION.md §4.1 & §4.4) */
+function buildPersonJson() {
+  return {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1",
+      "https://w3id.org/security/data-integrity/v1"
+    ],
+    id: ACTOR.actor_url,
+    type: "Person",
+    preferredUsername: ACTOR.username,
+    name: ACTOR.display_name,
+    url: ACTOR.profile_url,
+    inbox: `${ACTOR.actor_url}/inbox`,
+    outbox: ACTOR.outbox_url,
+    followers: ACTOR.followers_url,
+    following: ACTOR.following_url,
+    endpoints: { sharedInbox: ACTOR.shared_inbox },
+    published: ACTOR.activated_at,
+    discoverable: state.discoverable,
+    manuallyApprovesFollowers: ACTOR.manuallyApprovesFollowers,
+    publicKey: {
+      id: `${ACTOR.actor_url}#main-key`,
+      owner: ACTOR.actor_url,
+      publicKeyPem: "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...\n-----END PUBLIC KEY-----"
+    }
+  };
+}
+
+function buildObjectJson(item) {
+  const objId = `https://claire.example/ap/objects/${item.id}`;
+  if (item.deleted) {
+    return {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: objId,
+      type: "Tombstone",
+      formerType: item.kind,
+      deleted: item.deleted_at || "2026-11-22T23:40:00Z"
+    };
+  }
+  if (item.kind === "Article") {
+    return {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: objId,
+      type: "Article",
+      attributedTo: ACTOR.actor_url,
+      name: item.article_title,
+      content: `<p>${item.article_summary}</p><p><a href="${item.share_url}">${item.share_url}</a></p>`,
+      url: item.share_url,
+      published: item.published_at,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [ACTOR.followers_url],
+      interactionPolicy: {
+        canQuote: { automaticApproval: item.quote_policy === "public" ? ["https://www.w3.org/ns/activitystreams#Public"] : [] }
+      }
+    };
+  }
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: objId,
+    type: "Note",
+    attributedTo: ACTOR.actor_url,
+    inReplyTo: item.in_reply_to || undefined,
+    summary: item.summary || undefined,
+    sensitive: item.sensitive,
+    content: `<p>${item.content}</p>`,
+    url: objId,
+    published: item.published_at,
+    updated: item.edited_at || undefined,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [ACTOR.followers_url]
+  };
+}
+
+function openJsonInspector(caption, obj) {
+  state.lastJsonObj = obj;
+  $("#ap-json-caption").textContent = caption;
+  $("#ap-json-pre").textContent = JSON.stringify(obj, null, 2);
+  $("#dlg-ap-json").showModal();
+}
+
+/* Profile Card Renderer */
+function profileCardHtml() {
+  const isOwner = state.scenario === "owner-public";
+  const isPrivateKb = state.scenario === "visitor-private";
+  const discoverChip = state.discoverable
+    ? `<span class="chip kb">${ICONS.globe}discoverable · /directory 등재</span>`
+    : `<span class="chip warn">${ICONS.lock}비공개 탐색 · noindex</span>`;
+  const kbChip = isPrivateKb
+    ? `<span class="chip warn">${ICONS.lock}개인 KB 비공개 (is_public=0)</span>`
+    : `<span class="chip kb">${ICONS.book}개인 KB 공개 (is_public=1)</span>`;
+
+  return `
+    <section class="ap-profile-shell" aria-label="ActivityPub 프로필">
+      <div class="ap-profile-card">
+        <div class="ap-profile-top">
+          <div class="ap-identity">
+            <div class="ap-avatar" aria-hidden="true">민지</div>
+            <div class="ap-id-main">
+              <div class="ap-name-row">
+                <h1 class="ap-display-name" id="home-main-heading" tabindex="-1">${esc(ACTOR.display_name)}</h1>
+                <span class="chip ap">${ICONS.share}ActivityPub Person</span>
+                ${discoverChip}
+                ${kbChip}
+              </div>
+              <div class="ap-handle-row">
+                <code class="ap-handle-code">${esc(ACTOR.handle)}</code>
+                <button type="button" class="btn sm" data-copy-text="${esc(ACTOR.handle)}">${ICONS.copy}핸들 복사</button>
+              </div>
+            </div>
+          </div>
+          <div class="ap-profile-actions">
+            ${isOwner
+              ? `<button type="button" class="btn pri" commandfor="dlg-compose" command="show-modal">${ICONS.edit}새 노트 작성</button>
+                 <a class="btn" href="#settings">${ICONS.settings}연합 설정</a>`
+              : `<button type="button" class="btn ap" commandfor="dlg-follow" command="show-modal">${ICONS.userPlus}원격 팔로우</button>`
+            }
+            <button type="button" class="btn" id="btn-actor-more" commandfor="pop-actor-more" command="toggle-popover" aria-expanded="false" title="프로필 더보기" aria-label="프로필 더보기">${ICONS.more}</button>
+          </div>
+        </div>
+
+        <p class="ap-bio-proposal">
+          <span>${esc(ACTOR.proposed_bio)}</span>
+          <span class="chip proposed">제안 · Person.summary</span>
+        </p>
+
+        <div class="ap-profile-meta">
+          <div class="ap-stats-inline">
+            <span class="ap-stat-pill">팔로워 <strong>${ACTOR.followers}</strong></span>
+            <span class="ap-stat-pill">팔로잉 <strong>${ACTOR.following}</strong></span>
+            <span class="ap-stat-pill">아웃박스 <strong>${visibleTimelineItems().length}</strong></span>
+            <span class="ap-stat-pill">가입 <strong>2026-04-12</strong></span>
+          </div>
+          <div class="ap-tech-chips">
+            <span class="chip">자동 수락 (FD9)</span>
+            <button type="button" class="btn sm" id="btn-open-person-json">${ICONS.code}rel="alternate" Person</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+/* Timeline Section Renderer */
+function postCardHtml(item) {
+  const isOwner = state.scenario === "owner-public";
+  if (item.deleted) {
+    return `
+      <article class="ap-post is-tombstone" data-post-id="${esc(item.id)}">
+        <div class="ap-post-head">
+          <div class="ap-post-meta">
+            <span class="chip danger">410 Gone · Tombstone</span>
+            <span>삭제된 ${esc(item.kind)}</span>
+          </div>
+          <button type="button" class="btn sm" data-inspect-id="${esc(item.id)}">${ICONS.code}JSON-LD</button>
+        </div>
+        <p style="margin:0;color:var(--muted);font-size:0.8125rem"><code>/ap/objects/${esc(item.id)}</code>는 이제 <code>Tombstone</code> 응답을 반환합니다.</p>
+      </article>
+    `;
+  }
+
+  const kindBadge = item.kind === "Article"
+    ? `<span class="chip kb">${ICONS.book}Article · KB 발행</span>`
+    : `<span class="chip ap">${ICONS.message}Note · 공개</span>`;
+
+  const replyHtml = item.in_reply_to
+    ? `<div class="ap-reply-ctx">${ICONS.message}<span>${esc(item.in_reply_to_author || "원격 게시물")}에 대한 답글</span> · <button type="button" class="btn sm" data-thread-id="${esc(item.id)}">문맥 보기</button></div>`
+    : "";
+
+  const bodyInner = item.kind === "Article"
+    ? `<div class="ap-article-box">
+         <h3 class="ap-article-title">${esc(item.article_title)}</h3>
+         <p class="ap-article-summary">${esc(item.article_summary)}</p>
+         <div class="ap-article-foot">
+           <span class="chip">${esc(item.source_type)} · 개체 ${item.entity_count}개</span>
+           <a href="#share" data-open-doc="${esc(item.doc_id)}">${ICONS.book}문맥 패널에서 미리보기</a>
+           <a href="#p" data-copy-text="${esc(item.share_url)}">${ICONS.external}공유 링크</a>
+         </div>
+       </div>`
+    : `<div class="ap-post-body"><p>${esc(item.content)}</p></div>`;
+
+  const wrappedBody = item.sensitive
+    ? `<details class="ap-cw"><summary>콘텐츠 경고: ${esc(item.summary || "주의가 필요한 내용")} (펼쳐서 보기)</summary>${bodyInner}</details>`
+    : bodyInner;
+
+  const quoteHtml = item.quote
+    ? `<div class="ap-quote-card ${item.quote.state === "pending" ? "pending" : ""}">
+         <div class="ap-quote-head">
+           <span><strong>${esc(item.quote.author)}</strong> 인용</span>
+           <span class="chip ${item.quote.state === "approved" ? "kb" : "warn"}">${item.quote.state === "approved" ? "FEP-044f 승인됨" : "승인 대기 (provisional)"}</span>
+         </div>
+         <p class="ap-quote-body">${esc(item.quote.excerpt)}</p>
+       </div>`
+    : "";
+
+  return `
+    <article class="ap-post" data-post-id="${esc(item.id)}">
+      <div class="ap-post-head">
+        <div class="ap-post-meta">
+          <span class="ap-post-author">${esc(ACTOR.display_name)}</span>
+          <span>${esc(ACTOR.handle)}</span>
+          <span>·</span>
+          <time datetime="${esc(item.published_at)}" title="${esc(item.published_at)}">${esc(relTime(item.published_at))}</time>
+          ${item.edited_at ? `<span class="chip">수정됨</span>` : ""}
+          ${kindBadge}
+          <span class="chip">${esc(item.language)}</span>
+        </div>
+        <div class="ap-post-actions-top">
+          <span class="chip" title="FEP-044f 인용 정책">인용: ${esc(item.quote_policy)}</span>
+          <button type="button" class="btn sm" data-post-menu="${esc(item.id)}" commandfor="pop-post-actions" command="toggle-popover" aria-expanded="false" aria-label="게시물 작업 더보기" title="작업 더보기">${ICONS.more}</button>
+        </div>
+      </div>
+
+      ${replyHtml}
+      ${wrappedBody}
+      ${quoteHtml}
+
+      <div class="ap-post-foot">
+        <div class="ap-reactions">
+          <button type="button" class="rx-btn" data-rx="like" data-post-id="${esc(item.id)}" aria-pressed="${item.liked ? "true" : "false"}">${ICONS.star}<span>좋아요 ${item.likes}</span></button>
+          <button type="button" class="rx-btn" data-rx="boost" data-post-id="${esc(item.id)}" aria-pressed="${item.boosted ? "true" : "false"}">${ICONS.repeat}<span>부스트 ${item.announces}</span></button>
+          <button type="button" class="rx-btn" data-thread-id="${esc(item.id)}">${ICONS.quote}<span>인용 ${item.quotes}</span></button>
+        </div>
+        <div class="ap-post-hover-tools">
+          <button type="button" class="btn sm" data-inspect-id="${esc(item.id)}">${ICONS.code}JSON-LD</button>
+          ${isOwner && item.kind === "Note" ? `<button type="button" class="btn sm" data-cycle-quote="${esc(item.id)}">인용 정책 변경</button>` : ""}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function timelineSectionHtml(compactLimit) {
+  const isPrivateVisitor = state.scenario === "visitor-private";
+  const all = visibleTimelineItems();
+  const items = compactLimit ? all.slice(0, compactLimit) : all;
+
+  return `
+    <section class="tl-shell" aria-label="ActivityPub 타임라인">
+      <div class="tl-head">
+        <div class="tl-head-left">
+          <h2 class="tl-title">${ICONS.rss}ActivityPub 아웃박스 타임라인</h2>
+          <span class="chip">${all.length}건</span>
+          ${isPrivateVisitor ? `<span class="chip warn">비공개 KB · Note만 노출</span>` : ""}
+        </div>
+        <div class="tl-filters">
+          <button type="button" class="tl-filter-btn" data-tl-filter="all" aria-pressed="${state.tlFilter === "all"}">전체</button>
+          <button type="button" class="tl-filter-btn" data-tl-filter="note" aria-pressed="${state.tlFilter === "note"}">노트</button>
+          ${!isPrivateVisitor ? `<button type="button" class="tl-filter-btn" data-tl-filter="article" aria-pressed="${state.tlFilter === "article"}">KB 발행 문서</button>` : ""}
+          <button type="button" class="tl-filter-btn" data-tl-filter="quote" aria-pressed="${state.tlFilter === "quote"}">인용·답글</button>
+          <input type="search" id="tl-search-input" class="tl-search" value="${esc(state.tlQuery)}" placeholder="타임라인 검색…" aria-label="타임라인 검색"/>
+        </div>
+      </div>
+      <div class="tl-feed">
+        ${items.length ? items.map(postCardHtml).join("") : `<div style="padding:2rem 1rem;text-align:center;color:var(--muted)">조건에 맞는 공개 아웃박스 항목이 없습니다.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+/* Existing Claire Home Overview Html (WEBUI.md §4.3) */
+function kbOverviewHtml(compact) {
+  const isOwner = state.scenario === "owner-public";
+  const flowHtml = isOwner
+    ? `<nav class="home-flow" aria-label="수집 · 적재 · 게시 단계">
+         <a class="home-flow-stage" href="#synd-collect" style="--stage:var(--stage-collect)"><b>1 · 수집·상호작용</b><span class="home-flow-counts">타임라인 48 · 미읽음 6 · 멘션 2 · 팔로잉 38</span></a>
+         <a class="home-flow-stage" href="#synd-ingest" style="--stage:var(--stage-ingest)"><b>2 · 지식베이스 적재</b><span class="home-flow-counts">문서 18 · 활성 작업 0</span></a>
+         <a class="home-flow-stage" href="#synd-publish" style="--stage:var(--stage-publish)"><b>3 · 연합 게시</b><span class="home-flow-counts">발행 문서 3 · 팔로워 142 · 대기 0</span></a>
+       </nav>`
+    : "";
+
+  const recentRows = KB_DOCS.slice(0, compact ? 3 : 5).map((d) => `
+    <button type="button" class="home-row" data-open-doc="${esc(d.id)}">
+      <span class="home-row-kind">${esc(d.source_type)}</span>
+      <span class="home-row-main">
+        <span class="home-row-title">${esc(d.title)}</span>
+        <span class="home-row-sub">${esc(d.fetched_at)} · 엔티티 ${d.entities}개</span>
+      </span>
+    </button>
+  `).join("");
+
+  const entityCol = (title, sub, rows) => `
+    <div class="home-map-col">
+      <div class="home-map-col-head"><span>${title}</span><span>${sub}</span></div>
+      <div>
+        ${rows.map((e) => `
+          <button type="button" class="home-map-row" data-open-entity="${esc(e.name)}">
+            <span class="home-map-dot" style="background:${e.color}"></span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.name)}</span>
+            <span style="font-family:var(--mono);font-size:0.6875rem;color:var(--muted)">${e.degree}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+
+  if (compact) {
+    return `
+      <div style="display:flex;flex-direction:column;gap:0.875rem">
+        <section class="home-card">
+          <header><h2>지식 베이스 요약</h2><span class="chip kb">공개 KB</span></header>
+          <div style="padding:0.625rem 0.75rem;font-size:0.78125rem;color:var(--muted)">
+            문서 <strong style="color:var(--fg)">18</strong> · 엔티티 <strong style="color:var(--fg)">64</strong> · 관계 <strong style="color:var(--fg)">112</strong> · 최근 적재 2026-11-22
+          </div>
+        </section>
+        <section class="home-card">
+          <header><h2>최근 적재 문서</h2></header>
+          <div>${recentRows}</div>
+        </section>
+        <section class="home-card">
+          <header><h2>지식 맵 (미니맵)</h2><button type="button" class="btn sm" id="btn-open-full-graph">전체 그래프</button></header>
+          <div style="padding:0.625rem">
+            <div class="home-mini"><canvas id="home-minimap-canvas"></canvas><span class="home-mini-hint">클릭하여 그래프 보기</span></div>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  return `
+    <p class="home-facts">개인 지식 베이스 · 문서 18 · 엔티티 64 · 관계 112 · 최근 적재 2026-11-22</p>
+    ${flowHtml}
+    <div class="home-cards">
+      <section class="home-card">
+        <header><h2>최근 적재</h2><span class="chip">최근 5건</span></header>
+        <div>${recentRows}</div>
+      </section>
+      <section class="home-card">
+        <header><h2>소유 지식 베이스</h2><a href="#themes">전체 보기</a></header>
+        <div style="padding:0.6875rem 0.75rem;display:flex;flex-direction:column;gap:0.4375rem">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>개인 연구 아카이브</strong><span class="chip kb">공개</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>비공개 초안 노트</strong><span class="chip warn">비공개</span></div>
+        </div>
+      </section>
+      <section class="home-card home-span2">
+        <header><h2>지식 맵</h2><button type="button" class="btn sm" id="btn-open-full-graph">그래프 열기</button></header>
+        <div class="home-map-body">
+          <div class="home-mini">
+            <canvas id="home-minimap-canvas"></canvas>
+            <div class="home-mini-hint">정적 2D 미니맵</div>
+          </div>
+          <div class="home-map-cols">
+            ${entityCol("허브", "연결 수", KB_ENTITIES.slice(0, 4))}
+            ${entityCol("브리지", "문서 교차", KB_ENTITIES.slice(2, 6))}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function drawMiniMap() {
+  const canvas = document.getElementById("home-minimap-canvas");
+  if (!canvas) return;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const w = Math.max(180, Math.round(rect.width || 210));
+  const h = Math.max(140, Math.round(rect.height || 168));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  const pts = [
+    [0.24, 0.34, "#0969da", 6], [0.52, 0.28, "#1a7f37", 7], [0.76, 0.42, "#8250df", 5.5],
+    [0.34, 0.68, "#9a6700", 5], [0.62, 0.72, "#bf3989", 5.5], [0.82, 0.74, "#8250df", 4.5]
+  ];
+  const edges = [[0, 1], [1, 2], [0, 3], [1, 3], [1, 4], [2, 4], [4, 5]];
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#999";
+  ctx.lineWidth = 1.2;
+  edges.forEach(([a, b]) => {
+    ctx.beginPath();
+    ctx.moveTo(pts[a][0] * w, pts[a][1] * h);
+    ctx.lineTo(pts[b][0] * w, pts[b][1] * h);
+    ctx.stroke();
+  });
+  pts.forEach(([x, y, c, r]) => {
+    ctx.beginPath();
+    ctx.arc(x * w, y * h, r, 0, Math.PI * 2);
+    ctx.fillStyle = c;
+    ctx.fill();
+  });
+}
+
+/* Main Home Render Orchestrator */
+function renderHome() {
+  const container = $("#home-inner");
+  const isPrivateVisitor = state.scenario === "visitor-private";
+  const isOwner = state.scenario === "owner-public";
+
+  document.body.dataset.scenario = state.scenario;
+  document.body.dataset.layout = state.layout;
+  $("#btn-owner-compose").hidden = !isOwner;
+  $("#notifybtn").hidden = !isOwner;
+  $("#syndlink").hidden = !isOwner;
+  $("#bar-kb-pill").hidden = isPrivateVisitor;
+  $("#listtoggle").hidden = isPrivateVisitor;
+  $("#bar-center-views").hidden = isPrivateVisitor;
+  $("#menu-synd-link").hidden = !isOwner;
+  $("#menu-settings-link").hidden = !isOwner;
+
+  if (isPrivateVisitor) {
+    container.innerHTML = `
+      ${profileCardHtml()}
+      <div class="ap-private-notice" data-profile-state="private">
+        <strong>개인 지식 베이스가 비공개로 설정되어 있습니다.</strong>
+        <p>개인 문서, 그래프 및 지식 베이스 개요는 표시되지 않지만, ActivityPub 액터(<code>${esc(ACTOR.handle)}</code>)의 공개 <code>Note</code> 타임라인과 팔로우 기능은 그대로 이용할 수 있습니다.</p>
+      </div>
+      ${timelineSectionHtml()}
+    `;
+  } else if (state.layout === "A") {
+    const tlActive = state.activeTab === "timeline";
+    container.innerHTML = `
+      ${profileCardHtml()}
+      <div class="home-tabs-shell" id="home-tabs-shell">
+        <div class="home-tablist-wrap">
+          <div class="home-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="유저 홈 섹션">
+            <button type="button" class="home-tab" role="tab" id="tab-ap-timeline" aria-selected="${tlActive ? "true" : "false"}" ${tlActive ? "focusgroupstart" : ""}>${ICONS.rss}ActivityPub 타임라인 <span class="chip">${visibleTimelineItems().length}</span></button>
+            <button type="button" class="home-tab" role="tab" id="tab-kb-overview" aria-selected="${!tlActive ? "true" : "false"}" ${!tlActive ? "focusgroupstart" : ""}>${ICONS.book}지식 베이스 개요 <span class="chip kb">18문서</span></button>
+          </div>
+        </div>
+        <div class="home-tabpanels">
+          <div role="tabpanel" id="panel-ap-timeline" aria-labelledby="tab-ap-timeline" ${tlActive ? 'tabindex="0"' : 'hidden="until-found"'}>
+            <div class="tabpanel-inner">${timelineSectionHtml()}</div>
+          </div>
+          <div role="tabpanel" id="panel-kb-overview" aria-labelledby="tab-kb-overview" ${!tlActive ? 'tabindex="0"' : 'hidden="until-found"'}>
+            <div class="tabpanel-inner">${kbOverviewHtml(false)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+    bindTabs();
+  } else if (state.layout === "B") {
+    container.innerHTML = `
+      ${profileCardHtml()}
+      ${isOwner ? kbOverviewHtml(false).match(/<nav class="home-flow"[\s\S]*?<\/nav>/)?.[0] || "" : ""}
+      <div class="layout-b-grid">
+        <div>${timelineSectionHtml()}</div>
+        <div>${kbOverviewHtml(true)}</div>
+      </div>
+    `;
+  } else {
+    container.innerHTML = `
+      ${profileCardHtml()}
+      ${kbOverviewHtml(false)}
+      ${timelineSectionHtml(3)}
+      <details class="home-card" style="padding:0.625rem 0.875rem">
+        <summary style="cursor:pointer;font-weight:700">전체 ActivityPub 타임라인 (${visibleTimelineItems().length}건) 펼쳐보기</summary>
+        <div style="margin-top:0.75rem">${timelineSectionHtml()}</div>
+      </details>
+    `;
+  }
+
+  requestAnimationFrame(drawMiniMap);
+}
+
+/* Accessible Tabs: focusgroup fallback + beforematch + scroll-fade fallback */
+function activateHomeTab(tabId, moveFocus) {
+  const tabs = $$(".home-tab");
+  const panels = $$('.home-tabpanels > [role="tabpanel"]');
+  state.activeTab = tabId === "tab-kb-overview" ? "kb" : "timeline";
+  tabs.forEach((tab) => {
+    const selected = tab.id === tabId;
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    tab.toggleAttribute("focusgroupstart", selected);
+    if (selected) {
+      tab.scrollIntoView({ block: "nearest", inline: "nearest", container: "nearest" });
+      if (moveFocus) tab.focus();
+    }
+  });
+  panels.forEach((panel) => {
+    const match = panel.getAttribute("aria-labelledby") === tabId;
+    if (match) {
+      panel.removeAttribute("hidden");
+      panel.setAttribute("tabindex", "0");
+    } else {
+      panel.setAttribute("hidden", "until-found");
+      panel.removeAttribute("tabindex");
+    }
+  });
+  if (state.activeTab === "kb") requestAnimationFrame(drawMiniMap);
+}
+
+function bindTabs() {
+  const tablist = $(".home-tablist");
+  const shell = $("#home-tabs-shell");
+  if (!tablist || !shell) return;
+  const tabs = $$(".home-tab");
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => activateHomeTab(tab.id, false));
+  });
+
+  if (!Object.hasOwn(HTMLElement.prototype, "focusGroup")) {
+    tablist.addEventListener("keydown", (e) => {
+      const idx = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      let next = -1;
+      if (e.key === "ArrowRight") next = (idx + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") next = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = tabs.length - 1;
+      if (next !== -1) {
+        e.preventDefault();
+        activateHomeTab(tabs[next].id, true);
+      }
+    });
+  }
+
+  shell.addEventListener("beforematch", (e) => {
+    const panel = e.target.closest('[role="tabpanel"]');
+    if (panel) activateHomeTab(panel.getAttribute("aria-labelledby"), false);
+  });
+
+  if (!CSS.supports("animation-timeline", "scroll()")) {
+    const first = tablist.firstElementChild;
+    const last = tablist.lastElementChild;
+    if (first && last) {
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach(({ target, intersectionRatio }) => {
+          tablist.classList.toggle(target === first ? "more-start" : "more-end", intersectionRatio < 1);
+        });
+      }, { root: tablist, threshold: 1, rootMargin: "1px" });
+      obs.observe(first);
+      obs.observe(last);
+    }
+  }
+}
+
+/* Left Document List & Right Context Panel */
+function renderDocList() {
+  const q = state.docFilter.trim().toLowerCase();
+  const rows = KB_DOCS.filter((d) => !q || d.title.toLowerCase().includes(q));
+  $("#doclist").innerHTML = rows.map((d) => `
+    <button type="button" class="docitem ${state.selectedDocId === d.id ? "active" : ""}" data-open-doc="${esc(d.id)}">
+      <span class="docitem-title">${esc(d.title)}</span>
+      <span class="docitem-meta">${esc(d.source_type)} · ${esc(d.fetched_at)} · 엔티티 ${d.entities}개</span>
+    </button>
+  `).join("");
+}
+
+function openDocContext(docId) {
+  const doc = KB_DOCS.find((d) => d.id === docId);
+  if (!doc) return;
+  state.selectedDocId = doc.id;
+  document.body.classList.add("ctx-open");
+  $("#detailtitle").textContent = "문서 문맥";
+  $("#drawerscroll").innerHTML = `
+    <h3 style="margin:0;font-size:0.9375rem">${esc(doc.title)}</h3>
+    <p style="margin:0;font-size:0.8125rem;color:var(--muted)">${esc(doc.summary)}</p>
+    <dl class="ctx-kv">
+      <dt>출처 유형</dt><dd>${esc(doc.source_type)}</dd>
+      <dt>적재 일자</dt><dd>${esc(doc.fetched_at)}</dd>
+      <dt>연결 엔티티</dt><dd>${doc.entities}개</dd>
+      <dt>추출 모델</dt><dd>${esc(doc.model)}</dd>
+      <dt>공유 토큰</dt><dd>/p?s=${esc(doc.share_token)}</dd>
+    </dl>
+    <div style="display:flex;gap:0.375rem;flex-wrap:wrap">
+      <button type="button" class="btn sm" data-copy-text="https://claire.example/p?s=${esc(doc.share_token)}">${ICONS.copy}공유 링크 복사</button>
+    </div>
+  `;
+  renderDocList();
+}
+
+function openEntityContext(name) {
+  const ent = KB_ENTITIES.find((e) => e.name === name);
+  if (!ent) return;
+  document.body.classList.add("ctx-open");
+  $("#detailtitle").textContent = "엔티티 문맥";
+  $("#drawerscroll").innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <span class="home-map-dot" style="background:${ent.color};width:10px;height:10px"></span>
+      <h3 style="margin:0;font-size:1rem">${esc(ent.name)}</h3>
+    </div>
+    <p style="margin:0;font-size:0.8125rem;color:var(--muted)">${esc(ent.desc)}</p>
+    <dl class="ctx-kv">
+      <dt>유형</dt><dd>${esc(ent.type)}</dd>
+      <dt>연결 차수</dt><dd>${ent.degree}</dd>
+    </dl>
+  `;
+}
+
+/* Scenario & Layout Switcher with Same-Document View Transition + Focus Routing */
+function runTransition(updateFn, focusHeading) {
+  if (!document.startViewTransition) {
+    updateFn();
+    if (focusHeading) $("#home-main-heading")?.focus();
+    return;
+  }
+  const vt = document.startViewTransition(() => updateFn());
+  if (focusHeading) {
+    vt.finished.finally(() => {
+      $("#home-main-heading")?.focus();
+    });
+  }
+}
+
+/* Global Event Delegation */
+document.addEventListener("click", (e) => {
+  const copyBtn = e.target.closest("[data-copy-text]");
+  if (copyBtn) {
+    const val = copyBtn.getAttribute("data-copy-text");
+    navigator.clipboard?.writeText(val).catch(() => {});
+    toast(`복사했습니다: ${val}`);
+    return;
+  }
+
+  const filterBtn = e.target.closest("[data-tl-filter]");
+  if (filterBtn) {
+    state.tlFilter = filterBtn.getAttribute("data-tl-filter");
+    renderHome();
+    return;
+  }
+
+  const rxBtn = e.target.closest("[data-rx]");
+  if (rxBtn) {
+    const id = rxBtn.getAttribute("data-post-id");
+    const kind = rxBtn.getAttribute("data-rx");
+    const item = outboxItems.find((x) => x.id === id);
+    if (!item) return;
+    if (kind === "like") {
+      item.liked = !item.liked;
+      item.likes += item.liked ? 1 : -1;
+    } else if (kind === "boost") {
+      item.boosted = !item.boosted;
+      item.announces += item.boosted ? 1 : -1;
+    }
+    renderHome();
+    return;
+  }
+
+  const inspectBtn = e.target.closest("[data-inspect-id]");
+  if (inspectBtn) {
+    const item = outboxItems.find((x) => x.id === inspectBtn.getAttribute("data-inspect-id"));
+    if (item) openJsonInspector(`아웃박스 객체 · /ap/objects/${item.id}`, buildObjectJson(item));
+    return;
+  }
+
+  if (e.target.closest("#btn-open-person-json") || e.target.closest("#actor-inspect-json") || e.target.closest("#menu-open-json")) {
+    openJsonInspector(`액터 문서 · /ap/actors/${ACTOR.public_id}`, buildPersonJson());
+    return;
+  }
+
+  const threadBtn = e.target.closest("[data-thread-id]");
+  if (threadBtn) {
+    const item = outboxItems.find((x) => x.id === threadBtn.getAttribute("data-thread-id"));
+    if (!item) return;
+    $("#dlg-thread-body").innerHTML = `
+      ${item.in_reply_to ? `<div class="ap-quote-card"><div class="ap-quote-head"><span>상위 답글 대상: ${esc(item.in_reply_to_author || "원격 게시물")}</span><code>${esc(item.in_reply_to)}</code></div><p class="ap-quote-body">${esc(item.in_reply_to_excerpt || "")}</p></div>` : ""}
+      <div class="ap-post" style="border:1px solid var(--border);border-radius:8px">
+        <div class="ap-post-meta"><strong>${esc(ACTOR.display_name)}</strong><span>${esc(ACTOR.handle)}</span><span class="chip">${esc(item.kind)}</span></div>
+        <div class="ap-post-body"><p>${esc(item.content || item.article_summary)}</p></div>
+      </div>
+      ${item.quote ? `<div class="ap-quote-card ${item.quote.state === "pending" ? "pending" : ""}"><div class="ap-quote-head"><span>FEP-044f 인용 상태: <strong>${esc(item.quote.state)}</strong></span><code>${esc(item.quote.iri)}</code></div><p class="ap-quote-body">${esc(item.quote.excerpt)}</p></div>` : `<p style="margin:0;color:var(--muted);font-size:0.78125rem">이 객체의 인용 정책(<code>quote_policy</code>)은 <code>${esc(item.quote_policy)}</code>이며 승인된 인용 ${item.quotes}건이 기록되어 있습니다.</p>`}
+    `;
+    $("#dlg-thread").showModal();
+    return;
+  }
+
+  const postMenuBtn = e.target.closest("[data-post-menu]");
+  if (postMenuBtn) {
+    state.activePostMenuId = postMenuBtn.getAttribute("data-post-menu");
+    const item = outboxItems.find((x) => x.id === state.activePostMenuId);
+    const isOwner = state.scenario === "owner-public";
+    $$("#pop-post-actions [data-owner-only]").forEach((el) => { el.hidden = !isOwner; });
+    $("#pop-act-open-doc").hidden = !(item && item.kind === "Article" && state.scenario !== "visitor-private");
+    $("#pop-act-delete").hidden = !(isOwner && item && item.kind === "Note" && !item.deleted);
+    return;
+  }
+
+  const postActBtn = e.target.closest("[data-post-act]");
+  if (postActBtn) {
+    const act = postActBtn.getAttribute("data-post-act");
+    const item = outboxItems.find((x) => x.id === state.activePostMenuId);
+    $("#pop-post-actions").hidePopover?.();
+    if (!item) return;
+    if (act === "copy-url") {
+      const url = `https://claire.example/ap/objects/${item.id}`;
+      navigator.clipboard?.writeText(url).catch(() => {});
+      toast(`복사했습니다: ${url}`);
+    } else if (act === "inspect-json") {
+      openJsonInspector(`아웃박스 객체 · /ap/objects/${item.id}`, buildObjectJson(item));
+    } else if (act === "open-kb-doc" && item.doc_id) {
+      openDocContext(item.doc_id);
+    } else if (act === "cycle-quote") {
+      const order = ["public", "followers", "manual", "nobody"];
+      item.quote_policy = order[(order.indexOf(item.quote_policy) + 1) % order.length];
+      toast(`인용 정책을 '${item.quote_policy}'로 변경했습니다.`);
+      renderHome();
+    } else if (act === "delete-note") {
+      item.deleted = true;
+      item.deleted_at = new Date().toISOString();
+      toast("노트를 삭제하고 410 Tombstone 상태로 전환했습니다.");
+      renderHome();
+    }
+    return;
+  }
+
+  const cycleBtn = e.target.closest("[data-cycle-quote]");
+  if (cycleBtn) {
+    const item = outboxItems.find((x) => x.id === cycleBtn.getAttribute("data-cycle-quote"));
+    if (!item) return;
+    const order = ["public", "followers", "manual", "nobody"];
+    item.quote_policy = order[(order.indexOf(item.quote_policy) + 1) % order.length];
+    toast(`인용 정책을 '${item.quote_policy}'로 변경했습니다.`);
+    renderHome();
+    return;
+  }
+
+  const openDocBtn = e.target.closest("[data-open-doc]");
+  if (openDocBtn) {
+    openDocContext(openDocBtn.getAttribute("data-open-doc"));
+    return;
+  }
+
+  const openEntBtn = e.target.closest("[data-open-entity]");
+  if (openEntBtn) {
+    openEntityContext(openEntBtn.getAttribute("data-open-entity"));
+    return;
+  }
+
+  const layoutBtn = e.target.closest("[data-layout-opt]");
+  if (layoutBtn) {
+    const next = layoutBtn.getAttribute("data-layout-opt");
+    $$("[data-layout-opt]").forEach((b) => b.classList.toggle("on", b === layoutBtn));
+    runTransition(() => {
+      state.layout = next;
+      renderHome();
+    }, false);
+    return;
+  }
+
+  const scenBtn = e.target.closest("[data-scenario-opt]");
+  if (scenBtn) {
+    const next = scenBtn.getAttribute("data-scenario-opt");
+    $$("[data-scenario-opt]").forEach((b) => b.classList.toggle("on", b === scenBtn));
+    runTransition(() => {
+      state.scenario = next;
+      if (next === "visitor-private") document.body.classList.remove("ctx-open");
+      renderHome();
+    }, true);
+    return;
+  }
+
+  const widthBtn = e.target.closest("[data-width-opt]");
+  if (widthBtn) {
+    const w = widthBtn.getAttribute("data-width-opt");
+    $$("[data-width-opt]").forEach((b) => b.classList.toggle("on", b === widthBtn));
+    document.body.dataset.previewWidth = w;
+    requestAnimationFrame(drawMiniMap);
+    return;
+  }
+});
+
+document.addEventListener("input", (e) => {
+  if (e.target.id === "tl-search-input") {
+    const pos = e.target.selectionStart;
+    state.tlQuery = e.target.value;
+    renderHome();
+    const inp = $("#tl-search-input");
+    if (inp) {
+      inp.focus();
+      inp.setSelectionRange(pos, pos);
+    }
+  } else if (e.target.id === "doc-filter-input") {
+    state.docFilter = e.target.value;
+    renderDocList();
+  } else if (e.target.id === "compose-text") {
+    $("#compose-chars").textContent = `${e.target.value.length} / 500`;
+  } else if (e.target.id === "remote-domain-input") {
+    updateRemoteFollowPreview();
+  } else if (e.target.id === "pal-input") {
+    renderPalette(e.target.value);
+  }
+});
+
+function updateRemoteFollowPreview() {
+  const dom = ($("#remote-domain-input").value || "mastodon.example").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const url = `https://${dom || "mastodon.example"}/authorize_interaction?uri=${encodeURIComponent(ACTOR.actor_url)}`;
+  $("#remote-follow-preview").textContent = url;
+}
+
+/* Specific Button Wiring */
+$("#listtoggle").addEventListener("click", () => {
+  const closed = document.body.classList.toggle("list-closed");
+  $("#listtoggle").setAttribute("aria-pressed", closed ? "false" : "true");
+  requestAnimationFrame(drawMiniMap);
+});
+
+$("#menu-open-list").addEventListener("click", () => {
+  $("#pop-hamburger-menu").hidePopover?.();
+  $("#listtoggle").click();
+});
+
+$("#detailclose").addEventListener("click", () => {
+  document.body.classList.remove("ctx-open");
+  requestAnimationFrame(drawMiniMap);
+});
+
+$("#proto-dock-toggle").addEventListener("click", () => {
+  const dock = $("#proto-dock");
+  const collapsed = dock.classList.toggle("is-collapsed");
+  $("#proto-dock-toggle").setAttribute("aria-expanded", collapsed ? "false" : "true");
+});
+
+$("#proto-discoverable-btn").addEventListener("click", () => {
+  state.discoverable = !state.discoverable;
+  const btn = $("#proto-discoverable-btn");
+  btn.classList.toggle("on", state.discoverable);
+  btn.setAttribute("aria-pressed", state.discoverable ? "true" : "false");
+  btn.textContent = state.discoverable ? "profile_public = 1 (discoverable)" : "profile_public = 0 (noindex)";
+  document.querySelector('meta[name="robots"]').content = state.discoverable ? "index, follow" : "noindex, nofollow";
+  renderHome();
+});
+
+$("#compose-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("#compose-text").value.trim();
+  if (!text) return;
+  const cw = $("#compose-cw").value.trim();
+  const newItem = {
+    id: String(7001001009 + outboxItems.length),
+    kind: "Note",
+    published_at: new Date("2026-11-22T23:39:00Z").toISOString(),
+    edited_at: null,
+    language: $("#compose-lang").value,
+    sensitive: Boolean(cw),
+    summary: cw || null,
+    content: text,
+    tags: [],
+    mentions: [],
+    in_reply_to: null,
+    quote_policy: $("#compose-quote-policy").value,
+    quote: null,
+    likes: 0,
+    announces: 0,
+    quotes: 0,
+    liked: false,
+    boosted: false,
+    deleted: false
+  };
+  outboxItems.unshift(newItem);
+  $("#compose-form").reset();
+  $("#compose-chars").textContent = "0 / 500";
+  closeTopLayer($("#dlg-compose"));
+  state.activeTab = "timeline";
+  renderHome();
+  toast("새 공개 Note를 아웃박스 타임라인에 추가했습니다.");
+});
+
+$("#follow-copy-handle").addEventListener("click", () => {
+  navigator.clipboard?.writeText(ACTOR.handle).catch(() => {});
+  toast(`핸들을 복사했습니다: ${ACTOR.handle}`);
+});
+
+$("#follow-copy-iri").addEventListener("click", () => {
+  navigator.clipboard?.writeText(ACTOR.actor_url).catch(() => {});
+  toast("Actor IRI를 복사했습니다.");
+});
+
+$("#actor-copy-iri").addEventListener("click", () => {
+  $("#pop-actor-more").hidePopover?.();
+  navigator.clipboard?.writeText(ACTOR.actor_url).catch(() => {});
+  toast("Actor IRI를 복사했습니다.");
+});
+
+$("#follow-go-btn").addEventListener("click", () => {
+  toast(`프로토타입: ${$("#remote-follow-preview").textContent} 로 이동합니다.`);
+});
+
+$("#ap-json-copy").addEventListener("click", () => {
+  navigator.clipboard?.writeText($("#ap-json-pre").textContent).catch(() => {});
+  toast("JSON-LD를 복사했습니다.");
+});
+
+function renderPalette(q) {
+  const query = (q || "").trim().toLowerCase();
+  const cmds = [
+    { label: "ActivityPub 타임라인 탭 열기", run: () => { state.activeTab = "timeline"; renderHome(); } },
+    { label: "지식 베이스 개요 탭 열기", run: () => { state.activeTab = "kb"; renderHome(); } },
+    { label: "원격 팔로우 대화상자 열기", run: () => $("#dlg-follow").showModal() },
+    { label: "Person JSON-LD 검사", run: () => openJsonInspector(`액터 문서 · /ap/actors/${ACTOR.public_id}`, buildPersonJson()) },
+    ...KB_DOCS.map((d) => ({ label: `문서 열기: ${d.title}`, run: () => openDocContext(d.id) }))
+  ].filter((c) => !query || c.label.toLowerCase().includes(query));
+
+  const box = $("#pal-results");
+  box.innerHTML = cmds.map((c, idx) => `<button type="button" class="pop-item" data-pal-idx="${idx}">${esc(c.label)}</button>`).join("") || `<p style="margin:0;color:var(--muted)">일치하는 명령이 없습니다.</p>`;
+  box.onclick = (ev) => {
+    const b = ev.target.closest("[data-pal-idx]");
+    if (!b) return;
+    closeTopLayer($("#dlg-palette"));
+    cmds[Number(b.getAttribute("data-pal-idx"))].run();
+  };
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (document.querySelector("dialog[open]")) return;
+    e.preventDefault();
+    renderPalette("");
+    $("#dlg-palette").showModal();
+    $("#pal-input").focus();
+  }
+});
+
+/* Initial Boot */
+hydrateIcons(document);
+applyScheme(getStoredScheme());
+updateRemoteFollowPreview();
+renderPalette("");
+renderDocList();
+renderHome();
+</script>
+</body>
+</html>
