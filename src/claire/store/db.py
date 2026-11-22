@@ -5346,7 +5346,11 @@ def latest_extraction_model(conn: sqlite3.Connection, document_id: str, kb_id: i
         row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1", (document_id,)).fetchone()
     if row is None:
         return None, None
-    return (row["provider"] or None), (row["model"] or None)
+    provider = row["provider"] or None
+    model = row["model"] or None
+    if provider == "agent_client" and model and str(model).strip().startswith("claire_mcp_"):
+        model = None
+    return provider, model
 
 
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> str | None:

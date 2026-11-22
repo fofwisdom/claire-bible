@@ -6753,4 +6753,6 @@ components:
           type: ['string', 'null']
         lang:
           type: ['string', 'null']
+        model:
+          type: ['string', 'null']
 

@@ -51,8 +51,9 @@ ALLOWED_SKILL_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon
 ALLOWED_AGENT_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon"})
 ALLOWED_HANDOFF_MODES: frozenset[str] = frozenset({"direct_subagent", "forked_internal_skill"})
 ALLOWED_GUARD_MODES: frozenset[str] = frozenset({"rules", "claude_pre_tool_use_hook"})
+ALLOWED_EXTRACTOR_MCP_MODES: frozenset[str] = frozenset({"per_tool_list", "inherit_mcp"})
 REQUIRED_ADAPTER_KEYS: frozenset[str] = frozenset({"skill_naming", "agent_naming", "tool_prefix", "handoff_mode", "guard_mode", "supports_allowed_tools"})
-ALLOWED_ADAPTER_KEYS: frozenset[str] = REQUIRED_ADAPTER_KEYS | {"internal_runner_skill"}
+ALLOWED_ADAPTER_KEYS: frozenset[str] = REQUIRED_ADAPTER_KEYS | {"internal_runner_skill", "extractor_mcp_mode"}
 
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
@@ -197,6 +198,14 @@ def _validate_adapter(raw: dict[str, Any], *, ctx: str) -> dict[str, Any]:
     elif "internal_runner_skill" in adapter_raw:
         raise BuildValidationError(f"{ctx}: [adapter].internal_runner_skill is only valid when handoff_mode == 'forked_internal_skill'")
 
+    extractor_mcp_mode = "per_tool_list"
+    if "extractor_mcp_mode" in adapter_raw:
+        extractor_mcp_mode = _require_non_empty_str(adapter_raw, "extractor_mcp_mode", context=f"{ctx} [adapter]")
+        if extractor_mcp_mode not in ALLOWED_EXTRACTOR_MCP_MODES:
+            raise BuildValidationError(f"{ctx}: [adapter].extractor_mcp_mode must be one of {sorted(ALLOWED_EXTRACTOR_MCP_MODES)}")
+    if extractor_mcp_mode == "inherit_mcp" and supports_allowed_tools:
+        raise BuildValidationError(f"{ctx}: [adapter].extractor_mcp_mode == 'inherit_mcp' is only valid when supports_allowed_tools is false")
+
     return {
         "skill_naming": skill_naming,
         "agent_naming": agent_naming,
@@ -205,6 +214,7 @@ def _validate_adapter(raw: dict[str, Any], *, ctx: str) -> dict[str, Any]:
         "internal_runner_skill": internal_runner_skill,
         "guard_mode": guard_mode,
         "supports_allowed_tools": supports_allowed_tools,
+        "extractor_mcp_mode": extractor_mcp_mode,
     }
 
 
@@ -446,12 +456,15 @@ def _verify_mcp_contracts(
             adapter, extractor_ref, extractor_path = bundle_info
             tool_prefix = adapter["tool_prefix"]
             supports_allowed_tools = adapter["supports_allowed_tools"]
+            extractor_mcp_mode = adapter.get("extractor_mcp_mode", "per_tool_list")
             fm_keys = _frontmatter(text)
             forked_extractor_skill = fm_keys.get("context") == "fork" and fm_keys.get("agent") == extractor_ref
             is_extractor_file = rel_path.endswith(f"/{extractor_path}")
         else:
             tool_prefix = ""
             supports_allowed_tools = False
+            extractor_mcp_mode = "per_tool_list"
+            fm_keys = {}
             forked_extractor_skill = False
             is_extractor_file = Path(rel_path).name in ("extractor.md", "claire-extractor.md")
 
@@ -460,6 +473,12 @@ def _verify_mcp_contracts(
             if fm_key == "allowed-tools" and not supports_allowed_tools:
                 raise BuildValidationError(f"{rel_path}: allowed-tools is not allowed when supports_allowed_tools is false")
             declared = [item.strip() for item in fm_match.group(2).split(",") if item.strip()]
+            if extractor_mcp_mode == "inherit_mcp" and is_extractor_file and fm_key == "tools":
+                if declared != ["send_message"]:
+                    raise BuildValidationError(f"{rel_path}: extractor tools must be [send_message] when extractor_mcp_mode == 'inherit_mcp'")
+                if fm_keys.get("inheritMcp") != "true":
+                    raise BuildValidationError(f"{rel_path}: extractor must set inheritMcp: true when extractor_mcp_mode == 'inherit_mcp'")
+                continue
             normalized_declared: list[str] = []
             for item in declared:
                 if supports_allowed_tools and fm_key == "allowed-tools" and CLAUDE_SKILL_TOOL_RE.fullmatch(item):
@@ -480,6 +499,8 @@ def _verify_mcp_contracts(
         if Path(rel_path).name in ("extractor.md", "claire-extractor.md", "SKILL.md", "AGENTS.md"):
             for match in TOOL_CALL_RE.finditer(text):
                 raw_name = match.group(1)
+                if extractor_mcp_mode == "inherit_mcp" and raw_name == "call_mcp_tool":
+                    continue
                 bare_name = raw_name.removeprefix("mcp__claire__") if raw_name.startswith("mcp__claire__") else raw_name
                 if bare_name not in server_tools:
                     raise BuildValidationError(f"{rel_path}: calls unknown MCP tool {raw_name!r}")
@@ -707,6 +728,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
 
         runner_skill = adapter.get("internal_runner_skill") or ""
         runner_ref = f"{skill_ref_prefix}{runner_skill}" if runner_skill else ""
+        extractor_mcp_mode = adapter.get("extractor_mcp_mode", "per_tool_list")
 
         if adapter["supports_allowed_tools"]:
             extractor_frontmatter = f"tools: {extractor_tools}\nmodel: inherit"
@@ -715,9 +737,18 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             ingest_frontmatter = f'\nargument-hint: "[url | file path | note | document_id]"\nallowed-tools: {ingest_allowed}'
             query_frontmatter = f'\nargument-hint: "<question>"\nallowed-tools: {_format_tool_list(QUERY_SKILL_TOOLS, tool_prefix)}'
         else:
-            extractor_frontmatter = f"subagent: true\nmainAgent: false\ntools: {extractor_tools}"
+            if extractor_mcp_mode == "inherit_mcp":
+                extractor_frontmatter = "subagent: true\nmainAgent: false\ntools: [send_message]\ninheritMcp: true"
+            else:
+                extractor_frontmatter = f"subagent: true\nmainAgent: false\ntools: {extractor_tools}"
             ingest_frontmatter = ""
             query_frontmatter = ""
+
+        extractor_mcp_note = (
+            '\n\nInvoke each Claire MCP tool via `call_mcp_tool` with `ServerName: "claire"`, `ToolName: "<tool_name>"`, and `Arguments: {...}` (or directly if exposed as eager tools). Never call any other MCP server or tool.'
+            if extractor_mcp_mode == "inherit_mcp"
+            else ""
+        )
 
         if adapter["handoff_mode"] == "forked_internal_skill":
             ingest_handoff_note = (
@@ -745,6 +776,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             "EXTRACTOR_PATH": extractor_path,
             "EXTRACTOR_TOOLS": extractor_tools,
             "EXTRACTOR_FRONTMATTER": extractor_frontmatter,
+            "EXTRACTOR_MCP_NOTE": extractor_mcp_note,
             "INGEST_SKILL_FRONTMATTER": ingest_frontmatter,
             "QUERY_SKILL_FRONTMATTER": query_frontmatter,
             "INGEST_HANDOFF_NOTE": ingest_handoff_note,

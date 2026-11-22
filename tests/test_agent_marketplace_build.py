@@ -145,9 +145,19 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_rules = (ag_dir / "rules" / "AGENTS.md").read_text(encoding="utf-8")
     assert "fofwisdom/claire-agents" in ag_rules
     assert "extract_read" in ag_rules
+    assert "gemini-3.8-flash" in ag_rules
     assert "/clients/" not in ag_rules
     assert "clients.<domain>" not in ag_rules
     assert "extract_spec()" in (ag_dir / "agents" / "claire-extractor.md").read_text(encoding="utf-8")
+    ag_extractor = (ag_dir / "agents" / "claire-extractor.md").read_text(encoding="utf-8")
+    ag_extractor_fm = builder._frontmatter(ag_extractor)
+    assert ag_extractor_fm["subagent"] == "true"
+    assert ag_extractor_fm["mainAgent"] == "false"
+    assert ag_extractor_fm["tools"] == "[send_message]"
+    assert ag_extractor_fm["inheritMcp"] == "true"
+    assert 'ServerName: "claire"' in ag_extractor
+    assert "call_mcp_tool" in ag_extractor
+    assert "gemini-3.8-flash" in ag_extractor
     ag_ingest = (ag_dir / "skills" / "claire-ingest" / "SKILL.md").read_text(encoding="utf-8")
     assert "claire-ingest" in ag_ingest
     assert "extract_queue(" in ag_ingest
@@ -369,6 +379,12 @@ def test_adapter_contract_suggested_prompts_and_retired_skill_gates(tmp_path: Pa
     bad_mode_toml.write_text(bad_mode_toml.read_text(encoding="utf-8").replace('guard_mode = "rules"', 'guard_mode = "invalid"'), encoding="utf-8")
     with pytest.raises(builder.BuildValidationError, match=r"\[adapter\]\.guard_mode"):
         builder.build_marketplace(bad_mode_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    bad_mcp_mode_src = _copy_source_tree(tmp_path / "bad_mcp_mode")
+    bad_mcp_mode_toml = bad_mcp_mode_src / "clients" / "antigravity" / "client.toml"
+    bad_mcp_mode_toml.write_text(bad_mcp_mode_toml.read_text(encoding="utf-8").replace('extractor_mcp_mode = "inherit_mcp"', 'extractor_mcp_mode = "invalid"'), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match=r"\[adapter\]\.extractor_mcp_mode"):
+        builder.build_marketplace(bad_mcp_mode_src, mcp_tools_file=MCP_TOOLS_FILE)
 
     too_many_prompts_src = _copy_source_tree(tmp_path / "four_prompts")
     four_toml = too_many_prompts_src / "clients" / "antigravity" / "client.toml"

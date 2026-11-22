@@ -176,6 +176,7 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
 
     valid_payload = {
         "schema_version": "agent-extract-v1",
+        "model": "gemini-3.8-flash",
         "summary": "Claire combines SQLite FTS5 keyword search with Gemini Option B vector embeddings.",
         "detail": _clean_adoc_detail("Claire 아키텍처", "Claire는 *SQLite FTS5* 와 *Gemini 임베딩* 을 결합하여 검색 성능을 높인다."),
         "key_claims": ["Claire uses SQLite FTS5 and vector embeddings."],
@@ -197,6 +198,7 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     assert committed["extraction_status"] == "extracted"
     assert committed["extraction_origin"] == "agent_client"
     assert committed["oauth_client_id"] == oauth_client["client_id"]
+    assert committed["model"] == "gemini-3.8-flash"
     assert committed["entities_created"] == 2 and committed["relations_added"] == 1
 
     # 8. Post-commit queryability via kb="personal" and telemetry client_id attribution.
@@ -210,6 +212,8 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     _, doc_res = mcp_call(env.client, ro_tok, "doc_get", {"document_id": doc_id, "kb": env.alice.personal_kb_number})
     doc_view = _extract_mcp_json(doc_res)
     assert doc_view["id"] == doc_id and "Claire 아키텍처" in str(doc_view.get("detail") or doc_view.get("detail_html") or "")
+    assert doc_view["extraction_provider"] == "agent_client"
+    assert doc_view["extraction_model"] == "gemini-3.8-flash"
 
     from claire.store.telemetry import query_mcp_telemetry
 

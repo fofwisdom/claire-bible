@@ -69,7 +69,7 @@ def _setup_world(tmp_path: Path, *, provider: str = "mock") -> SimpleNamespace:
     return SimpleNamespace(settings=settings, admin_kb=admin_kb, alice=alice, alice_kb=alice_kb, shared_kb=shared_kb)
 
 
-def _valid_payload(*, entities: list[dict] | None = None, relations: list[dict] | None = None, summary: str = "OpenAI가 추론 모델 아키텍처와 구조화 출력 기능을 공개했다.", detail: str | None = None, key_claims: list[str] | None = None, evidence: list[dict] | None = None) -> dict:
+def _valid_payload(*, entities: list[dict] | None = None, relations: list[dict] | None = None, summary: str = "OpenAI가 추론 모델 아키텍처와 구조화 출력 기능을 공개했다.", detail: str | None = None, key_claims: list[str] | None = None, evidence: list[dict] | None = None, model: str | None = None) -> dict:
     adoc = detail if detail is not None else ("= 추론 모델 분석\n\n== 핵심 구조\n\nOpenAI는 *추론 파이프라인* 과 _구조화 출력_ 을 공개했다.\n\n[quote, OpenAI]\n____\nReasoning and structured output pipeline.\n____\n\n'''\n\n참고 링크: https://openai.com[공식 문서]\n")
     default_entities = entities if entities is not None else [
         {"name": "OpenAI", "type": "Org", "aliases": [], "observations": ["Published reasoning architecture"]},
@@ -88,6 +88,8 @@ def _valid_payload(*, entities: list[dict] | None = None, relations: list[dict] 
     }
     if evidence is not None:
         body["evidence"] = evidence
+    if model is not None:
+        body["model"] = model
     return body
 
 
@@ -658,3 +660,77 @@ def test_http_stage_route_rejects_non_bool_full_content(tmp_path: Path) -> None:
         for bad_val in ("false", "true", 1, 0, None):
             resp = client.post("/api/client-extraction/stage", json={"text": "Sample text", "full_content": bad_val}, headers=headers)
             assert resp.status_code == 400 and resp.json()["error"] == "invalid_full_content"
+
+
+def test_client_extraction_model_recording_validation_and_legacy_oauth_client_id_cleanup(tmp_path: Path) -> None:
+    world = _setup_world(tmp_path)
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        staged_a = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="OpenAI developed ReasoningEngine.", title="Model Named Doc", settings=world.settings)
+        doc_a = staged_a["document_id"]
+        claim_a = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_a, client_id="claire_mcp_xHAtun76dzIxa-ZI")
+
+        staged_b = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="OpenAI built ReasoningEngine for structured outputs.", title="Model Omitted Doc", settings=world.settings)
+        doc_b = staged_b["document_id"]
+        claim_b = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_b, client_id="claire_mcp_xHAtun76dzIxa-ZI")
+
+        staged_c = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="Legacy doc text.", title="Legacy OAuth Model Doc", settings=world.settings)
+        doc_c = staged_c["document_id"]
+        dbm.log_extraction(conn, document_id=doc_c, provider="agent_client", model="claire_mcp_legacy123", prompt_version="agent-extract-v1", raw_response=json.dumps({"summary": "Legacy summary"}), kb_id=world.alice_kb.id)
+        assert dbm.latest_extraction_model(conn, doc_c, kb_id=world.alice_kb.id) == ("agent_client", None)
+    finally:
+        conn.close()
+
+    for bad_model in ("claire_mcp_bad", "line1\nline2", "x" * 129):
+        dry_bad = ce.submit_client_extraction(
+            world.settings.db_file,
+            kb_id=world.alice_kb.id,
+            account_id=world.alice.id,
+            document_id=doc_a,
+            claim_token=claim_a["claim_token"],
+            expected_content_hash=claim_a["content_hash"],
+            payload=_valid_payload(model=bad_model),
+            dry_run=True,
+            kb_settings=world.settings,
+            root_settings=world.settings,
+        )
+        assert dry_bad["ok"] is False
+        assert any(err["field"] == "model" and err["code"] == "model_invalid" for err in dry_bad["errors"])
+
+    res_a = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_a,
+        claim_token=claim_a["claim_token"],
+        expected_content_hash=claim_a["content_hash"],
+        payload=_valid_payload(model="gemini-3.8-flash"),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res_a["ok"] is True and res_a["committed"] is True and res_a["model"] == "gemini-3.8-flash"
+
+    res_b = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_b,
+        claim_token=claim_b["claim_token"],
+        expected_content_hash=claim_b["content_hash"],
+        payload=_valid_payload(),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res_b["ok"] is True and res_b["committed"] is True and res_b["model"] is None
+
+    check_conn = dbm.connect_existing(world.settings.db_file, readonly=True)
+    try:
+        row_a = check_conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_a, world.alice_kb.id)).fetchone()
+        assert (row_a["provider"], row_a["model"]) == ("agent_client", "gemini-3.8-flash")
+        assert dbm.latest_extraction_model(check_conn, doc_a, kb_id=world.alice_kb.id) == ("agent_client", "gemini-3.8-flash")
+
+        row_b = check_conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (doc_b, world.alice_kb.id)).fetchone()
+        assert (row_b["provider"], row_b["model"]) == ("agent_client", "")
+        assert dbm.latest_extraction_model(check_conn, doc_b, kb_id=world.alice_kb.id) == ("agent_client", None)
+    finally:
+        check_conn.close()

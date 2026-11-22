@@ -28,7 +28,8 @@ Follow all four defense layers below whenever working with the Claire Bible MCP 
 Call `extract_spec()` before extraction and satisfy all deterministic checks enforced by `extract_submit`:
 
 1. **Strict Schema (`ConfigDict(extra="forbid", strict=True)`)**:
-   - Required payload fields: `schema_version` (`"agent-extract-v1"`), `summary`, and `detail` (plus `key_claims`, `entities`, `relations`, and optional `evidence`, `focus`, `lang`).
+   - Required payload fields: `schema_version` (`"agent-extract-v1"`), `summary`, and `detail` (plus `key_claims`, `entities`, `relations`, and optional `model`, `evidence`, `focus`, `lang`).
+   - Record only the exact processing LLM model name in `model` as plain text (for example `gemini-3.8-flash`), never an OAuth `client_id`; omit `model` if unknown.
    - Output only schema-defined fields and grounded facts. Any `evidence` span (`quote`, `start`, `end`) must match `raw_text` and character offsets.
 2. **Summary Rules (`summary`)**:
    - Write 1 to 3 factual sentences in Korean formal declarative written style (`문어체`: `~한다`, `~이다`, `~함`).

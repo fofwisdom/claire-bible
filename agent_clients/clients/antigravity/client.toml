@@ -22,3 +22,4 @@ tool_prefix = ""
 handoff_mode = "direct_subagent"
 guard_mode = "rules"
 supports_allowed_tools = false
+extractor_mcp_mode = "inherit_mcp"
