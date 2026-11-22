@@ -36,8 +36,8 @@ These items come from a comparison of the code and the first version on 2026-10-
 | ID | Proposal | Status |
 | :--- | :--- | :--- |
 | MP1 | Record the credential of each tool call (`oauth:<id>`, `api:<id>`, or `env:*` channel) in `mcp_telemetry.client_id`, and keep a last-use time for OAuth tokens. | **Partially implemented** (`mcp_telemetry.client_id` attribution on tool calls and HTTP `/mcp` requests in `mcp_tools.py`/`server.py`; OAuth `last_used_at` remains open) |
-| MP2 | A revoke endpoint for OAuth tokens (RFC 7009), and a list and revoke view of OAuth connections for the owner. | **Implemented** (`/oauth/revoke`, `/api/me/oauth/grants`, `/settings/mcp`) |
+| MP2 | A revoke endpoint for OAuth tokens (RFC 7009), and a list and revoke view of OAuth connections for the owner. | **Implemented** (`/oauth/revoke`, `/api/me/oauth/grants`, `/account/mcp`) |
 | MP3 | A call limit for each credential, with 429 and `Retry-After`. | **Open** |
-| MP4 | Correct client configuration examples for a remote HTTP MCP server, also in the output of the CLI token command. | **Implemented** (Option A global `claire` HTTP config in `/settings/mcp` and `agent_clients/`; manual token creation deprecated) |
+| MP4 | Correct client configuration examples for a remote HTTP MCP server, also in the output of the CLI token command. | **Implemented** (Option A global `claire` HTTP config in `/account/mcp` and `agent_clients/`; manual token creation deprecated) |
 
 The first version also proposed syndication tools with their own scopes. The syndication design that they depended on is retired (2026-11-16). A later scope model for write tools must follow the credential scopes of [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (CT17).

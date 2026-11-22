@@ -429,7 +429,7 @@ def _render_admin_accounts_html(
     invites_link_section = console_card(
         escape(t("console.admin.accounts.invites.title")),
         console_actions(
-            f'<a class="pref-btn pref-btn-accent" href="/settings/invites">{escape(t("console.admin.accounts.invites.open_settings"))}</a>'
+            f'<a class="pref-btn pref-btn-accent" href="/account/invites">{escape(t("console.admin.accounts.invites.open_settings"))}</a>'
             f'<a class="pref-btn" href="/admin/server#server-invites-policy">{escape(t("console.admin.accounts.invites.open_server_policy"))}</a>'
         ),
         id="admin-invites-section",

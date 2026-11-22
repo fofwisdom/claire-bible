@@ -24,7 +24,7 @@
       { id: "home", href: "/", label: t("kb.pub.nav_home") },
       { id: "themes", href: "/themes", label: t("kb.pub.nav_themes") },
       { id: "kb", href: "/kb", label: t("kb.pub.nav_kbs") },
-      { id: "accounts", href: "/accounts", label: t("kb.pub.nav_accounts") }
+      { id: "accounts", href: "/directory", label: t("kb.pub.nav_accounts") }
     ];
     return '<nav class="claire-pubnav" aria-label="' + esc(t("kb.pub.nav_label")) + '">' + links.map(function (it) {
       return '<a href="' + esc(it.href) + '"' + (it.id === current ? ' aria-current="page"' : "") + ">" + esc(it.label) + "</a>";

@@ -26,7 +26,7 @@
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
-| `GET` | `/tokens` | `owner` | [Deprecated, `AE3`] 발급된 레거시 상시 토큰 목록 조회 (마스킹, `Deprecation: true` · `Link: </settings/mcp>; rel="successor-version"` 헤더) |
+| `GET` | `/tokens` | `owner` | [Deprecated, `AE3`] 발급된 레거시 상시 토큰 목록 조회 (마스킹, `Deprecation: true` · `Link: </account/mcp>; rel="successor-version"` 헤더) |
 | `POST` | `/tokens` | `owner` | [Deprecated, `AE3`] 신규 레거시 상시 토큰 생성 (`CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `retired: true` 시 `410 manual_tokens_retired`) |
 | `POST` | `/tokens/revoke` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
 | `DELETE` | `/tokens` | `owner` | [Deprecated, `AE3`] API 및 MCP 상시 토큰 즉시 폐기 |
@@ -50,7 +50,7 @@
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/setup` | `owner` (+ 관리자·설정 전·세션 채널) | 200 HTML | 조건 밖 404 |
-| `POST` | `/setup` | 위와 같음 | 303 `/` + 새 세션 쿠키. 비밀번호 저장만 실패하면 303 `/settings/account?notice=password_not_saved` | 400 입력 거부(HTML), 404 조건 밖·동시 확정 패배, 403 쿠키 POST의 origin 불일치 |
+| `POST` | `/setup` | 위와 같음 | 303 `/` + 새 세션 쿠키. 비밀번호 저장만 실패하면 303 `/account/security?notice=password_not_saved` | 400 입력 거부(HTML), 404 조건 밖·동시 확정 패배, 403 쿠키 POST의 origin 불일치 |
 | `GET` | `/login` | `public` | 200 HTML | — |
 | `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
 | `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |
@@ -59,7 +59,7 @@
 | `GET` | `/admin/accounts` | `admin` | 200 HTML (통합 콘솔, §2.2) | 404 |
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET`/`HEAD` | `/api/admin/accounts/signup-trace` | `admin` | 200 `{"summary", "roots", "accounts"}` (`Cache-Control: no-store`) | 404 |
-| `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
+| `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/account/profile` (쿼리를 넘기지 않음) | 404 |
 | `GET` | `/api/me` | `owner` | 200 계정 정보 (`extraction_mode` 포함) | 404 |
 | `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`), `personal_source_public`(`true`·`false`), `extraction_mode`(`provider`·`client`) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language`, 400 `invalid_personal_source_public`, 400 `invalid_extraction_mode` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
@@ -71,14 +71,14 @@
 - **[코드]** 재인증 비밀번호가 틀리면 403 `invalid_password`, 계정에 비밀번호가 없으면 409 `password_not_set`.
 - **[코드]** JSON 본문은 §1.3대로 `application/json`이어야 한다. 본문 키가 정해진 집합과 다르면 모르는 키를 버리지 않고 400 `invalid_request`다.
 
-### 2.2 통합 콘솔 경로 (`/admin/*`, `/settings/*`, `/moderation/*`)
+### 2.2 통합 콘솔 경로 (`/admin/*`, `/account/*`, `/settings/*`, `/moderation/*`)
 
-확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05), 섹션 목록과 §2.3은 기준 커밋 `d15ae8e0` (2026-11-16), `/moderation/*` 경로 분리는 2026-11-21 작업 트리 기준. 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 서버 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
+확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05), 섹션 목록과 §2.3은 기준 커밋 `d15ae8e0` (2026-11-16), `/moderation/*` 경로 분리는 2026-11-21 작업 트리 기준, `/account/*` 경로 분리와 `/admin/webmcp`는 2026-11-22 작업 트리 기준. 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 서버 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?kb=` |
-| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
+| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,tokens,backups,storage,mcp,webmcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
 | `GET` | `/admin/kb`, `/admin/themes` | `admin` | 호환 308: `/admin/kb` → `/moderation/oversight`, `/admin/themes` → `/moderation/themes` (검증한 `?kb=` 유지) | 404 비관리자(308보다 먼저), 404 잘못된 `?kb=` |
 | `GET` | `/api/admin/server` | `admin` | 200 `{"mode", "readiness", "network_mode_available", "legacy_host_policy", "legacy_hosts", "member_invites_enabled"}` | 404 비관리자 |
 | `POST` | `/api/admin/server/invites` | `admin` | 본문 `{"member_invites_enabled": bool}` -> 200 `{"member_invites_enabled": bool}` (`Cache-Control: no-store`, `admin_audit` `server.invites.update`, same-origin + 단계 인증) | 400 `invalid_request`·`invalid_member_invites_enabled`; 401 `reauth_required`; 403 `step_up_requires_session`·`forbidden`; 404 비관리자 |
@@ -91,17 +91,21 @@
 | `GET` | `/moderation/kb/{kb_number}` | `owner` | 200 HTML (특정 공유 KB 검토·중재 콘솔) | 404 owner 아님, 404 개인 KB·없는 번호·잘못된 `?kb=` |
 | `GET` | `/moderation/oversight` | `admin` | 200 HTML (`#admin-kb-host`, 관리자 공유 KB 감독 콘솔) | 404 비관리자·익명, 404 잘못된 `?kb=` |
 | `GET` | `/moderation/themes` | `admin` | 200 HTML (`#admin-themes-host`, 관리자 테마 판정·조정·결정 일치도·평판 콘솔) | 404 비관리자·익명, 404 잘못된 `?kb=` |
-| `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
-| `GET` | `/settings/{account,telegram,bundles,backups,federation,keys,kb,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/tokens`는 302 `/admin/tokens`. `/settings/kb`는 개인 KB·제출·자동 규칙·본인 평판·멤버십·상호 협업 콘솔 | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/account` | `owner` | 302 `/account/profile` | 404 owner 아님 |
+| `GET` | `/account/{profile,security,invites,federation,telegram,notifications,bundles,backups,providers,tokens}` | `owner` | 200 HTML (본인 계정 화면). 관리자의 `/account/tokens`는 302 `/admin/tokens` | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/account/{mcp,webmcp}` | `owner` | 200 HTML (본인 계정 화면, 선택 테마의 예시·노출 설정) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/settings/{account,keys,invites,federation,telegram,notifications,bundles,backups,mcp,webmcp,tokens}` | `owner` | 호환 308: `/settings/account` → `/account/profile`, `/settings/keys` → `/account/providers`, 그 밖은 `/account/<같은 이름>` (쿼리 유지) | 404 owner 아님(308보다 먼저) |
+| `GET` | `/settings` | `owner` | 302 `/settings/reader` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/settings/kb` | `owner` | 200 HTML. 개인 KB·제출·자동 규칙·본인 평판·멤버십·상호 협업 콘솔 | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/themes` | `owner` | 호환 308: 관리자는 `/moderation/themes` (검증한 `?kb=` 유지), 그 외 owner 계정은 `/settings/kb` | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/kb/manage` | `owner` | 호환 308 → `/moderation/kb` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/kb/{kb_number}` | `owner` | 호환 308 → `/moderation/kb/{kb_number}` (검증한 `?kb=` 유지) | 404 owner 아님, 404 개인 KB·없는 번호·잘못된 `?kb=` |
-| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?kb=` |
-| `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?kb=`, 404 빈·모르는 `?tab=` |
+| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*`·`/account/{mcp,webmcp}` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?kb=`, 404 빈·모르는 `?tab=` |
 
 - **[코드]** `?kb=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).
-- **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
-- **[코드]** 비관리자 응답 HTML(`/settings/*`, `/moderation/kb`)에는 `/admin/*`, `/moderation/oversight`, `/moderation/themes` 링크와 관리자 섹션 마크업, `console_admin.js`, `console.js.admin.*` 카탈로그 키가 없다. 이 경로들과 `GET /whoami`의 응답에는 `@username`이 없다. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): single mode serves the admin at `/@{username}/` (§2, single mode root).
+- **[코드]** `GET /account/security?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
+- **[코드]** 비관리자 응답 HTML(`/account/*`, `/settings/*`, `/moderation/kb`)에는 `/admin/*`, `/moderation/oversight`, `/moderation/themes` 링크와 관리자 섹션 마크업, `console_admin.js`, `console.js.admin.*` 카탈로그 키가 없다. 이 경로들과 `GET /whoami`의 응답에는 `@username`이 없다. Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): single mode serves the admin at `/@{username}/` (§2, single mode root).
 - **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.
 
 ### 2.3 계정별 기능 경로 (텔레그램 봇, 번들, 백업)
@@ -256,7 +260,7 @@ Basis: units KF1 and KF2 (2026-11-17). The behaviour is in [KNOWLEDGE_FEDERATION
 | `DELETE` | `/api/admin/federation/known-servers` | Body `{"domain": "<host name>"}` (one key). 200 `{"removed": true, "domain", "deleted": {"knowledge_bases", "listed_documents", "followers", "outbox_tasks", "journal_payloads"}}` and `admin_audit` `federation.known_server_remove` with the counts. What is deleted and what stays: [KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) §14 | 400 `invalid_request`, `invalid_domain`; 401; 403; 404 `known_server_not_found` |
 | `GET` | `/api/admin/federation/journal` | `?status=received\|processed\|failed\|refused`, `?limit=` (1 to 200, default 50), `?max_id=` (the rows with a smaller ID). 200 `{"entries": [{"id", "activity_iri", "activity_type", "kind", "actor", "actor_domain", "recipient", "verified_by", "status", "error_code", "error_detail", "attempts", "received_at", "processed_at", "replayable"}], "next_max_id": <int> \| null}`, newest first; times are ISO 8601 in UTC | 400 `invalid_status` (with `states`), `invalid_limit`, `invalid_max_id`; 404 |
 | `GET` | `/api/admin/federation/journal/{id}` | 200 `{"entry": {..., "payload": <the activity as it came>}}` | 404 `journal_entry_not_found` |
-| `GET` | `/accounts` (`public`, both modes; 2026-11-19) | The public account directory: the collection contract (`page`, `max_id`, `min_id`, `since_id`, `limit`), or the HTML page for a browser ([ACCOUNTS.md](ACCOUNTS.md) §5.11). The root page of network mode has the recent activity across servers in a JSON element ([KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) §11.6). The old routes `/explore/accounts` and `/explore/federation` are removed, and no public route has the list of the federated servers | 404 for the old routes |
+| `GET` | `/directory` (`public`, both modes; 2026-11-19; the path was `/accounts` until 2026-11-22, and `/accounts` answers with 308 to `/directory` with the same query) | The public account directory: the collection contract (`page`, `max_id`, `min_id`, `since_id`, `limit`), or the HTML page for a browser ([ACCOUNTS.md](ACCOUNTS.md) §5.11). The root page of network mode has the recent activity across servers in a JSON element ([KNOWLEDGE_FEDERATION.md](KNOWLEDGE_FEDERATION.md) §11.6). The old routes `/explore/accounts` and `/explore/federation` are removed, and no public route has the list of the federated servers | 404 for the old routes |
 | `GET` | `/api/kb/similar` (`read`; KF2) | `?knowledge_type=real\|fictional` (necessary), `?label=`, `?seed=` (at most 20). 200 `{"matched": <bool>, "knowledge_bases": [{"remote", "server", "number", "label", "description", "knowledge_type", "url", "score"}]}`, at most 12 items: the shared knowledge bases of this server and of other servers near the subject. Without text: the ones of the type, this server first, `matched` false, `score` null | 400 `knowledge_type_required`, `invalid_knowledge_type`, `invalid_request` |
 | `POST` | `/api/admin/federation/journal/{id}/replay` | Body `{}`. 200 `{"entry": {...}}` with the new state, and `admin_audit` `federation.journal_replay` | 400 `invalid_request`; 401; 403; 404 `journal_entry_not_found`; 409 `journal_entry_not_replayable` (with `states`: `failed`, `received`) |
 

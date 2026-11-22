@@ -163,44 +163,58 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     finally:
         auth.close()
 
-    html = _get(env, "/settings/account", env.alice).text
+    # /account/profile: the data that other persons see, the languages, and the quota. The password, the identities, the export, and the deletion are on /account/security.
+    html = _get(env, "/account/profile", env.alice).text
     assert f"@{MEMBER_USERNAME}" in html
     assert 'data-account-field="profile_public"' in html
     assert 'data-settings-form="display-name"' in html
-    assert 'data-settings-form="password"' in html
-    assert 'data-settings-identities' in html
-    assert 'data-settings-form="bundle-export"' in html
+    assert 'id="settings-locale"' in html and 'id="settings-quota"' in html
+    for security_only in ('data-settings-form="password"', "data-settings-identities", 'data-settings-form="bundle-export"', "data-lifecycle=", 'data-account-field="password"', "settings-extraction-mode"):
+        assert security_only not in html, security_only
     assert '<script src="/static/js/console_account.js" defer></script>' in html
-    # 불변식 3: 비관리자 응답에는 /admin/* 링크와 관리자 번들이 없다.
-    assert "/admin/" not in html
-    assert "console_admin.js" not in html
     # 할당량: 호출자 자신의 사용량과 서버 등급 상한만 나온다.
     assert "1,234 / 5,000" in html
     assert "777,777" not in html
-    # 번들 내보내기 대상은 호출자 소유 테마뿐이다.
-    assert "Alice Garden" in html
-    assert "Bob Secret Lab" not in html
-    assert "Admin Vault" not in html
-    assert OTHER_USERNAME not in html
-    assert ADMIN_USERNAME not in html
-    assert 'data-lifecycle="member"' in html
     boot = _bootstrap(html)
-    assert boot["section"] == "account"
-    assert boot["settings_account"]["has_password"] is False
-    assert boot["settings_account"]["identity_providers"] == []
+    assert (boot["area"], boot["section"]) == ("account", "profile")
+    assert boot["settings_account"] == {"has_password": False}
+
+    security = _get(env, "/account/security", env.alice).text
+    assert 'data-settings-form="password"' in security and 'data-account-field="password"' in security
+    assert 'data-settings-identities' in security
+    assert 'data-settings-form="bundle-export"' in security
+    assert 'data-lifecycle="member"' in security
+    assert '<script src="/static/js/console_account.js" defer></script>' in security
+    for profile_only in ('data-account-field="profile_public"', 'data-settings-form="display-name"', 'id="settings-quota"'):
+        assert profile_only not in security, profile_only
+    # 번들 내보내기 대상은 호출자 소유 테마뿐이다.
+    assert "Alice Garden" in security
+    for page in (html, security):
+        # 불변식 3: 비관리자 응답에는 /admin/* 링크와 관리자 번들이 없다.
+        assert "/admin/" not in page
+        assert "console_admin.js" not in page
+        assert "Bob Secret Lab" not in page
+        assert "Admin Vault" not in page
+        assert OTHER_USERNAME not in page
+        assert ADMIN_USERNAME not in page
+    security_boot = _bootstrap(security)
+    assert (security_boot["area"], security_boot["section"]) == ("account", "security")
+    assert security_boot["settings_account"]["has_password"] is False
+    assert security_boot["settings_account"]["identity_providers"] == []
 
 
 def test_account_page_single_mode_admin_shows_username_and_profile_public(env):
     # Rule S9 is withdrawn and the account actor of the admin federates in single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 4 and 5).
     _set_mode(env.db_file, "single")
-    resp = _get(env, "/settings/account", env.admin)
+    resp = _get(env, "/account/profile", env.admin)
     html = resp.text
     assert f'<dd data-account-field="username">@{ADMIN_USERNAME}</dd>' in html
     assert 'data-account-field="profile_public"' in html
     assert 'data-settings-toggle="profile-public"' in html
-    assert 'data-lifecycle="admin"' in html
-    # "Admin Vault" is a shared knowledge base after version 28: the account page lists only the personal knowledge base of the account.
-    assert "Admin Vault" not in html
+    security = _get(env, "/account/security", env.admin).text
+    assert 'data-lifecycle="admin"' in security
+    # "Admin Vault" is a shared knowledge base after version 28: the security page lists only the personal knowledge base of the account.
+    assert "Admin Vault" not in html and "Admin Vault" not in security
 
 
 def test_account_page_lists_only_enabled_idp_providers_for_linking(env):
@@ -218,7 +232,7 @@ def test_account_page_lists_only_enabled_idp_providers_for_linking(env):
         ),
         encoding="utf-8",
     )
-    html = _get(env, "/settings/account", env.alice).text
+    html = _get(env, "/account/security", env.alice).text
     assert 'data-identity-link="corp-oidc"' in html
     assert "Corp SSO" in html
     assert "off-gh" not in html
@@ -233,7 +247,7 @@ def test_keys_page_network_member_is_write_only_and_shows_server_tier(env):
         meta = provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=KEY_CANARY, status="active")
     finally:
         auth.close()
-    html = _get(env, "/settings/keys", env.alice).text
+    html = _get(env, "/account/providers", env.alice).text
     assert 'data-keys-mode="byok"' in html
     assert 'data-settings-form="provider-key-put"' in html
     assert 'data-settings-form="provider-key-verify"' in html
@@ -249,7 +263,7 @@ def test_keys_page_network_member_is_write_only_and_shows_server_tier(env):
 @pytest.mark.parametrize("mode", ["single", "network"])
 def test_keys_page_admin_gets_personal_key_forms_and_provider_settings_link(env, mode: str):
     _set_mode(env.db_file, mode)
-    html = _get(env, "/settings/keys", env.admin).text
+    html = _get(env, "/account/providers", env.admin).text
     assert 'data-keys-mode="byok"' in html and _bootstrap(html)["settings_account"]["keys_mode"] == "byok"
     assert 'href="/admin/providers"' in html and "data-keys-server-providers" in html
     for form in ("provider-key-put", "provider-key-verify", "provider-key-delete"):
@@ -262,7 +276,7 @@ def test_keys_page_admin_gets_personal_key_forms_and_provider_settings_link(env,
 
 def test_keys_page_single_mode_member_gets_neutral_notice_without_admin_link(env):
     _set_mode(env.db_file, "single")
-    html = _get(env, "/settings/keys", env.alice).text
+    html = _get(env, "/account/providers", env.alice).text
     assert 'data-keys-mode="unavailable"' in html
     assert 'data-settings-form="provider-key-put"' not in html
     assert "/admin/" not in html
@@ -282,7 +296,7 @@ def test_tokens_page_lists_only_callers_own_oauth_clients(env):
     finally:
         conn.close()
 
-    html = _get(env, "/settings/tokens", env.alice).text
+    html = _get(env, "/account/tokens", env.alice).text
     assert 'id="settings-tokens-host"' in html
     assert "Alice Desktop Agent" in html
     assert "cli-alice" in html
@@ -318,9 +332,9 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
 
 def test_admin_theme_and_token_settings_still_redirect(env):
     _set_mode(env.db_file, "network")
-    # The retired page ``/settings/themes`` is an old web link: 308 to ``/moderation/themes``. ``/settings/tokens`` is a section that the admin has in ``/admin``: 302.
+    # The retired page ``/settings/themes`` is an old web link: 308 to ``/moderation/themes``. ``/account/tokens`` is a section that the admin has in ``/admin``: 302.
     for slug, status, target in (("themes", 308, "/moderation/themes"), ("tokens", 302, "/admin/tokens")):
-        resp = env.client.get(f"/settings/{slug}", headers=env.admin, follow_redirects=False)
+        resp = env.client.get(f"/{'settings' if slug == 'themes' else 'account'}/{slug}", headers=env.admin, follow_redirects=False)
         assert resp.status_code == status
         assert resp.headers["location"] == target
 
@@ -368,48 +382,42 @@ def test_moderation_routes_and_legacy_redirects(env):
         assert (redir.status_code, redir.headers["location"]) == (308, target)
 
 
-def test_account_and_keys_pages_render_extraction_mode_controls_and_guides(env):
-    _set_mode(env.db_file, "network")
-    account_html = _get(env, "/settings/account", env.alice).text
-    assert 'id="settings-extraction-mode"' in account_html
-    assert 'id="pref-account-extraction-mode"' in account_html
-    assert 'data-settings-extraction-mode' in account_html
-    assert 'data-account-field="extraction_mode"' in account_html
-    assert '<option value="provider" selected>' in account_html
-    assert '<option value="client">' in account_html
-    assert 'data-extraction-client-guide hidden' in account_html
-    assert 'href="/settings/mcp#pref-mcp-agent-guide"' in account_html
-    assert "/admin/" not in account_html
-
+def test_providers_page_renders_the_extraction_mode_control_in_both_modes(env):
+    """The extraction mode control is on ``/account/providers`` (not on the profile page), also for a member in single mode who cannot register a key."""
     for server_mode in ("network", "single"):
         _set_mode(env.db_file, server_mode)
-        keys_html = _get(env, "/settings/keys", env.alice).text
-        assert 'id="settings-keys-extraction-guide"' in keys_html
-        assert 'data-extraction-mode="provider"' in keys_html
-        assert 'href="/settings/account#settings-extraction-mode"' in keys_html
-        assert 'href="/settings/mcp#pref-mcp-agent-guide"' in keys_html
-        assert "/admin/" not in keys_html
-        assert ADMIN_USERNAME not in keys_html
+        providers_html = _get(env, "/account/providers", env.alice).text
+        assert 'id="settings-extraction-mode"' in providers_html
+        assert 'id="pref-account-extraction-mode"' in providers_html
+        assert 'data-settings-extraction-mode' in providers_html
+        assert 'data-extraction-mode="provider"' in providers_html
+        assert '<option value="provider" selected>' in providers_html
+        assert '<option value="client">' in providers_html
+        assert 'data-extraction-client-guide hidden' in providers_html
+        assert 'href="/account/mcp#pref-mcp-agent-guide"' in providers_html
+        assert "/admin/" not in providers_html
+        assert ADMIN_USERNAME not in providers_html
         if server_mode == "single":
-            assert MEMBER_USERNAME not in keys_html
+            assert MEMBER_USERNAME not in providers_html
+        assert _bootstrap(providers_html)["section"] == "providers"
+    assert "settings-extraction-mode" not in _get(env, "/account/profile", env.alice).text
 
 
-def test_e2e_extraction_mode_patch_updates_account_keys_and_mcp_guides(env):
+def test_e2e_extraction_mode_patch_updates_the_providers_page_and_the_mcp_guide(env):
     _set_mode(env.db_file, "network")
     patch_resp = env.client.patch("/api/me", headers=env.alice, json={"extraction_mode": "client"})
     assert patch_resp.status_code == 200
     assert patch_resp.json()["extraction_mode"] == "client"
 
-    account_html = _get(env, "/settings/account", env.alice).text
-    assert '<option value="client" selected>' in account_html
-    assert 'data-extraction-client-guide style=' in account_html
-    assert 'data-extraction-client-guide hidden' not in account_html
+    providers_html = _get(env, "/account/providers", env.alice).text
+    assert '<option value="client" selected>' in providers_html
+    assert 'id="settings-extraction-mode" aria-label="Extraction mode" data-extraction-mode="client"' in providers_html
+    assert 'data-extraction-client-guide style=' in providers_html
+    assert 'data-extraction-client-guide hidden' not in providers_html
+    assert "/admin/" not in providers_html
 
-    keys_html = _get(env, "/settings/keys", env.alice).text
-    assert 'id="settings-keys-extraction-guide" data-extraction-mode="client"' in keys_html
-    assert "/admin/" not in keys_html
-
-    mcp_html = _get(env, "/settings/mcp", env.alice).text
+    mcp_html = _get(env, "/account/mcp", env.alice).text
     assert 'id="pref-mcp-agent-guide" data-extraction-mode="client"' in mcp_html
     assert '<code id="pref-mcp-extraction-mode" class="pref-mono">client</code>' in mcp_html
+    assert 'href="/account/providers#settings-extraction-mode"' in mcp_html
     assert "/admin/" not in mcp_html

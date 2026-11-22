@@ -42,7 +42,7 @@ def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
         "is_admin": admin,
         "scope": principal.scope,
         "home_href": home_href,
-        "console_href": "/admin" if admin else "/settings",
+        "console_href": "/admin" if admin else "/account",
         "mode": mode,
     }
 
@@ -81,7 +81,7 @@ def render_public_kb_page(
         synd_hidden=not caller["is_authenticated"],
         moderation_href="/moderation" if caller["is_authenticated"] else "",
         moderation_hidden=not caller["is_authenticated"],
-        console_href=caller["console_href"] if caller["is_authenticated"] else "/settings",
+        console_href=caller["console_href"] if caller["is_authenticated"] else "/account",
         console_icon="wrench" if caller["is_admin"] else "settings",
         console_hidden=not caller["is_authenticated"],
         show_logout=caller["is_authenticated"],

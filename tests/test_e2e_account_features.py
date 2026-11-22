@@ -152,10 +152,10 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
 
     # 1. 설정 화면: 세 기능 화면이 내 계정 사이드바에 있고, 관리자 화면 링크는 없다.
     for slug in ("telegram", "bundles", "backups"):
-        page = _call(env, "GET", f"/settings/{slug}", alice)
+        page = _call(env, "GET", f"/account/{slug}", alice)
         assert page.status_code == 200 and f'data-feature-section="{slug}"' in page.text
         for other in ("telegram", "bundles", "backups"):
-            assert f'href="/settings/{other}"' in page.text
+            assert f'href="/account/{other}"' in page.text
         assert "/admin/" not in page.text
     assert _call(env, "GET", "/admin/backups", alice).status_code == 404
 
@@ -166,7 +166,7 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     asyncio.run(supervisor.sync())
     assert set(supervisor.running) == {("account", env.member)}
     assert supervisor.running[("account", env.member)].profile.allowed_user_ids == (555001,)
-    page = _call(env, "GET", "/settings/telegram", alice).text
+    page = _call(env, "GET", "/account/telegram", alice).text
     assert "@alice_notes_bot" in page and "Running" in page and BOT_TOKEN not in page
     assert _call(env, "PATCH", "/api/me/telegram", alice, json={"enabled": False}).status_code == 200
     asyncio.run(supervisor.sync())

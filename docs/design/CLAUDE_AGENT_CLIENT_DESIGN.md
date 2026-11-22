@@ -20,7 +20,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 `AED8` keeps Claude as a supported `agent_client`. The marketplace publishes a Claude plugin, and Claude Code can add the marketplace. After that, the user gets no working function:
 
 1. The plugin calls `mcp__claire__*` tools. The setup text registers the server in a scope that is only the current folder, or as a claude.ai connector whose tools have a different name. In both cases the skills and the extractor find no tools.
-2. `/settings/mcp` gives Antigravity a setup prompt, a guide link, and a configuration file. It gives Claude one sentence and the `owner/repo` text.
+2. `/account/mcp` gives Antigravity a setup prompt, a guide link, and a configuration file. It gives Claude one sentence and the `owner/repo` text.
 3. The Claude bundle has no rules file. Layer 1 of the defense (no raw source in the top-level agent) depends only on text in the skills.
 
 This design makes the Claude target work from zero to the first committed extraction, with the same four defense layers as Antigravity.
@@ -57,9 +57,9 @@ This design makes the Claude target work from zero to the first committed extrac
 
 Goals:
 
-1. **G1**: A Claude Code user copies one command block from `/settings/mcp`, signs in one time in the browser, and runs `/claire:ingest <url>` to a committed extraction.
+1. **G1**: A Claude Code user copies one command block from `/account/mcp`, signs in one time in the browser, and runs `/claire:ingest <url>` to a committed extraction.
 2. **G2**: The four defense layers hold. A deterministic check enforces Layer 1, not only text.
-3. **G3**: `/settings/mcp` gives Claude the same level of help as Antigravity.
+3. **G3**: `/account/mcp` gives Claude the same level of help as Antigravity.
 4. **G4**: The bundle stays declarative. The build accepts no file of code. The only executable item is one fixed guard line that the build writes itself (CD1).
 
 Non-goals:
@@ -142,7 +142,7 @@ This is code that runs on the computer of the user. Owner decision CD1 permits i
 
 ### CL4. One setup block
 
-`/settings/mcp` and the guides show this block. The page fills in the server URL:
+`/account/mcp` and the guides show this block. The page fills in the server URL:
 
 ```bash
 claude plugin install claire --marketplace fofwisdom/claire-agents
@@ -157,12 +157,12 @@ The first line needs only the repository, so it is also correct for a fork (T18)
 The guides `docs/claude.{ko,en}.md` follow the pattern of the Antigravity guide. A user needs no terminal:
 
 1. **Plugin, mouse clicks only**: Code mode of the Claude desktop app, "플러그인" -> "추가" -> "마켓플레이스 추가" -> `fofwisdom/claire-agents` -> "동기화" -> "이 컴퓨터에 추가" (T16).
-2. **Server, one pasted prompt**: the user copies the Claude quick setup prompt from `/settings/mcp` and pastes it into a new conversation. Claude runs the CL4 block. The prompt tells Claude to continue when a step is already done, to stop when the `claude` command is not found, and to change no other setting.
+2. **Server, one pasted prompt**: the user copies the Claude quick setup prompt from `/account/mcp` and pastes it into a new conversation. Claude runs the CL4 block. The prompt tells Claude to continue when a step is already done, to stop when the `claude` command is not found, and to change no other setting.
 3. **Check**: `/claire:query` shows the list of knowledge bases.
 
 The guide has a table of surfaces, a troubleshooting table, and a collapsed part for terminal users. Limits: the English labels of the desktop app are translations of the Korean labels of the screenshots, and the availability of the `claude` command in a desktop conversation is not measured [unverified]. The troubleshooting table covers the case that the command is not found.
 
-### CL5. `/settings/mcp` for Claude
+### CL5. `/account/mcp` for Claude
 
 In the card `#pref-mcp-client-bundles`, add rows for Claude with the same pattern as Antigravity:
 
@@ -248,7 +248,7 @@ Optional [proposal]: run `claude plugin validate` in the marketplace check workf
 | CL0 | Guide for users without IT knowledge (`docs/claude.{ko,en}.md`) | Implemented |
 | CL1, CL2, CL8 | Bundle, guard, version, build gates (Section 7), unit tests | Implemented |
 | CL3, CL4, CL7 | Setup block, plugin README, `MCP_SUPPORT.md` correction | Implemented |
-| CL5 | `/settings/mcp` rows, catalog keys, E2E test | Implemented |
+| CL5 | `/account/mcp` rows, catalog keys, E2E test | Implemented |
 | CL6 | Consent checkbox, smaller token scope (CD2), unit test and E2E test | Implemented |
 | CL9 | Upload link tool (CD4) | Open |
 | CL10 | Plugin support in Cowork and claude.ai (CD3) | No design. It needs the observations of Section 10.1. |

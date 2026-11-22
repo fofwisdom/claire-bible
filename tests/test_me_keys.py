@@ -1,4 +1,4 @@
-"""``/api/me/keys`` 쓰기 전용 계정 API 키 (설계 §11, §13.3 ``account_provider_keys``, P4 L4-b).
+"""``/api/me/provider-keys`` 쓰기 전용 계정 API 키 (설계 §11, §13.3 ``account_provider_keys``, P4 L4-b).
 
 - 멤버는 네트워크 모드에서만 쓴다(싱글 모드 404). 서버 관리자는 두 모드에서 개인 키를 쓴다. 익명 404.
 - 응답·헤더·로그 어디에도 카나리아 키가 없다. 시험 호출(``verify_key``)은 monkeypatch한다(외부 호출 없음).
@@ -192,7 +192,7 @@ def env(settings: _Settings):
 
 
 def _put(client: _Client, session: str, api_key: str, provider: str = "gemini"):
-    return client.request("PUT", "/api/me/keys", session=session, json={"provider": provider, "api_key": api_key})
+    return client.request("PUT", "/api/me/provider-keys", session=session, json={"provider": provider, "api_key": api_key})
 
 
 def _rows(settings: _Settings) -> list[dict[str, Any]]:
@@ -213,13 +213,13 @@ def test_single_mode_hides_member_key_routes_and_keeps_admin_routes(settings: _S
     with TestClient(app, base_url=PUBLIC_URL) as tc:
         client = _Client(tc)
         sess = _session(settings, member)
-        assert client.request("GET", "/api/me/keys", session=sess).status_code == 404
+        assert client.request("GET", "/api/me/provider-keys", session=sess).status_code == 404
         assert _put(client, sess, CANARY).status_code == 404
-        assert client.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"}).status_code == 404
-        assert client.request("DELETE", "/api/me/keys", session=sess).status_code == 404
+        assert client.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"}).status_code == 404
+        assert client.request("DELETE", "/api/me/provider-keys", session=sess).status_code == 404
         legacy = client.request("GET", "/me", session=_session(settings, member))
-        assert legacy.status_code == 302 and legacy.headers["location"] == "/settings/account"
-        page = client.request("GET", "/settings/keys", session=_session(settings, member))
+        assert legacy.status_code == 302 and legacy.headers["location"] == "/account/profile"
+        page = client.request("GET", "/account/providers", session=_session(settings, member))
         assert page.status_code == 200 and 'data-keys-mode="unavailable"' in page.text
         assert "My API keys" not in page.text and "/admin/" not in page.text
         assert verify_calls == []
@@ -228,8 +228,8 @@ def test_single_mode_hides_member_key_routes_and_keeps_admin_routes(settings: _S
         admin = _session(settings, 1)
         r = _put(client, admin, CANARY)
         assert r.status_code == 200, r.text
-        assert client.request("GET", "/api/me/keys", session=admin).json() == {"keys": [r.json()["key"]]}
-        admin_page = client.request("GET", "/settings/keys", session=admin)
+        assert client.request("GET", "/api/me/provider-keys", session=admin).json() == {"keys": [r.json()["key"]]}
+        admin_page = client.request("GET", "/account/providers", session=admin)
         assert 'data-keys-mode="byok"' in admin_page.text and 'href="/admin/providers"' in admin_page.text
         client.assert_never_leaked(CANARY)
     assert [row["account_id"] for row in _rows(settings)] == [1]
@@ -238,34 +238,34 @@ def test_single_mode_hides_member_key_routes_and_keeps_admin_routes(settings: _S
 def test_admin_registers_personal_key_and_anonymous_gets_404(env, verify_calls):
     c = env.client
     admin = _session(env.settings, 1)
-    assert c.request("GET", "/api/me/keys", session=admin).json() == {"keys": []}
+    assert c.request("GET", "/api/me/provider-keys", session=admin).json() == {"keys": []}
     r = _put(c, admin, CANARY)
     assert r.status_code == 200, r.text
     meta = r.json()["key"]
     assert set(meta) == META_FIELDS and meta["status"] == "active"
     assert verify_calls == [("gemini", CANARY)]
-    policy = c.request("GET", "/api/me/keys?include_policy=1", session=admin).json()
+    policy = c.request("GET", "/api/me/provider-keys?include_policy=1", session=admin).json()
     assert policy["keys"] == [meta] and "admin_defaults" in policy["model_policy"]
-    admin_page = c.request("GET", "/settings/keys", session=admin)
+    admin_page = c.request("GET", "/account/providers", session=admin)
     assert admin_page.status_code == 200
     text = admin_page.text
     assert 'data-keys-mode="byok"' in text and 'href="/admin/providers"' in text and "data-keys-server-providers" in text
     assert "My API keys" in text and meta["fingerprint"] in text
     assert "it does not change to the server providers" in text
     assert "data-server-tier" not in text
-    v = c.request("POST", "/api/me/keys/verify", session=admin, json={"provider": "gemini"})
+    v = c.request("POST", "/api/me/provider-keys/verify", session=admin, json={"provider": "gemini"})
     assert v.status_code == 200 and v.json()["ok"] is True
-    assert c.request("DELETE", "/api/me/keys", session=admin).json() == {"ok": True, "deleted": 1}
+    assert c.request("DELETE", "/api/me/provider-keys", session=admin).json() == {"ok": True, "deleted": 1}
     assert _rows(env.settings) == []
     # 익명은 존재를 숨긴다(ROUTE_POLICY owner 경로의 fail-closed 404).
-    assert c.request("GET", "/api/me/keys").status_code == 404
-    assert c.request("PUT", "/api/me/keys", json={"provider": "gemini", "api_key": CANARY}).status_code == 404
-    assert c.request("POST", "/api/me/keys/verify", json={"provider": "gemini"}).status_code == 404
-    assert c.request("DELETE", "/api/me/keys").status_code == 404
+    assert c.request("GET", "/api/me/provider-keys").status_code == 404
+    assert c.request("PUT", "/api/me/provider-keys", json={"provider": "gemini", "api_key": CANARY}).status_code == 404
+    assert c.request("POST", "/api/me/provider-keys/verify", json={"provider": "gemini"}).status_code == 404
+    assert c.request("DELETE", "/api/me/provider-keys").status_code == 404
     # readonly 세션은 owner 경로에 닿지 않는다.
     for ro in (_session(env.settings, env.a, scope="readonly"), _session(env.settings, 1, scope="readonly")):
-        assert c.request("GET", "/api/me/keys", session=ro).status_code in {401, 403, 404}
-    assert c.request("GET", "/me", session=admin).headers["location"] == "/settings/account"
+        assert c.request("GET", "/api/me/provider-keys", session=ro).status_code in {401, 403, 404}
+    assert c.request("GET", "/me", session=admin).headers["location"] == "/account/profile"
     c.assert_never_leaked(CANARY)
 
 
@@ -277,7 +277,7 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
     c = env.client
     sess = _session(env.settings, env.a)
 
-    assert c.request("GET", "/api/me/keys", session=sess).json() == {"keys": []}
+    assert c.request("GET", "/api/me/provider-keys", session=sess).json() == {"keys": []}
     r = _put(c, sess, f"  {CANARY}  ")
     assert r.status_code == 200, r.text
     meta = r.json()["key"]
@@ -286,10 +286,10 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
     assert len(meta["fingerprint"]) == 8 and meta["last_verified_at"] is not None and meta["last_used_at"] is None
     assert verify_calls == [("gemini", CANARY)]  # 앞뒤 공백만 걷어 낸 값으로 시험한다
 
-    listed = c.request("GET", "/api/me/keys", session=sess)
+    listed = c.request("GET", "/api/me/provider-keys", session=sess)
     assert listed.status_code == 200 and listed.headers.get("cache-control") == "no-store"
     assert listed.json() == {"keys": [meta]}
-    assert c.request("HEAD", "/api/me/keys", session=sess).status_code == 200
+    assert c.request("HEAD", "/api/me/provider-keys", session=sess).status_code == 200
 
     # fingerprint는 용도별 파생 HMAC 앞 8자리이고 키의 어떤 부분 문자열도 아니다(D8).
     expected = SecretService(master_key=bytes.fromhex(TEST_MASTER_KEY_HEX)).compute_fingerprint(
@@ -300,15 +300,15 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
     row = _rows(env.settings)[0]
     assert row["account_id"] == env.a and CANARY.encode() not in bytes(row["ciphertext"])
 
-    page = c.request("GET", "/settings/keys", session=sess)
+    page = c.request("GET", "/account/providers", session=sess)
     assert page.status_code == 200
     assert "My API keys" in page.text and "root" in page.text and meta["fingerprint"] in page.text
     assert "it does not change to the server tier or to a different key" in page.text
 
     # 다시 검증과 삭제까지 거친 뒤 전체 응답·로그를 확인한다.
-    v = c.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"})
+    v = c.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"})
     assert v.status_code == 200 and v.json()["ok"] is True and set(v.json()["key"]) == META_FIELDS
-    assert c.request("DELETE", "/api/me/keys", session=sess).json() == {"ok": True, "deleted": 1}
+    assert c.request("DELETE", "/api/me/provider-keys", session=sess).json() == {"ok": True, "deleted": 1}
 
     c.assert_never_leaked(CANARY)
     assert CANARY not in caplog.text
@@ -327,7 +327,7 @@ def test_verify_failure_does_not_store_and_scrubs_message(env, verify_calls, cap
     assert body["error"] == "key_verification_failed"
     assert "[REDACTED]" in body["message"]
     assert _rows(env.settings) == []
-    assert c.request("GET", "/api/me/keys", session=sess).json() == {"keys": []}
+    assert c.request("GET", "/api/me/provider-keys", session=sess).json() == {"keys": []}
     c.assert_never_leaked(bad, CANARY)
     assert bad not in caplog.text
 
@@ -337,15 +337,15 @@ def test_input_validation(env, verify_calls):
     sess = _session(env.settings, env.a)
     assert _put(c, sess, CANARY, provider="openai").json()["error"] == "unsupported_provider"
     assert _put(c, sess, CANARY, provider="antigravity").status_code == 400
-    assert c.request("PUT", "/api/me/keys", session=sess, json={"provider": "gemini"}).status_code == 400
+    assert c.request("PUT", "/api/me/provider-keys", session=sess, json={"provider": "gemini"}).status_code == 400
     assert c.request(
-        "PUT", "/api/me/keys", session=sess, json={"provider": "gemini", "api_key": CANARY, "extra": 1}
+        "PUT", "/api/me/provider-keys", session=sess, json={"provider": "gemini", "api_key": CANARY, "extra": 1}
     ).status_code == 400
     for value in ("", "   ", "has space inside", "x" * 513, 12345):
-        r = c.request("PUT", "/api/me/keys", session=sess, json={"provider": "gemini", "api_key": value})
+        r = c.request("PUT", "/api/me/provider-keys", session=sess, json={"provider": "gemini", "api_key": value})
         assert r.status_code == 400, value
-    assert c.request("POST", "/api/me/keys/verify", session=sess, json={}).status_code == 400
-    assert c.request("DELETE", "/api/me/keys?provider=openai", session=sess).status_code == 400
+    assert c.request("POST", "/api/me/provider-keys/verify", session=sess, json={}).status_code == 400
+    assert c.request("DELETE", "/api/me/provider-keys?provider=openai", session=sess).status_code == 400
     assert verify_calls == []
     assert _rows(env.settings) == []
     c.assert_never_leaked(CANARY)
@@ -375,7 +375,7 @@ def test_reverify_marks_rejected_and_inactive(env, verify_calls):
     sess = _session(env.settings, env.a)
     assert _put(c, sess, CANARY).status_code == 200
     _reject_all(True)
-    r = c.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"})
+    r = c.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"})
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is False and body["key"]["status"] == "rejected" and "[REDACTED]" in body["message"]
@@ -386,7 +386,7 @@ def test_reverify_marks_rejected_and_inactive(env, verify_calls):
     finally:
         auth.close()
     _reject_all(False)
-    again = c.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"}).json()
+    again = c.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"}).json()
     assert again["ok"] is True and again["key"]["status"] == "active"
     c.assert_never_leaked(CANARY)
 
@@ -399,7 +399,7 @@ def test_put_does_not_store_when_verification_unavailable(env, verify_calls, cap
     r = _put(c, sess, CANARY)
     assert r.status_code == 503
     assert r.json()["error"] == "key_verification_unavailable" and "[REDACTED]" in r.json()["message"]
-    assert _rows(env.settings) == [] and c.request("GET", "/api/me/keys", session=sess).json() == {"keys": []}
+    assert _rows(env.settings) == [] and c.request("GET", "/api/me/provider-keys", session=sess).json() == {"keys": []}
     c.assert_never_leaked(CANARY)
     assert CANARY not in caplog.text
 
@@ -410,7 +410,7 @@ def test_reverify_unavailable_leaves_status_untouched(env, verify_calls):
     assert _put(c, sess, CANARY).status_code == 200
     before = _rows(env.settings)[0]
     _UNAVAILABLE[0] = True
-    r = c.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"})
+    r = c.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"})
     assert r.status_code == 503 and r.json()["error"] == "key_verification_unavailable"
     after = _rows(env.settings)[0]
     assert (after["status"], after["last_verified_at"]) == (before["status"], before["last_verified_at"]) == (
@@ -432,12 +432,12 @@ def test_step_up_required_for_put_and_delete(env, verify_calls):
     assert verify_calls == [] and _rows(env.settings) == []
     # 등록 뒤 오래된 세션으로는 지우지 못하지만 조회·재검증은 된다.
     assert _put(c, _session(env.settings, env.a), CANARY).status_code == 200
-    d = c.request("DELETE", "/api/me/keys", session=stale)
+    d = c.request("DELETE", "/api/me/provider-keys", session=stale)
     assert d.status_code == 401 and d.json()["error"] == "reauth_required"
     assert len(_rows(env.settings)) == 1
-    assert c.request("GET", "/api/me/keys", session=stale).status_code == 200
-    assert c.request("POST", "/api/me/keys/verify", session=stale, json={"provider": "gemini"}).status_code == 200
-    ok = c.request("DELETE", "/api/me/keys?provider=gemini", session=_session(env.settings, env.a))
+    assert c.request("GET", "/api/me/provider-keys", session=stale).status_code == 200
+    assert c.request("POST", "/api/me/provider-keys/verify", session=stale, json={"provider": "gemini"}).status_code == 200
+    ok = c.request("DELETE", "/api/me/provider-keys?provider=gemini", session=_session(env.settings, env.a))
     assert ok.json() == {"ok": True, "deleted": 1} and _rows(env.settings) == []
     c.assert_never_leaked(CANARY)
 
@@ -447,16 +447,16 @@ def test_other_accounts_cannot_touch_the_key(env, verify_calls):
     sess_a = _session(env.settings, env.a)
     sess_b = _session(env.settings, env.b)
     assert _put(c, sess_a, CANARY).status_code == 200
-    assert c.request("GET", "/api/me/keys", session=sess_b).json() == {"keys": []}
-    r = c.request("POST", "/api/me/keys/verify", session=sess_b, json={"provider": "gemini"})
+    assert c.request("GET", "/api/me/provider-keys", session=sess_b).json() == {"keys": []}
+    r = c.request("POST", "/api/me/provider-keys/verify", session=sess_b, json={"provider": "gemini"})
     assert r.status_code == 404 and r.json()["error"] == "key_not_found"
-    assert c.request("DELETE", "/api/me/keys", session=sess_b).json() == {"ok": True, "deleted": 0}
+    assert c.request("DELETE", "/api/me/provider-keys", session=sess_b).json() == {"ok": True, "deleted": 0}
     assert [row["account_id"] for row in _rows(env.settings)] == [env.a]
     # 본문에 다른 계정 번호를 넣을 자리가 없다.
     assert c.request(
-        "PUT", "/api/me/keys", session=sess_b, json={"provider": "gemini", "api_key": CANARY_B, "account_id": env.a}
+        "PUT", "/api/me/provider-keys", session=sess_b, json={"provider": "gemini", "api_key": CANARY_B, "account_id": env.a}
     ).status_code == 400
-    assert len(c.request("GET", "/api/me/keys", session=sess_a).json()["keys"]) == 1
+    assert len(c.request("GET", "/api/me/provider-keys", session=sess_a).json()["keys"]) == 1
     c.assert_never_leaked(CANARY, CANARY_B)
 
 
@@ -512,7 +512,7 @@ def test_aad_binds_ciphertext_to_its_row(env, verify_calls):
     finally:
         auth.close()
     # 재검증 경로도 복호화 실패를 409로 드러내고 폴백하지 않는다.
-    r = c.request("POST", "/api/me/keys/verify", session=_session(env.settings, env.b), json={"provider": "gemini"})
+    r = c.request("POST", "/api/me/provider-keys/verify", session=_session(env.settings, env.b), json={"provider": "gemini"})
     assert r.status_code == 409 and r.json()["error"] == "key_unreadable"
     c.assert_never_leaked(CANARY, CANARY_B)
 

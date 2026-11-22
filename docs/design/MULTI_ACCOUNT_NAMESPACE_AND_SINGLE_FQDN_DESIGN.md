@@ -1,6 +1,6 @@
 # 멀티 계정 네임스페이스와 단일 FQDN URI 통제 설계
 
-- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. **Retired (owner, 2026-11-19): this design gets no more implementation.** The plans that were not implemented are retired: the network-only views under `/explore` (§4.4; the collections `/themes` and `/kb` and the root page are the views of both modes, and the public account directory is `/accounts` in both modes: KNOWLEDGE_FEDERATION_DESIGN.md §8.3, KD15), §14 item 7 (the feed items moved to `/api/feeds/items` in `client.db`), and §14 item 8 (contributions to shared knowledge bases replace the publications between accounts: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9). The path `/explore` and its two routes are removed. Federation is not a condition of the mode: it works in both modes (KNOWLEDGE_FEDERATION_DESIGN.md §15). **Decision GD8 (owner, 2026-11-22, [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) §12):** rule N1 (§6.3, hiding `profile_public=0` accounts with 404) is withdrawn; every `active` account with a USERNAME resolves at `/@{username}/...` in network mode, retired or renamed username tombstones always return 410 Gone, `profile_public` governs discovery (`/accounts`, `Person.discoverable`) and search indexing (`noindex, nofollow`, `/sitemap.xml`) only, and personal KB visibility follows `theme.is_public`. 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
+- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. **Retired (owner, 2026-11-19): this design gets no more implementation.** The plans that were not implemented are retired: the network-only views under `/explore` (§4.4; the collections `/themes` and `/kb` and the root page are the views of both modes, and the public account directory is `/directory` in both modes: KNOWLEDGE_FEDERATION_DESIGN.md §8.3, KD15), §14 item 7 (the feed items moved to `/api/feeds/items` in `client.db`), and §14 item 8 (contributions to shared knowledge bases replace the publications between accounts: SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md §9). The path `/explore` and its two routes are removed. Federation is not a condition of the mode: it works in both modes (KNOWLEDGE_FEDERATION_DESIGN.md §15). **Decision GD8 (owner, 2026-11-22, [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) §12):** rule N1 (§6.3, hiding `profile_public=0` accounts with 404) is withdrawn; every `active` account with a USERNAME resolves at `/@{username}/...` in network mode, retired or renamed username tombstones always return 410 Gone, `profile_public` governs discovery (`/directory`, `Person.discoverable`) and search indexing (`noindex, nofollow`, `/sitemap.xml`) only, and personal KB visibility follows `theme.is_public`. 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
 - **작성일**: 2026-11-02 · 기준 커밋 `f420b8f`
 - **개정 이력**
   - Rev. 1 (2026-11-02): 초안
@@ -121,7 +121,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 
 ### 4.4 네트워크 전용 통합 뷰 예약 (R12)
 
-> **Retired (2026-11-19).** The views of this section are not made, and the path `/explore` is removed. The public account directory moved to `/accounts` (both modes), and the root page of network mode has the themes, the recent activity, and the first accounts (KNOWLEDGE_FEDERATION_DESIGN.md §8.3). The text below is the history.
+> **Retired (2026-11-19).** The views of this section are not made, and the path `/explore` is removed. The public account directory moved to `/directory` (both modes), and the root page of network mode has the themes, the recent activity, and the first accounts (KNOWLEDGE_FEDERATION_DESIGN.md §8.3). The text below is the history.
 
 - `/explore` 이하 시스템 경로를 네트워크 전용(`modes={"network"}`)으로 예약한다. 싱글 모드에서는 404다.
 - 첫 소비자는 D4의 공개 계정·테마 목록이다. 네트워크 모드의 `/`는 이 목록을 그리고, 데이터는 `GET /explore/accounts` 컬렉션(§7.4)에서 받는다.
@@ -591,7 +591,7 @@ class Principal:
 **가입 단계**
 - USERNAME(§8.1), 표시 이름, 비밀번호(또는 IdP 연결)를 받는다.
 - 성공하면 계정을 `active`로 만들고, 기본 테마를 만들고, 세션을 발급한다.
-- 계정의 기본 `profile_public`과 멤버 기본 개인 지식 베이스의 기본 `is_public`은 0이다. 공개 디렉터리(`/accounts`) 노출·검색 색인 허용은 `profile_public`이, 개인 지식 베이스 공개 여부는 `is_public`이 제어한다(GD8).
+- 계정의 기본 `profile_public`과 멤버 기본 개인 지식 베이스의 기본 `is_public`은 0이다. 공개 디렉터리(`/directory`) 노출·검색 색인 허용은 `profile_public`이, 개인 지식 베이스 공개 여부는 `is_public`이 제어한다(GD8).
 
 ### 8.9 퇴역 USERNAME 정보 초기화와 디스크 정리 (R11, Rev. 2.3)
 
@@ -737,10 +737,10 @@ class RouteRule:
 
 | Method | Path | 동작 |
 | :--- | :--- | :--- |
-| `PUT` | `/api/me/keys` | 등록·교체. 저장하기 전에 시험 호출로 검증한다 |
-| `GET` | `/api/me/keys` | 메타데이터만 돌려준다 |
-| `POST` | `/api/me/keys/verify` | 다시 검증한다 |
-| `DELETE` | `/api/me/keys` | 삭제한다 |
+| `PUT` | `/api/me/provider-keys` | 등록·교체. 저장하기 전에 시험 호출로 검증한다 |
+| `GET` | `/api/me/provider-keys` | 메타데이터만 돌려준다 |
+| `POST` | `/api/me/provider-keys/verify` | 다시 검증한다 |
+| `DELETE` | `/api/me/provider-keys` | 삭제한다 |
 
 - 응답 필드는 `provider`, `fingerprint`, `status`, `created_at`, `last_verified_at`, `last_used_at`이다. `fingerprint`는 파생 HMAC의 앞 8자리이고, 키의 일부 문자(끝 4자리 등)는 보여 주지 않는다(D8).
 - 보기·복사 기능은 없다. 관리자 목록에는 등록 여부만 나온다.

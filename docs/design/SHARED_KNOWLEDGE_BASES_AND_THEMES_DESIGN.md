@@ -305,7 +305,7 @@ The integration removes: the column `is_collaborator_accessible`; the collaborat
 
 | Path | Content |
 | :--- | :--- |
-| `/` | Single mode: temporary redirect (302) to `/@{username}/` of the admin (CT33). Network mode: public directory with themes, the recent activity across servers, and the first public accounts (Section 8.4). The public account directory is `/accounts` in both modes (federation design KD15). |
+| `/` | Single mode: temporary redirect (302) to `/@{username}/` of the admin (CT33). Network mode: public directory with themes, the recent activity across servers, and the first public accounts (Section 8.4). The public account directory is `/directory` in both modes (federation design KD15). |
 | `/@{u}/` | Personal knowledge base of `u`. In single mode only the admin has this path (CT33). |
 | `/kb` | Collection of shared knowledge bases. `?joined=true`: only those where the requester is an active member. `?knowledge_type=real` or `?knowledge_type=fictional`. |
 | `/kb/{number}/…` | Shared knowledge base (pinned). A number of a personal knowledge base gets a 308 to `/@{u}/…` (single mode: `/…`) when the requester can read it, else 404. |
@@ -361,7 +361,7 @@ Later runs keep each adjustment.
 
 ### 8.4 Root Page and Theme Page
 
-- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of local and remote shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`. The page also shows the recent activity across servers and the first public accounts with a link to `/accounts` (federation design §8.3). It has no list of the federated servers (KD15).
+- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of local and remote shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`. The page also shows the recent activity across servers and the first public accounts with a link to `/directory` (federation design §8.3). It has no list of the federated servers (KD15).
 - **Single mode** (CT33): no root page. `/` sends the request to `/@{username}/` of the admin. The home overview of the personal knowledge base has a theme card with a link to `/themes`.
 - **Theme page `/themes/{number}`**: the knowledge bases of the theme (shared first, then attached personal knowledge bases), the top entities, and the actions "Contribute to this theme" (Section 9.2), "Make a shared knowledge base in this theme", and "Fork" for each shared knowledge base.
 - Each item of a collection has `number`, `label`, `description`, `knowledge_type`, `state`, counts, and `url`.

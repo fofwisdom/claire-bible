@@ -20,7 +20,7 @@ Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server ca
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1) |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
-| Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
+| Management of followers and domain blocks: API and console sections `/account/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
 | `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1). `publish` requires an active actor and a public personal KB (decision GD8: `profile_public` is not a gate). |
 | Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2) |
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
@@ -78,7 +78,7 @@ An account is a federation actor only when all these conditions are true:
 1. The account status is `active`.
 2. The account has a USERNAME.
 
-`profile_public` is not a condition of the actor ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decisions GD5, GD7, and GD8, 2026-11-22). Every `active` account with a USERNAME is a federation actor (`_is_actor`), and existence-hiding rule `N1` is withdrawn (decision GD8): `/@{username}/...` resolves in network mode for every `active` account with a USERNAME regardless of `profile_public`, and active entries in `username_tombstones` always return `410 Gone`. Following Mastodon and Fedify defaults (decision GD7), `Person.discoverable` is `bool(accounts.profile_public)` and `manuallyApprovesFollowers` stays `false` (FD9). Under decision GD8, `profile_public` controls ONLY discovery (`Person.discoverable` and `/accounts` directory inclusion) and search engine indexing (`noindex, nofollow` and `/sitemap.xml` exclusion); personal KB visibility (`knowledge_bases.is_public`), KB document publishing, notes, favourites, boosts, quotes, and Knowledge Federation participation work for every active actor regardless of `profile_public` (Section 3.1).
+`profile_public` is not a condition of the actor ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decisions GD5, GD7, and GD8, 2026-11-22). Every `active` account with a USERNAME is a federation actor (`_is_actor`), and existence-hiding rule `N1` is withdrawn (decision GD8): `/@{username}/...` resolves in network mode for every `active` account with a USERNAME regardless of `profile_public`, and active entries in `username_tombstones` always return `410 Gone`. Following Mastodon and Fedify defaults (decision GD7), `Person.discoverable` is `bool(accounts.profile_public)` and `manuallyApprovesFollowers` stays `false` (FD9). Under decision GD8, `profile_public` controls ONLY discovery (`Person.discoverable` and `/directory` directory inclusion) and search engine indexing (`noindex, nofollow` and `/sitemap.xml` exclusion); personal KB visibility (`knowledge_bases.is_public`), KB document publishing, notes, favourites, boosts, quotes, and Knowledge Federation participation work for every active actor regardless of `profile_public` (Section 3.1).
 
 The server has no condition: federation has no switch (Section 7.1), and the rule is the same in the two server modes (`KNOWLEDGE_FEDERATION_DESIGN.md` Section 15 rule 5, KD2).
 
@@ -86,13 +86,13 @@ All other states give the same 404 on the internal API (`{"error": "not_found"}`
 
 ### 3.1 Private-Profile Behaviour (`profile_public`)
 
-Under owner decision GD8 (2026-11-22, Model 1), `profile_public` controls only discovery and search indexing: `Person.discoverable`, inclusion in the public directory (`/accounts`), `noindex, nofollow` robots directives on `/@{username}/` HTML pages, and exclusion from `/sitemap.xml`. It does not gate ActivityPub actors, personal KB visibility (`knowledge_bases.is_public`), KB document publishing, quotes, or Knowledge Federation participation. The actor rule (`_is_actor` in `src/claire/api/federation_routes.py` and `actor_state` in `src/claire/api/accounts_routes/console_federation_panels.py`) and `knowledge_bases.is_public` apply independently.
+Under owner decision GD8 (2026-11-22, Model 1), `profile_public` controls only discovery and search indexing: `Person.discoverable`, inclusion in the public directory (`/directory`), `noindex, nofollow` robots directives on `/@{username}/` HTML pages, and exclusion from `/sitemap.xml`. It does not gate ActivityPub actors, personal KB visibility (`knowledge_bases.is_public`), KB document publishing, quotes, or Knowledge Federation participation. The actor rule (`_is_actor` in `src/claire/api/federation_routes.py` and `actor_state` in `src/claire/api/accounts_routes/console_federation_panels.py`) and `knowledge_bases.is_public` apply independently.
 
 | Function | Account with a private profile (`profile_public` 0) |
 | :--- | :--- |
 | **Discovery and search indexing (`profile_public` 0)** | |
 | `Person.discoverable` and `GET /api/federation/status` (`discoverable`) | `false` (`true` when `profile_public` is 1); toggling `profile_public` enqueues `update_actor` (`Update(Person)`) without step-up authentication |
-| Public directory (`/accounts`) | Omitted (`GET /accounts` lists only `active` accounts with `profile_public` 1, [`ACCOUNTS.md`](ACCOUNTS.md)) |
+| Public directory (`/directory`) | Omitted (`GET /directory` lists only `active` accounts with `profile_public` 1, [`ACCOUNTS.md`](ACCOUNTS.md)) |
 | Search engine indexing under `/@{username}/` and `/sitemap.xml` | In network mode, HTML responses under `/@{username}/` (`GET`/`HEAD /@{username}/` and HTML `GET /@{username}/kb`) emit `<meta name="robots" content="noindex, nofollow"/>` and `X-Robots-Tag: noindex, nofollow`, and `/sitemap.xml` excludes that account's personal KB |
 | **Identity, personal KB visibility, and ActivityPub federation (independent of `profile_public`)** | |
 | Identity resolution at `/@{username}/...` and username tombstones (`username_tombstones`) | `/@{username}/...` resolves in network mode for every `active` account with a USERNAME regardless of `profile_public` (rule `N1` withdrawn); active `username_tombstones` return `410 Gone` regardless of `profile_public` |
@@ -411,7 +411,7 @@ Federation is a function of each server (owner decision GD4 of [`FEDERATION_GO_L
 - There is no server setting `federation`. `AccountStore` has no method that reads or sets it, and no route changes it. A row `federation` that an older version stored in `server_settings` stays in the database and is not read.
 - There is no container switch `CB_FEDERATION`. The service `fedify` starts with the other services (Section 9.1). A value `CB_FEDERATION` in an env file is not read.
 - The readiness checks are a report of the state of the server. They do not gate a change (the gate of decision KD13 has no object). When the edge of a server does not send the federation paths to the sidecar, the paths give 404 from Claire, and the report tells it.
-- Which account is an actor is the rule of Section 3. An account cannot stop its own actor. With `profile_public` 0 it hides the account from discovery (`/accounts` and `Person.discoverable`) and search indexing (`noindex, nofollow` and `/sitemap.xml` exclusion), while personal KB visibility stays controlled by `knowledge_bases.is_public` (decision GD8, Section 3.1).
+- Which account is an actor is the rule of Section 3. An account cannot stop its own actor. With `profile_public` 0 it hides the account from discovery (`/directory` and `Person.discoverable`) and search indexing (`noindex, nofollow` and `/sitemap.xml` exclusion), while personal KB visibility stays controlled by `knowledge_bases.is_public` (decision GD8, Section 3.1).
 - The switch `kb_auto_contribution` of the knowledge federation stays ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 15).
 
 ### 7.2 Checks GF1 to GF20
@@ -548,7 +548,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 ```
 
 - `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`. The answer has no field `federation`.
-- `discoverable` is true when the account profile is public (`accounts.profile_public` is 1: `Person.discoverable` is true, the account is listed in `/accounts`, and personal KB pages are indexed by search engines; decision GD8, Section 3.1). Publishing, notes, favourites, boosts, quotes, and Knowledge Federation work for every federation actor regardless of `discoverable`.
+- `discoverable` is true when the account profile is public (`accounts.profile_public` is 1: `Person.discoverable` is true, the account is listed in `/directory`, and personal KB pages are indexed by search engines; decision GD8, Section 3.1). Publishing, notes, favourites, boosts, quotes, and Knowledge Federation work for every federation actor regardless of `discoverable`.
 - `handle` and `actor_id` are null only when the account has no USERNAME.
 - `pending_tasks` is the number of outbox tasks of the account with the status `pending` (unit FP3-1).
 
@@ -579,7 +579,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 **Console sections.**
 
-- `/settings/federation` (owner): handle, actor ID, actor state, the `discoverable` row (`console.federation.actor.discoverable`, showing `discoverable`), follower count, and the follower list with a remove control (`console_account.js`, `console_federation_panels.py`). The section is the same in both server modes.
+- `/account/federation` (owner): handle, actor ID, actor state, the `discoverable` row (`console.federation.actor.discoverable`, showing `discoverable`), follower count, and the follower list with a remove control (`console_account.js`, `console_federation_panels.py`). The section is the same in both server modes.
 - `/admin/federation` (admin): the state card (federation is always on; the card has no control for it), the readiness checks GF1 to GF20 in three groups (`account`, `knowledge`, and `operation`) with level, status, and "Does not apply", the last heartbeat of the sidecar with the loop states (`knowledge_reads`, `knowledge_exchange`), the addresses of the public host, and the traffic counters, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because checks GF7, GF10, and GF14 to GF17 send network requests. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
 
@@ -632,11 +632,11 @@ The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src
 
 ### 8.1 The Profile Switch Needs No Confirmation of Identity (GD6)
 
-`PATCH /api/me` changes `profile_public` in the two directions with no recent authentication ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decision GD6, 2026-11-22). The step-up rule FD11 is withdrawn: the account is an actor in the two states, and under decision GD8 the switch only changes `Person.discoverable`, public directory inclusion (`/accounts`), `noindex, nofollow` robots directives on `/@{username}/` HTML pages, and `/sitemap.xml` exclusion (Section 3.1).
+`PATCH /api/me` changes `profile_public` in the two directions with no recent authentication ([`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md) decision GD6, 2026-11-22). The step-up rule FD11 is withdrawn: the account is an actor in the two states, and under decision GD8 the switch only changes `Person.discoverable`, public directory inclusion (`/directory`), `noindex, nofollow` robots directives on `/@{username}/` HTML pages, and `/sitemap.xml` exclusion (Section 3.1).
 
 - A session with an old sign-in and a bearer credential that can call `PATCH /api/me` make the change. The other fields of the same request are written.
 - When `profile_public` changes on an active actor with a USERNAME, `AccountStore.update_profile_public` enqueues an `update_actor` task in the same transaction so `Update(Person)` sends the new `discoverable` value to remote followers (decision GD7, Section 8.5).
-- `/settings/account`: the switch (`#pref-profile-public`) has no attribute `data-step-up`, and `console_account.js` sends the change at once, with no dialog. The hint paragraph (`data-federation-hint`) explains that other servers find and follow the account in both states and states the discovery and search indexing effect of `profile_public`.
+- `/account/profile`: the switch (`#pref-profile-public`) has no attribute `data-step-up`, and `console_account.js` sends the change at once, with no dialog. The hint paragraph (`data-federation-hint`) explains that other servers find and follow the account in both states and states the discovery and search indexing effect of `profile_public`.
 - Details of the account routes: [`ACCOUNTS.md`](ACCOUNTS.md) §5.3 and §5.5.
 
 ### 8.2 Alternate Link on the Profile Page
@@ -656,7 +656,7 @@ Withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 6, unit KF4): federati
 
 A suspension, and the start of the deletion of an account, make the actor paths return 404. Claire sends no activity for these events: such a state is reversible, and a `Delete(Person)` is not. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
 
-A change of `profile_public` to 0 is not such an event (decisions GD5, GD7, and GD8; FD10 is changed): the actor stays and continues to use publishing, notes, favourites, boosts, quotes, and Knowledge Federation, while `Person.discoverable` becomes false, the account is omitted from `/accounts` and `/sitemap.xml`, and HTML responses under `/@{username}/` emit `noindex, nofollow` (Section 3.1).
+A change of `profile_public` to 0 is not such an event (decisions GD5, GD7, and GD8; FD10 is changed): the actor stays and continues to use publishing, notes, favourites, boosts, quotes, and Knowledge Federation, while `Person.discoverable` becomes false, the account is omitted from `/directory` and `/sitemap.xml`, and HTML responses under `/@{username}/` emit `noindex, nofollow` (Section 3.1).
 
 ### 8.5 Lifecycle Tasks and Privacy Triggers (Unit FP3-4)
 
@@ -983,7 +983,7 @@ Routes:
 | `GET` | `/api/admin/federation/reading` | admin | `{"settings": {...}, "defaults": {...}}` |
 | `PUT` | `/api/admin/federation/reading` | admin, same origin, recent authentication | A partial object of known keys in range; 400 for an unknown key or a value outside its range. An audit record `federation.reading.update`. |
 
-Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the server" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has no retention field; the old route `/api/federation/settings` is gone (404). Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
+Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the server" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/account/federation` has no retention field; the old route `/api/federation/settings` is gone (404). Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
 
 
 ## 17. Follows of an Account (Unit FP4-3)

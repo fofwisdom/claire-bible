@@ -109,7 +109,7 @@ def _build_standalone_graph_html() -> str:
         hamburger_extra_html=ws_hamburger_extra,
         moderation_href="/moderation",
         moderation_hidden=True,
-        console_href="/settings",
+        console_href="/account",
         console_label_key="ws.bar.my_settings",
         console_icon="settings",
         console_hidden=True,

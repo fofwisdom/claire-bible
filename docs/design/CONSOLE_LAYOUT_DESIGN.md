@@ -80,7 +80,7 @@
 
 ## 5. Unified Console UI System and Invariant
 
-Every console route under `/settings/*`, `/admin/*`, and `/moderation/*` uses one shared Console UI System based on the `/settings/account` visual design.
+Every console route under `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` uses one shared Console UI System based on the `/account/profile` visual design.
 
 ### 5.1 System Layers
 
@@ -98,10 +98,10 @@ Every console route under `/settings/*`, `/admin/*`, and `/moderation/*` uses on
 ### 5.3 Scoped `.claire-*` Unification
 
 - `console_ui.css` overrides `.claire-card`, `.claire-card-head`, `.claire-btn`, `.claire-input`, `.claire-select`, `.claire-textarea`, `.claire-note`, `.claire-tag`, `.claire-srow`, `.claire-kpis`, `.claire-kpi`, `.claire-tw`, and `.claire-table` strictly under `.console-shell` (and `dialog.claire-dlg` under `body[data-active-area]`).
-- This scoping aligns shared knowledge base, moderation, and federation console views with `/settings/account` while leaving public `/kb`, `/themes`, `/accounts`, and workspace views unchanged.
+- This scoping aligns shared knowledge base, moderation, and federation console views with `/account/profile` while leaving public `/kb`, `/themes`, `/directory`, and workspace views unchanged.
 - Console markup and scripts must use `input[type="checkbox"][switch]` and must not emit `.claire-switch`.
 
 ### 5.4 Architectural Invariant and Guardrails
 
-- **Invariant**: All current and future features under `/settings/*`, `/admin/*`, and `/moderation/*` must render inside `console_shell.html` and build UI elements through `console_ui.py` (server) and `ClaireConsoleUI` (`console_ui.js`) with `console_ui.css`. Do not add ad-hoc card, switch, button, or inline fake-card styles.
+- **Invariant**: All current and future features under `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` must render inside `console_shell.html` and build UI elements through `console_ui.py` (server) and `ClaireConsoleUI` (`console_ui.js`) with `console_ui.css`. Do not add ad-hoc card, switch, button, or inline fake-card styles.
 - **Verification**: `tests/test_console_ui_contract.py` checks builder outputs, all-route shell structure, zero nested cards, zero `var(--error)`, non-admin CL11 isolation, and static JS/partial guardrails. `e2e/console_ui_consistency.spec.js` checks computed card borders, primary button color, heading typography, switch controls, sticky TOC visibility, zero horizontal overflow, zero JS errors, and zero raw i18n keys across desktop and mobile viewports.

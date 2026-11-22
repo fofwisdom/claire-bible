@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 Channel = Literal["platform", "agent", "activitypub", "system"]
 KindClass = Literal["request", "answer", "notice"]
-# The order of the groups on /settings/notifications. ``system`` has only the test notification and no switch.
+# The order of the groups on /account/notifications. ``system`` has only the test notification and no switch.
 CHANNELS: Final[tuple[str, ...]] = ("platform", "agent", "activitypub")
 # A notification is sent again to the push service 60 s after its last send at the earliest (PN3 rule 4).
 PUSH_MIN_INTERVAL_SECONDS: Final[float] = 60.0

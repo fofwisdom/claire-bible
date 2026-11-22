@@ -192,7 +192,7 @@ async function waitForInvitesAfter(page, triggerFn) {
 }
 
 async function gotoInvitesPage(page) {
-  return waitForInvitesAfter(page, () => page.goto('/settings/invites', { waitUntil: 'domcontentloaded' }));
+  return waitForInvitesAfter(page, () => page.goto('/account/invites', { waitUntil: 'domcontentloaded' }));
 }
 
 async function reloadInvitesPage(page) {
@@ -200,7 +200,7 @@ async function reloadInvitesPage(page) {
 }
 
 async function setAccountLocale(page, localeValue) {
-  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
   const patchPromise = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH');
   const reloadPromise = page.waitForEvent('domcontentloaded');
   await page.locator('#pref-account-locale').selectOption(localeValue);
@@ -439,7 +439,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       await page.goto(`/?t=${BOOTSTRAP_TOKEN}`, { waitUntil: 'domcontentloaded' });
       await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 
-      const singlePage = await page.goto('/settings/invites', { waitUntil: 'domcontentloaded' });
+      const singlePage = await page.goto('/account/invites', { waitUntil: 'domcontentloaded' });
       expect(singlePage.status()).toBe(200);
       await expect(page.locator('#invites-issue-section form')).toHaveCount(0);
       await expect(page.locator('#console-section-body :is(.notice, .pref-notice)')).toBeVisible();
@@ -447,7 +447,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       const singleApi = await context.request.get('/api/invites?page=true');
       expect(singleApi.status()).toBe(404);
 
-      await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+      await page.goto('/account/security', { waitUntil: 'domcontentloaded' });
       await page.locator('#settings-password input[name="new_password"]').fill(ADMIN_PASSWORD);
       await page.locator('#settings-password input[name="new_password_confirm"]').fill(ADMIN_PASSWORD);
       const pwResPromise = page.waitForResponse((r) => r.url().endsWith('/api/me/password') && r.request().method() === 'POST');
@@ -609,11 +609,11 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
     const adminErrors = watchErrors(adminPage);
     try {
       await loginViaForm(memberPage, 'e2e_member_a', MEMBER_PASSWORD);
-      await memberPage.goto('/settings/account', { waitUntil: 'domcontentloaded' });
-      const navLink = memberPage.locator('a[data-nav-section="invites"][href="/settings/invites"]').first();
+      await memberPage.goto('/account/profile', { waitUntil: 'domcontentloaded' });
+      const navLink = memberPage.locator('a[data-nav-section="invites"][href="/account/invites"]').first();
       await expect(navLink).toBeVisible();
       await waitForInvitesAfter(memberPage, () => navLink.click());
-      await expect(memberPage).toHaveURL(/\/settings\/invites/);
+      await expect(memberPage).toHaveURL(/\/account\/invites/);
       await expectNoRawKeys(memberPage, '#console-main');
       await assertMemberIsolation(memberPage);
 
@@ -919,7 +919,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
       expect(aApi.orderedItems.find((it) => it.code === invA.code).status).toBe('revoked');
 
       // 3. Unauthenticated & non-admin access boundaries.
-      const anonSettings = await anonCtx.request.get('/settings/invites', { maxRedirects: 0 });
+      const anonSettings = await anonCtx.request.get('/account/invites', { maxRedirects: 0 });
       expect([302, 303, 401, 403, 404]).toContain(anonSettings.status());
       expect([401, 403, 404]).toContain((await anonCtx.request.get('/api/invites?page=true')).status());
       expect([401, 403, 404]).toContain((await anonCtx.request.post('/api/invites', { headers: { Origin: isolatedOrigin }, data: { max_uses: 1 } })).status());
@@ -1346,13 +1346,13 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
     const page = await adminCtx.newPage();
     const errors = watchErrors(page);
     try {
-      await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+      await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#console-mob-menu')).toBeVisible();
       await page.locator('#console-mob-menu').click();
       const drawer = page.locator('#console-nav-drawer');
       await expect(drawer).toBeVisible();
-      await waitForInvitesAfter(page, () => drawer.locator('a[data-nav-section="invites"][href="/settings/invites"]').click());
-      await expect(page).toHaveURL(/\/settings\/invites/);
+      await waitForInvitesAfter(page, () => drawer.locator('a[data-nav-section="invites"][href="/account/invites"]').click());
+      await expect(page).toHaveURL(/\/account\/invites/);
       await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
       await expectNoRawKeys(page, '#console-main');
 

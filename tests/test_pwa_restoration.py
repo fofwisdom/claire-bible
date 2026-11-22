@@ -223,7 +223,7 @@ def test_m1_pwa_head_tags_across_entry_points(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url)
 
-    entry_routes = ["/", "/accounts"]
+    entry_routes = ["/", "/directory"]
     for route in entry_routes:
         res = client.get(route, headers={"accept": "text/html"})
         assert res.status_code == 200, f"Route {route} failed with {res.status_code}"

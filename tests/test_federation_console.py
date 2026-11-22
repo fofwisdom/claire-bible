@@ -1,4 +1,4 @@
-"""Account federation routes, domain block routes, and the console sections ``/settings/federation`` and ``/admin/federation`` (Fedify sidecar design Sections 9.2 and 11, unit FP2-4).
+"""Account federation routes, domain block routes, and the console sections ``/account/federation`` and ``/admin/federation`` (Fedify sidecar design Sections 9.2 and 11, unit FP2-4).
 
 The tests examine the interfaces between the routes, ``ROUTE_POLICY``, the stores, and the audit table. The last test uses a real browser.
 """
@@ -328,7 +328,7 @@ def test_single_mode_serves_the_account_routes_like_network_mode(tmp_path):
         status = client.request("GET", STATUS_PATH, session=admin)
         listed = client.request("GET", FOLLOWERS_PATH, session=admin)
         removed = client.request("DELETE", FOLLOWERS_PATH, session=admin, json={"actor_iri": BOB})
-        settings_page = client.request("GET", "/settings/federation", session=admin)
+        settings_page = client.request("GET", "/account/federation", session=admin)
         admin_page = client.request("GET", "/admin/federation", session=admin)
 
     assert (status.status_code, listed.status_code, removed.status_code) == (200, 200, 200)
@@ -464,7 +464,7 @@ def test_settings_section_shows_the_handle_and_the_follower_count_and_no_admin_m
     _follow(env.settings, env.alpha, BOB, at=100.0)
     _follow(env.settings, env.alpha, CAROL, at=101.0)
 
-    page = env.client.request("GET", "/settings/federation", session=env.alpha_session)
+    page = env.client.request("GET", "/account/federation", session=env.alpha_session)
 
     assert page.status_code == 200
     body = page.text
@@ -475,7 +475,7 @@ def test_settings_section_shows_the_handle_and_the_follower_count_and_no_admin_m
     assert 'data-actor-state="active"' in body
     assert "data-followers-tbody" in body
     assert '<script src="/static/js/console_account.js" defer></script>' in body
-    assert 'href="/settings/federation"' in body
+    assert 'href="/account/federation"' in body
     # A member response has no admin link and no admin script.
     assert "/admin/" not in body
     assert "console_admin.js" not in body
@@ -489,7 +489,7 @@ def test_admin_section_shows_the_switch_and_the_blocks_and_is_hidden_from_a_memb
     admin_page = env.client.request("GET", "/admin/federation", session=env.admin)
     member_page = env.client.request("GET", "/admin/federation", session=env.alpha_session)
     anonymous_page = env.client.request("GET", "/admin/federation")
-    admin_settings = env.client.request("GET", "/settings/federation", session=env.admin)
+    admin_settings = env.client.request("GET", "/account/federation", session=env.admin)
 
     assert admin_page.status_code == 200
     body = admin_page.text
@@ -509,7 +509,7 @@ def test_admin_section_shows_the_switch_and_the_blocks_and_is_hidden_from_a_memb
     assert anonymous_page.status_code == 404
     # The admin has the two sections in the navigation.
     assert 'href="/admin/federation"' in admin_settings.text
-    assert 'href="/settings/federation"' in admin_settings.text
+    assert 'href="/account/federation"' in admin_settings.text
 
 
 # --- End-to-end: the two console sections in a real browser ---
@@ -550,7 +550,7 @@ def test_e2e_owner_removes_a_follower_and_admin_changes_a_domain_block(tmp_path)
                 ctx.add_cookies([{"name": "claire_session", "value": owner, "url": base}])
                 page = ctx.new_page()
                 page.on("dialog", lambda dialog: dialog.accept())
-                page.goto(f"{base}/settings/federation")
+                page.goto(f"{base}/account/federation")
                 assert page.locator("[data-federation-field='handle']").inner_text() == f"@member_alpha@127.0.0.1:{port}"
                 assert page.locator("[data-federation-field='actor_state']").inner_text().startswith("연합 중")
                 assert page.locator("[data-federation-field='followers_total']").inner_text() == "2"

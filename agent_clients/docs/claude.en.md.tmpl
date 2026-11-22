@@ -18,8 +18,8 @@ You do not need terminal knowledge. In the **Claude desktop app**, a few mouse c
 ## Before You Start (1 Minute)
 
 1. Sign in to your **Claire Bible web page**.
-2. In **Account Settings** (`/settings/account`), switch **Extraction mode** to **`Agent Client (client)`**.
-3. Keep **MCP Settings** (`/settings/mcp`) open. You copy the **Claude quick setup prompt** from this page.
+2. In **LLM provider settings** (`/account/providers`), switch **Extraction mode** to **`Agent Client (client)`**.
+3. Keep **MCP Settings** (`/account/mcp`) open. You copy the **Claude quick setup prompt** from this page.
 
 ---
 
@@ -39,7 +39,7 @@ You do not need terminal knowledge. In the **Claude desktop app**, a few mouse c
 
 ## Step 2: Connect Your Claire Bible Server (Paste One Prompt)
 
-1. On the Claire Bible **`/settings/mcp`** page, in the **Official Agent Marketplace (GitHub)** card, click **Copy** next to the **`Claude quick setup prompt`**.
+1. On the Claire Bible **`/account/mcp`** page, in the **Official Agent Marketplace (GitHub)** card, click **Copy** next to the **`Claude quick setup prompt`**.
    - To start from GitHub, copy this prompt and replace only `<your-claire-server>` with the address of your server:
    ```text
    Set up Claire Bible on this computer. Run these commands in order, one at a time,

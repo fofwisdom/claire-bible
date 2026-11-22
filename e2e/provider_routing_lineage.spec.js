@@ -206,7 +206,7 @@ test('admin providers visualizes pipeline lineage at top, consolidates server_ti
   // The personal CLI clients of the administrator are removed: the keys page shows only the link to the provider page and asks for no personal CLI state.
   const personalCliRequests = [];
   page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/me/personal-cli')) personalCliRequests.push(req.url()); });
-  await page.goto('/settings/keys', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/providers', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#settings-keys-admin-providers')).toBeVisible();
   await expect(page.locator('#settings-keys-admin-providers a[href="/admin/providers"]')).toBeVisible();
   await expect(page.locator('#admin-personal-cli-host')).toHaveCount(0);

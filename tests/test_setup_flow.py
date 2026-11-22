@@ -208,8 +208,8 @@ def test_setup_success_rotates_session_and_closes_setup(client, settings):
     # 옛 토큰은 지워졌다(세션 고정 방지).
     assert client.request("GET", "/me", session=old).status_code == 404
     assert client.request("GET", "/me", session=new).status_code == 302
-    assert client.request("GET", "/settings/account", session=old).status_code == 404
-    assert client.request("GET", "/settings/account", session=new).status_code == 200
+    assert client.request("GET", "/account/profile", session=old).status_code == 404
+    assert client.request("GET", "/account/profile", session=new).status_code == 200
     # 확정 뒤에는 / 가 /@{username}/ 으로 302(KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2)하고 /setup은 다시 열리지 않는다.
     root = client.request("GET", "/", session=new)
     assert root.status_code == 302 and root.headers["location"] == "/@kim_lee/"
@@ -354,21 +354,21 @@ def test_password_store_failure_keeps_setup_and_points_to_me(client, settings, m
     token = _admin_session(settings)
     response = client.request("POST", "/setup", session=token, data=_form())
     assert response.status_code == 303
-    assert response.headers["location"] == "/settings/account?notice=password_not_saved"
+    assert response.headers["location"] == "/account/security?notice=password_not_saved"
     new = _new_session_token(response)
     assert new and new != token
     assert _admin(settings).status == "active"
     # 콘솔 계정 화면이 안내문과 비밀번호 상태를 함께 보여 준다.
-    page = client.request("GET", "/settings/account?notice=password_not_saved", session=new)
+    page = client.request("GET", "/account/security?notice=password_not_saved", session=new)
     assert page.status_code == 200
     assert 'data-account-notice="password_not_saved"' in page.text
     assert "the password was not saved" in page.text
     assert "Not set" in page.text
     # 목록에 없는 notice 값은 아무것도 그리지 않는다.
-    unknown = client.request("GET", "/settings/account?notice=<script>", session=new)
+    unknown = client.request("GET", "/account/security?notice=<script>", session=new)
     assert unknown.status_code == 200
     assert "data-account-notice" not in unknown.text
-    # D4: /me는 /settings/account로 가는 호환용 302다.
+    # D4: /me는 /account/profile로 가는 호환용 302다.
     legacy = client.request("GET", "/me", session=new)
     assert legacy.status_code == 302
-    assert legacy.headers["location"] == "/settings/account"
+    assert legacy.headers["location"] == "/account/profile"

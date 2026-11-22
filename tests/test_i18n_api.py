@@ -286,13 +286,13 @@ def test_e2e_locale_journey_from_anonymous_negotiation_to_account_preference(cli
     # 3. After login the account has no preference: the cookie still applies in the console.
     _activate_admin(settings)
     token = _session(settings)
-    page = client.request("GET", "/settings/account", session=token, cookies={"claire_locale": cookie_value})
+    page = client.request("GET", "/account/profile", session=token, cookies={"claire_locale": cookie_value})
     assert page.status_code == 200 and page.headers["content-language"] == "en"
 
     # 4. The owner selects Korean for the account. A second browser without the cookie gets Korean.
     saved = client.request("PATCH", "/api/me", session=token, json={"locale": "ko"}, cookies={"claire_locale": cookie_value})
     assert saved.json()["effective_locale"] == "ko" and _locale_cookies(saved)[0].startswith("claire_locale=ko;")
-    other_browser = client.request("GET", "/settings/account", session=token, headers={"Accept-Language": "en-US"})
+    other_browser = client.request("GET", "/account/profile", session=token, headers={"Accept-Language": "en-US"})
     assert other_browser.headers["content-language"] == "ko"
 
     # 5. After logout the cookie from step 4 keeps Korean on the public login page.
@@ -303,7 +303,7 @@ def test_e2e_locale_journey_from_anonymous_negotiation_to_account_preference(cli
     token = _session(settings)
     reset = client.request("PATCH", "/api/me", session=token, json={"locale": None}, cookies={"claire_locale": "ko"})
     assert reset.json()["locale"] is None and reset.json()["effective_locale"] == "en"
-    assert client.request("GET", "/settings/account", session=token).headers["content-language"] == "en"
+    assert client.request("GET", "/account/profile", session=token).headers["content-language"] == "en"
 
 
 # --- IP2-1: auth pages, inline catalog, language selector -------------------------
@@ -351,7 +351,7 @@ def test_locale_form_post_redirects_to_an_allowed_page_only(client, settings) ->
     assert switched.status_code == 303 and switched.headers["location"] == "/login" and switched.headers["cache-control"] == "no-store"
     assert _locale_cookies(switched)[0].startswith("claire_locale=ko;")
     assert client.request("POST", "/api/locale", data={"locale": "en", "next": "/setup"}).headers["location"] == "/setup"
-    for bad_next in ("/", "//evil.example/login", "https://evil.example/login", "/login?x=1", "/settings/account"):
+    for bad_next in ("/", "//evil.example/login", "https://evil.example/login", "/login?x=1", "/account/profile"):
         response = client.request("POST", "/api/locale", data={"locale": "ko", "next": bad_next})
         assert response.status_code == 400 and response.json()["error"] == "invalid_request" and _locale_cookies(response) == [], bad_next
     assert client.request("POST", "/api/locale", data={"locale": "ko"}).status_code == 400
@@ -364,7 +364,7 @@ def test_settings_account_has_the_language_selector_and_the_inline_catalog(clien
 
     _activate_admin(settings)
     token = _session(settings)
-    page = client.request("GET", "/settings/account", session=token)
+    page = client.request("GET", "/account/profile", session=token)
     assert '<html lang="en">' in page.text
     assert '<select id="pref-account-locale" class="pref-input" data-settings-locale><option value="" selected>Automatic (browser / system)</option><option value="en">English (en)</option><option value="ko">한국어 (ko)</option></select>' in page.text
     bootstrap = _bootstrap_json(page.text, "console-bootstrap")
@@ -379,7 +379,7 @@ def test_settings_account_has_the_language_selector_and_the_inline_catalog(clien
     assert page.text.index('id="claire-i18n-catalog"') < page.text.index('<script src="/static/js/i18n.js"></script>') < page.text.index("/static/js/console_account.js")
 
     client.request("PATCH", "/api/me", session=token, json={"locale": "ko"})
-    page = client.request("GET", "/settings/account", session=token, headers={"Accept-Language": "en"})
+    page = client.request("GET", "/account/profile", session=token, headers={"Accept-Language": "en"})
     assert '<html lang="ko">' in page.text and '<h2><span data-icon="globe"></span> 인터페이스 언어</h2>' in page.text
     assert '<option value="">자동 (브라우저 / 시스템)</option><option value="en">English (en)</option><option value="ko" selected>한국어 (ko)</option>' in page.text
     bootstrap = _bootstrap_json(page.text, "console-bootstrap")

@@ -65,7 +65,7 @@ def test_console_sections_have_the_fields_of_the_reading_settings(env):
 
     for key in federation_client.READING_DEFAULTS:
         assert f'name="{key}"' in page.text, key
-    owner_page = c.request("GET", "/settings/federation", session=env.alpha_session)
+    owner_page = c.request("GET", "/account/federation", session=env.alpha_session)
     assert owner_page.status_code == 200 and "settings-federation-followers" in owner_page.text
     assert "data-retention-form" not in owner_page.text and 'name="retention_days"' not in owner_page.text
     # A member has no admin section.

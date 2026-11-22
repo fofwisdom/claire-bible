@@ -2,7 +2,7 @@
 
 - External library (``cryptography``): the message encryption gives the example of RFC 8291 Section 5; the VAPID token has a correct ES256 signature.
 - I/O: the tables of ``client.db`` version 9 (grouping, queue, subscriptions, purge, migration from version 8) and the VAPID key pair in ``auth.db``.
-- Module interfaces: the sender results, the routes of the account, the page ``/settings/notifications``, and one event for each kind.
+- Module interfaces: the sender results, the routes of the account, the page ``/account/notifications``, and one event for each kind.
 
 No test sends a request to a push service. All state is in ``tmp_path``.
 """
@@ -150,7 +150,7 @@ def test_queue_subscriptions_and_purge(client_conn):
         _subscribe(client_conn, 3, endpoint=f"https://push.example.net/send/{index}")
     with pytest.raises(store.SubscriptionLimit):
         _subscribe(client_conn, 3, endpoint="https://push.example.net/send/over")
-    notification_id, _ = store.add_notification(client_conn, account_id=3, kind="test", params={}, target_path="/settings/notifications", now=5.0)
+    notification_id, _ = store.add_notification(client_conn, account_id=3, kind="test", params={}, target_path="/account/notifications", now=5.0)
     assert store.enqueue_push(client_conn, notification_id=notification_id, account_id=3, not_before=5.0) == store.MAX_SUBSCRIPTIONS
     assert store.enqueue_push(client_conn, notification_id=notification_id, account_id=3, not_before=9.0) == 0  # a waiting row stays
     assert len(store.due_push_jobs(client_conn, now=5.0)) == store.MAX_SUBSCRIPTIONS and store.due_push_jobs(client_conn, now=4.0) == []
@@ -410,9 +410,9 @@ def test_agent_and_activitypub_events(world):
     events.kf_grant(world.db_file, account_id=None, kb_iri="https://other.example/kb/55", given=False)  # no account: no notification, no exception
     got = {n.kind: n for n in _rows(world, "ben")}
     assert set(got) == {"agent_source_staged", "agent_extraction_done", "agent_write_grant", "ap_follower", "ap_follow_answered", "ap_mention", "ap_quote_request", "ap_quote_answered", "ap_private_message", "kf_offer_answered", "kf_grant"}
-    assert (got["agent_source_staged"].count, got["agent_source_staged"].target_path) == (2, "/settings/mcp")
+    assert (got["agent_source_staged"].count, got["agent_source_staged"].target_path) == (2, "/account/mcp")
     assert got["agent_extraction_done"].target_path == "/@ben/?doc=doc%201"
-    assert got["ap_follower"].params["actor"] == "alice@social.example" and got["ap_follower"].target_path == "/settings/federation"
+    assert got["ap_follower"].params["actor"] == "alice@social.example" and got["ap_follower"].target_path == "/account/federation"
     assert got["ap_follow_answered"].params["variant"] == "rejected" and got["ap_mention"].params["actor"] == "bob@social.example"
     assert got["ap_private_message"].params["actor"] == "social.example"  # a numeric path part is not a name
     assert got["ap_quote_request"].target_path == "/syndication?stage=collect" and got["kf_grant"].params == {"kb": "other.example", "variant": "given"}
@@ -567,7 +567,7 @@ def test_notification_routes_list_read_and_test(world):
     events.ap_follower(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/alice")
     listed = _request(world, headers, "GET", "/api/me/notifications?limit=10").json()
     assert listed["unread"] == 2 and [i["kind"] for i in listed["items"]] == ["ap_follower", "test"]
-    assert listed["items"][0] == {**listed["items"][0], "title": "New follower", "body": "alice@social.example follows you.", "url": "/settings/federation", "channel": "activitypub", "class": "notice", "read": False, "count": 1}
+    assert listed["items"][0] == {**listed["items"][0], "title": "New follower", "body": "alice@social.example follows you.", "url": "/account/federation", "channel": "activitypub", "class": "notice", "read": False, "count": 1}
     read = _request(world, headers, "POST", "/api/me/notifications/read", json={"ids": [listed["items"][0]["id"]]})
     assert read.status_code == 200 and read.json()["unread"] == 1
     assert _request(world, headers, "POST", "/api/me/notifications/read", json={"all": True}).json()["unread"] == 0
@@ -676,7 +676,7 @@ def test_account_support_bundle_has_the_notifications_of_the_account_without_cap
 
 def test_settings_page_and_tab_query_pages_render(world):
     headers, _ref = _session_of(world, "ben")
-    page = _request(world, headers, "GET", "/settings/notifications")
+    page = _request(world, headers, "GET", "/account/notifications")
     assert page.status_code == 200
     html = page.text
     assert 'class="console-shell"' in html and "data-notify-device" in html and "/static/js/console_notifications.js" in html and 'id="notifybtn"' in html

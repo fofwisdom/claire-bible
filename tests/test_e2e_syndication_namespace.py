@@ -5,10 +5,10 @@ Covers:
   * Gate G8: Unauthenticated GET/HEAD /syndication returns 401 or 404 (no public access).
   * Authenticated GET /syndication returns 200, authScope='owner', and safe HTML.
   * GET /syndication/preferences is a 302 compatibility redirect (D4): reader → /settings/reader; for the admin, ?tab=idp → /admin/idp and ?tab=userdb → /admin/accounts.
-  * GET /me is a 302 to /settings/account.
+  * GET /me is a 302 to /account/profile.
   * Dispatch records dispatched_by_account_id=1.
 - Network mode:
-  * Member legacy /@{username}/syndication/preferences?tab= redirects to root-mounted /settings/* (?tab=idp|userdb → /settings/account), never with /@{username} in Location.
+  * Member legacy /@{username}/syndication/preferences?tab= redirects to root-mounted /settings/* (?tab=idp|userdb → /account/profile), never with /@{username} in Location.
   * Namespaced access /@{username}/syndication and /@{username}/kb/{theme_number}/syndication.
   * Caller's account_id is recorded in syndication_dispatches.dispatched_by_account_id.
   * Cross-account write protection: member cannot dispatch into another member's theme.
@@ -170,7 +170,7 @@ def test_e2e_syndication_single_mode(p6_env):
             assert client.get(target, headers=headers, follow_redirects=False).status_code == 200, target
         res_me = client.get("/me", headers=headers, follow_redirects=False)
         assert res_me.status_code == 302
-        assert res_me.headers["location"] == "/settings/account"
+        assert res_me.headers["location"] == "/account/profile"
         # Single mode: no @username anywhere in redirect targets (S9).
         assert "@" not in res_prefs.headers["location"] + res_me.headers["location"]
 
@@ -267,10 +267,10 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             ("rules", "/settings/rules"),
             ("outbound", "/settings/outbound"),
             ("opml", "/settings/opml"),
-            ("mcp", "/settings/mcp"),
-            ("webmcp", "/settings/webmcp"),
-            ("idp", "/settings/account"),
-            ("userdb", "/settings/account"),
+            ("mcp", "/account/mcp"),
+            ("webmcp", "/account/webmcp"),
+            ("idp", "/account/profile"),
+            ("userdb", "/account/profile"),
         ):
             query = f"?tab={tab}" if tab is not None else ""
             res_tab = client.get(f"/syndication/preferences{query}", headers=alice_headers, follow_redirects=False)
@@ -279,7 +279,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             sep = "&" if query else "?"
             res_theme = client.get(f"/syndication/preferences{query}{sep}kb={alice_ref}", headers=alice_headers, follow_redirects=False)
             assert res_theme.status_code == 302, tab
-            expected = target if target == "/settings/account" else f"{target}?kb={alice_ref}"
+            expected = target if target == "/account/profile" else f"{target}?kb={alice_ref}"
             assert res_theme.headers["location"] == expected, tab
         res_member_settings = client.get(f"/settings/feeds?kb={alice_ref}", headers=alice_headers, follow_redirects=False)
         assert res_member_settings.status_code == 200
@@ -295,7 +295,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         assert "location" not in bob_prefs.headers
         assert client.get("/syndication/preferences", follow_redirects=False).status_code in (401, 404)
         res_me = client.get("/me", headers=alice_headers, follow_redirects=False)
-        assert res_me.status_code == 302 and res_me.headers["location"] == "/settings/account"
+        assert res_me.status_code == 302 and res_me.headers["location"] == "/account/profile"
 
         # 2. Alice dispatches within her own theme at root /api/syndication/dispatch -> records dispatched_by_account_id=2
         dispatch_payload = {

@@ -247,7 +247,7 @@ def _seed_notifications(settings: StubSettings, now: float) -> None:
     conn.close()
     cconn = client_db.connect_client_db(client_db.client_db_path(settings.db_file))
     cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, group_key, count, created_at, updated_at) VALUES (1, 1, 'kf_contribution_pending', ?, '/moderation/kb/77?tab=queue', 'kb:5', 3, ?, ?)", (json.dumps({"actor": ACTOR_NAME, "kb": "Cities"}), now - 900, now - 700))
-    cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, count, created_at, updated_at, read_at, pushed_at) VALUES (2, 1, 'ap_follower', '{}', '/settings/federation', 1, ?, ?, ?, ?)", (now - 5 * 86400, now - 5 * 86400, now - 86400, now - 5 * 86400))
+    cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, count, created_at, updated_at, read_at, pushed_at) VALUES (2, 1, 'ap_follower', '{}', '/account/federation', 1, ?, ?, ?, ?)", (now - 5 * 86400, now - 5 * 86400, now - 86400, now - 5 * 86400))
     cconn.execute("INSERT INTO notifications (id, account_id, kind, params_json, target_path, count, created_at, updated_at) VALUES (3, 1, 'kind_of_a_newer_version', '{}', '/', 1, ?, ?)", (now - 60, now - 60))
     for sub_id, endpoint, failures, error, success in ((1, f"https://fcm.googleapis.com/{PUSH_PATH_A}", 0, None, now - 3600), (2, f"https://updates.push.services.mozilla.com/{PUSH_PATH_B}", 3, "http_403", None)):
         cconn.execute(

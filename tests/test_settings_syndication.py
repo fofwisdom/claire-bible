@@ -31,6 +31,11 @@ MEMBER_USERNAME = "alice_member"
 OTHER_USERNAME = "bob_member"
 JS_BUNDLE = Path(__file__).resolve().parent.parent / "src" / "bible" / "static" / "js" / "console_syndication.js"
 
+# The mcp and webmcp panels are pages of the account area; the other panels are pages of /settings.
+def _section_path(slug: str) -> str:
+    return f"/account/{slug}" if slug in ("mcp", "webmcp") else f"/settings/{slug}"
+
+
 SECTION_PANEL_IDS: dict[str, str] = {
     "reader": "panel-reader",
     "connections": "panel-accounts",
@@ -157,7 +162,7 @@ def _bootstrap(html: str) -> dict:
 def test_every_group_2_3_section_renders_its_panel_and_script(env):
     _set_mode(env.db_file, "network")
     for slug, panel_id in SECTION_PANEL_IDS.items():
-        resp = env.client.get(f"/settings/{slug}", headers=env.alice_owner)
+        resp = env.client.get(_section_path(slug), headers=env.alice_owner)
         assert resp.status_code == 200, slug
         body = resp.text
         assert f'id="{panel_id}"' in body, slug
@@ -176,7 +181,7 @@ def test_every_group_2_3_section_renders_its_panel_and_script(env):
 
 def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
     _set_mode(env.db_file, "network")
-    get = lambda slug: env.client.get(f"/settings/{slug}", headers=env.alice_owner).text  # noqa: E731
+    get = lambda slug: env.client.get(_section_path(slug), headers=env.alice_owner).text  # noqa: E731
     reader = get("reader")
     for control in ("pref-app-tab", "pref-list-style", "pref-layout-mode", "pref-show-excerpt", "pref-default-content-tab", "pref-reader-font", "pref-reader-fontsize", "pref-auto-read"):
         assert f'id="{control}"' in reader, control
@@ -202,7 +207,7 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
         assert f'id="{control}"' in mcp, control
     assert "/.well-known/oauth-protected-resource" in mcp
     assert "syndication:draft" in mcp
-    assert 'href="/settings/tokens" id="pref-mcp-tokens-link"' in mcp
+    assert 'href="/account/tokens" id="pref-mcp-tokens-link"' in mcp
     for removed in ("pref-mcp-apitokens-tbody", "pref-mcp-clients-tbody", "pref-mcp-rbac-tbody", "pref-mcp-gaps"):
         assert removed not in mcp, removed
 
@@ -216,17 +221,17 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
 
 def test_admin_viewer_mcp_section_links_to_admin_tokens(env):
     _set_mode(env.db_file, "network")
-    resp = env.client.get("/settings/mcp", headers=env.admin_owner)
+    resp = env.client.get("/account/mcp", headers=env.admin_owner)
     assert resp.status_code == 200
     assert 'href="/admin/tokens" id="pref-mcp-tokens-link"' in resp.text
-    assert 'href="/settings/tokens" id="pref-mcp-tokens-link"' not in resp.text
+    assert 'href="/account/tokens" id="pref-mcp-tokens-link"' not in resp.text
 
 
 def test_kb_query_scopes_section_to_the_personal_knowledge_base(env):
     """The settings of ``/settings/*`` are of the account: ``?kb=`` takes only the personal knowledge base of the caller (CT1). A shared knowledge base and a knowledge base of another account give 404."""
     _set_mode(env.db_file, "network")
     ref = str(env.alice_def.number)
-    resp = env.client.get(f"/settings/webmcp?kb={ref}", headers=env.alice_owner)
+    resp = env.client.get(f"/account/webmcp?kb={ref}", headers=env.alice_owner)
     assert resp.status_code == 200
     body = resp.text
     assert f'data-theme-ref="{ref}"' in body
@@ -237,14 +242,14 @@ def test_kb_query_scopes_section_to_the_personal_knowledge_base(env):
     assert str(env.bob_def.number) not in body
     assert str(env.admin_theme.number) not in body
     # ``Alice <Private>`` had an owner before version 28; now it is a shared knowledge base and not of the account.
-    assert env.client.get(f"/settings/webmcp?kb={env.alice_private.number}", headers=env.alice_owner).status_code == 404
-    assert env.client.get(f"/settings/webmcp?kb={env.bob_def.number}", headers=env.alice_owner).status_code == 404
+    assert env.client.get(f"/account/webmcp?kb={env.alice_private.number}", headers=env.alice_owner).status_code == 404
+    assert env.client.get(f"/account/webmcp?kb={env.bob_def.number}", headers=env.alice_owner).status_code == 404
 
 
 def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
     _set_mode(env.db_file, "single")
     for slug in SECTION_PANEL_IDS:
-        resp = env.client.get(f"/settings/{slug}", headers=env.admin_owner, follow_redirects=False)
+        resp = env.client.get(_section_path(slug), headers=env.admin_owner, follow_redirects=False)
         assert resp.status_code == 200, slug
         assert SECRET_ADMIN_USERNAME not in resp.text, slug
         assert "/@" not in resp.text, slug
@@ -297,7 +302,7 @@ def test_js_bundle_scopes_storage_and_excludes_operator_data():
 
 
 def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest.MonkeyPatch):
-    en_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"})
+    en_resp = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"})
     assert en_resp.status_code == 200
     assert "Official Agent Marketplace (GitHub)" in en_resp.text
     assert 'id="pref-mcp-antigravity-prompt"' in en_resp.text
@@ -333,7 +338,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
         assert retired not in en_resp.text, retired
 
-    ko_resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
+    ko_resp = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
     assert ko_resp.status_code == 200
     assert "공식 에이전트 마켓플레이스 (GitHub)" in ko_resp.text
     assert 'id="pref-mcp-antigravity-prompt"' in ko_resp.text
@@ -365,22 +370,22 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
         id=2, public_id=(1 << 57) + 202, username=MEMBER_USERNAME, role="member", status="active",
         display_name="Alice", profile_public=True, created_at=0.0, activated_at=0.0, delete_after=None, updated_at=0.0,
     )
-    rendered_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=override_settings)
+    rendered_override = panels.build_syndication_section(ctx, slug="mcp", path="/account/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=override_settings)
     assert "fork-owner/fork-claire-agents" in rendered_override.body_html
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fork-owner/fork-claire-agents"
     assert "claude plugin install claire --marketplace fork-owner/fork-claire-agents" in rendered_override.body_html
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["antigravity_guide_url"] == "https://github.com/fork-owner/fork-claire-agents/blob/main/docs/antigravity.en.md"
 
-    invalid_override = panels.build_syndication_section(ctx, slug="mcp", path="/settings/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=SimpleNamespace(agent_marketplace_repo="javascript:alert(1)"))
+    invalid_override = panels.build_syndication_section(ctx, slug="mcp", path="/account/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=SimpleNamespace(agent_marketplace_repo="javascript:alert(1)"))
     assert invalid_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fofwisdom/claire-agents"
 
 
 def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
     for lang, expected_title, expected_steps_heading, expected_step in (
-        ("en", "Agent-Driven Extraction Quick Start", "Setup Progress Steps", "Switch Extraction mode to client in Account Settings"),
-        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "설정 진행 절차", "계정 설정에서 추출 모드를 client로 전환하세요"),
+        ("en", "Agent-Driven Extraction Quick Start", "Setup Progress Steps", "Switch Extraction mode to client in the LLM provider settings"),
+        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "설정 진행 절차", "LLM 프로바이더 설정에서 추출 모드를 client로 전환하세요"),
     ):
-        resp = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": lang})
+        resp = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": lang})
         assert resp.status_code == 200
         html = resp.text
         assert 'id="pref-mcp-agent-guide"' in html
@@ -388,7 +393,7 @@ def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
         assert expected_steps_heading in html
         assert expected_step in html
         assert '<ol class="pref-flow"' in html
-        assert 'href="/settings/account#settings-extraction-mode"' in html
+        assert 'href="/account/providers#settings-extraction-mode"' in html
         assert 'href="#pref-mcp-client-bundles"' in html
         assert html.index('id="pref-mcp-agent-guide"') < html.index('id="pref-mcp-endpoint"')
         assert html.index('id="pref-mcp-client-bundles"') < html.index('id="pref-mcp-tools-tbody"')
@@ -396,14 +401,14 @@ def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
 
 def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
     # Initially: all 3 steps are pending (red: data-ok="false").
-    initial_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    initial_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
     assert "0 / 3 completed" in initial_html
     for step_idx in range(1, 4):
         assert f'data-step="{step_idx}" data-ok="false"' in initial_html
 
     # Step 1: Switch account extraction_mode to client.
     assert env.client.patch("/api/me", headers=env.alice_owner, json={"extraction_mode": "client"}).status_code == 200
-    s1_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    s1_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
     assert "1 / 3 completed" in s1_html
     assert 'data-step="1" data-ok="true"' in s1_html
     assert 'data-step="2" data-ok="false"' in s1_html
@@ -424,7 +429,7 @@ def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
         conn.commit()
     finally:
         conn.close()
-    s2_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    s2_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
     assert "2 / 3 completed" in s2_html
     assert 'data-step="2" data-ok="true"' in s2_html
     assert 'data-step="3" data-ok="false"' in s2_html
@@ -443,7 +448,7 @@ def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
         conn.commit()
     finally:
         conn.close()
-    s3_html = env.client.get("/settings/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
+    s3_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
     assert "3 / 3 완료" in s3_html
     for step_idx in range(1, 4):
         assert f'data-step="{step_idx}" data-ok="true"' in s3_html

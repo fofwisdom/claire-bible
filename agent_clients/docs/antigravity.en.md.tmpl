@@ -9,8 +9,8 @@ Install the Claire Bible `claire` plugin in **Antigravity GUI** and connect the 
 ## Before You Start (1 Minute)
 
 1. Sign in to your **Claire Bible** web interface.
-2. Open **Account Settings** (`/settings/account`) and switch **Extraction mode** to **`Agent Client (client)`**.
-3. Keep **MCP Settings** (`/settings/mcp`) open in your browser to copy the quick setup prompt or download `mcp_config.json`.
+2. Open **LLM provider settings** (`/account/providers`) and switch **Extraction mode** to **`Agent Client (client)`**.
+3. Keep **MCP Settings** (`/account/mcp`) open in your browser to copy the quick setup prompt or download `mcp_config.json`.
 
 ---
 
@@ -18,7 +18,7 @@ Install the Claire Bible `claire` plugin in **Antigravity GUI** and connect the 
 
 Antigravity installs the `claire` plugin under `~/.gemini/config/plugins/claire` and safely merges `"claire"` into your global `~/.gemini/config/mcp_config.json` without overwriting existing servers.
 
-1. On Claire Bible **`/settings/mcp`**, locate **Official Agent Marketplace (GitHub)** and click **Copy** next to **Antigravity quick setup prompt**.
+1. On Claire Bible **`/account/mcp`**, locate **Official Agent Marketplace (GitHub)** and click **Copy** next to **Antigravity quick setup prompt**.
    - Starting directly from GitHub? Copy below and replace `<your-claire-server>`:
    ```text
    Download claire-antigravity-v{{VERSION}}.zip from the latest Release of
@@ -41,7 +41,7 @@ Antigravity installs the `claire` plugin under `~/.gemini/config/plugins/claire`
    - macOS Finder: `Command + Shift + G` -> `~/.gemini/config`
    - Windows File Explorer: `%USERPROFILE%\.gemini\config`
    - Linux File Manager: `Ctrl + H` -> `.gemini` -> `config`
-3. In `~/.gemini/config/mcp_config.json` (downloadable from Claire `/settings/mcp` if you have no existing servers yet), merge `"claire"` under `"mcpServers"`:
+3. In `~/.gemini/config/mcp_config.json` (downloadable from Claire `/account/mcp` if you have no existing servers yet), merge `"claire"` under `"mcpServers"`:
 
 ```json
 {

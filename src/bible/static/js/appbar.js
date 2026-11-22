@@ -251,7 +251,7 @@
       var row = document.createElement("a");
       row.className = "notify-item" + (item.read ? " is-read" : "");
       row.setAttribute("role", "listitem");
-      row.href = typeof item.url === "string" && item.url.charAt(0) === "/" && item.url.charAt(1) !== "/" ? item.url : "/settings/notifications";
+      row.href = typeof item.url === "string" && item.url.charAt(0) === "/" && item.url.charAt(1) !== "/" ? item.url : "/account/notifications";
       row.dataset.notifyId = String(item.id);
       var dot = document.createElement("span");
       dot.className = "notify-item-dot";

@@ -29,7 +29,7 @@ test('modern console layout supports document scroll, sticky sidebar, split rows
 
   for (const vp of [{ width: 1440, height: 900 }, { width: 1280, height: 620 }]) {
     await page.setViewportSize(vp);
-    for (const path of ['/settings/account', '/settings/feeds', '/admin/server']) {
+    for (const path of ['/account/profile', '/settings/feeds', '/admin/server']) {
       await page.goto(path, { waitUntil: 'networkidle' });
       const metrics = await page.evaluate(() => {
         const html = document.documentElement;
@@ -70,17 +70,17 @@ test('modern console layout supports document scroll, sticky sidebar, split rows
   expect(splitGeom.ctrlLeft).toBeGreaterThan(splitGeom.metaLeft);
 
   // Collapsible group accordion persistence & auto-expand active group
-  await page.goto('/settings/account', { waitUntil: 'networkidle' });
-  const agentsToggle = page.locator('[data-nav-group-toggle="agents"]');
+  await page.goto('/account/profile', { waitUntil: 'networkidle' });
+  const agentsToggle = page.locator('[data-nav-group-toggle="ai"]');
   await agentsToggle.click();
   await expect(agentsToggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.locator('#console-grp-agents')).toBeHidden();
+  await expect(page.locator('#console-grp-ai')).toBeHidden();
   await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('[data-nav-group-toggle="agents"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('[data-nav-group-toggle="ai"]')).toHaveAttribute('aria-expanded', 'false');
 
-  await page.goto('/settings/mcp', { waitUntil: 'networkidle' });
-  await expect(page.locator('[data-nav-group-toggle="agents"]')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#console-grp-agents')).toBeVisible();
+  await page.goto('/account/mcp', { waitUntil: 'networkidle' });
+  await expect(page.locator('[data-nav-group-toggle="ai"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#console-grp-ai')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
   await context.close();
@@ -94,7 +94,7 @@ test('console command palette opens with / shortcut and sidebar trigger button t
   page.on('pageerror', (err) => pageErrors.push(err.message));
 
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto('/settings/account', { waitUntil: 'networkidle' });
+  await page.goto('/account/profile', { waitUntil: 'networkidle' });
 
   // Open with top-bar command palette trigger and close with Escape even while input is focused
   await expect(page.locator('#console-palette-trigger')).toHaveCount(0);
@@ -151,7 +151,7 @@ test('mobile viewport uses single-node drawer without duplicate links or horizon
   await page.locator('#console-mob-menu').click();
   const drawer = page.locator('#console-nav-drawer');
   await expect(drawer).toBeVisible();
-  await expect(drawer.locator('a[data-nav-section="account"]')).toBeVisible();
+  await expect(drawer.locator('a[data-nav-section="profile"]')).toBeVisible();
 
   await page.locator('#console-drawer-close').click();
   await expect(drawer).not.toBeVisible();
@@ -159,8 +159,8 @@ test('mobile viewport uses single-node drawer without duplicate links or horizon
   // Re-open and navigate via drawer link
   await page.locator('#console-mob-menu').click();
   await expect(drawer).toBeVisible();
-  await drawer.locator('a[data-nav-section="account"]').click();
-  await expect(page).toHaveURL(/\/settings\/account/);
+  await drawer.locator('a[data-nav-section="profile"]').click();
+  await expect(page).toHaveURL(/\/account\/profile/);
 
   expect(pageErrors).toEqual([]);
   await context.close();
@@ -174,7 +174,7 @@ test('account settings switch for public sources saves the value through PATCH /
   page.on('pageerror', (err) => pageErrors.push(err.message));
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/settings/account', { waitUntil: 'networkidle' });
+  await page.goto('/account/profile', { waitUntil: 'networkidle' });
   const toggle = page.locator('#pref-personal-source-public');
   await expect(toggle).toBeVisible();
   await expect(page.locator('[data-source-public-hint]')).toBeVisible();

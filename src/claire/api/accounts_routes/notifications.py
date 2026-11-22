@@ -9,7 +9,7 @@
 | ``/api/me/push/kinds/{kind}`` | PUT | Turn Web Push on or off for one kind |
 | ``/api/me/push/test`` | POST | Make a test notification |
 
-``settings_notifications_body`` makes the body of ``/settings/notifications``; ``src/bible/static/js/console_notifications.js`` controls it.
+``settings_notifications_body`` makes the body of ``/account/notifications``; ``src/bible/static/js/console_notifications.js`` controls it.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ ME_PUSH_PATH = "/api/me/push"
 ME_PUSH_SUBSCRIPTIONS_PATH = "/api/me/push/subscriptions"
 ME_PUSH_KIND_PATH = "/api/me/push/kinds/{kind}"
 ME_PUSH_TEST_PATH = "/api/me/push/test"
-SETTINGS_PATH = "/settings/notifications"
+NOTIFICATIONS_PAGE_PATH = "/account/notifications"
 
 NO_STORE = {"Cache-Control": "no-store"}
 LIST_LIMIT_DEFAULT = 20
@@ -292,7 +292,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         assert principal.account_id is not None
-        made = await asyncio.to_thread(notifications.emit, ctx.db_file, kind="test", account_ids=[principal.account_id], target=SETTINGS_PATH)
+        made = await asyncio.to_thread(notifications.emit, ctx.db_file, kind="test", account_ids=[principal.account_id], target=NOTIFICATIONS_PAGE_PATH)
         if not made:
             return json_error(500, "notification_failed")
         return JSONResponse({"ok": True, "id": made[0]}, status_code=201, headers=NO_STORE)
@@ -308,7 +308,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     ]
 
 
-# --- /settings/notifications -------------------------------------------------------------
+# --- /account/notifications -------------------------------------------------------------
 
 
 def settings_notifications_body(ctx: AccountsContext, *, account: accounts_store.Account, session_ref: str | None) -> str:

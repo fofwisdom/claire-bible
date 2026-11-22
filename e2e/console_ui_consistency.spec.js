@@ -7,17 +7,19 @@ test.use({ serviceWorkers: 'block' });
 const CONSISTENCY_TOKEN = 'e2e-pres-token-0123456789abcdef01';
 
 const SETTINGS_ROUTES = [
-  '/settings/account',
-  '/settings/invites',
-  '/settings/federation',
-  '/settings/keys',
-  '/settings/telegram',
-  '/settings/bundles',
-  '/settings/backups',
+  '/account/profile',
+  '/account/security',
+  '/account/invites',
+  '/account/federation',
+  '/account/providers',
+  '/account/telegram',
+  '/account/bundles',
+  '/account/backups',
   '/settings/kb',
   '/settings/reader',
   '/settings/feeds',
-  '/settings/mcp',
+  '/account/mcp',
+  '/account/webmcp',
 ];
 
 const ADMIN_ROUTES = [
@@ -30,6 +32,7 @@ const ADMIN_ROUTES = [
   '/admin/plugins',
   '/admin/tokens',
   '/admin/mcp',
+  '/admin/webmcp',
   '/admin/backups',
   '/admin/storage',
 ];
@@ -43,8 +46,8 @@ const MODERATION_ROUTES = [
 const ALL_DESKTOP_ROUTES = [...SETTINGS_ROUTES, ...ADMIN_ROUTES, ...MODERATION_ROUTES];
 
 const MOBILE_REPRESENTATIVE_ROUTES = [
-  '/settings/account',
-  '/settings/invites',
+  '/account/profile',
+  '/account/invites',
   '/settings/feeds',
   '/settings/kb',
   '/admin/server',
@@ -55,7 +58,7 @@ const MOBILE_REPRESENTATIVE_ROUTES = [
   '/moderation/themes',
 ];
 
-const EXPECT_TOC_ROUTES = new Set(['/settings/account', '/admin/providers', '/admin/server']);
+const EXPECT_TOC_ROUTES = new Set(['/account/profile', '/admin/providers', '/admin/server']);
 
 let ownerStorageState = null;
 
@@ -90,7 +93,7 @@ async function waitForConsoleSettled(page) {
 }
 
 async function captureAccountBaseline(page) {
-  await page.goto('/settings/account', { waitUntil: 'networkidle' });
+  await page.goto('/account/profile', { waitUntil: 'networkidle' });
   await waitForConsoleSettled(page);
   const baseline = await page.evaluate(() => {
     const card = document.querySelector('#console-section-body .console-subcard');

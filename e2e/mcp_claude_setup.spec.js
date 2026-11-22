@@ -3,7 +3,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/c
 
 test.use({ serviceWorkers: 'block' });
 
-test('English /settings/mcp provides the Claude quick setup prompt, terminal commands, and English guide link', async ({ browser, baseURL }) => {
+test('English /account/mcp provides the Claude quick setup prompt, terminal commands, and English guide link', async ({ browser, baseURL }) => {
   const origin = new URL(baseURL).origin;
   const context = await browser.newContext({ locale: 'en-US' });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
@@ -11,7 +11,7 @@ test('English /settings/mcp provides the Claude quick setup prompt, terminal com
   const errors = watchErrors(page);
 
   await authenticateOwner(page, 'mcpclaude001');
-  await page.goto('/settings/mcp', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
 
   const expectedMcpUrl = `${origin}/mcp`;
   const promptEl = page.locator('#pref-mcp-claude-prompt');
@@ -43,14 +43,14 @@ test('English /settings/mcp provides the Claude quick setup prompt, terminal com
   await context.close();
 });
 
-test('Korean /settings/mcp provides the localized Claude prompt and Korean guide link', async ({ browser, baseURL }) => {
+test('Korean /account/mcp provides the localized Claude prompt and Korean guide link', async ({ browser, baseURL }) => {
   const origin = new URL(baseURL).origin;
   const context = await browser.newContext({ locale: 'ko-KR' });
   const page = await context.newPage();
   const errors = watchErrors(page);
 
   await authenticateOwner(page, 'mcpclaude002');
-  await page.goto('/settings/mcp', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
 
   const promptEl = page.locator('#pref-mcp-claude-prompt');
   await expect(promptEl).toBeVisible();

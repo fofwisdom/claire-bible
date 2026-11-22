@@ -1,5 +1,5 @@
-/* Claire user console controller for /settings Group 1 (account, federation, keys, themes, tokens). Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/graph/bundle, /api/me/keys*, /api/federation/status, /api/federation/followers, /tokens.
+/* Claire user console controller for the /account sections profile, security, federation, providers, and tokens. Design P3-a.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/graph/bundle, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -90,7 +90,7 @@
     });
   }
 
-  // --- /settings/keys: metadata only. The server never returns key text or partial characters. ---
+  // --- /account/providers: metadata only. The server never returns key text or partial characters. ---
 
   function renderKeyMeta(keys) {
     var box = document.querySelector("[data-provider-key-meta]");
@@ -160,7 +160,7 @@
   }
 
   function refreshKeys() {
-    return request("GET", "/api/me/keys?include_policy=1").then(function (r) {
+    return request("GET", "/api/me/provider-keys?include_policy=1").then(function (r) {
       if (r.ok && r.body) {
         if (Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
         if (r.body.model_policy) renderModelPolicy(r.body.model_policy);
@@ -168,7 +168,7 @@
     });
   }
 
-  // --- /settings/account: linked identities ---
+  // --- /account/security: linked identities ---
 
   function identitiesBox() {
     return document.querySelector("[data-settings-identities]");
@@ -273,7 +273,7 @@
     });
   }
 
-  // --- /settings/federation: actor state and followers (Fedify sidecar design Sections 9.2 and 11) ---
+  // --- /account/federation: actor state and followers (Fedify sidecar design Sections 9.2 and 11) ---
 
   // The server has the same table (console_federation_panels.ACTOR_STATE_TEXT).
   var ACTOR_STATE_TEXT = {
@@ -400,7 +400,7 @@
     });
   }
 
-  // --- /settings/account: graph bundle output ---
+  // --- /account/security: graph bundle output ---
 
   function renderBundle(section, info) {
     var out = section.querySelector("[data-bundle-output]");
@@ -562,7 +562,7 @@
       field.value = "";
       var payload = { provider: provider, api_key: value };
       if (modelEl && modelEl.value) payload.model = modelEl.value;
-      return request("PUT", "/api/me/keys", payload).then(function (r) {
+      return request("PUT", "/api/me/provider-keys", payload).then(function (r) {
         value = "";
         show(form, r.ok ? tr("console.js.account.keys.saved") : errorText(r.status, r.body), !r.ok);
         if (r.ok) return refreshKeys();
@@ -570,7 +570,7 @@
     },
     "provider-key-verify": function (form) {
       var provider = form.elements.namedItem("provider").value;
-      return request("POST", "/api/me/keys/verify", { provider: provider }).then(function (r) {
+      return request("POST", "/api/me/provider-keys/verify", { provider: provider }).then(function (r) {
         if (r.ok && r.body) {
           show(form, (r.body.ok ? tr("console.js.account.keys.valid") + " " : tr("console.js.account.keys.rejected") + " ") + (r.body.message || ""), !r.body.ok);
           return refreshKeys();
@@ -581,7 +581,7 @@
     "provider-key-delete": function (form) {
       var provider = form.elements.namedItem("provider").value;
       if (!window.confirm(tr("console.js.account.keys.delete_confirm"))) return Promise.resolve();
-      return request("DELETE", "/api/me/keys?provider=" + encodeURIComponent(provider)).then(function (r) {
+      return request("DELETE", "/api/me/provider-keys?provider=" + encodeURIComponent(provider)).then(function (r) {
         if (r.ok) {
           show(form, tr("console.js.account.keys.deleted"), false);
           return refreshKeys();
@@ -803,9 +803,8 @@
       request("PATCH", "/api/me", { extraction_mode: select.value }).then(function (r) {
         if (r.ok) {
           saved = select.value;
-          var field = document.querySelector('[data-account-field="extraction_mode"]');
-          var chosen = select.options && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
-          if (field && chosen) field.textContent = chosen.textContent;
+          var card = select.closest("[data-extraction-mode]");
+          if (card) card.setAttribute("data-extraction-mode", select.value);
           var guide = document.querySelector("[data-extraction-client-guide]");
           if (guide) guide.hidden = select.value !== "client";
           show(section, tr("console.js.common.saved"), false);
@@ -831,20 +830,21 @@
 
   function init() {
     var bootstrap = parseBootstrap();
-    if (!bootstrap || bootstrap.area !== "settings") return;
+    if (!bootstrap || bootstrap.area !== "account") return;
     var section = bootstrap.section;
-    if (["account", "federation", "keys", "themes", "tokens"].indexOf(section) < 0) return;
+    if (["profile", "security", "federation", "providers", "tokens"].indexOf(section) < 0) return;
     var extra = bootstrap.settings_account || {};
     bindForms();
-    if (section === "account") {
-      bindIdentities(extra);
+    if (section === "profile") {
       bindToggles();
       bindLocaleSelect();
       bindEntityLanguageSelect();
-      bindExtractionModeSelect();
+    } else if (section === "security") {
+      bindIdentities(extra);
     } else if (section === "federation") {
       bindFederation();
-    } else if (section === "keys") {
+    } else if (section === "providers") {
+      bindExtractionModeSelect();
       if (extra.keys_mode === "byok") {
         refreshKeys();
       }

@@ -59,7 +59,7 @@ The list never shows `created_by` or `note`.
 ### 3.3 Route and Page
 
 - `GET /domain-blocks` (system surface, both server modes). A browser gets an HTML page; an API client gets JSON: `{"domain_blocks": [{"domain", "level", "reason", "since"}]}`, in the order of the domain. `level` is `suspend` now; `limit` comes with KD8. `since` is the day of `created_at` (not the time).
-- The public menu of `/themes`, `/kb`, and `/accounts` gets a link to the page only when the caller can see the list.
+- The public menu of `/themes`, `/kb`, and `/directory` gets a link to the page only when the caller can see the list.
 - The text keys are new catalog keys in `en` and `ko`.
 
 ### 3.4 Console

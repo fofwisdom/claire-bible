@@ -214,7 +214,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 6. 준비 검사는 관문이 아니라 상태 보고다. 통과하면 다른 서버가 이 서버의 액터에 닿을 수 있고, 따로 켜는 단계는 없다. 콘솔 화면 `/admin/federation`은 GF1–GF20 준비 검사, 사이드카 하트비트, 차단 도메인 목록을 보여 준다. 실패한 검사는 누가 응답했는지(사이드카, Claire, CDN, 중간 장비, 응답 없음)와 고칠 곳을 알려 준다([FEDERATION.md](FEDERATION.md) §7.2.1). 제품별 대응은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「연합 준비 검사 실패 대응」에 있다.
 
-프로필을 비공개로 바꾸면(`profile_public = 0`) 액터의 `discoverable`이 `false`로 갱신되고(`Update(Person)`) 공개 디렉터리(`/accounts`) 노출, 네트워크 모드 `/sitemap.xml`의 개인 지식 베이스 포함, 검색 색인 허용(HTML `/@{username}/`·`/@{username}/kb`에 `noindex, nofollow` 부착)만 꺼지며, `/@{username}/` 해석·개인 지식 베이스 공개 여부(`is_public`이 별도 제어)·KB 문서 발행·지식 연합 제안·기여자 표시와 액터 자체는 멈추지 않는다([FEDERATION.md](FEDERATION.md) §3.1). 계정 하나의 연합을 멈추려면 계정을 정지하거나 삭제 예약을 시작해야 하며(액터 경로 404, §8.4), 서버 전체의 연합을 끄는 방법은 없다.
+프로필을 비공개로 바꾸면(`profile_public = 0`) 액터의 `discoverable`이 `false`로 갱신되고(`Update(Person)`) 공개 디렉터리(`/directory`) 노출, 네트워크 모드 `/sitemap.xml`의 개인 지식 베이스 포함, 검색 색인 허용(HTML `/@{username}/`·`/@{username}/kb`에 `noindex, nofollow` 부착)만 꺼지며, `/@{username}/` 해석·개인 지식 베이스 공개 여부(`is_public`이 별도 제어)·KB 문서 발행·지식 연합 제안·기여자 표시와 액터 자체는 멈추지 않는다([FEDERATION.md](FEDERATION.md) §3.1). 계정 하나의 연합을 멈추려면 계정을 정지하거나 삭제 예약을 시작해야 하며(액터 경로 404, §8.4), 서버 전체의 연합을 끄는 방법은 없다.
 
 ### 파일
 
@@ -294,7 +294,7 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 계정 백업과 계정 기능
 
-계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/settings/telegram`), 서포트·데이터 번들(`/settings/bundles`), 계정 백업과 자동 백업 주기(`/settings/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
+계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/account/telegram`), 서포트·데이터 번들(`/account/bundles`), 계정 백업과 자동 백업 주기(`/account/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
 
 `bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(서버 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 현재 동작은 [ACCOUNTS.md](ACCOUNTS.md) §14, 설계 원칙은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)에 있다.
 

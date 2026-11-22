@@ -1,6 +1,6 @@
-"""``/settings/*`` Group 2–3 섹션 본문 (설계 P3-b: 신디케이션 · 리더, AI 에이전트 연동).
+"""``/settings/*`` 신디케이션 · 리더 섹션과 ``/account/mcp``, ``/account/webmcp`` 섹션의 본문 (설계 P3-b).
 
-``console.py``가 Group 2–3 섹션을 그릴 때 `build_syndication_section`을 부른다. 이 모듈은 Lane P3-b 소유다.
+``console.py``가 이 섹션들을 그릴 때 `build_syndication_section`을 부른다. 이 모듈은 Lane P3-b 소유다.
 관리자 전용 데이터(``mcp_telemetry`` 감사 행, ``panel-idp`` 운영 설정, ``panel-userdb`` 운영 디렉터리)는 절대 넣지 않는다.
 
 섹션 본문은 ``templates/partials/settings_syndication/<slug>.html``에 있다. 이 파일들은 레거시
@@ -57,7 +57,7 @@ def theme_ref(theme: KnowledgeBaseInfo) -> str:
 
 
 def _account_is_admin(account: accounts_store.Account) -> bool:
-    # ``Principal.server_role``은 ``Account.role``에서 온다(security.py). /settings/*는 owner 스코프만 들어온다.
+    # ``Principal.server_role``은 ``Account.role``에서 온다(security.py). /account/*와 /settings/*는 owner 스코프만 들어온다.
     return account.role == "admin"
 
 
@@ -123,7 +123,7 @@ def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account,
 
 
 def _render_agent_extraction_guide_block(account: accounts_store.Account, progress: dict[str, Any]) -> str:
-    """Render the Agent-Driven Extraction quick start guide at the top of /settings/mcp."""
+    """Render the Agent-Driven Extraction quick start guide at the top of /account/mcp."""
     mode = "client" if account.extraction_mode == "client" else "provider"
     mode_text = t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
     step1_ok = bool(progress.get("step1_ok"))
@@ -163,7 +163,7 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
         f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.guide_mode_label"))}</strong></div>'
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
         f'{mode_pill}<code id="pref-mcp-extraction-mode" class="pref-mono">{escape(mode)}</code>'
-        f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.synd.mcp.guide_mode_change"))}</a>'
+        f'<a class="pref-btn" href="/account/providers#settings-extraction-mode">{escape(t("console.synd.mcp.guide_mode_change"))}</a>'
         "</div></div>"
         f'<h3 style="margin:14px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">{escape(t("console.synd.mcp.guide_steps_title"))} {progress_pill}</h3>'
         f'<ol class="pref-flow" style="margin:0 0 12px">{steps_html}</ol>'
@@ -300,7 +300,7 @@ def build_syndication_section(
         raise ValueError("selected theme is not in owned_themes")
 
     client_href = f"{_syndication_base_href(mode, account)}?tab=client&kb={ref}"
-    tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
+    tokens_href = "/admin/tokens" if admin_viewer else "/account/tokens"
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     oauth_grants: list[dict[str, Any]] = []
     marketplace_repo: str | None = None
@@ -322,7 +322,7 @@ def build_syndication_section(
         f"<td class=\"pref-actions\"><button type=\"button\" class=\"pref-btn\" data-oauth-revoke-grant=\"{escape(str(g['grant_id']))}\">{escape(t('console.oauth.revoke'))}</button></td></tr>"
         for g in oauth_grants
     ) or f'<tr><td colspan="6" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
-    deprecation_notice_html = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": '<a href="/settings/mcp">/settings/mcp</a>'})
+    deprecation_notice_html = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": '<a href="/account/mcp">/account/mcp</a>'})
     values = {
         "client_href": escape(client_href),
         "tokens_href": escape(tokens_href),

@@ -1,9 +1,9 @@
-"""Unified console routes: ``/admin``, ``/admin/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/*``, and ``/api/admin/mcp/telemetry``.
+"""Unified console routes: ``/admin``, ``/admin/*``, ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/*``, and ``/api/admin/mcp/telemetry``.
 
 - ``/admin``, ``/admin/*``, ``/moderation/oversight``, and ``/moderation/themes`` are for administrators only (``server_role == "admin"``, ``scope == "owner"``); other callers get 404.
-- ``/settings``, ``/settings/*``, ``/moderation``, and ``/moderation/kb`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``).
-- An administrator who opens ``/settings/tokens`` gets a 302 redirect to ``/admin/tokens`` and does not see ``/settings/tokens`` in the sidebar.
-- Legacy routes (``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
+- ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, and ``/moderation/kb`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``). ``/account/*`` has the pages of the account of the caller; ``/settings/*`` has the pages of a knowledge base (shared knowledge, syndication).
+- An administrator who opens ``/account/tokens`` gets a 302 redirect to ``/admin/tokens`` and does not see ``/account/tokens`` in the sidebar.
+- Legacy routes (the old ``/settings/*`` paths of the ``/account/*`` pages, ``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
 - Non-admin HTML responses never contain ``/admin/*`` links, ``/moderation/oversight``, ``/moderation/themes``, or administrator script bundles.
 """
 
@@ -76,13 +76,14 @@ from .common import icon_html, open_auth_db
 FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})
 
 def _tokens_deprecation_banner_html() -> str:
-    """Render the deprecation banner pointing operators and users to OAuth 2.1 in /settings/mcp."""
-    mcp_link = '<a href="/settings/mcp">/settings/mcp</a>'
+    """Render the deprecation banner pointing operators and users to OAuth 2.1 in /account/mcp."""
+    mcp_link = '<a href="/account/mcp">/account/mcp</a>'
     message = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": mcp_link})
     return console_notice(f'<span data-icon="warning"></span> {message}', tone="warn", attrs={"data-deprecated": "tokens", "role": "status"})
 
 
 ADMIN_INDEX_PATH = "/admin"
+ACCOUNT_INDEX_PATH = "/account"
 SETTINGS_INDEX_PATH = "/settings"
 MODERATION_INDEX_PATH = "/moderation"
 ADMIN_MCP_TELEMETRY_API_PATH = "/api/admin/mcp/telemetry"
@@ -94,7 +95,7 @@ class ConsoleSectionSpec:
 
     slug: str
     path: str
-    area: str  # "settings" | "admin" | "moderation"
+    area: str  # "account" | "settings" | "admin" | "moderation"
     group_id: str
     theme_scoped: bool = False
     # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
@@ -124,71 +125,111 @@ class ConsoleSectionSpec:
         return self._text("desc")
 
 
-SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
+# The account area (/account/*): the pages of the account of the caller. /settings/* has the pages of a knowledge base (shared knowledge, syndication).
+ACCOUNT_WORKSPACE_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
-        slug="account",
-        path="/settings/account",
-        area="settings",
+        slug="profile",
+        path="/account/profile",
+        area="account",
         group_id="workspace",
         icon="user",
     ),
     ConsoleSectionSpec(
+        slug="security",
+        path="/account/security",
+        area="account",
+        group_id="workspace",
+        icon="lock",
+    ),
+    ConsoleSectionSpec(
         slug="invites",
-        path="/settings/invites",
-        area="settings",
+        path="/account/invites",
+        area="account",
         group_id="workspace",
         icon="mail",
     ),
     ConsoleSectionSpec(
         slug="federation",
-        path="/settings/federation",
-        area="settings",
+        path="/account/federation",
+        area="account",
         group_id="workspace",
         icon="globe",
     ),
     ConsoleSectionSpec(
-        slug="keys",
-        path="/settings/keys",
-        area="settings",
-        group_id="workspace",
-        icon="lock",
-    ),
-    ConsoleSectionSpec(
-        slug="tokens",
-        path="/settings/tokens",
-        area="settings",
-        group_id="workspace",
-        icon="key",
-    ),
-    ConsoleSectionSpec(
         slug="telegram",
-        path="/settings/telegram",
-        area="settings",
+        path="/account/telegram",
+        area="account",
         group_id="workspace",
         icon="bot",
     ),
     ConsoleSectionSpec(
         slug="notifications",
-        path="/settings/notifications",
-        area="settings",
+        path="/account/notifications",
+        area="account",
         group_id="workspace",
         icon="bell",
     ),
     ConsoleSectionSpec(
         slug="bundles",
-        path="/settings/bundles",
-        area="settings",
+        path="/account/bundles",
+        area="account",
         group_id="workspace",
         icon="package",
     ),
     ConsoleSectionSpec(
         slug="backups",
-        path="/settings/backups",
-        area="settings",
+        path="/account/backups",
+        area="account",
         group_id="workspace",
         icon="save",
     ),
 )
+
+# The AI group of the account: who does the LLM jobs of the account (providers) and how AI agents connect (mcp, webmcp, tokens). The mcp and webmcp pages show their examples and their exposure for the selected knowledge base.
+ACCOUNT_AI_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    ConsoleSectionSpec(
+        slug="providers",
+        path="/account/providers",
+        area="account",
+        group_id="ai",
+        icon="bolt",
+    ),
+    ConsoleSectionSpec(
+        slug="mcp",
+        path="/account/mcp",
+        area="account",
+        group_id="ai",
+        icon="puzzle",
+        theme_scoped=True,
+    ),
+    ConsoleSectionSpec(
+        slug="webmcp",
+        path="/account/webmcp",
+        area="account",
+        group_id="ai",
+        icon="graph",
+        theme_scoped=True,
+    ),
+    ConsoleSectionSpec(
+        slug="tokens",
+        path="/account/tokens",
+        area="account",
+        group_id="ai",
+        icon="key",
+    ),
+)
+
+ALL_ACCOUNT_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    *ACCOUNT_WORKSPACE_SPECS,
+    *ACCOUNT_AI_SPECS,
+)
+
+# The old /settings/* paths of the pages that are now in /account/*. Each route answers with a 308 redirect and keeps the query.
+LEGACY_SETTINGS_ACCOUNT_REDIRECTS: dict[str, str] = {
+    "/settings/account": "/account/profile",
+    "/settings/keys": "/account/providers",
+    **{f"/settings/{slug}": f"/account/{slug}" for slug in ("invites", "federation", "telegram", "notifications", "bundles", "backups", "mcp", "webmcp", "tokens")},
+}
 
 SETTINGS_KB_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
@@ -292,25 +333,6 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ),
 )
 
-SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
-    ConsoleSectionSpec(
-        slug="mcp",
-        path="/settings/mcp",
-        area="settings",
-        group_id="agents",
-        icon="puzzle",
-        theme_scoped=True,
-    ),
-    ConsoleSectionSpec(
-        slug="webmcp",
-        path="/settings/webmcp",
-        area="settings",
-        group_id="agents",
-        icon="graph",
-        theme_scoped=True,
-    ),
-)
-
 ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
         slug="server",
@@ -379,6 +401,13 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="pulse",
     ),
     ConsoleSectionSpec(
+        slug="webmcp",
+        path="/admin/webmcp",
+        area="admin",
+        group_id="admin_system",
+        icon="graph",
+    ),
+    ConsoleSectionSpec(
         slug="backups",
         path="/admin/backups",
         area="admin",
@@ -395,16 +424,15 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
 )
 
 ALL_SETTINGS_SPECS: tuple[ConsoleSectionSpec, ...] = (
-    *SETTINGS_GROUP_1_SPECS,
     *SETTINGS_KB_SPECS,
     *SETTINGS_GROUP_2_SPECS,
-    *SETTINGS_GROUP_3_SPECS,
 )
 ALL_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *ADMIN_SIDEBAR_GROUP_4_SPECS,
     *ADMIN_CONSOLE_GROUP_5_SPECS,
 )
-SETTINGS_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ALL_SETTINGS_SPECS}
+# The owner sections of the two areas: /account/* and /settings/*.
+OWNER_SECTION_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS)}
 ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {
     spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS
 }
@@ -444,7 +472,7 @@ def _resolve_caller_theme_and_list(
     raw_theme: str | None,
     allow_shared_fallback: bool = False,
 ) -> tuple[KnowledgeBaseInfo | None, list[KnowledgeBaseInfo], str | None] | None:
-    """``?kb=``(번호)가 주어졌으면 호출자 계정의 지식 베이스인지 엄격히 검증한다(C1, CT23). 없으면 콘솔의 주인인 계정의 개인 지식 베이스다: ``/settings/*``는 그 계정의 콘솔이다.
+    """``?kb=``(번호)가 주어졌으면 호출자 계정의 지식 베이스인지 엄격히 검증한다(C1, CT23). 없으면 콘솔의 주인인 계정의 개인 지식 베이스다: ``/account/*``와 ``/settings/*``는 그 계정의 콘솔이다.
 
     유효하지 않거나 다른 계정의 테마면 ``None``을 돌려줘 호출자가 404를 내게 한다.
     """
@@ -506,19 +534,19 @@ def _build_sidebar_html(
         ]
     else:
         groups = [
+            ("workspace", t("console.group.workspace"), list(ACCOUNT_WORKSPACE_SPECS)),
             (
-                "workspace",
-                t("console.group.workspace"),
+                "ai",
+                t("console.group.ai"),
                 [
                     spec
-                    for spec in SETTINGS_GROUP_1_SPECS
+                    for spec in ACCOUNT_AI_SPECS
                     # D3: admin manages tokens in /admin/tokens.
                     if not (admin_viewer and spec.slug == "tokens")
                 ],
             ),
             ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
             ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
-            ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
         ]
         if admin_viewer:
             groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
@@ -748,25 +776,6 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             badge_html=prototype_badge("admin-mcp-rbac-table", "static"),
             aria_label=t("console.admin.mcp.rbac_label"),
         )
-        webmcp_switch_row = (
-            '<div class="pref-row">'
-            '<div class="pref-row-label">'
-            f'<label for="pref-webmcp-enabled"><strong>{t_code("console.admin.mcp.webmcp_switch", api="document.modelContext")}</strong></label>'
-            f'<span>{t_code("console.admin.mcp.webmcp_switch_desc", header="Permissions-Policy: tools=()")}</span>'
-            "</div>"
-            f'<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="{escape(t("console.admin.mcp.webmcp_switch_label"))}"/>'
-            "</div>"
-        )
-        webmcp_card = console_card(
-            t_code("console.admin.mcp.webmcp_title", header="Permissions-Policy"),
-            prototype_note("admin-webmcp-global-switch", t("console.admin.mcp.webmcp_note"))
-            + webmcp_switch_row
-            + f'<p class="hint" id="admin-webmcp-policy-hint">{t_code("console.admin.mcp.webmcp_state_hint", path="/settings/webmcp")}</p>',
-            id="admin-webmcp-policy-card",
-            icon="graph",
-            badge_html=prototype_badge("admin-webmcp-global-switch", "client_only"),
-            aria_label=t("console.admin.mcp.webmcp_label"),
-        )
         bundle_form_html = (
             '<form id="admin-support-bundle-form" class="console-form-row" data-support-bundle-form>'
             + console_field(
@@ -786,7 +795,30 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             hint_html=escape(t("console.admin.mcp.bundle_hint")),
             aria_label=t("console.admin.mcp.bundle_label"),
         )
-        return telemetry_card + rbac_card + webmcp_card + bundle_card, {}
+        return telemetry_card + rbac_card + bundle_card, {}
+
+    if slug == "webmcp":
+        # The server policy of WebMCP only. The account settings (exposure for each knowledge base, tools, confirmation) are in /account/webmcp.
+        webmcp_switch_row = (
+            '<div class="pref-row">'
+            '<div class="pref-row-label">'
+            f'<label for="admin-webmcp-enabled"><strong>{t_code("console.admin.webmcp.switch", api="document.modelContext")}</strong></label>'
+            f'<span>{t_code("console.admin.webmcp.switch_desc", header="Permissions-Policy: tools=()")}</span>'
+            "</div>"
+            f'<input id="admin-webmcp-enabled" type="checkbox" switch checked aria-label="{escape(t("console.admin.webmcp.switch_label"))}"/>'
+            "</div>"
+        )
+        webmcp_card = console_card(
+            t_code("console.admin.webmcp.title", header="Permissions-Policy"),
+            prototype_note("admin-webmcp-global-switch", t("console.admin.webmcp.note"))
+            + webmcp_switch_row
+            + f'<p class="hint" id="admin-webmcp-policy-hint">{t_code("console.admin.webmcp.state_hint", path="/account/webmcp")}</p>',
+            id="admin-webmcp-policy-card",
+            icon="graph",
+            badge_html=prototype_badge("admin-webmcp-global-switch", "client_only"),
+            aria_label=t("console.admin.webmcp.label"),
+        )
+        return webmcp_card, {}
 
     return (
         f'<div class="console-placeholder" data-area="admin" data-slug="{escape(slug)}">'
@@ -795,7 +827,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
     ), {}
 
 
-# Catalog keys of the notices of /settings/account?notice=. A value that is not in this map shows nothing: the value is a display hint, not an identifier.
+# Catalog keys of the notices of /account/security?notice=. A value that is not in this map shows nothing: the value is a display hint, not an identifier.
 SETTINGS_ACCOUNT_NOTICE_TEXT = {
     "password_not_saved": "console.settings.account.notice.password_not_saved",
     "already_linked": "console.settings.account.notice.already_linked",
@@ -917,22 +949,24 @@ def _build_settings_account_section(
     owned_themes: list[KnowledgeBaseInfo],
     notice: str | None = None,
 ) -> SettingsSectionRender:
-    """Group 1 섹션(``account``, ``invites``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
+    """The bodies of the ``/account/*`` sections other than ``mcp`` and ``webmcp``, and of ``/settings/kb`` and the owner moderation section (design P3-a).
 
-    - 기존 API만 쓴다(C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
-    - 비관리자 응답에는 ``/admin/*`` 링크를 넣지 않는다(불변식 3). ``/admin/providers`` 링크는 관리자 뷰어에게만 준다.
+    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
+    - A response for an account that is not the server administrator has no ``/admin/*`` link (invariant 3). Only the server administrator gets the ``/admin/providers`` link.
     """
     if principal.account_id is None or principal.account_id != account.id:
-        raise RuntimeError("settings Group 1 requires the caller's own account principal")
+        raise RuntimeError("an account section requires the caller's own account principal")
     admin_viewer = is_admin(principal)
-    if spec.slug == "account":
-        body, extra = _settings_account_body(ctx, principal=principal, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
+    if spec.slug == "profile":
+        body, extra = _account_profile_body(ctx, account=account, admin_viewer=admin_viewer)
+    elif spec.slug == "security":
+        body, extra = _account_security_body(ctx, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
     elif spec.slug == "invites":
         return _settings_invites_render(ctx, mode=mode, admin_viewer=admin_viewer)
     elif spec.slug == "federation":
         body, extra = settings_federation_body(ctx, account=account)
-    elif spec.slug == "keys":
-        body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
+    elif spec.slug == "providers":
+        body, extra = _account_providers_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "kb":
         # An account has one personal knowledge base (design Section 3). The page shows its number.
         personal_num = next((ids.format_public_id(kb.number) for kb in owned_themes if kb.is_personal and kb.number is not None), "")
@@ -949,7 +983,7 @@ def _build_settings_account_section(
         )
     elif spec.slug == "tokens":
         if admin_viewer:
-            raise RuntimeError("/settings/tokens must redirect the admin to /admin/tokens")
+            raise RuntimeError("/account/tokens must redirect the admin to /admin/tokens")
         body, extra = _settings_tokens_body(ctx, account=account)
     elif spec.slug == "notifications":
         # The session of the page marks the devices that this browser session subscribed (PWA_NOTIFICATION_DESIGN.md PN4 rule 3).
@@ -1082,22 +1116,23 @@ def _settings_enabled_idp_providers(ctx: AccountsContext) -> list[auth_db.IdpPro
     return [p for p in auth_db.load_idp_providers(data_dir, include_secrets=False) if p.enabled]
 
 
-def _settings_account_body(
-    ctx: AccountsContext,
-    *,
-    principal: Principal,
-    account: accounts_store.Account,
-    owned_themes: list[KnowledgeBaseInfo],
-    admin_viewer: bool,
-    notice: str | None = None,
-) -> tuple[str, dict[str, Any]]:
+def _account_has_password(ctx: AccountsContext, account_id: int) -> bool:
     auth = open_auth_db(ctx)
     try:
-        has_password = auth_db.has_password(auth, account.id)
+        return auth_db.has_password(auth, account_id)
     finally:
         auth.close()
+
+
+def _account_profile_body(
+    ctx: AccountsContext,
+    *,
+    account: accounts_store.Account,
+    admin_viewer: bool,
+) -> tuple[str, dict[str, Any]]:
+    """The body of ``/account/profile``: the data of the account that other persons see (USERNAME, display name, the public switches), the languages, and the quota."""
+    has_password = _account_has_password(ctx, account.id)
     usage = _settings_account_usage(ctx, account.id)
-    providers = _settings_enabled_idp_providers(ctx)
 
     # Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): the USERNAME and profile_public rows are in both server modes.
     info_rows: list[tuple[str, str, str]] = [
@@ -1106,9 +1141,7 @@ def _settings_account_body(
         ("display_name", t("console.settings.account.display_name"), account.display_name),
         ("role", t("console.settings.account.field.role"), account_role_text(account.role)),
         ("status", t("console.common.status"), account_status_text(account.status)),
-        ("password", t("console.settings.account.password"), t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset")),
         ("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")),
-        ("extraction_mode", t("console.settings.account.extraction_mode_label"), _extraction_mode_text(account.extraction_mode)),
     ]
     info_html = console_kv([{"label": label, "value": value, "attrs": {"data-account-field": key}} for key, label, value in info_rows])
     # The switch needs no confirmation of identity (FEDERATION_GO_LIVE_DESIGN.md decision GD6). The account is a federation actor in the two states; a private profile makes its content private (decision GD5).
@@ -1136,6 +1169,85 @@ def _settings_account_body(
         + "</div>"
     )
 
+    quota_hint = (
+        f"{escape(t('console.settings.account.quota_hint_admin'))}"
+        if admin_viewer
+        else t("console.settings.account.quota_hint")
+    )
+
+    username_form_html = ""
+    if account.username:
+        username_body = (
+            console_field(
+                t("auth.field.username"),
+                f'<input name="username" type="text" class="pref-input" value="{escape(account.username)}" minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{{2,29}}" required autocomplete="username" autocapitalize="none" spellcheck="false"/>',
+            )
+            + f'<p class="hint">{escape(t("console.settings.account.username_rules"))}</p>'
+            + f'<p class="hint">{escape(t("console.settings.account.username_hold_hint"))}</p>'
+            + f'<p class="hint">{escape(t("console.settings.account.username_federation_hint"))}</p>'
+            + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+            + console_result(attrs={"data-settings-result": True})
+        )
+        username_form_html = console_form_card(
+            escape(t("console.settings.account.username_title")),
+            username_body,
+            id="settings-username",
+            icon="id",
+            aria_label=t("console.settings.account.username_title"),
+            attrs={"data-settings-form": "username", "data-reauth-mode": "password" if has_password else "session"},
+        )
+
+    display_name_body = (
+        console_field(t("console.settings.account.display_name"), f'<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/>')
+        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
+        + console_result(attrs={"data-settings-result": True})
+    )
+    body = (
+        console_card(
+            escape(t("console.settings.account.info_title")),
+            info_html + profile_toggle_html + source_toggle_html,
+            id="settings-account-info",
+            icon="id",
+            aria_label=t("console.settings.account.info_title"),
+        )
+        + username_form_html
+        + console_form_card(
+            escape(t("console.settings.account.display_name")),
+            display_name_body,
+            id="settings-display-name",
+            icon="tag",
+            aria_label=t("console.settings.account.display_name"),
+            attrs={"data-settings-form": "display-name"},
+        )
+        + _settings_locale_html(account)
+        + _settings_entity_language_html(account)
+        + console_card(
+            escape(t("console.settings.account.quota_title")),
+            console_stat_row(_settings_usage_stats_html(usage, admin_viewer=admin_viewer), attrs={"data-usage-stats": True}),
+            id="settings-quota",
+            icon="ruler",
+            hint_html=escape(quota_hint),
+            aria_label=t("console.settings.account.quota_title"),
+        )
+    )
+    return body, {"has_password": has_password}
+
+
+def _account_security_body(
+    ctx: AccountsContext,
+    *,
+    account: accounts_store.Account,
+    owned_themes: list[KnowledgeBaseInfo],
+    admin_viewer: bool,
+    notice: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """The body of ``/account/security``: the password, the confirmation of identity, the linked login identities, the export of the data, and the deletion of the account."""
+    has_password = _account_has_password(ctx, account.id)
+    providers = _settings_enabled_idp_providers(ctx)
+
+    password_state_html = console_kv(
+        [{"label": t("console.settings.account.password"), "value": t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset"), "attrs": {"data-account-field": "password"}}]
+    )
     current_pw_html = (
         console_field(t("console.settings.account.current_password"), '<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/>')
         if has_password
@@ -1183,44 +1295,13 @@ def _settings_account_body(
             f'<p class="hint">{escape(t("console.settings.account.lifecycle_member_hint"))}</p>'
         )
 
-    quota_hint = (
-        f"{escape(t('console.settings.account.quota_hint_admin'))}"
-        if admin_viewer
-        else t("console.settings.account.quota_hint")
-    )
-
     notice_key = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
     notice_text = t(notice_key) if notice_key else ""
     notice_html = console_notice(escape(notice_text), attrs={"data-account-notice": notice or "", "role": "status"}) if notice_text else ""
-    username_form_html = ""
-    if account.username:
-        username_body = (
-            console_field(
-                t("auth.field.username"),
-                f'<input name="username" type="text" class="pref-input" value="{escape(account.username)}" minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9_]{{2,29}}" required autocomplete="username" autocapitalize="none" spellcheck="false"/>',
-            )
-            + f'<p class="hint">{escape(t("console.settings.account.username_rules"))}</p>'
-            + f'<p class="hint">{escape(t("console.settings.account.username_hold_hint"))}</p>'
-            + f'<p class="hint">{escape(t("console.settings.account.username_federation_hint"))}</p>'
-            + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
-            + console_result(attrs={"data-settings-result": True})
-        )
-        username_form_html = console_form_card(
-            escape(t("console.settings.account.username_title")),
-            username_body,
-            id="settings-username",
-            icon="id",
-            aria_label=t("console.settings.account.username_title"),
-            attrs={"data-settings-form": "username", "data-reauth-mode": "password" if has_password else "session"},
-        )
 
-    display_name_body = (
-        console_field(t("console.settings.account.display_name"), f'<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/>')
-        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>')
-        + console_result(attrs={"data-settings-result": True})
-    )
     password_body = (
-        current_pw_html
+        password_state_html
+        + current_pw_html
         + console_field(t("console.settings.account.new_password"), f'<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/>')
         + console_field(t("console.settings.account.new_password_confirm"), f'<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/>')
         + f'<p class="hint">{escape(t("console.settings.account.password_rules", min=min_len))}</p>'
@@ -1235,25 +1316,6 @@ def _settings_account_body(
     )
     body = (
         f"{notice_html}"
-        + console_card(
-            escape(t("console.settings.account.info_title")),
-            info_html + profile_toggle_html + source_toggle_html,
-            id="settings-account-info",
-            icon="id",
-            aria_label=t("console.settings.account.info_title"),
-        )
-        + username_form_html
-        + console_form_card(
-            escape(t("console.settings.account.display_name")),
-            display_name_body,
-            id="settings-display-name",
-            icon="tag",
-            aria_label=t("console.settings.account.display_name"),
-            attrs={"data-settings-form": "display-name"},
-        )
-        + _settings_locale_html(account)
-        + _settings_entity_language_html(account)
-        + _settings_extraction_mode_html(account)
         + _settings_reauth_form_html(has_password=has_password, form_id="settings-account-reauth")
         + console_form_card(
             escape(t("console.settings.account.password_change") if has_password else t("console.settings.account.password_setup")),
@@ -1271,14 +1333,6 @@ def _settings_account_body(
             hint_html=escape(t("console.settings.account.identities_hint")),
             aria_label=t("console.settings.account.identities_label"),
             attrs={"data-settings-identities": True},
-        )
-        + console_card(
-            escape(t("console.settings.account.quota_title")),
-            console_stat_row(_settings_usage_stats_html(usage, admin_viewer=admin_viewer), attrs={"data-usage-stats": True}),
-            id="settings-quota",
-            icon="ruler",
-            hint_html=escape(quota_hint),
-            aria_label=t("console.settings.account.quota_title"),
         )
         + console_card(
             escape(t("console.settings.account.bundle_title")),
@@ -1337,13 +1391,13 @@ def _extraction_mode_text(mode: str) -> str:
 
 
 def _settings_extraction_mode_html(account: accounts_store.Account) -> str:
-    """Render the per-account extraction_mode selector (#pref-account-extraction-mode) and Agent Client onboarding notice."""
+    """Render the per-account extraction_mode selector (#pref-account-extraction-mode) and the Agent Client onboarding notice. The card is on /account/providers: the mode selects who does the extraction of the account."""
     label = t("console.settings.account.extraction_mode_label")
     mode = "client" if account.extraction_mode == "client" else "provider"
     options = f'<option value="provider"{" selected" if mode == "provider" else ""}>{escape(t("console.settings.account.extraction_mode_provider"))}</option><option value="client"{" selected" if mode == "client" else ""}>{escape(t("console.settings.account.extraction_mode_client"))}</option>'
     guide_notice = console_notice(
         f'<p style="margin:0 0 8px">{escape(t("console.settings.account.extraction_mode_client_next"))}</p>'
-        f'<a class="pref-btn" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a>',
+        f'<a class="pref-btn" href="/account/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a>',
         tone="ok",
         attrs={"data-extraction-client-guide": True, "hidden": mode != "client", "style": "margin-top:8px"},
     )
@@ -1353,31 +1407,10 @@ def _settings_extraction_mode_html(account: accounts_store.Account) -> str:
         + guide_notice
         + console_result(attrs={"data-settings-result": True})
     )
-    return console_card(escape(t("console.settings.account.extraction_mode_title")), body, id="settings-extraction-mode", icon="bolt", aria_label=label)
+    return console_card(escape(t("console.settings.account.extraction_mode_title")), body, id="settings-extraction-mode", icon="bolt", aria_label=label, attrs={"data-extraction-mode": mode})
 
 
-def _settings_keys_extraction_guide_html(account: accounts_store.Account) -> str:
-    """Render a compact Agent-Driven Extraction guide card on /settings/keys without any admin-only URLs."""
-    mode = "client" if account.extraction_mode == "client" else "provider"
-    title_text = t("console.settings.keys.extraction_guide_title")
-    desc_text = t("console.settings.keys.extraction_guide_client") if mode == "client" else t("console.settings.keys.extraction_guide_provider")
-    mode_badge = _extraction_mode_text(mode)
-    actions_html = console_actions(
-        f'<a class="pref-btn" href="/settings/account#settings-extraction-mode">{escape(t("console.settings.keys.extraction_guide_change_mode"))}</a>'
-        f'<a class="pref-btn pref-btn-accent" href="/settings/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.keys.extraction_guide_open_mcp"))}</a>'
-    )
-    return console_card(
-        escape(title_text),
-        actions_html,
-        id="settings-keys-extraction-guide",
-        icon="bolt",
-        badge_html=console_pill(mode_badge, tone="accent"),
-        hint_html=escape(desc_text),
-        attrs={"data-extraction-mode": mode, "aria-label": title_text},
-    )
-
-
-def _settings_keys_body(
+def _account_providers_body(
     ctx: AccountsContext,
     *,
     principal: Principal,
@@ -1385,9 +1418,10 @@ def _settings_keys_body(
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
-    extraction_guide = _settings_keys_extraction_guide_html(account)
+    """The body of ``/account/providers``: who does the LLM jobs of the account. It has the extraction mode, the personal provider key (BYOK), the record of the key decryptions, and the server tier with the usage."""
+    extraction_mode_card = _settings_extraction_mode_html(account)
     if not admin_viewer and (mode != "network" or principal.server_role != "member"):
-        # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
+        # 싱글 모드의 비관리자: /api/me/provider-keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
             console_card(
                 escape(t("console.settings.keys.unavailable_title")),
@@ -1398,7 +1432,7 @@ def _settings_keys_body(
                 aria_label=t("console.settings.keys.unavailable_label"),
                 attrs={"data-keys-mode": "unavailable"},
             )
-            + extraction_guide
+            + extraction_mode_card
         )
         return body, {"keys_mode": "unavailable"}
 
@@ -1480,7 +1514,7 @@ def _settings_keys_body(
     )
     body = (
         admin_card
-        + extraction_guide
+        + extraction_mode_card
         + meta_card
         + _settings_reauth_form_html(has_password=has_password, form_id="settings-keys-reauth")
         + console_form_card(escape(t("console.settings.keys.put_title")), put_body, id="settings-keys-put", icon="plus", aria_label=t("console.settings.keys.put_title"), attrs={"data-settings-form": "provider-key-put"})
@@ -1686,7 +1720,7 @@ def _render_console_section(
         synd_href=syndication_href,
         moderation_href="/moderation",
         moderation_current=is_moderation_area,
-        console_href="/admin" if admin_viewer else "/settings",
+        console_href="/admin" if admin_viewer else ACCOUNT_INDEX_PATH,
         console_icon="wrench" if admin_viewer else "settings",
         console_current=not is_moderation_area,
         show_logout=True,
@@ -1715,7 +1749,7 @@ def _render_console_section(
             # <script type="application/json"> 탈출을 막도록 <, >, & 를 유니코드 이스케이프한다.
             "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
             "extra_scripts_html": extra_scripts_html,
-            # Non-admin /settings/* and /moderation/kb responses never include the administrator script bundle.
+            # Non-admin /account/*, /settings/* and /moderation/kb responses never include the administrator script bundle.
             "admin_scripts_html": '<script src="/static/js/console_admin.js" defer></script>' if is_admin_section else "",
         },
     )
@@ -1745,15 +1779,31 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         return _redirect("/admin/server")
 
+    async def account_index(request: Request) -> Response:
+        """Redirect an owner from ``/account`` to ``/account/profile``."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        return _redirect("/account/profile")
+
     async def settings_index(request: Request) -> Response:
+        """Redirect an owner from ``/settings`` to ``/settings/reader`` and keep a valid ``?kb=`` query."""
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
         ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
         if not ok:
             return not_found()
-        target = "/settings/reader" if request.query_params.get("from") == "syndication" else "/settings/account"
-        return _redirect(_append_theme_query(target, validated_theme))
+        return _redirect(_append_theme_query("/settings/reader", validated_theme))
+
+    async def legacy_settings_account_redirect(request: Request) -> Response:
+        """Redirect an old ``/settings/*`` path of an account page to its ``/account/*`` path with status 308. The query stays as it is; the target page checks it."""
+        principal = request_principal(request)
+        if not _is_owner(principal):
+            return not_found()
+        target = LEGACY_SETTINGS_ACCOUNT_REDIRECTS[request.url.path]
+        query = request.url.query
+        return _redirect(f"{target}?{query}" if query else target, status_code=308)
 
     async def moderation_index(request: Request) -> Response:
         """Redirect an owner from ``/moderation`` to ``/moderation/kb`` and keep a valid ``?kb=`` query."""
@@ -1899,15 +1949,15 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
         return _handler
 
-    async def settings_section_page(request: Request) -> Response:
+    async def owner_section_page(request: Request) -> Response:
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
-        spec = SETTINGS_BY_PATH.get(request.url.path)
+        spec = OWNER_SECTION_BY_PATH.get(request.url.path)
         if spec is None:
             return not_found()
         raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
-        # D3: admin accessing /settings/tokens redirects 302 to /admin/tokens.
+        # D3: admin accessing /account/tokens redirects 302 to /admin/tokens.
         if is_admin(principal) and spec.slug == "tokens":
             ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
             if not ok:
@@ -1919,7 +1969,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             spec=spec,
             principal=principal,
             raw_theme=raw_theme,
-            notice=request.query_params.get("notice") if spec.slug == "account" else None,
+            notice=request.query_params.get("notice") if spec.slug == "security" else None,
             settings=getattr(request.app.state, "settings", None),
         )
 
@@ -1956,6 +2006,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
     mounted: list[Route] = [
         Route(ADMIN_INDEX_PATH, admin_index, methods=["GET", "HEAD"]),
+        Route(ACCOUNT_INDEX_PATH, account_index, methods=["GET", "HEAD"]),
         Route(SETTINGS_INDEX_PATH, settings_index, methods=["GET", "HEAD"]),
         Route(MODERATION_INDEX_PATH, moderation_index, methods=["GET", "HEAD"]),
         Route(ADMIN_MCP_TELEMETRY_API_PATH, admin_mcp_telemetry_api, methods=["GET", "HEAD"]),
@@ -1970,6 +2021,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     mounted.append(Route("/moderation/kb/{kb_number:int}", moderation_kb_manage_page, methods=["GET", "HEAD"]))
     for spec in ADMIN_CONSOLE_GROUP_5_SPECS:
         mounted.append(Route(spec.path, admin_section_page, methods=["GET", "HEAD"]))
-    for spec in ALL_SETTINGS_SPECS:
-        mounted.append(Route(spec.path, settings_section_page, methods=["GET", "HEAD"]))
+    for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS):
+        mounted.append(Route(spec.path, owner_section_page, methods=["GET", "HEAD"]))
+    for legacy_path in LEGACY_SETTINGS_ACCOUNT_REDIRECTS:
+        mounted.append(Route(legacy_path, legacy_settings_account_redirect, methods=["GET", "HEAD"]))
     return mounted

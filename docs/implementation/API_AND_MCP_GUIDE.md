@@ -44,11 +44,11 @@ The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DES
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
 ### 1.3 인증 아키텍처 전환: OAuth 2.1 기본화 및 수동 상시 토큰 지원 중단 (`AE2a`/`AE2b`/`AE3`)
-- **OAuth 2.1 우선 권장**: AI 클라이언트와 도구는 `/settings/mcp`에서 관리하는 OAuth 2.1(`S256` PKCE 또는 RFC 8628 `/device`) 사용을 권장한다(§3.1 방법 3).
-- **레거시 상시 이용 토큰(`data/auth/api_tokens.json`, `Deprecated`)**: 기존 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)와 `data/auth/api_tokens.json` 상시 토큰(`cb_...`)은 OAuth 2.1로 대체되어 지원 중단 예정이다. 수동 토큰 Bearer 인증과 `/tokens*` 경로는 `Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더를 반환하며, `TokenStore.set_retired(True)`(`api_tokens.json` `"retired": true`) 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급은 `410 Gone`(`manual_tokens_retired`)을 반환하고 파일 기반 수동 토큰 검증이 중단된다.
+- **OAuth 2.1 우선 권장**: AI 클라이언트와 도구는 `/account/mcp`에서 관리하는 OAuth 2.1(`S256` PKCE 또는 RFC 8628 `/device`) 사용을 권장한다(§3.1 방법 3).
+- **레거시 상시 이용 토큰(`data/auth/api_tokens.json`, `Deprecated`)**: 기존 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)와 `data/auth/api_tokens.json` 상시 토큰(`cb_...`)은 OAuth 2.1로 대체되어 지원 중단 예정이다. 수동 토큰 Bearer 인증과 `/tokens*` 경로는 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환하며, `TokenStore.set_retired(True)`(`api_tokens.json` `"retired": true`) 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급은 `410 Gone`(`manual_tokens_retired`)을 반환하고 파일 기반 수동 토큰 검증이 중단된다.
 - **토큰 관리 인터페이스**:
-  - **OAuth 2.1 인가 관리**: 콘솔 `/settings/mcp`, API `/api/me/oauth/grants`, `POST /oauth/revoke`
-  - **레거시 상시 토큰 관리 (Deprecated)**: `claire token [list|create|revoke]`, 콘솔 `/settings/tokens`(관리자 `/admin/tokens`), 텔레그램 `/token`, REST API `/tokens*`
+  - **OAuth 2.1 인가 관리**: 콘솔 `/account/mcp`, API `/api/me/oauth/grants`, `POST /oauth/revoke`
+  - **레거시 상시 토큰 관리 (Deprecated)**: `claire token [list|create|revoke]`, 콘솔 `/account/tokens`(관리자 `/admin/tokens`), 텔레그램 `/token`, REST API `/tokens*`
 - **RFC 6750 Bearer 토큰 사양**: 레거시 상시 토큰은 `cb_` 접두사를 가지며, OAuth 2.1 액세스 토큰·세션과 함께 `Authorization: Bearer <TOKEN>`으로 전송된다.
 
 ### 1.4 자격증명 채널 및 상호 배타성 규약
@@ -268,8 +268,8 @@ curl -s -X POST https://claire.example.com/oauth/token \
 ### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`, Deprecated)
 
 > [!WARNING] **수동 토큰 지원 중단 예정 (`AE3`)**
-> - 상시 이용 수동 토큰(`cb_...`, `data/auth/api_tokens.json`) 및 환경변수 토큰(`env:*`)은 OAuth 2.1(`AE2a`/`AE2b`, 콘솔 `/settings/mcp`)로 대체되었으며 지원 중단(Deprecated) 표시됩니다.
-> - 수동 토큰 Bearer 인증 응답 및 `/tokens`·`/tokens/revoke` 응답에는 `Deprecation: true`와 `Link: </settings/mcp>; rel="successor-version"` 헤더가 포함되며, JSON 응답에도 `"deprecated": true` 및 안내 문구가 포함됩니다.
+> - 상시 이용 수동 토큰(`cb_...`, `data/auth/api_tokens.json`) 및 환경변수 토큰(`env:*`)은 OAuth 2.1(`AE2a`/`AE2b`, 콘솔 `/account/mcp`)로 대체되었으며 지원 중단(Deprecated) 표시됩니다.
+> - 수동 토큰 Bearer 인증 응답 및 `/tokens`·`/tokens/revoke` 응답에는 `Deprecation: true`와 `Link: </account/mcp>; rel="successor-version"` 헤더가 포함되며, JSON 응답에도 `"deprecated": true` 및 안내 문구가 포함됩니다.
 > - `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 활성화 시 `POST /tokens`는 `410 Gone`(`manual_tokens_retired`)을 반환하고 수동 Bearer 검증이 즉시 비활성화됩니다.
 
 외부 AI 도구(Antigravity, Cursor 등) 및 CI/CD 자동화 파이프라인에서 사용하던 레거시 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다. 신규 연동은 §3.1 방법 3의 OAuth 2.1을 권장한다.
@@ -420,7 +420,7 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 MCP 클라이언트는 다음 세 가지 방식 중 하나로 `/mcp`에 접속할 수 있다:
 
 #### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token, Deprecated)
-CLI(`claire token create`), WebUI(`/settings/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 전달하는 레거시 방식이다 (`Deprecation: true` 및 `Link: </settings/mcp>; rel="successor-version"` 헤더 반환). 새 연동은 아래 방법 3(OAuth 2.1)을 사용한다.
+CLI(`claire token create`), WebUI(`/account/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 전달하는 레거시 방식이다 (`Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더 반환). 새 연동은 아래 방법 3(OAuth 2.1)을 사용한다.
 - **발급**: `claire token create "Agent Client" --scope readonly` (또는 `--scope write`)
 - **헤더**: `Authorization: Bearer <PERSISTENT_TOKEN>`
 - **퇴역 스위치**: `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급이 `410 Gone`으로 차단되고 기존 토큰 검증이 거부된다.
@@ -529,9 +529,9 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 ### 3.4 클라이언트별 연결 설정
 
 #### 1) Claude · Google Antigravity 공식 마켓플레이스 (`fofwisdom/claire-agents` + OAuth 2.1, Option A 권장)
-1. **Option A(전역 MCP 1회 등록 + 플러그인 분리)**: 원격 `/mcp` 서버는 클라이언트 전역 설정에 `"claire"`라는 키로 한 번 등록하고, 콘솔 `/settings/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스(`fofwisdom/claire-agents` `v0.4.1`, 정본 소스 `agent_clients/`, 선언형 `[adapter]` 계약은 [`AGENT_CLIENT_COMMON_SPEC.md`](../design/AGENT_CLIENT_COMMON_SPEC.md), GitHub Actions 자동 동기화)에서는 규칙·스킬·격리 서브에이전트만 담은 `claire` 플러그인을 설치한다 (업그레이드 시 사용자의 서버 URL을 보존하기 위해 플러그인 내부에는 `mcp_config.json`을 두지 않는다):
-   - **Antigravity (GUI 우선)**: `~/.gemini/config/mcp_config.json`에 `"claire"` 서버(`/settings/mcp`의 `#pref-mcp-download-mcp-config` 내려받기 지원)를 등록하고 **Customizations -> Installed -> MCP Servers -> claire**에서 OAuth 2.1 로그인을 완료한다. 이어서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)나 `docs/antigravity.ko.md` / `docs/antigravity.en.md`를 따라 GitHub Releases의 `claire-antigravity-v*.zip`(루트 `claire/`)을 플러그인 폴더에 설치한다 (`plugin.json` `suggestedPrompts` 최대 3개, `rules/AGENTS.md`, `agents/claire-extractor.md`, 사용자 노출 2축 스킬 `skills/claire-ingest/SKILL.md` 및 `skills/claire-query/SKILL.md`, `assets/logo.svg`, `README.md`). `claire-ingest`는 URL·로컬 파일·텍스트 노트 직접 적재(Flow A–C)와 대기(`pending`) 큐 추출·빈 큐 온보딩 안내(Flow D)를 모두 담당하고 `claire-extractor`로 위임한다. 첫 도구 실행 시 `Allow using this MCP tool?` 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누른다.
-   - **Claude (GUI 우선, 데스크톱 앱 코드 모드와 터미널)**: 데스크톱 앱의 **플러그인 -> 추가 -> 마켓플레이스 추가**에 `fofwisdom/claire-agents`를 넣어 동기화(`.claude-plugin/marketplace.json` -> `./plugins/claude/claire`)하고 `claire` 옆의 **이 컴퓨터에 추가**를 누른다. 이어서 `/settings/mcp`의 **Claude 빠른 설정 문구**(`#pref-mcp-claude-prompt`)를 새 대화에 붙여넣으면 `claude plugin install claire --marketplace <repo>`, `claude mcp add --transport http --scope user claire <url>`, `claude mcp login claire`가 차례로 실행된다(터미널 사용자는 `#pref-mcp-claude-setup`의 같은 세 줄을 직접 실행). `--scope user`가 없으면 서버가 현재 폴더에만 등록되고, Claude 커넥터로 추가한 서버는 도구 접두사가 달라 플러그인이 쓰지 못한다. 번들은 `agents/extractor.md`(`claire:extractor`, `mcp__claire__*` 8종 허용 목록), 사용자 노출 2축 스킬 `skills/{ingest,query}/SKILL.md`(`/claire:ingest`, `/claire:query`), 숨겨진 내부 포크 러너 `skills/extract-runner/SKILL.md`(`user-invocable: false`, `context: fork`, `agent: claire:extractor`), `hooks/hooks.json`으로 구성된다. `/claire:ingest`는 URL·파일·노트 직접 적재와 대기(`pending`) 큐 추출을 모두 처리하며 `Skill(claire:extract-runner)`로 `document_id`만 격리 서브에이전트에 넘긴다. `hooks/hooks.json`의 고정 `PreToolUse` 가드는 `claire:extractor` 밖의 `extract_read` 호출을 종료 코드 2로 막고 `/claire:ingest` 또는 `claire:extractor` 사용을 안내한다(1계층 방어). 가이드는 `docs/claude.ko.md` / `docs/claude.en.md`이다.
+1. **Option A(전역 MCP 1회 등록 + 플러그인 분리)**: 원격 `/mcp` 서버는 클라이언트 전역 설정에 `"claire"`라는 키로 한 번 등록하고, 콘솔 `/account/mcp#pref-mcp-client-bundles`에서 안내하는 공식 마켓플레이스(`fofwisdom/claire-agents` `v0.4.1`, 정본 소스 `agent_clients/`, 선언형 `[adapter]` 계약은 [`AGENT_CLIENT_COMMON_SPEC.md`](../design/AGENT_CLIENT_COMMON_SPEC.md), GitHub Actions 자동 동기화)에서는 규칙·스킬·격리 서브에이전트만 담은 `claire` 플러그인을 설치한다 (업그레이드 시 사용자의 서버 URL을 보존하기 위해 플러그인 내부에는 `mcp_config.json`을 두지 않는다):
+   - **Antigravity (GUI 우선)**: `~/.gemini/config/mcp_config.json`에 `"claire"` 서버(`/account/mcp`의 `#pref-mcp-download-mcp-config` 내려받기 지원)를 등록하고 **Customizations -> Installed -> MCP Servers -> claire**에서 OAuth 2.1 로그인을 완료한다. 이어서 **Antigravity 빠른 설치 문구**(`#pref-mcp-antigravity-prompt`)나 `docs/antigravity.ko.md` / `docs/antigravity.en.md`를 따라 GitHub Releases의 `claire-antigravity-v*.zip`(루트 `claire/`)을 플러그인 폴더에 설치한다 (`plugin.json` `suggestedPrompts` 최대 3개, `rules/AGENTS.md`, `agents/claire-extractor.md`, 사용자 노출 2축 스킬 `skills/claire-ingest/SKILL.md` 및 `skills/claire-query/SKILL.md`, `assets/logo.svg`, `README.md`). `claire-ingest`는 URL·로컬 파일·텍스트 노트 직접 적재(Flow A–C)와 대기(`pending`) 큐 추출·빈 큐 온보딩 안내(Flow D)를 모두 담당하고 `claire-extractor`로 위임한다. 첫 도구 실행 시 `Allow using this MCP tool?` 창이 뜨면 **`3 Yes, and always allow`** 선택 후 **`Submit`**을 누른다.
+   - **Claude (GUI 우선, 데스크톱 앱 코드 모드와 터미널)**: 데스크톱 앱의 **플러그인 -> 추가 -> 마켓플레이스 추가**에 `fofwisdom/claire-agents`를 넣어 동기화(`.claude-plugin/marketplace.json` -> `./plugins/claude/claire`)하고 `claire` 옆의 **이 컴퓨터에 추가**를 누른다. 이어서 `/account/mcp`의 **Claude 빠른 설정 문구**(`#pref-mcp-claude-prompt`)를 새 대화에 붙여넣으면 `claude plugin install claire --marketplace <repo>`, `claude mcp add --transport http --scope user claire <url>`, `claude mcp login claire`가 차례로 실행된다(터미널 사용자는 `#pref-mcp-claude-setup`의 같은 세 줄을 직접 실행). `--scope user`가 없으면 서버가 현재 폴더에만 등록되고, Claude 커넥터로 추가한 서버는 도구 접두사가 달라 플러그인이 쓰지 못한다. 번들은 `agents/extractor.md`(`claire:extractor`, `mcp__claire__*` 8종 허용 목록), 사용자 노출 2축 스킬 `skills/{ingest,query}/SKILL.md`(`/claire:ingest`, `/claire:query`), 숨겨진 내부 포크 러너 `skills/extract-runner/SKILL.md`(`user-invocable: false`, `context: fork`, `agent: claire:extractor`), `hooks/hooks.json`으로 구성된다. `/claire:ingest`는 URL·파일·노트 직접 적재와 대기(`pending`) 큐 추출을 모두 처리하며 `Skill(claire:extract-runner)`로 `document_id`만 격리 서브에이전트에 넘긴다. `hooks/hooks.json`의 고정 `PreToolUse` 가드는 `claire:extractor` 밖의 `extract_read` 호출을 종료 코드 2로 막고 `/claire:ingest` 또는 `claire:extractor` 사용을 안내한다(1계층 방어). 가이드는 `docs/claude.ko.md` / `docs/claude.en.md`이다.
 2. 모든 번들에는 비밀키가 포함되지 않으며, 수동/CLI 환경에서 `mcp_config.json`에 직접 지정할 때는 `url` 형식으로 본인의 Claire Bible 서버 `/mcp` 주소를 넣고 OAuth 2.1(`S256` PKCE 또는 `/device`)로 로그인한다 (`write` 작업은 동의 시 `write` 스코프 및 단계 인증 필요):
 ```json
 {
@@ -584,7 +584,7 @@ curl -s -X POST https://claire.example.com/mcp \
 
 ## 4. API 및 MCP 토큰 관리 종합 인터페이스
 
-신규 클라이언트 인가는 콘솔 `/settings/mcp`의 **OAuth 2.1 부여 관리 및 `agent_client` 번들 배포**를 기본으로 한다. 레거시 상시 토큰은 CLI, WebUI, Telegram 봇 모두에서 지원 중단 안내(`Deprecation`)를 함께 출력하며 퇴역 전까지만 유지된다.
+신규 클라이언트 인가는 콘솔 `/account/mcp`의 **OAuth 2.1 부여 관리 및 `agent_client` 번들 배포**를 기본으로 한다. 레거시 상시 토큰은 CLI, WebUI, Telegram 봇 모두에서 지원 중단 안내(`Deprecation`)를 함께 출력하며 퇴역 전까지만 유지된다.
 
 ### 4.1 CLI 토큰 관리 (`claire token`, Deprecated)
 
@@ -604,15 +604,15 @@ claire token revoke 2
 claire token revoke "cb_xX9vY..." --json
 ```
 
-### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/settings/mcp`, `/settings/tokens`)
+### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/account/mcp`, `/account/tokens`)
 
 - **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
-- **`/settings/mcp` (권장)**: 최상단 빠른 시작 가이드(3단계 녹색/붉은색 진행 체크리스트 — ① `extraction_mode = 'client'`, ② OAuth 2.1 `write` 인가 연결, ③ 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크(Antigravity `#pref-mcp-antigravity-prompt`·`#pref-mcp-antigravity-guide`, Claude `#pref-mcp-claude-prompt`·`#pref-mcp-claude-guide`·`#pref-mcp-claude-setup`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
-- **`/settings/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
+- **`/account/mcp` (권장)**: 최상단 빠른 시작 가이드(3단계 녹색/붉은색 진행 체크리스트 — ① `extraction_mode = 'client'`, ② OAuth 2.1 `write` 인가 연결, ③ 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크(Antigravity `#pref-mcp-antigravity-prompt`·`#pref-mcp-antigravity-guide`, Claude `#pref-mcp-claude-prompt`·`#pref-mcp-claude-guide`·`#pref-mcp-claude-setup`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
+- **`/account/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/account/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
 
 ### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)
 
-스마트폰이나 텔레그램 메신저에서 원격으로 레거시 상시 토큰 상태를 조회·발급·폐기할 수 있으며, 모든 응답에 OAuth 2.1(`/settings/mcp`) 이전 안내가 덧붙는다.
+스마트폰이나 텔레그램 메신저에서 원격으로 레거시 상시 토큰 상태를 조회·발급·폐기할 수 있으며, 모든 응답에 OAuth 2.1(`/account/mcp`) 이전 안내가 덧붙는다.
 
 - **목록 조회**: `/token` 또는 `/token list`
 - **토큰 생성**: `/token create <이름> [owner|write|readonly]`

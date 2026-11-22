@@ -357,7 +357,7 @@ def collect_account_notifications(settings: Any, *, account_id: int, now: float,
     if report["server_sender_task"] != "recent":
         findings.append(_finding("SERVER_SENDER_NOT_RUNNING", f"The task of the server that sends notifications does not run now (state: {report['server_sender_task']}). Tell the server administrator."))
     if not devices and unread:
-        findings.append(_finding("NO_DEVICE", f"{unread} notifications are not read and no device gets notifications. Turn notifications on at /settings/notifications."))
+        findings.append(_finding("NO_DEVICE", f"{unread} notifications are not read and no device gets notifications. Turn notifications on at /account/notifications."))
     ended = [d["id"] for d in devices if d["session"] == "ended"]
     if ended:
         findings.append(_finding("DEVICE_SESSION_ENDED", f"The sign-in session of the devices {ended} ended: they get no notification and go from the list at the next send. Sign in on the device and turn notifications on again."))

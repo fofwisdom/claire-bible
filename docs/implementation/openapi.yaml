@@ -1048,7 +1048,7 @@ paths:
         '200':
           description: The result.
 
-  /accounts:
+  /directory:
     get:
       summary: Public account directory
       description: >-
@@ -1057,8 +1057,9 @@ paths:
         OrderedCollection; with `page=true`: an OrderedCollectionPage with the collection parameters
         `max_id`, `min_id`, `since_id`, and `limit`. Each item has the public number, `username`,
         `display_name`, and the public themes with their counts. A browser navigation gets the HTML
-        page. The old paths `/explore/accounts` and `/explore/federation` are removed (404). The list of
-        the federated servers is not public.
+        page. The old path `/accounts` answers with 308 to `/directory` with the same query. The older
+        paths `/explore/accounts` and `/explore/federation` are removed (404). The list of the federated
+        servers is not public.
       operationId: listPublicAccounts
       x-claire-access: public
       security:
@@ -3111,7 +3112,7 @@ paths:
   /tokens:
     get:
       deprecated: true
-      summary: List persistent API and MCP tokens (Deprecated; use OAuth 2.1 in /settings/mcp)
+      summary: List persistent API and MCP tokens (Deprecated; use OAuth 2.1 in /account/mcp)
       operationId: listTokens
       x-claire-access: owner
       security:
@@ -3120,12 +3121,12 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: 'List of active, expired, and revoked persistent tokens. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          description: 'List of active, expired, and revoked persistent tokens. Includes `Deprecation: true` and `Link: </account/mcp>; rel="successor-version"`.'
           headers:
             Deprecation:
               schema: {type: string, example: "true"}
             Link:
-              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+              schema: {type: string, example: '</account/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -3173,12 +3174,12 @@ paths:
                   example: 90
       responses:
         '201':
-          description: 'Token created successfully. Raw token is returned only once. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          description: 'Token created successfully. Raw token is returned only once. Includes `Deprecation: true` and `Link: </account/mcp>; rel="successor-version"`.'
           headers:
             Deprecation:
               schema: {type: string, example: "true"}
             Link:
-              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+              schema: {type: string, example: '</account/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -3205,7 +3206,7 @@ paths:
             Deprecation:
               schema: {type: string, example: "true"}
             Link:
-              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+              schema: {type: string, example: '</account/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -3234,12 +3235,12 @@ paths:
                     - type: string
       responses:
         '200':
-          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </account/mcp>; rel="successor-version"`.'
           headers:
             Deprecation:
               schema: {type: string, example: "true"}
             Link:
-              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+              schema: {type: string, example: '</account/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -3277,12 +3278,12 @@ paths:
                     - type: string
       responses:
         '200':
-          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </settings/mcp>; rel="successor-version"`.'
+          description: 'Token revoked successfully. Includes `Deprecation: true` and `Link: </account/mcp>; rel="successor-version"`.'
           headers:
             Deprecation:
               schema: {type: string, example: "true"}
             Link:
-              schema: {type: string, example: '</settings/mcp>; rel="successor-version"'}
+              schema: {type: string, example: '</account/mcp>; rel="successor-version"'}
           content:
             application/json:
               schema:
@@ -3352,7 +3353,7 @@ paths:
         '303':
           description: >-
             Setup completed. A new session cookie replaces the old one. Location is /,
-            or /settings/account?notice=password_not_saved when only the password write failed.
+            or /account/security?notice=password_not_saved when only the password write failed.
         '400':
           description: Input rejected; the form is shown again with reason codes (HTML).
           content:
@@ -3541,7 +3542,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [server, federation, accounts, idp, providers, limits, plugins, tokens, mcp, backups, storage]
+            enum: [server, federation, accounts, idp, providers, limits, plugins, tokens, mcp, webmcp, backups, storage]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '200':
@@ -4248,7 +4249,7 @@ paths:
     get:
       summary: Legacy account page redirect
       description: >-
-        Compatibility redirect to /settings/account. The rule surface is any, so a
+        Compatibility redirect to /account/profile. The rule surface is any, so a
         prefixed /@{username}/me also redirects. The Location is always the root
         path and the query string (including notice) is not forwarded.
       operationId: getMePage
@@ -4259,21 +4260,88 @@ paths:
         - SessionCookie: []
       responses:
         '302':
-          description: Redirect to /settings/account (Cache-Control no-store, Referrer-Policy same-origin).
+          description: Redirect to /account/profile (Cache-Control no-store, Referrer-Policy same-origin).
           headers:
             Location:
               schema:
                 type: string
-                const: /settings/account
+                const: /account/profile
         '404':
           description: Not an owner-scope credential.
 
+  /account:
+    get:
+      summary: Account console entry redirect
+      description: >-
+        Redirects to /account/profile.
+      operationId: getAccountConsoleIndex
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '302':
+          description: Redirect to /account/profile (Cache-Control no-store, Referrer-Policy same-origin).
+        '404':
+          description: Not an owner-scope account credential.
+
+  /account/{section}:
+    get:
+      summary: Account console section page (unified console shell)
+      description: >-
+        Root-only owner pages of the account of the caller, rendered in
+        console_shell.html in both server modes. Prefixed paths
+        (/@{username}/account/..., /kb/{n}/account/...) return 404. profile has
+        the data that other persons see (USERNAME, display name, public
+        switches), the languages, and the quota. security has the password, the
+        confirmation of identity, the linked identities, the export of a data
+        bundle, and the account lifecycle. providers has the extraction mode, the
+        personal provider key, and the server tier with the usage. For the server
+        admin, /account/tokens redirects (302) to /admin/tokens. Sections mcp and
+        webmcp show their examples and their exposure for the selected knowledge
+        base; the others are account-wide. Responses to non-admin callers contain
+        no /admin/*, /moderation/oversight, or /moderation/themes links, no admin
+        markup, and no console_admin.js.
+      operationId: getAccountConsoleSection
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: section
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [profile, security, invites, federation, telegram, notifications, bundles, backups, providers, mcp, webmcp, tokens]
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+        - name: notice
+          in: query
+          required: false
+          description: Only read on /account/security. Values outside the enum render no notice.
+          schema:
+            type: string
+            enum: [password_not_saved, identity_linked, already_linked]
+      responses:
+        '200':
+          description: Account page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Admin caller on /account/tokens; Location is /admin/tokens.
+        '404':
+          description: Not an owner-scope account credential, or invalid kb reference.
+
   /settings:
     get:
-      summary: User settings console entry redirect
+      summary: Knowledge base settings console entry redirect
       description: >-
-        Redirects to /settings/account, or to /settings/reader when from=syndication.
-        A valid kb query is kept on the redirect target.
+        Redirects to /settings/reader. A valid kb query is kept on the redirect
+        target.
       operationId: getSettingsConsoleIndex
       x-claire-access: owner
       security:
@@ -4281,34 +4349,30 @@ paths:
         - SessionHeader: []
         - SessionCookie: []
       parameters:
-        - name: from
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [syndication]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '302':
-          description: Redirect to /settings/account or /settings/reader (Cache-Control no-store, Referrer-Policy same-origin).
+          description: Redirect to /settings/reader (Cache-Control no-store, Referrer-Policy same-origin).
         '404':
           description: Not an owner-scope account credential, or invalid kb reference.
 
   /settings/{section}:
     get:
-      summary: User settings console section page (unified console shell)
+      summary: Knowledge base settings console section page (unified console shell)
       description: >-
         Root-only owner pages rendered in console_shell.html in both server modes.
         Prefixed paths (/@{username}/settings/..., /themes/{n}/settings/...) return
-        404. /settings/kb stays under /settings for the personal KB, submissions,
-        automatic contribution rule, own reputation, memberships, and mutual
-        collaborations. For the server admin, /settings/tokens redirects (302) to
-        /admin/tokens. /settings/themes is a retired page: it redirects (308) to
+        404. /settings/kb has the personal KB, submissions, the automatic
+        contribution rule, own reputation, memberships, and mutual
+        collaborations. Sections reader through opml are theme-scoped.
+        /settings/themes is a retired page: it redirects (308) to
         /moderation/themes for the server admin and to /settings/kb for each other
-        account. Responses to non-admin callers contain no /admin/*,
-        /moderation/oversight, or /moderation/themes links, no admin markup, and no
-        console_admin.js. Sections reader through webmcp are theme-scoped; the
-        others are account-wide.
+        account. The old paths of the account pages redirect (308) and keep the
+        query: account to /account/profile, keys to /account/providers, and
+        invites, federation, telegram, notifications, bundles, backups, mcp,
+        webmcp, and tokens to /account/{same name}. Responses to non-admin callers
+        contain no /admin/*, /moderation/oversight, or /moderation/themes links,
+        no admin markup, and no console_admin.js.
       operationId: getSettingsConsoleSection
       x-claire-access: owner
       security:
@@ -4321,15 +4385,8 @@ paths:
           required: true
           schema:
             type: string
-            enum: [account, federation, keys, kb, themes, tokens, telegram, bundles, backups, reader, connections, feeds, tags, rules, outbound, opml, mcp, webmcp]
+            enum: [kb, reader, connections, feeds, tags, rules, outbound, opml, themes, account, keys, invites, federation, telegram, notifications, bundles, backups, mcp, webmcp, tokens]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
-        - name: notice
-          in: query
-          required: false
-          description: Only read on /settings/account. Values outside the enum render no notice.
-          schema:
-            type: string
-            enum: [password_not_saved, identity_linked, already_linked]
       responses:
         '200':
           description: Settings page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
@@ -4337,10 +4394,8 @@ paths:
             text/html:
               schema:
                 type: string
-        '302':
-          description: Admin caller on /settings/tokens; Location is /admin/tokens.
         '308':
-          description: The retired page /settings/themes; Location is /moderation/themes (admin caller, with the validated kb query) or /settings/kb.
+          description: The retired page /settings/themes; Location is /moderation/themes (admin caller, with the validated kb query) or /settings/kb. An old path of an account page; Location is the /account/* path with the same query.
         '404':
           description: Not an owner-scope account credential, or invalid kb reference.
 
@@ -4404,7 +4459,7 @@ paths:
         /settings/reader, accounts to /settings/connections, and feeds, tags, rules,
         outbound, opml, mcp, webmcp to /settings/ with the same name, keeping the
         validated knowledge base as ?kb=. idp and userdb go to /admin/idp and
-        /admin/accounts for the server admin and to /settings/account for other
+        /admin/accounts for the server admin and to /account/profile for other
         owners, without ?kb=. An empty or unknown tab is 404. The Location is
         always a root path.
       operationId: getSyndicationPreferencesRedirect
@@ -4762,7 +4817,7 @@ paths:
                   actor_id: {type: [string, 'null']}
                   is_actor: {type: boolean}
                   actor_state: {type: string, description: '`active`, `account_not_active`, or `no_username`. A private profile is not a condition of the actor.'}
-                  discoverable: {type: boolean, description: 'True when the account profile is public (Person.discoverable is true, listed in /accounts, and indexed by search engines).'}
+                  discoverable: {type: boolean, description: 'True when the account profile is public (Person.discoverable is true, listed in /directory, and indexed by search engines).'}
                   followers:
                     type: object
                     properties:
@@ -5868,7 +5923,7 @@ components:
       description: >-
         Standard Bearer authorization header. Value should be an OAuth 2.1 access token
         obtained via /oauth/token (legacy manual/env tokens emit Deprecation: true and
-        Link: </settings/mcp>; rel="successor-version" headers).
+        Link: </account/mcp>; rel="successor-version" headers).
     SessionHeader:
       type: apiKey
       in: header

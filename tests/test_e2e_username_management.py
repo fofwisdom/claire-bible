@@ -170,7 +170,7 @@ def test_e2e_case_preserving_usernames_and_rename_lifecycle(tmp_path: Path) -> N
         assert pub_resp.status_code == 200 and pub_resp.json()["profile_public"] == 1
 
         # Settings UI exposes username change form with mixed-case value.
-        settings_page = client.request("GET", "/settings/account", session=nasa_session)
+        settings_page = client.request("GET", "/account/profile", session=nasa_session)
         assert settings_page.status_code == 200
         assert 'data-settings-form="username"' in settings_page.text
         assert 'value="NASA"' in settings_page.text

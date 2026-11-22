@@ -158,12 +158,12 @@ def test_a_value_that_is_not_0_or_1_is_refused(env):
     assert env.client.request("PATCH", "/api/me", session=stale, json={"profile_public": 2}).status_code == 400
 
 
-# --- /settings/account switch ---
+# --- /account/profile switch ---
 
 
 def test_switch_markup_has_no_step_up(env):
     session = _session(env.settings, env.member)
-    page = env.client.request("GET", "/settings/account", session=session).text
+    page = env.client.request("GET", "/account/profile", session=session).text
     switch = re.search(r'<input id="pref-profile-public"[^>]*>', page)
     assert switch is not None and 'data-settings-toggle="profile-public"' in switch.group(0) and "data-step-up" not in switch.group(0)
     assert "data-federation-hint" in page and "federation features work in both states" in page
@@ -324,7 +324,7 @@ def test_e2e_switch_changes_the_profile_without_a_dialog(tmp_path):
                 ctx = browser.new_context()
                 ctx.add_cookies([{"name": "claire_session", "value": stale, "url": base}])
                 page = ctx.new_page()
-                page.goto(f"{base}/settings/account")
+                page.goto(f"{base}/account/profile")
                 toggle = page.locator("#pref-profile-public")
                 assert toggle.is_checked() is False
 

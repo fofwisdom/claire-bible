@@ -17,7 +17,7 @@ This document tells how the web workspace works now. The design principles are i
 | File | Content |
 | :--- | :--- |
 | `src/bible/web/chrome.py` | Single-source builder for the shared application bar (`render_appbar_html()`), command palette (`render_cmdpalette_html()`), and ingestion modals (`render_ingest_modals_html()`). Future routes (`themes`, `kb`, etc.) must use this module through `WebUIRendererPort` instead of duplicating chrome HTML. |
-| `src/bible/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/moderation/*`, `/admin/*`). |
+| `src/bible/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/account/*`, `/settings/*`, `/moderation/*`, `/admin/*`). |
 | `src/bible/templates/partials/common_cmdpalette.html` | Shared `<dialog id="cmdpalette" closedby="any">` markup rendered on every page. |
 | `src/bible/templates/partials/common_ingest_modals.html` | Shared centered modal dialogs `#modal-ingest`, `#modal-reingest`, and `#modal-regen`. |
 | `src/bible/templates/index.html` | Markup of the workspace: expandable common chrome markers, list pane, center views, context panel, `#modal-dedup` / `#modal-purge`, bottom bar. |
@@ -30,10 +30,10 @@ This document tells how the web workspace works now. The design principles are i
 | `src/bible/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
 | `src/bible/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
 | `src/bible/static/js/icons.js` | `ClaireIcons`: line icons (Section 9). |
-| `src/bible/static/css/console_ui.css` | Canonical Console UI stylesheet for `/settings/*`, `/admin/*`, and `/moderation/*`, plus `.console-shell` / `body[data-active-area]` scoped overrides for `.claire-*` classes (Section 11). |
+| `src/bible/static/css/console_ui.css` | Canonical Console UI stylesheet for `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*`, plus `.console-shell` / `body[data-active-area]` scoped overrides for `.claire-*` classes (Section 11). |
 | `src/bible/static/js/console_ui.js` | `ClaireConsoleUI`: client HTML builder helpers for console sections (Section 11). |
 | `src/claire/api/accounts_routes/console_ui.py` | Typed Python HTML builders for server-rendered console sections (Section 11). |
-| `src/claire/api/templates/console_shell.html` | Shared shell template for `/settings/*`, `/admin/*`, and `/moderation/*` (Section 11). |
+| `src/claire/api/templates/console_shell.html` | Shared shell template for `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` (Section 11). |
 | `src/bible/web/pages.py` | Builds the workspace and `/syndication` standalone bundles with `src/bible/web/chrome.py` and gives pure slot-filling helpers (`localize_page`, `render_graph_page`, `render_syndication_page`, `render_shared_page`). |
 | `src/claire_bible/web/pages.py` | Loads settings, themes, and locale data ([`I18N.md`](I18N.md) §4) into `render_graph_html`, `render_syndication_html`, and `shared_html`. |
 
@@ -41,7 +41,7 @@ This document tells how the web workspace works now. The design principles are i
 
 ## 2. Application Bar
 
-**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*`, `/moderation/*`, and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/bible/web/chrome.py` (`src/bible/templates/partials/common_appbar.html`) styled by `src/bible/static/css/appbar.css` and controlled by `src/bible/static/js/appbar.js`. It has three parts:
+**[code]** Every main page (workspace `/`, `/syndication`, console `/account/*`, `/settings/*`, `/moderation/*`, and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/bible/web/chrome.py` (`src/bible/templates/partials/common_appbar.html`) styled by `src/bible/static/css/appbar.css` and controlled by `src/bible/static/js/appbar.js`. It has three parts:
 
 1. Start (`.bar-brand-group`): brand link (`Claire Bible`), page-specific theme picker, workspace list toggle (`#listtoggle`).
 2. Center (`.appbar-center`): always includes the unified command palette trigger button (`#palettetrigger`, keyboard shortcut `/`) inside `.appbar-palette-slot`, followed by page-specific center content (workspace view tabs `#centertabs` and `#streamtabs`, or syndication stream title, or console title/badge). The bar has no text `<input>`.
@@ -49,11 +49,11 @@ This document tells how the web workspace works now. The design principles are i
    - Hamburger menu button (`#hamburger-btn`, rightmost edge) opening `#pop-hamburger-menu` (`popover="auto"`, `focusgroup="menu nomemory"`)
    - Syndication link (`#syndlink`, hidden on `/` until owner permission check passes)
    - User Home link (`#homelinkbtn`, left of `#syndlink`)
-   - Notification bell (`#notifybtn`, left of `#themebtn`, hidden until the list request of an owner session succeeds) with the count `#notify-count` and the list `#pop-notify` (`popover="auto"`): the last 20 notifications, "Mark all as read", and a link to `/settings/notifications`. An item opens its entry address and becomes read ([NOTIFICATIONS.md](NOTIFICATIONS.md) §6).
+   - Notification bell (`#notifybtn`, left of `#themebtn`, hidden until the list request of an owner session succeeds) with the count `#notify-count` and the list `#pop-notify` (`popover="auto"`): the last 20 notifications, "Mark all as read", and a link to `/account/notifications`. An item opens its entry address and becomes read ([NOTIFICATIONS.md](NOTIFICATIONS.md) §6).
 
-- **Top bar omissions and Hamburger contents**: `#authstate` and a top-level sign-out button are removed from `.appbar`. Inside `#pop-hamburger-menu` (below `<hr id="menu-account-sep"/>` when page-specific menu sections exist above it), every page renders the four-item common bottom menu in fixed top-to-bottom order (`#menusyndlink` → `/syndication`, `#moderationlinkbtn` → `/moderation`, `#consolelinkbtn` → `/admin` with `wrench` or `/settings` with `settings`, and `#menu-logout-form` → `POST /logout`; hidden on anonymous/non-owner scopes).
+- **Top bar omissions and Hamburger contents**: `#authstate` and a top-level sign-out button are removed from `.appbar`. Inside `#pop-hamburger-menu` (below `<hr id="menu-account-sep"/>` when page-specific menu sections exist above it), every page renders the four-item common bottom menu in fixed top-to-bottom order (`#menusyndlink` → `/syndication`, `#moderationlinkbtn` → `/moderation`, `#consolelinkbtn` → `/admin` with `wrench` or `/account` with `settings`, and `#menu-logout-form` → `POST /logout`; hidden on anonymous/non-owner scopes).
 - **Ingest dropdown and unified modal popups**: `#addbtn` toggles `#pop-ingest-menu` (`popover="auto"`) with three actions (`ingest`, `reingest`, `regen`). Selecting any option (or `#dedupbtn` / `#purgebtn` in workspace's `#pop-hamburger-menu`) opens centered `<dialog closedby="any">` popups (`#modal-ingest`, `#modal-reingest`, `#modal-regen`, plus `#modal-dedup` and `#modal-purge` on workspace) instead of rendering forms inside `#detailpane`.
-- **Console area separation**: `/settings/*` and `/admin/*` ("Settings & Admin Console") render only workspace/KB/syndication/agents/admin sidebar groups (no `/moderation/*` links), while `/moderation/*` ("Knowledge Moderation") renders only the `moderation` sidebar group (`/moderation/kb`, plus `/moderation/oversight` and `/moderation/themes` for administrators).
+- **Console area separation**: `/account/*`, `/settings/*`, and `/admin/*` ("Settings & Admin Console") render only the workspace, AI, KB, syndication, and admin sidebar groups (no `/moderation/*` links), while `/moderation/*` ("Knowledge Moderation") renders only the `moderation` sidebar group (`/moderation/kb`, plus `/moderation/oversight` and `/moderation/themes` for administrators).
 - The workspace brand link and `#homelinkbtn` use `<a href="./">`. A plain left click calls `enterHome({reason:'brand'})` or `enterHome({reason:'nav'})`. Ctrl, Cmd, or a middle click uses the browser default (a new tab is a new page load).
 - Popovers use native `commandfor` / `command="toggle-popover"` and CSS anchor positioning (`position-area: block-end span-inline-start`) where supported, with `appbar.js` providing a click/viewport-clamped positioning fallback on older browsers. The light and dark switch writes `localStorage` key `claireTheme` on every page.
 
@@ -237,7 +237,7 @@ Each row calls a function that exists. `/syndication` loads the same module with
 
 | Kind | Test |
 | :--- | :--- |
-| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js`, `e2e/console_ui_consistency.spec.js` (unified console card/button/heading styles, switch controls, sticky TOC, and responsive layout across `/settings/*`, `/admin/*`, and `/moderation/*`) |
+| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js`, `e2e/console_ui_consistency.spec.js` (unified console card/button/heading styles, switch controls, sticky TOC, and responsive layout across `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*`), `e2e/account_area.spec.js` (account area paths, old path redirects, administrator WebMCP page) |
 | Markers and runtime | `tests/test_graphview.py`, `tests/test_graphview_runtime.py` |
 | Console UI contract | `tests/test_console_ui_contract.py` (Python builder unit tests, route-level shell and non-nested card contract checks, non-admin CL11 isolation, static JS and partial guardrails) |
 | Active jobs | `tests/test_active_job_slots.py`, `tests/test_active_jobs_theme_isolation.py` |
@@ -248,7 +248,7 @@ Tests that fail before a change: [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STA
 
 ## 11. Console UI System
 
-**[code]** All routes under `/settings/*`, `/admin/*`, and `/moderation/*` render inside `src/claire/api/templates/console_shell.html`. The shell loads `src/bible/static/css/console_ui.css`, `src/bible/static/js/console_shell.js`, and `src/bible/static/js/console_ui.js` in that order (with `console_ui.js` before `manage_panels.js`).
+**[code]** All routes under `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` render inside `src/claire/api/templates/console_shell.html`. The shell loads `src/bible/static/css/console_ui.css`, `src/bible/static/js/console_shell.js`, and `src/bible/static/js/console_ui.js` in that order (with `console_ui.js` before `manage_panels.js`).
 
 ### 11.1 Stylesheet (`src/bible/static/css/console_ui.css`)
 

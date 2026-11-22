@@ -40,7 +40,7 @@ def render_appbar_html(
     moderation_icon: str = "shield",
     moderation_current: bool = False,
     moderation_hidden: bool = False,
-    console_href: str = "/settings",
+    console_href: str = "/account",
     console_label_key: str = "nav.topbar.console",
     console_icon: str = "settings",
     console_current: bool = False,

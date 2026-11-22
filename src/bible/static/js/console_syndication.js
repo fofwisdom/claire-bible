@@ -1,6 +1,6 @@
-/* Claire Settings Console controller for Groups 2–3 (/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}).
+/* Claire Settings Console controller for /settings/{reader,connections,feeds,tags,rules,outbound,opml} and /account/{mcp,webmcp}.
  *
- * Ported from the legacy syndication_preferences.html panels (design P3-b). Each /settings/<slug> page holds one panel.
+ * Ported from the legacy syndication_preferences.html panels (design P3-b). Each page holds one panel.
  * State is isolated per account and per theme: localStorage key "claire_synd_prefs_v2:<claire-storage-key>:t<theme ref>".
  * This bundle has no operator data: no MCP call audit rows, no IdP operator config, no user directory.
  */

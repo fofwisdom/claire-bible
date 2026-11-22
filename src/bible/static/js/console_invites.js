@@ -1,4 +1,4 @@
-/* Claire Invitations Settings controller (/settings/invites). */
+/* Claire Invitations Settings controller (/account/invites). */
 (function () {
   "use strict";
 
@@ -340,7 +340,7 @@
 
   function init() {
     var bootstrap = parseBootstrap();
-    if (!bootstrap || bootstrap.area !== "settings" || bootstrap.section !== "invites") return;
+    if (!bootstrap || bootstrap.area !== "account" || bootstrap.section !== "invites") return;
     if (bootstrap.mode !== "network") return;
     initInvitesSection(bootstrap);
   }

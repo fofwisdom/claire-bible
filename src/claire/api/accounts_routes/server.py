@@ -210,7 +210,7 @@ def _render_invites_policy_section(*, member_invites_enabled: bool) -> str:
     body = (
         toggle_html
         + console_result(id="server-invites-policy-result")
-        + console_actions(f'<a class="pref-btn" href="/settings/invites">{escape(t("console.admin.server.invites.manage_link"))}</a>')
+        + console_actions(f'<a class="pref-btn" href="/account/invites">{escape(t("console.admin.server.invites.manage_link"))}</a>')
     )
     return console_card(
         escape(title),

@@ -5630,11 +5630,11 @@ function setAccessScope(scope, reason){
   document.body.classList.toggle('ro', READONLY);
   const addBtn = document.getElementById('addbtn');
   if(addBtn) addBtn.hidden = !canIngest();
-  // 관리·설정 기능은 콘솔(/admin/*, /settings/*)에 있다. 햄버거 메뉴의 콘솔 항목으로 이동한다.
+  // 관리·설정 기능은 콘솔(/admin/*, /account/*, /settings/*)에 있다. 햄버거 메뉴의 콘솔 항목으로 이동한다.
   if(window.ClaireAppBar){
     window.ClaireAppBar.setConsoleLink({
       visible: canWrite(),
-      href: IS_ADMIN ? '/admin' : '/settings',
+      href: IS_ADMIN ? '/admin' : '/account',
       label: IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings"),
       icon: IS_ADMIN ? 'wrench' : 'settings'
     });

@@ -1,4 +1,4 @@
-"""End-to-end test of the language switch in real Chromium (I18N design unit IP2-1): the form without JavaScript on ``/login`` and the selector on ``/settings/account``.
+"""End-to-end test of the language switch in real Chromium (I18N design unit IP2-1): the form without JavaScript on ``/login`` and the selector on ``/account/profile``.
 
 The server runs on a free port of 127.0.0.1 with a data directory in ``tmp_path``. The test is skipped when Playwright Chromium is not installed.
 """
@@ -117,7 +117,7 @@ def test_language_switch_on_login_and_in_account_settings(live_server, browser) 
     page.fill("#password", PASSWORD)
     with page.expect_navigation():
         page.click("form[action='/login'] button[type=submit]")
-    response = page.goto(f"{base}/settings/account")
+    response = page.goto(f"{base}/account/profile")
     assert response.status == 200 and response.headers["content-language"] == "ko" and lang() == "ko"
     assert page.input_value("#pref-account-locale") == "" and _stored_locale(settings) is None
     assert page.evaluate("[ClaireI18n.getLocale(), ClaireI18n.t('common.action.save'), ClaireI18n.tn('doc.count', 2), ClaireI18n.t('missing.key')]") == ["ko", "저장", "2개 문서", "missing.key"]
@@ -134,7 +134,7 @@ def test_language_switch_on_login_and_in_account_settings(live_server, browser) 
     other = browser.new_context(locale="ko-KR")
     other.add_cookies([c for c in ctx.cookies(base) if c["name"] == "claire_session"])
     other_page = other.new_page()
-    other_page.goto(f"{base}/settings/account")
+    other_page.goto(f"{base}/account/profile")
     assert other_page.get_attribute("html", "lang") == "en"
     other.close()
 

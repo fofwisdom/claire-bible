@@ -1875,7 +1875,7 @@
   }
 
   async function createApiToken() {
-    const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /settings/mcp.';
+    const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /account/mcp.';
     if (_tokenState.retired) {
       renderTokenManagerDOM(trFallback("console.js.panels.tokens.retired_notice", retiredFallback), false);
       return;
@@ -1950,9 +1950,9 @@
 
     let h = '';
     if (isRetired) {
-      const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /settings/mcp.';
+      const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /account/mcp.';
       const retiredText = trFallback("console.js.panels.tokens.retired_notice", retiredFallback);
-      const retiredHtml = retiredText.indexOf('/settings/mcp') !== -1 ? esc(retiredText).replace('/settings/mcp', '<a href="/settings/mcp">/settings/mcp</a>') : (esc(retiredText) + ' <a href="/settings/mcp">/settings/mcp</a>');
+      const retiredHtml = retiredText.indexOf('/account/mcp') !== -1 ? esc(retiredText).replace('/account/mcp', '<a href="/account/mcp">/account/mcp</a>') : (esc(retiredText) + ' <a href="/account/mcp">/account/mcp</a>');
       h += uiNotice(`<span data-icon="warning"></span> ${retiredHtml}`, 'danger', '', { id: 'tokens-retired-banner', 'data-tokens-retired': 'true', role: 'status' });
     }
     const scopeNotices = _tokenState.scopeNotices || [];

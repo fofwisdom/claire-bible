@@ -2288,7 +2288,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         res = await asyncio.to_thread(_token_action)
         action_type = res[0]
 
-        deprecation_line = "\n<i>Deprecated: manual tokens will be retired; use OAuth 2.1 in /settings/mcp.</i>"
+        deprecation_line = "\n<i>Deprecated: manual tokens will be retired; use OAuth 2.1 in /account/mcp.</i>"
 
         if action_type == "list":
             tokens = res[1]

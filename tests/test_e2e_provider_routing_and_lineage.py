@@ -49,7 +49,7 @@ def _create_session(db_file: Path, account_id: int) -> str:
 
 
 def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path) -> None:
-    """Verify full HTTP E2E flow across admin /providers and member /settings/keys."""
+    """Verify full HTTP E2E flow across admin /providers and member /account/providers."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     db_file = data_dir / "claire.db"
@@ -104,7 +104,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert client.get("/api/me/personal-cli", headers=admin_cookie_headers).status_code == 404
         assert client.patch("/api/me/personal-cli", headers=admin_cookie_headers, json={"enabled": True, "active_cli": "codex"}).status_code == 404
         assert client.post("/api/me/personal-cli/test", headers=admin_cookie_headers, json={"provider": "codex"}).status_code == 404
-        admin_keys_html = client.get("/settings/keys", headers={"Cookie": f"claire_session={admin_sess}"})
+        admin_keys_html = client.get("/account/providers", headers={"Cookie": f"claire_session={admin_sess}"})
         assert admin_keys_html.status_code == 200
         assert "admin-personal-cli-host" not in admin_keys_html.text
         client.cookies.clear()
@@ -159,15 +159,15 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert not [f for f in cfg["lineage_summary"]["fallbacks"] if "antigravity" in f["location"] or "codex" in f["location"]]
         assert any(f["id"] == "F10" and f["status"] == "OUT_OF_SCOPE" for f in cfg["lineage_summary"]["fallbacks"])
 
-        # 2. Member fetches /settings/keys HTML and /api/me/keys?include_policy=1 without exposing admin routes.
-        page_resp = client.get("/settings/keys", headers={"Cookie": f"claire_session={member_sess}"})
+        # 2. Member fetches /account/providers HTML and /api/me/provider-keys?include_policy=1 without exposing admin routes.
+        page_resp = client.get("/account/providers", headers={"Cookie": f"claire_session={member_sess}"})
         assert page_resp.status_code == 200
         assert "data-key-storage-notice" in page_resp.text
         assert "data-byok-model-select" in page_resp.text
         assert "data-byok-effort-select" not in page_resp.text
         assert "/admin/" not in page_resp.text
 
-        policy_resp = client.get("/api/me/keys?include_policy=1", headers={"Cookie": f"claire_session={member_sess}"})
+        policy_resp = client.get("/api/me/provider-keys?include_policy=1", headers={"Cookie": f"claire_session={member_sess}"})
         assert policy_resp.status_code == 200
         policy = policy_resp.json()["model_policy"]
         assert policy["admin_defaults"]["extract_graph"]["model"] == "gemini-3.8-flash"
@@ -177,13 +177,13 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert "gemini-4-argon" not in policy["allowed_models"]
 
         # 3. Member is rejected for mock and for an unknown model. A model below the administrator default is accepted: the administrator values are only defaults.
-        bad_mock = client.put("/api/me/keys", headers=member_headers, json={"provider": "mock", "api_key": BYOK_CANARY})
+        bad_mock = client.put("/api/me/provider-keys", headers=member_headers, json={"provider": "mock", "api_key": BYOK_CANARY})
         assert bad_mock.status_code == 400
-        bad_model = client.put("/api/me/keys", headers=member_headers, json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "mock"})
+        bad_model = client.put("/api/me/provider-keys", headers=member_headers, json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "mock"})
         assert bad_model.status_code == 400 and bad_model.json()["error"] == "unsupported_model"
 
         lower = client.put(
-            "/api/me/keys",
+            "/api/me/provider-keys",
             headers=member_headers,
             json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-3.5-flash-lite-medium"},
         )
@@ -191,7 +191,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert lower.json()["model_prefs"] == {"model": "gemini-3.5-flash-lite-medium", "effort": "medium"}
 
         mismatch_eff = client.put(
-            "/api/me/keys",
+            "/api/me/provider-keys",
             headers=member_headers,
             json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon-high", "effort": "low"},
         )
@@ -199,7 +199,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
 
         # 4. Member registers an enumerated model without separate effort. The key has no browser seal, thus no seal cookie.
         ok_put = client.put(
-            "/api/me/keys",
+            "/api/me/provider-keys",
             headers=member_headers,
             json={"provider": "gemini", "api_key": BYOK_CANARY, "model": "gemini-4-argon-high"},
         )
@@ -210,7 +210,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         clear_volatile_user_seals()
         client.cookies.clear()
         verify_with_cookie = client.post(
-            "/api/me/keys/verify",
+            "/api/me/provider-keys/verify",
             headers={"Cookie": f"claire_session={member_sess}", "Origin": ORIGIN},
             json={"provider": "gemini"},
         )

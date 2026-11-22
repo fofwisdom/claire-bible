@@ -1,4 +1,4 @@
-/* Claire console controller for per-account features: /settings/telegram, /settings/bundles, /settings/backups, /admin/backups.
+/* Claire console controller for per-account features: /account/telegram, /account/bundles, /account/backups, /admin/backups.
  * APIs: /api/auth/reauth, /api/me/telegram, /api/me/support-bundles*, /api/me/data-bundles*, /api/me/backups*, /api/admin/account-backups*.
  * Server text goes into the DOM only through textContent. No inline handlers.
  */
@@ -422,9 +422,9 @@
     var bootstrap = parseBootstrap();
     if (!bootstrap) return;
     bindReauth();
-    if (bootstrap.area === "settings" && bootstrap.section === "telegram") initTelegram();
-    else if (bootstrap.area === "settings" && bootstrap.section === "bundles") initBundles();
-    else if (bootstrap.area === "settings" && bootstrap.section === "backups") initBackups();
+    if (bootstrap.area === "account" && bootstrap.section === "telegram") initTelegram();
+    else if (bootstrap.area === "account" && bootstrap.section === "bundles") initBundles();
+    else if (bootstrap.area === "account" && bootstrap.section === "backups") initBackups();
     else if (bootstrap.area === "admin" && bootstrap.section === "backups") loadAdminBackups();
   }
 

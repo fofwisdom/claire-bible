@@ -1,4 +1,4 @@
-/* Claire console controller for /settings/notifications (docs/design/PWA_NOTIFICATION_DESIGN.md PN4 rule 3).
+/* Claire console controller for /account/notifications (docs/design/PWA_NOTIFICATION_DESIGN.md PN4 rule 3).
  * APIs: /api/me/push, /api/me/push/subscriptions, /api/me/push/kinds/{kind}, /api/me/push/test.
  * Server text goes into the DOM only through textContent. No inline handlers.
  */

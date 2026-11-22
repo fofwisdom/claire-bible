@@ -144,7 +144,7 @@ def test_e2e_the_viewer_sees_labels_in_the_entity_language_and_the_stored_labels
     finally:
         conn.close()
 
-    page = _request(client, "GET", "/settings/account", session=session)
+    page = _request(client, "GET", "/account/profile", session=session)
     assert '<option value="en" selected>English (Latin script)</option>' in page.text and "data-settings-entity-language" in page.text
 
     r = _request(client, "PATCH", "/api/me", session=session, json={"entity_language": None})

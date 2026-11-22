@@ -266,7 +266,7 @@ function renderNav(){
     <div class="rail-sep"></div>
     <button class="rail-btn" onclick="tray.classList.toggle('show')" title="흐름 기록"><b>⇄</b>흐름</button>
     <span style="flex:1"></span>
-    <button class="rail-btn" title="설정 콘솔 /settings/federation"><b>⚙️</b>설정</button>`;
+    <button class="rail-btn" title="설정 콘솔 /account/federation"><b>⚙️</b>설정</button>`;
   const kbStage=S.view==="kb"&&S.docFilter!=="unpub"&&S.docFilter!=="pub";
   const pubStage=S.view==="kb"&&(S.docFilter==="unpub"||S.docFilter==="pub");
   $("#pipeline").innerHTML=`

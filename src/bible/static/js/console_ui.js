@@ -1,4 +1,4 @@
-/* Canonical Console UI HTML helpers for /settings/*, /admin/*, and /moderation/*. */
+/* Canonical Console UI HTML helpers for /account/*, /settings/*, /admin/*, and /moderation/*. */
 (function (root) {
   "use strict";
 

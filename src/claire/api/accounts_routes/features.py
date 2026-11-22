@@ -1,6 +1,6 @@
 """유저 단위 기능 라우트: 텔레그램 봇, 서포트 번들, 데이터 번들, 백업.
 
-계정 소유자(``scope == "owner"``)가 WebUI(``/settings/telegram``·``/settings/bundles``·``/settings/backups``)에서 자기 계정의 기능을 구성·제어한다.
+계정 소유자(``scope == "owner"``)가 WebUI(``/account/telegram``·``/account/bundles``·``/account/backups``)에서 자기 계정의 기능을 구성·제어한다.
 복원만 운영자(관리자) 전용이다(``/admin/backups``, ``POST /api/admin/account-backups/restore``).
 
 | 경로 | 메서드 | 기능 |

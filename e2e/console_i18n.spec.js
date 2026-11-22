@@ -25,7 +25,7 @@ test('the console shows English text for an English browser, in the server text 
   await expect(providers.getByRole('button', { name: 'Save the settings' })).toBeVisible();
 
   // The inline catalog of a console page has the script keys only; a page that is not in the administrator area has no keys of the administrator scripts.
-  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#settings-account-info h2')).toContainText('Account information');
   const keys = await page.evaluate(() => Object.keys(JSON.parse(document.getElementById('claire-i18n-catalog').textContent)));
   expect(keys.some((key) => key.startsWith('console.js.account.'))).toBe(true);
@@ -38,7 +38,7 @@ test('the console shows English text for an English browser, in the server text 
   expect(modKbKeys.filter((key) => key.startsWith('console.js.admin.'))).toEqual([]);
 
   // The language selector changes the console to Korean.
-  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
   await page.locator('#pref-account-locale').selectOption('ko');
   await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   await expect(page.locator('#settings-account-info h2')).toContainText('계정 정보');
@@ -46,7 +46,7 @@ test('the console shows English text for an English browser, in the server text 
   await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정과 임계값/ })).toBeVisible();
 
   // The stored language is a setting of the seed account, which other tests share: set it back to automatic.
-  await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
   await page.locator('#pref-account-locale').selectOption('');
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });

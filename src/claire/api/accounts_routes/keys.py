@@ -1,4 +1,4 @@
-"""``/api/me/keys``: 계정 본인의 프로바이더 API 키 (설계 §11, P4 L4-b).
+"""``/api/me/provider-keys``: 계정 본인의 프로바이더 API 키 (설계 §11, P4 L4-b).
 
 - 멤버는 네트워크 모드에서만 쓴다. 싱글 모드의 비관리자는 404.
 - 서버 관리자는 두 모드에서 개인 키를 쓴다(owner decision 2026-11-19). 관리자 계정의 작업은 개인 키가 있으면 그 키만 쓰고, 없으면 ``providers.json``을 쓴다. 서버 작업은 언제나 ``providers.json``을 쓴다.
@@ -48,8 +48,8 @@ from .common import (
     require_recent_auth,
 )
 
-ME_KEYS_PATH = "/api/me/keys"
-ME_KEYS_VERIFY_PATH = "/api/me/keys/verify"
+ME_KEYS_PATH = "/api/me/provider-keys"
+ME_KEYS_VERIFY_PATH = "/api/me/provider-keys/verify"
 API_KEY_MAX_LENGTH = 512
 
 # The text of a key status is the catalog key ``console.settings.keys.status.<status>``.
@@ -322,7 +322,7 @@ def remove_keys(ctx: AccountsContext, account_id: int, provider: str | None) -> 
         auth.close()
 
 
-# --- 키 메타 목록 마크업 (/settings/keys) --------------------------------------------------------------
+# --- 키 메타 목록 마크업 (/account/providers) --------------------------------------------------------------
 
 
 def _meta_rows(items: list[dict[str, Any]]) -> str:

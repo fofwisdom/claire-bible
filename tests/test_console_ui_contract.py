@@ -170,7 +170,7 @@ def _find_starlette_routes(app: object) -> list[Route]:
 
 
 def _is_console_route_path(path: str) -> bool:
-    return path in ("/settings", "/admin", "/moderation") or path.startswith(("/settings/", "/admin/", "/moderation/"))
+    return path in ("/account", "/settings", "/admin", "/moderation") or path.startswith(("/account/", "/settings/", "/admin/", "/moderation/"))
 
 
 def _inspect_html(html_text: str) -> _ConsoleHtmlInspector:
@@ -281,13 +281,13 @@ def test_all_console_html_routes_match_shell_contract_and_isolation(console_env)
     assert len(rendered_admin_pages) >= 24
     assert f"/moderation/kb/{shared_number}" in rendered_admin_pages
     assert "/admin/server" in rendered_admin_pages
-    assert "/settings/account" in rendered_admin_pages
+    assert "/account/profile" in rendered_admin_pages
 
     css_resp = console_env.client.get("/static/css/console_ui.css")
     assert css_resp.status_code == 200
     assert "var(--error)" not in css_resp.text
 
-    non_admin_paths = [p for p in resolved_paths if p == "/settings" or p.startswith("/settings/") or p == "/moderation" or p.startswith("/moderation/kb")]
+    non_admin_paths = [p for p in resolved_paths if p in ("/account", "/settings", "/moderation") or p.startswith(("/account/", "/settings/", "/moderation/kb"))]
     rendered_member_pages: list[str] = []
     for path in non_admin_paths:
         resp = console_env.client.get(path, headers=console_env.alice_owner, follow_redirects=False)
@@ -307,7 +307,7 @@ def test_all_console_html_routes_match_shell_contract_and_isolation(console_env)
         assert "console-sidebar" in inspector.ids, path
         assert inspector.nested_cards == [], (path, inspector.nested_cards)
 
-    assert "/settings/tokens" in rendered_member_pages
+    assert "/account/tokens" in rendered_member_pages
     assert f"/moderation/kb/{shared_number}" in rendered_member_pages
 
 

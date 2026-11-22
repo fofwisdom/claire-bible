@@ -98,13 +98,13 @@ Rules:
 5. **Results.** 2xx: done. 404 or 410: the subscription is deleted. 429, 5xx, and a network error: a retry after 30 s, 2 min, and 10 min, then the queue row goes. Other 4xx: the queue row goes and the failure is counted. A subscription with 5 failures in sequence is deleted.
 6. **Outbound safety.** An endpoint must be an `https` URL. Before each request the sender resolves the host and refuses an address that is not public, with the check of the fetchers (PRINCIPLES B2). The private network settings of the fetchers do not apply: a push service is always a public host. The sender follows no redirect.
 7. **Session binding.** A subscription stores the identifier of the session that made it. The sender deletes a subscription whose session is gone (sign-out, expiry, "sign out the other sessions", account suspension). A browser that is not signed in gets no notification.
-8. **No public origin.** When the settings give no canonical origin, the sender sends nothing and `/settings/notifications` says so. There is no substitute subject.
+8. **No public origin.** When the settings give no canonical origin, the sender sends nothing and `/account/notifications` says so. There is no substitute subject.
 
 ### PN4. Client
 
 1. **Service worker** (`/sw.js`): `push` shows the notification (`tag` = the notification, thus an update replaces the old one), sets the application badge, and tells open pages. `notificationclick` marks the notification read, then focuses an open Claire window and sends it to the entry address, or opens a window.
 2. **Application bar**: a bell with the count of notifications that are not read, and a list of the last 20. An item opens its entry address and becomes read. "Mark all as read" is in the list. The bell shows only for a signed-in account. The count refreshes at page load, when the page becomes visible, on a message of the service worker, and every 60 s while the page is visible.
-3. **`/settings/notifications`** (console shell): the state of this device with "Turn on" and "Turn off", "Send a test notification", the list of devices with "Remove", and one switch for each kind in three groups (platform, agent, ActivityPub).
+3. **`/account/notifications`** (console shell): the state of this device with "Turn on" and "Turn off", "Send a test notification", the list of devices with "Remove", and one switch for each kind in three groups (platform, agent, ActivityPub).
 4. iOS and iPadOS give Web Push only to a web application on the Home Screen. The page says this when the browser has no `PushManager`. **[external]** WebKit, Web Push for Web Apps on iOS and iPadOS (16.4)
 5. **Entry addresses.** The console pages of the knowledge bases take the tab in the query: `/settings/kb?tab=<id>` and `/moderation/kb/{number}?tab=<id>`.
 
@@ -137,11 +137,11 @@ Class: `request` waits for a decision of the recipient; `answer` is the answer t
 | `mutual_requested` | request | An account asks for a mutual collaboration | The other account | `/settings/kb?tab=mem` |
 | `mutual_accepted` | answer | The mutual collaboration is accepted | The requester | `/settings/kb?tab=mem` |
 | **Agent** | | | | |
-| `agent_source_staged` | request | A source is staged and waits for an `agent_client` to extract it | The owner of the knowledge base | `/settings/mcp` |
+| `agent_source_staged` | request | A source is staged and waits for an `agent_client` to extract it | The owner of the knowledge base | `/account/mcp` |
 | `agent_extraction_done` | answer | An `agent_client` committed the extraction of a staged source | The owner of the knowledge base | The document |
-| `agent_write_grant` | notice | An agent got a grant with the scope `write` | The account | `/settings/mcp` |
+| `agent_write_grant` | notice | An agent got a grant with the scope `write` | The account | `/account/mcp` |
 | **ActivityPub** | | | | |
-| `ap_follower` | notice | An actor of another server follows the account | The account | `/settings/federation` |
+| `ap_follower` | notice | An actor of another server follows the account | The account | `/account/federation` |
 | `ap_follow_answered` | answer | The other server accepted or rejected a follow of the account | The account | `/syndication?stage=collect` |
 | `ap_mention` | request | A post of another server mentions the account or answers its object | The account | `/syndication?stage=collect` |
 | `ap_quote_request` | request | A quote request waits for the manual approval of the account | The owner of the object | `/syndication?stage=collect` |
@@ -151,7 +151,7 @@ Class: `request` waits for a decision of the recipient; `answer` is the answer t
 | `kf_offer_answered` | answer | A knowledge base of another server accepted or rejected an offer of the account | The account | `/settings/kb?tab=subs` |
 | `kf_grant` | notice | A knowledge base of another server gave the role `collaborator` to the account, or revoked it | The account | `/settings/kb?tab=mem` |
 | **Other** | | | | |
-| `test` | notice | The account sent a test notification | The account | `/settings/notifications` |
+| `test` | notice | The account sent a test notification | The account | `/account/notifications` |
 
 Rules for the content:
 
@@ -187,7 +187,7 @@ Events that this design does not cover, with the reason:
 | PN1 | `client.db` version 9, `auth.db` version 7, the store module, the account purge |
 | PN2 | The kinds, the catalog text (`en`, `ko`), the emit, the rendering |
 | PN3 | The Web Push module, the sender, the task of the `api` process |
-| PN4 | The service worker, the bell of the application bar, `/settings/notifications`, the tab query of the knowledge base console pages |
+| PN4 | The service worker, the bell of the application bar, `/account/notifications`, the tab query of the knowledge base console pages |
 | PN5 | The routes and the route policy |
 | PN6 | The emit calls at the events of Section 5; tests; documents |
 
@@ -195,7 +195,7 @@ Events that this design does not cover, with the reason:
 
 - Unit tests: the example of RFC 8291 Section 5; the VAPID token (signature, claims); the store (grouping, queue, purge, migration); the sender results (2xx, 410, 429, session gone, address that is not public); the routes.
 - One test for each kind: the event makes a notification for the correct accounts with the correct entry address.
-- E2E (Playwright): the bell shows a notification and opens the entry address; `/settings/notifications` renders in the console shell; the service worker shows a notification for a push message that the browser tool delivers, and the activation opens the entry address.
+- E2E (Playwright): the bell shows a notification and opens the entry address; `/account/notifications` renders in the console shell; the service worker shows a notification for a push message that the browser tool delivers, and the activation opens the entry address.
 - A send to a real push service needs a public HTTPS origin. The owner does this check on the production server (PRINCIPLES E4).
 
 ## 9. Decisions

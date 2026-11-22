@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/console_pages');
 
-// Notifications against the real E2E server (docs/design/PWA_NOTIFICATION_DESIGN.md PN4): the bell of the application bar, /settings/notifications, and the service worker.
+// Notifications against the real E2E server (docs/design/PWA_NOTIFICATION_DESIGN.md PN4): the bell of the application bar, /account/notifications, and the service worker.
 // No test sends a request to a push service.
 
 const TEST_TITLE = /^(Test notification|테스트 알림)$/;
@@ -23,7 +23,7 @@ test.describe('bell and settings page', () => {
     const errors = watchErrors(page);
     await authenticateOwner(page, 'notifybell1');
     await readAll(page);
-    await page.goto('/settings/notifications', { waitUntil: 'domcontentloaded' });
+    await page.goto('/account/notifications', { waitUntil: 'domcontentloaded' });
 
     // The page is in the console shell, with the device card and one switch for each kind.
     await expect(page.locator('.console-shell')).toBeVisible();
@@ -43,7 +43,7 @@ test.describe('bell and settings page', () => {
     const item = page.locator('#notify-list .notify-item:not(.is-read)');
     await expect(item).toHaveCount(1);
     await expect(item.locator('.notify-item-title')).toHaveText(TEST_TITLE);
-    await expect(item).toHaveAttribute('href', '/settings/notifications');
+    await expect(item).toHaveAttribute('href', '/account/notifications');
     await expect(page.locator('#notify-list .notify-item').first()).not.toHaveClass(/is-read/);
     await expectNoRawKeys(page);
 
@@ -61,7 +61,7 @@ test.describe('bell and settings page', () => {
 
     // The item opens its entry address and becomes read.
     await bell.click();
-    await Promise.all([page.waitForURL('**/settings/notifications'), item.click()]);
+    await Promise.all([page.waitForURL('**/account/notifications'), item.click()]);
     await expect(page.locator('#notifybtn')).toBeVisible();
     await expect(page.locator('#notify-count')).toBeHidden();
     await page.locator('#notifybtn').click();
@@ -89,7 +89,7 @@ test.describe('service worker', () => {
     const origin = new URL(baseURL).origin;
     await authenticateOwner(page, 'notifypush1');
     await readAll(page);
-    await page.goto('/settings/notifications', { waitUntil: 'domcontentloaded' });
+    await page.goto('/account/notifications', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#notifybtn')).toBeVisible();
     await page.evaluate(async () => {
       await navigator.serviceWorker.register('/sw.js', { scope: '/' });
@@ -139,7 +139,7 @@ test.describe('service worker', () => {
 
     // A message with an address of another site opens the notification settings, not that site.
     const [foreign] = (await dispatch('push', { id: 999999, title: 'X', body: '', url: 'https://evil.example/x', tag: 'claire-other', unread: 1 })).shown;
-    expect(foreign.options.data.url).toBe('/settings/notifications');
+    expect(foreign.options.data.url).toBe('/account/notifications');
 
     // Activation: the worker marks the notification read, tells the page (the count goes), and opens the entry address.
     const activated = await dispatch('notificationclick', shown.options.data);

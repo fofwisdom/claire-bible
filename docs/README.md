@@ -23,7 +23,7 @@ docs/
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합, KF0–KF6 구현, 남은 일 KA1–KA5, 루트 페이지 최근 활동 형태는 design/prototypes/recent_activity_prototypes.html 평가 대기(KD15)
-│   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /accounts·/themes로, 계정 간 발행 본문은 기여로 대체
+│   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /directory·/themes로, 계정 간 발행 본문은 기여로 대체
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
 │   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html (지식 연합·콘솔 배치 설계와 공용), 첫 프로토타입 shared_knowledge_federation_prototype.html은 참고용
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
@@ -81,7 +81,7 @@ docs/
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
 │   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0–KF6): 어휘, JSON-LD 컨텍스트, 와이어 계약, 알려진 서버, KB 액터·큐레이션·교차 기여·준비 검사
 │   ├── EXPANSION.md         # 링크 확장과 동일 주제 출처 병합
-│   ├── NOTIFICATIONS.md        # 연계 요청 알림: 알림 종류와 이벤트, 웹 푸시 발송, 종 목록, /settings/notifications, 서비스 워커
+│   ├── NOTIFICATIONS.md        # 연계 요청 알림: 알림 종류와 이벤트, 웹 푸시 발송, 종 목록, /account/notifications, 서비스 워커
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름
 │   ├── PRESENTATION.md         # 프레젠테이션 저작·컴파일·뷰어·테마별 스위치

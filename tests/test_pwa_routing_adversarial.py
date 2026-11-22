@@ -327,7 +327,7 @@ def test_network_mode_normal_root_returns_public_directory(tmp_path: Path):
 
     html = res.text
     assert 'id="public-home-showcase"' in html
-    assert 'href="/accounts"' in html
+    assert 'href="/directory"' in html
 
 
 def test_network_mode_normal_root_preserves_public_directory_for_logged_in_member(tmp_path: Path):

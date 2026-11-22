@@ -1,4 +1,4 @@
-"""Typed HTML builder helpers for console sections (/settings/*, /admin/*, /moderation/*)."""
+"""Typed HTML builder helpers for console sections (/account/*, /settings/*, /admin/*, /moderation/*)."""
 
 from __future__ import annotations
 

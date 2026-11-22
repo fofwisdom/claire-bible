@@ -1,4 +1,4 @@
-"""E2E: the server administrator registers a personal key on /settings/keys, and the jobs of the administrator account use only that key.
+"""E2E: the server administrator registers a personal key on /account/providers, and the jobs of the administrator account use only that key.
 
 Owner decision 2026-11-19: the personal key pays for the jobs of the administrator account; the server providers pay for the server jobs.
 The real ``GeminiProvider`` constructor selects the key. ``google.genai.Client`` is a fake that records the key, and the provider methods give the results of ``MockProvider`` (no network call).
@@ -120,7 +120,7 @@ def _setup(tmp_path: Path) -> tuple[Path, Path, Settings]:
 
 
 def test_e2e_sealed_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_calls) -> None:
-    """A key stored with a browser seal (old rule) becomes usable without the seal after the next visit of /settings/keys."""
+    """A key stored with a browser seal (old rule) becomes usable without the seal after the next visit of /account/providers."""
     data_dir, db_file, settings = _setup(tmp_path)
     auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
     try:
@@ -133,7 +133,7 @@ def test_e2e_sealed_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_cal
     with TestClient(app, base_url=PUBLIC_URL) as client:
         session = _session(db_file, 1)
         client.cookies.clear()
-        listed = client.get("/api/me/keys", headers={"Cookie": f"claire_session={session}; {BYOK_SEAL_COOKIE}=browser-seal-1", "Origin": PUBLIC_URL})
+        listed = client.get("/api/me/provider-keys", headers={"Cookie": f"claire_session={session}; {BYOK_SEAL_COOKIE}=browser-seal-1", "Origin": PUBLIC_URL})
         assert listed.status_code == 200 and len(listed.json()["keys"]) == 1
         assert _key_versions(data_dir) == [1]
         clear_volatile_user_seals()
@@ -181,7 +181,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
             return client.request(method, path, headers={"Cookie": f"claire_session={session}", "Origin": PUBLIC_URL}, **kwargs)
 
         # 1. Single mode: the administrator page has the personal key forms and the link to the server providers.
-        page = call("GET", "/settings/keys")
+        page = call("GET", "/account/providers")
         assert page.status_code == 200
         assert 'data-settings-form="provider-key-put"' in page.text and 'href="/admin/providers"' in page.text
 
@@ -191,7 +191,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         assert gemini_calls == []
 
         # 3. The administrator registers a personal key. The response has only metadata.
-        put = call("PUT", "/api/me/keys", json={"provider": "gemini", "api_key": PERSONAL_KEY})
+        put = call("PUT", "/api/me/provider-keys", json={"provider": "gemini", "api_key": PERSONAL_KEY})
         assert put.status_code == 200, put.text
         assert PERSONAL_KEY not in put.text
 
@@ -211,13 +211,13 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
             assert usage_ledger.get_usage(auth, account_id=1).tokens_total == 10 * len(gemini_calls)
         finally:
             auth.close()
-        page = call("GET", "/settings/keys")
+        page = call("GET", "/account/providers")
         assert put.json()["key"]["fingerprint"] in page.text and 'data-usage-stat="tokens"' in page.text
         # The decryption audit of the job is on the page.
         assert "data-key-audit-row" in page.text and "Preparation of a request" in page.text
 
         # 5. After the deletion, the jobs use the server provider again.
-        assert call("DELETE", "/api/me/keys").json() == {"ok": True, "deleted": 1}
+        assert call("DELETE", "/api/me/provider-keys").json() == {"ok": True, "deleted": 1}
         before = len(gemini_calls)
         third = call("POST", "/ingest", json={"payload": "Server provider document about Nazareth."})
         assert third.status_code == 200, third.text
@@ -250,7 +250,7 @@ def test_e2e_member_key_works_in_the_bot_process_and_not_in_a_loop_process(tmp_p
     app = server.create_app(settings=settings)
     with TestClient(app, base_url=PUBLIC_URL) as client:
         client.cookies.clear()
-        put = client.put("/api/me/keys", json={"provider": "gemini", "api_key": MEMBER_KEY}, headers={"Cookie": f"claire_session={_session(db_file, 2)}", "Origin": PUBLIC_URL})
+        put = client.put("/api/me/provider-keys", json={"provider": "gemini", "api_key": MEMBER_KEY}, headers={"Cookie": f"claire_session={_session(db_file, 2)}", "Origin": PUBLIC_URL})
         assert put.status_code == 200, put.text
         assert BYOK_SEAL_COOKIE not in put.cookies
 

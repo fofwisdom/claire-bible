@@ -15,7 +15,7 @@ self.addEventListener('fetch', (event) => {
 
 const NOTIFY_ICON = '/icon?p=android-chrome-192x192.png';
 const NOTIFY_BADGE = '/icon?p=android-chrome-96x96.png';
-const NOTIFY_FALLBACK_PATH = '/settings/notifications';
+const NOTIFY_FALLBACK_PATH = '/account/notifications';
 
 // The entry address of a notification is a path of this server. Other values give the notification settings page.
 function entryPath(value) {

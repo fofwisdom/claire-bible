@@ -43,25 +43,25 @@ def test_console_section_text_follows_the_active_locale() -> None:
 
 def test_sidebar_has_no_korean_text_for_the_english_locale() -> None:
     with use_locale("en"):
-        html = console._build_sidebar_html(active_path="/settings/account", admin_viewer=True, theme_query=None, area="settings")
+        html = console._build_sidebar_html(active_path="/account/profile", admin_viewer=True, theme_query=None, area="account")
         mod_html = console._build_sidebar_html(active_path="/moderation/oversight", admin_viewer=True, theme_query=None, area="moderation")
         member_html = console._build_sidebar_html(active_path="/moderation/kb", admin_viewer=False, theme_query=None, area="moderation")
     assert not HANGUL.search(html)
     assert not HANGUL.search(mod_html)
     assert not HANGUL.search(member_html)
-    assert "My account · Profile · Security" in html
+    assert "LLM provider · Personal key" in html and "My account · AI connection" in html
     assert 'href="/moderation/kb"' not in html
     assert "Knowledge moderation" in mod_html
     assert 'href="/moderation/kb"' in mod_html
     assert 'href="/moderation/oversight"' in mod_html
     assert 'href="/moderation/themes"' in mod_html
-    assert 'href="/settings/account"' not in mod_html
+    assert 'href="/account/profile"' not in mod_html
     assert 'href="/moderation/kb"' in member_html
     assert 'href="/moderation/oversight"' not in member_html
     assert 'href="/moderation/themes"' not in member_html
     with use_locale("ko"):
-        html = console._build_sidebar_html(active_path="/settings/account", admin_viewer=True, theme_query=None, area="settings")
+        html = console._build_sidebar_html(active_path="/account/profile", admin_viewer=True, theme_query=None, area="account")
         mod_ko = console._build_sidebar_html(active_path="/moderation/kb", admin_viewer=True, theme_query=None, area="moderation")
-    assert "내 계정 · 프로필 · 보안" in html
+    assert "LLM 프로바이더 · 개인 키" in html and "내 계정 · AI 연동" in html
     assert "지식 활동 중재" not in html
     assert "지식 활동 중재" in mod_ko

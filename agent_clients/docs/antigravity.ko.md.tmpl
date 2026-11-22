@@ -9,8 +9,8 @@
 ## 시작 전 준비 (1분)
 
 1. 본인의 **Claire Bible 웹 화면**에 로그인합니다.
-2. **계정 설정**(`/settings/account`)에서 **지식 추출 모드**를 **`에이전트 클라이언트 (client)`**로 바꿉니다.
-3. **MCP 설정**(`/settings/mcp`) 페이지를 열어 둡니다. 이 페이지에서 **Antigravity 빠른 설치 문구** 복사와 **`mcp_config.json`** 파일 다운로드를 모두 할 수 있습니다.
+2. **LLM 프로바이더 설정**(`/account/providers`)에서 **지식 추출 모드**를 **`에이전트 클라이언트 (client)`**로 바꿉니다.
+3. **MCP 설정**(`/account/mcp`) 페이지를 열어 둡니다. 이 페이지에서 **Antigravity 빠른 설치 문구** 복사와 **`mcp_config.json`** 파일 다운로드를 모두 할 수 있습니다.
 
 ---
 
@@ -18,7 +18,7 @@
 
 Antigravity가 사용자 운영체제에 맞춰 `~/.gemini/config/plugins/claire` 설치와 전역 `mcp_config.json` 병합을 한 번에 처리하므로, 이후 플러그인을 업데이트해도 내 서버 URL 설정이 덮어써지지 않습니다.
 
-1. Claire Bible **`/settings/mcp`** 페이지의 **공식 에이전트 마켓플레이스 (GitHub)** 카드에서 **`Antigravity 빠른 설치 문구`** 옆 **복사** 버튼을 누릅니다.
+1. Claire Bible **`/account/mcp`** 페이지의 **공식 에이전트 마켓플레이스 (GitHub)** 카드에서 **`Antigravity 빠른 설치 문구`** 옆 **복사** 버튼을 누릅니다.
    - GitHub에서 바로 시작하려면 아래 문구에서 `<내-Claire-서버-주소>`만 본인 서버 주소로 바꿔 복사하세요:
    ```text
    https://github.com/{{MARKETPLACE_REPO}} 최신 Release에서 claire-antigravity-v{{VERSION}}.zip을 받아
@@ -39,7 +39,7 @@ Antigravity가 사용자 운영체제에 맞춰 `~/.gemini/config/plugins/claire
 
 ### 1단계: 플러그인 `.zip`과 `mcp_config.json` 내려받기
 1. [GitHub Releases 페이지](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)에서 **`claire-antigravity-v{{VERSION}}.zip`** 파일을 내려받아 압축을 풉니다. (**`claire`** 폴더가 만들어집니다.)
-2. Claire Bible **`/settings/mcp`** 페이지에서 **`서버 연결 파일 내려받기`** 버튼을 눌러 **`mcp_config.json`** 파일을 내려받습니다.
+2. Claire Bible **`/account/mcp`** 페이지에서 **`서버 연결 파일 내려받기`** 버튼을 눌러 **`mcp_config.json`** 파일을 내려받습니다.
 
 ### 2단계: `.gemini/config` 폴더에 넣기
 운영체제 파일 관리자에서 아래 경로를 열고:

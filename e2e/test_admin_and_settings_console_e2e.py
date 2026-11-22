@@ -3,8 +3,8 @@
 실제 `server.create_app` 앱을 starlette TestClient로 구동해 다음 흐름을 끝까지 검증한다.
 
 1. 관리자 E2E: `/` '관리 및 설정' 드로어(⚡ 프로바이더 · 📏 적재 제한 · 🛠️ 관리자 콘솔) → `/admin` 진입 → 통합 사이드바로 모든 `/admin/*`·`/settings/*` 섹션 이동 → D3 리다이렉트 → 텔레메트리 API.
-2. 멤버 격리 E2E(network): `is_admin` false, `/settings/*`에 관리자 링크·DOM·번들 없음, `/settings/keys` BYOK 쓰기 전용 흐름, 모든 `/admin*`이 404(403·302 아님).
-3. single mode: rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4). `/whoami` has no USERNAME; `/settings/account` shows it in both modes.
+2. 멤버 격리 E2E(network): `is_admin` false, `/settings/*`에 관리자 링크·DOM·번들 없음, `/account/providers` BYOK 쓰기 전용 흐름, 모든 `/admin*`이 404(403·302 아님).
+3. single mode: rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4). `/whoami` has no USERNAME; `/account/profile` shows it in both modes.
 4. 레거시 `/me`·`/syndication/preferences?tab=` 302 호환 리다이렉트(D4).
 
 모든 상태는 tmp_path에만 기록하고 CLAIRE_*·GEMINI_* 환경변수를 격리한다. 외부 네트워크 호출은 없다(BYOK 시험 호출은 monkeypatch).
@@ -42,10 +42,14 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "tokens", "mcp")
+ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "tokens", "mcp", "webmcp")
 MODERATION_ADMIN_SECTIONS: tuple[tuple[str, str], ...] = (("kb", "/moderation/oversight"), ("themes", "/moderation/themes"))
-SETTINGS_SECTIONS: tuple[str, ...] = ("account", "invites", "federation", "kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
-MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "invites", "federation", "keys", "kb", "tokens", *SETTINGS_SECTIONS[4:])
+# The owner sections as (slug, path): the account pages are in /account/*, the knowledge base pages are in /settings/*. The administrator has /admin/tokens in place of /account/tokens (D3).
+OWNER_SECTIONS: tuple[tuple[str, str], ...] = (
+    *((slug, f"/account/{slug}") for slug in ("profile", "security", "invites", "federation", "providers", "mcp", "webmcp")),
+    *((slug, f"/settings/{slug}") for slug in ("kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml")),
+)
+MEMBER_OWNER_SECTIONS: tuple[tuple[str, str], ...] = (*OWNER_SECTIONS, ("tokens", "/account/tokens"))
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
 
 
@@ -176,8 +180,8 @@ def _sidebar_html(body: str) -> str:
 def _assert_admin_sidebar(body: str, path: str) -> None:
     # 설정·관리 콘솔 사이드바: 사용자 그룹 1–3, 관리자 그룹 4–5만 있고 중재 경로(/moderation/*)와 중복·구경로는 없다.
     sidebar = _sidebar_html(body)
-    for slug in SETTINGS_SECTIONS:
-        assert f'href="/settings/{slug}"' in sidebar, (path, slug)
+    for slug, section_path in OWNER_SECTIONS:
+        assert f'href="{section_path}"' in sidebar, (path, slug)
     for slug in ADMIN_SECTIONS:
         assert f'href="/admin/{slug}"' in sidebar, (path, slug)
     assert 'href="/moderation/kb"' not in sidebar, path
@@ -188,7 +192,7 @@ def _assert_admin_sidebar(body: str, path: str) -> None:
     assert 'href="/admin/themes"' not in body, path
     assert 'href="/settings/kb/manage"' not in body, path
     assert 'href="/settings/themes"' not in body, path
-    assert 'href="/settings/tokens"' not in body, path
+    assert 'href="/account/tokens"' not in body, path
 
 
 def _assert_moderation_sidebar(body: str, path: str, *, is_admin: bool) -> None:
@@ -200,8 +204,8 @@ def _assert_moderation_sidebar(body: str, path: str, *, is_admin: bool) -> None:
     else:
         assert 'href="/moderation/oversight"' not in sidebar, path
         assert 'href="/moderation/themes"' not in sidebar, path
-    for slug in SETTINGS_SECTIONS:
-        assert f'href="/settings/{slug}"' not in sidebar, (path, slug)
+    for slug, section_path in OWNER_SECTIONS:
+        assert f'href="{section_path}"' not in sidebar, (path, slug)
     for slug in ADMIN_SECTIONS:
         assert f'href="/admin/{slug}"' not in sidebar, (path, slug)
 
@@ -246,7 +250,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
 
     # 인라인된 app.js가 is_admin=true일 때 ClaireAppBar.setConsoleLink로 햄버거 내 #consolelinkbtn을 /admin + wrench 아이콘으로 승격한다.
     assert "IS_ADMIN = d.is_admin === true" in html
-    assert "href: IS_ADMIN ? '/admin' : '/settings'" in html
+    assert "href: IS_ADMIN ? '/admin' : '/account'" in html
     assert "icon: IS_ADMIN ? 'wrench' : 'settings'" in html
 
 
@@ -298,16 +302,15 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
     _assert_console_page(_get(env, f"/moderation/kb/{env.admin_theme.number}", env.admin), f"/moderation/kb/{env.admin_theme.number}")
     assert _get(env, f"/moderation/kb/{env.alice_theme.number}", env.admin).status_code == 404
 
-    for slug in SETTINGS_SECTIONS:
-        path = f"/settings/{slug}"
+    for slug, path in OWNER_SECTIONS:
         body = _assert_console_page(_get(env, path, env.admin), path)
         _assert_admin_sidebar(body, path)
         assert f'data-active-section="{slug}"' in body, path
 
-    # D3 & legacy compatibility redirects: /settings/tokens -> 302 /admin/tokens; /moderation -> 302 /moderation/kb; legacy /settings/themes, /settings/kb/manage, /settings/kb/{n}, /admin/kb, /admin/themes -> 308.
+    # D3 & legacy compatibility redirects: /account/tokens -> 302 /admin/tokens; /moderation -> 302 /moderation/kb; legacy /settings/themes, /settings/kb/manage, /settings/kb/{n}, /admin/kb, /admin/themes -> 308.
     for path, status, target in (
         ("/moderation", 302, "/moderation/kb"),
-        ("/settings/tokens", 302, "/admin/tokens"),
+        ("/account/tokens", 302, "/admin/tokens"),
         ("/settings/themes", 308, "/moderation/themes"),
         ("/settings/kb/manage", 308, "/moderation/kb"),
         (f"/settings/kb/{env.admin_theme.number}", 308, f"/moderation/kb/{env.admin_theme.number}"),
@@ -339,17 +342,22 @@ def test_member_isolation_in_network_mode(console_e2e):
 
     root = _get(env, f"/@{MEMBER_USERNAME}/", env.alice)
     assert root.status_code == 200, root.status_code
-    # 멤버 루트에도 드로어 관리 패널이 없고, 상단바 아이콘은 기본값 /settings다.
+    # 멤버 루트에도 드로어 관리 패널이 없고, 상단바 아이콘은 기본값 /account다.
     assert 'id="manage-section"' not in root.text
     assert "providermanagebtn" not in root.text
     assert "limitmanagebtn" not in root.text
-    assert re.search(r'<a id="consolelinkbtn"[^>]*href="/settings"', root.text)
+    assert re.search(r'<a id="consolelinkbtn"[^>]*href="/account"', root.text)
 
-    entry = _get(env, "/settings", env.alice)
+    entry = _get(env, "/account", env.alice)
     assert entry.status_code == 302
-    assert entry.headers["location"] == "/settings/account"
+    assert entry.headers["location"] == "/account/profile"
+    settings_entry = _get(env, "/settings", env.alice)
+    assert (settings_entry.status_code, settings_entry.headers["location"]) == (302, "/settings/reader")
+    # The old path of an account page goes to the new path with 308.
+    old_keys = _get(env, "/settings/keys", env.alice)
+    assert (old_keys.status_code, old_keys.headers["location"]) == (308, "/account/providers")
 
-    for path in (*(f"/settings/{slug}" for slug in MEMBER_SETTINGS_SECTIONS), "/moderation/kb"):
+    for path in (*(section_path for _slug, section_path in MEMBER_OWNER_SECTIONS), "/moderation/kb"):
         body = _assert_console_page(_get(env, path, env.alice), path)
         # 불변식 3: 서버 측에서 관리자 링크·섹션·번들을 제거한다.
         assert "/admin" not in body, path
@@ -370,8 +378,8 @@ def test_member_isolation_in_network_mode(console_e2e):
             sidebar = _sidebar_html(body)
             assert 'href="/moderation/kb"' not in sidebar, path
             assert 'id="moderationlinkbtn"' in body and 'href="/moderation"' in body, path
-            for slug2 in MEMBER_SETTINGS_SECTIONS:
-                assert f'href="/settings/{slug2}"' in sidebar, (path, slug2)
+            for slug2, section_path in MEMBER_OWNER_SECTIONS:
+                assert f'href="{section_path}"' in sidebar, (path, slug2)
         assert "Bob Console Secret" not in body, path
         assert "Admin Console Vault" not in body, path
 
@@ -409,19 +417,19 @@ def test_member_byok_flow_at_settings_keys_is_write_only(console_e2e, monkeypatc
 
     monkeypatch.setattr(provider_keys, "verify_key", _fake_verify)
 
-    page = _assert_console_page(_get(env, "/settings/keys", env.alice), "/settings/keys")
+    page = _assert_console_page(_get(env, "/account/providers", env.alice), "/account/providers")
     assert 'data-keys-mode="byok"' in page
     assert 'data-settings-form="provider-key-put"' in page
     assert "/admin" not in page
 
     session_headers = _member_session_headers(env, 2)
     env.client.cookies.clear()
-    before = env.client.get("/api/me/keys", headers=session_headers)
+    before = env.client.get("/api/me/provider-keys", headers=session_headers)
     assert before.status_code == 200
     assert before.json() == {"keys": []}
 
     env.client.cookies.clear()
-    put = env.client.put("/api/me/keys", headers=session_headers, json={"provider": "gemini", "api_key": BYOK_CANARY})
+    put = env.client.put("/api/me/provider-keys", headers=session_headers, json={"provider": "gemini", "api_key": BYOK_CANARY})
     assert put.status_code == 200, put.text
     meta = put.json()["key"]
     assert meta["provider"] == "gemini"
@@ -429,15 +437,15 @@ def test_member_byok_flow_at_settings_keys_is_write_only(console_e2e, monkeypatc
     assert verify_calls == [("gemini", BYOK_CANARY)]
 
     env.client.cookies.clear()
-    listed = env.client.get("/api/me/keys", headers=session_headers)
+    listed = env.client.get("/api/me/provider-keys", headers=session_headers)
     env.client.cookies.clear()
     assert listed.status_code == 200
     assert listed.json() == {"keys": [meta]}
 
-    page_after = _assert_console_page(_get(env, "/settings/keys", env.alice), "/settings/keys")
+    page_after = _assert_console_page(_get(env, "/account/providers", env.alice), "/account/providers")
     assert meta["fingerprint"] in page_after
 
-    for resp in (put, listed, page_after_resp := _get(env, "/settings/keys", env.alice)):
+    for resp in (put, listed, page_after_resp := _get(env, "/account/providers", env.alice)):
         blob = resp.text + repr(list(resp.headers.items()))
         assert BYOK_CANARY not in blob
         assert BYOK_CANARY[:16] not in blob
@@ -458,7 +466,7 @@ def test_single_mode_whoami_has_no_username_and_the_account_page_shows_it(consol
     assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
 
-    for path, status in (("/admin", 302), ("/settings", 302), ("/moderation", 302), ("/settings/themes", 308), ("/settings/tokens", 302), ("/settings/kb/manage", 308), ("/admin/kb", 308), ("/admin/themes", 308)):
+    for path, status in (("/admin", 302), ("/account", 302), ("/settings", 302), ("/moderation", 302), ("/settings/themes", 308), ("/account/tokens", 302), ("/settings/kb/manage", 308), ("/admin/kb", 308), ("/admin/themes", 308)):
         resp = _get(env, path, env.admin)
         assert resp.status_code == status, path
 
@@ -470,12 +478,11 @@ def test_single_mode_whoami_has_no_username_and_the_account_page_shows_it(consol
         _assert_console_page(_get(env, path, env.admin), path)
     _assert_console_page(_get(env, "/moderation/kb", env.admin), "/moderation/kb")
 
-    for slug in ("keys", *SETTINGS_SECTIONS):
-        path = f"/settings/{slug}"
+    for _slug, path in OWNER_SECTIONS:
         _assert_console_page(_get(env, path, env.admin), path)
 
     # The account actor of the admin federates in single mode (Section 15 rule 5): the account page shows the USERNAME and the switch of the public profile.
-    account = _get(env, "/settings/account", env.admin)
+    account = _get(env, "/account/profile", env.admin)
     assert f'<dd data-account-field="username">@{ADMIN_USERNAME}</dd>' in account.text
     assert 'data-settings-toggle="profile-public"' in account.text
 
@@ -490,14 +497,14 @@ def test_legacy_me_redirects_to_settings_account(console_e2e, mode: str):
 
     resp = _get(env, "/me", env.admin)
     assert resp.status_code == 302, resp.status_code
-    assert resp.headers["location"] == "/settings/account"
-    _assert_console_page(_get(env, resp.headers["location"], env.admin), "/settings/account")
+    assert resp.headers["location"] == "/account/profile"
+    _assert_console_page(_get(env, resp.headers["location"], env.admin), "/account/profile")
     if mode == "single":
         _assert_no_username_leak(resp, "/me")
     else:
         member = _get(env, "/me", env.alice)
         assert member.status_code == 302, member.status_code
-        assert member.headers["location"] == "/settings/account"
+        assert member.headers["location"] == "/account/profile"
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -515,8 +522,8 @@ def test_legacy_syndication_preferences_redirects_for_admin(console_e2e, mode: s
         "?tab=rules": "/settings/rules",
         "?tab=outbound": "/settings/outbound",
         "?tab=opml": "/settings/opml",
-        "?tab=mcp": "/settings/mcp",
-        "?tab=webmcp": "/settings/webmcp",
+        "?tab=mcp": "/account/mcp",
+        "?tab=webmcp": "/account/webmcp",
         "?tab=idp": "/admin/idp",
         "?tab=userdb": "/admin/accounts",
     }
@@ -555,7 +562,7 @@ def test_legacy_syndication_preferences_redirects_for_member_in_network_mode(con
     for tab in ("idp", "userdb"):
         resp = _get(env, f"{base}?tab={tab}", env.alice)
         assert resp.status_code == 302, (tab, resp.status_code)
-        assert resp.headers["location"] == "/settings/account", tab
+        assert resp.headers["location"] == "/account/profile", tab
 
     assert _get(env, base + "?tab=does-not-exist", env.alice).status_code == 404
 

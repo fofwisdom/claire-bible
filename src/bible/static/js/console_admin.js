@@ -505,26 +505,6 @@
       });
     }
 
-    var webmcpToggle = document.getElementById("pref-webmcp-enabled");
-    var webmcpHint = document.getElementById("admin-webmcp-policy-hint");
-    if (webmcpToggle) {
-      try {
-        var saved = window.localStorage.getItem("claire_admin_webmcp_enabled");
-        if (saved === "0") webmcpToggle.checked = false;
-      } catch (_e) {}
-      var syncHint = function () {
-        if (!webmcpHint) return;
-        webmcpHint.textContent = webmcpToggle.checked ? tr("console.js.admin.mcp.webmcp_on") : tr("console.js.admin.mcp.webmcp_off");
-      };
-      syncHint();
-      webmcpToggle.addEventListener("change", function () {
-        try {
-          window.localStorage.setItem("claire_admin_webmcp_enabled", webmcpToggle.checked ? "1" : "0");
-        } catch (_e) {}
-        syncHint();
-      });
-    }
-
     var bundleForm = document.getElementById("admin-support-bundle-form");
     var bundleResult = document.getElementById("admin-support-bundle-result");
     if (bundleForm) {
@@ -1987,6 +1967,28 @@
     });
   }
 
+  // /admin/webmcp: the server policy switch of WebMCP. Only this browser keeps the state (localStorage); the server side is not implemented.
+  function initWebmcpSection() {
+    var webmcpToggle = document.getElementById("admin-webmcp-enabled");
+    var webmcpHint = document.getElementById("admin-webmcp-policy-hint");
+    if (!webmcpToggle) return;
+    try {
+      var saved = window.localStorage.getItem("claire_admin_webmcp_enabled");
+      if (saved === "0") webmcpToggle.checked = false;
+    } catch (_e) {}
+    var syncHint = function () {
+      if (!webmcpHint) return;
+      webmcpHint.textContent = webmcpToggle.checked ? tr("console.js.admin.webmcp.on") : tr("console.js.admin.webmcp.off");
+    };
+    syncHint();
+    webmcpToggle.addEventListener("change", function () {
+      try {
+        window.localStorage.setItem("claire_admin_webmcp_enabled", webmcpToggle.checked ? "1" : "0");
+      } catch (_e) {}
+      syncHint();
+    });
+  }
+
   function initAdminSection(bootstrap) {
     var panels = window.ClaireManagePanels || {};
     var section = bootstrap.section;
@@ -2020,6 +2022,8 @@
       initIdpSection(bootstrap);
     } else if (section === "mcp") {
       initMcpSection();
+    } else if (section === "webmcp") {
+      initWebmcpSection();
     } else if (section === "federation") {
       initFederationSection();
     } else if (section === "storage") {

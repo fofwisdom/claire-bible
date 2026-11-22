@@ -4301,7 +4301,7 @@ def cmd_token(args) -> int:
     s = get_settings()
     store = get_token_store(data_dir=s.data_dir)
     action = getattr(args, "token_action", None) or "list"
-    deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/settings/mcp)."
+    deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/account/mcp)."
 
     if action in ("list", "ls"):
         include_revoked = bool(getattr(args, "all", False))

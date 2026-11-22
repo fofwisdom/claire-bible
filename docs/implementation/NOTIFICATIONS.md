@@ -15,7 +15,7 @@ A notification tells one account that a linkage request waits, and gives the ent
 | Notification records, grouping, retention | Implemented (Section 3) |
 | Kinds and their events | Implemented: 19 kinds and the test kind (Section 4) |
 | Web Push: encryption, VAPID, sender, session binding | Implemented (Section 5). No test sends to a real push service; the owner makes that check on a server with a public HTTPS address. |
-| Bell of the application bar, `/settings/notifications`, service worker | Implemented (Section 6) |
+| Bell of the application bar, `/account/notifications`, service worker | Implemented (Section 6) |
 | Events that the design does not cover | Not implemented (design Section 5, last table) |
 
 Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `src/claire/api/oauth.py` (they stay as they are), and the notifications of an outside Mastodon account in the syndication client.
@@ -30,10 +30,10 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 | `src/claire/notifications/sender.py` | `send_due`, `run_scheduler` (task of the `api` process), `wake`, `TaskRecorder` and `read_task_state` (the state file of the task) |
 | `src/claire/ops/support_bundle_notifications.py` | The notification members of the two Support Bundles (Section 8) |
 | `src/claire/store/notifications.py` | The tables of `client.db` and the VAPID key pair of `auth.db` |
-| `src/claire/api/accounts_routes/notifications.py` | The routes and the body of `/settings/notifications` |
+| `src/claire/api/accounts_routes/notifications.py` | The routes and the body of `/account/notifications` |
 | `src/bible/static/js/sw.js` | The service worker (sent at `/sw.js`) |
 | `src/bible/static/js/appbar.js`, `partials/common_appbar.html`, `css/appbar.css` | The bell and its list |
-| `src/bible/static/js/console_notifications.js` | The controller of `/settings/notifications` |
+| `src/bible/static/js/console_notifications.js` | The controller of `/account/notifications` |
 | `src/claire/i18n/locales/{en,ko}.json` | `notify.<kind>.*` (server only), `nav.notify.*`, `console.notify.*`, `console.js.notify.*` |
 
 ## 3. Data
@@ -52,7 +52,7 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 - A parameter is text or a whole number. Text is cut to 120 characters and has no control characters.
 - Retention: 90 days after the last change (`sender.cleanup`, one time each hour).
 - `client_db.purge_account` deletes the rows of an account in the four account tables.
-- `auth.db` version 7: `server_key_pairs` (`name`, `public_key`, `private_ciphertext`, `private_nonce`, `key_version`, `created_at`). The row `webpush_vapid` is the VAPID pair. `ensure_vapid_private_key` makes it at the first use; the additional data of the ciphertext is `server_key|webpush_vapid`. If the row is lost, a new pair is made and each browser must subscribe again (`/settings/notifications` does this when the person turns notifications on).
+- `auth.db` version 7: `server_key_pairs` (`name`, `public_key`, `private_ciphertext`, `private_nonce`, `key_version`, `created_at`). The row `webpush_vapid` is the VAPID pair. `ensure_vapid_private_key` makes it at the first use; the additional data of the ciphertext is `server_key|webpush_vapid`. If the row is lost, a new pair is made and each browser must subscribe again (`/account/notifications` does this when the person turns notifications on).
 
 ## 4. Kinds and Events
 
@@ -73,10 +73,10 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 | `kb_role_given` | notice | `kb_member_change_route` (role `collaborator`), `admin_kb_moderator_route` (give), `_after_kb_founded` (mutual collaborators) | The account with the new role | `/settings/kb?tab=mem` | — |
 | `mutual_requested` | request | `mutual_collaborations_route` | The other account | `/settings/kb?tab=mem` | — |
 | `mutual_accepted` | answer | `mutual_collaboration_route` (`PUT`) | The requester | `/settings/kb?tab=mem` | — |
-| `agent_source_staged` | request | `ingest.pipeline.ingest` when the result is a staged source | The owner of the personal knowledge base | `/settings/mcp` | account |
+| `agent_source_staged` | request | `ingest.pipeline.ingest` when the result is a staged source | The owner of the personal knowledge base | `/account/mcp` | account |
 | `agent_extraction_done` | answer | `submit_client_extraction`, after the commit and the hooks | The owner of the personal knowledge base | The home of the account with `?doc=<id>` | account |
-| `agent_write_grant` | notice | `oauth._maybe_notify_write_grant` (redirect flow and device flow) | The account | `/settings/mcp` | — |
-| `ap_follower` | notice | Inbox event `Follow`, when the follower row is new | The followed account | `/settings/federation` | account |
+| `agent_write_grant` | notice | `oauth._maybe_notify_write_grant` (redirect flow and device flow) | The account | `/account/mcp` | — |
+| `ap_follower` | notice | Inbox event `Follow`, when the follower row is new | The followed account | `/account/federation` | account |
 | `ap_follow_answered` | answer | `_follow_response`, when the state changed | The account of the follow | `/syndication?stage=collect` | — |
 | `ap_mention` | request | `_decide_timeline`, for each new item with a mention | The accounts of the items | `/syndication?stage=collect` | account |
 | `ap_quote_request` | request | Quote event `QuoteRequest`, new and `pending` | The owner of the object | `/syndication?stage=collect` | account |
@@ -85,7 +85,7 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 | `kf_contribution_pending` | request | `scan_pending_contributions` (no contributor account) | `kb_reviewers` | `/moderation/kb/{n}?tab=queue` | knowledge base |
 | `kf_offer_answered` | answer | Handler `accept_offer`, `reject_offer`, when the activity made the decision | The account of the offer | `/settings/kb?tab=subs` | remote knowledge base and decision |
 | `kf_grant` | notice | Handler `grant` (stored), `revoke` (first time) | The account of the grant | `/settings/kb?tab=mem` | — |
-| `test` | notice | `POST /api/me/push/test` | The account | `/settings/notifications` | — |
+| `test` | notice | `POST /api/me/push/test` | The account | `/account/notifications` | — |
 
 Rules of the events:
 
@@ -117,15 +117,15 @@ Rules of the events:
 
 ## 6. Client
 
-- **Service worker** (`/sw.js`, file `static/js/sw.js`, scope `/`): network passthrough for requests as before. `push`: shows the notification (`tag` and `renotify`), sets the application badge to `unread`, and sends `{type: "claire-notification"}` to open pages. `notificationclick`: `POST /api/me/notifications/read`, then focus on a page that shows the entry address already, else `clients.openWindow`. An address that is not a path of this server becomes `/settings/notifications`. `pushsubscriptionchange`: subscribes again and tells the server.
+- **Service worker** (`/sw.js`, file `static/js/sw.js`, scope `/`): network passthrough for requests as before. `push`: shows the notification (`tag` and `renotify`), sets the application badge to `unread`, and sends `{type: "claire-notification"}` to open pages. `notificationclick`: `POST /api/me/notifications/read`, then focus on a page that shows the entry address already, else `clients.openWindow`. An address that is not a path of this server becomes `/account/notifications`. `pushsubscriptionchange`: subscribes again and tells the server.
 - **Bell** (`#notifybtn`, `#pop-notify`): `appbar.js` starts it on a page that shows the sign-out control (`#menu-logout-form`), and when a page calls `ClaireAppBar.setLogoutVisible(true)`. The list request gives 404 for a caller that is not an owner; the bell then stays hidden. Refresh: page load, the page becomes visible, a message of the service worker, every 60 s while visible, and `ClaireAppBar.refreshNotifications()`. Each value goes into the page as a text node.
-- **`/settings/notifications`** (console section `notifications`, group `workspace`): device state (`unsupported`, `denied`, `off`, `on`, `other_account`), "Turn on" (permission, `PushManager.subscribe` with the server key, `POST /api/me/push/subscriptions`), "Turn off", "Send a test notification", the device list, and the kind switches. The browser finds its own row by the digest `ref` (the first 16 hexadecimal characters of the SHA-256 of the endpoint); no API answer has an endpoint.
+- **`/account/notifications`** (console section `notifications`, group `workspace`): device state (`unsupported`, `denied`, `off`, `on`, `other_account`), "Turn on" (permission, `PushManager.subscribe` with the server key, `POST /api/me/push/subscriptions`), "Turn off", "Send a test notification", the device list, and the kind switches. The browser finds its own row by the digest `ref` (the first 16 hexadecimal characters of the SHA-256 of the endpoint); no API answer has an endpoint.
 - **Tab query**: `/settings/kb?tab=personal|subs|rule|rep|mem` and `/moderation/kb/{n}?tab=queue|content|curate|people|settings|log` (`console_kb.js`, `tabFromQuery`). A value that is not a tab of the page gives the first tab.
 - The sign-out answer has `Clear-Site-Data: "storage"`: the browser removes the service worker and its subscription. The sender deletes the row of the session at its next send.
 
 ## 7. Routes
 
-All routes have the rule `_any("owner", "none")`; `/settings/notifications` has `_system("owner", "none")`. A caller that is not an owner gets 404.
+All routes have the rule `_any("owner", "none")`; `/account/notifications` has `_system("owner", "none")`. A caller that is not an owner gets 404.
 
 | Method | Path | Request | Answer |
 | :--- | :--- | :--- | :--- |
@@ -150,7 +150,7 @@ When a person gets no notification, make a Support Bundle ([`TELEMETRY.md`](TELE
 | Was the notification made, and was it sent? | `notifications_by_kind` (`unread_never_sent`), `push_off`, and `scan` (`SCAN_NEVER_RAN`, `SCAN_BEHIND`) |
 | Which accounts wait? | `accounts_with_most_unread` |
 
-The account makes its own bundle at `/settings/bundles`. Its member has the devices of the account with the state of each sign-in session, the kinds without push, and the last 50 notifications with the time of each send.
+The account makes its own bundle at `/account/bundles`. Its member has the devices of the account with the state of each sign-in session, the kinds without push, and the last 50 notifications with the time of each send.
 
 ## 9. Known Limits
 
@@ -169,4 +169,4 @@ The account makes its own bundle at `/settings/bundles`. Its member has the devi
 | `tests/test_notifications.py` | The example of RFC 8291 Section 5 (body start, key, and nonce); the VAPID signature and claims; the store (grouping, queue, purge, migration from version 8, VAPID key); `emit` rules; the text of each kind in `en` and `ko`; the events of each kind; `after_commit`; the scan; the sender results (2xx, retry, 410, network error, session end, address that is not public, no public origin, kind that is off); the task of the `api` process; the routes; the page; the notification member of the account-scope Support Bundle |
 | `tests/test_e2e_federation_interactions.py`, `tests/test_e2e_federation_quotes.py`, `tests/test_knowledge_federation_kf4_e2e.py` | `ap_mention`, `ap_private_message`, `ap_quote_request`, `kf_offer_answered`, and `kf_grant` from the internal federation API |
 | `tests/test_support_bundle_services.py` | The notification member of the server-wide Support Bundle and the task state file |
-| `e2e/notifications.spec.js` | The bell and `/settings/notifications` in the console shell; a kind switch; an item opens its entry address and becomes read; the tab query; the service worker (`push`, an address of another site, `notificationclick`) |
+| `e2e/notifications.spec.js` | The bell and `/account/notifications` in the console shell; a kind switch; an item opens its entry address and becomes read; the tab query; the service worker (`push`, an address of another site, `notificationclick`) |

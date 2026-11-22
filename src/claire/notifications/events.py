@@ -50,8 +50,8 @@ log = logging.getLogger(__name__)
 
 SETTINGS_KB_MEMBERSHIP = "/settings/kb?tab=mem"
 SETTINGS_KB_SUBMISSIONS = "/settings/kb?tab=subs"
-SETTINGS_MCP = "/settings/mcp"
-SETTINGS_FEDERATION = "/settings/federation"
+ACCOUNT_MCP = "/account/mcp"
+ACCOUNT_FEDERATION = "/account/federation"
 SYNDICATION_CLIENT = "/syndication?stage=collect"
 SCAN_SCOPE_CONTRIBUTION = "contribution"
 
@@ -218,7 +218,7 @@ def agent_source_staged(db_file: Path | str, *, kb_id: int) -> None:
         owner = _kb_owner(conn, kb_id)
     finally:
         conn.close()
-    emit(db_file, kind="agent_source_staged", account_ids=[owner], target=SETTINGS_MCP, group="staged")
+    emit(db_file, kind="agent_source_staged", account_ids=[owner], target=ACCOUNT_MCP, group="staged")
 
 
 @_event
@@ -240,7 +240,7 @@ def agent_extraction_done(db_file: Path | str, *, kb_id: int, document_id: str, 
 
 @_event
 def agent_write_grant(db_file: Path | str, *, account_id: int, client: str) -> None:
-    emit(db_file, kind="agent_write_grant", account_ids=[account_id], target=SETTINGS_MCP, params={"client": client})
+    emit(db_file, kind="agent_write_grant", account_ids=[account_id], target=ACCOUNT_MCP, params={"client": client})
 
 
 # --- ActivityPub ---
@@ -248,7 +248,7 @@ def agent_write_grant(db_file: Path | str, *, account_id: int, client: str) -> N
 
 @_event
 def ap_follower(db_file: Path | str, *, account_id: int, actor_iri: str) -> None:
-    emit(db_file, kind="ap_follower", account_ids=[account_id], target=SETTINGS_FEDERATION, params={"actor": actor_handle(actor_iri)}, group="followers")
+    emit(db_file, kind="ap_follower", account_ids=[account_id], target=ACCOUNT_FEDERATION, params={"actor": actor_handle(actor_iri)}, group="followers")
 
 
 @_event

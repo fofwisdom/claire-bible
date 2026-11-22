@@ -266,7 +266,7 @@ class TokenStore:
     ) -> dict[str, Any]:
         """Create a new persistent access token and save atomically."""
         if self.is_retired():
-            raise PermissionError("Manual API tokens are retired; use OAuth 2.1 (/settings/mcp).")
+            raise PermissionError("Manual API tokens are retired; use OAuth 2.1 (/account/mcp).")
         if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
             raise ValueError(f"Invalid account_id: {account_id!r}.")
         name_clean = str(name or "").strip()

@@ -254,7 +254,7 @@ def test_telegram_register_update_delete_and_isolation(env, fake_telegram):
     r = c.request("PATCH", "/api/me/telegram", session=env.sa, json={"allowed_user_ids": [99]})
     assert r.status_code == 200 and r.json()["bot"]["allowed_user_ids"] == [99]
     # 설정 화면은 상태를 보여 주고 토큰을 싣지 않는다.
-    page = c.request("GET", "/settings/telegram", session=env.sa)
+    page = c.request("GET", "/account/telegram", session=env.sa)
     assert page.status_code == 200 and "data-telegram-meta" in page.text and "console_features.js" in page.text
     assert "/admin/" not in page.text
     r = c.request("DELETE", "/api/me/telegram", session=env.sa)

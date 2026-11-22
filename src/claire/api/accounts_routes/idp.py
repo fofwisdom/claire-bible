@@ -664,7 +664,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     if existing.account_id != state_record.account_id:
                         return _clear_oidc_cookies(json_error(409, "identity_already_linked", detail="This identity is linked to another account"))
                     # Already linked to this account
-                    return _clear_oidc_cookies(RedirectResponse("/settings/account?notice=already_linked", status_code=302))
+                    return _clear_oidc_cookies(RedirectResponse("/account/security?notice=already_linked", status_code=302))
 
                 auth_db.link_account_identity(
                     auth_conn,
@@ -679,7 +679,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="identity.link",
                     detail={"iss": identity.iss, "provider": provider.id},
                 )
-                return _clear_oidc_cookies(RedirectResponse("/settings/account?notice=identity_linked", status_code=302))
+                return _clear_oidc_cookies(RedirectResponse("/account/security?notice=identity_linked", status_code=302))
 
             elif state_record.purpose == "login":
                 existing = auth_db.find_account_identity(auth_conn, iss=identity.iss, sub=identity.sub)

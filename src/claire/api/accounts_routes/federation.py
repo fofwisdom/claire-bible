@@ -31,7 +31,7 @@ Federation client routes, for the owner of the account, in both server modes (FE
 
 ``POST /api/federation/timeline/{item_id}/ingest`` is in ``server``, because it uses the ingest service of a theme.
 
-The console section ``/settings/federation`` is in ``console``.
+The console section ``/account/federation`` is in ``console``.
 """
 
 from __future__ import annotations

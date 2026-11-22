@@ -2,7 +2,7 @@
 
 - **Document Identifier**: `DESIGN-ADMIN-SETTINGS-CONSOLE-20261104`
 - **Status**: Implemented. Design principles only. Current behavior: [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.9, §5.10 and [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md) §2.2.
-- **Date**: 2026-11-04 (phases P1 to P5 done by 2026-11-05) · condensed 2026-11-16
+- **Date**: 2026-11-04 (phases P1 to P5 done by 2026-11-05) · condensed 2026-11-16 · D6 added and implemented 2026-11-22
 - **Related**: [`PRINCIPLES.md`](../PRINCIPLES.md), [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md)
 
 ## Goal
@@ -22,6 +22,7 @@ Before this design, management screens were in many places: a preferences page o
 | D3 | The administrator manages the themes and tokens of the administrator account under the administrator prefix. The same two settings paths redirect the administrator there. The administrator screen shows only server counts for other accounts. | The administrator sees each item one time. The administrator manages the server, not the content of members. |
 | D4 | The old account page and the old reader preferences page stay as redirects to the new paths. Each old tab maps to one new section. An unknown tab is 404. | Old bookmarks and links keep working. An unknown value must not fall back to a default tab (C1). |
 | D5 | The work was done in phases P1 to P5, each with passing tests. | Process only. Done. |
+| D6 | Owner, 2026-11-22. The owner has two prefixes. The account prefix (`/account`) has the pages of the account of the caller. The settings prefix (`/settings`) has the pages of a knowledge base (shared knowledge, syndication). The old account page is two pages: the profile (the data that other persons see) and the security (password, linked identities, deletion). The old key page is the provider page (`/account/providers`); it also has the extraction mode. The MCP and WebMCP pages are divided by the person who acts: the account pages (`/account/mcp`, `/account/webmcp`) for the account, the administrator pages (`/admin/mcp`, `/admin/webmcp`) for the server policy. The old settings paths of the account pages redirect (308). The public account directory is `/directory`; the old path `/accounts` redirects (308). | A path name must tell what the page has. `/settings/keys` had more than keys (the server tier, the usage, the extraction mode), and the AI pages are about the account, not about a knowledge base. "Profile" is the name of the public data only, thus it is one page and not the name of the prefix. `/accounts` and `/account` differ by one letter, thus the directory has its own word. |
 
 D2 changed after implementation: the inline drawer panels on the root page were removed. Now the console is the only place for providers, limits, themes, and tokens. Reason: one place for each control.
 
@@ -43,6 +44,6 @@ D2 changed after implementation: the inline drawer panels on the root page were 
 ## Limits for later changes
 
 - A new administrator section goes under the administrator prefix and follows invariants 1 to 3.
-- A new account setting goes under the settings prefix. If it is per theme, it validates the theme reference of the caller and fails closed.
+- A new page of the account goes under the account prefix (D6). A new setting of a knowledge base goes under the settings prefix; it validates the theme reference of the caller and fails closed.
 - Keep the old redirects (D4) until the owner decides to remove them.
 - The layout and the navigation of the console shell (groups, tabs, scroll regions) change in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (planned). That design keeps the decisions and the invariants of this document.

@@ -197,10 +197,10 @@ def test_canary_key_not_in_http_responses_and_headers(tmp_path: Path, mock_verif
     env = _setup_app_env(tmp_path)
     with TestClient(env.app, base_url=PUBLIC_URL) as tc:
         headers_member = {"Cookie": f"claire_session={env.member_session}", "Origin": ORIGIN}
-        res_put = tc.put("/api/me/keys", json={"provider": "gemini", "api_key": CANARY}, headers=headers_member)
+        res_put = tc.put("/api/me/provider-keys", json={"provider": "gemini", "api_key": CANARY}, headers=headers_member)
         assert res_put.status_code == 200
 
-        res_get = tc.get("/api/me/keys", headers=headers_member)
+        res_get = tc.get("/api/me/provider-keys", headers=headers_member)
         assert res_get.status_code == 200
         get_json = res_get.json()
         assert "keys" in get_json
@@ -209,18 +209,18 @@ def test_canary_key_not_in_http_responses_and_headers(tmp_path: Path, mock_verif
         assert "fingerprint" in get_json["keys"][0]
         assert CANARY not in json.dumps(get_json)
 
-        res_verify = tc.post("/api/me/keys/verify", json={"provider": "gemini"}, headers=headers_member)
+        res_verify = tc.post("/api/me/provider-keys/verify", json={"provider": "gemini"}, headers=headers_member)
         assert res_verify.status_code == 200
 
         res_me = tc.get("/me", headers=headers_member, follow_redirects=False)
         assert res_me.status_code == 302
-        assert res_me.headers["location"] == "/settings/account"
+        assert res_me.headers["location"] == "/account/profile"
 
-        res_account = tc.get("/settings/account", headers=headers_member, follow_redirects=False)
+        res_account = tc.get("/account/profile", headers=headers_member, follow_redirects=False)
         assert res_account.status_code == 200
         assert res_account.headers["referrer-policy"] == "same-origin"
 
-        res_keys_page = tc.get("/settings/keys", headers=headers_member, follow_redirects=False)
+        res_keys_page = tc.get("/account/providers", headers=headers_member, follow_redirects=False)
         assert res_keys_page.status_code == 200
         assert res_keys_page.headers["referrer-policy"] == "same-origin"
 
@@ -228,7 +228,7 @@ def test_canary_key_not_in_http_responses_and_headers(tmp_path: Path, mock_verif
         res_admin_accounts = tc.get("/admin/accounts", headers=headers_admin)
         assert res_admin_accounts.status_code == 200
 
-        res_del = tc.delete("/api/me/keys", headers=headers_member)
+        res_del = tc.delete("/api/me/provider-keys", headers=headers_member)
         assert res_del.status_code == 200
 
         for res in (res_put, res_get, res_verify, res_me, res_account, res_keys_page, res_admin_accounts, res_del):

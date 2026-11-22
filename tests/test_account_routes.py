@@ -168,7 +168,7 @@ def test_admin_accounts_api_and_single_mode_card(client, settings):
     assert 'id="admin-retired-usernames-section"' in page.text
     assert 'id="pref-userdb-admin"' in page.text
     assert 'id="admin-invites-section"' in page.text
-    assert 'href="/settings/invites"' in page.text
+    assert 'href="/account/invites"' in page.text
     assert page.text.index('id="pref-userdb-admin"') < page.text.index('id="admin-invites-section"')
     assert " onsubmit=" not in page.text and " onclick=" not in page.text
 
@@ -204,11 +204,11 @@ def test_me_read_and_display_name_update(client, settings):
 
     updated = client.request("PATCH", "/api/me", session=token, json={"display_name": "<b>김</b>"})
     assert updated.status_code == 200 and updated.json()["display_name"] == "<b>김</b>"
-    # D4: /me는 /settings/account로 가는 호환용 302다. 화면은 콘솔이 그린다.
+    # D4: /me는 /account/profile로 가는 호환용 302다. 화면은 콘솔이 그린다.
     legacy = client.request("GET", "/me", session=token)
     assert legacy.status_code == 302
-    assert legacy.headers["location"] == "/settings/account"
-    page = client.request("GET", "/settings/account", session=token)
+    assert legacy.headers["location"] == "/account/profile"
+    page = client.request("GET", "/account/profile", session=token)
     assert page.status_code == 200
     assert "&lt;b&gt;김&lt;/b&gt;" in page.text and "<b>김</b>" not in page.text
     # 인라인 이벤트 처리기를 쓰지 않는다(CSP).
@@ -316,7 +316,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     finally:
         conn.close()
 
-    page = client.request("GET", "/settings/account", session=token)
+    page = client.request("GET", "/account/profile", session=token)
     assert page.status_code == 200
     assert 'data-settings-toggle="profile-public"' in page.text
     assert '<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"' in page.text
@@ -333,7 +333,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     me_res = client.request("GET", "/api/me", session=token)
     assert me_res.status_code == 200 and me_res.json()["profile_public"] == 1
 
-    page2 = client.request("GET", "/settings/account", session=token)
+    page2 = client.request("GET", "/account/profile", session=token)
     assert page2.status_code == 200
     assert _profile_switch_checked(page2.text)
     assert '<dd data-account-field="profile_public">Public (shown in the public directory)</dd>' in page2.text
@@ -342,7 +342,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     assert patch_res2.status_code == 200
     assert patch_res2.json()["profile_public"] == 0
 
-    page3 = client.request("GET", "/settings/account", session=token)
+    page3 = client.request("GET", "/account/profile", session=token)
     assert page3.status_code == 200
     assert not _profile_switch_checked(page3.text)
     assert '<dd data-account-field="profile_public">Private</dd>' in page3.text
@@ -354,7 +354,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
         conn.close()
 
     # Single mode has the same switch: the account actor of the admin federates in single mode with the same rules (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
-    single_page = client.request("GET", "/settings/account", session=token)
+    single_page = client.request("GET", "/account/profile", session=token)
     assert single_page.status_code == 200
     assert 'data-settings-toggle="profile-public"' in single_page.text
     assert '<dd data-account-field="profile_public">Private</dd>' in single_page.text
@@ -497,14 +497,14 @@ def test_account_form_pages_send_same_origin_referrer_policy(client, settings):
 
     _activate_admin(settings)
     token = _session(settings)
-    for path in ("/settings/account", "/admin/accounts"):
+    for path in ("/account/profile", "/admin/accounts"):
         page = client.request("GET", path, session=token)
         assert page.status_code == 200, path
         assert page.headers["referrer-policy"] == "same-origin", path
         assert 'action="/logout"' in page.text
     legacy = client.request("GET", "/me", session=token)
     assert legacy.status_code == 302
-    assert legacy.headers["location"] == "/settings/account"
+    assert legacy.headers["location"] == "/account/profile"
     assert legacy.headers["referrer-policy"] == "same-origin"
     assert client.request("GET", "/login").headers["referrer-policy"] == "same-origin"
     # JSON API와 404는 전역 정책 그대로다.
@@ -518,7 +518,7 @@ def test_cookie_routes_emit_exactly_one_session_cookie(client, settings):
     # 핸들러가 쿠키를 건드리지 않는 응답: 미들웨어의 갱신 쿠키 하나.
     for method, path, kwargs, status in (
         ("GET", "/me", {}, 302),
-        ("GET", "/settings/account", {}, 200),
+        ("GET", "/account/profile", {}, 200),
         ("PATCH", "/api/me", {"json": {"display_name": "a"}}, 200),
         ("POST", "/api/me/password", {"json": {"current_password": PASSWORD, "new_password": NEW_PASSWORD}}, 200),
     ):

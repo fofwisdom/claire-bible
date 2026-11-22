@@ -3,7 +3,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/c
 
 test.use({ serviceWorkers: 'block' });
 
-// /settings/bundles against the real E2E server: each row of the support bundle list and of the data bundle list has a copy link control. The list API gives the token address to the owner, thus the control stays after a reload of the page.
+// /account/bundles against the real E2E server: each row of the support bundle list and of the data bundle list has a copy link control. The list API gives the token address to the owner, thus the control stays after a reload of the page.
 
 const COPY_LABEL = /^(Copy link|링크 복사)$/;
 
@@ -19,7 +19,7 @@ test('each bundle row keeps its copy link after a reload, and the link opens wit
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(baseURL).origin });
   const errors = watchErrors(page);
   await authenticateOwner(page, 'bundlelinks');
-  await page.goto('/settings/bundles', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/bundles', { waitUntil: 'domcontentloaded' });
 
   const support = page.locator("section.card:has([data-feature-list='support-bundles'])");
   const data = page.locator("section.card:has([data-feature-list='data-bundles'])");

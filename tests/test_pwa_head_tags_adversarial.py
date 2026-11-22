@@ -88,8 +88,8 @@ def test_network_mode_public_directory_pwa_head_tags(tmp_path: Path) -> None:
     assert '<meta name="theme-color" content="#0e1116"/>' in html
     assert '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>' in html
 
-    # 2. GET /accounts directly
-    resp_explore = client.get("/accounts", headers={"Accept": "text/html"})
+    # 2. GET /directory directly
+    resp_explore = client.get("/directory", headers={"Accept": "text/html"})
     assert resp_explore.status_code == 200
     assert '<link rel="manifest" href="/manifest.json"/>' in resp_explore.text
     assert '<script src="/static/js/pwa-register.js" defer></script>' in resp_explore.text

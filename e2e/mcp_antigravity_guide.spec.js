@@ -4,7 +4,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/c
 
 test.use({ serviceWorkers: 'block' });
 
-test('English /settings/mcp provides quick setup prompt copy, mcp_config.json download, and English GUI guide link', async ({ browser, baseURL }) => {
+test('English /account/mcp provides quick setup prompt copy, mcp_config.json download, and English GUI guide link', async ({ browser, baseURL }) => {
   const origin = new URL(baseURL).origin;
   const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
@@ -12,7 +12,7 @@ test('English /settings/mcp provides quick setup prompt copy, mcp_config.json do
   const errors = watchErrors(page);
 
   await authenticateOwner(page, 'mcpgui001');
-  await page.goto('/settings/mcp', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
 
   const promptEl = page.locator('#pref-mcp-antigravity-prompt');
   await expect(promptEl).toBeVisible();
@@ -49,14 +49,14 @@ test('English /settings/mcp provides quick setup prompt copy, mcp_config.json do
   await context.close();
 });
 
-test('Korean /settings/mcp provides localized Antigravity prompt and Korean GUI guide link', async ({ browser, baseURL }) => {
+test('Korean /account/mcp provides localized Antigravity prompt and Korean GUI guide link', async ({ browser, baseURL }) => {
   const origin = new URL(baseURL).origin;
   const context = await browser.newContext({ locale: 'ko-KR' });
   const page = await context.newPage();
   const errors = watchErrors(page);
 
   await authenticateOwner(page, 'mcpgui002');
-  await page.goto('/settings/mcp', { waitUntil: 'domcontentloaded' });
+  await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
 
   const guideLink = page.locator('#pref-mcp-antigravity-guide');
   await expect(guideLink).toHaveAttribute('href', 'https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.ko.md');

@@ -17,7 +17,7 @@ When you read, use each folder for its purpose. When you write, keep each folder
 
 ## Console UI
 
-- Every `/settings/*`, `/admin/*`, and `/moderation/*` page must render inside `src/claire/api/templates/console_shell.html`.
+- Every `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` page must render inside `src/claire/api/templates/console_shell.html`.
 - Build server HTML with `src/claire/api/accounts_routes/console_ui.py`. Build client HTML with `ClaireConsoleUI` (`src/bible/static/js/console_ui.js`). Style console elements with `src/bible/static/css/console_ui.css`.
 - Mount client-rendered panels inside `.console-host` (`console_host`) and render top-level `.console-subcard` elements directly without nested cards.
 - Use native `input[type="checkbox"][switch]` toggles and `.pref-btn` / `.pref-btn-accent` / `.pref-btn-danger` buttons. Do not add ad-hoc card, switch, button, inline fake-card, or `var(--error)` styles.

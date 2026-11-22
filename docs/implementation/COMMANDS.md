@@ -580,7 +580,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
 * `claire auth [--scope {owner,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
-* `claire token [list|create|revoke]`: 독립 자격증명 파일(`data/auth/api_tokens.json`) 기반 레거시 API·MCP 상시 Bearer 토큰 관리 (`AE3`에서 지원 중단 예고, 별칭: `api-key`, `key`; 신규 클라이언트는 웹 콘솔 `/settings/mcp`의 OAuth 2.1 권장).
+* `claire token [list|create|revoke]`: 독립 자격증명 파일(`data/auth/api_tokens.json`) 기반 레거시 API·MCP 상시 Bearer 토큰 관리 (`AE3`에서 지원 중단 예고, 별칭: `api-key`, `key`; 신규 클라이언트는 웹 콘솔 `/account/mcp`의 OAuth 2.1 권장).
   * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 및 지원 중단 안내 출력 (별칭: `ls`). `-a` 지정 시 폐기·만료 토큰 포함.
   * `claire token create <name> [--scope {owner,write,readonly}] [--expires-in DAYS] [--json]`: 상시 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 안내 예시 이름은 `"Agent Client"`를 쓰며 `mcp_client_config` JSON(`url` + `Authorization` 헤더)과 지원 중단 안내(`deprecated: true`)를 출력한다. `CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `api_tokens.json` `"retired": true` 상태에서는 생성이 거부된다.
   * `claire token revoke <target> [--json]`: 토큰 즉시 폐기 (별칭: `delete`, `rm`). `target`은 토큰 ID 또는 토큰 접두사/전체값. 폐기 즉시 모든 API/MCP 통신 차단.

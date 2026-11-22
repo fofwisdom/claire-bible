@@ -38,6 +38,7 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
     "/admin/themes",
     "/admin/tokens",
     "/admin/mcp",
+    "/admin/webmcp",
     "/api/admin/mcp/telemetry",
     "/admin/federation",
     "/moderation/oversight",
@@ -45,12 +46,13 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
 )
 
 ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
-    "/settings/account",
-    "/settings/invites",
-    "/settings/federation",
-    "/settings/keys",
+    "/account/profile",
+    "/account/security",
+    "/account/invites",
+    "/account/federation",
+    "/account/providers",
     "/settings/kb",
-    "/settings/tokens",
+    "/account/tokens",
     "/settings/reader",
     "/settings/connections",
     "/settings/feeds",
@@ -58,8 +60,8 @@ ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/settings/rules",
     "/settings/outbound",
     "/settings/opml",
-    "/settings/mcp",
-    "/settings/webmcp",
+    "/account/mcp",
+    "/account/webmcp",
 )
 
 MODERATION_OWNER_SECTION_PATHS: tuple[str, ...] = ("/moderation/kb",)
@@ -197,7 +199,7 @@ def test_prefixed_paths_return_404_for_settings_and_admin(console_env):
     client = console_env.client
     prefixed_paths = (
         f"/@{MEMBER_USERNAME}/settings",
-        f"/@{MEMBER_USERNAME}/settings/account",
+        f"/@{MEMBER_USERNAME}/account/profile",
         f"/@{MEMBER_USERNAME}/settings/reader",
         f"/kb/{console_env.alice_def.number}/settings/reader",
         f"/@{SECRET_ADMIN_USERNAME}/admin",
@@ -226,9 +228,13 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert r_admin.headers["location"] == "/admin/server"
     assert r_admin.headers["referrer-policy"] == "same-origin"
 
+    r_account = client.get("/account", headers=console_env.alice_owner, follow_redirects=False)
+    assert (r_account.status_code, r_account.headers["location"]) == (302, "/account/profile")
+    assert client.head("/account", headers=console_env.alice_owner, follow_redirects=False).status_code == 302
+
     r_settings = client.get("/settings", headers=console_env.alice_owner, follow_redirects=False)
     assert r_settings.status_code == 302
-    assert r_settings.headers["location"] == "/settings/account"
+    assert r_settings.headers["location"] == "/settings/reader"
 
     r_moderation = client.get("/moderation", headers=console_env.alice_owner, follow_redirects=False)
     assert (r_moderation.status_code, r_moderation.headers["location"]) == (302, "/moderation/kb")
@@ -238,13 +244,13 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert (r_moderation_shared.status_code, r_moderation_shared.headers["location"]) == (302, f"/moderation/kb/{console_env.admin_extra.number}")
     assert client.head("/moderation", headers=console_env.alice_owner, follow_redirects=False).status_code == 302
 
-    r_from_synd = client.get(f"/settings?from=syndication&kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
-    assert r_from_synd.status_code == 302
-    assert r_from_synd.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
+    r_settings_kb = client.get(f"/settings?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    assert r_settings_kb.status_code == 302
+    assert r_settings_kb.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
 
-    # D3: Admin accessing /settings/tokens redirects 302 to /admin/tokens. Legacy /settings/themes redirects admin 308 to /moderation/themes.
+    # D3: Admin accessing /account/tokens redirects 302 to /admin/tokens. Legacy /settings/themes redirects admin 308 to /moderation/themes.
     for path, status, target in (
-        ("/settings/tokens", 302, "/admin/tokens"),
+        ("/account/tokens", 302, "/admin/tokens"),
         ("/settings/themes", 308, "/moderation/themes"),
         ("/admin/kb", 308, "/moderation/oversight"),
         ("/admin/themes", 308, "/moderation/themes"),
@@ -256,7 +262,7 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
         assert adm_page.status_code == 200, target
         assert adm_page.headers["referrer-policy"] == "same-origin"
 
-    # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb, /settings/tokens, and /moderation/kb return 200.
+    # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb, /account/tokens, and /moderation/kb return 200.
     mem_themes_redirect = client.get("/settings/themes", headers=console_env.alice_owner, follow_redirects=False)
     assert (mem_themes_redirect.status_code, mem_themes_redirect.headers["location"]) == (308, "/settings/kb")
     for legacy_path, target in (("/settings/kb/manage", "/moderation/kb"), (f"/settings/kb/{console_env.admin_extra.number}", f"/moderation/kb/{console_env.admin_extra.number}")):
@@ -267,10 +273,46 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert client.get("/settings/kb/999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
     assert client.get(f"/moderation/kb/{console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
     assert client.get("/moderation/kb/999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    for path in ("/settings/kb", "/settings/tokens", "/moderation/kb", f"/moderation/kb/{console_env.admin_extra.number}"):
+    for path in ("/settings/kb", "/account/tokens", "/moderation/kb", f"/moderation/kb/{console_env.admin_extra.number}"):
         mem_page = client.get(path, headers=console_env.alice_owner, follow_redirects=False)
         assert mem_page.status_code == 200, path
         assert mem_page.headers["referrer-policy"] == "same-origin"
+
+
+def test_old_settings_paths_of_the_account_pages_redirect_with_308(console_env):
+    """The old ``/settings/*`` path of each ``/account/*`` page answers an owner with a 308 redirect and keeps the query; a caller that is not an owner gets 404."""
+    from claire.api.accounts_routes import console as console_routes
+
+    _set_mode(console_env.db_file, "network")
+    client = console_env.client
+    redirects = console_routes.LEGACY_SETTINGS_ACCOUNT_REDIRECTS
+    assert redirects["/settings/account"] == "/account/profile" and redirects["/settings/keys"] == "/account/providers" and len(redirects) == 11
+    assert set(redirects.values()) <= {spec.path for spec in console_routes.ALL_ACCOUNT_SPECS}
+    for old, new in redirects.items():
+        for method in ("GET", "HEAD"):
+            redir = client.request(method, old, headers=console_env.alice_owner, follow_redirects=False)
+            assert (redir.status_code, redir.headers["location"]) == (308, new), (method, old)
+        assert client.get(old, headers=console_env.alice_collab, follow_redirects=False).status_code == 404, old
+    with_query = client.get(f"/settings/mcp?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    assert (with_query.status_code, with_query.headers["location"]) == (308, f"/account/mcp?kb={console_env.alice_def.number}")
+    # The administrator: the old token path goes to /account/tokens, and that page goes to /admin/tokens (D3).
+    admin_tokens = client.get("/settings/tokens", headers=console_env.admin_owner, follow_redirects=False)
+    assert (admin_tokens.status_code, admin_tokens.headers["location"]) == (308, "/account/tokens")
+
+
+def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(console_env):
+    """The sidebar has the two account groups (workspace, ai) first, then the groups of ``/settings/*``; the AI group has the provider, MCP, WebMCP, and token pages."""
+    import re
+
+    _set_mode(console_env.db_file, "network")
+    html = console_env.client.get("/account/providers", headers=console_env.alice_owner).text
+    sidebar = html.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
+    assert re.findall(r'data-nav-group="([a-z_]+)"', sidebar) == ["workspace", "ai", "kb", "syndication"]
+    groups = {m.group(1): re.findall(r'href="([^"?]+)', m.group(2)) for m in re.finditer(r'data-nav-group="([a-z_]+)">(.*?)</ul>', sidebar, re.S)}
+    assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/bundles", "/account/backups"]
+    assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp", "/account/tokens"]
+    assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 7
+    assert 'data-active-area="account"' in html and 'data-nav-section="providers" aria-current="page"' in html
 
 
 def test_strict_theme_query_validation_rejects_unknown_or_cross_account_theme(console_env):
@@ -304,9 +346,9 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     # Member response on /settings/reader keeps settings sidebar without /moderation/* links; /moderation/kb keeps only moderation sidebar.
     member_settings = client.get("/settings/reader", headers=console_env.alice_owner)
     assert member_settings.status_code == 200
-    assert 'href="/settings/account"' in member_settings.text
+    assert 'href="/account/profile"' in member_settings.text
     assert 'href="/settings/kb"' in member_settings.text
-    assert 'href="/settings/tokens"' in member_settings.text
+    assert 'href="/account/tokens"' in member_settings.text
     assert 'href="/settings/feeds"' in member_settings.text
     assert 'href="/moderation/kb"' not in member_settings.text
     assert 'href="/moderation/oversight"' not in member_settings.text
@@ -319,7 +361,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     assert member_mod.status_code == 200
     mod_sidebar = member_mod.text.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
     assert 'href="/moderation/kb"' in mod_sidebar
-    assert 'href="/settings/account"' not in mod_sidebar
+    assert 'href="/account/profile"' not in mod_sidebar
     assert 'href="/settings/kb"' not in mod_sidebar
     assert "/admin/" not in member_mod.text
     assert 'href="/moderation/oversight"' not in member_mod.text
@@ -354,7 +396,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         admin_resp = client.get(path, headers=console_env.admin_owner)
         assert admin_resp.status_code == 200, path
         sidebar = admin_resp.text.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
-        assert 'href="/settings/account"' in sidebar
+        assert 'href="/account/profile"' in sidebar
         assert 'href="/settings/feeds"' in sidebar
         assert 'href="/admin/server"' in sidebar
         assert 'href="/admin/accounts"' in sidebar
@@ -363,6 +405,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/admin/limits"' in sidebar
         assert 'href="/admin/tokens"' in sidebar
         assert 'href="/admin/mcp"' in sidebar
+        assert 'href="/admin/webmcp"' in sidebar
         assert 'href="/moderation/kb"' not in sidebar
         assert 'href="/moderation/oversight"' not in sidebar
         assert 'href="/moderation/themes"' not in sidebar
@@ -370,7 +413,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/admin/themes"' not in admin_resp.text
         assert 'href="/settings/kb/manage"' not in admin_resp.text
         assert 'href="/settings/themes"' not in admin_resp.text
-        assert 'href="/settings/tokens"' not in admin_resp.text
+        assert 'href="/account/tokens"' not in admin_resp.text
 
     for path in ("/moderation/kb", "/moderation/oversight", "/moderation/themes"):
         admin_mod = client.get(path, headers=console_env.admin_owner)
@@ -379,7 +422,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/moderation/kb"' in mod_sb
         assert 'href="/moderation/oversight"' in mod_sb
         assert 'href="/moderation/themes"' in mod_sb
-        assert 'href="/settings/account"' not in mod_sb
+        assert 'href="/account/profile"' not in mod_sb
         assert 'href="/admin/server"' not in mod_sb
         if path == "/moderation/kb":
             assert "console_admin.js" not in admin_mod.text
@@ -391,7 +434,7 @@ def test_single_mode_shows_the_admin_username_only_on_the_account_page_and_not_i
     client = console_env.client
 
     # Rule S9 is withdrawn (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 4): the account page shows the USERNAME in both modes.
-    account_page = client.get("/settings/account", headers=console_env.admin_owner, follow_redirects=False)
+    account_page = client.get("/account/profile", headers=console_env.admin_owner, follow_redirects=False)
     assert account_page.status_code == 200
     assert f"@{SECRET_ADMIN_USERNAME}" in account_page.text
 
@@ -477,6 +520,7 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
         "themes": ("moderation", "/moderation/themes", 'id="admin-themes-host"', 'data-admin-panel-host="themes"'),
         "tokens": ("admin", "/admin/tokens", 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
         "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-audit-tbody"', 'id="pref-mcp-rbac-tbody"'),
+        "webmcp": ("admin", "/admin/webmcp", 'id="admin-webmcp-policy-card"', 'id="admin-webmcp-enabled"'),
     }
 
     for slug, (area, path, anchor_a, anchor_b) in expected_anchors.items():
@@ -495,8 +539,12 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
             assert "Alice Default" not in body
             assert "Bob Default" not in body
         if slug == "mcp":
-            assert 'id="pref-webmcp-enabled"' in body
+            # The WebMCP server policy is on /admin/webmcp only.
+            assert "admin-webmcp" not in body
             assert "data-support-bundle-form" in body
+        if slug == "webmcp":
+            # The page has only the server policy. The account settings of WebMCP (id pref-webmcp-*) are on /account/webmcp.
+            assert "pref-webmcp-" not in body and "/account/webmcp" in body
 
 
 
@@ -504,7 +552,8 @@ ADMIN_PROTOTYPE_MARKERS: dict[str, tuple[tuple[str, str], ...]] = {
     "/admin/accounts": (("admin-accounts-byok-switch", "prototype"), ("admin-accounts-isolation-table", "static")),
     "/admin/idp": (("admin-idp-login-policy", "prototype"), ("admin-idp-login-simulator", "simulation")),
     "/admin/tokens": (("admin-token-policy-summary", "static"),),
-    "/admin/mcp": (("admin-mcp-rbac-table", "static"), ("admin-webmcp-global-switch", "client_only")),
+    "/admin/mcp": (("admin-mcp-rbac-table", "static"),),
+    "/admin/webmcp": (("admin-webmcp-global-switch", "client_only"),),
 }
 
 
@@ -553,9 +602,9 @@ def test_each_console_page_follows_the_interface_locale(console_env):
         [spec.path for spec in console_routes.ALL_ADMIN_SPECS]
         + [spec.path for spec in console_routes.MODERATION_ADMIN_SPECS]
         + [spec.path for spec in console_routes.MODERATION_OWNER_SPECS]
-        + [spec.path for spec in console_routes.ALL_SETTINGS_SPECS if spec.slug not in {"themes", "tokens"}]
+        + [spec.path for spec in (*console_routes.ALL_ACCOUNT_SPECS, *console_routes.ALL_SETTINGS_SPECS) if spec.slug not in {"themes", "tokens"}]
     )
-    member_paths = [spec.path for spec in console_routes.ALL_SETTINGS_SPECS if spec.area != "admin"] + [spec.path for spec in console_routes.MODERATION_OWNER_SPECS]
+    member_paths = [spec.path for spec in (*console_routes.ALL_ACCOUNT_SPECS, *console_routes.ALL_SETTINGS_SPECS)] + [spec.path for spec in console_routes.MODERATION_OWNER_SPECS]
     assert len(admin_paths) >= 20 and len(member_paths) >= 15
     for headers, paths in ((console_env.admin_owner, admin_paths), (console_env.alice_owner, member_paths)):
         for path in paths:
@@ -573,7 +622,7 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     _set_mode(console_env.db_file, "network")
     client = console_env.client
 
-    member_html = client.get("/settings/account", headers=console_env.alice_owner).text
+    member_html = client.get("/account/profile", headers=console_env.alice_owner).text
     assert '<meta name="text-scale" content="scale"/>' in member_html
     assert 'data-nav-group="workspace"' in member_html
     assert 'data-nav-group-toggle="workspace"' in member_html
@@ -613,7 +662,7 @@ def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
 
     # Single mode: 200 notice, no issuance form, no console_admin.js
     _set_mode(console_env.db_file, "single")
-    single_resp = client.get("/settings/invites", headers=console_env.admin_owner)
+    single_resp = client.get("/account/invites", headers=console_env.admin_owner)
     assert single_resp.status_code == 200
     assert 'id="invites-issue-section"' in single_resp.text
     assert 'id="invites-create-form"' not in single_resp.text
@@ -627,7 +676,7 @@ def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
 
     # Network mode, member_invites_enabled=False: member sees disabled notice + isolation; admin sees form
     _set_mode(console_env.db_file, "network")
-    mem_off = client.get("/settings/invites", headers=console_env.alice_owner)
+    mem_off = client.get("/account/invites", headers=console_env.alice_owner)
     assert mem_off.status_code == 200
     assert 'id="invites-create-form"' not in mem_off.text
     assert 'class="pref-notice"' in mem_off.text
@@ -641,7 +690,7 @@ def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
     assert mem_off_boot["member_invites_enabled"] is False
     assert mem_off_boot["can_issue_invites"] is False
 
-    adm_on = client.get("/settings/invites", headers=console_env.admin_owner)
+    adm_on = client.get("/account/invites", headers=console_env.admin_owner)
     assert adm_on.status_code == 200
     assert 'id="invites-create-form"' in adm_on.text
     assert '<select name="max_uses"' in adm_on.text
@@ -664,7 +713,7 @@ def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):
     finally:
         conn.close()
 
-    mem_on = client.get("/settings/invites", headers=console_env.alice_owner)
+    mem_on = client.get("/account/invites", headers=console_env.alice_owner)
     assert mem_on.status_code == 200
     assert 'id="invites-create-form"' in mem_on.text
     assert "/admin/" not in mem_on.text

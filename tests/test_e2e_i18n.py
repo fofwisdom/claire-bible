@@ -14,7 +14,7 @@ PAGES = {
     f"/@{USERNAME}/": {"en": "<title>Claire Bible — Home</title>", "ko": "<title>Claire Bible — 홈</title>"},
     # The view text of /syndication comes from the inline catalog of the page.
     "/syndication": {"en": '"synd.kb.refresh": "Refresh"', "ko": '"synd.kb.refresh": "새로고침"'},
-    "/settings/account": {"en": "Account information", "ko": "계정 정보"},
+    "/account/profile": {"en": "Account information", "ko": "계정 정보"},
 }
 
 
@@ -42,7 +42,7 @@ def test_each_web_surface_follows_the_interface_language_of_the_owner(client, se
     # 2. The browser header asks for Korean.
     _check_all(client, token, "ko", headers={"Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5"})
 
-    # 3. The owner stores Korean in /settings/account. A browser that asks for English still gets Korean, on each surface.
+    # 3. The owner stores Korean in /account/profile. A browser that asks for English still gets Korean, on each surface.
     saved = client.request("PATCH", "/api/me", session=token, json={"locale": "ko"})
     assert saved.status_code == 200 and saved.json()["locale"] == "ko"
     _check_all(client, token, "ko", headers={"Accept-Language": "en-US"})

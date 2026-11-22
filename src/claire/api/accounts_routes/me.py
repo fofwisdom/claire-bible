@@ -1,4 +1,4 @@
-"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``PATCH /api/me``의 ``locale``과 공개 라우트 ``POST /api/locale``은 인터페이스 언어를 정한다(I18N design Section 5.4). ``GET/HEAD /me``는 ``/settings/account``로 가는 호환용 302다(D4).
+"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``PATCH /api/me``의 ``locale``과 공개 라우트 ``POST /api/locale``은 인터페이스 언어를 정한다(I18N design Section 5.4). ``GET/HEAD /me``는 ``/account/profile``로 가는 호환용 302다(D4).
 
 비밀번호 변경은 단계 인증(`common.require_recent_auth`)과 현재 비밀번호를 함께 요구한다. 비밀번호가 아직 없으면(설정 중 저장 실패, §8.4 복구) 단계 인증만 요구한다.
 
@@ -46,7 +46,7 @@ ME_API_PATH = "/api/me"
 ME_PASSWORD_PATH = "/api/me/password"
 ME_USERNAME_PATH = "/api/me/username"
 LOCALE_API_PATH = "/api/locale"
-SETTINGS_ACCOUNT_PATH = "/settings/account"
+ACCOUNT_PROFILE_PATH = "/account/profile"
 
 
 def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
@@ -269,11 +269,11 @@ def perform_password_change(
 
 def routes(ctx: AccountsContext) -> list[Route]:
     async def me_page(request: Request) -> Response:
-        # D4: /me는 호환용 302다. 화면은 /settings/account가 그린다. 위치에 USERNAME을 넣지 않는다(S9).
+        # D4: /me는 호환용 302다. 화면은 /account/profile이 그린다. 위치에 USERNAME을 넣지 않는다(S9).
         return Response(
             status_code=302,
             headers={
-                "Location": SETTINGS_ACCOUNT_PATH,
+                "Location": ACCOUNT_PROFILE_PATH,
                 "Cache-Control": "no-store",
                 "Referrer-Policy": FORM_PAGE_REFERRER_POLICY,
             },

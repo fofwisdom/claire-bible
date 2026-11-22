@@ -1,4 +1,4 @@
-"""Federation state of one account and the console section bodies for ``/settings/federation`` and ``/admin/federation`` (Fedify sidecar design Sections 9.2 and 11, unit FP2-4).
+"""Federation state of one account and the console section bodies for ``/account/federation`` and ``/admin/federation`` (Fedify sidecar design Sections 9.2 and 11, unit FP2-4).
 
 This module does not import ``console``. Thus ``console`` (the settings section) and ``federation`` (the API routes and the admin section) can use it.
 
@@ -81,11 +81,11 @@ def domain_block_view(block: federation_store.DomainBlock) -> dict[str, Any]:
     return {"domain": block.domain, "note": block.note, "created_at": block.created_at}
 
 
-# --- /settings/federation -------------------------------------------------------
+# --- /account/federation -------------------------------------------------------
 
 
 def settings_federation_body(ctx: AccountsContext, *, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
-    """Return the body and the bootstrap data of ``/settings/federation``. The body is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5)."""
+    """Return the body and the bootstrap data of ``/account/federation``. The body is the same in the two server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5)."""
     conn = open_db(ctx)
     try:
         status = account_federation_status(ctx, conn, account.id)
@@ -102,7 +102,7 @@ def settings_federation_body(ctx: AccountsContext, *, account: accounts_store.Ac
     info_html = console_kv([{"label": label, "value": value, "attrs": {"data-federation-field": key}} for key, label, value in rows])
     status_card = console_card(
         escape(t("console.federation.actor.title")),
-        f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/settings/account">{escape(t("console.federation.actor.hint_link"))}</a></p>' + info_html,
+        f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/account/profile">{escape(t("console.federation.actor.hint_link"))}</a></p>' + info_html,
         id="settings-federation-status",
         icon="globe",
         aria_label=t("console.federation.actor.label"),

@@ -731,7 +731,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
     ("HEAD", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
     ("POST", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
-    # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2). The old path ``/explore/accounts`` is removed.
+    # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2). The old path ``/accounts`` answers with a 308 redirect; the older path ``/explore/accounts`` is removed.
+    ("GET", "/directory"): _system("public", "none"),
+    ("HEAD", "/directory"): _system("public", "none"),
     ("GET", "/accounts"): _system("public", "none"),
     ("HEAD", "/accounts"): _system("public", "none"),
     ("GET", "/api/invites"): _any("owner", "none", modes=NETWORK_ONLY),
@@ -746,11 +748,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/me/password"): _any("owner", "none"),
     ("POST", "/api/me/username"): _any("owner", "none"),
     # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
-    ("GET", "/api/me/keys"): _any("owner", "none"),
-    ("HEAD", "/api/me/keys"): _any("owner", "none"),
-    ("PUT", "/api/me/keys"): _any("owner", "none"),
-    ("DELETE", "/api/me/keys"): _any("owner", "none"),
-    ("POST", "/api/me/keys/verify"): _any("owner", "none"),
+    ("GET", "/api/me/provider-keys"): _any("owner", "none"),
+    ("HEAD", "/api/me/provider-keys"): _any("owner", "none"),
+    ("PUT", "/api/me/provider-keys"): _any("owner", "none"),
+    ("DELETE", "/api/me/provider-keys"): _any("owner", "none"),
+    ("POST", "/api/me/provider-keys/verify"): _any("owner", "none"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).
     ("GET", "/api/me/telegram"): _any("owner", "none"),
     ("HEAD", "/api/me/telegram"): _any("owner", "none"),
@@ -836,8 +838,37 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/admin/storage/test"): _system("admin", "none"),
     ("GET", "/admin/mcp"): _system("admin", "none"),
     ("HEAD", "/admin/mcp"): _system("admin", "none"),
+    ("GET", "/admin/webmcp"): _system("admin", "none"),
+    ("HEAD", "/admin/webmcp"): _system("admin", "none"),
     ("GET", "/api/admin/mcp/telemetry"): _system("admin", "none"),
     ("HEAD", "/api/admin/mcp/telemetry"): _system("admin", "none"),
+    # The account area: the pages of the account of the caller. The old /settings/* paths of these pages below answer with a 308 redirect.
+    ("GET", "/account"): _system("owner", "none"),
+    ("HEAD", "/account"): _system("owner", "none"),
+    ("GET", "/account/profile"): _system("owner", "none"),
+    ("HEAD", "/account/profile"): _system("owner", "none"),
+    ("GET", "/account/security"): _system("owner", "none"),
+    ("HEAD", "/account/security"): _system("owner", "none"),
+    ("GET", "/account/invites"): _system("owner", "none"),
+    ("HEAD", "/account/invites"): _system("owner", "none"),
+    ("GET", "/account/federation"): _system("owner", "none"),
+    ("HEAD", "/account/federation"): _system("owner", "none"),
+    ("GET", "/account/telegram"): _system("owner", "none"),
+    ("HEAD", "/account/telegram"): _system("owner", "none"),
+    ("GET", "/account/notifications"): _system("owner", "none"),
+    ("HEAD", "/account/notifications"): _system("owner", "none"),
+    ("GET", "/account/bundles"): _system("owner", "none"),
+    ("HEAD", "/account/bundles"): _system("owner", "none"),
+    ("GET", "/account/backups"): _system("owner", "none"),
+    ("HEAD", "/account/backups"): _system("owner", "none"),
+    ("GET", "/account/providers"): _system("owner", "none"),
+    ("HEAD", "/account/providers"): _system("owner", "none"),
+    ("GET", "/account/mcp"): _system("owner", "none"),
+    ("HEAD", "/account/mcp"): _system("owner", "none"),
+    ("GET", "/account/webmcp"): _system("owner", "none"),
+    ("HEAD", "/account/webmcp"): _system("owner", "none"),
+    ("GET", "/account/tokens"): _system("owner", "none"),
+    ("HEAD", "/account/tokens"): _system("owner", "none"),
     ("GET", "/settings"): _system("owner", "none"),
     ("HEAD", "/settings"): _system("owner", "none"),
     ("GET", "/settings/account"): _system("owner", "none"),
@@ -2494,7 +2525,7 @@ class AuthenticationMiddleware:
                     if b"deprecation" not in names:
                         headers.append((b"deprecation", b"true"))
                     if b"link" not in names:
-                        headers.append((b"link", b'</settings/mcp>; rel="successor-version"'))
+                        headers.append((b"link", b'</account/mcp>; rel="successor-version"'))
                     message = {**message, "headers": headers}
                 await send(message)
 

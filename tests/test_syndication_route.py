@@ -131,10 +131,10 @@ LEGACY_TAB_TABLE = [
     ("rules", "/settings/rules", "/settings/rules"),
     ("outbound", "/settings/outbound", "/settings/outbound"),
     ("opml", "/settings/opml", "/settings/opml"),
-    ("mcp", "/settings/mcp", "/settings/mcp"),
-    ("webmcp", "/settings/webmcp", "/settings/webmcp"),
-    ("idp", "/admin/idp", "/settings/account"),
-    ("userdb", "/admin/accounts", "/settings/account"),
+    ("mcp", "/account/mcp", "/account/mcp"),
+    ("webmcp", "/account/webmcp", "/account/webmcp"),
+    ("idp", "/admin/idp", "/account/profile"),
+    ("userdb", "/admin/accounts", "/account/profile"),
 ]
 
 

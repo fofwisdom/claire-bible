@@ -136,7 +136,7 @@ _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
 
-# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 지식 베이스별 화면이라 ?kb=를 넘긴다.
+# D4: 옛 /syndication/preferences?tab= → /settings/*, /account/* 대응표 (설계 §2.2). 지식 베이스별 화면이라 ?kb=를 넘긴다.
 _LEGACY_PREFS_SETTINGS_TABS = {
     "reader": "/settings/reader",
     "accounts": "/settings/connections",
@@ -145,10 +145,10 @@ _LEGACY_PREFS_SETTINGS_TABS = {
     "rules": "/settings/rules",
     "outbound": "/settings/outbound",
     "opml": "/settings/opml",
-    "mcp": "/settings/mcp",
-    "webmcp": "/settings/webmcp",
+    "mcp": "/account/mcp",
+    "webmcp": "/account/webmcp",
 }
-# 관리자 대상 탭. 관리자가 아니면 /settings/account로 보낸다.
+# 관리자 대상 탭. 관리자가 아니면 /account/profile로 보낸다.
 _LEGACY_PREFS_ACCOUNT_TABS = {
     "idp": "/admin/idp",
     "userdb": "/admin/accounts",
@@ -1013,8 +1013,13 @@ def create_app(
             nav_auth = f'<a href="/login">{html.escape(_t("directory.login"))}</a>'
         return viewer_id, viewer_username, nav_auth
 
+    async def legacy_accounts_directory_redirect(request: Request) -> Response:
+        """Redirect the old path ``/accounts`` of the public account directory to ``/directory`` with status 308. The query stays as it is."""
+        query = request.url.query
+        return Response(status_code=308, headers={"Location": f"/directory?{query}" if query else "/directory"})
+
     async def public_directory_route(request: Request, *, root_page: bool = False) -> Response:
-        """``GET /accounts``: the public account directory, in both server modes (HTML or JSON with the collection contract). With ``root_page``, the root page of network mode: the themes, the recent activity across servers, and the first accounts."""
+        """``GET /directory``: the public account directory, in both server modes (HTML or JSON with the collection contract). With ``root_page``, the root page of network mode: the themes, the recent activity across servers, and the first accounts."""
         query = collections.parse_collection_query(request.query_params)
         principal = request_principal(request)
 
@@ -1036,7 +1041,7 @@ def create_app(
 
         total_items, accounts = await asyncio.to_thread(_fetch_data)
         base_origin = _public_origin(request).rstrip("/")
-        collection_url = f"{base_origin}/accounts"
+        collection_url = f"{base_origin}/directory"
 
         account_id, username, nav_auth = await asyncio.to_thread(_directory_viewer_nav, request, principal)
 
@@ -1089,7 +1094,7 @@ def create_app(
                 recent = await asyncio.to_thread(_recent_activity, base_origin)
                 recent_json = json.dumps({"recent": recent}, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
                 recent_host = f'<script type="application/json" id="public-home-recent-data">{recent_json}</script><div id="public-home-recent"></div>'
-                accounts_heading = f'<h2>{html.escape(_t("themes.accounts_title"))} <a href="/accounts" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
+                accounts_heading = f'<h2>{html.escape(_t("themes.accounts_title"))} <a href="/directory" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
                 if theme_views:
                     content_html = (
                         f'<h2>{html.escape(_t("themes.section_title"))} <a href="/themes" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
@@ -1105,10 +1110,10 @@ def create_app(
             if query.page:
                 if len(accounts) == query.limit:
                     last_id = ids.format_public_id(accounts[-1].public_id)
-                    pagination_parts.append(f'<a href="/accounts?page=true&max_id={last_id}">{html.escape(_t("directory.next"))} &rarr;</a>')
+                    pagination_parts.append(f'<a href="/directory?page=true&max_id={last_id}">{html.escape(_t("directory.next"))} &rarr;</a>')
                 if query.max_id is not None and accounts:
                     first_id = ids.format_public_id(accounts[0].public_id)
-                    pagination_parts.insert(0, f'<a href="/accounts?page=true&min_id={first_id}">&larr; {html.escape(_t("directory.prev"))}</a>')
+                    pagination_parts.insert(0, f'<a href="/directory?page=true&min_id={first_id}">&larr; {html.escape(_t("directory.prev"))}</a>')
             pagination_html = f'<div class="pagination">{"".join(pagination_parts)}</div>' if pagination_parts else ""
 
             rendered = string.Template(template_text).substitute(
@@ -3464,9 +3469,9 @@ def create_app(
 
     _token_deprecation_headers = {
         "Deprecation": "true",
-        "Link": '</settings/mcp>; rel="successor-version"',
+        "Link": '</account/mcp>; rel="successor-version"',
     }
-    _token_deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/settings/mcp)."
+    _token_deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/account/mcp)."
 
     async def tokens_list_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -3517,7 +3522,7 @@ def create_app(
             return JSONResponse(
                 {
                     "error": "manual_tokens_retired",
-                    "detail": "Manual persistent tokens are retired. Use OAuth 2.1 (/settings/mcp).",
+                    "detail": "Manual persistent tokens are retired. Use OAuth 2.1 (/account/mcp).",
                 },
                 status_code=410,
                 headers=_token_deprecation_headers,
@@ -4299,7 +4304,7 @@ def create_app(
             target = _LEGACY_PREFS_SETTINGS_TABS[tab]
         elif tab in _LEGACY_PREFS_ACCOUNT_TABS:
             # 관리자 화면은 테마와 무관하다. ?kb=를 넘기지 않는다.
-            target = _LEGACY_PREFS_ACCOUNT_TABS[tab] if caller_is_admin else "/settings/account"
+            target = _LEGACY_PREFS_ACCOUNT_TABS[tab] if caller_is_admin else "/account/profile"
             theme_query = None
         else:
             raise HTTPException(status_code=404, detail="unknown preferences tab")
@@ -7332,7 +7337,8 @@ def create_app(
         Route("/document/regenerate", do_regenerate, methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
-        Route("/accounts", public_directory_route, methods=["GET", "HEAD"]),
+        Route("/directory", public_directory_route, methods=["GET", "HEAD"]),
+        Route("/accounts", legacy_accounts_directory_redirect, methods=["GET", "HEAD"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),

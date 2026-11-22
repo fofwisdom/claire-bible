@@ -348,7 +348,7 @@ def render_template(
                 synd_href=synd_href,
                 moderation_href="/moderation",
                 moderation_current=is_moderation_area,
-                console_href="/admin" if is_admin_area else "/settings",
+                console_href="/admin" if is_admin_area else "/account",
                 console_icon="wrench" if is_admin_area else "settings",
                 console_current=not is_moderation_area,
                 show_logout=True,
