@@ -334,6 +334,23 @@ def test_e2e_user_home_proposal_b_mobile_tabs_note_compose_and_private_visitor(t
                 mob_page.locator("#botnav-home").click()
                 mob_page.locator("#home-mobile-tabs").wait_for(state="visible", timeout=10000)
                 mob_page.locator("#home-ap-timeline").wait_for(state="visible", timeout=10000)
+                mob_page.locator("#home-flow-publish").wait_for(state="visible", timeout=10000)
+                flow_metrics = mob_page.evaluate(
+                    """(() => {
+                      const nav = document.getElementById('home-flow');
+                      const ids = ['home-flow-collect', 'home-flow-ingest', 'home-flow-publish'];
+                      const rects = ids.map(id => {
+                        const r = document.getElementById(id).getBoundingClientRect();
+                        return { x: r.x, y: r.y, width: r.width, height: r.height };
+                      });
+                      return { overflow: nav.scrollWidth <= nav.clientWidth, rects };
+                    })()"""
+                )
+                b_collect, b_ingest, b_publish = flow_metrics["rects"]
+                assert flow_metrics["overflow"] is True
+                assert b_collect["width"] > 0 and b_ingest["width"] > 0 and b_publish["width"] > 0
+                assert abs(b_collect["y"] - b_ingest["y"]) <= 2 and abs(b_ingest["y"] - b_publish["y"]) <= 2
+                assert b_collect["x"] < b_ingest["x"] < b_publish["x"]
                 assert mob_page.locator("#home-ap-timeline").is_visible()
                 assert mob_page.locator("#home-facts").is_hidden()
                 mob_page.locator("#home-tab-kb").click()
