@@ -15,7 +15,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterable
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 from ..core import ids
 from ..store import client_db
@@ -235,7 +235,11 @@ def agent_extraction_done(db_file: Path | str, *, kb_id: int, document_id: str, 
     username = None if row is None else row[0]
     # The home of the account (ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md): "/" in single mode, "/@{username}/" in network mode.
     home = f"/@{username}/" if mode_row is not None and str(mode_row[0]) == "network" and username else "/"
-    emit(db_file, kind="agent_extraction_done", account_ids=[owner], target=f"{home}?doc={quote(str(document_id), safe='')}", params={"agent": agent or "agent"}, group="extracted")
+    # The entry address is the permalink of the document (PERMALINK_UNIFICATION_DESIGN.md U5). Without an address token (the database cannot be written), it is the home of the account.
+    from ..store import permalinks
+
+    token = permalinks.ensure_document_token(db_file, str(document_id), int(kb_id))
+    emit(db_file, kind="agent_extraction_done", account_ids=[owner], target=home if token is None else permalinks.permalink_path(token), params={"agent": agent or "agent"}, group="extracted")
 
 
 @_event

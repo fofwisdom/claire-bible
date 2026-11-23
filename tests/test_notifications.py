@@ -411,7 +411,9 @@ def test_agent_and_activitypub_events(world):
     got = {n.kind: n for n in _rows(world, "ben")}
     assert set(got) == {"agent_source_staged", "agent_extraction_done", "agent_write_grant", "ap_follower", "ap_follow_answered", "ap_mention", "ap_quote_request", "ap_quote_answered", "ap_private_message", "kf_offer_answered", "kf_grant"}
     assert (got["agent_source_staged"].count, got["agent_source_staged"].target_path) == (2, "/account/mcp")
-    assert got["agent_extraction_done"].target_path == "/@ben/?doc=doc%201"
+    # The entry address of an extracted document is its permalink.
+    extraction_target = got["agent_extraction_done"].target_path
+    assert extraction_target.startswith("/silvercord/") and len(extraction_target) == len("/silvercord/") + 16
     assert got["ap_follower"].params["actor"] == "alice@social.example" and got["ap_follower"].target_path == "/account/federation"
     assert got["ap_follow_answered"].params["variant"] == "rejected" and got["ap_mention"].params["actor"] == "bob@social.example"
     assert got["ap_private_message"].params["actor"] == "social.example"  # a numeric path part is not a name

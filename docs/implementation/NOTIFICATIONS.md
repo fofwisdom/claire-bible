@@ -74,7 +74,7 @@ Not in this function: the Telegram messages of `src/claire/ops/notify.py` and `s
 | `mutual_requested` | request | `mutual_collaborations_route` | The other account | `/settings/kb?tab=mem` | — |
 | `mutual_accepted` | answer | `mutual_collaboration_route` (`PUT`) | The requester | `/settings/kb?tab=mem` | — |
 | `agent_source_staged` | request | `ingest.pipeline.ingest` when the result is a staged source | The owner of the personal knowledge base | `/account/mcp` | account |
-| `agent_extraction_done` | answer | `submit_client_extraction`, after the commit and the hooks | The owner of the personal knowledge base | The home of the account with `?doc=<id>` | account |
+| `agent_extraction_done` | answer | `submit_client_extraction`, after the commit and the hooks | The owner of the personal knowledge base | The permalink of the document (`/silvercord/{token}`, [`PERMALINKS.md`](PERMALINKS.md)); the home of the account when the database cannot give a token | account |
 | `agent_write_grant` | notice | `oauth._maybe_notify_write_grant` (redirect flow and device flow) | The account | `/account/mcp` | — |
 | `ap_follower` | notice | Inbox event `Follow`, when the follower row is new | The followed account | `/account/federation` | account |
 | `ap_follow_answered` | answer | `_follow_response`, when the state changed | The account of the follow | `/syndication?stage=collect` | — |

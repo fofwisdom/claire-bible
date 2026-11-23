@@ -204,6 +204,22 @@ def ensure_note_token(db_file: str | os.PathLike[str], public_id: int, account_i
         conn.close()
 
 
+def ensure_document_token(db_file: str | os.PathLike[str], document_id: str, kb_id: int) -> str | None:
+    """The address token of a document, with a short connection of its own to ``claire.db``, for a caller that has no write connection. None when the database cannot be written."""
+    try:
+        conn = sqlite3.connect(str(db_file), timeout=10)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        token = ensure_document(conn, document_id, kb_id)
+        conn.commit()
+        return token
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+
 def resolve(conn: sqlite3.Connection, token: str) -> Permalink | None:
     """The live row of a token. An alias gives the row of its target, with ``alias`` set. None for an unknown token."""
     if not plausible_token(token):
