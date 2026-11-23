@@ -66,7 +66,7 @@ FRONTMATTER_TOOLS_RE = re.compile(r"^(tools|allowed-tools):\s*\[([^\]]+)\]\s*$",
 FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$")
 
 EXTRACTOR_TOOLS: tuple[str, ...] = ("extract_spec", "extract_queue", "extract_claim", "extract_read", "extract_submit", "kb_list", "entity_search", "graph_neighbors")
-INGEST_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "extract_queue", "kb_list")
+INGEST_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "extract_queue", "kb_list", "doc_list")
 QUERY_SKILL_TOOLS: tuple[str, ...] = ("kb_list", "kb_overview", "entity_search", "entity_get", "graph_neighbors", "graph_path", "graph_context", "doc_list", "doc_get")
 CLAUDE_FORBIDDEN_FRONTMATTER_KEYS: frozenset[str] = frozenset({"subagent", "mainAgent", "hooks", "mcpServers", "permissionMode", "initialPrompt"})
 CLAUDE_HOOKS_PATH = "hooks/hooks.json"

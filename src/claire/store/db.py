@@ -7061,6 +7061,7 @@ def remove_tombstones(
     doc_id: str | None = None,
     url: str | None = None,
     canonical_url: str | None = None,
+    content_hash: str | None = None,
     pattern: str | None = None,
     kb_id: int | None = None,
 ) -> dict[str, Any]:
@@ -7088,6 +7089,9 @@ def remove_tombstones(
         _add_url_clause(url)
     if canonical_url:
         _add_url_clause(canonical_url)
+    if content_hash:
+        conditions.append("content_hash = ?")
+        params.append(content_hash)
     if pattern:
         p_str = f"%{pattern}%"
         conditions.append("(id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR reason LIKE ?)")

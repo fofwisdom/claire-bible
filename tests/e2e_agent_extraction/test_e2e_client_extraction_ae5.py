@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -470,6 +471,14 @@ def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     _, old_search = mcp_call(env.client, write_tok, "entity_search", {"query": "LegacyNode", "kb": "personal"})
     assert _extract_mcp_json(old_search)["exact_matches"] == []
 
+    # Old extraction rows are purged atomically so only the latest regenerated extraction remains.
+    conn_check = sqlite3.connect(env.db_path)
+    try:
+        ext_count = conn_check.execute("SELECT COUNT(*) FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, env.alice.personal_kb_id)).fetchone()[0]
+        assert ext_count == 1
+    finally:
+        conn_check.close()
+
     # 3. HTTP parity: POST /api/client-extraction/stage (document_id) and POST .../claim (force=True)
     r_http_stage = env.client.post("/api/client-extraction/stage", json={"document_id": doc_id}, headers=auth_hdr)
     assert r_http_stage.status_code == 200, r_http_stage.text
@@ -486,3 +495,23 @@ def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     r_http_claim = env.client.post(f"/api/client-extraction/sources/{doc_id}/claim", json={"force": True}, headers=auth_hdr)
     assert r_http_claim.status_code == 200, r_http_claim.text
     assert r_http_claim.json()["extraction_status"] == "pending" and r_http_claim.json()["claim_token"]
+
+    # 4. Tombstone auto-lift via MCP extract_stage(..., force=True) after purge.
+    conn3 = dbm.connect_existing(env.db_path)
+    try:
+        dbm.purge_document_cascade(conn3, data_dir=Path(env.settings.data_dir), target_ids=[doc_id], tombstone=True, kb_id=env.alice.personal_kb_id, heal=False, vacuum=False)
+    finally:
+        conn3.close()
+    _, blocked_tomb = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "title": "Reingest E2E Note", "full_content": True})
+    assert "tombstoned" in _extract_mcp_json(blocked_tomb)["message"]
+
+    _, lifted_tomb = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "title": "Reingest E2E Note", "full_content": True, "force": True})
+    lifted_data = _extract_mcp_json(lifted_tomb)
+    assert lifted_data["ok"] is True and lifted_data["extraction_status"] == "pending"
+    new_doc_id = lifted_data["document_id"]
+    _, c4_res = mcp_call(env.client, write_tok, "extract_claim", {"document_id": new_doc_id})
+    c4 = _extract_mcp_json(c4_res)
+    _, r4_res = mcp_call(env.client, write_tok, "extract_read", {"document_id": new_doc_id, "claim_token": c4["claim_token"]})
+    assert "deterministic re-ingestion and regeneration" in _extract_mcp_json(r4_res)["content"]
+    _, sub4 = mcp_call(env.client, write_tok, "extract_submit", {"document_id": new_doc_id, "claim_token": c4["claim_token"], "expected_content_hash": lifted_data["content_hash"], "payload": payload_v3, "dry_run": False})
+    assert _extract_mcp_json(sub4)["committed"] is True

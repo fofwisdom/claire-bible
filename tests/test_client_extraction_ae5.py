@@ -974,3 +974,104 @@ def test_force_reingest_restage_and_force_claim_reextraction(tmp_path: Path) -> 
         assert exc_claim_no_raw.value.code == "raw_text_missing"
     finally:
         conn3.close()
+
+
+def test_force_reingest_lifts_tombstones_refetches_in_place_and_purges_old_extractions(tmp_path: Path) -> None:
+    world = _setup_world(tmp_path)
+    url = "https://example.com/original-article"
+    redirected_url = "https://example.com/canonical-redirect"
+    first_doc = Document(id="tmp_first", url=url, canonical_url=url, title="Original Title", source_type="web", raw_text="Original body discussing GraphRAG and provisional types.", fetched_at=1000.0)
+    redirected_doc = Document(id="tmp_redir", url=redirected_url, canonical_url=redirected_url, title="Redirected Title", source_type="web", raw_text="Completely rewritten redirected body about Rust networking.", fetched_at=2000.0)
+
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, settings=world.settings, fetch_fn=lambda _u, **_kw: first_doc)
+        doc_id = staged["document_id"]
+        claim1 = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+    finally:
+        conn.close()
+
+    # Commit first extraction with a provisional proposed_type so a proposal row is logged.
+    res1 = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_id,
+        claim_token=claim1["claim_token"],
+        expected_content_hash=claim1["content_hash"],
+        payload=_valid_payload(
+            model="gemini-3.8-flash",
+            entities=[
+                {"name": "GraphRAG", "type": "Framework", "proposed_type": "graph_framework", "aliases": [], "observations": ["First pass"]},
+                {"name": "OldConcept", "type": "Concept", "aliases": [], "observations": ["Stale concept"]},
+            ],
+            relations=[{"source": "GraphRAG", "target": "OldConcept", "type": "uses", "fact": "GraphRAG uses OldConcept"}],
+        ),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res1["ok"] is True and res1["proposals_logged"] == 1
+
+    conn2 = dbm.connect_existing(world.settings.db_file)
+    try:
+        assert conn2.execute("SELECT COUNT(*) FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, world.alice_kb.id)).fetchone()[0] == 1
+        assert conn2.execute("SELECT COUNT(*) FROM proposals WHERE document_id=? AND kb_id=?", (doc_id, world.alice_kb.id)).fetchone()[0] == 1
+
+        # 1. Refetch in-place even when canonical URL and content both changed.
+        refetched = ce.restage_existing_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, refetch=True, settings=world.settings, fetch_fn=lambda _u, **_kw: redirected_doc)
+        assert refetched["document_id"] == doc_id and refetched["title"] == "Redirected Title" and refetched["extraction_status"] == "pending"
+        assert conn2.execute("SELECT COUNT(*) FROM documents WHERE kb_id=?", (world.alice_kb.id,)).fetchone()[0] == 1
+        claim2 = ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+    finally:
+        conn2.close()
+
+    # 2. Second commit purges old extractions and stale proposals atomically.
+    res2 = ce.submit_client_extraction(
+        world.settings.db_file,
+        kb_id=world.alice_kb.id,
+        account_id=world.alice.id,
+        document_id=doc_id,
+        claim_token=claim2["claim_token"],
+        expected_content_hash=claim2["content_hash"],
+        payload=_valid_payload(
+            model="claude-sonnet-4-6",
+            summary="Rust 네트워킹 아키텍처로 전면 재작성된 문서를 반영한다.",
+            entities=[
+                {"name": "Rust", "type": "Tool", "aliases": [], "observations": ["Systems language"]},
+                {"name": "Smoltcp", "type": "Framework", "aliases": [], "observations": ["User-space TCP/IP"]},
+            ],
+            relations=[{"source": "Smoltcp", "target": "Rust", "type": "uses", "fact": "Smoltcp uses Rust"}],
+        ),
+        kb_settings=world.settings,
+        root_settings=world.settings,
+    )
+    assert res2["ok"] is True
+
+    conn3 = dbm.connect_existing(world.settings.db_file)
+    try:
+        ext_rows = conn3.execute("SELECT model FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, world.alice_kb.id)).fetchall()
+        assert [r["model"] for r in ext_rows] == ["claude-sonnet-4-6"]
+        assert conn3.execute("SELECT COUNT(*) FROM proposals WHERE document_id=? AND kb_id=?", (doc_id, world.alice_kb.id)).fetchone()[0] == 0
+
+        # 3. Purge with tombstone=True, verify force=False is blocked, and verify force=True auto-lifts tombstone.
+        dbm.purge_document_cascade(conn3, data_dir=Path(world.settings.data_dir), target_ids=[doc_id], tombstone=True, kb_id=world.alice_kb.id, heal=False, vacuum=False)
+        with pytest.raises(ce.ClientExtractionError) as exc_tomb_url:
+            ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, force=False, settings=world.settings, fetch_fn=lambda _u, **_kw: first_doc)
+        assert "tombstoned" in exc_tomb_url.value.message
+
+        unstaged_url = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, force=True, settings=world.settings, fetch_fn=lambda _u, **_kw: first_doc)
+        assert unstaged_url["ok"] is True and unstaged_url["extraction_status"] == "pending"
+
+        # Also test content_hash-only tombstone lifting for text notes.
+        note_text = "Unique text note for tombstone hash lift check."
+        note_doc = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=note_text, title="Hash Note", settings=world.settings)
+        note_id = note_doc["document_id"]
+        dbm.purge_document_cascade(conn3, data_dir=Path(world.settings.data_dir), target_ids=[note_id], tombstone=True, kb_id=world.alice_kb.id, heal=False, vacuum=False)
+        with pytest.raises(ce.ClientExtractionError) as exc_tomb_text:
+            ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=note_text, title="Hash Note", force=False, settings=world.settings)
+        assert "tombstoned" in exc_tomb_text.value.message
+
+        unstaged_note = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=note_text, title="Hash Note", force=True, settings=world.settings)
+        assert unstaged_note["ok"] is True and unstaged_note["extraction_status"] == "pending"
+    finally:
+        conn3.close()

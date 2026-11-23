@@ -676,6 +676,9 @@ def _ingest_core(
             if focus and focus.strip():
                 doc.meta["focus"] = focus.strip()
 
+            if stage_only and force:
+                dbm.remove_tombstones(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash, kb_id=tid)
+
             if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash, kb_id=tid):
                 report.error = "tombstoned: document was previously purged"
                 dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
@@ -684,6 +687,33 @@ def _ingest_core(
             if doc.source_type == "pdf" and doc.canonical_url:
                 bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url, kb_id=tid)
                 if bundled_id:
+                    if stage_only and force:
+                        if not _store_doc_attachments_or_report(conn, inbox_id, doc, bundled_id, data_dir, report, kb_id=tid):
+                            return report
+                        dbm.update_document_content(
+                            conn, bundled_id, title=doc.title, raw_text=doc.raw_text,
+                            content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+                            source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid,
+                            extraction_status="pending",
+                            raw_chars=raw_chars_val,
+                            clear_claim=True,
+                        )
+                        if data_dir is not None:
+                            try:
+                                from ..store.raw import save_artifact
+
+                                save_artifact(data_dir, bundled_id, doc.raw_text)
+                            except Exception:  # noqa: BLE001
+                                pass
+                        _download_doc_images(conn, doc, data_dir, kb_id=tid)
+                        report.document_id = bundled_id
+                        report.updated = True
+                        report.duplicate = False
+                        report.staged = True
+                        report.extraction_status = "pending"
+                        report.message = STAGED_INGEST_MESSAGE
+                        dbm.update_inbox(conn, inbox_id, status="staged", document_id=bundled_id, kb_id=tid)
+                        return report
                     report.document_id = bundled_id
                     report.duplicate = True
                     dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id, kb_id=tid)

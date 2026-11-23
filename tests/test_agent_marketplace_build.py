@@ -97,7 +97,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
 
     ingest_fm = builder._frontmatter(claude_ingest)
     assert ingest_fm["argument-hint"] == '"[url | file path | note | document_id]"'
-    assert ingest_fm["allowed-tools"] == "[mcp__claire__extract_stage, mcp__claire__extract_queue, mcp__claire__kb_list, Skill(claire:extract-runner)]"
+    assert ingest_fm["allowed-tools"] == "[mcp__claire__extract_stage, mcp__claire__extract_queue, mcp__claire__kb_list, mcp__claire__doc_list, Skill(claire:extract-runner)]"
 
     query_fm = builder._frontmatter((claude_dir / "skills" / "query" / "SKILL.md").read_text(encoding="utf-8"))
     assert "extract_read" not in query_fm["allowed-tools"]
@@ -163,7 +163,9 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_ingest = (ag_dir / "skills" / "claire-ingest" / "SKILL.md").read_text(encoding="utf-8")
     assert "claire-ingest" in ag_ingest
     assert "extract_queue(" in ag_ingest
+    assert "doc_list(" in ag_ingest
     assert "force=True" in ag_ingest
+    assert "No Manual Purge" in ag_ingest
     assert "force=True" in ag_extractor
     assert "claire-query" in (ag_dir / "skills" / "claire-query" / "SKILL.md").read_text(encoding="utf-8")
 

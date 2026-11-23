@@ -24,10 +24,10 @@ from ..extract.frame import format_entity_frame
 from ..extract.prompts import DEFAULT_EXTRACTION_TEMPLATE, PROMPT_VERSION, build_extraction_prompt_bundle, clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, render_detail_instructions_adoc, sanitize_rendered_detail
 from ..extract.provider import UnavailableProvider, get_provider
 from ..extract.resolver import _call_provider_embed, is_type_compatible, passes_hard_invariants, resolve_or_create, sync_entity_space_embeddings
-from ..ingest.fetchers.base import FetchError
+from ..ingest.fetchers.base import FetchError, bound_fetch_settings
 from ..ingest.fetchers.textfile import MAX_STAGE_FILE_BYTES, fetch_file_bytes
 from ..ingest.normalize import content_hash as compute_content_hash
-from ..ingest.pipeline import _auto_contribute_document, _match_document_theme, _start_contribution_revisions, stage_raw
+from ..ingest.pipeline import _auto_contribute_document, _download_doc_images, _fetch_settings_for_staging, _match_document_theme, _start_contribution_revisions, _store_required_doc_attachments, preserve_presentation_history, stage_raw
 from ..ingest.router import fetch as default_fetch
 from ..ontology.base import Entity, Relation, new_id, normalize_name
 from ..core.ports import get_document_renderer
@@ -570,20 +570,87 @@ def restage_existing_source(
         target_url = str(row["url"] or row["canonical_url"] or "").strip()
         if not target_url.startswith(("http://", "https://")):
             raise ClientExtractionError(400, "refetch_url_missing", f"Document {doc_id!r} has no http(s) URL to refetch; omit refetch or set refetch=False to regenerate from stored raw_text.")
-        return stage_source(
+        dbm.remove_tombstones(
             conn,
-            kb_id=kb_id,
-            account_id=account_id,
-            url_or_text=target_url,
-            title=title,
-            source_type=source_type,
-            full_content=full_content,
-            mode=mode,
-            force=True,
-            settings=settings,
-            data_dir=data_dir,
-            fetch_fn=fetch_fn,
+            doc_id=doc_id,
+            url=target_url,
+            canonical_url=str(row["canonical_url"] or "") or None,
+            content_hash=str(row["content_hash"] or "") or None,
+            kb_id=int(kb_id),
         )
+        fetcher = fetch_fn or default_fetch
+        fetch_settings_scope = _fetch_settings_for_staging(settings)
+        try:
+            with bound_fetch_settings(fetch_settings_scope):
+                try:
+                    doc = fetcher(target_url, full_content=bool(full_content))
+                except TypeError:
+                    doc = fetcher(target_url)
+        except Exception as exc:  # noqa: BLE001
+            raise ClientExtractionError(400, "stage_failed", str(exc)) from exc
+
+        try:
+            old_meta = json.loads(row["meta"] or "{}") if row["meta"] else {}
+        except Exception:
+            old_meta = {}
+        preserve_presentation_history(old_meta, doc)
+        if not doc.content_hash:
+            doc.content_hash = compute_content_hash(doc.raw_text or doc.title or "")
+        if title is not None and str(title).strip():
+            doc.title = str(title).strip()
+        if source_type is not None and str(source_type).strip():
+            doc.source_type = str(source_type).strip()
+        if doc.meta is None:
+            doc.meta = {}
+        if full_content:
+            doc.meta["full_content"] = True
+        doc.id = doc_id
+        try:
+            _store_required_doc_attachments(doc, data_dir)
+        except Exception as exc:  # noqa: BLE001
+            raise ClientExtractionError(400, "stage_failed", f"attachment_store_failed: {type(exc).__name__}: {exc}") from exc
+        raw_chars_val = len(doc.raw_text or "")
+        dbm.update_document_content(
+            conn,
+            doc_id,
+            title=doc.title,
+            raw_text=doc.raw_text,
+            content_hash=doc.content_hash,
+            fetched_at=doc.fetched_at,
+            source_type=doc.source_type,
+            partial=doc.partial,
+            meta=doc.meta,
+            kb_id=int(kb_id),
+            extraction_status="pending",
+            raw_chars=raw_chars_val,
+            clear_claim=True,
+        )
+        if data_dir is not None:
+            try:
+                from ..store.raw import save_artifact
+
+                save_artifact(data_dir, doc_id, doc.raw_text)
+            except Exception:  # noqa: BLE001
+                pass
+        _download_doc_images(conn, doc, data_dir, kb_id=int(kb_id))
+        updated_row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id)) or row
+        return {
+            "ok": True,
+            "document_id": doc_id,
+            "kb_id": int(kb_id),
+            "title": str(updated_row["title"]) if updated_row["title"] else doc.title,
+            "source_type": str(updated_row["source_type"]) if updated_row["source_type"] else doc.source_type,
+            "extraction_status": "pending",
+            "extraction_mode": effective_mode,
+            "account_extraction_mode": account_mode,
+            "staged": True,
+            "duplicate": False,
+            "updated": True,
+            "content_hash": str(updated_row["content_hash"] or doc.content_hash),
+            "raw_chars": int(updated_row["raw_chars"]) if updated_row["raw_chars"] is not None else raw_chars_val,
+            "full_content": True,
+            "message": "Raw content refreshed; queued for Agent Client re-extraction",
+        }
 
     raw_text = str(row["raw_text"] or "")
     if not raw_text.strip():
@@ -1414,6 +1481,8 @@ def submit_client_extraction(
             raise race_err or ClientExtractionError(409, "claim_conflict", "Document claim state changed before commit.")
 
         dbm.rollback_document_graph_contributions(atomic_conn, [doc_id], prune_orphans=True, kb_id=int(kb_id))
+        atomic_conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, int(kb_id)))
+        atomic_conn.execute("DELETE FROM proposals WHERE document_id=? AND kb_id=?", (doc_id, int(kb_id)))
 
         referenced_for_upsert = dict(referenced_kb_entities)
         resolved_by_norm: dict[str, Entity] = {}
@@ -1577,6 +1646,8 @@ def submit_client_extraction(
             meta_holder = SimpleNamespace(meta={})
             attach_resolution_meta(meta_holder, res_decisions)
             meta_patch.update(meta_holder.meta)
+        else:
+            meta_patch["resolution_log"] = []
         dbm.update_document_meta(atomic_conn, doc_id, meta_patch, kb_id=int(kb_id))
         atomic_conn.execute("UPDATE raw_inbox SET status='done' WHERE document_id=? AND kb_id=? AND status='staged'", (doc_id, int(kb_id)))
 
