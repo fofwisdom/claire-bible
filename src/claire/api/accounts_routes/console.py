@@ -930,7 +930,7 @@ def _build_settings_account_section(
 ) -> SettingsSectionRender:
     """The bodies of the ``/account/*`` sections other than ``mcp`` and ``webmcp``, and of ``/settings/kb`` and the owner moderation section (design P3-a).
 
-    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
+    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /support/graph-bundle``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
     - A response for an account that is not the server administrator has no ``/admin/*`` link (invariant 3). Only the server administrator gets the ``/admin/providers`` link.
     """
     if principal.account_id is None or principal.account_id != account.id:
@@ -1333,7 +1333,7 @@ def _account_security_body(
             bundle_html,
             id="settings-bundle",
             icon="package",
-            hint_html=t_code("console.settings.account.bundle_hint", endpoint="POST /graph/bundle"),
+            hint_html=t_code("console.settings.account.bundle_hint", endpoint="POST /support/graph-bundle"),
             aria_label=t("console.settings.account.bundle_label"),
         )
         + console_card(

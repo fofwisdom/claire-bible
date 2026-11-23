@@ -1149,10 +1149,10 @@ def format_download_url(settings: Settings, token: str) -> str:
     """Support Bundle 다운로드 링크 구성."""
     pub = str(getattr(settings, "public_url", "") or "").rstrip("/")
     if pub:
-        return f"{pub}/support/bundle?token={token}"
+        return f"{pub}/support/bundle/{token}"
     host = getattr(settings, "inject_host", "127.0.0.1")
     port = getattr(settings, "inject_port", 8000)
-    return f"http://{host}:{port}/support/bundle?token={token}"
+    return f"http://{host}:{port}/support/bundle/{token}"
 
 
 def purge_expired_bundles(

@@ -533,7 +533,7 @@
             if (bundleResult) {
               bundleResult.hidden = false;
               bundleResult.className = "result ok";
-              bundleResult.innerHTML = tr("console.js.admin.bundle.ready") + ' (' + escHtml(res.body.size_bytes) + ' bytes): <a href="/support/bundle?token=' + encodeURIComponent(res.body.token) + '">' + tr("console.js.admin.bundle.download") + '</a>';
+              bundleResult.innerHTML = tr("console.js.admin.bundle.ready") + ' (' + escHtml(res.body.size_bytes) + ' bytes): <a href="/support/bundle/' + encodeURIComponent(res.body.token) + '">' + tr("console.js.admin.bundle.download") + '</a>';
             }
             return;
           }

@@ -304,7 +304,7 @@ Claire Bible은 시스템 소유자(Owner), 쓰기(Write), 읽기 전용(Readonl
   - **인증**: `Authorization: Bearer <OWNER_TOKEN>` (owner 전용)
   - **본문**: `{"days": 1, "target": "<optional_share_url_or_doc_id>"}`
   - **응답**: `{"bundle_id": "...", "token": "...", "expires_at": "...", "download_url": "..."}`
-- **다운로드 엔드포인트**: `GET /support/bundle?token=<token>`
+- **다운로드 엔드포인트**: `GET /support/bundle/<token>`
   - **인증**: `public` (추측 불가능한 6시간 보안 토큰 쿼리 파라미터 기반)
   - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
   - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환한다. 자세한 내용은 [TELEMETRY.md](TELEMETRY.md) §3.5를 참고한다.

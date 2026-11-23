@@ -1,9 +1,9 @@
 """Unit and integration tests for Graph Data Bundle API routes.
 
 Covers:
-- POST /graph/bundle requires owner authorization (raises 401 on non-owner scope, blocks unauthenticated/readonly).
-- POST /graph/bundle creates bundle successfully with owner token.
-- GET /graph/bundle?token=... downloads the .tar.zst file with proper media type and headers.
+- POST /support/graph-bundle requires owner authorization (raises 401 on non-owner scope, blocks unauthenticated/readonly).
+- POST /support/graph-bundle creates bundle successfully with owner token.
+- GET /support/graph-bundle/... downloads the .tar.zst file with proper media type and headers.
 - Invalid token returns 404 and expired token returns 410.
 """
 
@@ -153,7 +153,7 @@ async def test_create_graph_bundle_route_direct_handler_scope_enforcement(tmp_pa
     # Find the route handler
     create_handler = None
     for r in _starlette_app(app).router.routes:
-        if getattr(r, "path", None) == "/graph/bundle" and "POST" in getattr(r, "methods", []):
+        if getattr(r, "path", None) == "/support/graph-bundle" and "POST" in getattr(r, "methods", []):
             create_handler = r.endpoint
             break
     assert create_handler is not None
@@ -192,12 +192,12 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
 
     with TestClient(app, base_url=s.public_url) as client:
         # 1. POST without token is rejected (401 from route or 404 from gate middleware)
-        resp_unauth = client.post("/graph/bundle", json={"kb_id": 0})
+        resp_unauth = client.post("/support/graph-bundle", json={"kb_id": 0})
         assert resp_unauth.status_code in (401, 404)
 
         # 2. POST with readonly token is rejected (403 from the gate middleware: the scope is too small)
         resp_ro = client.post(
-            "/graph/bundle",
+            "/support/graph-bundle",
             headers=READONLY_HEADERS,
             json={"kb_id": 0},
         )
@@ -205,7 +205,7 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
 
         # 3. POST with owner token succeeds (200 OK)
         resp_owner = client.post(
-            "/graph/bundle",
+            "/support/graph-bundle",
             headers=OWNER_HEADERS,
             json={"kb_id": 0},
         )
@@ -226,7 +226,7 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
         assert record["bundle_id"] == data["bundle_id"]
 
         # 4. GET with valid token downloads the .tar.zst archive
-        resp_dl = client.get(f"/graph/bundle?token={token}")
+        resp_dl = client.get(f"/support/graph-bundle/{token}")
         assert resp_dl.status_code == 200
         assert resp_dl.headers["content-type"] == "application/zstd"
         assert f'attachment; filename="{data["filename"]}"' in resp_dl.headers["content-disposition"]
@@ -234,11 +234,11 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
         assert len(resp_dl.content) == data["size_bytes"]
 
         # 5. GET with invalid token returns 404
-        resp_invalid = client.get("/graph/bundle?token=gb3_invalidtoken000000000000000000")
+        resp_invalid = client.get("/support/graph-bundle/gb3_invalidtoken000000000000000000")
         assert resp_invalid.status_code == 404
 
         # 6. GET without token returns 404
-        resp_missing = client.get("/graph/bundle")
+        resp_missing = client.get("/support/graph-bundle")
         assert resp_missing.status_code == 404
 
 
@@ -249,7 +249,7 @@ def test_api_graph_bundle_expired_token_returns_410(tmp_path: Path, monkeypatch:
 
     with TestClient(app, base_url=s.public_url) as client:
         # Create bundle
-        resp_create = client.post("/graph/bundle", headers=OWNER_HEADERS, json={"kb_id": 0})
+        resp_create = client.post("/support/graph-bundle", headers=OWNER_HEADERS, json={"kb_id": 0})
         assert resp_create.status_code == 200
         token = resp_create.json()["token"]
 
@@ -259,6 +259,6 @@ def test_api_graph_bundle_expired_token_returns_410(tmp_path: Path, monkeypatch:
         monkeypatch.setattr(time, "time", lambda: future_time)
 
         # GET should return 410 Gone
-        resp_get = client.get(f"/graph/bundle?token={token}")
+        resp_get = client.get(f"/support/graph-bundle/{token}")
         assert resp_get.status_code == 410
         assert "expired and was purged" in resp_get.json()["error"]

@@ -1,5 +1,5 @@
 /* Claire user console controller for the /account sections profile, security, federation, providers, and tokens. Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/graph/bundle, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/support/graph-bundle, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -556,7 +556,7 @@
       }
       show(section, tr("console.js.account.bundle.making"), false);
       // Design Section 5.2: the path selects the knowledge base (the server sends 308 to the path of the owner).
-      return request("POST", "/kb/" + encodeURIComponent(theme) + "/graph/bundle", {}).then(function (r) {
+      return request("POST", "/kb/" + encodeURIComponent(theme) + "/support/graph-bundle", {}).then(function (r) {
         if (r.ok && r.body) {
           show(section, tr("console.js.account.bundle.made"), false);
           renderBundle(section, r.body);

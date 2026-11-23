@@ -4808,7 +4808,7 @@ def create_app(
             "Disallow: /.well-known/oauth*",
             "Disallow: /mcp",
             "Disallow: /support/bundle",
-            "Disallow: /graph/bundle",
+            "Disallow: /support/graph-bundle",
             "Disallow: /whoami",
             "Disallow: /stats",
             "Disallow: /limits",
@@ -7284,7 +7284,7 @@ def create_app(
     async def download_support_bundle_route(request: Request) -> Response:
         from ..ops.support_bundle import get_support_bundle, lookup_support_bundle_by_token
 
-        token = request.query_params.get("token", "").strip()
+        token = str(request.path_params.get("token", "")).strip()
         if not token or len(token) < 16:
             return PlainTextResponse("Not Found", status_code=404)
 
@@ -7355,7 +7355,7 @@ def create_app(
     async def download_graph_bundle_route(request: Request) -> Response:
         from ..ops.graph_bundle import get_graph_bundle, lookup_graph_bundle_by_token
 
-        token = request.query_params.get("token", "").strip()
+        token = str(request.path_params.get("token", "")).strip()
         if not token or len(token) < 16:
             return PlainTextResponse("Not Found", status_code=404)
 
@@ -7598,9 +7598,9 @@ def create_app(
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
-        Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
-        Route("/graph/bundle", create_graph_bundle_route, methods=["POST"]),
-        Route("/graph/bundle", download_graph_bundle_route, methods=["GET"]),
+        Route("/support/bundle/{token}", download_support_bundle_route, methods=["GET"]),
+        Route("/support/graph-bundle", create_graph_bundle_route, methods=["POST"]),
+        Route("/support/graph-bundle/{token}", download_graph_bundle_route, methods=["GET"]),
         Route("/reference", docs_ui_route, methods=["GET"]),
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
         Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),

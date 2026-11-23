@@ -63,7 +63,7 @@ SYSTEM = {
     "/p/images/{filename:path}", "/static/locales/{path:path}", "/static/{path:path}", "/reference", "/openapi.yaml",
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
-    "/oauth/token", "/oauth/revoke", "/oauth/device_authorization", "/device", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",
+    "/oauth/token", "/oauth/revoke", "/oauth/device_authorization", "/device", "/mcp", "/support/bundle", "/support/bundle/{token}", "/support/graph-bundle/{token}", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",
     "/admin/accounts", "/api/admin/accounts", "/api/admin/accounts/signup-trace",
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
@@ -144,9 +144,8 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
 }
 
 
-# The download of a data bundle uses only the token. Thus the address at the root works in each mode. POST /graph/bundle stays namespaced.
 # ``POST /kb`` makes a shared knowledge base for the account of the credential (design Section 10.1); the prefix is ignored.
-ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle"), ("POST", "/kb")}
+ANY_KEYS = {("POST", "/kb")}
 # ``PATCH /`` and ``DELETE /`` act on the knowledge base that the path selects; only ``GET /`` and ``HEAD /`` have the surface ``root``.
 NAMESPACED_ROOT_KEYS = {("PATCH", "/"), ("DELETE", "/")}
 

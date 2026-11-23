@@ -866,7 +866,7 @@ async def _create_graph_bundle_for_delivery(
 
     async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
         response = await client.post(
-            f"{api_url}/graph/bundle",
+            f"{api_url}/support/graph-bundle",
             headers={
                 "Authorization": f"Bearer {settings.inject_token}",
                 "Host": public_authority,
@@ -2408,7 +2408,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 tgt = f" ({_t('bot.label.document')}: {b['target_doc_id']})" if b.get("target_doc_id") else ""
                 lines.append(_t("bot.support.list_item", bundle_id=b["bundle_id"], size=size_kb, days=b["days_covered"], expires=e_str, target=tgt))
                 pub_url = s.public_url.rstrip('/') if s.public_url else ""
-                dl = f"{pub_url}/support/bundle?token={b['token']}" if pub_url else f"/support/bundle?token={b['token']}"
+                dl = f"{pub_url}/support/bundle/{b['token']}" if pub_url else f"/support/bundle/{b['token']}"
                 lines.append(f"  ↳ {_t('bot.label.link')}: {dl}")
             await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
             return

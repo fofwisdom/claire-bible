@@ -41,7 +41,7 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
                 "size_bytes": archive.stat().st_size,
                 "created_at": "2026-09-11T00:00:00+00:00",
                 "expires_at": "2026-09-11T06:00:00+00:00",
-                "download_url": "https://cb.example/support/bundle?token=sb3_api_token",
+                "download_url": "https://cb.example/support/bundle/sb3_api_token",
                 "target_doc_id": "doc_1",
             },
         )
@@ -738,7 +738,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
         size_bytes=len(dummy_archive.read_bytes()),
         created_at=1700000000.0,
         expires_at=1700021600.0,
-        download_url="https://kb.example.com/support/bundle?token=test_token_abc",
+        download_url="https://kb.example.com/support/bundle/test_token_abc",
     )
 
     created_kwargs = {}
@@ -779,7 +779,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
     assert status_msg.edit_text.await_count == 1
     edited = status_msg.edit_text.call_args[0][0]
     assert "sb_20260910_000000_12345678" in edited
-    assert "https://kb.example.com/support/bundle?token=test_token_abc" in edited
+    assert "https://kb.example.com/support/bundle/test_token_abc" in edited
     assert "6시간 후 자동 파기" in edited
     assert msg.reply_document.await_count == 1
 
@@ -803,7 +803,7 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
         size_bytes=100,
         created_at=1700000000.0,
         expires_at=1700021600.0,
-        download_url="https://kb.example.com/support/bundle?token=tok_targeted",
+        download_url="https://kb.example.com/support/bundle/tok_targeted",
         target_doc_id="doc_target_abc",
         target_matched_by="share_url",
     )
@@ -944,7 +944,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
         size_bytes=len(dummy_archive.read_bytes()),
         created_at=1700000000.0,
         expires_at=1700021600.0,
-        download_url="https://kb.example.com/support/bundle?token=tok_cb",
+        download_url="https://kb.example.com/support/bundle/tok_cb",
         target_doc_id="doc_btn_test",
     )
 
@@ -983,7 +983,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
     assert status_msg.edit_text.await_count == 1
     edited = status_msg.edit_text.call_args[0][0]
     assert "sb_cb_999" in edited
-    assert "https://kb.example.com/support/bundle?token=tok_cb" in edited
+    assert "https://kb.example.com/support/bundle/tok_cb" in edited
 
 
 async def test_on_support_unallowed_user(tmp_path):

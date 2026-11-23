@@ -1,6 +1,6 @@
 """The data bundle of a shared knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.2: "moderators and the admin").
 
-The route is ``POST /kb/{number}/graph/bundle`` with the capability ``settings``. The bundle has the format of each graph bundle (``graph_bundle.py``) and, for a shared knowledge base, only its visible content: the documents that are not hidden and have a ``visible`` contribution, the entities and relations of those documents, and the table ``contributions`` with the public number of the account with the credit.
+The route is ``POST /kb/{number}/support/graph-bundle`` with the capability ``settings``. The bundle has the format of each graph bundle (``graph_bundle.py``) and, for a shared knowledge base, only its visible content: the documents that are not hidden and have a ``visible`` contribution, the entities and relations of those documents, and the table ``contributions`` with the public number of the account with the credit.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ PENDING = {"summary": "Venus is a planet.", "key_claims": [], "entities": [{"nam
 
 def _open_bundle(client, token: str, into: Path) -> tuple[dict, sqlite3.Connection]:
     """Download the bundle with its token and open its manifest and its export database."""
-    response = client.get(f"/graph/bundle?token={token}")
+    response = client.get(f"/support/graph-bundle/{token}")
     assert response.status_code == 200, response.text
     into.mkdir(parents=True, exist_ok=True)
     with zstd.ZstdFile(io.BytesIO(response.content), "rb") as reader:
@@ -71,7 +71,7 @@ def test_e2e_moderator_makes_the_bundle_of_the_visible_content(world, no_llm, tm
         conn.close()
 
     # Moderators and the admin (capability ``settings``). A member, a collaborator, and a credential with the scope ``write`` do not get the bundle.
-    route = f"{world.base}/graph/bundle"
+    route = f"{world.base}/support/graph-bundle"
     assert _denied(client.post(route, json={}, headers=world.ben)) == (403, {"error": "kb_capability_required"})
     _set_role(world, BEN, "collaborator")
     assert _denied(client.post(route, json={}, headers=world.ben)) == (403, {"error": "kb_capability_required"})
@@ -86,7 +86,7 @@ def test_e2e_moderator_makes_the_bundle_of_the_visible_content(world, no_llm, tm
     # The registry records the moderator that made the bundle: the bundle is in its list of data bundles.
     listed = list_account_graph_bundles(world.settings.data_dir, ANN, public_url="https://kb.example")
     assert [b["bundle_id"] for b in listed] == [info["bundle_id"]]
-    assert listed[0]["download_url"] == f"https://kb.example/graph/bundle?token={info['token']}"
+    assert listed[0]["download_url"] == f"https://kb.example/support/graph-bundle/{info['token']}"
 
     manifest, export = _open_bundle(client, info["token"], tmp_path / "bundle")
     try:
@@ -116,7 +116,7 @@ def test_e2e_moderator_makes_the_bundle_of_the_visible_content(world, no_llm, tm
 def test_bundle_of_a_personal_knowledge_base_has_an_empty_contributions_table(world, tmp_path: Path) -> None:  # noqa: F811
     client = world.client
     _personal_document(world.settings, world.manager, BEN, "Seoul and Busan are cities of Korea. " * 3, extraction=EXTRACTION)
-    made = client.post("/@ben/graph/bundle", json={}, headers=world.ben)
+    made = client.post("/@ben/support/graph-bundle", json={}, headers=world.ben)
     assert made.status_code == 200, made.text
     assert (made.json()["shared"], made.json()["contributions_count"], made.json()["documents_count"]) == (False, 0, 1)
     manifest, export = _open_bundle(client, made.json()["token"], tmp_path / "personal")
@@ -125,12 +125,12 @@ def test_bundle_of_a_personal_knowledge_base_has_an_empty_contributions_table(wo
     finally:
         export.close()
     # Another account does not make the bundle of the personal knowledge base of ben.
-    assert client.post("/@ben/graph/bundle", json={}, headers=world.cho).status_code in (403, 404)
+    assert client.post("/@ben/support/graph-bundle", json={}, headers=world.cho).status_code in (403, 404)
 
 
 def test_bundle_list_of_a_moderator_names_the_shared_knowledge_base(world) -> None:  # noqa: F811
     """The list of the bundles of an account gives the label of a shared knowledge base, so that the page never shows an internal knowledge base ID."""
-    made = world.client.post(f"{world.base}/graph/bundle", headers=world.ann)
+    made = world.client.post(f"{world.base}/support/graph-bundle", headers=world.ann)
     assert made.status_code in (200, 201), made.text
     listing = world.client.get("/api/me/data-bundles", headers=world.ann).json()
     labels = {t["kb_id"]: t["label"] for t in listing["themes"]}

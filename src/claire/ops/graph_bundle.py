@@ -354,7 +354,7 @@ def _record_account_id(record: dict[str, Any]) -> int:
 
 def graph_bundle_download_url(public_url: str, token: str) -> str:
     """Token address of a graph bundle."""
-    return f"{public_url.rstrip('/')}/graph/bundle?token={token}"
+    return f"{public_url.rstrip('/')}/support/graph-bundle/{token}"
 
 
 def _public_bundle_record(record: dict[str, Any], public_url: str | None) -> dict[str, Any]:

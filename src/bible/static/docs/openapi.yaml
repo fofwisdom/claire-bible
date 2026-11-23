@@ -1946,7 +1946,7 @@ paths:
         '404':
           description: No knowledge base, or a private personal knowledge base of another account.
 
-  /kb/{number}/graph/bundle:
+  /kb/{number}/support/graph-bundle:
     post:
       summary: Make the data bundle of a knowledge base
       description: >-
@@ -1956,7 +1956,7 @@ paths:
         entities and relations of these documents, the review evidence of these documents, and the
         table `contributions` with the public number of the account with the credit. Pending,
         hidden, rejected, removed, and failed copies are not in it. The token of the response
-        downloads the bundle with `GET /graph/bundle?token=…` for 24 hours. The registry records
+        downloads the bundle with `GET /support/graph-bundle/{token}` for 24 hours. The registry records
         the account that made the bundle.
       operationId: createKnowledgeBaseBundle
       x-claire-access: owner
@@ -3030,6 +3030,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardError'
+
+  /support/bundle/{token}:
     get:
       summary: Download zstd diagnostic support bundle archive
       operationId: downloadSupportBundle
@@ -3037,7 +3039,7 @@ paths:
       security: []
       parameters:
         - name: token
-          in: query
+          in: path
           required: true
           schema:
             type: string

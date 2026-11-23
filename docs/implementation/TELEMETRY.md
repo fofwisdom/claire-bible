@@ -44,7 +44,7 @@ Evidence tags: **[code]** read in the source at the basis commit. **[decision]**
 | Surface | Who | Path |
 | :--- | :--- | :--- |
 | `POST /support/bundle` | admin (`src/claire/api/security.py` route table) | `create_support_bundle_route` → `create_support_bundle` |
-| `GET /support/bundle?token=...` | public, the token is the capability | `download_support_bundle_route` |
+| `GET /support/bundle/{token}` | public, the token is the capability | `download_support_bundle_route` |
 | `claire support-bundle` | host operator | `src/claire/cli.py` |
 | Telegram `/support bundle` | admin bot | `_create_support_bundle_for_delivery` |
 

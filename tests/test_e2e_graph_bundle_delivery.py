@@ -174,7 +174,7 @@ def test_e2e_graph_bundle_api_export_and_verification(tmp_path: Path):
     with TestClient(api_app, base_url=settings.public_url) as client:
         # 1. Export graph bundle via REST API
         resp = client.post(
-            "/graph/bundle",
+            "/support/graph-bundle",
             headers=OWNER_HEADERS,
             json={"kb_id": 0},
         )
@@ -195,8 +195,8 @@ def test_e2e_graph_bundle_api_export_and_verification(tmp_path: Path):
         assert sidecar["bundle_id"] == bundle_meta["bundle_id"]
         assert sidecar["entities_count"] == 3
 
-        # 3. Download the bundle archive via GET /graph/bundle?token={token}
-        dl_resp = client.get(f"/graph/bundle?token={token}")
+        # 3. Download the bundle archive via GET /support/graph-bundle/{token}
+        dl_resp = client.get(f"/support/graph-bundle/{token}")
         assert dl_resp.status_code == 200
         assert dl_resp.headers["content-type"] == "application/zstd"
         assert dl_resp.headers["cache-control"] == "no-store, private"
@@ -383,7 +383,7 @@ async def test_e2e_telegram_bot_large_bundle_fallback_to_url(tmp_path: Path, mon
         size_bytes=52 * 1024 * 1024,  # 52MB > 45MB
         created_at=1761436800.0,
         expires_at=1761523200.0,
-        download_url="http://127.0.0.1:8765/graph/bundle?token=gb3_huge_token_123456789012345678",
+        download_url="http://127.0.0.1:8765/support/graph-bundle/gb3_huge_token_123456789012345678",
     )
 
     monkeypatch.setattr(
@@ -410,7 +410,7 @@ async def test_e2e_telegram_bot_large_bundle_fallback_to_url(tmp_path: Path, mon
 
     # The download link was sent as reply_text
     link_calls = [
-        call[0][0] for call in msg.reply_text.call_args_list if "http://127.0.0.1:8765/graph/bundle" in call[0][0]
+        call[0][0] for call in msg.reply_text.call_args_list if "http://127.0.0.1:8765/support/graph-bundle" in call[0][0]
     ]
     assert len(link_calls) >= 1
     assert "gb3_huge_token" in link_calls[0]

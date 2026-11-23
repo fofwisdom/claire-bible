@@ -238,7 +238,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert info.filepath.suffix == ".zst"
     assert info.size_bytes > 0
     assert info.expires_at - info.created_at == SUPPORT_BUNDLE_TTL_SECONDS
-    assert f"token={info.token}" in info.download_url
+    assert info.download_url.endswith(f"/support/bundle/{info.token}")
     assert info.token.startswith("sb3_")
     api_info = SupportBundleInfo.from_dict(info.to_dict())
     assert api_info.bundle_id == info.bundle_id
@@ -562,15 +562,15 @@ def test_support_bundle_api_endpoints(tmp_path: Path):
         assert res.status_code == 400
         assert "cannot exceed telemetry retention limit" in res.json()["error"]
 
-        # 4. GET /support/bundle?token={token} 정상 다운로드 (Public/Token 기반)
-        res = client.get(f"/support/bundle?token={token}")
+        # 4. GET /support/bundle/{token} 정상 다운로드 (Public/Token 기반)
+        res = client.get(f"/support/bundle/{token}")
         assert res.status_code == 200
         assert res.headers["content-type"] == "application/zstd"
         assert "attachment; filename=" in res.headers["content-disposition"]
         assert len(res.content) > 0
 
         # 5. 잘못된 토큰 -> 404
-        res = client.get("/support/bundle?token=non_existent_token_123456789")
+        res = client.get("/support/bundle/non_existent_token_123456789")
         assert res.status_code == 404
 
         # 6. 토큰 누락 -> 404

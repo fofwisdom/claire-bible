@@ -230,14 +230,14 @@ curl -s -X POST https://claire.example.com/support/bundle \
   "bundle_id": "bundle_20261016_abcd1234",
   "token": "sec_tok_xyz987...",
   "expires_at": "2026-10-16T20:30:00Z",
-  "download_url": "https://claire.example.com/support/bundle?token=sec_tok_xyz987..."
+  "download_url": "https://claire.example.com/support/bundle/sec_tok_xyz987..."
 }
 ```
 
-#### 2) 다운로드: `GET /support/bundle?token=<token>` (Public)
+#### 2) 다운로드: `GET /support/bundle/<token>` (Public)
 발급된 6시간 유효 토큰으로 `.tar.zst` 압축 아카이브를 다운로드한다:
 ```bash
-curl -O -J "https://claire.example.com/support/bundle?token=sec_tok_xyz987..."
+curl -O -J "https://claire.example.com/support/bundle/sec_tok_xyz987..."
 ```
 
 ---

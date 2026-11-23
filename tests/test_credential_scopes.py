@@ -113,7 +113,7 @@ KB_ROUTES = [
     ("POST", "/document/hide", "owner", "review"),
     ("POST", "/document/seen", "owner", "review"),
     ("PATCH", "/", "owner", "settings"),
-    ("POST", "/graph/bundle", "owner", "settings"),
+    ("POST", "/support/graph-bundle", "owner", "settings"),
     ("DELETE|POST", "/membership", "owner", "join"),
     ("POST", "/contributions", "write", "contribute_direct"),
     ("GET|HEAD", "/contributions", "readonly", "read"),

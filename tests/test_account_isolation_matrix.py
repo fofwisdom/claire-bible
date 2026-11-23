@@ -265,7 +265,7 @@ def test_permission_matrix_write(test_environment):
 
     # 4. Owner actions (graph bundle, review, settings) -> 403 scope_insufficient
     for method, path, body in (
-        ("POST", f"/kb/{ids.format_public_id(env.alice_collab.number)}/graph/bundle", {"kb_id": env.alice_collab.id}),
+        ("POST", f"/kb/{ids.format_public_id(env.alice_collab.number)}/support/graph-bundle", {"kb_id": env.alice_collab.id}),
         ("POST", "/document/hide", {"id": "x", "hidden": True}),
         ("PATCH", f"/kb/{ids.format_public_id(env.alice_collab.number)}/", {"label": "x"}),
     ):
@@ -317,7 +317,7 @@ def test_permission_matrix_cross_account(test_environment):
     assert res_write.status_code == 403  # a path that pins a shared knowledge base: 403 kb_ingest_by_contribution (CT4)
 
     # 6. Graph bundle export attempt on Alice theme -> 404
-    res_bundle = client.post(f"/kb/{ids.format_public_id(env.alice_pub.number)}/graph/bundle", json={"kb_id": env.alice_pub.id}, headers=headers)
+    res_bundle = client.post(f"/kb/{ids.format_public_id(env.alice_pub.number)}/support/graph-bundle", json={"kb_id": env.alice_pub.id}, headers=headers)
     assert res_bundle.status_code == 403  # a signed-in account without the capability gets 403 in a shared knowledge base (design Section 6.2)
 
 
@@ -615,7 +615,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 7: Alice creates a graph bundle for her team theme via API
     res_bundle = client.post(
-        f"/kb/{team_num}/graph/bundle",
+        f"/kb/{team_num}/support/graph-bundle",
         json={"kb_id": team_kb_id},
         headers=alice_owner_hdr,
     )

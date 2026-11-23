@@ -33,8 +33,8 @@ test('each bundle row keeps its copy link after a reload, and the link opens wit
 
   // A reload loses each value that the create response gave. The copy link comes from the list.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const links = [[await copyFromRow(page, support), /\/support\/bundle\?token=sb3_/]];
-  if (hasDataForm) links.push([await copyFromRow(page, data), /\/graph\/bundle\?token=gb3_/]);
+  const links = [[await copyFromRow(page, support), /\/support\/bundle\/sb3_/]];
+  if (hasDataForm) links.push([await copyFromRow(page, data), /\/support\/graph-bundle\/gb3_/]);
 
   const anonymous = await playwright.request.newContext({ baseURL });
   try {
