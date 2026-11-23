@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -92,6 +93,8 @@ def connect_telemetry(db_path: Path | str) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=1000;")
     conn.executescript(TELEMETRY_SCHEMA)
     _migrate_support_bundles_account_id(conn)
+    _migrate_support_bundles_target_link(conn)
+    _migrate_mcp_trail_columns(conn)
     _migrate_gate_call_type(conn)
     return conn
 
@@ -108,6 +111,30 @@ def _migrate_support_bundles_account_id(conn: sqlite3.Connection) -> None:
     existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(support_bundles)")}
     if "account_id" not in existing:
         conn.execute("ALTER TABLE support_bundles ADD COLUMN account_id INTEGER")
+        conn.commit()
+
+
+def _migrate_support_bundles_target_link(conn: sqlite3.Connection) -> None:
+    """``support_bundles`` gets the column ``target_link`` (idempotent): the address of the tracked note or document that the person gave, for the bundle list."""
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(support_bundles)")}
+    if "target_link" not in existing:
+        conn.execute("ALTER TABLE support_bundles ADD COLUMN target_link TEXT")
+        conn.commit()
+
+
+# The columns of the extraction trail of an MCP call (idempotent): the knowledge base and the document of the call, and a JSON object with the facts of the call (for example ``dry_run``, the submitted ``model``, and the codes of the warnings and errors of the answer). A Support Bundle with a tracked document reads them (``query_mcp_trail``).
+_MCP_TRAIL_COLUMNS = (("kb_id", "INTEGER"), ("document_id", "TEXT"), ("detail", "TEXT"))
+
+
+def _migrate_mcp_trail_columns(conn: sqlite3.Connection) -> None:
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(mcp_telemetry)")}
+    changed = False
+    for name, sql_type in _MCP_TRAIL_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE mcp_telemetry ADD COLUMN {name} {sql_type}")
+            changed = True
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_document ON mcp_telemetry(kb_id, document_id)")
+    if changed:
         conn.commit()
 
 
@@ -379,8 +406,11 @@ def record_mcp_telemetry(
     error_message: str | None = None,
     response_bytes: int = 0,
     now_epoch: float | None = None,
+    kb_id: int | None = None,
+    document_id: str | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
-    """MCP 호출 텔레메트리 안전 기록 (Fire-and-Forget)."""
+    """MCP 호출 텔레메트리 안전 기록 (Fire-and-Forget). ``kb_id``, ``document_id``, and ``detail`` are the extraction trail of the call (empty for other tools)."""
     try:
         db_path = get_telemetry_db_path(data_dir)
         ts = now_epoch if now_epoch is not None else time.time()
@@ -390,8 +420,9 @@ def record_mcp_telemetry(
                 """
                 INSERT INTO mcp_telemetry (
                     timestamp, client_id, call_type, tool_name,
-                    duration_ms, status, error_code, error_message, response_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_ms, status, error_code, error_message, response_bytes,
+                    kb_id, document_id, detail
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -403,6 +434,9 @@ def record_mcp_telemetry(
                     error_code,
                     error_message,
                     response_bytes,
+                    kb_id,
+                    document_id,
+                    json.dumps(detail, ensure_ascii=False, sort_keys=True) if detail else None,
                 ),
             )
             conn.commit()
@@ -456,7 +490,7 @@ def query_mcp_telemetry(
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     query = f"""
     SELECT id, timestamp, client_id, call_type, tool_name, duration_ms,
-           status, error_code, error_message, response_bytes
+           status, error_code, error_message, response_bytes, kb_id, document_id, detail
     FROM mcp_telemetry
     {where_clause}
     ORDER BY timestamp DESC
@@ -468,11 +502,53 @@ def query_mcp_telemetry(
         conn = connect_telemetry(db_path)
         try:
             rows = conn.execute(query, params).fetchall()
-            return [dict(r) for r in rows]
+            return [_mcp_row(r) for r in rows]
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001
         logger.warning("Failed to query MCP telemetry: %s", e)
+        return []
+
+
+def _mcp_row(row: sqlite3.Row) -> dict[str, Any]:
+    out = dict(row)
+    raw = out.get("detail")
+    if isinstance(raw, str) and raw:
+        try:
+            out["detail"] = json.loads(raw)
+        except ValueError:
+            out["detail"] = {"unreadable": True}
+    return out
+
+
+def query_mcp_trail(
+    data_dir: Path | str | None,
+    *,
+    kb_id: int,
+    document_id: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """The MCP calls of one document of one knowledge base, oldest first (the extraction trail of a Support Bundle). The file is opened read-only; an absent file or a read error gives an empty list."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return []
+    try:
+        conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            columns = {str(r[1]) for r in conn.execute("PRAGMA table_info(mcp_telemetry)")}
+            if "document_id" not in columns:
+                return []
+            rows = conn.execute(
+                "SELECT id, timestamp, client_id, tool_name, duration_ms, status, error_code, error_message, response_bytes, detail "
+                "FROM mcp_telemetry WHERE kb_id = ? AND document_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
+                (int(kb_id), str(document_id), int(limit)),
+            ).fetchall()
+            return [_mcp_row(r) for r in reversed(rows)]
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("Failed to read the MCP trail: %s", e)
         return []
 
 
@@ -611,8 +687,9 @@ def register_support_bundle(
     expires_at: float,
     target_doc_id: str | None = None,
     account_id: int | None = None,
+    target_link: str | None = None,
 ) -> None:
-    """생성된 Support Bundle 메타데이터를 telemetry.db에 등록. ``account_id``가 있으면 그 계정 범위 번들이다."""
+    """생성된 Support Bundle 메타데이터를 telemetry.db에 등록. ``account_id``가 있으면 그 계정 범위 번들이다. ``target_link`` is the address of the tracked item."""
     db_path = get_telemetry_db_path(data_dir)
     conn = connect_telemetry(db_path)
     try:
@@ -620,8 +697,8 @@ def register_support_bundle(
             """
             INSERT OR REPLACE INTO support_bundles (
                 bundle_id, token, filename, filepath, days_covered,
-                target_doc_id, size_bytes, created_at, expires_at, account_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                target_doc_id, size_bytes, created_at, expires_at, account_id, target_link
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 bundle_id,
@@ -634,6 +711,7 @@ def register_support_bundle(
                 created_at,
                 expires_at,
                 account_id,
+                target_link,
             ),
         )
         conn.commit()
@@ -681,15 +759,21 @@ def list_active_support_bundles(
     now_epoch: float | None = None,
     *,
     account_id: int | None = None,
+    server_only: bool = False,
 ) -> list[dict[str, Any]]:
-    """만료되지 않은 활성 Support Bundle 목록 조회. ``account_id``를 주면 그 계정 범위 번들만 돌려준다."""
+    """만료되지 않은 활성 Support Bundle 목록 조회. ``account_id``를 주면 그 계정 범위 번들만 돌려준다. ``server_only`` gives only the server-wide bundles (``account_id`` NULL)."""
     db_path = get_telemetry_db_path(data_dir)
     if not db_path.is_file():
         return []
     now = now_epoch if now_epoch is not None else time.time()
     conn = connect_telemetry(db_path)
     try:
-        if account_id is None:
+        if server_only:
+            rows = conn.execute(
+                "SELECT * FROM support_bundles WHERE expires_at > ? AND account_id IS NULL ORDER BY created_at DESC",
+                (now,),
+            ).fetchall()
+        elif account_id is None:
             rows = conn.execute(
                 "SELECT * FROM support_bundles WHERE expires_at > ? ORDER BY created_at DESC",
                 (now,),

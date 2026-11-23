@@ -56,11 +56,11 @@ test('/admin/audit: the administrator actions and the MCP calls are two tabs; /a
   await expect(tab(page, 'admin')).toHaveAttribute('aria-selected', 'true');
   await expect(panel(page, 'admin')).toBeVisible();
 
-  // /admin/mcp keeps the RBAC comparison and the support bundle, and has no call records.
+  // /admin/mcp keeps the RBAC comparison, and has no call records. The support bundles of the server are on /support/bundles.
   await page.locator('#console-sidebar a[href="/admin/mcp"]').click();
   await expect(page).toHaveURL(/\/admin\/mcp$/);
   await expect(page.locator('#admin-mcp-rbac-card')).toBeVisible();
-  await expect(page.locator('#admin-support-bundle-card')).toBeVisible();
+  await expect(page.locator('#admin-support-bundle-card')).toHaveCount(0);
   await expect(page.locator('#admin-mcp-telemetry-card')).toHaveCount(0);
 
   expect(errors).toEqual([]);

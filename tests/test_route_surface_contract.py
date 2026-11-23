@@ -31,8 +31,8 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        "/me", "/api/me", "/api/me/password", "/api/me/username", "/api/invites", "/api/me/provider-keys", "/api/me/provider-keys/verify",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
-       "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
-       "/api/me/data-bundles", "/api/me/data-bundles/download",
+       "/api/me/telegram", "/api/support/bundles", "/api/support/bundles/{bundle_id}",
+       "/api/me/data-bundles",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
        # Notifications and Web Push of the account (PWA_NOTIFICATION_DESIGN.md PN5)
        "/api/me/notifications", "/api/me/notifications/read", "/api/me/push", "/api/me/push/subscriptions", "/api/me/push/kinds/{kind}", "/api/me/push/test",
@@ -80,6 +80,8 @@ SYSTEM = {
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
     "/admin/plugins", "/api/admin/plugins", "/api/admin/plugins/{id}",
     "/account/telegram", "/account/notifications", "/account/bundles", "/account/backups", "/account/federation",
+    # One page for the bundles of each account and of the server (the old /account/bundles is a 308 to it).
+    "/support/bundles",
     # The old /settings/* paths of the /account/* pages: 308 redirects.
     "/settings/account", "/settings/keys", "/settings/invites", "/settings/federation", "/settings/telegram", "/settings/notifications", "/settings/bundles", "/settings/backups", "/settings/mcp", "/settings/webmcp", "/settings/tokens",
     "/settings", "/account", "/account/profile", "/account/security", "/account/invites", "/account/providers", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/account/tokens",

@@ -150,7 +150,7 @@ When a person gets no notification, make a Support Bundle ([`TELEMETRY.md`](TELE
 | Was the notification made, and was it sent? | `notifications_by_kind` (`unread_never_sent`), `push_off`, and `scan` (`SCAN_NEVER_RAN`, `SCAN_BEHIND`) |
 | Which accounts wait? | `accounts_with_most_unread` |
 
-The account makes its own bundle at `/account/bundles`. Its member has the devices of the account with the state of each sign-in session, the kinds without push, and the last 50 notifications with the time of each send.
+The account makes its own bundle at `/support/bundles`. Its member has the devices of the account with the state of each sign-in session, the kinds without push, and the last 50 notifications with the time of each send.
 
 ## 9. Known Limits
 

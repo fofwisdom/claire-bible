@@ -511,40 +511,6 @@
     }
   }
 
-  function initMcpSection() {
-    var bundleForm = document.getElementById("admin-support-bundle-form");
-    var bundleResult = document.getElementById("admin-support-bundle-result");
-    if (bundleForm) {
-      bundleForm.addEventListener("submit", function (ev) {
-        ev.preventDefault();
-        var daysEl = document.getElementById("admin-support-bundle-days");
-        var days = daysEl ? parseInt(daysEl.value, 10) || 7 : 7;
-        fetch("/support/bundle", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ days: days })
-        }).then(function (resp) {
-          return resp.json().catch(function () { return {}; }).then(function (body) {
-            return { status: resp.status, body: body };
-          });
-        }).then(function (res) {
-          if (res.status === 200 && res.body && res.body.token) {
-            if (bundleResult) {
-              bundleResult.hidden = false;
-              bundleResult.className = "result ok";
-              bundleResult.innerHTML = tr("console.js.admin.bundle.ready") + ' (' + escHtml(res.body.size_bytes) + ' bytes): <a href="/support/bundle/' + encodeURIComponent(res.body.token) + '">' + tr("console.js.admin.bundle.download") + '</a>';
-            }
-            return;
-          }
-          showStatusBanner(bundleResult, tr("console.js.admin.bundle.failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
-        }).catch(function () {
-          showStatusBanner(bundleResult, tr("console.js.admin.bundle.network_error"), true);
-        });
-      });
-    }
-  }
-
   // --- /admin/storage: object storage settings and the connection test (FEDERATION_REMOTE_READING_DESIGN.md Section 9.2, unit FP4-1). The server renders the form with the values and the texts; only the changed values go to the server. ---
 
   function initStorageSection() {
@@ -2029,8 +1995,6 @@
       initIdpSection(bootstrap);
     } else if (section === "audit") {
       initAuditSection();
-    } else if (section === "mcp") {
-      initMcpSection();
     } else if (section === "webmcp") {
       initWebmcpSection();
     } else if (section === "federation") {

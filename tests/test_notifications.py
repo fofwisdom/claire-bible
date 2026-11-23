@@ -631,9 +631,9 @@ def test_account_support_bundle_has_the_notifications_of_the_account_without_cap
     events.ap_follower(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/alice")
     events.ap_mention(world.db_file, account_ids=[ACCOUNTS["cho"]], actor_iri="https://social.example/users/zed")
 
-    made = _request(world, ben_headers, "POST", "/api/me/support-bundles", json={"days": 1})
+    made = _request(world, ben_headers, "POST", "/api/support/bundles", json={"scope": "account", "days": 1})
     assert made.status_code == 200, made.text
-    archive = _request(world, ben_headers, "GET", f"/api/me/support-bundles/download?bundle_id={made.json()['bundle']['bundle_id']}")
+    archive = _request(world, {}, "GET", "/support/bundle/" + made.json()["bundle"]["link"].split("/support/bundle/", 1)[1])
     assert archive.status_code == 200
     files: dict[str, bytes] = {}
     with zstd.ZstdFile(io.BytesIO(archive.content), "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:

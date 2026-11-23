@@ -150,12 +150,13 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     env = journey
     alice = env.alice
 
-    # 1. 설정 화면: 세 기능 화면이 내 계정 사이드바에 있고, 관리자 화면 링크는 없다.
-    for slug in ("telegram", "bundles", "backups"):
-        page = _call(env, "GET", f"/account/{slug}", alice)
+    # 1. 설정 화면: 세 기능 화면이 사이드바에 있고, 관리자 화면 링크는 없다. The bundles page is /support/bundles.
+    feature_paths = {"telegram": "/account/telegram", "bundles": "/support/bundles", "backups": "/account/backups"}
+    for slug, path in feature_paths.items():
+        page = _call(env, "GET", path, alice)
         assert page.status_code == 200 and f'data-feature-section="{slug}"' in page.text
-        for other in ("telegram", "bundles", "backups"):
-            assert f'href="/account/{other}"' in page.text
+        for other in feature_paths.values():
+            assert f'href="{other}"' in page.text
         assert "/admin/" not in page.text
     assert _call(env, "GET", "/admin/backups", alice).status_code == 404
 
@@ -172,31 +173,32 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     asyncio.run(supervisor.sync())
     assert supervisor.running == {}
 
-    # 3. 서포트 번들과 데이터 번들: 만들기 → 목록 → 내려받기 → 지우기.
-    r = _call(env, "POST", "/api/me/support-bundles", alice, json={"days": 2})
+    # 3. 서포트 번들과 데이터 번들 (/support/bundles): 만들기 → 목록 → 링크 → 지우기. The page gives a link, not a download.
+    r = _call(env, "POST", "/api/support/bundles", alice, json={"scope": "account", "days": 2})
     assert r.status_code == 200, r.text
     support_id = r.json()["bundle"]["bundle_id"]
-    support_url = r.json()["bundle"]["download_url"]
+    support_url = r.json()["bundle"]["link"]
     r = _call(env, "POST", "/api/me/data-bundles", alice, json={"kb": kb_number(env.settings, env.theme.id)})
     assert r.status_code == 200, r.text
     data_id = r.json()["bundle"]["bundle_id"]
     assert r.json()["bundle"]["entities_count"] == 1
     data_url = r.json()["bundle"]["download_url"]
-    # The address from the create response has an unpredictable token and works without a session. The address with bundle_id does not.
-    for url, kind, bundle_id in ((support_url, "support-bundles", support_id), (data_url, "data-bundles", data_id)):
+    # The link from the create response has an unpredictable token and works without a session.
+    for url, kind, bundle_id in ((support_url, "support", support_id), (data_url, "data", data_id)):
         assert url.startswith(PUBLIC_URL + "/") and ("/support/bundle/" in url or "/support/graph-bundle/" in url) and bundle_id not in url
         shared = env.client.get(url[len(PUBLIC_URL):])
         assert shared.status_code == 200 and shared.content[:4] == b"\x28\xb5\x2f\xfd", (kind, url, shared.text[:200])
-        assert env.client.get(f"/api/me/{kind}/download?bundle_id={bundle_id}").status_code in (401, 404)
-    for kind, bundle_id in (("support-bundles", support_id), ("data-bundles", data_id)):
-        listed = _call(env, "GET", f"/api/me/{kind}", alice).json()["bundles"]
-        assert [b["bundle_id"] for b in listed] == [bundle_id]
-        # The list gives the same token address to the owner at each time: the copy link of the row stays after a reload.
-        assert listed[0]["download_url"] == {"support-bundles": support_url, "data-bundles": data_url}[kind]
-        dl = _call(env, "GET", f"/api/me/{kind}/download?bundle_id={bundle_id}", alice)
-        assert dl.status_code == 200 and dl.content[:4] == b"\x28\xb5\x2f\xfd"  # zstd 매직
-        assert _call(env, "DELETE", f"/api/me/{kind}?bundle_id={bundle_id}", alice).status_code == 200
-        assert _call(env, "GET", f"/api/me/{kind}", alice).json()["bundles"] == []
+    # The list gives the same link to the owner at each time: the copy link of the row stays after a reload.
+    listed = _call(env, "GET", "/api/support/bundles", alice).json()["bundles"]
+    assert [(b["bundle_id"], b["link"]) for b in listed] == [(support_id, support_url)]
+    listed = _call(env, "GET", "/api/me/data-bundles", alice).json()["bundles"]
+    assert [(b["bundle_id"], b["download_url"]) for b in listed] == [(data_id, data_url)]
+    page = _call(env, "GET", "/support/bundles", alice).text
+    assert 'data-feature-form="support-bundle-create"' in page and 'data-feature-form="data-bundle-create"' in page
+    assert _call(env, "DELETE", f"/api/support/bundles/{support_id}", alice).status_code == 200
+    assert _call(env, "DELETE", f"/api/me/data-bundles?bundle_id={data_id}", alice).status_code == 200
+    assert _call(env, "GET", "/api/support/bundles", alice).json()["bundles"] == []
+    assert _call(env, "GET", "/api/me/data-bundles", alice).json()["bundles"] == []
 
     # 4. 백업: 자동 백업 주기 설정 → 수동 백업 → 내려받기.
     r = _call(env, "PUT", "/api/me/backups/policy", alice, json={"schedule": "weekly", "keep": 4})

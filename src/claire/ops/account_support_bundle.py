@@ -49,6 +49,7 @@ from .support_bundle import (
     sanitize_sensitive_data,
     validate_bundle_days,
 )
+from .support_bundle_target import SupportTargetNotFound, document_trail, note_trail, resolve_owned_target
 
 ACCOUNT_BUNDLE_SCOPE = "account"
 MAX_FAILED_ITEMS = 200
@@ -236,64 +237,39 @@ def _telemetry(settings: Settings, doc_ids: set[str], cutoff: float) -> list[dic
         conn.close()
 
 
-def _tracked_document(conn: sqlite3.Connection, kb_ids: list[int], target: str) -> dict[str, Any]:
-    """대상 문서 추적. 소유 테마 안의 문서 ID 또는 공유 토큰만 찾는다. 못 찾으면 ``not_found``."""
-    if not kb_ids:
-        return {"input_target": target, "resolution_status": "not_found"}
-    marks = _placeholders(kb_ids)
-    raw = target.strip()
-    candidate = raw.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+def _tracked_document(conn: sqlite3.Connection, target: Any, input_target: str) -> dict[str, Any]:
+    """The resolution member of a tracked document: the target resolution, the document identity (no body), and its ``raw_inbox`` rows."""
     doc_row = conn.execute(
-        f"SELECT id, kb_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
-        f"FROM documents WHERE kb_id IN ({marks}) AND (id = ? OR url = ? OR canonical_url = ?) LIMIT 1",
-        (*kb_ids, candidate, raw, raw),
+        "SELECT id, kb_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden FROM documents WHERE id = ? AND kb_id = ?",
+        (target.document_id, int(target.kb_id)),
     ).fetchone()
-    matched_by = "document_id_or_url"
+    out = target.resolution(input_target)
     if doc_row is None:
-        share = conn.execute(
-            f"SELECT target AS document_id FROM permalinks WHERE kind='document' AND kb_id IN ({marks}) AND token = ? LIMIT 1",
-            (*kb_ids, candidate),
-        ).fetchone()
-        if share is not None:
-            doc_row = conn.execute(
-                f"SELECT id, kb_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
-                f"FROM documents WHERE kb_id IN ({marks}) AND id = ? LIMIT 1",
-                (*kb_ids, share[0]),
-            ).fetchone()
-            matched_by = "share_token"
-    if doc_row is None:
-        return {"input_target": target, "resolution_status": "not_found"}
-    doc_id = str(doc_row[0])
-    inbox = [
+        return out
+    out["document"] = sanitize_sensitive_data(
+        {
+            "id": str(doc_row[0]),
+            "kb_id": doc_row[1],
+            "url": doc_row[2],
+            "canonical_url": doc_row[3],
+            "title": doc_row[4],
+            "source_type": doc_row[5],
+            "fetched_at": _iso(doc_row[6]),
+            "partial": bool(doc_row[7]),
+            "lang": doc_row[8],
+            "hidden": bool(doc_row[9]),
+        }
+    )
+    out["inbox_records"] = [
         sanitize_sensitive_data(
             {"inbox_id": r[0], "status": r[1], "error": (r[2] or "")[:1000], "attempts": r[3], "received_at": _iso(r[4])}
         )
         for r in conn.execute(
-            f"SELECT id, status, error, attempts, received_at FROM raw_inbox WHERE kb_id IN ({marks}) AND document_id = ? "
-            f"ORDER BY received_at DESC LIMIT 20",
-            (*kb_ids, doc_id),
+            "SELECT id, status, error, attempts, received_at FROM raw_inbox WHERE kb_id = ? AND document_id = ? ORDER BY received_at DESC LIMIT 20",
+            (int(target.kb_id), str(target.document_id)),
         )
     ]
-    return {
-        "input_target": target,
-        "resolution_status": "resolved",
-        "matched_by": matched_by,
-        "document": sanitize_sensitive_data(
-            {
-                "id": doc_id,
-                "kb_id": doc_row[1],
-                "url": doc_row[2],
-                "canonical_url": doc_row[3],
-                "title": doc_row[4],
-                "source_type": doc_row[5],
-                "fetched_at": _iso(doc_row[6]),
-                "partial": bool(doc_row[7]),
-                "lang": doc_row[8],
-                "hidden": bool(doc_row[9]),
-            }
-        ),
-        "inbox_records": inbox,
-    }
+    return out
 
 
 def _notifications(settings: Settings, account_id: int, cutoff: float, now: float) -> dict[str, Any]:
@@ -349,13 +325,24 @@ def create_account_support_bundle(
     themes = _owned_themes(s, account_id)
     kb_ids = [int(t.id) for t in themes]
     summary = _account_summary(s, account_id)
+    tracked_target = None
+    tracked: dict[str, Any] | None = None
+    trail: dict[str, Any] | None = None
     conn = dbm.connect_existing(s.db_file, readonly=True)
     try:
+        if target:
+            # The link must name a note or a document of this account (SupportTargetNotFound otherwise): a bundle never tracks an item of another account.
+            tracked_target = resolve_owned_target(s, conn, target, account_id=int(account_id), kb_ids=kb_ids)
+            if tracked_target.kind == "document":
+                tracked = _tracked_document(conn, tracked_target, target)
+                trail = document_trail(s, conn, kb_id=int(tracked_target.kb_id or 0), document_id=str(tracked_target.document_id))
         inbox_summary, failed_items = _pipeline(conn, kb_ids, cutoff)
         doc_ids = _owned_document_ids(conn, kb_ids)
-        tracked = _tracked_document(conn, kb_ids, target) if target else None
     finally:
         conn.close()
+    if tracked_target is not None and tracked_target.kind == "note":
+        tracked = tracked_target.resolution(target or "")
+        trail = note_trail(s, account_id=int(account_id), public_id=int(tracked_target.note_public_id or 0), now=now)
     telemetry = _telemetry(s, doc_ids, cutoff)
     notification_state = _notifications(s, account_id, cutoff, now)
     federation_state = _federation(s, account_id, cutoff, now)
@@ -373,8 +360,12 @@ def create_account_support_bundle(
                     _add_json(tar, f"{root}/telemetry/provider_records.json", telemetry)
                     _add_json(tar, f"{root}/notifications/summary.json", notification_state)
                     _add_json(tar, f"{root}/federation/summary.json", federation_state)
-                    if tracked is not None:
+                    if tracked_target is not None and tracked_target.kind == "document":
                         _add_json(tar, f"{root}/tracked_document/target_resolution.json", tracked)
+                        _add_json(tar, f"{root}/tracked_document/extraction_trail.json", trail)
+                    elif tracked_target is not None:
+                        _add_json(tar, f"{root}/tracked_note/target_resolution.json", tracked)
+                        _add_json(tar, f"{root}/tracked_note/note_trail.json", trail)
                     _add_json(tar, f"{root}/diagnostics/build.json", build)
                     _add_json(
                         tar,
@@ -398,6 +389,7 @@ def create_account_support_bundle(
                                 "federation_findings": len(federation_state.get("findings", [])),
                                 "federation_notes": int(((federation_state.get("notes") or {}).get("total")) or 0),
                             },
+                            "target": None if tracked_target is None else {"kind": tracked_target.kind, "link": tracked_target.link, "findings": [f["code"] for f in (trail or {}).get("findings", [])]},
                             "git_commit": build.get("git_commit"),
                             "request_context": sanitize_sensitive_data(request_context or {}),
                         },
@@ -409,7 +401,8 @@ def create_account_support_bundle(
         raise
 
     size_bytes = archive_path.stat().st_size
-    target_doc_id = (tracked or {}).get("document", {}).get("id") if tracked else None
+    target_doc_id = tracked_target.document_id if tracked_target is not None and tracked_target.kind == "document" else None
+    target_link = (tracked_target.link or target) if tracked_target is not None else None
     record = {
         "bundle_id": bundle_id,
         "token": token,
@@ -421,6 +414,7 @@ def create_account_support_bundle(
         "created_at": now,
         "expires_at": expires_at,
         "account_id": int(account_id),
+        "target_link": target_link,
     }
     _write_bundle_sidecar(data_dir, token=token, record=record)
     register_support_bundle(data_dir, **record)
@@ -438,9 +432,11 @@ def create_account_support_bundle(
         expires_at=expires_at,
         download_url=format_download_url(s, token),
         target_doc_id=target_doc_id,
-        target_matched_by=(tracked or {}).get("matched_by") if tracked else None,
-        target_kb_id=(tracked or {}).get("document", {}).get("kb_id") if tracked else None,
-        target_resolution_status=(tracked or {}).get("resolution_status") if tracked else None,
+        target_matched_by=tracked_target.matched_by if tracked_target is not None else None,
+        target_kb_id=tracked_target.kb_id if tracked_target is not None else None,
+        target_resolution_status="resolved" if tracked_target is not None else None,
+        target_kind=tracked_target.kind if tracked_target is not None else None,
+        target_link=target_link,
     )
 
 
@@ -453,6 +449,7 @@ def _public_record(settings: Settings, record: dict[str, Any]) -> dict[str, Any]
         "filename": record["filename"],
         "days_covered": record.get("days_covered"),
         "target_doc_id": record.get("target_doc_id"),
+        "target_link": record.get("target_link"),
         "size_bytes": record.get("size_bytes"),
         "created_at": _iso(record.get("created_at")),
         "expires_at": _iso(record.get("expires_at")),
@@ -464,18 +461,22 @@ def list_account_support_bundles(settings: Settings, *, account_id: int, now_epo
     return [_public_record(settings, r) for r in list_active_support_bundles(settings.data_dir, now_epoch=now_epoch, account_id=account_id)]
 
 
-def find_account_support_bundle(
-    settings: Settings, *, account_id: int, bundle_id: str, now_epoch: float | None = None
-) -> dict[str, Any] | None:
-    """계정 소유 활성 번들 하나. 파일 경로를 검증한 레코드(``filepath`` 포함) 또는 None."""
-    for record in list_active_support_bundles(settings.data_dir, now_epoch=now_epoch, account_id=account_id):
-        if record.get("bundle_id") != bundle_id:
-            continue
-        path = _validated_archive_path(settings.data_dir, record)
-        if path is None or not path.is_file():
-            return None
-        return {**record, "filepath": str(path)}
-    return None
+def list_server_support_bundles(settings: Settings, *, now_epoch: float | None = None) -> list[dict[str, Any]]:
+    """Active server-wide bundles (``account_id`` NULL), each with its token address, for the administrator."""
+    return [_public_record(settings, r) for r in list_active_support_bundles(settings.data_dir, now_epoch=now_epoch, server_only=True)]
+
+
+def delete_server_support_bundle(settings: Settings, *, bundle_id: str) -> bool:
+    """Delete one server-wide bundle (archive, row, and sidecar). False when no such bundle exists."""
+    record = next((item for item in list_active_support_bundles(settings.data_dir, now_epoch=0.0, server_only=True) if item.get("bundle_id") == bundle_id), None)
+    if record is None:
+        return False
+    path = _validated_archive_path(settings.data_dir, record)
+    if path is not None:
+        path.unlink(missing_ok=True)
+    delete_support_bundle(settings.data_dir, bundle_id)
+    _delete_bundle_sidecar(settings.data_dir, str(record.get("token") or ""))
+    return True
 
 
 def delete_account_support_bundle(
@@ -499,9 +500,11 @@ def delete_account_support_bundle(
 
 __all__ = [
     "AccountSupportBundleError",
+    "SupportTargetNotFound",
     "MAX_ACTIVE_ACCOUNT_BUNDLES",
     "create_account_support_bundle",
     "delete_account_support_bundle",
-    "find_account_support_bundle",
+    "delete_server_support_bundle",
     "list_account_support_bundles",
+    "list_server_support_bundles",
 ]

@@ -216,7 +216,7 @@ curl -s -X POST https://claire.example.com/ingest \
 
 ### 2.4 원격 진단 번들 (Support Bundle) API
 
-시스템 텔레메트리, 인박스 실패 내역 및 추적 정보를 안전하게 추출하기 위한 엔드포인트이다.
+시스템 텔레메트리, 인박스 실패 내역 및 추적 정보를 안전하게 추출하기 위한 엔드포인트이다. 웹 화면에서는 모든 계정이 `/support/bundles`에서 노트·문서 링크로 번들을 만들고 링크를 복사한다(`/api/support/bundles`, 관리자는 범위 `server`도 고른다, [ACCOUNTS.md](ACCOUNTS.md) §5.9, [TELEMETRY.md](TELEMETRY.md) §3.8).
 
 #### 1) 생성: `POST /support/bundle` (Owner 전용)
 ```bash

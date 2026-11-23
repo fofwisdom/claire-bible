@@ -287,8 +287,10 @@ def test_old_settings_paths_of_the_account_pages_redirect_with_308(console_env):
     _set_mode(console_env.db_file, "network")
     client = console_env.client
     redirects = console_routes.LEGACY_SETTINGS_ACCOUNT_REDIRECTS
-    assert redirects["/settings/account"] == "/account/profile" and redirects["/settings/keys"] == "/account/providers" and len(redirects) == 11
-    assert set(redirects.values()) <= {spec.path for spec in console_routes.ALL_ACCOUNT_SPECS}
+    assert redirects["/settings/account"] == "/account/profile" and redirects["/settings/keys"] == "/account/providers" and len(redirects) == 12
+    # The bundles page moved to /support/bundles: its two old paths go there.
+    assert redirects["/settings/bundles"] == redirects["/account/bundles"] == "/support/bundles"
+    assert set(redirects.values()) <= {spec.path for spec in (*console_routes.ALL_ACCOUNT_SPECS, *console_routes.SUPPORT_SPECS)}
     for old, new in redirects.items():
         for method in ("GET", "HEAD"):
             redir = client.request(method, old, headers=console_env.alice_owner, follow_redirects=False)
@@ -308,9 +310,10 @@ def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(co
     _set_mode(console_env.db_file, "network")
     html = console_env.client.get("/account/providers", headers=console_env.alice_owner).text
     sidebar = html.split('<nav class="console-sidebar"', 1)[1].split("</nav>", 1)[0]
-    assert re.findall(r'data-nav-group="([a-z_]+)"', sidebar) == ["workspace", "ai", "kb", "syndication"]
+    assert re.findall(r'data-nav-group="([a-z_]+)"', sidebar) == ["workspace", "ai", "kb", "syndication", "support"]
     groups = {m.group(1): re.findall(r'href="([^"?]+)', m.group(2)) for m in re.finditer(r'data-nav-group="([a-z_]+)">(.*?)</ul>', sidebar, re.S)}
-    assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/bundles", "/account/backups"]
+    assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/backups"]
+    assert groups["support"] == ["/support/bundles"]
     assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp", "/account/tokens"]
     assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 7
     assert 'data-active-area="account"' in html and 'data-nav-section="providers" aria-current="page"' in html
@@ -549,7 +552,7 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
         "themes": ("moderation", "/moderation/themes", 'id="admin-themes-host"', 'data-admin-panel-host="themes"'),
         "tokens": ("admin", "/admin/tokens", 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
         "audit": ("admin", "/admin/audit", 'id="admin-audit-actions-tbody"', 'id="pref-mcp-audit-tbody"'),
-        "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-rbac-tbody"', 'id="admin-support-bundle-form"'),
+        "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-rbac-tbody"', 'id="admin-mcp-rbac-card"'),
         "webmcp": ("admin", "/admin/webmcp", 'id="admin-webmcp-policy-card"', 'id="admin-webmcp-enabled"'),
     }
 
@@ -572,7 +575,8 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
             # The WebMCP server policy is on /admin/webmcp only. The MCP call audit records are on /admin/audit only.
             assert "admin-webmcp" not in body
             assert "pref-mcp-audit-tbody" not in body
-            assert "data-support-bundle-form" in body
+            # The support bundles of the server are on /support/bundles (one page for all bundles).
+            assert "data-support-bundle-form" not in body
         if slug == "webmcp":
             # The page has only the server policy. The account settings of WebMCP (id pref-webmcp-*) are on /account/webmcp.
             assert "pref-webmcp-" not in body and "/account/webmcp" in body

@@ -317,7 +317,7 @@
 | `/admin/plugins` | 플러그인 폴더·프로젝트 플러그인 폴더의 플러그인, 상태, 버전, 겹침 그룹, 켜기(단계 인증, 권한·다이제스트 대화상자)·끄기 (`plugins.py`, `GET`·`PUT`·`DELETE /api/admin/plugins`, [INGESTION.md](INGESTION.md) §2.2) |
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
 | `/admin/audit` | 서버 감사 기록. `/admin/federation`과 같은 탭 부품(`console_ui.console_tabs`, `#admin-audit-tabs`)으로 두 탭을 둔다: 관리자 작업(`admin` 탭, `auth.db`의 `admin_audit` 최신 100행을 서버가 그린다. 기록에는 계정 번호만 있으므로 화면은 계정의 현재 USERNAME을 함께 보이고, 없는 계정은 `#번호 (계정 없음)`), MCP 호출(`mcp` 탭, `mcp_telemetry` 표, `GET /api/admin/mcp/telemetry`) (`console_audit_panels.py`, `console_admin.js`의 `initAuditSection`). 소유자 결정 2026-11-23: 감사 기록을 `/admin/audit`에 모은다 |
-| `/admin/mcp` | RBAC·MCP 권한 비교표, `POST /support/bundle`. MCP 호출 감사 표는 `/admin/audit`에 있다 |
+| `/admin/mcp` | RBAC·MCP 권한 비교표. MCP 호출 감사 표는 `/admin/audit`에, 서버 서포트 번들은 `/support/bundles`에 있다 |
 | `/admin/webmcp` | WebMCP 서버 정책만 둔다: 페이지 도구 등록 전역 허용 스위치(`#admin-webmcp-enabled`, 프로토타입). 계정별 WebMCP 설정은 `/account/webmcp`에 있다(소유자 결정 2026-11-22: MCP·WebMCP 화면을 이용자용과 관리자용으로 분리) |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
 | `/admin/federation` | 연합 상태(연합은 끌 수 없는 고유 기능이라 스위치가 없다), 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |
@@ -325,7 +325,7 @@
 | `/admin/kb` | 호환 308 → `/moderation/oversight` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
 | `/admin/themes` | 호환 308 → `/moderation/themes` (관리자 전용, 검증한 `?kb=` 유지; 비관리자는 리디렉트 전에 404) |
 
-- **`GET`·`HEAD /api/admin/mcp/telemetry`**: 규칙 `_system("admin")`, 비관리자 404. 쿼리 `limit`(기본 50, 1–200 정수. 밖이거나 정수가 아니면 400 `invalid_limit`), `status`, `tool_name`, `since`(ISO 8601 시각. 비었거나 해석하지 못하면 400 `invalid_since`, C1). `store.telemetry.query_mcp_telemetry`로 `data/telemetry.db`를 최근 것부터 읽고 `{"records": [{id, timestamp, client_id, call_type, tool_name, duration_ms, status, error_code, error_message, response_bytes}], "count": n}`을 돌려준다. DB 파일이 없으면 빈 목록이다.
+- **`GET`·`HEAD /api/admin/mcp/telemetry`**: 규칙 `_system("admin")`, 비관리자 404. 쿼리 `limit`(기본 50, 1–200 정수. 밖이거나 정수가 아니면 400 `invalid_limit`), `status`, `tool_name`, `since`(ISO 8601 시각. 비었거나 해석하지 못하면 400 `invalid_since`, C1). `store.telemetry.query_mcp_telemetry`로 `data/telemetry.db`를 최근 것부터 읽고 `{"records": [{id, timestamp, client_id, call_type, tool_name, duration_ms, status, error_code, error_message, response_bytes, kb_id, document_id, detail}], "count": n}`을 돌려준다(`kb_id`·`document_id`·`detail`은 추출 도구 호출의 추적 열, [TELEMETRY.md](TELEMETRY.md) §2). DB 파일이 없으면 빈 목록이다.
 - **프로토타입 표식**: `/admin/*` 안에서 실제 서버 설정에 닿지 않는 요소는 서버가 표식 `<span class="proto-badge" data-prototype="…" data-prototype-kind="…">`(`common.prototype_badge`)과 무엇을 하지 않는지 적은 안내문 `.proto-note`(`common.prototype_note`)를 그린다. 종류는 `prototype`(프로토타입), `simulation`(시뮬레이션), `client_only`(브라우저에만 저장), `static`(정적 안내)이다. `/account/*`, `/settings/*`, `/moderation/kb` 응답에는 표식이 없다.
   - `/admin/accounts`: `admin-accounts-byok-switch`(prototype, '멤버 BYOK 외부 키 허용' 스위치는 켜짐 고정이고 서버 등급에 해당 설정이 없다), `admin-accounts-isolation-table`(static, 격리 구조 설명표). 같은 카드의 통계 숫자와 한도 값은 실제 값이다.
   - `/admin/idp`: `admin-idp-login-policy`(prototype, 로그인 방식·가입 처리·허용 도메인·`email_verified`·Back-Channel Logout 칸은 저장 API가 없는 고정 예시), `admin-idp-login-simulator`(simulation, 실행 결과는 선택값을 문장으로 보여 줄 뿐이다. 미리보기의 공급자 버튼은 실제 `/auth/oidc/{id}/start` 링크).
@@ -348,19 +348,24 @@
 | :--- | :--- | :--- |
 | `/account` | — | 302 `/account/profile` |
 | `/account/profile` | `workspace` | 다른 사람에게 보이는 계정 정보: 계정 정보 카드(`#settings-account-info`), USERNAME 변경 양식(`#settings-username`), 표시 이름, 프로필 공개 스위치(`#pref-profile-public`; 두 서버 모드 모두에 표시하며, 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 바로 보낸다. `data-step-up` 속성이 없고 재인증 대화상자를 열지 않으며(결정 GD6), 안내 문단 `data-federation-hint`가 붙는다. [FEDERATION.md](FEDERATION.md) §8.1), 출처 공개 스위치, 인터페이스 언어·엔티티 언어, 사용량(`#settings-quota`). `/api/me`, `/api/me/username`을 쓴다 |
-| `/account/security` | `workspace` | 본인 확인(`#settings-account-reauth`), 비밀번호 설정·변경(`#settings-password`, 현재 상태 `data-account-field="password"`), 외부 신원 연결(`#settings-identities`), 테마 번들 내보내기(`#settings-bundle`), 계정 수명주기 안내(`#settings-account-lifecycle`). `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /support/graph-bundle`을 쓴다. `?notice=` 안내문을 이 화면이 그린다 |
+| `/account/security` | `workspace` | 본인 확인(`#settings-account-reauth`), 비밀번호 설정·변경(`#settings-password`, 현재 상태 `data-account-field="password"`), 외부 신원 연결(`#settings-identities`), 계정 수명주기 안내(`#settings-account-lifecycle`). `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`를 쓴다. 데이터 내보내기(데이터 번들)는 `/support/bundles`에 있다. `?notice=` 안내문을 이 화면이 그린다 |
 | `/account/invites` | `workspace` | 모든 `owner` 계정(관리자 및 멤버)용 초대 코드 관리 화면(`console_invites.js`, `ALL_MODES`). 싱글 모드 또는 `member_invites_enabled=False`인 비관리자에게는 `#invites-issue-section`에 안내문만 표시하고, 발급 가능 시 생성 양식(`#invites-create-form`: 선택형 사용 횟수 `1`/`3`/`5`, 선택형 만기 `30분`/`1시간`/`6시간`/`1일`/`7일`, 메모; `reserved_username` 입력은 UI에 두지 않음)을 표시한다. 상태 배너(`#invites-result`) 아래 맨 끝 카드로 `#invites-list-section`을 배치하며 코드별 상태 배지, 사용 횟수, 만기일, 가입 이용자 목록, 가입 링크 복사(`[data-invite-copy]`), 활성 코드 즉시 폐기(`[data-invite-revoke]`)를 제공한다. 비관리자는 본인 발급 코드만 조회·폐기하고 관리자는 전체를 관리하며, 비관리자 응답에는 `/admin/*`·`console_admin.js`·`console.js.admin.*`이 없다 |
 | `/account/federation` | `workspace` | 내 핸들, 액터 ID와 액터 상태, 탐색 허용(`discoverable`) 상태, 팔로워 수·목록과 팔로워 제거([FEDERATION.md](FEDERATION.md) §7.5) |
 | `/account/telegram` | `workspace` | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/account/notifications` | `workspace` | 연계 요청 알림: 이 기기의 웹 푸시 켜기·끄기, 테스트 알림, 기기 목록, 종류별 스위치. `/api/me/push*`를 쓴다([NOTIFICATIONS.md](NOTIFICATIONS.md) §6) |
-| `/account/bundles` | `workspace` | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle/…`, `/support/graph-bundle/…`)이며 로그인 없이 열린다. 목록 응답도 소유자에게 번들마다 같은 `download_url`을 준다(서포트 번들은 `telemetry.db`의 행, 데이터 번들은 모드 `0600` sidecar가 토큰을 가진다). 그래서 목록의 각 행에 "링크 복사"가 번들이 만료될 때까지 있다. 목록에는 그 밖의 토큰 필드가 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. 토큰을 sidecar에 두기 전에 만든 데이터 번들은 행에 링크가 없다. `GET /support/graph-bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
+| `/account/bundles` | — | 호환 308 → `/support/bundles` (옛 `/settings/bundles`도 같은 곳으로 간다) |
 | `/account/backups` | `workspace` | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
 | `/account/providers` | `ai` | 내 계정의 LLM 작업을 누가 하는지 정하는 화면: 추출 모드 선택기(`#settings-extraction-mode` · `#pref-account-extraction-mode`: `provider` \| `client` 전환, `client` 모드일 때 `/account/mcp#pref-mcp-agent-guide` 안내 `[data-extraction-client-guide]`; 싱글 모드의 비관리자에게도 그린다), 개인 프로바이더 키·복호화 기록·서버 등급과 사용량(§5.8 WebUI). 옛 경로는 `/settings/keys`다 |
 | `/account/mcp` | `ai` (선택 테마의 예시 표시) | `/account/mcp` 상단의 빠른 시작 가이드(`#pref-mcp-agent-guide`, 현재 계정 `extraction_mode`와 분리된 `<ol class="pref-flow">` 3단계 녹색 `data-ok="true"` / 붉은색 `data-ok="false"` 진행 상태 표시: ① `client` 모드 → ② OAuth 2.1 `write` 인가 → ③ 첫 `agent_client` 추출 커밋), 공식 GitHub 마켓플레이스(`#pref-mcp-client-bundles`, `fofwisdom/claire-agents` 또는 `CLAIRE_AGENT_MARKETPLACE_REPO` · Git URL · GitHub Releases 안내), OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 수동 토큰 지원 중단 안내 |
 | `/account/webmcp` | `ai` (선택 테마) | 이용자용 WebMCP 페이지 도구 설정과 시뮬레이터(제안 단계, 브라우저에만 저장). 서버 정책은 `/admin/webmcp`에 있다 |
 | `/account/tokens` | `ai` | 본인 상시 토큰(`/tokens`, 지원 중단 예정 안내·`Deprecation` 헤더)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
 
-- **옛 `/settings/*` 계정 경로의 호환 308** (`LEGACY_SETTINGS_ACCOUNT_REDIRECTS`): `/settings/account` → `/account/profile`, `/settings/keys` → `/account/providers`, `/settings/{invites,federation,telegram,notifications,bundles,backups,mcp,webmcp,tokens}` → `/account/<같은 이름>`. owner가 아니면 리디렉트 전에 404다. 쿼리는 그대로 넘기고 대상 화면이 검증한다.
+- **`/support/bundles`** (영역 `support`, 사이드바 그룹 `support` "지원", 규칙 `_system("owner")`): 계정과 관리자 화면에 흩어져 있던 번들(`/account/bundles`의 서포트·데이터 번들, `/account/security`의 테마 번들 내보내기, `/admin/mcp`의 서버 서포트 번들)을 한 화면에 모은다(소유자 요청 2026-11-24). 모든 역할(관리자, 멤버)이 쓴다.
+  - 서포트 번들 카드(`#support-bundles-card`): 노트·문서 링크(`target`, 선택), 수집 기간(1–30일), 관리자에게만 범위 선택(`scope`: `account` 내 계정, `server` 서버 전체). 멤버의 양식에는 `scope=account` 숨은 값만 있다. 링크가 내 계정의 노트나 문서가 아니면 404 `target_not_found`로 번들을 만들지 않는다([TELEMETRY.md](TELEMETRY.md) §3.8).
+  - 데이터 번들 카드(`#data-bundles-card`): 내 지식 베이스를 골라 데이터 번들을 만든다(`/api/me/data-bundles`).
+  - 번들을 만들면 그 링크(토큰 주소 `/support/bundle/…`, `/support/graph-bundle/…`)를 읽기 전용 칸(`[data-bundle-link]`)과 "링크 복사" 버튼으로 바로 보인다. 목록의 각 행도 같은 링크의 "링크 복사"와 삭제만 있다. 내려받기 버튼과 계정 내려받기 경로는 없다. 링크는 로그인 없이 열린다.
+  - 관리자 목록에는 내 계정 번들과 서버 번들이 범위 열과 함께 있다. 멤버 응답에는 `/admin/*` 링크와 `console_admin.js`가 없다.
+- **옛 `/settings/*` 계정 경로의 호환 308** (`LEGACY_SETTINGS_ACCOUNT_REDIRECTS`): `/settings/account` → `/account/profile`, `/settings/keys` → `/account/providers`, `/settings/{invites,federation,telegram,notifications,backups,mcp,webmcp,tokens}` → `/account/<같은 이름>`, `/settings/bundles`와 `/account/bundles` → `/support/bundles`. owner가 아니면 리디렉트 전에 404다. 쿼리는 그대로 넘기고 대상 화면이 검증한다.
 - **`/settings`, `/settings/*`**: 지식 베이스별 설정이다(공유 지식, 신디케이션). 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 `write`·`readonly`·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
 
 | 경로 | 사이드바 그룹 | 동작 |
@@ -513,7 +518,7 @@
 
 ## 14. Per-account features: Telegram bot, bundles, backup
 
-기준 커밋: `d15ae8e0` (2026-11-16). Each account owner configures these features in the console (`/account/telegram`, `/account/bundles`, `/account/backups`, §5.9). The operator restores account backups in `/admin/backups`. Reasons and owner decisions PA1 to PA4: [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md).
+기준 커밋: `d15ae8e0` (2026-11-16); bundles: the commit that adds `/support/bundles` (2026-11-24). Each account owner configures these features in the console (`/account/telegram`, `/support/bundles`, `/account/backups`, §5.9). The operator restores account backups in `/admin/backups`. Reasons and owner decisions PA1 to PA4: [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md).
 
 ### 14.1 Files
 
@@ -546,9 +551,9 @@
 
 ### 14.4 Account support bundle
 
-- **[코드]** `create_account_support_bundle` puts in: an account summary without secrets, the owned themes and counts, the ingest queue summary and failed items of owned themes, provider telemetry of owned documents, an optional tracked document (only inside an owned theme), and the build identity.
-- **[코드]** It does not put in: host, mount, or storage diagnostics, configuration values, log files, OAuth or MCP records, data of other accounts, document bodies, or secrets.
-- **[코드]** An account can have 5 active bundles (`MAX_ACTIVE_ACCOUNT_BUNDLES`). A bundle expires after 6 hours (`SUPPORT_BUNDLE_TTL_SECONDS` in `src/claire/ops/support_bundle.py`). The administrator server bundle (`POST /support/bundle`) stays as it is.
+- **[코드]** `create_account_support_bundle` puts in: an account summary without secrets, the owned themes and counts, the ingest queue summary and failed items of owned themes, provider telemetry of owned documents, an optional tracked note or document of the account with its trail ([TELEMETRY.md](TELEMETRY.md) §3.8; a link to an item of another account is refused), and the build identity.
+- **[코드]** It does not put in: host, mount, or storage diagnostics, configuration values, log files, OAuth records, MCP records other than the calls of the tracked document, data of other accounts, document or note bodies, or secrets.
+- **[코드]** An account can have 5 active bundles (`MAX_ACTIVE_ACCOUNT_BUNDLES`). A bundle expires after 6 hours (`SUPPORT_BUNDLE_TTL_SECONDS` in `src/claire/ops/support_bundle.py`). The administrator makes a server bundle on the same page (`scope` `server`); `POST /support/bundle` stays for the Telegram delegation.
 
 ### 14.5 Account backup and restore
 
@@ -569,16 +574,16 @@ All paths are in `ROUTE_POLICY`. `_any("owner")` uses the account of the credent
 | Path | Methods | Rule |
 | :--- | :--- | :--- |
 | `/api/me/telegram` | GET, HEAD, PUT, PATCH, DELETE | `_any("owner")` |
-| `/api/me/support-bundles` | GET, HEAD, POST, DELETE | `_any("owner")` |
-| `/api/me/support-bundles/download` | GET, HEAD | `_any("owner")` |
+| `/api/support/bundles` | GET, HEAD, POST | `_any("owner")`; `scope` is required (`account`, or `server` for the administrator only: other accounts get 404) |
+| `/api/support/bundles/{bundle_id}` | DELETE | `_any("owner")`; a bundle of the account, or a server bundle for the administrator |
 | `/api/me/data-bundles` | GET, HEAD, POST, DELETE | `_any("owner")` |
-| `/api/me/data-bundles/download` | GET, HEAD | `_any("owner")` |
 | `/api/me/backups` | GET, HEAD, POST, DELETE | `_any("owner")` |
 | `/api/me/backups/download` | GET, HEAD | `_any("owner")` |
 | `/api/me/backups/policy` | PUT | `_any("owner")` |
 | `/api/admin/account-backups` | GET, HEAD | `_system("admin")` |
 | `/api/admin/account-backups/restore` | POST | `_system("admin")` |
-| `/account/telegram`, `/account/bundles`, `/account/backups` | GET, HEAD | `_system("owner")` |
+| `/account/telegram`, `/account/backups`, `/support/bundles` | GET, HEAD | `_system("owner")` |
+| `/account/bundles` | GET, HEAD | `_system("owner")`, 308 to `/support/bundles` |
 | `/admin/backups` | GET, HEAD | `_system("admin")` |
 
 - **[코드]** Step-up authentication (§5.3) is necessary for: bot register and replace (`PUT`), a change of allowed users (`PATCH` with `allowed_user_ids`), bot delete, backup delete, and restore.

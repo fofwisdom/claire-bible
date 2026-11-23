@@ -410,27 +410,6 @@ def _find_account_sidecar(
     return None
 
 
-def find_account_graph_bundle(
-    data_dir: Path | str | None,
-    account_id: int,
-    bundle_id: str,
-    now_epoch: float | None = None,
-) -> dict[str, Any] | None:
-    """Return one active bundle of the account with a validated ``filepath``, or None."""
-    found = _find_account_sidecar(data_dir, account_id, bundle_id)
-    if found is None:
-        return None
-    _sidecar, raw = found
-    now = now_epoch if now_epoch is not None else time.time()
-    expires_at = raw.get("expires_at")
-    if not isinstance(expires_at, (int, float)) or expires_at <= now:
-        return None
-    path = _validated_archive_path(data_dir, raw)
-    if path is None or not path.is_file():
-        return None
-    return {**_public_bundle_record(raw, None), "filepath": str(path)}
-
-
 def delete_account_graph_bundle(
     data_dir: Path | str | None,
     account_id: int,

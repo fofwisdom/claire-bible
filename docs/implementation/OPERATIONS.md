@@ -294,7 +294,7 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 계정 백업과 계정 기능
 
-계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/account/telegram`), 서포트·데이터 번들(`/account/bundles`), 계정 백업과 자동 백업 주기(`/account/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
+계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/account/telegram`), 서포트·데이터 번들(`/support/bundles`, 관리자는 같은 화면에서 서버 서포트 번들도 만든다), 계정 백업과 자동 백업 주기(`/account/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
 
 `bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(서버 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 현재 동작은 [ACCOUNTS.md](ACCOUNTS.md) §14, 설계 원칙은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)에 있다.
 

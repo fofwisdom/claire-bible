@@ -510,6 +510,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/account/telegram",
                 "/account/notifications",
                 "/account/bundles",
+                "/support/bundles",
                 "/account/backups",
                 "/account/federation",
                 "/api/federation/status",
@@ -548,14 +549,12 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/me/push/test"),
         *(
             (method, path)
-            for path in ("/api/me/support-bundles", "/api/me/data-bundles", "/api/me/backups")
+            for path in ("/api/me/data-bundles", "/api/me/backups")
             for method in ("GET", "HEAD", "POST", "DELETE")
         ),
-        *(
-            (method, path)
-            for path in ("/api/me/support-bundles/download", "/api/me/data-bundles/download", "/api/me/backups/download")
-            for method in ("GET", "HEAD")
-        ),
+        *((method, "/api/support/bundles") for method in ("GET", "HEAD", "POST")),
+        ("DELETE", "/api/support/bundles/{bundle_id}"),
+        *((method, "/api/me/backups/download") for method in ("GET", "HEAD")),
         ("PUT", "/api/me/backups/policy"),
         # Account feeds (FP4-F1, FP4-F2)
         *((method, "/api/feeds") for method in ("GET", "HEAD", "POST", "DELETE")),

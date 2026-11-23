@@ -169,7 +169,7 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     assert 'data-account-field="profile_public"' in html
     assert 'data-settings-form="display-name"' in html
     assert 'id="settings-locale"' in html and 'id="settings-quota"' in html
-    for security_only in ('data-settings-form="password"', "data-settings-identities", 'data-settings-form="bundle-export"', "data-lifecycle=", 'data-account-field="password"', "settings-extraction-mode"):
+    for security_only in ('data-settings-form="password"', "data-settings-identities", "data-lifecycle=", 'data-account-field="password"', "settings-extraction-mode"):
         assert security_only not in html, security_only
     assert '<script src="/static/js/console_account.js" defer></script>' in html
     # 할당량: 호출자 자신의 사용량과 서버 등급 상한만 나온다.
@@ -182,14 +182,16 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     security = _get(env, "/account/security", env.alice).text
     assert 'data-settings-form="password"' in security and 'data-account-field="password"' in security
     assert 'data-settings-identities' in security
-    assert 'data-settings-form="bundle-export"' in security
+    # The export of the data (data bundles) is on /support/bundles, not on the security page.
+    assert 'data-settings-form="bundle-export"' not in security
     assert 'data-lifecycle="member"' in security
     assert '<script src="/static/js/console_account.js" defer></script>' in security
     for profile_only in ('data-account-field="profile_public"', 'data-settings-form="display-name"', 'id="settings-quota"'):
         assert profile_only not in security, profile_only
     # 번들 내보내기 대상은 호출자 소유 테마뿐이다.
-    assert "Alice Garden" in security
-    for page in (html, security):
+    bundles = _get(env, "/support/bundles", env.alice).text
+    assert "Alice Garden" in bundles and 'data-feature-form="data-bundle-create"' in bundles
+    for page in (html, security, bundles):
         # 불변식 3: 비관리자 응답에는 /admin/* 링크와 관리자 번들이 없다.
         assert "/admin/" not in page
         assert "console_admin.js" not in page

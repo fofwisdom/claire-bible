@@ -178,3 +178,5 @@ Limits:
 4. `cb-manuscript update`는 업데이트 전 백업을 자동으로 만들지 않는다. backup v1 manifest는 `claire.db` 하나만 검증한다.
 5. 데이터 저장 배치 DS-3(계정별 관리자 적재 한도)은 구현되지 않았다.
 6. 연합 FP4 보류 항목: D1(계정별 차단·숨김·신고), D2(계정별 발신 속도 한도), D4/RD12(외부 연결 계정), 피드 자동 적재 규칙.
+7. Support Bundle의 MCP 추적 열(`kb_id`, `document_id`, `detail`)은 2026-11-24 이후의 `extract_*` 호출에만 있다. 그 전 호출은 `extraction_trail.json`의 `mcp_calls`에 없고 `MCP_TRAIL_ABSENT`로 보인다. 계정 범위 번들은 내 계정의 노트·문서만 추적한다: 멤버가 다른 계정의 공개 문서나 공유 지식 베이스 문서의 링크를 넣으면 번들을 만들지 않는다(404 `target_not_found`).
+8. 서버 서포트 번들의 만들기 API가 둘이다: `/support/bundles` 화면이 쓰는 `POST /api/support/bundles`(`scope` `server`)와 텔레그램 위임이 쓰는 `POST /support/bundle`. 등록부는 서버 번들을 만든 관리자를 기록하지 않으므로 관리자 목록은 모든 서버 번들을 보인다.

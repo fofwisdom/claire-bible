@@ -13,7 +13,7 @@ const SETTINGS_ROUTES = [
   '/account/federation',
   '/account/providers',
   '/account/telegram',
-  '/account/bundles',
+  '/support/bundles',
   '/account/backups',
   '/settings/kb',
   '/settings/reader',

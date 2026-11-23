@@ -29,6 +29,7 @@ from typing import Any
 
 from ..core.config import ROOT, Settings, get_settings
 from ..store import db as dbm
+from ..store import permalinks
 from ..store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
     clean_expired_support_bundles,
@@ -43,6 +44,7 @@ from ..store.telemetry import (
     register_support_bundle,
     telemetry_summary_stats,
 )
+from .support_bundle_target import document_trail, note_trail, resolve_note_link
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,9 @@ class SupportBundleInfo:
     target_matched_by: str | None = None
     target_kb_id: int | None = None
     target_resolution_status: str | None = None
+    # ``document`` or ``note``: the kind of the tracked item. ``target_link`` is its address (the Silvercord link when it has one).
+    target_kind: str | None = None
+    target_link: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -143,6 +148,8 @@ class SupportBundleInfo:
             "target_matched_by": self.target_matched_by,
             "target_kb_id": self.target_kb_id,
             "target_resolution_status": self.target_resolution_status,
+            "target_kind": self.target_kind,
+            "target_link": self.target_link,
         }
 
     @classmethod
@@ -168,6 +175,8 @@ class SupportBundleInfo:
             target_matched_by=value.get("target_matched_by"),
             target_kb_id=value.get("target_kb_id"),
             target_resolution_status=value.get("target_resolution_status"),
+            target_kind=value.get("target_kind"),
+            target_link=value.get("target_link"),
         )
 
 
@@ -1273,8 +1282,19 @@ def create_support_bundle(
     target_db_file: Path = Path(s.db_file)
     target_inbox_matches: list[dict[str, Any]] = []
     target_resolution_status: str | None = None
+    tracked_note = None
 
     if target:
+        try:
+            tracked_note = _resolve_note_target(s, target)
+        except Exception as exc:  # noqa: BLE001
+            collector_warnings.append({"code": "NOTE_TARGET_RESOLUTION_FAILED", "message": f"{type(exc).__name__}: {exc}"})
+    if tracked_note is not None:
+        target_info = tracked_note.resolution(str(target))
+        target_resolution_status = "resolved_note"
+        target_info["resolution_status"] = target_resolution_status
+        target_matched_by = tracked_note.matched_by
+    elif target:
         try:
             target_info, primary, target_inbox_matches = _resolve_support_target(s, target)
             target_resolution_status = target_info["resolution_status"]
@@ -1693,8 +1713,16 @@ def create_support_bundle(
                         if extra_log.name not in collected_logs:
                             _add_log_file(extra_log, extra_log.name)
 
-                # 7. 특정 요청/문서 추적 패키징. 문서화 전 실패 URL도 raw_inbox 기준으로 포함한다.
-                if target_info is not None:
+                # 7. 특정 요청/문서 추적 패키징. 문서화 전 실패 URL도 raw_inbox 기준으로 포함한다. A note link has its own members (tracked_note/).
+                if tracked_note is not None:
+                    try:
+                        note_data = note_trail(s, account_id=int(tracked_note.account_id or 0), public_id=int(tracked_note.note_public_id or 0), now=now)
+                    except Exception as exc:  # noqa: BLE001
+                        note_data = {"state": "error", "error_type": type(exc).__name__}
+                        collector_warnings.append({"code": "NOTE_TRAIL_COLLECTOR_FAILED", "message": type(exc).__name__})
+                    _add_tar_bytes(tar, f"{root_arcname}/tracked_note/target_resolution.json", json.dumps(sanitize_sensitive_data(target_info), ensure_ascii=False, indent=2).encode("utf-8"))
+                    _add_tar_bytes(tar, f"{root_arcname}/tracked_note/note_trail.json", json.dumps(sanitize_sensitive_data(note_data), ensure_ascii=False, indent=2).encode("utf-8"))
+                if target_info is not None and tracked_note is None:
                     doc_row = None
                     doc_shares: list[Any] = []
                     extractions: list[Any] = []
@@ -1876,6 +1904,21 @@ def create_support_bundle(
                         f"{root_arcname}/tracked_document/telemetry_history.jsonl",
                         ("\n".join(doc_tel_lines) + ("\n" if doc_tel_lines else "")).encode("utf-8"),
                     )
+                    if target_doc_id:
+                        try:
+                            trail_conn = dbm.connect_existing(target_db_file, readonly=True)
+                            try:
+                                trail_data = document_trail(s, trail_conn, kb_id=int(target_kb_id or 0), document_id=str(target_doc_id))
+                            finally:
+                                trail_conn.close()
+                        except Exception as exc:  # noqa: BLE001
+                            trail_data = {"state": "error", "error_type": type(exc).__name__}
+                            collector_warnings.append({"code": "EXTRACTION_TRAIL_COLLECTOR_FAILED", "message": type(exc).__name__})
+                        _add_tar_bytes(
+                            tar,
+                            f"{root_arcname}/tracked_document/extraction_trail.json",
+                            json.dumps(sanitize_sensitive_data(trail_data), ensure_ascii=False, indent=2).encode("utf-8"),
+                        )
 
                 # 8. Manifest 파일
                 build_identity = _get_build_identity()
@@ -1935,6 +1978,7 @@ def create_support_bundle(
         "filepath": str(archive_path),
         "days_covered": validated_days,
         "target_doc_id": target_doc_id,
+        "target_link": _target_link(s, target, tracked_note, target_doc_id, Path(target_db_file)),
         "size_bytes": size_bytes,
         "created_at": now,
         "expires_at": expires_at,
@@ -1980,7 +2024,39 @@ def create_support_bundle(
         target_matched_by=target_matched_by,
         target_kb_id=target_kb_id,
         target_resolution_status=target_resolution_status,
+        target_kind="note" if tracked_note is not None else ("document" if target_doc_id else None),
+        target_link=registry_record["target_link"],
     )
+
+
+def _resolve_note_target(settings: Settings, target: str) -> Any:
+    """The note of a Silvercord note link, or None (the link of a document, or other text, goes to the document resolver)."""
+    conn = dbm.connect_existing(settings.db_file, readonly=True)
+    try:
+        return resolve_note_link(settings, conn, target)
+    finally:
+        conn.close()
+
+
+def _target_link(settings: Settings, target: str | None, tracked_note: Any, target_doc_id: str | None, db_file: Path) -> str | None:
+    """The address of the tracked item for the bundle list: the Silvercord link of the note or the document, else the text that the person gave."""
+    if not target:
+        return None
+    if tracked_note is not None:
+        return tracked_note.link or target
+    if target_doc_id:
+        try:
+            conn = dbm.connect_existing(db_file, readonly=True)
+            try:
+                token = permalinks.token_of(conn, "document", target_doc_id)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            token = None
+        if token:
+            origin = str(getattr(settings, "public_url", "") or "").rstrip("/")
+            return permalinks.permalink_url(origin, token) if origin else permalinks.permalink_path(token)
+    return target
 
 
 def get_support_bundle(

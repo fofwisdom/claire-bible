@@ -1,5 +1,5 @@
-/* Claire console controller for per-account features: /account/telegram, /account/bundles, /account/backups, /admin/backups.
- * APIs: /api/auth/reauth, /api/me/telegram, /api/me/support-bundles*, /api/me/data-bundles*, /api/me/backups*, /api/admin/account-backups*.
+/* Claire console controller for per-account features: /account/telegram, /support/bundles, /account/backups, /admin/backups.
+ * APIs: /api/auth/reauth, /api/me/telegram, /api/support/bundles*, /api/me/data-bundles, /api/me/backups*, /api/admin/account-backups*.
  * Server text goes into the DOM only through textContent. No inline handlers.
  */
 (function () {
@@ -22,6 +22,8 @@
     theme_not_found: tr("console.js.features.error.theme_not_found"),
     invalid_days: tr("console.js.features.error.invalid_days"),
     invalid_target: tr("console.js.features.error.invalid_target"),
+    target_not_found: tr("console.js.features.error.target_not_found"),
+    invalid_scope: tr("console.js.common.error.invalid_request"),
     backup_failed: tr("console.js.features.error.backup_failed"),
     backup_not_found: tr("console.js.features.backups.empty"),
     invalid_policy: tr("console.js.features.error.invalid_policy"),
@@ -212,22 +214,24 @@
     }
   }
 
-  // --- bundles ---
+  // --- bundles (/support/bundles): each bundle gives a link to copy; the page has no download ---
+  var SCOPE_TEXT = { account: tr("console.js.features.bundles.scope_account"), server: tr("console.js.features.bundles.scope_server") };
+
   function loadSupport() {
     var host = document.querySelector("[data-feature-list='support-bundles']");
     if (!host) return Promise.resolve();
-    return request("GET", "/api/me/support-bundles").then(function (r) {
+    return request("GET", "/api/support/bundles").then(function (r) {
       if (!r.ok) { clear(host); host.appendChild(el("p", errorText(r.status, r.body), { "class": "hint" })); return; }
-      renderTable(host, r.body.bundles, [
-        [tr("console.js.features.bundles.col_bundle"), function (b) { return b.bundle_id; }],
-        [tr("console.js.features.bundles.col_period"), function (b) { return tr("console.js.features.bundles.days", { days: b.days_covered }); }],
-        [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }],
-        [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
-      ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
-        if (b.download_url) cell.appendChild(copyLinkButton(b.download_url, host.closest("section")));
+      var columns = [];
+      if ((r.body.scopes || []).length > 1) columns.push([tr("console.js.features.bundles.col_scope"), function (b) { return SCOPE_TEXT[b.scope] || b.scope; }]);
+      columns.push([tr("console.js.features.bundles.col_target"), function (b) { return b.target_link || tr("console.js.features.bundles.no_target"); }]);
+      columns.push([tr("console.js.features.bundles.col_period"), function (b) { return tr("console.js.features.bundles.days", { days: b.days_covered }); }]);
+      columns.push([tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }]);
+      columns.push([tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]);
+      renderTable(host, r.body.bundles, columns, function (b, cell) {
+        if (b.link) cell.appendChild(copyLinkButton(b.link, host.closest("section")));
         cell.appendChild(actionButton("", function () {
-          request("DELETE", "/api/me/support-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadSupport);
+          request("DELETE", "/api/support/bundles/" + encodeURIComponent(b.bundle_id)).then(loadSupport);
         }, "trash", tr("common.action.delete")));
       }, tr("console.js.features.bundles.support_empty"));
     });
@@ -241,19 +245,29 @@
       var labels = {};
       (r.body.themes || []).forEach(function (t) { labels[t.kb_id] = t.icon + " " + t.label; });
       renderTable(host, r.body.bundles, [
-        [tr("console.js.features.bundles.col_bundle"), function (b) { return b.bundle_id; }],
         [tr("console.js.features.col_theme"), function (b) { return labels[b.kb_id] || String(b.kb_id); }],
         [tr("console.js.features.bundles.col_counts"), function (b) { return b.entities_count + " · " + b.relations_count; }],
         [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }],
         [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
         if (b.download_url) cell.appendChild(copyLinkButton(b.download_url, host.closest("section")));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/data-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadData);
         }, "trash", tr("common.action.delete")));
       }, tr("console.js.features.bundles.data_empty"));
     });
+  }
+
+  /* The link of a new bundle: shown in a read-only field with its copy control. */
+  function showCreatedLink(form, kind, url) {
+    var box = form.querySelector("[data-bundle-created='" + kind + "']");
+    if (!box) return;
+    clear(box);
+    if (!url) return;
+    var field = el("input", null, { type: "text", readonly: "", "class": "pref-input", "data-bundle-link": "", "aria-label": tr("console.js.features.bundles.link_label") });
+    field.value = url;
+    box.appendChild(field);
+    box.appendChild(copyLinkButton(url, form));
   }
 
   function tr(key, params) {
@@ -290,11 +304,15 @@
         ev.preventDefault();
         var days = parseInt(sForm.querySelector("input[name='days']").value, 10);
         var target = sForm.querySelector("input[name='target']").value.trim();
-        var payload = { days: isFinite(days) ? days : 1 };
+        var scopeField = sForm.querySelector("[name='scope']");
+        var payload = { scope: scopeField ? scopeField.value : "account", days: isFinite(days) ? days : 1 };
         if (target) payload.target = target;
+        showCreatedLink(sForm, "support", null);
         show(sForm, tr("console.js.features.bundles.making"), false);
-        request("POST", "/api/me/support-bundles", payload).then(function (r) {
-          show(sForm, r.ok ? tr("console.js.features.bundles.support_made") : errorText(r.status, r.body), !r.ok);
+        request("POST", "/api/support/bundles", payload).then(function (r) {
+          if (!r.ok) { show(sForm, errorText(r.status, r.body), true); return loadSupport(); }
+          show(sForm, tr("console.js.features.bundles.support_made"), false);
+          showCreatedLink(sForm, "support", r.body && r.body.bundle ? r.body.bundle.link : null);
           return loadSupport();
         }).catch(function () { show(sForm, tr("console.js.common.network_error"), true); });
       });
@@ -304,9 +322,12 @@
       dForm.addEventListener("submit", function (ev) {
         ev.preventDefault();
         var theme = dForm.querySelector("select[name='theme']").value;
+        showCreatedLink(dForm, "data", null);
         show(dForm, tr("console.js.features.bundles.making"), false);
         request("POST", "/api/me/data-bundles", { kb: theme }).then(function (r) {
-          show(dForm, r.ok ? tr("console.js.features.bundles.data_made") : errorText(r.status, r.body), !r.ok);
+          if (!r.ok) { show(dForm, errorText(r.status, r.body), true); return loadData(); }
+          show(dForm, tr("console.js.features.bundles.data_made"), false);
+          showCreatedLink(dForm, "data", r.body && r.body.bundle ? r.body.bundle.download_url : null);
           return loadData();
         }).catch(function () { show(dForm, tr("console.js.common.network_error"), true); });
       });
@@ -423,7 +444,7 @@
     if (!bootstrap) return;
     bindReauth();
     if (bootstrap.area === "account" && bootstrap.section === "telegram") initTelegram();
-    else if (bootstrap.area === "account" && bootstrap.section === "bundles") initBundles();
+    else if (bootstrap.area === "support" && bootstrap.section === "bundles") initBundles();
     else if (bootstrap.area === "account" && bootstrap.section === "backups") initBackups();
     else if (bootstrap.area === "admin" && bootstrap.section === "backups") loadAdminBackups();
   }

@@ -112,7 +112,7 @@
 
 확인 기준: 커밋 `d15ae8e0` (2026-11-16). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §14다.
 
-- **[코드]** `/api/me/telegram`, `/api/me/support-bundles`, `/api/me/support-bundles/download`, `/api/me/data-bundles`, `/api/me/data-bundles/download`, `/api/me/backups`, `/api/me/backups/download`, `/api/me/backups/policy` use the rule `_any("owner")`. They use the account of the credential. A bundle or backup of another account is handled as not found (404).
+- **[코드]** `/api/me/telegram`, `/api/support/bundles`, `/api/support/bundles/{bundle_id}`, `/api/me/data-bundles`, `/api/me/backups`, `/api/me/backups/download`, `/api/me/backups/policy` use the rule `_any("owner")`. They use the account of the credential. A bundle or backup of another account is handled as not found (404).
 - **[코드]** `/api/me/notifications`, `/api/me/notifications/read`, `/api/me/push`, `/api/me/push/subscriptions`, `/api/me/push/kinds/{kind}`, and `/api/me/push/test` (notifications and Web Push of the account, 2026-11-22) use the rule `_any("owner")`. The requests and answers are in [NOTIFICATIONS.md](NOTIFICATIONS.md) §7.
 - **[코드]** `/api/admin/account-backups` (GET, HEAD) and `/api/admin/account-backups/restore` (POST) use the rule `_system("admin")`. A restore conflict gives 409 `restore_conflict` and changes nothing.
 - **[코드]** Step-up authentication (§2.1) is necessary for bot register, replace, and delete, a change of allowed users, backup delete, and restore.

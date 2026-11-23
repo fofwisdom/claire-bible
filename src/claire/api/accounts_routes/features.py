@@ -1,15 +1,14 @@
 """유저 단위 기능 라우트: 텔레그램 봇, 서포트 번들, 데이터 번들, 백업.
 
-계정 소유자(``scope == "owner"``)가 WebUI(``/account/telegram``·``/account/bundles``·``/account/backups``)에서 자기 계정의 기능을 구성·제어한다.
+계정 소유자(``scope == "owner"``)가 WebUI(``/account/telegram``·``/support/bundles``·``/account/backups``)에서 자기 계정의 기능을 구성·제어한다.
 복원만 운영자(관리자) 전용이다(``/admin/backups``, ``POST /api/admin/account-backups/restore``).
 
 | 경로 | 메서드 | 기능 |
 |------|--------|------|
 | ``/api/me/telegram`` | GET, PUT, PATCH, DELETE | 내 봇 조회·등록(토큰 검증)·켜기/끄기·허용 사용자 변경·삭제 |
-| ``/api/me/support-bundles`` | GET, POST, DELETE | 내 계정 범위 서포트 번들 목록·생성·삭제 |
-| ``/api/me/support-bundles/download`` | GET | 내 서포트 번들 내려받기 |
+| ``/api/support/bundles`` | GET, POST | 서포트 번들 목록·생성(``scope`` ``account``: 모든 계정, ``server``: 관리자). 노트·문서 링크(``target``)로 추적 대상을 정한다 |
+| ``/api/support/bundles/{bundle_id}`` | DELETE | 서포트 번들 삭제 |
 | ``/api/me/data-bundles`` | GET, POST, DELETE | 내 테마 데이터(그래프) 번들 목록·생성·삭제 |
-| ``/api/me/data-bundles/download`` | GET | 내 데이터 번들 내려받기 |
 | ``/api/me/backups`` | GET, POST, DELETE | 내 계정 백업 목록·생성·삭제 |
 | ``/api/me/backups/download`` | GET | 내 백업 내려받기 |
 | ``/api/me/backups/policy`` | PUT | 자동 백업 주기·보존 개수 |
@@ -64,10 +63,9 @@ from .console_ui import (
 )
 
 ME_TELEGRAM_PATH = "/api/me/telegram"
-ME_SUPPORT_BUNDLES_PATH = "/api/me/support-bundles"
-ME_SUPPORT_BUNDLES_DOWNLOAD_PATH = "/api/me/support-bundles/download"
+# The bundles of the page /support/bundles: support bundles of the account (each account) and of the server (administrator), and data bundles of the knowledge bases of the account.
+SUPPORT_BUNDLES_API_PATH = "/api/support/bundles"
 ME_DATA_BUNDLES_PATH = "/api/me/data-bundles"
-ME_DATA_BUNDLES_DOWNLOAD_PATH = "/api/me/data-bundles/download"
 ME_BACKUPS_PATH = "/api/me/backups"
 ME_BACKUPS_DOWNLOAD_PATH = "/api/me/backups/download"
 ME_BACKUPS_POLICY_PATH = "/api/me/backups/policy"
@@ -236,6 +234,19 @@ def _knowledge_bases_by_id(ctx: AccountsContext, kb_ids: list[int]) -> list[Any]
     return found
 
 
+def _bundle_item(record: dict[str, Any]) -> dict[str, Any]:
+    """One support bundle of the list: its link (the token address) and its facts. No download address: the page gives the link only."""
+    return {
+        "bundle_id": record["bundle_id"],
+        "link": record.get("download_url"),
+        "days_covered": record.get("days_covered"),
+        "target_link": record.get("target_link"),
+        "size_bytes": record.get("size_bytes"),
+        "created_at": record.get("created_at"),
+        "expires_at": record.get("expires_at"),
+    }
+
+
 def _theme_ref(theme: Any) -> str:
     from ...core import ids
 
@@ -335,49 +346,72 @@ def routes(ctx: AccountsContext) -> list[Route]:
         deleted = await asyncio.to_thread(_delete_bot, ctx, principal.account_id)
         return JSONResponse({"ok": True, "deleted": deleted})
 
-    # ---- 서포트 번들 ----
+    # ---- 서포트 번들 (/support/bundles) ----
     async def support_list(request: Request) -> Response:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        from ...ops.account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES, list_account_support_bundles
+        from ...ops.account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES, list_account_support_bundles, list_server_support_bundles
 
-        items = await asyncio.to_thread(list_account_support_bundles, _settings(ctx), account_id=principal.account_id)
-        return JSONResponse({"bundles": items, "max_active": MAX_ACTIVE_ACCOUNT_BUNDLES}, headers=NO_STORE)
+        s = _settings(ctx)
+
+        def _list() -> list[dict[str, Any]]:
+            items = [{**_bundle_item(r), "scope": "account"} for r in list_account_support_bundles(s, account_id=principal.account_id)]
+            if _is_admin(principal):
+                items.extend({**_bundle_item(r), "scope": "server"} for r in list_server_support_bundles(s))
+            items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+            return items
+
+        items = await asyncio.to_thread(_list)
+        return JSONResponse({"bundles": items, "max_active": MAX_ACTIVE_ACCOUNT_BUNDLES, "scopes": ["account", "server"] if _is_admin(principal) else ["account"]}, headers=NO_STORE)
 
     async def support_create(request: Request) -> Response:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
         body = await read_json_body(request)
-        if set(body) - {"days", "target"}:
-            return json_error(400, "invalid_request", fields=["days", "target"])
+        if set(body) - {"scope", "days", "target"}:
+            return json_error(400, "invalid_request", fields=["scope", "days", "target"])
+        # The scope is required (no default): "account" for every account, "server" for the administrator only.
+        scope = body.get("scope")
+        if scope not in ("account", "server"):
+            return json_error(400, "invalid_scope")
+        if scope == "server" and not _is_admin(principal):
+            return not_found()
         days = body.get("days", 1)
         if not isinstance(days, int) or isinstance(days, bool):
             return json_error(400, "invalid_days")
         target = body.get("target")
         if target is not None and (not isinstance(target, str) or len(target) > 2048):
             return json_error(400, "invalid_target")
-        from ...ops.account_support_bundle import AccountSupportBundleError, create_account_support_bundle
+        clean_target = (target or "").strip() or None
+        from ...ops.account_support_bundle import AccountSupportBundleError, SupportTargetNotFound, create_account_support_bundle
+        from ...ops.support_bundle import create_support_bundle, validate_bundle_days
+
+        s = _settings(ctx)
 
         def _create() -> dict[str, Any]:
-            info = create_account_support_bundle(
-                _settings(ctx), account_id=principal.account_id, days=days, target=(target or "").strip() or None,
-                request_context={"channel": "webui"},
-            )
+            if scope == "server":
+                validate_bundle_days(days, getattr(s, "telemetry_retention_days", 30))
+                info = create_support_bundle(s, days=days, target=clean_target, request_context={"channel": "webui"})
+            else:
+                info = create_account_support_bundle(s, account_id=principal.account_id, days=days, target=clean_target, request_context={"channel": "webui"})
             return {
                 "bundle_id": info.bundle_id,
-                "filename": info.filename,
+                "scope": scope,
+                "link": info.download_url,
                 "days_covered": info.days_covered,
                 "size_bytes": info.size_bytes,
-                "target_doc_id": info.target_doc_id,
+                "target_kind": info.target_kind,
+                "target_link": info.target_link,
                 "target_resolution_status": info.target_resolution_status,
                 "expires_at": datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat(),
-                "download_url": info.download_url,
             }
 
         try:
             created = await asyncio.to_thread(_create)
+        except SupportTargetNotFound as exc:
+            return json_error(404, "target_not_found", message=str(exc))
         except AccountSupportBundleError as exc:
             return json_error(409, "bundle_limit_reached", message=str(exc))
         except ValueError as exc:
@@ -388,26 +422,19 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal, denied = _owner(request)
         if denied is not None:
             return denied
-        bundle_id = request.query_params.get("bundle_id", "")
-        from ...ops.account_support_bundle import delete_account_support_bundle
+        bundle_id = str(request.path_params.get("bundle_id", ""))
+        from ...ops.account_support_bundle import delete_account_support_bundle, delete_server_support_bundle
 
-        ok = await asyncio.to_thread(delete_account_support_bundle, _settings(ctx), account_id=principal.account_id, bundle_id=bundle_id)
-        if not ok:
+        s = _settings(ctx)
+
+        def _delete() -> bool:
+            if delete_account_support_bundle(s, account_id=principal.account_id, bundle_id=bundle_id):
+                return True
+            return _is_admin(principal) and delete_server_support_bundle(s, bundle_id=bundle_id)
+
+        if not await asyncio.to_thread(_delete):
             return json_error(404, "bundle_not_found")
         return JSONResponse({"ok": True})
-
-    async def support_download(request: Request) -> Response:
-        principal, denied = _owner(request)
-        if denied is not None:
-            return denied
-        from ...ops.account_support_bundle import find_account_support_bundle
-
-        record = await asyncio.to_thread(
-            find_account_support_bundle, _settings(ctx), account_id=principal.account_id, bundle_id=request.query_params.get("bundle_id", "")
-        )
-        if record is None:
-            return not_found()
-        return _download(record["filepath"], record["filename"])
 
     # ---- 데이터 번들 ----
     async def data_list(request: Request) -> Response:
@@ -482,19 +509,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if not ok:
             return json_error(404, "bundle_not_found")
         return JSONResponse({"ok": True})
-
-    async def data_download(request: Request) -> Response:
-        principal, denied = _owner(request)
-        if denied is not None:
-            return denied
-        from ...ops.graph_bundle import find_account_graph_bundle
-
-        record = await asyncio.to_thread(
-            find_account_graph_bundle, _settings(ctx).data_dir, principal.account_id, request.query_params.get("bundle_id", "")
-        )
-        if record is None:
-            return not_found()
-        return _download(record["filepath"], str(record["filename"]))
 
     # ---- 백업 ----
     async def backups_list(request: Request) -> Response:
@@ -628,14 +642,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ME_TELEGRAM_PATH, telegram_put, methods=["PUT"]),
         Route(ME_TELEGRAM_PATH, telegram_patch, methods=["PATCH"]),
         Route(ME_TELEGRAM_PATH, telegram_delete, methods=["DELETE"]),
-        Route(ME_SUPPORT_BUNDLES_PATH, support_list, methods=["GET", "HEAD"]),
-        Route(ME_SUPPORT_BUNDLES_PATH, support_create, methods=["POST"]),
-        Route(ME_SUPPORT_BUNDLES_PATH, support_delete, methods=["DELETE"]),
-        Route(ME_SUPPORT_BUNDLES_DOWNLOAD_PATH, support_download, methods=["GET", "HEAD"]),
+        Route(SUPPORT_BUNDLES_API_PATH, support_list, methods=["GET", "HEAD"]),
+        Route(SUPPORT_BUNDLES_API_PATH, support_create, methods=["POST"]),
+        Route(SUPPORT_BUNDLES_API_PATH + "/{bundle_id}", support_delete, methods=["DELETE"]),
         Route(ME_DATA_BUNDLES_PATH, data_list, methods=["GET", "HEAD"]),
         Route(ME_DATA_BUNDLES_PATH, data_create, methods=["POST"]),
         Route(ME_DATA_BUNDLES_PATH, data_delete, methods=["DELETE"]),
-        Route(ME_DATA_BUNDLES_DOWNLOAD_PATH, data_download, methods=["GET", "HEAD"]),
         Route(ME_BACKUPS_PATH, backups_list, methods=["GET", "HEAD"]),
         Route(ME_BACKUPS_PATH, backups_create, methods=["POST"]),
         Route(ME_BACKUPS_PATH, backups_delete, methods=["DELETE"]),
@@ -775,7 +787,8 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
     return '<div class="settings-features" data-feature-section="telegram">' + _reauth_html(ctx, account.id) + state_card + register_card + allowed_card + delete_card + "</div>"
 
 
-def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Account, owned_themes: list[Any]) -> str:
+def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Account, owned_themes: list[Any], admin_viewer: bool) -> str:
+    """The body of ``/support/bundles``: support bundles (each account; the administrator also chooses the server scope) and data bundles. Each bundle gives a link to copy, not a download."""
     from ...ops.account_support_bundle import MAX_ACTIVE_ACCOUNT_BUNDLES
 
     options = "".join(
@@ -784,27 +797,48 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
     data_form = (
         '<form class="feature-inline" data-feature-form="data-bundle-create">'
         + console_field(t("console.common.theme"), f'<select name="theme" class="pref-select" required>{options}</select>', extra_class="feature-field")
-        + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.bundles.data.submit"))}</button>'
+        + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="package"></span> {escape(t("console.bundles.data.submit"))}</button>'
         + console_result(attrs={"data-feature-result": True})
+        + '<div data-bundle-created="data" aria-live="polite"></div>'
         + "</form>"
         if options
-        else f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
+        else f'<p class="hint" data-bundle-empty>{escape(t("console.bundles.data.empty_themes"))}</p>'
+    )
+    scope_field = (
+        console_field(
+            t("console.bundles.support.scope"),
+            '<select name="scope" class="pref-select">'
+            f'<option value="account">{escape(t("console.bundles.support.scope_account"))}</option>'
+            f'<option value="server">{escape(t("console.bundles.support.scope_server"))}</option>'
+            "</select>",
+            extra_class="feature-field",
+        )
+        if admin_viewer
+        else '<input type="hidden" name="scope" value="account"/>'
     )
     support_form = (
         '<form class="feature-inline" data-feature-form="support-bundle-create">'
-        + console_field(t("console.admin.mcp.bundle_days"), '<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/>', extra_class="feature-field")
-        + console_field(t("console.bundles.support.target"), '<input name="target" class="pref-input" maxlength="2048"/>', extra_class="feature-field")
+        + console_field(
+            t("console.bundles.support.target"),
+            f'<input name="target" type="text" class="pref-input" maxlength="2048" inputmode="url" placeholder="{escape(t("console.bundles.support.target_placeholder"))}"/>',
+            extra_class="feature-field",
+        )
+        + console_field(t("console.bundles.support.days"), '<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/>', extra_class="feature-field")
+        + scope_field
         + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> {escape(t("console.bundles.support.submit"))}</button>'
         + console_result(attrs={"data-feature-result": True})
+        + '<div data-bundle-created="support" aria-live="polite"></div>'
         + "</form>"
     )
+    hint_key = "console.bundles.support.hint_admin" if admin_viewer else "console.bundles.support.hint"
     support_card = console_card(
         escape(t("console.bundles.support.title")),
         support_form + '<div data-feature-list="support-bundles" aria-live="polite"></div>',
         icon="pulse",
-        hint_html=escape(t("console.bundles.support.hint", max=MAX_ACTIVE_ACCOUNT_BUNDLES)),
+        hint_html=escape(t(hint_key, max=MAX_ACTIVE_ACCOUNT_BUNDLES)),
         extra_class="card",
         aria_label=t("console.bundles.support.label"),
+        id="support-bundles-card",
     )
     data_card = console_card(
         escape(t("console.bundles.data.title")),
@@ -813,6 +847,7 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
         hint_html=escape(t("console.bundles.data.hint")),
         extra_class="card",
         aria_label=t("console.bundles.data.label"),
+        id="data-bundles-card",
     )
     return '<div class="settings-features" data-feature-section="bundles">' + support_card + data_card + "</div>"
 

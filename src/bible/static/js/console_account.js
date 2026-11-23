@@ -1,5 +1,5 @@
 /* Claire user console controller for the /account sections profile, security, federation, providers, and tokens. Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/support/graph-bundle, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -401,42 +401,6 @@
     });
   }
 
-  // --- /account/security: graph bundle output ---
-
-  function renderBundle(section, info) {
-    var out = section.querySelector("[data-bundle-output]");
-    if (!out) return;
-    while (out.firstChild) out.removeChild(out.firstChild);
-    var dl = document.createElement("dl");
-    [
-      [tr("console.js.account.bundle.file"), info.filename],
-      [tr("console.js.account.bundle.entities"), info.entities_count],
-      [tr("console.js.account.bundle.relations"), info.relations_count],
-      [tr("console.js.account.bundle.documents"), info.documents_count],
-      [tr("console.js.account.bundle.size"), info.size_bytes],
-      [tr("console.js.account.bundle.expires"), info.expires_at]
-    ].forEach(function (row) {
-      var dt = document.createElement("dt");
-      dt.textContent = row[0];
-      var dd = document.createElement("dd");
-      dd.textContent = row[1] == null ? "-" : String(row[1]);
-      dl.appendChild(dt);
-      dl.appendChild(dd);
-    });
-    out.appendChild(dl);
-    if (typeof info.download_url === "string" && /^https?:\/\//i.test(info.download_url)) {
-      var a = document.createElement("a");
-      a.className = "pref-btn pref-btn-accent";
-      a.href = info.download_url;
-      a.rel = "noopener";
-      var mark = document.createElement("span");
-      mark.setAttribute("data-icon", "download");
-      a.appendChild(mark);
-      a.appendChild(document.createTextNode(" " + tr("console.js.account.bundle.download")));
-      out.appendChild(a);
-    }
-  }
-
   // --- form handlers ---
 
   var handlers = {
@@ -547,24 +511,6 @@
         }
       });
     },
-    "bundle-export": function (form) {
-      var section = form.closest("section") || form;
-      var theme = form.elements.namedItem("theme").value;
-      if (!theme) {
-        show(section, tr("console.js.account.bundle.select_theme"), true);
-        return Promise.resolve();
-      }
-      show(section, tr("console.js.account.bundle.making"), false);
-      // Design Section 5.2: the path selects the knowledge base (the server sends 308 to the path of the owner).
-      return request("POST", "/kb/" + encodeURIComponent(theme) + "/support/graph-bundle", {}).then(function (r) {
-        if (r.ok && r.body) {
-          show(section, tr("console.js.account.bundle.made"), false);
-          renderBundle(section, r.body);
-        } else {
-          show(section, errorText(r.status, r.body), true);
-        }
-      });
-    },
     "provider-key-put": function (form) {
       var provider = form.elements.namedItem("provider").value;
       var field = form.elements.namedItem("api_key");
@@ -612,8 +558,7 @@
         var button = form.querySelector("button[type=submit]");
         if (button) button.disabled = true;
         handler(form).catch(function () {
-          var scope = form.getAttribute("data-settings-form") === "bundle-export" ? (form.closest("section") || form) : form;
-          show(scope, tr("console.js.common.network_error"), true);
+          show(form, tr("console.js.common.network_error"), true);
         }).then(function () {
           if (button) button.disabled = false;
         });

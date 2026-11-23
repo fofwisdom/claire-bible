@@ -278,36 +278,132 @@ def _read_tar_zst(data: bytes) -> dict[str, bytes]:
     return out
 
 
+def _bundle_files(c: Any, link: str) -> dict[str, bytes]:
+    """Open the link of a bundle (the token address, no login) and read its members."""
+    r = c.request("GET", "/support/bundle/" + link.split("/support/bundle/", 1)[1])
+    assert r.status_code == 200 and r.headers["cache-control"].startswith("no-store")
+    return _read_tar_zst(r.content)
+
+
 def test_account_support_bundle_is_scoped_to_caller(env):
     c = env.client
-    r = c.request("POST", "/api/me/support-bundles", session=env.sa, json={"days": 1, "target": "alpha-d1"})
+    # The scope is required: there is no default.
+    r = c.request("POST", "/api/support/bundles", session=env.sa, json={"days": 1, "target": "alpha-d1"})
+    assert r.status_code == 400 and r.json()["error"] == "invalid_scope"
+    r = c.request("POST", "/api/support/bundles", session=env.sa, json={"scope": "account", "days": 1, "target": "alpha-d1"})
     assert r.status_code == 200, r.text
     bundle = r.json()["bundle"]
-    assert bundle["target_doc_id"] == "alpha-d1"
-    listed = c.request("GET", "/api/me/support-bundles", session=env.sa).json()["bundles"]
+    assert bundle["target_kind"] == "document" and bundle["scope"] == "account" and "/support/bundle/sb3_" in bundle["link"]
+    listing = c.request("GET", "/api/support/bundles", session=env.sa).json()
+    assert listing["scopes"] == ["account"]
+    listed = listing["bundles"]
     assert [b["bundle_id"] for b in listed] == [bundle["bundle_id"]]
-    # The owner gets the token address in the list, thus the copy link of the row does not go away. The list has no other token field.
-    assert listed[0]["download_url"] == bundle["download_url"]
-    assert "token" not in listed[0]
-    # 다른 계정은 목록에서 보지 못하고 내려받지 못한다.
-    assert c.request("GET", "/api/me/support-bundles", session=env.sb).json()["bundles"] == []
-    assert c.request("GET", f"/api/me/support-bundles/download?bundle_id={bundle['bundle_id']}", session=env.sb).status_code == 404
-    dl = c.request("GET", f"/api/me/support-bundles/download?bundle_id={bundle['bundle_id']}", session=env.sa)
-    assert dl.status_code == 200 and dl.headers["cache-control"].startswith("no-store")
-    files = _read_tar_zst(dl.content)
+    # The owner gets the link in the list, thus the copy link of the row does not go away. The list has no token field and no download address.
+    assert listed[0]["link"] == bundle["link"] and listed[0]["target_link"] == bundle["target_link"]
+    assert "token" not in listed[0] and "download_url" not in listed[0]
+    # 다른 계정은 목록에서 보지 못한다. The old account APIs are closed.
+    assert c.request("GET", "/api/support/bundles", session=env.sb).json()["bundles"] == []
+    assert c.request("GET", "/api/me/support-bundles", session=env.sa).status_code == 404
+    files = _bundle_files(c, bundle["link"])
     blob = b"".join(files.values()).decode("utf-8")
     manifest = json.loads(next(v for k, v in files.items() if k.endswith("manifest.json")))
-    assert manifest["scope"] == "account"
+    assert manifest["scope"] == "account" and manifest["target"]["kind"] == "document"
+    assert any(k.endswith("tracked_document/extraction_trail.json") for k in files)
     assert "https://x/alpha/fail" in blob  # 내 실패 항목
     assert "bravo" not in blob  # 다른 계정 정보 없음
     assert "body alpha" not in blob  # 문서 본문 없음
     assert not any("diagnostics/storage" in k or "/logs/" in k for k in files)
-    # 다른 계정 문서를 대상으로 지정해도 찾지 못한다.
-    r = c.request("POST", "/api/me/support-bundles", session=env.sa, json={"days": 1, "target": "bravo-d1"})
-    assert r.status_code == 200 and r.json()["bundle"]["target_resolution_status"] == "not_found"
-    assert c.request("DELETE", f"/api/me/support-bundles?bundle_id={bundle['bundle_id']}", session=env.sb).status_code == 404
-    assert c.request("DELETE", f"/api/me/support-bundles?bundle_id={bundle['bundle_id']}", session=env.sa).status_code == 200
-    assert len(c.request("GET", "/api/me/support-bundles", session=env.sa).json()["bundles"]) == 1
+    # A link to a document of another account is refused, not tracked.
+    r = c.request("POST", "/api/support/bundles", session=env.sa, json={"scope": "account", "days": 1, "target": "bravo-d1"})
+    assert r.status_code == 404 and r.json()["error"] == "target_not_found"
+    # A member cannot make a server bundle.
+    assert c.request("POST", "/api/support/bundles", session=env.sa, json={"scope": "server", "days": 1}).status_code == 404
+    assert c.request("DELETE", f"/api/support/bundles/{bundle['bundle_id']}", session=env.sb).status_code == 404
+    assert c.request("DELETE", f"/api/support/bundles/{bundle['bundle_id']}", session=env.sa).status_code == 200
+    assert c.request("GET", "/api/support/bundles", session=env.sa).json()["bundles"] == []
+
+
+def test_support_bundle_of_a_document_link_has_the_extraction_trail(env):
+    """The bundle of a Silvercord document link has the stored extractions with their models, the MCP calls of the document, and the findings that name a missing model."""
+    from claire.store import permalinks
+    from claire.store.telemetry import record_mcp_telemetry
+
+    conn = dbm.connect_existing(env.settings.db_file)
+    try:
+        dbm.log_extraction(conn, document_id="alpha-d1", provider="agent_client", model="", prompt_version="v1", raw_response=json.dumps({"extraction_origin": "agent_client", "client_id": "oauth:claire_mcp_x", "oauth_client_id": "claire_mcp_x", "model": None}), kb_id=env.theme_a)
+        token = permalinks.ensure_document(conn, "alpha-d1", env.theme_a)
+        conn.commit()
+    finally:
+        conn.close()
+    record_mcp_telemetry(env.settings.data_dir, client_id="oauth:claire_mcp_x", tool_name="extract_submit", kb_id=env.theme_a, document_id="alpha-d1", detail={"dry_run": True, "model_field": "absent", "ok": True, "warnings": ["model_missing"]})
+    record_mcp_telemetry(env.settings.data_dir, client_id="oauth:claire_mcp_x", tool_name="extract_submit", kb_id=env.theme_a, document_id="alpha-d1", detail={"dry_run": False, "model_field": "absent", "ok": True, "committed": True, "recorded_model": None})
+    record_mcp_telemetry(env.settings.data_dir, client_id="oauth:claire_mcp_x", tool_name="extract_submit", kb_id=env.theme_b, document_id="bravo-d1", detail={"dry_run": False})
+    link = f"{PUBLIC_URL}/silvercord/{token}"
+    r = env.client.request("POST", "/api/support/bundles", session=env.sa, json={"scope": "account", "days": 1, "target": link})
+    assert r.status_code == 200, r.text
+    assert r.json()["bundle"]["target_link"] == link
+    files = _bundle_files(env.client, r.json()["bundle"]["link"])
+    trail = json.loads(next(v for k, v in files.items() if k.endswith("tracked_document/extraction_trail.json")))
+    assert trail["extractions"][0]["provider"] == "agent_client" and trail["extractions"][0]["model_recorded"] is False
+    assert trail["item_view"]["model_badge"] is None
+    assert [c["detail"]["dry_run"] for c in trail["mcp_calls"]] == [True, False]
+    assert {f["code"] for f in trail["findings"]} >= {"EXTRACTION_MODEL_MISSING", "SUBMIT_WITHOUT_MODEL", "MODEL_WARNING_NOT_ADDRESSED"}
+
+
+def test_support_bundle_of_a_note_link_has_the_delivery_trail(env):
+    from claire.store import permalinks
+    from claire.store.client_db import client_db_path
+
+    client = dbm.connect_existing(client_db_path(env.settings.db_file))
+    try:
+        client.execute("INSERT INTO federation_notes (public_id, account_id, content_text, content_html, published_at, updated_at) VALUES (900001, ?, 'secret note text', '<p>secret note text</p>', ?, ?)", (env.a, time.time(), time.time()))
+        client.execute("INSERT INTO federation_client_outbox (account_id, kind, ref_id, status, error_code, created_at) VALUES (?, 'note', 900001, 'rejected', 'actor_gone', ?)", (env.a, time.time()))
+        client.commit()
+    finally:
+        client.close()
+    conn = dbm.connect_existing(env.settings.db_file)
+    try:
+        token = permalinks.ensure_note(conn, 900001, env.a)
+        conn.commit()
+    finally:
+        conn.close()
+    link = f"{PUBLIC_URL}/silvercord/{token}"
+    # The note of another account is refused.
+    assert env.client.request("POST", "/api/support/bundles", session=env.sb, json={"scope": "account", "target": link}).status_code == 404
+    r = env.client.request("POST", "/api/support/bundles", session=env.sa, json={"scope": "account", "days": 1, "target": link})
+    assert r.status_code == 200, r.text
+    assert r.json()["bundle"]["target_kind"] == "note"
+    files = _bundle_files(env.client, r.json()["bundle"]["link"])
+    trail = json.loads(next(v for k, v in files.items() if k.endswith("tracked_note/note_trail.json")))
+    assert trail["note"]["text_chars"] == len("secret note text") and trail["client_tasks"][0]["error_code"] == "actor_gone"
+    assert "CLIENT_TASK_REJECTED" in {f["code"] for f in trail["findings"]}
+    assert b"secret note text" not in b"".join(files.values())
+
+
+def test_administrator_makes_and_lists_server_bundles_on_the_same_page(env):
+    c = env.client
+    listing = c.request("GET", "/api/support/bundles", session=env.admin).json()
+    assert listing["scopes"] == ["account", "server"]
+    r = c.request("POST", "/api/support/bundles", session=env.admin, json={"scope": "server", "days": 1})
+    assert r.status_code == 200, r.text
+    server_bundle = r.json()["bundle"]
+    assert server_bundle["scope"] == "server"
+    listed = c.request("GET", "/api/support/bundles", session=env.admin).json()["bundles"]
+    assert [(b["bundle_id"], b["scope"]) for b in listed] == [(server_bundle["bundle_id"], "server")]
+    # A member does not see the server bundle and cannot delete it.
+    assert c.request("GET", "/api/support/bundles", session=env.sa).json()["bundles"] == []
+    assert c.request("DELETE", f"/api/support/bundles/{server_bundle['bundle_id']}", session=env.sa).status_code == 404
+    files = _bundle_files(c, server_bundle["link"])
+    assert any(k.endswith("diagnostics/system.json") for k in files)
+    assert c.request("DELETE", f"/api/support/bundles/{server_bundle['bundle_id']}", session=env.admin).status_code == 200
+    assert c.request("GET", "/api/support/bundles", session=env.admin).json()["bundles"] == []
+    # The page: every owner has the link field; only the administrator has the scope choice.
+    member_page = c.request("GET", "/support/bundles", session=env.sa)
+    admin_page = c.request("GET", "/support/bundles", session=env.admin)
+    assert member_page.status_code == admin_page.status_code == 200
+    assert 'name="target"' in member_page.text and 'value="server"' not in member_page.text and "/admin/" not in member_page.text
+    assert 'value="server"' in admin_page.text and "console_admin.js" not in admin_page.text
+    assert c.request("GET", "/account/bundles", session=env.sa).headers["location"] == "/support/bundles"
 
 
 # --- 데이터 번들 -----------------------------------------------------------------------------------
@@ -330,8 +426,10 @@ def test_data_bundle_lifecycle_and_isolation(env):
     assert [b["bundle_id"] for b in listed] == [created["bundle_id"]]
     assert listed[0]["download_url"] == created["download_url"] and "token" not in listed[0]
     assert c.request("GET", "/api/me/data-bundles", session=env.sb).json()["bundles"] == []
-    assert c.request("GET", f"/api/me/data-bundles/download?bundle_id={created['bundle_id']}", session=env.sb).status_code == 404
-    dl = c.request("GET", f"/api/me/data-bundles/download?bundle_id={created['bundle_id']}", session=env.sa)
+    # The page gives the link only: the download route of the account is closed, and the link opens without a login.
+    assert c.request("GET", f"/api/me/data-bundles/download?bundle_id={created['bundle_id']}", session=env.sa).status_code == 404
+    link_path = "/support/graph-bundle/" + created["download_url"].split("/support/graph-bundle/", 1)[1]
+    dl = c.request("GET", link_path)
     assert dl.status_code == 200 and any(k.endswith("graph_export.db") for k in _read_tar_zst(dl.content))
     assert c.request("DELETE", f"/api/me/data-bundles?bundle_id={created['bundle_id']}", session=env.sa).status_code == 200
     assert c.request("GET", "/api/me/data-bundles", session=env.sa).json()["bundles"] == []

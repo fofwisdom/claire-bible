@@ -677,7 +677,43 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
         return dbm.connect_existing(db_file, readonly=True)
 
-    def _timed_call(tool_name: str, fn, *args, **kwargs):
+    def _trail_document_id(value: Any) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text[:200] or None
+
+    def _submitted_model_facts(payload: Any) -> dict[str, Any]:
+        """What the client sent in ``payload.model``: ``absent`` (no key), ``empty`` (null or blank), or ``set`` with the value (at most 200 characters)."""
+        if not isinstance(payload, dict) or "model" not in payload:
+            return {"model_field": "absent"}
+        value = payload.get("model")
+        if value is None or not str(value).strip():
+            return {"model_field": "empty"}
+        return {"model_field": "set", "submitted_model": str(value).strip()[:200]}
+
+    def _trail_detail(trail: tuple[int, str | None, dict[str, Any]], res: Any) -> tuple[int, str | None, dict[str, Any]]:
+        """The trail columns of an extraction call: the facts of the request and the result codes of the answer. No source text, no summary, no token."""
+        kb_id, document_id, facts = trail
+        detail: dict[str, Any] = dict(facts)
+        if isinstance(res, dict):
+            if document_id is None and isinstance(res.get("document_id"), str):
+                document_id = res["document_id"]
+            if "ok" in res:
+                detail["ok"] = bool(res.get("ok"))
+            for key in ("error", "extraction_status", "committed", "duplicate"):
+                if key in res and isinstance(res[key], (str, bool)):
+                    detail[key] = res[key]
+            for key in ("warnings", "errors"):
+                items = res.get(key)
+                if isinstance(items, list):
+                    codes = [str(item.get("code")) for item in items if isinstance(item, dict) and item.get("code")]
+                    if codes:
+                        detail[key] = codes[:20]
+            if "model" in res and (res.get("model") is None or isinstance(res.get("model"), str)):
+                detail["recorded_model"] = res.get("model")
+        return kb_id, document_id, detail
+
+    def _timed_call(tool_name: str, fn, *args, trail: tuple[int, str | None, dict[str, Any]] | None = None, **kwargs):
+        """Run one tool and write its MCP telemetry row. ``trail`` is ``(kb_id, document_id, facts)`` of an extraction tool: the row then also gets the document and a detail object (``_trail_detail``), which a Support Bundle with a tracked document reads."""
         t0 = time.time()
         status = "SUCCESS"
         err_msg = None
@@ -694,6 +730,9 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             dur = int((time.time() - t0) * 1000)
             resp_bytes = len(str(res).encode("utf-8", errors="replace")) if res is not None else 0
             data_dir = getattr(s, "data_dir", "data")
+            trail_kb, trail_doc, trail_detail = (None, None, None)
+            if trail is not None:
+                trail_kb, trail_doc, trail_detail = _trail_detail(trail, res)
             record_mcp_telemetry(
                 data_dir,
                 client_id=client_attr,
@@ -703,6 +742,9 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                 status=status,
                 error_message=err_msg,
                 response_bytes=resp_bytes,
+                kb_id=trail_kb,
+                document_id=trail_doc,
+                detail=trail_detail,
             )
 
     def _resolve_read_kb(kb: str | int | None) -> tuple[int, None] | tuple[None, dict[str, str]]:
@@ -1196,7 +1238,8 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             finally:
                 conn.close()
 
-        return _timed_call("extract_stage", _work)
+        stage_mode = "document" if clean_doc_id is not None else ("file" if has_file else ("url" if clean_url is not None else "text"))
+        return _timed_call("extract_stage", _work, trail=(personal_id, _trail_document_id(clean_doc_id), {"mode": stage_mode, "force": force, "refetch": refetch}))
 
     @mcp.tool(**_tool_kwargs("extract_queue"))
     async def extract_queue(status: str | None = "pending", limit: int = 50, kb: str | int | None = None) -> dict[str, Any]:
@@ -1273,7 +1316,8 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             finally:
                 conn.close()
 
-        return _timed_call("extract_claim", _work)
+        renew = claim_token is not None and bool(str(claim_token).strip())
+        return _timed_call("extract_claim", _work, trail=(personal_id, _trail_document_id(document_id), {"renew": renew, "force": force}))
 
     @mcp.tool(**_tool_kwargs("extract_read"))
     async def extract_read(
@@ -1316,7 +1360,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             finally:
                 conn.close()
 
-        return _timed_call("extract_read", _work)
+        return _timed_call("extract_read", _work, trail=(personal_id, _trail_document_id(document_id), {}))
 
     @mcp.tool(**_tool_kwargs("extract_submit"))
     async def extract_submit(
@@ -1362,7 +1406,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             except ce.ClientExtractionError as exc:
                 return exc.to_response_dict()
 
-        return _timed_call("extract_submit", _work)
+        return _timed_call("extract_submit", _work, trail=(personal_id, _trail_document_id(document_id), {"dry_run": bool(dry_run), **_submitted_model_facts(payload)}))
 
     port = getattr(s, "inject_port", 8765)
     hosts = {"localhost", "127.0.0.1", f"localhost:{port}", f"127.0.0.1:{port}"}

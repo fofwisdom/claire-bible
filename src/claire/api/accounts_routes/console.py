@@ -1,9 +1,9 @@
-"""Unified console routes: ``/admin``, ``/admin/*``, ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/*``, and ``/api/admin/mcp/telemetry``.
+"""Unified console routes: ``/admin``, ``/admin/*``, ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/*``, ``/support/bundles``, and ``/api/admin/mcp/telemetry``.
 
 - ``/admin``, ``/admin/*``, ``/moderation/oversight``, and ``/moderation/themes`` are for administrators only (``server_role == "admin"``, ``scope == "owner"``); other callers get 404.
-- ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, and ``/moderation/kb`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``). ``/account/*`` has the pages of the account of the caller; ``/settings/*`` has the pages of a knowledge base (shared knowledge, syndication).
+- ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/kb``, and ``/support/bundles`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``). ``/account/*`` has the pages of the account of the caller; ``/settings/*`` has the pages of a knowledge base (shared knowledge, syndication).
 - An administrator who opens ``/account/tokens`` gets a 302 redirect to ``/admin/tokens`` and does not see ``/account/tokens`` in the sidebar.
-- Legacy routes (the old ``/settings/*`` paths of the ``/account/*`` pages, ``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
+- Legacy routes (the old ``/settings/*`` paths of the ``/account/*`` pages, ``/account/bundles``, ``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
 - Non-admin HTML responses never contain ``/admin/*`` links, ``/moderation/oversight``, ``/moderation/themes``, or administrator script bundles.
 """
 
@@ -73,7 +73,7 @@ from .admin import account_role_text, account_status_text
 from .common import icon_html, open_auth_db
 
 # 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
-FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})
+FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})  # "bundles" is the page /support/bundles
 
 def _tokens_deprecation_banner_html() -> str:
     """Render the deprecation banner pointing operators and users to OAuth 2.1 in /account/mcp."""
@@ -95,7 +95,7 @@ class ConsoleSectionSpec:
 
     slug: str
     path: str
-    area: str  # "account" | "settings" | "admin" | "moderation"
+    area: str  # "account" | "settings" | "admin" | "moderation" | "support"
     group_id: str
     theme_scoped: bool = False
     # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
@@ -170,13 +170,6 @@ ACCOUNT_WORKSPACE_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="bell",
     ),
     ConsoleSectionSpec(
-        slug="bundles",
-        path="/account/bundles",
-        area="account",
-        group_id="workspace",
-        icon="package",
-    ),
-    ConsoleSectionSpec(
         slug="backups",
         path="/account/backups",
         area="account",
@@ -184,6 +177,16 @@ ACCOUNT_WORKSPACE_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="save",
     ),
 )
+
+# The support area (/support/*): one page for the bundles of each account (support bundles of the account and data bundles of its knowledge bases) and, for the administrator, the support bundles of the server. A support bundle can track a note or a document from its link.
+SUPPORT_BUNDLES_SPEC = ConsoleSectionSpec(
+    slug="bundles",
+    path="/support/bundles",
+    area="support",
+    group_id="support",
+    icon="package",
+)
+SUPPORT_SPECS: tuple[ConsoleSectionSpec, ...] = (SUPPORT_BUNDLES_SPEC,)
 
 # The AI group of the account: who does the LLM jobs of the account (providers) and how AI agents connect (mcp, webmcp, tokens). The mcp and webmcp pages show their examples and their exposure for the selected knowledge base.
 ACCOUNT_AI_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -228,7 +231,10 @@ ALL_ACCOUNT_SPECS: tuple[ConsoleSectionSpec, ...] = (
 LEGACY_SETTINGS_ACCOUNT_REDIRECTS: dict[str, str] = {
     "/settings/account": "/account/profile",
     "/settings/keys": "/account/providers",
-    **{f"/settings/{slug}": f"/account/{slug}" for slug in ("invites", "federation", "telegram", "notifications", "bundles", "backups", "mcp", "webmcp", "tokens")},
+    **{f"/settings/{slug}": f"/account/{slug}" for slug in ("invites", "federation", "telegram", "notifications", "backups", "mcp", "webmcp", "tokens")},
+    # The bundles page moved from /account/bundles (and before that /settings/bundles) to /support/bundles.
+    "/settings/bundles": SUPPORT_BUNDLES_SPEC.path,
+    "/account/bundles": SUPPORT_BUNDLES_SPEC.path,
 }
 
 SETTINGS_KB_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -439,7 +445,7 @@ ALL_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *ADMIN_CONSOLE_GROUP_5_SPECS,
 )
 # The owner sections of the two areas: /account/* and /settings/*.
-OWNER_SECTION_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS)}
+OWNER_SECTION_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS, *SUPPORT_SPECS)}
 ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {
     spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS
 }
@@ -554,6 +560,7 @@ def _build_sidebar_html(
             ),
             ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
             ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
+            ("support", t("console.group.support"), list(SUPPORT_SPECS)),
         ]
         if admin_viewer:
             groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
@@ -755,26 +762,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             badge_html=prototype_badge("admin-mcp-rbac-table", "static"),
             aria_label=t("console.admin.mcp.rbac_label"),
         )
-        bundle_form_html = (
-            '<form id="admin-support-bundle-form" class="console-form-row" data-support-bundle-form>'
-            + console_field(
-                t("console.admin.mcp.bundle_days"),
-                '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>',
-                for_id="admin-support-bundle-days",
-            )
-            + f'<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> {escape(t("console.admin.mcp.bundle_submit"))}</button>'
-            + "</form>"
-            + console_result(id="admin-support-bundle-result", attrs={"data-support-bundle-result": True})
-        )
-        bundle_card = console_card(
-            t_code("console.admin.mcp.bundle_title", endpoint="POST /support/bundle"),
-            bundle_form_html,
-            id="admin-support-bundle-card",
-            icon="package",
-            hint_html=escape(t("console.admin.mcp.bundle_hint")),
-            aria_label=t("console.admin.mcp.bundle_label"),
-        )
-        return rbac_card + bundle_card, {}
+        return rbac_card, {}
 
     if slug == "webmcp":
         # The server policy of WebMCP only. The account settings (exposure for each knowledge base, tools, confirmation) are in /account/webmcp.
@@ -930,7 +918,7 @@ def _build_settings_account_section(
 ) -> SettingsSectionRender:
     """The bodies of the ``/account/*`` sections other than ``mcp`` and ``webmcp``, and of ``/settings/kb`` and the owner moderation section (design P3-a).
 
-    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /support/graph-bundle``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
+    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
     - A response for an account that is not the server administrator has no ``/admin/*`` link (invariant 3). Only the server administrator gets the ``/admin/providers`` link.
     """
     if principal.account_id is None or principal.account_id != account.id:
@@ -939,7 +927,7 @@ def _build_settings_account_section(
     if spec.slug == "profile":
         body, extra = _account_profile_body(ctx, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "security":
-        body, extra = _account_security_body(ctx, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
+        body, extra = _account_security_body(ctx, account=account, admin_viewer=admin_viewer, notice=notice)
     elif spec.slug == "invites":
         return _settings_invites_render(ctx, mode=mode, admin_viewer=admin_viewer)
     elif spec.slug == "federation":
@@ -975,7 +963,7 @@ def _build_settings_account_section(
         if spec.slug == "telegram":
             body = feature_routes.settings_telegram_body(ctx, account=account)
         elif spec.slug == "bundles":
-            body = feature_routes.settings_bundles_body(ctx, account=account, owned_themes=owned_themes)
+            body = feature_routes.settings_bundles_body(ctx, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer)
         else:
             body = feature_routes.settings_backups_body(ctx, account=account)
         return SettingsSectionRender(
@@ -1231,11 +1219,10 @@ def _account_security_body(
     ctx: AccountsContext,
     *,
     account: accounts_store.Account,
-    owned_themes: list[KnowledgeBaseInfo],
     admin_viewer: bool,
     notice: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """The body of ``/account/security``: the password, the confirmation of identity, the linked login identities, the export of the data, and the deletion of the account."""
+    """The body of ``/account/security``: the password, the confirmation of identity, the linked login identities, and the deletion of the account. The export of the data (data bundles) is on ``/support/bundles``."""
     has_password = _account_has_password(ctx, account.id)
     providers = _settings_enabled_idp_providers(ctx)
 
@@ -1258,22 +1245,6 @@ def _account_security_body(
         if provider_buttons
         else f'<p class="hint" data-identity-link-empty>{escape(t("console.settings.account.identity_link_empty"))}</p>'
     )
-
-    bundle_options = "".join(
-        f'<option value="{escape(ids.format_public_id(t.number) if t.number is not None else str(t.id))}">{escape(t.icon)} {escape(t.label)}</option>'
-        for t in owned_themes
-    )
-    if bundle_options:
-        bundle_html = (
-            '<form class="console-form-row" data-settings-form="bundle-export">'
-            + console_field(t("console.settings.account.bundle_theme"), f'<select name="theme" class="pref-select" required>{bundle_options}</select>')
-            + f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.settings.account.bundle_submit"))}</button>'
-            + "</form>"
-            + console_result(attrs={"data-settings-result": True})
-            + '<div data-bundle-output aria-live="polite"></div>'
-        )
-    else:
-        bundle_html = f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
 
     if admin_viewer:
         lifecycle_html = f'<p class="hint" data-lifecycle="admin">{escape(t("console.settings.account.lifecycle_admin"))}</p>'
@@ -1327,14 +1298,6 @@ def _account_security_body(
             hint_html=escape(t("console.settings.account.identities_hint")),
             aria_label=t("console.settings.account.identities_label"),
             attrs={"data-settings-identities": True},
-        )
-        + console_card(
-            escape(t("console.settings.account.bundle_title")),
-            bundle_html,
-            id="settings-bundle",
-            icon="package",
-            hint_html=t_code("console.settings.account.bundle_hint", endpoint="POST /support/graph-bundle"),
-            aria_label=t("console.settings.account.bundle_label"),
         )
         + console_card(
             escape(t("console.settings.account.lifecycle_title")),
@@ -2015,7 +1978,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     mounted.append(Route("/moderation/kb/{kb_number:int}", moderation_kb_manage_page, methods=["GET", "HEAD"]))
     for spec in ADMIN_CONSOLE_GROUP_5_SPECS:
         mounted.append(Route(spec.path, admin_section_page, methods=["GET", "HEAD"]))
-    for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS):
+    for spec in (*ALL_ACCOUNT_SPECS, *ALL_SETTINGS_SPECS, *SUPPORT_SPECS):
         mounted.append(Route(spec.path, owner_section_page, methods=["GET", "HEAD"]))
     for legacy_path in LEGACY_SETTINGS_ACCOUNT_REDIRECTS:
         mounted.append(Route(legacy_path, legacy_settings_account_redirect, methods=["GET", "HEAD"]))

@@ -5,7 +5,7 @@
 - `admin`: ``/admin/accounts``, ``/api/admin/accounts``
 - `me`: ``/me``, ``/api/me``, ``/api/me/password``
 - `keys`: ``/api/me/provider-keys``, ``/api/me/provider-keys/verify`` (네트워크 모드 멤버, §11)
-- `features`: 유저 단위 기능 ``/api/me/telegram``, ``/api/me/support-bundles*``, ``/api/me/data-bundles*``, ``/api/me/backups*``, ``/api/admin/account-backups*``
+- `features`: 유저 단위 기능 ``/api/me/telegram``, ``/api/support/bundles*``, ``/api/me/data-bundles``, ``/api/me/backups*``, ``/api/admin/account-backups*``
 - `federation`: ``/api/admin/federation``, ``/api/admin/federation/domain-blocks``, ``/admin/federation``, ``/api/federation/status``, ``/api/federation/followers`` (Fedify sidecar design Sections 9.2, 11, and 12)
 - `knowledge_federation`: ``/api/admin/federation/known-servers``, ``/api/admin/federation/journal`` (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13)
 - `notifications`: notifications and Web Push of the account ``/api/me/notifications*``, ``/api/me/push*`` (PWA_NOTIFICATION_DESIGN.md PN5)

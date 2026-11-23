@@ -226,6 +226,37 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     r_share_after = env.client.post(f"/@{env.alice.username}/share", json={"doc_id": doc_id}, headers=alice_headers)
     assert r_share_after.status_code == 200 and r_share_after.json()["token"]
 
+    # 9. The MCP trail of the document: each extract_* call has the knowledge base, the document, and the facts of the call (the submitted model, the dry run, the result codes).
+    from claire.store.telemetry import query_mcp_trail
+
+    personal_kb = km.get_kb_by_number(int(env.alice.personal_kb_number))
+    trail = query_mcp_trail(env.settings.data_dir, kb_id=personal_kb.id, document_id=doc_id)
+    submits = [r for r in trail if r["tool_name"] == "extract_submit"]
+    assert {"extract_claim", "extract_read", "extract_submit"} <= {r["tool_name"] for r in trail}
+    assert submits[-1]["detail"] == {"dry_run": False, "model_field": "set", "submitted_model": "gemini-3.8-flash", "ok": True, "committed": True, "extraction_status": "extracted", "recorded_model": "gemini-3.8-flash"}
+    assert any(r["detail"].get("dry_run") is True and r["detail"].get("ok") is False and r["detail"].get("errors") for r in submits)
+
+    # 10. A support bundle from the Silvercord link of the document has the extraction trail: the stored model, the agent client name, and the MCP calls.
+    link = f"{env.public_url.rstrip('/')}/silvercord/{r_share_after.json()['token']}"
+    made = env.client.post("/api/support/bundles", json={"scope": "account", "days": 1, "target": link}, headers=alice_headers)
+    assert made.status_code == 200, made.text
+    bundle = made.json()["bundle"]
+    assert bundle["target_kind"] == "document" and bundle["target_link"] == link and "/support/bundle/" in bundle["link"]
+    archive = env.client.get("/support/bundle/" + bundle["link"].split("/support/bundle/", 1)[1])
+    assert archive.status_code == 200
+    import io
+    import tarfile
+    from compression import zstd
+
+    with tarfile.open(fileobj=io.BytesIO(zstd.decompress(archive.content)), mode="r:") as tar:
+        members = {m.name.split("/", 1)[1]: tar.extractfile(m).read() for m in tar.getmembers() if m.isfile()}
+    trail_member = json.loads(members["tracked_document/extraction_trail.json"])
+    assert trail_member["extractions"][0]["model"] == "gemini-3.8-flash" and trail_member["extractions"][0]["oauth_client_name"] == "Antigravity Agent E2E"
+    assert trail_member["item_view"]["model_badge"] == "gemini-3.8-flash"
+    assert [c["detail"].get("submitted_model") for c in trail_member["mcp_calls"] if c["tool"] == "extract_submit"][-1] == "gemini-3.8-flash"
+    assert not {f["code"] for f in trail_member["findings"]} & {"EXTRACTION_MODEL_MISSING", "SUBMIT_WITHOUT_MODEL"}
+    assert "Claire는" not in members["tracked_document/extraction_trail.json"].decode("utf-8")
+
 
 def test_e2e_http_client_extraction_routes_and_optimistic_hash_conflict(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
