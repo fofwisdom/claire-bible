@@ -5,6 +5,8 @@ After a host that did not respond gets a forced restart, the kernel data of ``/p
 - ``logs/host-<service>.log``: one JSON line each 60 seconds, written with ``fsync``, thus the last lines before a stop of the host stay on the disk (rotation at 5 MB, 1 old file). A line has the kernel boot ID, the memory, swap, load and pressure (PSI) of the host, the memory of the container (cgroup v2), and the memory, threads and open files of the process. The lines ``start`` and ``stop`` mark the start and the correct stop of the process.
 - ``collect_host`` reads these files for ``diagnostics/host.json`` of the server bundle: the state now, the peaks of the period, and each restart with the last samples before it.
 
+The ``api`` service also adds a network probe of the public host of the server to each line: the name resolution and a TCP connection. A time in which the server was not reachable then shows as a sequence of failed probes, and not only as a time without lines in ``api.log``.
+
 A container sees the memory of the host in ``/proc/meminfo``, but only its own cgroup and its own processes. Thus each service writes its own file. The Fedify sidecar is not a Python service and has no file.
 
 A failure to read a value gives ``None``. A failure to write a record does not stop the service.
@@ -16,11 +18,13 @@ import atexit
 import json
 import os
 import shutil
+import socket
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 __all__ = ["collect_host", "host_log_path", "read_sample", "start_host_recorder"]
 
@@ -32,6 +36,7 @@ _STALL_SECONDS = 5 * SAMPLE_INTERVAL_SECONDS
 _LOW_MEMORY_FRACTION = 0.05
 _HIGH_PRESSURE_PERCENT = 25.0
 _API_SERVICE = "api"
+_PROBE_TIMEOUT_SECONDS = 5.0
 
 _PROC = Path("/proc")
 _CGROUP = Path("/sys/fs/cgroup")
@@ -151,8 +156,42 @@ def read_sample(data_dir: Path | str, *, now: float | None = None) -> dict[str, 
     }
 
 
+def probe_target(public_url: str | None) -> tuple[str, int] | None:
+    """The host and the port of the public address. ``None`` for an empty address and for a loopback or literal IP host (a development server): the probe then has no value."""
+    parts = urlsplit(public_url or "")
+    host = parts.hostname
+    if not host or host == "localhost" or host.replace(".", "").isdigit() or ":" in host:
+        return None
+    return host, parts.port or (443 if parts.scheme == "https" else 80)
+
+
+def probe_network(target: tuple[str, int]) -> dict[str, Any]:
+    """Resolve the name and open one TCP connection. The result has the step that failed (``dns`` or ``connect``) and the time of each step."""
+    host, port = target
+    out: dict[str, Any] = {"host": host, "port": port, "ok": False, "failed_step": None, "error": None, "dns_seconds": None, "connect_seconds": None}
+    started = time.monotonic()
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        out.update(failed_step="dns", error=f"{type(exc).__name__}: {exc}", dns_seconds=time.monotonic() - started)
+        return out
+    out["dns_seconds"] = time.monotonic() - started
+    started = time.monotonic()
+    family, kind, protocol, _, address = addresses[0]
+    try:
+        with socket.socket(family, kind, protocol) as connection:
+            connection.settimeout(_PROBE_TIMEOUT_SECONDS)
+            connection.connect(address)
+    except OSError as exc:
+        out.update(failed_step="connect", error=f"{type(exc).__name__}: {exc}", connect_seconds=time.monotonic() - started)
+        return out
+    out.update(ok=True, connect_seconds=time.monotonic() - started)
+    return out
+
+
 class _Recorder:
-    def __init__(self, data_dir: Path | str, service: str, interval: float) -> None:
+    def __init__(self, data_dir: Path | str, service: str, interval: float, probe: tuple[str, int] | None = None) -> None:
+        self.probe = probe
         self.data_dir = Path(data_dir)
         self.service = service
         self.interval = interval
@@ -163,6 +202,11 @@ class _Recorder:
 
     def write(self, event: str) -> None:
         record = {"event": event, "service": self.service, **read_sample(self.data_dir)}
+        if self.probe is not None and event != "stop":  # The probe can take seconds: it must not delay the stop.
+            try:
+                record["network"] = probe_network(self.probe)
+            except Exception as exc:  # noqa: BLE001
+                record["network"] = {"ok": None, "error": f"{type(exc).__name__}: {exc}"}
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
         with self._lock:
             try:
@@ -193,11 +237,11 @@ class _Recorder:
             self.write("stop")
 
 
-def start_host_recorder(data_dir: Path | str, service: str, *, interval: float = SAMPLE_INTERVAL_SECONDS) -> None:
-    """Start the thread that writes ``logs/host-<service>.log``. A second call for the same service does nothing. The line ``stop`` is written when the process stops correctly."""
+def start_host_recorder(data_dir: Path | str, service: str, *, interval: float = SAMPLE_INTERVAL_SECONDS, public_url: str | None = None) -> None:
+    """Start the thread that writes ``logs/host-<service>.log``. A second call for the same service does nothing. The line ``stop`` is written when the process stops correctly. With ``public_url``, each line has a network probe of that host."""
     if service in _recorders:
         return
-    recorder = _Recorder(data_dir, service, interval)
+    recorder = _Recorder(data_dir, service, interval, probe_target(public_url))
     _recorders[service] = recorder
     threading.Thread(target=recorder.run, name=f"host-recorder-{service}", daemon=True).start()
     atexit.register(recorder.stop)
@@ -263,6 +307,24 @@ def _service_report(service: str, records: list[dict[str, Any]], findings: list[
                 findings.append({"code": "CGROUP_OOM_KILL", "message": f"The kernel stopped a process of the container of the service {service} because of the memory limit (oom_kill {before_kill} -> {after_kill})."})
         elif gap > _STALL_SECONDS:
             stalls.append({"from": previous["at"], "to": record["at"], "gap_seconds": gap})
+    outages: list[dict[str, Any]] = []
+    open_outage: dict[str, Any] | None = None
+    for record in records:
+        ok = _get(record, "network", "ok")
+        if ok is False:
+            if open_outage is None:
+                open_outage = {"from": record["at"], "to": record["at"], "failed_probes": 0, "failed_steps": [], "last_error": None}
+                outages.append(open_outage)
+            step = _get(record, "network", "failed_step")
+            open_outage.update(to=record["at"], failed_probes=open_outage["failed_probes"] + 1, last_error=_get(record, "network", "error"))
+            if step and step not in open_outage["failed_steps"]:
+                open_outage["failed_steps"].append(step)
+        elif ok is True or record.get("event") == "start":
+            if open_outage is not None and ok is True:
+                open_outage["recovered_at"] = record["at"]
+            open_outage = None
+    if outages:
+        findings.append({"code": "HOST_NETWORK_UNREACHABLE", "message": f"The network probe of the public host failed in {len(outages)} sequences ({sum(item['failed_probes'] for item in outages)} probes) in the records of the service {service}. The process ran in that time."})
     if stalls:
         findings.append({"code": "HOST_RECORD_STALLED", "message": f"The service {service} wrote no record for more than {_STALL_SECONDS:.0f} seconds, {len(stalls)} times. The process or the host did not run in that time."})
     pressure = _numbers(records, "host", "pressure", "memory", "full")
@@ -291,6 +353,7 @@ def _service_report(service: str, records: list[dict[str, Any]], findings: list[
         },
         "restarts": restarts,
         "stalls": stalls,
+        "network_outages": outages,
     }
 
 

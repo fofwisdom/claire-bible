@@ -7738,7 +7738,7 @@ def run_api() -> int:
 
     from ..ops.host_runtime import start_host_recorder
 
-    start_host_recorder(getattr(s, "data_dir", "data"), "api")
+    start_host_recorder(getattr(s, "data_dir", "data"), "api", public_url=getattr(s, "public_url", None))
 
     from .dev_listeners import dev_listeners
 

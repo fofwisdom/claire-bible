@@ -62,6 +62,23 @@ def test_recorder_moves_a_full_file_to_the_old_file(tmp_path: Path, monkeypatch)
     assert [record["event"] for record in records] == ["start", "sample"]
 
 
+def test_network_probe_reports_the_step_that_failed():
+    import socket
+
+    assert host_runtime.probe_target("http://127.0.0.1:8765") is None and host_runtime.probe_target("") is None
+    assert host_runtime.probe_target("https://claire.example/x") == ("claire.example", 443)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        ok = host_runtime.probe_network(("localhost", port))
+    assert ok["ok"] is True and ok["failed_step"] is None and ok["connect_seconds"] >= 0
+    closed = host_runtime.probe_network(("localhost", port))
+    assert (closed["ok"], closed["failed_step"]) == (False, "connect") and "ConnectionRefusedError" in closed["error"]
+    unknown = host_runtime.probe_network(("no-such-host.invalid", 443))
+    assert (unknown["ok"], unknown["failed_step"]) == (False, "dns")
+
+
 def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path):
     now = time.time()
     db_file = tmp_path / "claire.db"
@@ -73,6 +90,11 @@ def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path
     # The available memory of the host goes down and the pressure goes up before the last record.
     records += [_record("sample", crash - 540 + 60 * step, "boot-a", mem_available=(8 - step) * GIB // 8, pressure=10.0 * step, rss=(1 + step) * GIB) for step in range(8)]
     records += [_record("start", now - 300, "boot-b"), _record("sample", now - 240, "boot-b")]
+    # After the restart: two probes fail, then the network comes back.
+    for offset, ok in ((-180, False), (-120, False), (-60, True)):
+        sample = _record("sample", now + offset, "boot-b")
+        sample["network"] = {"host": "claire.example", "port": 443, "ok": ok, "failed_step": None if ok else "dns", "error": None if ok else "gaierror: [Errno -3] Temporary failure in name resolution", "dns_seconds": 0.1, "connect_seconds": None}
+        records.append(sample)
     _write(host_runtime.host_log_path(tmp_path, "api"), records)
     # A correct stop and start of a worker loop on the same boot gives no finding.
     _write(host_runtime.host_log_path(tmp_path, "expand-loop"), [_record("start", now - 900, "boot-b"), _record("stop", now - 600, "boot-b"), _record("start", now - 500, "boot-b")])
@@ -87,7 +109,9 @@ def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path
 
     host = json.loads(members["diagnostics/host.json"])
     codes = [finding["code"] for finding in host["findings"]]
-    assert codes == ["HOST_RESTART_WITHOUT_STOP", "HOST_MEMORY_LOW_BEFORE_RESTART", "HOST_MEMORY_PRESSURE"]
+    assert codes == ["HOST_RESTART_WITHOUT_STOP", "HOST_MEMORY_LOW_BEFORE_RESTART", "HOST_NETWORK_UNREACHABLE", "HOST_MEMORY_PRESSURE"]
+    (outage,) = host["services"]["api"]["network_outages"]
+    assert (outage["from"], outage["to"], outage["recovered_at"], outage["failed_probes"], outage["failed_steps"]) == (now - 180, now - 120, now - 60, 2, ["dns"])
     assert json.loads(members["manifest.json"])["host_findings"] == codes
     api = host["services"]["api"]
     assert api["records"] == len(records)
