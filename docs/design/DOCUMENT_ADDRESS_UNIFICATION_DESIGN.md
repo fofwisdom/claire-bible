@@ -95,7 +95,7 @@ The migration completes itself at the start. The operator does nothing.
 | :--- | :--- |
 | A1 | Schema and migration (§6), resolver, `GET /doc/{t}` with the two views and the metadata (§5, U8), the 308 redirects (U5), `POST /share` returns the document address and sets link access, stop-sharing route. |
 | A2 | Client: address bar (U6), each link builder uses the document address: console, public KB page, notifications, syndication (also the defect `/p?id=`), user home, Telegram bot, CLI, MCP results. Presentation, raw, and export paths (U7). |
-| A3 | Federation (U9): Claire internal object record (`url`, `content`), sidecar `onNotAcceptable`, 303 on `/doc/{t}`, alternate link. |
+| A3 | Federation (U9): Claire internal object record (`url`, `content`), sidecar `onNotAcceptable`, 303 on `/doc/{t}`, alternate link. After the migration, an `update` task for each published object, so that remote servers can get the new `url`. A remote server can keep the old `url` of its stored copy (not measured): measure this with Mastodon before A3 ends. The 303 on the object ID is the path that works also for stored copies that do not change. |
 | A4 | Public site (U8): sitemap, `robots.txt`, canonical. Update `docs/implementation/` (PUBLIC_SITE, FEDERATION, WEBUI, API_HTTP_CONTRACT, COMMANDS, openapi). |
 
 Tests: one E2E test for the flow "open a document, copy the address from the address bar, open it as an anonymous caller", for a public KB and for a private KB with link access 1 and 0; one E2E test for the 308 of an old `/p?s=` link. Unit tests: migration (I/O), resolver, the sidecar redirect (interface between modules).
@@ -107,7 +107,7 @@ Tests: one E2E test for the flow "open a document, copy the address from the add
 | O1 | Path prefix of the document address. | `/doc/`. It is the word that the owner used. Alternatives: `/d/` (shorter), `/p/{t}` (same prefix as the old share link, but `/p/images/` and `/p/presentation` are also there). |
 | O2 | Does R2 also apply to the JSON API (`GET /document?id=`, `/node?id=`, `/document/presentation?id=`, `/documents?id=`)? | Not in this design. The API uses the document ID, not the address token, and a user does not see these URLs. A separate design can give them path forms. |
 | O3 | Does R2 apply to other user-visible query forms that are not about a body (`?node=` of the graph, `app.js:97`, `:122`)? | Not in this design. A separate item. |
-| O4 | A browser request to the object ID of a **note** (`/ap/objects/{id}` of a `Note`). | No change now (406). A note is not an ingested document. |
+| O4 | Notes. A `Note` has `url` = its object ID (`sidecar/fedify/src/notes.ts:60`), because Claire has no web page for one note. Thus "copy link" in Mastodon gives `/ap/objects/{id}`, and a browser gets 406 there (owner observation 2026-11-23, Mastodon 4.7.6). Include notes in this design? | Yes, as a separate decision: a web page for one note, `Note.url` = that page, and 303 from the object ID to it (as U9). Notes are not ingested documents, thus the page and its path need their own decision. |
 | O5 | New terms for the glossary: 문서 주소 (document address), 주소 토큰 (address token), 링크 공개 (link access). | A contract review of `GLOSSARY.md` before A1. |
 
 ## 9. Rejected alternatives
