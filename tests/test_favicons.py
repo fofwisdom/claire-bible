@@ -347,3 +347,21 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
     assert '/static/js/pwa-register.js' in resp_index.text
 
 
+
+
+def test_pages_have_one_favicon_set() -> None:
+    # Chrome selects an ICO icon with sizes="any" before the SVG icon. A template that adds its own icon links next to the injected set makes the tab icon change between pages.
+    from claire.api.accounts_routes.common import render_template
+
+    pages = {
+        "console_shell.html": render_template(
+            "console_shell.html",
+            text={key: "x" for key in ("page_title", "storage_key", "active_area", "active_section", "section_title", "section_badge", "section_desc")},
+            markup={key: "" for key in ("section_icon_html", "sidebar_nav_html", "section_body_html", "bootstrap_json", "extra_scripts_html", "admin_scripts_html")},
+        ).body.decode("utf-8"),
+        "public_kb.html": render_template("public_kb.html", text={"page_title": "x", "view_name": "x"}, markup={"common_appbar_html": "", "bootstrap_json": "{}"}).body.decode("utf-8"),
+    }
+    for name, html in pages.items():
+        assert html.count('rel="icon" type="image/svg+xml" href="/favicon.svg"') == 1, name
+        assert html.count('href="/favicon.svg"') == 2, name  # icon and mask-icon
+        assert 'sizes="any"' not in html, name
