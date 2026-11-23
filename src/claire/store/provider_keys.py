@@ -405,6 +405,17 @@ def get_key_model_prefs(conn: sqlite3.Connection, *, account_id: int, provider: 
         return {}
 
 
+def set_key_model_prefs(conn: sqlite3.Connection, *, account_id: int, provider: str, model_prefs: dict[str, Any]) -> bool:
+    """Replace the model preferences of a registered key; the key itself does not change. Return False when the account has no key of ``provider``."""
+    prefs_json = json.dumps(model_prefs if isinstance(model_prefs, dict) else {}, ensure_ascii=False)
+    with conn:
+        cur = conn.execute(
+            "UPDATE account_provider_keys SET model_prefs_json=? WHERE account_id=? AND provider=?",
+            (prefs_json, account_id, provider),
+        )
+    return cur.rowcount > 0
+
+
 _REJECT_CODES: Final[frozenset[int]] = frozenset({401, 403})
 _REJECT_MARKERS: Final[tuple[str, ...]] = (
     "api key not valid",

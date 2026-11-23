@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Claire Bible — AI 프로바이더 설정 단순화 프로토타입 (A안·B안)</title>
+<style>
+:root{--bg:#fff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--panel:#f6f8fa;--card:#fff;--accent:#0969da;--ok:#1a7f37;--ok-bg:#dafbe1;--warn:#9a6700;--warn-bg:#fff8c5;--danger:#cf222e;--danger-bg:#ffebe9;--chip:#eaeef2}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;background:var(--panel);color:var(--fg);font:0.875rem/1.55 system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif;word-break:keep-all}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+h1{font-size:1.25rem;margin:0 0 .25rem}h2{font-size:1rem;margin:0 0 .5rem;display:flex;align-items:center;gap:.5rem}h3{font-size:.875rem;margin:.75rem 0 .375rem}
+code{background:var(--chip);border-radius:4px;padding:0 .3rem;font-size:.8125rem;font-family:ui-monospace,Menlo,Consolas,monospace}
+.wrap{max-width:62rem;margin:0 auto;padding:1rem}
+.proto-bar{position:sticky;top:0;z-index:5;background:#24292f;color:#fff;padding:.5rem 1rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.proto-bar b{margin-inline-end:.5rem}
+.proto-bar button{background:#32383f;border:1px solid #57606a;color:#fff;border-radius:6px;padding:.25rem .625rem;cursor:pointer}
+.proto-bar button[aria-pressed=true]{background:#0969da;border-color:#0969da}
+.card{background:var(--card);border:1px solid var(--border);border-radius:.5rem;padding:1rem 1.125rem;margin:0 0 .875rem}
+.hint{color:var(--muted);font-size:.8125rem;margin:.125rem 0 .5rem}
+.field{display:flex;flex-direction:column;gap:.25rem;margin:0 0 .75rem}
+.field label{font-weight:600;font-size:.8125rem}
+.field .help{color:var(--muted);font-size:.75rem}
+input.inp,select.sel{border:1px solid var(--border);border-radius:6px;padding:.375rem .5rem;background:#fff;min-height:2.125rem;max-width:28rem}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.btn{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:.3125rem .75rem;cursor:pointer;min-height:2rem}
+.btn.pri{background:#1f883d;color:#fff;border-color:transparent;font-weight:600}
+.btn.danger{color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:progress}
+.status{font-size:.8125rem;font-weight:600;min-height:1.25rem}
+.status[data-state=ok]{color:var(--ok)}.status[data-state=error]{color:var(--danger)}.status[data-state=busy]{color:var(--muted)}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:0 .5rem;font-size:.75rem;font-weight:600;background:var(--chip);color:var(--muted);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.danger{background:var(--danger-bg);color:var(--danger)}
+.notice{border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:.5rem .75rem;background:var(--panel);font-size:.8125rem;margin:.5rem 0}
+.notice.warn{border-left-color:var(--warn);background:var(--warn-bg)}.notice.danger{border-left-color:var(--danger);background:var(--danger-bg)}
+table{width:100%;border-collapse:collapse;font-size:.8125rem}
+th,td{text-align:left;padding:.4375rem .5rem;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600;background:var(--panel)}
+td .sub{display:block;color:var(--muted);font-size:.75rem}
+details{border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;margin:.5rem 0;background:#fff}
+summary{cursor:pointer;font-weight:600}
+.switch{display:flex;align-items:center;gap:.5rem;margin:.25rem 0 .75rem}
+input[type=checkbox][switch]{accent-color:var(--accent)}
+.fixed{display:inline-flex;gap:.375rem;align-items:center;border:1px dashed var(--border);border-radius:6px;padding:.25rem .5rem;background:var(--panel)}
+.tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--border);margin:0 0 .875rem}
+.tabs button{border:0;background:none;padding:.5rem .75rem;cursor:pointer;border-bottom:2px solid transparent;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent)}
+.savebar{position:sticky;bottom:0;background:#fff;border:1px solid var(--border);border-radius:.5rem;padding:.625rem 1rem;display:flex;gap:.75rem;align-items:center;box-shadow:0 -4px 16px rgba(31,35,40,.08)}
+.grid2{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:1rem;align-items:start}
+.sticky{position:sticky;top:3.25rem}
+.diff{background:#fff8c5}
+.map{font-size:.8125rem}.map td:first-child{width:45%}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}.sticky{position:static}}
+[hidden]{display:none!important}
+</style></head>
+<body>
+<div class="proto-bar" role="toolbar" aria-label="시안 선택">
+  <b>시안</b>
+  <button type="button" data-view="admin-a" aria-pressed="true">관리자 A안 (구현)</button>
+  <button type="button" data-view="admin-b" aria-pressed="false">관리자 B안</button>
+  <button type="button" data-view="member-a" aria-pressed="false">이용자 A안 (구현)</button>
+  <button type="button" data-view="member-b" aria-pressed="false">이용자 B안</button>
+  <button type="button" data-view="map" aria-pressed="false">문제 → 해결</button>
+</div>
+
+<div class="wrap">
+
+<!-- ================= 관리자 A안 ================= -->
+<section data-pane="admin-a">
+  <h1>AI 프로바이더 (서버)</h1>
+  <p class="hint">서버 작업과 관리자 계정 작업이 쓰는 AI입니다. 멤버의 작업은 멤버 키 또는 <a href="#">서버 등급</a>을 씁니다.</p>
+
+  <div class="card" aria-labelledby="a-eff">
+    <h2 id="a-eff">지금 적용 중인 설정 <span class="pill ok">정상</span></h2>
+    <table>
+      <thead><tr><th>기능</th><th>쓰는 AI</th><th>상태</th></tr></thead>
+      <tbody>
+        <tr><td>지식 추출 · 요약 · 상세 · 판정 · 분류 · 리서치</td><td>Google AI Studio <code>gemini-3.8-flash-medium</code><span class="sub">기능별 다른 모델 1개: 요약 → <code>gemini-3.1-flash-lite-low</code></span></td><td><span class="pill ok">동작</span></td></tr>
+        <tr><td>벡터 임베딩 (새 지식베이스)</td><td><code>gemini-embedding-2</code><span class="sub">기존 지식베이스 3개는 만들 때의 모델을 유지합니다 (재임베딩 필요 0)</span></td><td><span class="pill ok">동작</span></td></tr>
+        <tr><td>음성 전사 (STT)</td><td>Google AI Studio <code>gemini-3.5-transcribe</code> <span class="pill">고정</span><span class="sub">언어 ko</span></td><td><span class="pill ok">켜짐</span></td></tr>
+        <tr><td>이미지 해석 (VLM)</td><td>기본 모델을 씁니다<span class="sub">서버 환경 변수로만 켜고 끕니다</span></td><td><span class="pill">꺼짐</span></td></tr>
+        <tr><td>Jev 그림자 평가</td><td>판정에 관여하지 않고 결과만 기록</td><td><span class="pill">꺼짐</span></td></tr>
+        <tr><td>멤버 작업</td><td>자기 키가 있으면 자기 키, 없으면 서버 등급 <b>제공 안 함</b></td><td><a href="#">서버 등급 바꾸기 →</a></td></tr>
+      </tbody>
+    </table>
+    <details><summary>최근 문서가 실제로 쓴 모델 (5건)</summary>
+      <table><tbody><tr><td>창세기 개요</td><td><code>extract_graph=gemini:gemini-3.8-flash-medium</code></td></tr><tr><td>요한복음 주석</td><td><code>extract_graph=gemini:gemini-3.8-flash-medium</code></td></tr></tbody></table>
+    </details>
+  </div>
+
+  <form class="card" data-demo-form>
+    <h2>Google AI Studio API 키 <span class="pill ok">등록됨 · 확인 11-24 09:12</span></h2>
+    <div class="field"><label for="a-key">새 키 (저장하면 바뀝니다)</label><input id="a-key" class="inp" type="password" autocomplete="off" placeholder="등록된 키는 다시 보이지 않습니다"/></div>
+    <div class="row"><button class="btn pri" type="submit">키 저장</button><button class="btn" type="button" data-demo-check>연결 확인</button><button class="btn danger" type="button">키 삭제</button><span class="status" role="status" aria-live="polite"></span></div>
+  </form>
+
+  <form class="card" data-demo-form>
+    <h2>모델</h2>
+    <div class="field"><label for="a-model">기본 모델</label><select id="a-model" class="sel"><option>gemini-3.8-flash-medium</option><option>gemini-3.8-flash-high</option><option>gemini-3.1-flash-lite-medium</option></select><span class="help">추출 · 요약 · 상세 · 판정 · 분류 · 리서치 · 이미지 해석이 씁니다.</span></div>
+    <div class="field"><label for="a-emb">새 지식베이스의 임베딩 모델</label><select id="a-emb" class="sel"><option>gemini-embedding-2 (권장)</option><option>gemini-embedding-001 (지원 종료 2028-05-14)</option></select><span class="help">기존 지식베이스는 만들 때의 모델을 유지합니다.</span></div>
+    <details><summary>기능별로 다른 모델 쓰기 (고급)</summary>
+      <p class="hint">비워 두면 기본 모델을 씁니다. 서버 작업과 관리자 작업에만 적용됩니다.</p>
+      <table><tbody>
+        <tr><td>지식 추출</td><td><select class="sel"><option>기본 모델</option></select></td></tr>
+        <tr><td>요약</td><td><select class="sel"><option>gemini-3.1-flash-lite-low</option></select></td></tr>
+        <tr><td>상세 · 판정 · 분류 · 리서치 …</td><td><select class="sel"><option>기본 모델</option></select></td></tr>
+      </tbody></table>
+    </details>
+    <div class="row"><button class="btn pri" type="submit">모델 저장</button><span class="status" role="status" aria-live="polite"></span></div>
+  </form>
+
+  <form class="card" data-demo-form>
+    <h2>음성 전사 (STT)</h2>
+    <p class="fixed">Google AI Studio · <code>gemini-3.5-transcribe</code> — 다른 프로바이더나 모델로 바꿀 수 없습니다</p>
+    <label class="switch"><input type="checkbox" switch checked/> 동영상·음성 전사 사용</label>
+    <div class="field"><label for="a-lang">말하는 언어</label><input id="a-lang" class="inp" value="ko"/></div>
+    <div class="row"><button class="btn pri" type="submit">전사 설정 저장</button><span class="status" role="status" aria-live="polite"></span></div>
+  </form>
+
+  <details class="card"><summary>고급 설정 (호출 간격 · 재시도 · Jev)</summary>
+    <form data-demo-form>
+      <div class="field"><label>호출 최소 간격 (초)</label><input class="inp" value="4"/><span class="help">텍스트 모델과 임베딩 호출에만 적용됩니다.</span></div>
+      <div class="field"><label>최대 재시도</label><input class="inp" value="5"/></div>
+      <label class="switch"><input type="checkbox" switch/> Jev 그림자 평가</label>
+      <div class="row"><button class="btn pri" type="submit">고급 설정 저장</button><span class="status" role="status" aria-live="polite"></span></div>
+    </form>
+  </details>
+</section>
+
+<!-- ================= 관리자 B안 ================= -->
+<section data-pane="admin-b" hidden>
+  <h1>AI 프로바이더 (서버)</h1>
+  <p class="hint">B안: 한 화면 대신 탭으로 나누고, 저장은 화면 아래에 붙어 있는 저장 줄 하나로 합니다. 바꾼 항목은 노랗게 표시하고 저장 줄에 개수를 보입니다.</p>
+  <div class="tabs" role="tablist"><button role="tab" aria-selected="true">현황</button><button role="tab" aria-selected="false">키 · 모델</button><button role="tab" aria-selected="false">음성 전사</button><button role="tab" aria-selected="false">고급</button></div>
+  <div class="card"><h2>키 · 모델</h2>
+    <div class="field"><label>Google AI Studio API 키</label><input class="inp" type="password" placeholder="등록됨"/></div>
+    <div class="field diff"><label>기본 모델 (바뀜)</label><select class="sel"><option>gemini-3.8-flash-high</option></select></div>
+    <div class="field"><label>새 지식베이스의 임베딩 모델</label><select class="sel"><option>gemini-embedding-2</option></select></div>
+  </div>
+  <form class="savebar" data-demo-form><span class="pill warn">저장하지 않은 변경 1개</span><button class="btn pri" type="submit">변경 저장</button><button class="btn" type="button">되돌리기</button><span class="status" role="status" aria-live="polite"></span></form>
+  <p class="hint">장점: 저장 버튼이 항상 보입니다. 단점: 탭 사이를 오가며 바꾼 내용을 한 번에 저장하므로 무엇이 저장되는지 덜 분명합니다.</p>
+</section>
+
+<!-- ================= 이용자 A안 ================= -->
+<section data-pane="member-a" hidden>
+  <h1>내 계정의 AI</h1>
+  <p class="hint">내 계정의 작업에 실제로 적용되는 설정과 내 API 키입니다.</p>
+  <div class="card">
+    <h2>내 작업에 적용되는 설정 <span class="pill ok">내 API 키</span></h2>
+    <table>
+      <thead><tr><th>기능</th><th>쓰는 AI</th><th>어디서 정해졌나</th></tr></thead>
+      <tbody>
+        <tr><td>지식 추출 · 요약 · 상세 · 판정 · 분류</td><td><code>gemini-3.8-flash-medium</code></td><td>내 키의 모델 선택</td></tr>
+        <tr><td>웹 리서치</td><td>—</td><td><span class="pill">관리자 전용</span></td></tr>
+        <tr><td>벡터 임베딩</td><td><code>gemini-embedding-2</code></td><td>내 지식베이스에 고정</td></tr>
+        <tr><td>음성 전사 (STT)</td><td><code>gemini-3.5-transcribe</code></td><td>서버 고정 · 내 키로 호출</td></tr>
+        <tr><td>이미지 해석 (VLM)</td><td>—</td><td><span class="pill">서버에서 꺼짐</span></td></tr>
+        <tr><td>적재 방법</td><td>API로 바로 적재 · 에이전트 클라이언트 대기</td><td>적재 창에서 매번 고름</td></tr>
+      </tbody>
+    </table>
+    <h3>나에게 적용되는 한도</h3>
+    <table><tbody>
+      <tr><td>오늘 적재</td><td>3 / 20</td></tr><tr><td>문서 수</td><td>85 / 5000</td></tr><tr><td>저장 용량</td><td>31 MB / 2048 MB</td></tr><tr><td>동시 작업</td><td>1개 (내 키)</td></tr><tr><td>월 토큰</td><td>적용 안 됨 (내 키는 서버 예산을 쓰지 않습니다)</td></tr>
+    </tbody></table>
+  </div>
+  <form class="card" data-demo-form>
+    <h2>내 API 키 <span class="pill ok">Google AI Studio · 확인됨 · fp 3a9c1d2e</span></h2>
+    <div class="field"><label for="m-key">새 키 (바꿀 때만)</label><input id="m-key" class="inp" type="password" autocomplete="off"/></div>
+    <div class="field"><label for="m-model">모델</label><select id="m-model" class="sel"><option>서버 기본값 따름 (gemini-3.8-flash-medium)</option><option>gemini-3.8-flash-high</option></select><span class="help">모델만 바꿀 때는 키를 다시 넣지 않아도 됩니다.</span></div>
+    <div class="row"><button class="btn pri" type="submit">저장</button><button class="btn" type="button" data-demo-check>다시 확인</button><button class="btn danger" type="button">키 삭제</button><span class="status" role="status" aria-live="polite"></span></div>
+  </form>
+  <details class="card"><summary>키 복호화 기록 (31일)</summary><p class="hint">복호화 기록이 없습니다.</p></details>
+</section>
+
+<!-- ================= 이용자 B안 ================= -->
+<section data-pane="member-b" hidden>
+  <h1>내 계정의 AI</h1>
+  <p class="hint">B안: 설정은 왼쪽, 적용 결과는 오른쪽에 붙어 있고, 저장하기 전에 바뀔 결과를 미리 보여 줍니다.</p>
+  <div class="grid2">
+    <form class="card" data-demo-form>
+      <h2>내 API 키</h2>
+      <div class="field"><label>새 키</label><input class="inp" type="password"/></div>
+      <div class="field diff"><label>모델 (바뀜)</label><select class="sel"><option>gemini-3.8-flash-high</option></select></div>
+      <div class="row"><button class="btn pri" type="submit">저장</button><span class="status" role="status" aria-live="polite"></span></div>
+    </form>
+    <aside class="card sticky"><h2>저장하면 이렇게 적용됩니다</h2>
+      <table><tbody><tr class="diff"><td>추출 · 요약 …</td><td><code>gemini-3.8-flash-high</code></td></tr><tr><td>음성 전사</td><td><code>gemini-3.5-transcribe</code></td></tr><tr><td>월 토큰</td><td>적용 안 됨</td></tr></tbody></table>
+    </aside>
+  </div>
+  <p class="hint">장점: 결과를 미리 봅니다. 단점: 화면이 좁으면 두 열이 한 열이 되어 미리보기가 아래로 밀립니다.</p>
+</section>
+
+<!-- ================= 문제 → 해결 ================= -->
+<section data-pane="map" hidden>
+  <div class="card map"><h2>지적한 문제와 해결</h2><table><thead><tr><th>문제</th><th>A안의 해결</th></tr></thead><tbody>
+    <tr><td>설정 항목이 너무 많다 (카드 9개, 3700px)</td><td>현황 1 · 키 1 · 모델 1 · 음성 1 · 접힌 고급 1. 계보 다이어그램, 고정값 표, 폴백 카탈로그는 화면에서 뺐습니다(문서에 있음).</td></tr>
+    <tr><td>동작하는 것처럼 보이지만 동작하지 않는 항목</td><td>STT·VLM 라우팅 행 제거(호출 경로 없음). "멤버 기본값" 문구 정정(라우팅은 멤버 작업에 적용되지 않음). 서버 등급은 /admin/server 한 곳에서만 편집.</td></tr>
+    <tr><td>STT는 바꿀 수 없는데 바꿀 수 있는 것처럼 보인다</td><td>프로바이더 선택 제거. "Google AI Studio · gemini-3.5-transcribe — 바꿀 수 없음"으로 고정 표시. 켬/끔과 언어만 바꿉니다.</td></tr>
+    <tr><td>저장 메시지가 멀리 뜬다</td><td>카드마다 저장 버튼 바로 옆에 상태(role=status). 저장 실패 때 입력값을 지우지 않습니다.</td></tr>
+    <tr><td>이용자는 무엇이 적용되는지 모른다</td><td>"내 작업에 적용되는 설정" 표: 기능별 모델, 출처(내 키/서버 등급/없음), 나에게 적용되는 한도만.</td></tr>
+  </tbody></table></div>
+</section>
+
+</div>
+<script>
+(function () {
+  "use strict";
+  var buttons = document.querySelectorAll("[data-view]");
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      buttons.forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+      document.querySelectorAll("[data-pane]").forEach(function (p) { p.hidden = p.getAttribute("data-pane") !== b.getAttribute("data-view"); });
+    });
+  });
+  // The status is next to the button that the person pressed: busy, then the result with the time.
+  function stamp() { var d = new Date(); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); }
+  document.querySelectorAll("form[data-demo-form]").forEach(function (form) {
+    var out = form.querySelector(".status");
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var btn = ev.submitter || form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      out.setAttribute("data-state", "busy"); out.textContent = "저장 중…";
+      setTimeout(function () { btn.disabled = false; out.setAttribute("data-state", "ok"); out.textContent = "저장했습니다 · " + stamp(); }, 600);
+    });
+    var check = form.querySelector("[data-demo-check]");
+    if (check) check.addEventListener("click", function () { out.setAttribute("data-state", "ok"); out.textContent = "키가 동작합니다 · " + stamp(); });
+  });
+})();
+</script>
+</body></html>

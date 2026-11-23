@@ -183,7 +183,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         # 1. Single mode: the administrator page has the personal key forms and the link to the server providers.
         page = call("GET", "/account/providers")
         assert page.status_code == 200
-        assert 'data-settings-form="provider-key-put"' in page.text and 'href="/admin/providers"' in page.text
+        assert 'data-settings-form="provider-key"' in page.text and 'href="/admin/providers"' in page.text
 
         # 2. Without a personal key, a job of the administrator account uses the server provider (mock): no Gemini call.
         first = call("POST", "/ingest", json={"payload": "Server provider document about Jerusalem.", "extraction_mode": "provider"})

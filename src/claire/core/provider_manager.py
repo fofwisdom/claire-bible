@@ -823,11 +823,13 @@ class ProviderManager:
                             raise ValueError(f"서버 공용 벡터 임베딩은 Google AI Studio 활성 임베딩 모델({', '.join(DEFAULT_GEMINI_EMBED_MODELS)})만 허용됩니다.")
         current = self.get_config()
         merged = self._merge_payload(current, payload, validate_models=True)
-        caps = self._evaluate_capabilities(merged)
-        act = merged.get("active_provider", "mock")
-        act_cap = caps["providers"].get(act, {})
-        if not act_cap.get("selectable", False):
-            raise ValueError(act_cap.get("locked_reason") or f"프로바이더 '{act}'는 현재 환경에서 활성화할 수 없습니다.")
+        # Only a change of the main provider checks it: a save of another part (a model, STT, the key removal) does not stop at a main provider without a key. The status view of /admin/providers shows that state.
+        if "active_provider" in payload:
+            caps = self._evaluate_capabilities(merged)
+            act = merged.get("active_provider", "mock")
+            act_cap = caps["providers"].get(act, {})
+            if not act_cap.get("selectable", False):
+                raise ValueError(act_cap.get("locked_reason") or f"프로바이더 '{act}'는 현재 환경에서 활성화할 수 없습니다.")
 
         self.save_config(merged)
         return self.get_sanitized_config()

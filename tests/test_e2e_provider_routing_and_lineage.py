@@ -109,7 +109,7 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert "admin-personal-cli-host" not in admin_keys_html.text
         client.cookies.clear()
 
-        # 1. Admin configures Google AI Studio key, 3.8 baseline, separated summarize slot, and ServerTier. The old Jev mode keys have no effect (Jev is shadow only, owner decision 2026-11-20).
+        # 1. Admin configures Google AI Studio key, 3.8 baseline, and a separated summarize slot. The old Jev mode keys have no effect (Jev is shadow only, owner decision 2026-11-20). /providers ignores a server tier: /admin/server (PUT /api/admin/server-tier) edits it.
         patch_resp = client.patch(
             "/providers",
             headers=owner_headers,
@@ -147,9 +147,21 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert not {"mode", "filter_threshold", "auto_merge_threshold"} & set(cfg["providers"]["jev"])
         assert cfg["lineage_summary"]["jev"]["role"] == "shadow"
         assert cfg["feature_routing"]["summarize"]["model"] == "gemini-4-argon"
-        assert cfg["server_tier"]["provider"] == "gemini"
-        assert cfg["server_tier"]["model"] == "gemini-3.8-flash"
-        assert set(cfg["server_tier"]["features"]) == {"expand", "stt"}
+        assert cfg["server_tier"]["provider"] == "none"
+        # What applies now (provider_view): the default model, the summarize override, STT fixed to Google AI Studio.
+        assert cfg["effective"]["model"] == "gemini-3.8-flash"
+        assert {r["slot"]: r["overridden"] for r in cfg["effective"]["slots"]}["summarize"] is True
+        assert cfg["effective"]["stt"]["model"] == "gemini-3.5-transcribe"
+        assert "stt" not in cfg["feature_routing"] and "vlm" not in cfg["feature_routing"]
+        tier_resp = client.put(
+            "/api/admin/server-tier",
+            headers=admin_cookie_headers,
+            json={"provider": "gemini", "model": "gemini-3.8-flash", "max_effort": "medium", "features": ["expand", "stt"]},
+        )
+        assert tier_resp.status_code == 200, tier_resp.text
+        tier_now = client.get("/api/admin/server-tier", headers=admin_cookie_headers).json()["tier"]
+        client.cookies.clear()
+        assert (tier_now["provider"], tier_now["model"], set(tier_now["features"])) == ("gemini", "gemini-3.8-flash", {"expand", "stt"})
         assert cfg["lineage_summary"]["effective_slots"]["extract_graph"]["model"] == "gemini-3.8-flash"
         assert cfg["lineage_summary"]["effective_slots"]["summarize"]["model"] == "gemini-4-argon"
         assert cfg["lineage_summary"]["effective_slots"]["render_detail"]["model"] == "gemini-3.8-flash-high"
@@ -162,7 +174,10 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         # 2. Member fetches /account/providers HTML and /api/me/provider-keys?include_policy=1 without exposing admin routes.
         page_resp = client.get("/account/providers", headers={"Cookie": f"claire_session={member_sess}"})
         assert page_resp.status_code == 200
-        assert "data-key-storage-notice" in page_resp.text
+        # Without a key the member uses the server tier: the page tells it and shows the model of the tier.
+        assert 'id="settings-effective"' in page_resp.text
+        assert 'data-effective-source="tier"' in page_resp.text
+        assert "gemini-3.8-flash" in page_resp.text
         assert "data-byok-model-select" in page_resp.text
         assert "data-byok-effort-select" not in page_resp.text
         assert "/admin/" not in page_resp.text
@@ -170,9 +185,10 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         policy_resp = client.get("/api/me/provider-keys?include_policy=1", headers={"Cookie": f"claire_session={member_sess}"})
         assert policy_resp.status_code == 200
         policy = policy_resp.json()["model_policy"]
+        # The default of a key is the main model for each feature: the feature routing of the server applies to the server jobs only.
         assert policy["admin_defaults"]["extract_graph"]["model"] == "gemini-3.8-flash"
-        assert policy["admin_defaults"]["summarize"]["model"] == "gemini-4-argon"
-        assert policy["admin_defaults"]["render_detail"]["model"] == "gemini-3.8-flash-high"
+        assert policy["admin_defaults"]["summarize"]["model"] == "gemini-3.8-flash"
+        assert policy["admin_defaults"]["render_detail"]["model"] == "gemini-3.8-flash"
         assert "gemini-4-argon-high" in policy["allowed_models"]
         assert "gemini-4-argon" not in policy["allowed_models"]
 
@@ -205,6 +221,19 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         )
         assert ok_put.status_code == 200, ok_put.text
         assert ok_put.cookies.get(BYOK_SEAL_COOKIE) is None
+        byok_page = client.get("/account/providers", headers={"Cookie": f"claire_session={member_sess}"}).text
+        assert 'data-effective-source="byok"' in byok_page
+        assert "gemini-4-argon-high" in byok_page
+
+        # 4a. A change of the model only (PATCH): no key in the request, the key stays, the page shows the new model.
+        bad_patch = client.patch("/api/me/provider-keys", headers=member_headers, json={"provider": "gemini", "model": "mock"})
+        assert bad_patch.status_code == 400 and bad_patch.json()["error"] == "unsupported_model"
+        model_only = client.patch("/api/me/provider-keys", headers=member_headers, json={"provider": "gemini", "model": "gemini-3.8-flash-low"})
+        assert model_only.status_code == 200, model_only.text
+        assert model_only.json()["model_prefs"] == {"model": "gemini-3.8-flash-low", "effort": "low"}
+        assert "gemini-3.8-flash-low" in client.get("/account/providers", headers={"Cookie": f"claire_session={member_sess}"}).text
+        assert client.patch("/api/me/provider-keys", headers=member_headers, json={"provider": "gemini", "model": ""}).json()["model_prefs"] == {}
+        assert client.patch("/api/me/provider-keys", headers=admin_cookie_headers, json={"provider": "gemini", "model": ""}).status_code == 404
 
         # 5. Without any seal in the process memory (as in the Telegram bot process), the key can be decrypted.
         clear_volatile_user_seals()

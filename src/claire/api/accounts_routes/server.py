@@ -20,6 +20,7 @@ from starlette.routing import Route
 from ...accounts import readiness
 from ...accounts import server_tier
 from ...accounts.provider_policy import EFFORT_ORDER, TIER_FEATURES, TIER_PROVIDERS, ServerTier
+from ...core.provider_manager import DEFAULT_GEMINI_MODELS
 from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
@@ -112,9 +113,16 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
         status = f'{console_pill(t("console.admin.tier.state.invalid"), tone="danger")} {t_code("console.admin.tier.state.invalid_hint", none="none")}'
     else:
         status = console_pill(t("console.admin.tier.state.set"), tone="ok")
+    provider_labels = {"none": t("console.admin.tier.provider_none"), "gemini": "Google AI Studio (gemini)"}
     provider_options = "".join(
-        f'<option value="{escape(p)}"{" selected" if p == tier.provider else ""}>{escape(p)}</option>'
+        f'<option value="{escape(p)}"{" selected" if p == tier.provider else ""}>{escape(provider_labels.get(p, p))}</option>'
         for p in TIER_PROVIDERS
+    )
+    model_choices = list(DEFAULT_GEMINI_MODELS)
+    if tier.model and tier.model not in model_choices:
+        model_choices.append(tier.model)
+    model_options = f'<option value=""{" selected" if not tier.model else ""}>{escape(t("console.admin.tier.model_default"))}</option>' + "".join(
+        f'<option value="{escape(m)}"{" selected" if m == tier.model else ""}>{escape(m)}</option>' for m in model_choices
     )
     effort_options = "".join(
         f'<option value="{escape(e)}"{" selected" if e == tier.max_effort else ""}>{escape(e)}</option>'
@@ -133,28 +141,16 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
             hint_html=escape(hint) if hint else "",
         )
 
-    feat_summary = ", ".join(_feature_label(f) for f in tier.features) if tier.features else t("console.admin.tier.features_none")
-    prov_summary = "Google AI Studio (gemini)" if tier.provider == "gemini" else t("console.admin.tier.provider_none")
-    summary_kv = console_kv(
-        [
-            (
-                t("console.admin.tier.provider_model"),
-                f"{prov_summary}{f' · {tier.model}' if tier.model else ''} ({t('console.admin.tier.max_effort_value', effort=tier.max_effort)})",
-            ),
-            (t("console.tier.features"), feat_summary),
-        ]
-    )
-    hidden_fields = (
-        '<div hidden>'
-        + console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
-        + console_field(t("console.tier.model"), f'<input type="text" name="model" class="pref-input" value="{escape(tier.model)}" maxlength="128" autocomplete="off">')
+    # The whole server tier is edited here (one place, with the step-up and the admin audit of PUT /api/admin/server-tier). /admin/providers shows it read-only.
+    tier_fields = (
+        console_field(t("console.admin.tier.provider_field"), f'<select name="provider" class="pref-select">{provider_options}</select>', hint_html=escape(t("console.admin.tier.provider_field_hint")))
+        + console_field(t("console.tier.model"), f'<select name="model" class="pref-select">{model_options}</select>')
         + console_field(t("console.admin.tier.max_effort"), f'<select name="max_effort" class="pref-select">{effort_options}</select>')
-        + f'<fieldset><legend>{escape(t("console.tier.features"))}</legend>{feature_boxes}</fieldset>'
-        + "</div>"
+        + f'<fieldset class="console-field"><legend>{escape(t("console.tier.features"))}</legend>{feature_boxes}</fieldset>'
     )
     tier_form = (
         '<form class="tier-form" data-server-tier-form>'
-        + hidden_fields
+        + tier_fields
         + num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))
         + num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)
         + num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)
@@ -173,8 +169,7 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
     )
     body = (
         f'<p class="hint">{escape(t("console.common.status"))}: {status}</p>'
-        + f'<p class="hint">{escape(t("console.admin.tier.hint"))} <a href="/admin/providers"><strong>{escape(t("console.admin.providers.label"))}</strong></a></p>'
-        + summary_kv
+        + f'<p class="hint">{escape(t("console.admin.tier.hint"))}</p>'
         + tier_form
         + reauth_form
     )

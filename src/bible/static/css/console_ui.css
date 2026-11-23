@@ -167,6 +167,9 @@ th, .pref-table th { background: var(--panel-bg); color: var(--muted); font-weig
 .result { margin: 0.25rem 0 0; font-size: 0.78125rem; font-weight: 600; }
 .result[data-state="error"], .result.err { color: var(--danger); }
 .result[data-state="ok"], .result.ok { color: var(--ok); }
+.result[data-state="busy"] { color: var(--muted); }
+/* The result of a form is next to its buttons (PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): no top margin inside the button row. */
+.console-actions > .result { margin: 0; }
 
 .pref-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.625rem 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .pref-row:first-of-type { border-top: 0; padding-top: 0.125rem; }

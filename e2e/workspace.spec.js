@@ -793,131 +793,21 @@ test('provider management lives in the admin console and the root topbar shows o
   const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();
 
-  // 5. Verify provider manager UI components render (Lineage at top, Google AI Studio, Feature Routing, ServerTier)
-  await expect(detailPane.getByRole('heading', { level: 2, name: /LLM & 프로바이더 관리/ })).toBeVisible();
-  await expect(page.locator('#prov-lineage-visualizer-card')).toBeVisible();
-  const lineageTop = await page.locator('#prov-lineage-visualizer-card').evaluate(el => el.getBoundingClientRect().top);
-  const activeTop = await page.locator('#prov-active-select').evaluate(el => el.getBoundingClientRect().top);
-  expect(lineageTop).toBeLessThan(activeTop);
-
-  const activeSelect = page.locator('#prov-active-select');
-  await expect(activeSelect).toBeVisible();
-  await expect(page.locator('#prov-active-select option[value="antigravity"]')).toHaveCount(0);
-  await expect(page.locator('#prov-active-select option[value="codex"]')).toHaveCount(0);
+  // 5. The provider page (PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): what applies now first, then one form for each part. e2e/provider_settings.spec.js checks the forms and their results.
+  await expect(detailPane.getByRole('heading', { level: 2, name: /지금 적용 중인 설정/ })).toBeVisible();
+  const effTop = await page.locator('#prov-effective-card').evaluate(el => el.getBoundingClientRect().top);
+  const keyTop = await page.locator('#prov-key-form').evaluate(el => el.getBoundingClientRect().top);
+  expect(effTop).toBeLessThan(keyTop);
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
-  await expect(page.locator('#prov-gemini-model option[value="gemini-3.8-flash-medium"]')).toHaveCount(1);
-  await expect(page.locator('#prov-gemini-effort')).toHaveCount(0);
-  await expect(page.locator('#prov-tier-max-effort')).toHaveCount(0);
-  await expect(page.locator('#prov-route-extract_graph-effort')).toHaveCount(0);
-  await expect(page.locator('#prov-gemini-embed')).toHaveCount(0);
-  await expect(page.locator('#prov-route-embed-provider')).toHaveCount(0);
-  await expect(page.locator('#prov-route-embed-model')).toHaveCount(0);
-  await expect(page.locator('#prov-gemini-embed-info')).toContainText('gemini-embedding-001');
-  await expect(page.locator('#prov-routing-embed-note')).toContainText('gemini-embedding-001');
-  await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
+  await expect(page.locator('#prov-active-select')).toHaveCount(0);
   await expect(page.locator('#prov-agy-bin')).toHaveCount(0);
   await expect(page.locator('#prov-cdx-bin')).toHaveCount(0);
-  await expect(page.locator('#prov-feat-gemini')).toContainText('적재·요약');
-  await expect(page.locator('#prov-member-tier-card')).toBeVisible();
 
-  // 6. Test API connection / model discovery button for Google AI Studio
-  const gemTestBtn = detailPane.locator('button:has-text("API 확인")').first();
-  await expect(gemTestBtn).toBeVisible();
-  await gemTestBtn.click();
-  const gemResult = page.locator('#prov-test-res-gemini');
-  await expect(gemResult).toBeVisible();
-  await expect(gemResult).toContainText(/성공|실패|API|키/);
-
-  // 7. Save settings and verify notification alert
-  const saveBtn = detailPane.locator('#prov-save-btn');
-  await expect(saveBtn).toBeVisible();
-  await expect(saveBtn).toBeEnabled();
-  await saveBtn.click();
-  await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
-
-  expect(pageErrors).toEqual([]);
-});
-
-test('admin providers checks capabilities, guides features, and locks invalid selections without fallback', async ({ page }) => {
-  const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto('/?t=e2e-providers-token-0123456789abcd', { waitUntil: 'domcontentloaded' });
-  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
-  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
-
-  await page.evaluate(async () => {
-    if (!navigator.serviceWorker) return;
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map(r => r.unregister()));
-  });
-
-  await page.route(u => u.pathname === '/providers', async (route) => {
-    if (route.request().method() !== 'GET') {
-      return route.continue();
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        active_provider: 'gemini',
-        effective_provider: 'gemini',
-        effective_stt_provider: 'mock',
-        server_tier: { provider: 'none', model: '', max_effort: 'medium', features: [] },
-        providers: {
-          gemini: { has_api_key: false, api_key: '', model: 'gemini-3.8-flash', embed_model: 'gemini-embedding-001' },
-          jev: { enabled: false, has_api_key: false, api_key: '' },
-          stt: { enabled: true, provider: 'gemini', model: '', language: 'ko', timeout: 600 }
-        },
-        capabilities: {
-          active_provider: 'gemini',
-          can_save: false,
-          lock_reasons: ['Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.'],
-          warnings: ['STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.'],
-          stt: { enabled: true, provider: 'gemini', ready: false },
-          providers: {
-            gemini: { selectable: false, locked_reason: 'Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-            mock: { selectable: true, locked_reason: '', features: { extract: false, research: false, embedding: false, stt_vlm: false }, advisory: '가상 테스트 프로바이더입니다.' }
-          }
-        }
-      })
-    });
-  });
-
-  await page.route(u => u.pathname === '/providers/check', async (route) => {
-    const body = JSON.parse(route.request().postData() || '{}');
-    const act = body.active_provider || 'mock';
-    const isMock = act === 'mock';
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        active_provider: act,
-        can_save: isMock,
-        lock_reasons: isMock ? [] : ['Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.'],
-        warnings: ['STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.'],
-        stt: { enabled: true, provider: 'gemini', ready: false },
-        providers: {
-          gemini: { selectable: false, locked_reason: 'Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-          mock: { selectable: true, locked_reason: '', features: { extract: false, research: false, embedding: false, stt_vlm: false }, advisory: '가상 테스트 프로바이더입니다.' }
-        }
-      })
-    });
-  });
-
-  await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
-  const detailPane = page.locator('#admin-providers-host');
-  await expect(detailPane).toBeVisible();
-  await expect(page.locator('#prov-cap-gemini')).toContainText('잠금:');
-  await expect(page.locator('#prov-cap-stt')).toContainText('음성 전사가 동작하지 않습니다');
-  await expect(page.locator('#prov-cap-summary')).toContainText('저장 잠금');
-  await expect(page.locator('#prov-save-btn')).toBeDisabled();
-
-  // Switching to an unlocked provider unlocks saving
-  await page.locator('#prov-active-select').selectOption('mock');
-  await expect(page.locator('#prov-save-btn')).toBeEnabled();
-  await expect(page.locator('#prov-cap-summary')).toContainText('기능 안내');
+  // 6. The connection check of the key: the result shows next to the button.
+  const checkBtn = page.locator('#prov-key-form button[value="check"]');
+  await checkBtn.click();
+  await expect(page.locator('#prov-key-form [data-prov-status]')).toContainText(/키|API|확인|key/i);
 
   expect(pageErrors).toEqual([]);
 });

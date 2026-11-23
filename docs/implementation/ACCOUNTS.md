@@ -277,6 +277,7 @@
     - 키가 존재하지 않으면 404 `key_not_found`.
     - 일시 장애로 판정 불가 시 상태와 `last_verified_at`을 변경하지 않고 503 `key_verification_unavailable` (상태 불변).
     - 응답: `{"ok": bool, "message": str, "key": <meta>}`.
+  - `PATCH /api/me/provider-keys`: 키 없이 모델 선호만 바꾼다. 본문 `{provider, model?, effort?, feature_models?}`(검증은 `PUT`과 같다). `model`/`effort`가 있으면 키의 모델을 바꾸고(빈 모델은 서버 기본값), `feature_models`가 있으면 기능별 모델을 바꾼다. 키가 없으면 404 `key_not_found`. 키를 복호화하지 않고 단계 인증도 요구하지 않는다. 응답: `{"ok": true, "model_prefs": {...}}`.
   - `DELETE /api/me/provider-keys`: 등록된 키 삭제.
     - 단계 인증(`require_recent_auth`) 필수.
     - 쿼리 매개변수: `?provider=gemini` (미지정 시 해당 계정의 모든 키 삭제).
@@ -292,12 +293,12 @@
   - [code] A page view decrypts the key too: the API builds the service of the knowledge base, with its provider and key, for each request that touches the knowledge base (measured: `/`, `/documents`, `/graph`, `/stats`, `/kb` give one decryption each; `/account/providers`, `/api/me/provider-keys`, `/themes` give none).
   - Rows with `last_at` older than 31 days (`DECRYPTION_AUDIT_DAYS`) are deleted at each record and at each `connect_auth_db`.
   - `/account/providers` shows the 200 newest rows of the account only (`data-key-audit`).
-- **[code] Background jobs do not use a personal key.** The worker loops (`recover-loop`, `refresh-loop`, `expand-loop`) call `refuse_personal_keys_in_this_process` at start. A job of an account with a registered key (member or server administrator) then fails with `ProviderNotAllowed`; it does not change to the server tier or the server providers (C2). Reason: the owner did not decide that jobs without a request of the account spend the key of the account. The page `/account/providers` says this (`console.settings.keys.storage_notice`).
+- **[code] Background jobs do not use a personal key.** The worker loops (`recover-loop`, `refresh-loop`, `expand-loop`) call `refuse_personal_keys_in_this_process` at start. A job of an account with a registered key (member or server administrator) then fails with `ProviderNotAllowed`; it does not change to the server tier or the server providers (C2). Reason: the owner did not decide that jobs without a request of the account spend the key of the account. The key card of `/account/providers` says this (`console.settings.keys.card_hint`).
 - **폴백 없음 (Fail-closed, Principle C2)**:
   - 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 서버 프로바이더·관리자 CLI로 자동 전환/폴백하지 않는다. 이 규칙은 관리자의 개인 키에도 같다.
 - **WebUI `/account/providers` 연동**:
-  - 네트워크 모드 멤버 계정으로 `/account/providers`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
-  - [code] The server administrator gets, in the two modes, a card with the link to `/admin/providers` (`data-keys-server-providers`), the same key forms (`data-keys-mode="byok"`), and a usage card of the account (documents, storage, tokens of the personal key this month) in place of the server tier card. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다.
+  - [code] `/account/providers` (design [`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md`](../design/PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md) PS7) starts with the card "What applies to my jobs" (`#settings-effective`, `data-effective-source`: `byok`, `key_problem`, `server`, `tier`, `none`, `blocked`). `describe_account_providers` (`src/claire/accounts/provider_view.py`) builds it from the key metadata, the model preferences, the server tier, and the current `providers.json` with the resolvers of the jobs (`byok_context`, `tier_context`, `settings_for_context`, `_resolve_slot_spec`); it decrypts no key. Rows: the text features (one row when they share a model), web research, the embedding model of the personal knowledge base, STT, VLM, the other features, and the ingest choices; each with the AI and where it comes from, or the reason that it does not work. Then the limits that apply (`data-effective-limits`: `applied` with today's ingests, documents, storage, the monthly tokens only for the server tier, the concurrency only for a key; `exempt` for the server administrator with the usage of the account).
+  - [code] One key card (`#settings-keys`, `data-settings-form="provider-key"`, `data-keys-mode="byok"`): the state of the key (provider, status, fingerprint), a new key, the model, and the buttons save, check again, and delete (`name="action"`). The result is in `[data-settings-result]` next to the buttons. "Save" sends `PUT` with a new key, or `PATCH` (model only) without one. After a change the page reads `/account/providers` again and replaces the two cards. The server administrator gets the link to `/admin/providers` (`data-keys-server-providers`) in the hint of the card. The decryption audit is a closed `<details>` (`#settings-keys-audit`). 싱글 모드의 비관리자는 적용 현황과 `/admin` 링크 없는 안내만 받는다.
 
 ### 5.9 통합 콘솔 (`/admin/*`, `/account/*`, `/settings/*`, `/moderation/*`)
 
@@ -309,10 +310,10 @@
 | 경로 | 동작 |
 | :--- | :--- |
 | `/admin` | 302 `/admin/server`. `?kb=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
-| `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급, 비관리자 초대 발급 허용 토글(`#server-invites-policy` · `#admin-member-invites-toggle`, `GET /api/admin/server`, `POST /api/admin/server/invites`) (`server.py`, `console_admin.js`) |
+| `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 서버 등급(제공 API·모델·최대 effort·허용 기능·자원 한도를 이곳에서만 편집, `PUT /api/admin/server-tier`), 비관리자 초대 발급 허용 토글(`#server-invites-policy` · `#admin-member-invites-toggle`, `GET /api/admin/server`, `POST /api/admin/server/invites`) (`server.py`, `console_admin.js`) |
 | `/admin/accounts` | §5.4 (`admin.py`) |
 | `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
-| `/admin/providers` | 서버 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
+| `/admin/providers` | 서버 작업의 AI: 지금 적용 중인 설정, Google AI Studio 키, 모델, 음성 전사(고정 프로바이더, 켬/끔·언어), 접힌 고급 설정. 폼마다 따로 저장하고 결과를 버튼 옆에 보인다(`manage_panels.js`, [PROVIDERS.md](PROVIDERS.md) §5A) |
 | `/admin/limits` | 서버 적재 제한·슬라이싱 예산(`/limits`) |
 | `/admin/plugins` | 플러그인 폴더·프로젝트 플러그인 폴더의 플러그인, 상태, 버전, 겹침 그룹, 켜기(단계 인증, 권한·다이제스트 대화상자)·끄기 (`plugins.py`, `GET`·`PUT`·`DELETE /api/admin/plugins`, [INGESTION.md](INGESTION.md) §2.2) |
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
@@ -355,7 +356,7 @@
 | `/account/notifications` | `workspace` | 연계 요청 알림: 이 기기의 웹 푸시 켜기·끄기, 테스트 알림, 기기 목록, 종류별 스위치. `/api/me/push*`를 쓴다([NOTIFICATIONS.md](NOTIFICATIONS.md) §6) |
 | `/account/bundles` | — | 호환 308 → `/support/bundles` (옛 `/settings/bundles`도 같은 곳으로 간다) |
 | `/account/backups` | `workspace` | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
-| `/account/providers` | `ai` | 내 계정의 LLM 작업을 누가 하는지 정하는 화면: 개인 프로바이더 키·복호화 기록·서버 등급과 사용량(§5.8 WebUI). 추출 모드 선택기는 없다: 적재 창이 적재마다 고른다(AED4-rev, [WEBUI.md](WEBUI.md)). 옛 경로는 `/settings/keys`다 |
+| `/account/providers` | `ai` | 내 계정의 AI 작업에 무엇이 적용되는지 보여 주는 화면: 적용 현황(기능별 모델·출처·한도), 개인 키 카드 하나(저장·다시 확인·삭제), 접힌 복호화 기록(§5.8 WebUI). 추출 모드 선택기는 없다: 적재 창이 적재마다 고른다(AED4-rev, [WEBUI.md](WEBUI.md)). 옛 경로는 `/settings/keys`다 |
 | `/account/mcp` | `ai` (선택 테마의 예시 표시) | `/account/mcp` 상단의 빠른 시작 가이드(`#pref-mcp-agent-guide`, `<ol class="pref-flow">` 2단계 녹색 `data-ok="true"` / 붉은색 `data-ok="false"` 진행 상태 표시: ① OAuth 2.1 `write` 인가 → ② 첫 `agent_client` 추출 커밋, 추출 수와 대기 수 표시), 공식 GitHub 마켓플레이스(`#pref-mcp-client-bundles`, `fofwisdom/claire-agents` 또는 `CLAIRE_AGENT_MARKETPLACE_REPO` · Git URL · GitHub Releases 안내), OAuth 2.1 인가 클라이언트 관리(`/api/me/oauth/grants`), 수동 토큰 지원 중단 안내 |
 | `/account/webmcp` | `ai` (선택 테마) | 이용자용 WebMCP 페이지 도구 설정과 시뮬레이터(제안 단계, 브라우저에만 저장). 서버 정책은 `/admin/webmcp`에 있다 |
 | `/account/tokens` | `ai` | 본인 상시 토큰(`/tokens`, 지원 중단 예정 안내·`Deprecation` 헤더)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |

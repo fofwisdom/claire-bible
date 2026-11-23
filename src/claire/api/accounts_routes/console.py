@@ -1013,22 +1013,6 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
     }
 
 
-def _settings_tier_rows_html(tier: ServerTier) -> str:
-    features = ", ".join(sorted(tier.features)) if tier.features else t("console.common.none")
-    rows = (
-        (t("console.tier.provider"), t("console.tier.provider_none") if tier.provider == "none" else tier.provider),
-        (t("console.tier.model"), tier.model or "-"),
-        (t("console.tier.monthly_tokens"), f"{tier.monthly_tokens:,}"),
-        (t("console.tier.daily_ingests"), f"{tier.daily_ingests:,}"),
-        (t("console.tier.max_effort"), tier.max_effort),
-        (t("console.tier.features"), features),
-        (t("console.tier.storage"), f"{tier.storage_mb:,} MB"),
-        (t("console.tier.max_documents"), f"{tier.max_documents:,}"),
-        (t("console.tier.byok_concurrency"), f"{tier.byok_max_concurrency:,}"),
-    )
-    return console_kv(rows, attrs={"data-server-tier": True})
-
-
 def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool, include_tokens: bool = False) -> str:
     tier: ServerTier = usage["tier"]
     if admin_viewer:
@@ -1342,6 +1326,173 @@ def _settings_entity_language_html(account: accounts_store.Account) -> str:
     return console_card(escape(t("console.account.entity_language_title")), body, id="settings-entity-language", icon="globe", aria_label=label)
 
 
+def _current_settings(ctx: AccountsContext) -> Any:
+    """The settings of the app with the current ``providers.json`` (a save on /admin/providers changes it while the app runs), or None for a test double without settings."""
+    base = ctx.settings
+    if base is None or not hasattr(base, "model_copy"):
+        return None
+    from ...core.provider_manager import ProviderManager
+
+    try:
+        pm = ProviderManager(data_dir=ctx.data_dir or ctx.db_file.parent, auto_migrate=False)
+        return base.model_copy(update=pm.get_settings_dict())
+    except Exception:  # noqa: BLE001 — an unreadable providers.json: the view shows the settings of the app start
+        return base
+
+
+def _account_provider_view(ctx: AccountsContext, account: accounts_store.Account) -> dict[str, Any] | None:
+    """What applies to the jobs of the account (``accounts.provider_view``), or None when the app has no settings (test double)."""
+    from ...accounts.provider_view import describe_account_providers
+
+    settings = _current_settings(ctx)
+    if settings is None:
+        return None
+    kb_embed = None
+    try:
+        kb_embed = _kb_manager(ctx).personal_kb_for(account.id).embed_model or None
+    except Exception:  # noqa: BLE001 — no personal knowledge base yet: the default model of a new one
+        kb_embed = None
+    return describe_account_providers(settings, account_id=account.id, db_path=ctx.db_file, auth_db_path=ctx.auth_db_file, kb_embed_model=kb_embed)
+
+
+_SOURCE_TONE = {"byok": "ok", "server": "ok", "tier": "ok", "key_problem": "danger", "none": "warn", "blocked": "danger"}
+
+
+def _effective_providers_card(view: dict[str, Any] | None, usage: dict[str, Any], *, admin_viewer: bool) -> str:
+    """The card "What applies to my jobs" (``#settings-effective``): the AI of each feature, where it comes from, and the limits that apply to the account. Read-only; the key card below changes it."""
+    if view is None:
+        return ""
+    source = str(view["source"])
+    pill = console_pill(t(f"console.settings.providers.source.{source}"), tone=_SOURCE_TONE.get(source, "neutral"), attrs={"data-effective-source": source})
+    intro_html = escape(t(f"console.settings.providers.source_hint.{source}"))
+
+    def model_text(row: dict[str, Any]) -> str:
+        model = str(row.get("model") or "")
+        return f'<code class="pref-mono">{escape(model)}</code>' if model else "-"
+
+    rows: list[str] = []
+
+    def add(feature_key: str, ai_html: str, from_html: str, *, key: str) -> None:
+        rows.append(f'<tr data-effective-row="{escape(key)}"><td>{escape(t(feature_key))}</td><td>{ai_html}</td><td>{from_html}</td></tr>')
+
+    text_slots = [r for r in view["slots"] if r["slot"] != "research"]
+    available_text = [r for r in text_slots if r.get("available")]
+    same = len({(r["model"], r.get("from")) for r in available_text}) == 1 and len(available_text) == len(text_slots)
+    if same:
+        r0 = available_text[0]
+        add("console.settings.providers.feature.text", model_text(r0), escape(t(f"console.settings.providers.from.{r0['from']}")), key="text")
+    else:
+        for r in text_slots:
+            if r.get("available"):
+                add(f"console.settings.providers.slot.{r['slot']}", model_text(r), escape(t(f"console.settings.providers.from.{r['from']}")), key=r["slot"])
+            else:
+                add(f"console.settings.providers.slot.{r['slot']}", "-", console_pill(t(f"console.settings.providers.reason.{r['reason']}"), tone="neutral"), key=r["slot"])
+    research = next((r for r in view["slots"] if r["slot"] == "research"), None)
+    if research is not None:
+        if research.get("available"):
+            add("console.settings.providers.slot.research", model_text(research), escape(t(f"console.settings.providers.from.{research['from']}")), key="research")
+        else:
+            add("console.settings.providers.slot.research", "-", console_pill(t(f"console.settings.providers.reason.{research['reason']}"), tone="neutral"), key="research")
+    add("console.settings.providers.feature.embed", f'<code class="pref-mono">{escape(str(view.get("embed_model") or "-"))}</code>', escape(t("console.settings.providers.from.kb_pin")), key="embed")
+    for kind in ("stt", "vlm"):
+        media = view[kind]
+        if media.get("available"):
+            add(f"console.settings.providers.feature.{kind}", model_text(media), escape(t(f"console.settings.providers.from.{kind}")), key=kind)
+        else:
+            add(f"console.settings.providers.feature.{kind}", "-", console_pill(t(f"console.settings.providers.reason.{media['reason']}"), tone="neutral"), key=kind)
+    allowed = [t(f"console.admin.tier.feature.{name}") for name, ok in view["features"].items() if ok]
+    add("console.settings.providers.feature.extra", escape(", ".join(allowed) if allowed else t("console.common.none")), escape(t("console.settings.providers.from.features")), key="features")
+    modes = [t(f"ws.ingest.extraction_{m}") for m in view["extraction_modes"]]
+    add("console.settings.providers.feature.ingest", escape(" · ".join(modes)), escape(t("console.settings.providers.from.ingest_dialog")), key="ingest")
+    table = console_table(
+        [t("console.settings.providers.col.feature"), t("console.settings.providers.col.ai"), t("console.settings.providers.col.from")],
+        "".join(rows),
+        tbody_id="settings-effective-rows",
+        aria_label=t("console.settings.providers.effective_title"),
+    )
+
+    limits = view["limits"]
+    if limits.get("exempt"):
+        # No limit applies; the use of the account stays visible (the tokens count only the calls with the personal key).
+        limit_html = (
+            f'<p class="hint" data-effective-limits="exempt">{escape(t("console.settings.providers.limits.exempt"))}</p>'
+            + console_stat_row(_settings_usage_stats_html(usage, admin_viewer=True, include_tokens=True), attrs={"data-usage-stats": True})
+        )
+    else:
+        limit_rows = [
+            (t("console.settings.providers.limits.daily_ingests"), f"{usage['daily_ingests']:,} / {limits['daily_ingests']:,}"),
+            (t("console.settings.providers.limits.documents"), f"{usage['documents']:,} / {limits['max_documents']:,}"),
+            (t("console.settings.providers.limits.storage"), f"{_settings_format_bytes(usage['storage_bytes'])} / {limits['storage_mb']:,} MB"),
+            (
+                t("console.settings.providers.limits.monthly_tokens"),
+                f"{usage['tokens_total']:,} / {limits['monthly_tokens']:,}" if limits.get("monthly_tokens") is not None else t("console.settings.providers.limits.not_applied"),
+            ),
+        ]
+        if limits.get("max_concurrency") is not None:
+            limit_rows.append((t("console.settings.providers.limits.concurrency"), f"{limits['max_concurrency']:,}"))
+        limit_html = f'<h3>{escape(t("console.settings.providers.limits.title"))}</h3>' + console_kv(limit_rows, attrs={"data-effective-limits": "applied"})
+    body = f'<p class="hint">{intro_html}</p>' + table + limit_html
+    return console_card(
+        escape(t("console.settings.providers.effective_title")),
+        body,
+        id="settings-effective",
+        icon="check-circle",
+        badge_html=pill,
+        aria_label=t("console.settings.providers.effective_title"),
+        split=False,
+        attrs={"data-effective-source": source},
+    )
+
+
+def _key_card(items: list[dict[str, Any]], *, admin_viewer: bool) -> str:
+    """One card for the personal key (``#settings-keys``): its state (the key metadata, never the key), a new key, the model, and the actions save, check again, and delete. The result is next to the buttons."""
+    key = next((item for item in items if item.get("provider") in MEMBER_KEY_PROVIDERS), None)
+    if key:
+        status_text = t(f"console.settings.keys.status.{key['status']}") if key["status"] in ("active", "rejected", "unverified") else str(key["status"])
+        pill = console_pill(f"{keys_routes.PROVIDER_TEXT.get(key['provider'], key['provider'])} · {status_text} · {key['fingerprint']}", tone="ok" if key["status"] == "active" else "danger", attrs={"data-key-state": key["status"]})
+    else:
+        pill = console_pill(t("console.settings.keys.none"), tone="neutral", attrs={"data-key-state": "none"})
+    provider_options = "".join(
+        f'<option value="{escape(p)}">{escape(keys_routes.PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
+    )
+    has_key = bool(key)
+    if admin_viewer:
+        # The server administrator also changes the server providers: their page is one click away.
+        hint_html = f'{escape(t("console.settings.keys.admin_notice"))} <a href="/admin/providers" data-keys-server-providers>{escape(t("console.settings.providers.open_server"))}</a>'
+    else:
+        hint_html = escape(t("console.settings.keys.card_hint"))
+    body = (
+        (f'<input type="hidden" name="provider" value="{escape(MEMBER_KEY_PROVIDERS[0])}"/>' if len(MEMBER_KEY_PROVIDERS) == 1 else console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>'))
+        + console_field(
+            t("console.settings.keys.new_key") if has_key else t("console.settings.keys.api_key"),
+            f'<input name="api_key" type="password" class="pref-input" autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}" aria-describedby="settings-keys-key-help"/>',
+            hint_html=f'<span id="settings-keys-key-help">{escape(t("console.settings.keys.new_key_hint" if has_key else "console.settings.keys.put_hint"))}</span>',
+        )
+        + console_field(
+            t("console.settings.keys.model"),
+            f'<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select>',
+            hint_html=escape(t("console.settings.keys.model_hint")) if has_key else "",
+        )
+        + console_actions(
+            f'<button type="submit" name="action" value="save" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.save"))}</button>'
+            + (f'<button type="submit" name="action" value="verify" class="pref-btn" formnovalidate>{escape(t("console.settings.keys.verify_submit"))}</button>' if has_key else "")
+            + (f'<button type="submit" name="action" value="delete" class="pref-btn pref-btn-danger" formnovalidate>{escape(t("console.settings.keys.delete_submit"))}</button>' if has_key else "")
+            + console_result(attrs={"data-settings-result": True})
+        )
+    )
+    return console_form_card(
+        escape(t("console.settings.keys.card_title")),
+        body,
+        id="settings-keys",
+        icon="lock",
+        badge_html=pill,
+        hint_html=hint_html,
+        aria_label=t("console.settings.keys.card_title"),
+        split=False,
+        attrs={"data-settings-form": "provider-key", "data-has-key": "true" if has_key else "false", "data-keys-mode": "byok"},
+    )
+
+
 def _account_providers_body(
     ctx: AccountsContext,
     *,
@@ -1350,107 +1501,44 @@ def _account_providers_body(
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
-    """The body of ``/account/providers``: who does the LLM jobs of the account. It has the personal provider key (BYOK), the record of the key decryptions, and the server tier with the usage."""
+    """The body of ``/account/providers`` (PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): first what applies to the jobs of the account, then one card for the personal key, then the step-up form and the record of the key decryptions (closed)."""
+    view = _account_provider_view(ctx, account)
+    usage = _settings_account_usage(ctx, account.id)
+    effective = _effective_providers_card(view, usage, admin_viewer=admin_viewer)
     if not admin_viewer and (mode != "network" or principal.server_role != "member"):
         # 싱글 모드의 비관리자: /api/me/provider-keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
-        body = (
-            console_card(
-                escape(t("console.settings.keys.unavailable_title")),
-                "",
-                id="settings-keys-unavailable",
-                icon="lock",
-                hint_html=escape(t("console.settings.keys.unavailable_hint")),
-                aria_label=t("console.settings.keys.unavailable_label"),
-                attrs={"data-keys-mode": "unavailable"},
-            )
+        body = effective + console_card(
+            escape(t("console.settings.keys.unavailable_title")),
+            "",
+            id="settings-keys-unavailable",
+            icon="lock",
+            hint_html=escape(t("console.settings.keys.unavailable_hint")),
+            aria_label=t("console.settings.keys.unavailable_label"),
+            attrs={"data-keys-mode": "unavailable"},
         )
         return body, {"keys_mode": "unavailable"}
 
-    items = keys_routes.list_meta(ctx, account.id)
     decryptions = keys_routes.list_decryptions(ctx, account.id)
-    usage = _settings_account_usage(ctx, account.id)
     auth = open_auth_db(ctx)
     try:
         has_password = auth_db.has_password(auth, account.id)
     finally:
         auth.close()
-    provider_options = "".join(
-        f'<option value="{escape(p)}">{escape(keys_routes.PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
-    )
-    # The server administrator: the personal key pays for the jobs of the account, the server providers pay for the server jobs (owner decision 2026-11-19).
-    admin_card = (
-        console_card(
-            escape(t("console.settings.keys.admin_title")),
-            console_actions(f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'),
-            id="settings-keys-admin-providers",
-            icon="bolt",
-            hint_html=escape(t("console.settings.keys.admin_notice")),
-            aria_label=t("console.settings.keys.admin_label"),
-            attrs={"data-keys-server-providers": True},
-        )
-        if admin_viewer
-        else ""
-    )
-    if admin_viewer:
-        usage_card = console_card(
-            escape(t("console.settings.keys.admin_usage_title")),
-            console_stat_row(_settings_usage_stats_html(usage, admin_viewer=True, include_tokens=True), attrs={"data-usage-stats": True}),
-            id="settings-keys-usage",
-            icon="chart",
-            hint_html=escape(t("console.settings.keys.admin_usage_hint")),
-            aria_label=t("console.settings.keys.admin_usage_label"),
-        )
-    else:
-        usage_card = console_card(
-            escape(t("console.settings.keys.tier_title")),
-            _settings_tier_rows_html(usage["tier"]) + console_stat_row(_settings_usage_stats_html(usage, admin_viewer=False), attrs={"data-usage-stats": True}),
-            id="settings-keys-tier",
-            icon="chart",
-            hint_html=escape(t("console.settings.keys.tier_hint")),
-            aria_label=t("console.settings.keys.tier_label"),
-        )
-    meta_hint = t("console.settings.keys.admin_meta_hint") if admin_viewer else t("console.settings.keys.meta_hint")
-    delete_hint = t("console.settings.keys.admin_delete_hint") if admin_viewer else t("console.settings.keys.delete_hint")
-    meta_card = console_card(
-        escape(t("console.settings.keys.meta_title")),
-        f'<p class="hint" data-key-storage-notice>{escape(t("console.settings.keys.storage_notice"))}</p>'
-        + f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>',
-        id="settings-keys-meta",
-        icon="lock",
-        hint_html=escape(meta_hint),
-        aria_label=t("console.settings.keys.meta_label"),
-        attrs={"data-keys-mode": "byok"},
-    )
-    put_body = (
-        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
-        + '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
-        + console_field(t("console.settings.keys.model"), f'<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select>')
-        + console_field(t("console.settings.keys.api_key"), f'<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/>')
-        + f'<p class="hint">{escape(t("console.settings.keys.put_hint"))}</p>'
-        + console_actions(f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.put_submit"))}</button>')
-        + console_result(attrs={"data-settings-result": True})
-    )
-    verify_body = (
-        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
-        + f'<p class="hint">{escape(t("console.settings.keys.verify_hint"))}</p>'
-        + console_actions(f'<button type="submit" class="pref-btn">{escape(t("console.settings.keys.verify_submit"))}</button>')
-        + console_result(attrs={"data-settings-result": True})
-    )
-    delete_body = (
-        console_field(t("console.settings.keys.provider"), f'<select name="provider" class="pref-select">{provider_options}</select>')
-        + f'<p class="hint">{escape(delete_hint)}</p>'
-        + console_actions(f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>')
-        + console_result(attrs={"data-settings-result": True})
+    # The record is for a check: a card with the table closed (search in the page still finds it, <details>).
+    audit = console_card(
+        escape(t("console.settings.keys.audit.title")),
+        f'<details class="pref-disclosure"><summary>{escape(t("console.settings.keys.audit.show", count=len(decryptions)))}</summary>{keys_routes.decryption_rows_html(decryptions)}</details>',
+        id="settings-keys-audit",
+        icon="list",
+        hint_html=escape(t("console.settings.keys.audit.hint", days=DECRYPTION_AUDIT_DAYS)),
+        aria_label=t("console.settings.keys.audit.title"),
+        split=False,
     )
     body = (
-        admin_card
-        + meta_card
+        effective
+        + _key_card(keys_routes.list_meta(ctx, account.id), admin_viewer=admin_viewer)
         + _settings_reauth_form_html(has_password=has_password, form_id="settings-keys-reauth")
-        + console_form_card(escape(t("console.settings.keys.put_title")), put_body, id="settings-keys-put", icon="plus", aria_label=t("console.settings.keys.put_title"), attrs={"data-settings-form": "provider-key-put"})
-        + console_form_card(escape(t("console.settings.keys.verify_title")), verify_body, id="settings-keys-verify", icon="repeat", aria_label=t("console.settings.keys.verify_title"), attrs={"data-settings-form": "provider-key-verify"})
-        + console_form_card(escape(t("console.settings.keys.delete_title")), delete_body, id="settings-keys-delete", icon="trash", aria_label=t("console.settings.keys.delete_title"), attrs={"data-settings-form": "provider-key-delete"})
-        + console_card(escape(t("console.settings.keys.audit.title")), keys_routes.decryption_rows_html(decryptions), id="settings-keys-audit", icon="list", hint_html=escape(t("console.settings.keys.audit.hint", days=DECRYPTION_AUDIT_DAYS)), aria_label=t("console.settings.keys.audit.title"))
-        + usage_card
+        + audit
     )
     return body, {"keys_mode": "byok", "has_password": has_password}
 

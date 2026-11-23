@@ -27,8 +27,6 @@
     unauthorized: tr("console.js.common.error.unauthorized")
   };
 
-  var KEY_STATUS_TEXT = { active: tr("console.js.account.keys.status.active"), rejected: tr("console.js.account.keys.status.rejected"), unverified: tr("console.js.account.keys.status.unverified") };
-  var KEY_PROVIDER_TEXT = { gemini: "Google AI Studio" };
 
   function parseBootstrap() {
     var el = document.getElementById("console-bootstrap");
@@ -93,51 +91,11 @@
 
   // --- /account/providers: metadata only. The server never returns key text or partial characters. ---
 
-  function renderKeyMeta(keys) {
-    var box = document.querySelector("[data-provider-key-meta]");
-    if (!box) return;
-    while (box.firstChild) box.removeChild(box.firstChild);
-    if (!keys || !keys.length) {
-      var empty = document.createElement("p");
-      empty.className = "hint";
-      empty.setAttribute("data-provider-key-empty", "");
-      empty.textContent = tr("console.js.account.keys.empty");
-      box.appendChild(empty);
-      return;
-    }
-    keys.forEach(function (k) {
-      var dl = document.createElement("dl");
-      dl.setAttribute("data-provider-key", String(k.provider));
-      [
-        [tr("console.js.account.keys.field.provider"), KEY_PROVIDER_TEXT[k.provider] || k.provider],
-        ["fingerprint", k.fingerprint],
-        [tr("console.js.account.keys.field.status"), KEY_STATUS_TEXT[k.status] || k.status],
-        [tr("console.js.account.keys.field.created"), formatTs(k.created_at)],
-        [tr("console.js.account.keys.field.last_verified"), formatTs(k.last_verified_at)],
-        [tr("console.js.account.keys.field.last_used"), formatTs(k.last_used_at)]
-      ].forEach(function (row) {
-        var dt = document.createElement("dt");
-        dt.textContent = row[0];
-        var dd = document.createElement("dd");
-        dd.textContent = row[1] == null ? "-" : String(row[1]);
-        dl.appendChild(dt);
-        dl.appendChild(dd);
-      });
-      box.appendChild(dl);
-    });
-  }
-
   function renderModelPolicy(policy) {
     if (!policy) return;
     // The administrator values are only the defaults. Each allowed model can be selected (no baseline).
     var defaults = (policy.admin_defaults || {}).extract_graph || {};
     var prefs = policy.model_prefs || {};
-    var summaryEl = document.querySelector("[data-byok-policy-summary]");
-    if (summaryEl) {
-      var dMod = defaults.model || tr("console.js.account.byok.model_default");
-      var dEff = defaults.effort || "medium";
-      summaryEl.textContent = tr("console.js.account.byok.policy_summary", { model: dMod, effort: dEff });
-    }
     var modelSel = document.querySelector("[data-byok-model-select]");
     if (modelSel) {
       while (modelSel.firstChild) modelSel.removeChild(modelSel.firstChild);
@@ -162,10 +120,29 @@
 
   function refreshKeys() {
     return request("GET", "/api/me/provider-keys?include_policy=1").then(function (r) {
-      if (r.ok && r.body) {
-        if (Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
-        if (r.body.model_policy) renderModelPolicy(r.body.model_policy);
+      if (r.ok && r.body && r.body.model_policy) renderModelPolicy(r.body.model_policy);
+    });
+  }
+
+  // After a change of the key, the page reads /account/providers again and replaces the two cards that the change touches: what applies (#settings-effective) and the key card (#settings-keys). The message stays next to the buttons of the new key card.
+  function refreshProviderCards(text, isError) {
+    return fetch("/account/providers", { credentials: "same-origin", headers: { "Accept": "text/html" } }).then(function (res) {
+      return res.ok ? res.text() : null;
+    }).then(function (html) {
+      if (!html) return;
+      var doc = new DOMParser().parseFromString(html, "text/html");
+      ["settings-effective", "settings-keys"].forEach(function (id) {
+        var fresh = doc.getElementById(id);
+        var current = document.getElementById(id);
+        if (fresh && current) current.replaceWith(document.importNode(fresh, true));
+      });
+      var form = document.getElementById("settings-keys");
+      if (form) {
+        bindForm(form);
+        show(form, text, isError);
       }
+      if (window.ClaireUi && typeof window.ClaireUi.enhance === "function") window.ClaireUi.enhance(document.getElementById("settings-effective"));
+      return refreshKeys();
     });
   }
 
@@ -511,59 +488,82 @@
         }
       });
     },
-    "provider-key-put": function (form) {
+    // One card for the key (#settings-keys): the button that the person pressed selects the action. Each result shows next to the buttons.
+    "provider-key": function (form, submitter) {
+      var action = (submitter && submitter.value) || "save";
       var provider = form.elements.namedItem("provider").value;
       var field = form.elements.namedItem("api_key");
       var modelEl = form.elements.namedItem("model");
-      var value = field.value;
+      var hasKey = form.getAttribute("data-has-key") === "true";
+      if (action === "verify") {
+        busy(form);
+        return request("POST", "/api/me/provider-keys/verify", { provider: provider }).then(function (r) {
+          if (r.ok && r.body) {
+            return refreshProviderCards((r.body.ok ? tr("console.js.account.keys.valid") + " " : tr("console.js.account.keys.rejected") + " ") + (r.body.message || ""), !r.body.ok);
+          }
+          show(form, errorText(r.status, r.body), true);
+        });
+      }
+      if (action === "delete") {
+        if (!window.confirm(tr("console.js.account.keys.delete_confirm"))) return Promise.resolve();
+        busy(form);
+        return request("DELETE", "/api/me/provider-keys?provider=" + encodeURIComponent(provider)).then(function (r) {
+          if (r.ok) return refreshProviderCards(tr("console.js.account.keys.deleted"), false);
+          show(form, errorText(r.status, r.body), true);
+        });
+      }
+      var value = field ? field.value : "";
+      if (!value && !hasKey) {
+        show(form, tr("console.js.account.keys.need_key"), true);
+        if (field) field.focus();
+        return Promise.resolve();
+      }
+      busy(form);
+      if (!value) {
+        // Only the model changes: the key is not sent again.
+        return request("PATCH", "/api/me/provider-keys", { provider: provider, model: modelEl ? modelEl.value : "" }).then(function (r) {
+          if (r.ok) return refreshProviderCards(tr("console.js.account.keys.model_saved"), false);
+          show(form, errorText(r.status, r.body), true);
+        });
+      }
       field.value = "";
       var payload = { provider: provider, api_key: value };
       if (modelEl && modelEl.value) payload.model = modelEl.value;
       return request("PUT", "/api/me/provider-keys", payload).then(function (r) {
         value = "";
-        show(form, r.ok ? tr("console.js.account.keys.saved") : errorText(r.status, r.body), !r.ok);
-        if (r.ok) return refreshKeys();
-      });
-    },
-    "provider-key-verify": function (form) {
-      var provider = form.elements.namedItem("provider").value;
-      return request("POST", "/api/me/provider-keys/verify", { provider: provider }).then(function (r) {
-        if (r.ok && r.body) {
-          show(form, (r.body.ok ? tr("console.js.account.keys.valid") + " " : tr("console.js.account.keys.rejected") + " ") + (r.body.message || ""), !r.body.ok);
-          return refreshKeys();
-        }
-        show(form, errorText(r.status, r.body), true);
-      });
-    },
-    "provider-key-delete": function (form) {
-      var provider = form.elements.namedItem("provider").value;
-      if (!window.confirm(tr("console.js.account.keys.delete_confirm"))) return Promise.resolve();
-      return request("DELETE", "/api/me/provider-keys?provider=" + encodeURIComponent(provider)).then(function (r) {
-        if (r.ok) {
-          show(form, tr("console.js.account.keys.deleted"), false);
-          return refreshKeys();
-        }
+        if (r.ok) return refreshProviderCards(tr("console.js.account.keys.saved"), false);
         show(form, errorText(r.status, r.body), true);
       });
     }
   };
 
-  function bindForms() {
-    var forms = document.querySelectorAll("form[data-settings-form]");
-    Array.prototype.forEach.call(forms, function (form) {
-      var handler = handlers[form.getAttribute("data-settings-form")];
-      if (!handler) return;
-      form.addEventListener("submit", function (event) {
-        event.preventDefault();
-        var button = form.querySelector("button[type=submit]");
-        if (button) button.disabled = true;
-        handler(form).catch(function () {
-          show(form, tr("console.js.common.network_error"), true);
-        }).then(function () {
-          if (button) button.disabled = false;
-        });
+  // The status next to the buttons while the request runs (forms guide: announce the result with role="status"; disable the buttons only after a valid submit, against a double post).
+  function busy(form) {
+    var out = resultEl(form);
+    if (!out) return;
+    out.textContent = tr("console.js.common.saving");
+    out.setAttribute("data-state", "busy");
+  }
+
+  function bindForm(form) {
+    var handler = handlers[form.getAttribute("data-settings-form")];
+    if (!handler || form.dataset.bound === "1") return;
+    form.dataset.bound = "1";
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var buttons = form.querySelectorAll("button[type=submit]");
+      Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
+      handler(form, event.submitter || null).catch(function () {
+        show(form, tr("console.js.common.network_error"), true);
+      }).then(function () {
+        // A refresh can replace the form: the buttons of the old form need no reset then.
+        Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; });
       });
     });
+  }
+
+  function bindForms() {
+    Array.prototype.forEach.call(document.querySelectorAll("form[data-settings-form]"), bindForm);
   }
 
   // --- Step-up dialog: a change that needs recent authentication opens it (the USERNAME change). The caller gives the text and the label of the confirm button. The profile switch does not use it. ---

@@ -460,7 +460,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD")
         ),
         ("PATCH", "/api/me"),
-        *((method, "/api/me/provider-keys") for method in ("GET", "HEAD", "PUT", "DELETE")),
+        *((method, "/api/me/provider-keys") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         ("POST", "/api/me/provider-keys/verify"),
         ("POST", "/api/me/identities/oidc/{id}/start"),
         ("GET", "/api/me/identities"),

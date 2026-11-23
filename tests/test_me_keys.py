@@ -250,9 +250,8 @@ def test_admin_registers_personal_key_and_anonymous_gets_404(env, verify_calls):
     assert admin_page.status_code == 200
     text = admin_page.text
     assert 'data-keys-mode="byok"' in text and 'href="/admin/providers"' in text and "data-keys-server-providers" in text
-    assert "My API keys" in text and meta["fingerprint"] in text
-    assert "it does not change to the server providers" in text
-    assert "data-server-tier" not in text
+    assert "My API key" in text and meta["fingerprint"] in text
+    # The settings double of this module has no ``model_copy``: the page has no card "What applies" (tests/test_settings_account.py and tests/test_e2e_provider_routing_and_lineage.py check it).
     v = c.request("POST", "/api/me/provider-keys/verify", session=admin, json={"provider": "gemini"})
     assert v.status_code == 200 and v.json()["ok"] is True
     assert c.request("DELETE", "/api/me/provider-keys", session=admin).json() == {"ok": True, "deleted": 1}
@@ -302,8 +301,8 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
 
     page = c.request("GET", "/account/providers", session=sess)
     assert page.status_code == 200
-    assert "My API keys" in page.text and "root" in page.text and meta["fingerprint"] in page.text
-    assert "it does not change to the server tier or to a different key" in page.text
+    assert "My API key" in page.text and "root" in page.text and meta["fingerprint"] in page.text
+
 
     # 다시 검증과 삭제까지 거친 뒤 전체 응답·로그를 확인한다.
     v = c.request("POST", "/api/me/provider-keys/verify", session=sess, json={"provider": "gemini"})

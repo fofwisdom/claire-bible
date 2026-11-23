@@ -93,7 +93,7 @@ def _clean_api_key(value: Any) -> str | None:
 
 
 def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
-    """The effective model and effort of the server providers for each feature slot: the defaults of a key without model preferences."""
+    """The model and effort that a key without model preferences uses for each feature slot: the main model of the server providers (``provider_policy.byok_context``). The feature routing of the server applies to the server jobs only, thus it is not a default of a key."""
     from ...core.provider_manager import ProviderManager
 
     data_dir = ctx.data_dir or ctx.db_file.parent
@@ -105,7 +105,6 @@ def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
         cfg = {}
     providers = cfg.get("providers", {}) if isinstance(cfg, dict) else {}
     active = str(cfg.get("active_provider") or getattr(ctx.settings, "provider", "mock") or "mock").strip().lower()
-    raw_routing = cfg.get("feature_routing") if isinstance(cfg.get("feature_routing"), dict) else getattr(ctx.settings, "feature_routing", {}) or {}
 
     def _prov_defaults(pname: str, slot: str) -> tuple[str, str]:
         pdata = providers.get(pname, {}) if isinstance(providers, dict) else {}
@@ -119,12 +118,11 @@ def _admin_defaults(ctx: AccountsContext) -> dict[str, dict[str, str]]:
 
     defaults: dict[str, dict[str, str]] = {}
     for slot in FEATURE_SLOTS:
-        slot_cfg = raw_routing.get(slot, {}) if isinstance(raw_routing, dict) else {}
-        slot_prov = str(slot_cfg.get("provider") or "inherit").strip().lower() or "inherit"
-        eff_prov = active if slot_prov == "inherit" else slot_prov
+        # A key always calls its own provider (gemini); the main provider of the server (possibly mock) is not the default of a key.
+        eff_prov = "gemini" if active in ("gemini", "mock") else active
         def_m, def_e = _prov_defaults(eff_prov, slot)
-        model = str(slot_cfg.get("model") or def_m or "").strip()
-        effort = str(slot_cfg.get("effort") or def_e or "").strip().lower()
+        model = str(def_m or "").strip()
+        effort = str(def_e or "").strip().lower()
         if eff_prov == "gemini" and slot != "embed":
             _, slot_embedded_eff = split_gemini_model_and_effort(model)
             if slot_embedded_eff:
@@ -305,6 +303,27 @@ def reverify_key(ctx: AccountsContext, account_id: int, provider: str) -> dict[s
         auth.close()
 
 
+def update_model_prefs(ctx: AccountsContext, account_id: int, provider: str, body: dict[str, Any], prefs: dict[str, Any]) -> dict[str, Any] | None:
+    """Change the model preferences of the registered key; the key does not change. ``model``/``effort`` in the body replace the model of the key (an empty model is the server default); ``feature_models`` replaces the models of the features. None when the account has no key."""
+    auth = open_auth_db(ctx)
+    try:
+        current = provider_keys.get_key_model_prefs(auth, account_id=account_id, provider=provider)
+        merged = dict(current)
+        if "model" in body or "effort" in body:
+            merged.pop("model", None)
+            merged.pop("effort", None)
+            merged.update({k: v for k, v in prefs.items() if k in ("model", "effort")})
+        if "feature_models" in body:
+            merged.pop("feature_models", None)
+            if prefs.get("feature_models"):
+                merged["feature_models"] = prefs["feature_models"]
+        if not provider_keys.set_key_model_prefs(auth, account_id=account_id, provider=provider, model_prefs=merged):
+            return None
+        return merged
+    finally:
+        auth.close()
+
+
 def remove_keys(ctx: AccountsContext, account_id: int, provider: str | None) -> int:
     auth = open_auth_db(ctx)
     try:
@@ -419,6 +438,28 @@ def routes(ctx: AccountsContext) -> list[Route]:
             res_body["model_prefs"] = prefs
         return JSONResponse(res_body, headers={"Cache-Control": "no-store"})
 
+    async def keys_patch(request: Request) -> Response:
+        """``PATCH /api/me/provider-keys``: change only the model of the registered key (``model``, ``effort``, ``feature_models``). The key is not sent again and is not decrypted."""
+        principal, denied = await _gate(request)
+        if denied is not None:
+            return denied
+        assert principal.account_id is not None
+        body = await read_json_body(request)
+        allowed_keys = {"provider", "model", "effort", "feature_models"}
+        if "provider" not in body or (set(body) - allowed_keys) or len(body) < 2:
+            return json_error(400, "invalid_request", fields=sorted(allowed_keys))
+        provider = body["provider"]
+        if not isinstance(provider, str) or provider not in MEMBER_KEY_PROVIDERS:
+            return json_error(400, "unsupported_provider", providers=list(MEMBER_KEY_PROVIDERS))
+        prefs, pref_err = _validate_byok_prefs(body)
+        if pref_err is not None:
+            err_code = str(pref_err.pop("code", "invalid_request"))
+            return json_error(400, err_code, **pref_err)
+        merged = await asyncio.to_thread(update_model_prefs, ctx, principal.account_id, provider, body, prefs)
+        if merged is None:
+            return json_error(404, "key_not_found")
+        return JSONResponse({"ok": True, "model_prefs": merged}, headers={"Cache-Control": "no-store"})
+
     async def keys_verify(request: Request) -> Response:
         principal, denied = await _gate(request)
         if denied is not None:
@@ -462,6 +503,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     return [
         Route(ME_KEYS_PATH, keys_get, methods=["GET"]),
         Route(ME_KEYS_PATH, keys_put, methods=["PUT"]),
+        Route(ME_KEYS_PATH, keys_patch, methods=["PATCH"]),
         Route(ME_KEYS_PATH, keys_delete, methods=["DELETE"]),
         Route(ME_KEYS_VERIFY_PATH, keys_verify, methods=["POST"]),
     ]

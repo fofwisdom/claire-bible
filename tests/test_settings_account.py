@@ -251,10 +251,13 @@ def test_keys_page_network_member_is_write_only_and_shows_server_tier(env):
         auth.close()
     html = _get(env, "/account/providers", env.alice).text
     assert 'data-keys-mode="byok"' in html
-    assert 'data-settings-form="provider-key-put"' in html
-    assert 'data-settings-form="provider-key-verify"' in html
-    assert 'data-settings-form="provider-key-delete"' in html
-    assert "data-server-tier" in html
+    # One card for the key: save, check again, and delete are its buttons; the result is next to them.
+    assert 'data-settings-form="provider-key"' in html
+    for action in ("save", "verify", "delete"):
+        assert f'name="action" value="{action}"' in html
+    # What applies to the jobs: the key of the account and the limits of the server tier that apply to a key.
+    assert 'data-effective-source="byok"' in html
+    assert 'data-effective-limits="applied"' in html
     assert meta.fingerprint in html
     assert KEY_CANARY not in html
     assert KEY_CANARY[:12] not in html
@@ -268,10 +271,9 @@ def test_keys_page_admin_gets_personal_key_forms_and_provider_settings_link(env,
     html = _get(env, "/account/providers", env.admin).text
     assert 'data-keys-mode="byok"' in html and _bootstrap(html)["settings_account"]["keys_mode"] == "byok"
     assert 'href="/admin/providers"' in html and "data-keys-server-providers" in html
-    for form in ("provider-key-put", "provider-key-verify", "provider-key-delete"):
-        assert f'data-settings-form="{form}"' in html
-    # The server tier does not apply to the administrator account: the page shows own usage, not the tier.
-    assert "data-server-tier" not in html and 'data-usage-stat="tokens"' in html
+    assert 'data-settings-form="provider-key"' in html
+    # Without a personal key the administrator account uses the server providers; the server tier limits do not apply to it.
+    assert 'data-effective-source="server"' in html and 'data-effective-limits="exempt"' in html
     if mode == "single":
         assert ADMIN_USERNAME not in html
 
@@ -280,7 +282,7 @@ def test_keys_page_single_mode_member_gets_neutral_notice_without_admin_link(env
     _set_mode(env.db_file, "single")
     html = _get(env, "/account/providers", env.alice).text
     assert 'data-keys-mode="unavailable"' in html
-    assert 'data-settings-form="provider-key-put"' not in html
+    assert 'data-settings-form="provider-key"' not in html
     assert "/admin/" not in html
     assert MEMBER_USERNAME not in html
 

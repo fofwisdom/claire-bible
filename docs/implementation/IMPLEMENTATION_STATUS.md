@@ -108,7 +108,7 @@ Limits:
 | `accessing Claire Bible during active ingest boots directly into heatmap …`, `provider management lives in the admin console …` | 전체 실행에서만 간헐 실패하고 단독 실행은 통과한다. 앞 테스트의 상태가 넘어오는 것으로 보인다 [미검증] |
 
 - 모바일 테스트 5개(`mobile primary view …` 등)는 하단 바(`#botnav`) 기준으로 고쳤고 통과한다. 좁은 화면으로 시작하면 첫 화면이 본문 뷰다(`initialCenterView()`).
-- 2026-11-16: `e2e/provider_routing_lineage.spec.js`, `node aliases render …`, and `admin providers checks capabilities …` use the same owner token (`e2e-owner-token-…`). In a full run only the first of them gets the owner session; the other two fail. Each of them passes when it runs first.
+- 2026-11-24: `e2e/provider_settings.spec.js` replaces the old provider routing and lineage spec, and the workspace test `admin providers checks capabilities …` is gone with the capability lock of the old provider page. Each test of the new spec has its own seed token; the first test saves on the E2E server (`data/providers.json` of the repository) and restores the values.
 - 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
 - 실행: `bash scripts/e2e.sh run [<spec>.spec.js]`. 실행은 분리된 백그라운드 세션(`setsid` 슈퍼바이저, 포트별 `data/e2e-runs/active-<포트>`로 추적)에서 돈다. 시작한 터미널이나 에이전트 세션이 끝나도 실행은 계속되고, 실행이 죽어도 세션은 남는다. git worktree에서도 메인 저장소의 `.venv`·`e2e/node_modules`를 재사용한다. `cd e2e && npx playwright test`는 쓰지 않는다.
   - 명령: `run`(시작하고 끝까지 기다림), `start`(시작만 하고 바로 돌아옴), `wait [초]`, `status`, `watch`(출력 따라가기), `tmux`(tmux 세션에서 `watch`), `stop`. 인자가 없으면 스펙 파일마다 Playwright 프로세스를 따로 띄우고, 인자가 있으면 한 프로세스에 그대로 넘긴다.
@@ -134,6 +134,8 @@ Limits:
 5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `src/claire/telegram/bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
 6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
 7. 추출 모드(AED4-rev): 재적재·재생성 창에는 추출 모드 선택이 없고 API로만 다시 추출한다(에이전트 클라이언트로 다시 추출하려면 에이전트가 `extract_stage(document_id=…, force=True)`를 쓴다). 문서 복사(`/api/syndication/dispatch`)는 창이 없어 계정의 기본 모드를 쓴다. v45 이전의 `raw_inbox` 행은 모드가 없어 재시도 때 계정의 기본 모드를 쓴다. 대기열로 적재한 피드·타임라인 항목은 추출 전에도 `linked`를 받지만 문서는 추출 뒤에 보인다.
+
+8. AI 프로바이더 화면(PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): `PATCH /providers`에는 단계 인증과 관리자 감사 기록이 없다(서버 등급은 단계 인증·감사가 있는 `/admin/server`로 옮겼다). 이미지 해석(VLM)은 서버 환경 변수 `CLAIRE_ENABLE_VLM_TRANSCRIPTION`·`CLAIRE_VLM_*`로만 켜고 끄며 화면은 상태만 보인다. `POST /providers/check`(옛 화면의 실시간 잠금 검사)는 남아 있지만 화면이 부르지 않는다. 저장 뒤 설정 캐시는 웹 프로세스에서만 비우므로 다른 프로세스(봇, 작업 루프)는 다시 시작할 때까지 옛 값을 쓸 수 있다 [미검증].
 
 ### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 

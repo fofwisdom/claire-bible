@@ -58,7 +58,8 @@ _GEMINI_MODEL_EFFORTS: Final[dict[str, tuple[str, ...]]] = {
     "gemini-3.1-pro": ("low", "medium", "high"),
     "gemini-2.5-pro": ("low", "medium", "high"),
 }
-FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "render_detail", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
+# The slots of the feature routing that a call really reads (``extract.provider._resolve_slot_spec``). STT and VLM are not slots: the transcript and vision factories select their providers (Gemini only), thus a routing row for them had no effect and is gone.
+FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "render_detail", "entity_judge", "relation_judge", "classify", "research", "embed")
 
 SERVER_TIER_SETTING_KEY: Final = "server_tier"  # claire.db server_settings 키, 값은 ServerTier.to_dict() JSON
 
@@ -316,47 +317,75 @@ def resolve_provider_context(
                 f"account {account_id}: provider {key_provider!r} is not available for member keys",
                 remedy="지원하는 프로바이더(gemini)의 키를 다시 등록한다.",
             )
-        prefs = _load_member_model_prefs(int(account_id), settings=settings, auth_db_path=auth_db_path, provider=key_provider)
-        admin_base_model = str(getattr(settings, "gemini_model", "") or "")
-        admin_base_effort = str(getattr(settings, "gemini_effort", "medium") or "medium")
-        admin_base_embed = str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
-        # The account selects any allowed model and effort. The administrator values are only the defaults (no baseline).
-        resolved_model = str(prefs.get("model") or admin_base_model)
-        resolved_effort = str(prefs.get("effort") or admin_base_effort)
-        feature_models: dict[str, dict[str, str]] = {}
-        raw_fm = prefs.get("feature_models") if isinstance(prefs.get("feature_models"), dict) else {}
-        admin_routing = getattr(settings, "feature_routing", None) or {}
-        resolved_embed = admin_base_embed
-        for slot in FEATURE_SLOTS:
-            if slot in ADMIN_ONLY_FEATURES:
-                continue
-            slot_admin = admin_routing.get(slot, {}) if isinstance(admin_routing, dict) else {}
-            s_admin_m = str(slot_admin.get("model") or (admin_base_embed if slot == "embed" else admin_base_model) or "")
-            s_admin_e = str(slot_admin.get("effort") or ("" if slot == "embed" else admin_base_effort) or "")
-            slot_user = raw_fm.get(slot, {}) if isinstance(raw_fm.get(slot), dict) else {}
-            cm = str(slot_user.get("model") or (resolved_embed if slot == "embed" else resolved_model) or s_admin_m)
-            ce = str(slot_user.get("effort") or ("" if slot == "embed" else resolved_effort) or s_admin_e)
-            if slot == "embed":
-                resolved_embed = cm or admin_base_embed
-                if slot_user:
-                    feature_models[slot] = {"provider": key_provider, "model": resolved_embed, "effort": ""}
-            elif slot_user:
-                feature_models[slot] = {"provider": key_provider, "model": cm, "effort": ce}
-        return ProviderContext(
-            account_id=int(account_id),
-            is_admin=False,
-            source="byok",
+        return byok_context(
+            int(account_id),
+            settings=settings,
+            auth_db_path=auth_db_path,
             provider=key_provider,
-            model=resolved_model or admin_base_model,
-            embed_model=resolved_embed or admin_base_embed,
-            effort=resolved_effort or admin_base_effort,
-            credential_key=f"byok:{active.fingerprint}",
-            tier=tier,
+            fingerprint=active.fingerprint,
             api_key=active.api_key,
-            feature_models=feature_models,
+            tier=tier,
             server_admin=server_admin,
         )
+    return tier_context(int(account_id), settings=settings, tier=tier)
 
+
+def byok_context(
+    account_id: int,
+    *,
+    settings: "Settings",
+    auth_db_path: Path | str | None,
+    provider: str,
+    fingerprint: str,
+    api_key: str,
+    tier: ServerTier,
+    server_admin: bool,
+) -> ProviderContext:
+    """The context of an account key (``source="byok"``): the model preferences of the key, else the server providers as defaults. ``resolve_provider_context`` gives the decrypted key; ``provider_view`` gives a placeholder to show the settings without a decryption."""
+    prefs = _load_member_model_prefs(int(account_id), settings=settings, auth_db_path=auth_db_path, provider=provider)
+    admin_base_model = str(getattr(settings, "gemini_model", "") or "")
+    admin_base_effort = str(getattr(settings, "gemini_effort", "medium") or "medium")
+    admin_base_embed = str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
+    # The account selects any allowed model and effort. The administrator values are only the defaults (no baseline).
+    resolved_model = str(prefs.get("model") or admin_base_model)
+    resolved_effort = str(prefs.get("effort") or admin_base_effort)
+    feature_models: dict[str, dict[str, str]] = {}
+    raw_fm = prefs.get("feature_models") if isinstance(prefs.get("feature_models"), dict) else {}
+    admin_routing = getattr(settings, "feature_routing", None) or {}
+    resolved_embed = admin_base_embed
+    for slot in FEATURE_SLOTS:
+        if slot in ADMIN_ONLY_FEATURES:
+            continue
+        slot_admin = admin_routing.get(slot, {}) if isinstance(admin_routing, dict) else {}
+        s_admin_m = str(slot_admin.get("model") or (admin_base_embed if slot == "embed" else admin_base_model) or "")
+        s_admin_e = str(slot_admin.get("effort") or ("" if slot == "embed" else admin_base_effort) or "")
+        slot_user = raw_fm.get(slot, {}) if isinstance(raw_fm.get(slot), dict) else {}
+        cm = str(slot_user.get("model") or (resolved_embed if slot == "embed" else resolved_model) or s_admin_m)
+        ce = str(slot_user.get("effort") or ("" if slot == "embed" else resolved_effort) or s_admin_e)
+        if slot == "embed":
+            resolved_embed = cm or admin_base_embed
+            if slot_user:
+                feature_models[slot] = {"provider": provider, "model": resolved_embed, "effort": ""}
+        elif slot_user:
+            feature_models[slot] = {"provider": provider, "model": cm, "effort": ce}
+    return ProviderContext(
+        account_id=int(account_id),
+        is_admin=False,
+        source="byok",
+        provider=provider,
+        model=resolved_model or admin_base_model,
+        embed_model=resolved_embed or admin_base_embed,
+        effort=resolved_effort or admin_base_effort,
+        credential_key=f"byok:{fingerprint}",
+        tier=tier,
+        api_key=api_key,
+        feature_models=feature_models,
+        server_admin=server_admin,
+    )
+
+
+def tier_context(account_id: int, *, settings: "Settings", tier: ServerTier) -> ProviderContext:
+    """The context of an account without a key: the server tier with the server key, or ``source="none"`` when the tier gives no API."""
     tier_provider = str(tier.provider or "none").strip().lower()
     server_key = str(getattr(settings, "gemini_api_key", "") or "")
     usable = (

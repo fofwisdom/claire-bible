@@ -3354,22 +3354,17 @@ def create_app(
             log.debug("providers server_tier read skipped: %s", exc)
         return {"configured": False, "tier": policy.ServerTier().to_dict()}
 
-    def _save_server_tier_patch(patch: dict[str, Any]) -> dict[str, Any]:
-        """Merge provider/model/max_effort/features fields from /providers PATCH onto ServerTier."""
-        db_path = Path(s.db_file)
-        if not db_path.is_file():
-            return {"configured": False, "tier": policy.ServerTier().to_dict()}
-        conn = dbm.connect_existing(db_path)
-        try:
-            current = server_tier.load_server_tier(conn).to_dict()
-            for key in ("provider", "model", "max_effort", "features"):
-                if key in patch:
-                    current[key] = patch[key]
-            validated = policy.ServerTier.from_dict(current)
-            server_tier.save_server_tier(conn, validated, updated_by=dbm.ADMIN_ACCOUNT_ID)
-            return {"configured": True, "tier": validated.to_dict()}
-        finally:
-            conn.close()
+    def _add_provider_view(cfg: dict[str, Any], pm: Any) -> None:
+        """Add what applies now (``accounts.provider_view``) and the server tier to a /providers response. The view reads the settings with the ``providers.json`` of ``pm`` (the file that the request saved). The tier is read-only here: /admin/server edits it."""
+        from ..accounts.provider_view import describe_server_providers
+
+        current = s.model_copy(update=pm.get_settings_dict())
+        cfg["effective_provider"] = current.effective_provider
+        cfg["effective_stt_provider"] = current.effective_stt_provider
+        cfg["effective"] = describe_server_providers(current)
+        tier_payload = _load_server_tier_payload()
+        cfg["server_tier"] = tier_payload["tier"]
+        cfg["server_tier_configured"] = tier_payload["configured"]
 
     async def providers_get_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -3382,11 +3377,7 @@ def create_app(
 
         pm = get_provider_manager(s.data_dir)
         cfg = pm.get_sanitized_config()
-        cfg["effective_provider"] = s.effective_provider
-        cfg["effective_stt_provider"] = s.effective_stt_provider
-        tier_payload = _load_server_tier_payload()
-        cfg["server_tier"] = tier_payload["tier"]
-        cfg["server_tier_configured"] = tier_payload["configured"]
+        _add_provider_view(cfg, pm)
         return JSONResponse(cfg)
 
     async def providers_update_route(request: Request) -> JSONResponse:
@@ -3400,20 +3391,24 @@ def create_app(
         body = await _json_object(request)
         from ..core.provider_manager import get_provider_manager
 
+        # The test provider (mock) makes no AI call: only a development server may select it (PROVIDERS.md Section 3.1).
+        if str(body.get("active_provider") or "").strip().lower() == "mock" and s.is_production:
+            raise HTTPException(status_code=400, detail="mock_not_allowed_in_production")
+        # STT has one provider (Google AI Studio) and one model: the screen changes only the switch and the language. The server tier has its own page (/admin/server, PUT /api/admin/server-tier).
+        providers_in = body.get("providers")
+        if isinstance(providers_in, dict) and isinstance(providers_in.get("stt"), dict):
+            providers_in["stt"] = {k: v for k, v in providers_in["stt"].items() if k in ("enabled", "language")} | {"provider": "gemini"}
+        body.pop("server_tier", None)
         pm = get_provider_manager(s.data_dir)
         try:
             updated = pm.update_config(body, server_scope=True)
-            tier_payload = _save_server_tier_patch(body["server_tier"]) if isinstance(body.get("server_tier"), dict) else _load_server_tier_payload()
             get_settings.cache_clear()
             s = get_settings()
             if hasattr(request, "app") and hasattr(request.app, "state"):
                 request.app.state.settings = s
             # 캐시된 서비스·프로바이더(관리자 공유 포함)를 버리고 새 설정으로 다시 만든다.
             service_pool.clear(s)
-            updated["effective_provider"] = s.effective_provider
-            updated["effective_stt_provider"] = s.effective_stt_provider
-            updated["server_tier"] = tier_payload["tier"]
-            updated["server_tier_configured"] = tier_payload["configured"]
+            _add_provider_view(updated, pm)
             return JSONResponse({"ok": True, "config": updated})
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err

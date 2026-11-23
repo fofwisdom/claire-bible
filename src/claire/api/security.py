@@ -764,6 +764,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/me/provider-keys"): _any("owner", "none"),
     ("HEAD", "/api/me/provider-keys"): _any("owner", "none"),
     ("PUT", "/api/me/provider-keys"): _any("owner", "none"),
+    ("PATCH", "/api/me/provider-keys"): _any("owner", "none"),
     ("DELETE", "/api/me/provider-keys"): _any("owner", "none"),
     ("POST", "/api/me/provider-keys/verify"): _any("owner", "none"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).

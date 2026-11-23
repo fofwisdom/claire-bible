@@ -260,31 +260,14 @@
   }
 
   // ==========================================
-  // 1. PROVIDER MANAGER
+  // 1. PROVIDER MANAGER (/admin/providers, PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md)
   // ==========================================
+  // What applies now (read-only), then one form for each part: the key, the models, STT, and the advanced settings. Each form saves only its part with PATCH /providers and shows the result next to its buttons; the inputs stay after a failure.
 
   function togglePassVisibility(id) {
     const el = document.getElementById(id);
     if (!el) return;
     el.type = el.type === 'password' ? 'text' : 'password';
-  }
-
-  function clearApiKeyInput(inputId, provName) {
-    const el = document.getElementById(inputId);
-    if (el) {
-      el.value = '';
-      el.placeholder = trKey("console.js.panels.providers.key_placeholder_empty");
-      el.dataset.cleared = 'true';
-    }
-    runProviderCapabilityCheck();
-  }
-
-  function closeProviderManager() {
-    if (_provState.opts && typeof _provState.opts.onClose === 'function') {
-      _provState.opts.onClose();
-    } else if (typeof window.closeDrawer === 'function') {
-      window.closeDrawer();
-    }
   }
 
   const GEMINI_FALLBACK_MODEL_EFFORTS = [
@@ -315,859 +298,327 @@
     return { base: raw, effort: '' };
   }
 
-  function resolveGeminiVariantSelection(rawList, fallbackList, currentVal, fallbackEffort, defaultId) {
-    const items = normalizeModelOptions(rawList, fallbackList);
-    const ids = new Set(items.map(m => m.id));
-    const cur = String(currentVal || '').trim();
-    if (!cur) return defaultId && ids.has(defaultId) ? defaultId : '';
-    if (ids.has(cur)) return cur;
-    const parsed = splitGeminiModelEffort(cur);
-    if (!parsed.effort) {
-      const candidate = `${cur}-${String(fallbackEffort || 'medium').toLowerCase()}`;
-      if (ids.has(candidate)) return candidate;
-    }
-    return cur;
+  function modelIds(rawList) {
+    const src = Array.isArray(rawList) && rawList.length ? rawList : fallbackGeminiVariants();
+    return src.map(item => (typeof item === 'string' ? item : String((item && item.id) || ''))).filter(Boolean);
   }
 
-  function normalizeModelOptions(rawList, fallbackList) {
-    const src = Array.isArray(rawList) ? (rawList.length ? rawList : []) : (Array.isArray(fallbackList) ? fallbackList : []);
-    return src.map(item => (typeof item === 'string' ? { id: item, label: '' } : { id: String(item.id || ''), label: String(item.label || '') }));
+  // A select of models. ``emptyLabel`` adds the first option "" (follow the default). A current value that is not in the list stays as an option, so a save does not change it silently.
+  function modelSelectHtml(id, ids, current, emptyLabel) {
+    const cur = String(current || '');
+    let html = `<select id="${esc(id)}" name="${esc(id)}" class="pref-select">`;
+    if (emptyLabel != null) html += `<option value=""${cur === '' ? ' selected' : ''}>${esc(emptyLabel)}</option>`;
+    const list = ids.slice();
+    if (cur && list.indexOf(cur) === -1) list.unshift(cur);
+    for (const m of list) html += `<option value="${esc(m)}"${m === cur ? ' selected' : ''}>${esc(m)}</option>`;
+    return html + '</select>';
   }
 
-  function buildModelSelectResult(rawList, fallbackList, currentVal, defaultId) {
-    const items = normalizeModelOptions(rawList, fallbackList);
-    const ids = new Set(items.map(m => m.id));
-    const cur = currentVal == null ? '' : String(currentVal);
-    if (items.length === 0) {
-      let optionsHtml = '';
-      if (cur !== '') {
-        optionsHtml += `<option value="${esc(cur)}" selected disabled>${esc(cur)} (${esc(trKey("console.js.panels.providers.model_unverified"))})</option>`;
-      }
-      optionsHtml += `<option value="" ${cur === '' ? 'selected ' : ''}disabled>${esc(trKey("console.js.panels.providers.models_unavailable"))}</option>`;
-      return { optionsHtml, selected: cur, unsupportedCurrent: cur !== '', locked: true, previousVal: cur };
-    }
-    let selected = cur;
-    let unsupportedCurrent = false;
-    if (!ids.has(cur)) {
-      if (cur !== '') {
-        unsupportedCurrent = true;
-        selected = cur;
-      } else {
-        selected = defaultId && ids.has(defaultId) ? defaultId : items[0].id;
-      }
-    }
-    let optionsHtml = '';
-    if (unsupportedCurrent) {
-      optionsHtml += `<option value="${esc(cur)}" selected>${esc(cur)} (${esc(trKey("console.js.panels.providers.model_replace"))})</option>`;
-    }
-    for (const m of items) {
-      const text = m.id === '' ? (m.label || trKey("console.js.panels.providers.account_default")) : m.id;
-      optionsHtml += `<option value="${esc(m.id)}" ${selected === m.id ? 'selected' : ''}>${esc(text)}</option>`;
-    }
-    return { optionsHtml, selected, unsupportedCurrent, locked: false, previousVal: cur };
+  const PROVIDER_SLOTS = ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research'];
+
+  function nowStamp() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
-  function renderModelSelectField(id, rawList, fallbackList, currentVal, defaultId) {
-    const res = buildModelSelectResult(rawList, fallbackList, currentVal, defaultId);
-    const disabledAttr = res.locked ? ' disabled' : '';
-    let html = `<select id="${esc(id)}" class="pref-select"${disabledAttr}>${res.optionsHtml}</select>`;
-    if (res.unsupportedCurrent) {
-      html += `<small class="console-field-hint" style="color:var(--danger);">${esc(trKey("console.js.panels.providers.model_unsupported", { model: res.previousVal }))}</small>`;
-    }
-    return html;
+  // The status of one form, next to its buttons (role="status").
+  function setFormStatus(form, state, text) {
+    const out = form ? form.querySelector('[data-prov-status]') : null;
+    if (!out) return;
+    out.textContent = text || '';
+    if (state) out.setAttribute('data-state', state);
+    else out.removeAttribute('data-state');
   }
 
-  function setNoticeBox(el, tone, content, isHtml) {
-    if (!el) return;
-    if (!content) {
-      el.hidden = true;
-      el.style.display = 'none';
-      el.removeAttribute('data-tone');
-      el.textContent = '';
-      return;
-    }
-    el.hidden = false;
-    el.style.display = '';
-    el.dataset.tone = tone || 'info';
-    if (isHtml) el.innerHTML = content;
-    else el.textContent = content;
-  }
-
-  let _capAbortCtrl = null;
-  const PROVIDER_LABELS = {
-    gemini: trKey("console.js.panels.providers.gemini_label"),
-    mock: trKey("console.js.panels.providers.mock_label")
-  };
-
-  function collectProviderFormPayload() {
-    const activeProv = document.getElementById('prov-active-select').value;
-    const gemKey = document.getElementById('prov-gemini-key');
-    const gemModel = document.getElementById('prov-gemini-model').value.trim();
-    const gemEmbedEl = document.getElementById('prov-gemini-embed-model');
-    const gemEmbedModel = gemEmbedEl ? gemEmbedEl.value.trim() : '';
-    const cfgGemEffort = ((((_provState.config || {}).providers || {}).gemini || {}).effort || 'medium');
-    const gemEffort = splitGeminiModelEffort(gemModel).effort || cfgGemEffort;
-    const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
-    const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
-
-    const jevEnabled = document.getElementById('prov-jev-enabled').checked;
-    const jevKey = document.getElementById('prov-jev-key');
-    const jevUrl = document.getElementById('prov-jev-url').value.trim();
-
-    const sttEnabled = document.getElementById('prov-stt-enabled').checked;
-    const sttProv = document.getElementById('prov-stt-prov').value;
-    const sttLang = document.getElementById('prov-stt-lang').value.trim();
-
-    const featureRouting = {};
-    const slotNames = ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
-    for (const slot of slotNames) {
-      const pEl = document.getElementById(`prov-route-${slot}-provider`);
-      const mEl = document.getElementById(`prov-route-${slot}-model`);
-      if (pEl || mEl) {
-        const slotProv = pEl ? String(pEl.value || 'inherit') : 'inherit';
-        const effProv = resolveEffectiveRouteProvider({ active_provider: activeProv }, slotProv);
-        const slotModel = mEl ? String(mEl.value || '').trim() : '';
-        featureRouting[slot] = {
-          provider: slotProv,
-          model: slotModel,
-          effort: effProv === 'gemini' ? splitGeminiModelEffort(slotModel).effort : ''
-        };
-      }
-    }
-
-    const payload = {
-      active_provider: activeProv,
-      feature_routing: featureRouting,
-      providers: {
-        gemini: { model: gemModel, effort: gemEffort, ...(gemEmbedModel ? { embed_model: gemEmbedModel } : {}), min_interval: gemInterval, max_retries: gemRetries },
-        jev: { enabled: jevEnabled, base_url: jevUrl },
-        stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
-      }
+  function statePill(state) {
+    const map = {
+      ok: ['ok', 'console.js.panels.providers.state.ok'],
+      on: ['ok', 'console.js.panels.providers.state.on'],
+      off: ['neutral', 'console.js.panels.providers.state.off'],
+      mock: ['warn', 'console.js.panels.providers.state.mock'],
+      broken: ['danger', 'console.js.panels.providers.state.broken']
     };
-
-    const tierProvEl = document.getElementById('prov-tier-provider');
-    if (tierProvEl) {
-      const tierModelEl = document.getElementById('prov-tier-model');
-      const tierModelVal = tierProvEl.value === 'none' ? '' : ((tierModelEl && tierModelEl.value.trim()) || '');
-      const prevTierEffort = ((_provState.config && _provState.config.server_tier && _provState.config.server_tier.max_effort) || 'medium');
-      const inferredTierEffort = splitGeminiModelEffort(tierModelVal).effort || prevTierEffort;
-      const tierFeats = Array.from(document.querySelectorAll('input[name="prov-tier-feature"]:checked')).map((el) => el.value);
-      payload.server_tier = {
-        provider: tierProvEl.value || 'none',
-        model: tierModelVal,
-        max_effort: tierProvEl.value === 'none' ? 'low' : inferredTierEffort,
-        features: tierFeats
-      };
-    }
-
-    if (gemKey && gemKey.value) payload.providers.gemini.api_key = gemKey.value;
-    else if (gemKey && gemKey.dataset.cleared === 'true') payload.providers.gemini.clear_api_key = true;
-
-    if (jevKey && jevKey.value) payload.providers.jev.api_key = jevKey.value;
-    else if (jevKey && jevKey.dataset.cleared === 'true') payload.providers.jev.clear_api_key = true;
-
-    return payload;
+    const m = map[state] || map.off;
+    return uiPill(trKey(m[1]), m[0]);
   }
 
-  function renderFeatureBadgesHtml(cap) {
-    if (!cap || !cap.features) return '';
-    const f = cap.features;
-    const chip = (label, ok, note) => {
-      const prefix = ok ? trKey("console.js.panels.providers.supported") : trKey("console.js.panels.providers.unsupported");
-      return uiPill(`${prefix} · ${label}`, ok ? 'ok' : 'neutral', '', note ? { title: note } : null);
-    };
-    const items = [
-      chip(trKey("console.js.panels.providers.cap_extract"), Boolean(f.extract)),
-      chip(trKey("console.js.panels.providers.cap_research"), Boolean(f.research)),
-      chip(trKey("console.js.panels.providers.cap_embedding"), Boolean(f.embedding), cap.embedding_note || ''),
-      chip('STT·VLM', Boolean(f.stt_vlm))
+  function slotLabel(slot) {
+    return trKey(`console.js.panels.providers.view.slot.${slot}`);
+  }
+
+  function renderEffectiveCardHtml(cfg) {
+    const eff = cfg.effective || {};
+    const tier = cfg.server_tier || { provider: 'none' };
+    const effProv = String(eff.effective_provider || '');
+    const textState = effProv === 'mock' ? 'mock' : (effProv === 'unavailable' || effProv === '' ? 'broken' : 'ok');
+    const slots = Array.isArray(eff.slots) ? eff.slots : [];
+    const overrides = slots.filter(s => s.overridden);
+    const code = v => `<code class="pref-mono">${esc(v || '-')}</code>`;
+    const providerName = effProv === 'gemini' ? 'Google AI Studio ' : (effProv === 'mock' ? `${trKey('console.js.panels.providers.mock_name')} ` : '');
+    let textSub = '';
+    if (overrides.length) {
+      textSub = `<div class="hint">${esc(trKey('console.js.panels.providers.eff.overrides', { count: overrides.length }))} ${overrides.map(s => `${esc(slotLabel(s.slot))} → ${code(s.model)}`).join(', ')}</div>`;
+    }
+    const stt = eff.stt || {};
+    const sttState = !stt.enabled ? 'off' : (stt.ready ? 'on' : 'broken');
+    const vlm = eff.vlm || {};
+    const vlmState = !vlm.enabled ? 'off' : (vlm.ready ? 'on' : 'broken');
+    const tierText = (tier.provider || 'none') === 'none'
+      ? trKey('console.js.panels.providers.eff.members_none')
+      : trKey('console.js.panels.providers.eff.members_tier', { model: tier.model || eff.model || '-', effort: tier.max_effort || '-' });
+    const rows = [
+      ['text', trKey('console.js.panels.providers.view.feature.text') + ' · ' + slotLabel('research'), `${esc(providerName)}${code(eff.model)}${textSub}`, statePill(textState)],
+      ['embed', trKey('console.js.panels.providers.eff.embed'), `${code(eff.embed_model)}<div class="hint">${esc(trKey('console.js.panels.providers.eff.embed_sub'))}</div>`, statePill(eff.api_key_set || effProv === 'mock' ? 'ok' : 'broken')],
+      ['stt', trKey('console.js.panels.providers.view.feature.stt'), `Google AI Studio ${code(stt.model)} ${uiPill(trKey('console.js.panels.providers.fixed'), 'neutral')}<div class="hint">${esc(trKey('console.js.panels.providers.eff.stt_sub', { language: stt.language || '-' }))}</div>`, statePill(sttState)],
+      ['vlm', trKey('console.js.panels.providers.view.feature.vlm'), `${code(vlm.model)}<div class="hint">${esc(trKey('console.js.panels.providers.eff.vlm_sub'))}</div>`, statePill(vlmState)],
+      ['jev', trKey('console.js.panels.providers.eff.jev'), esc(trKey('console.js.panels.providers.eff.jev_sub')), statePill(eff.jev_enabled ? 'on' : 'off')],
+      ['members', trKey('console.js.panels.providers.eff.members'), esc(tierText), `<a href="/admin/server#server-tier">${esc(trKey('console.js.panels.providers.eff.members_edit'))}</a>`]
     ];
-    return uiActions(items.join(''));
+    const body = rows.map(r => `<tr data-prov-effective="${esc(r[0])}"><td>${esc(r[1])}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('');
+    let h = uiTable({ headers: [trKey('console.js.panels.providers.view.col.feature'), trKey('console.js.panels.providers.view.col.ai'), trKey('console.js.panels.col_status')], bodyHtml: body });
+    const problems = Array.isArray(eff.problems) ? eff.problems : [];
+    if (problems.length) {
+      h += uiNotice(`${uiIcon('warning')} ${problems.map(p => esc(trKey(`console.js.panels.providers.problem.${p}`))).join('<br>')}`, 'danger', '', { id: 'prov-problems', role: 'status' });
+    }
+    const recent = ((cfg.lineage_summary || {}).recent_documents || []).slice(0, 5);
+    if (recent.length) {
+      const recRows = recent.map(d => {
+        const finals = ((d.lineage || {}).final_output_models) || {};
+        const tags = Object.entries(finals).map(([st, info]) => `${st}=${(info && info.provider) || '?'}:${(info && info.model) || '?'}`).join(', ');
+        return `<tr><td>${esc(d.title || d.id)}</td><td><code class="pref-mono">${esc(tags || '-')}</code></td></tr>`;
+      }).join('');
+      h += `<details class="pref-disclosure" id="prov-recent-models"><summary>${esc(trKey('console.js.panels.providers.eff.recent', { count: recent.length }))}</summary>${uiTable({ headers: [trKey('console.js.panels.lineage.col_document'), trKey('console.js.panels.lineage.col_models')], bodyHtml: recRows })}</details>`;
+    }
+    const badge = uiPill(trKey(problems.length ? 'console.js.panels.providers.eff.badge_problem' : 'console.js.panels.providers.eff.badge_ok'), problems.length ? 'danger' : 'ok');
+    return uiCard({ id: 'prov-effective-card', icon: 'check-circle', title: trKey('console.js.panels.providers.eff.title'), badgeHtml: badge, hint: trKey('console.js.panels.providers.eff.hint'), split: false, bodyHtml: h });
   }
 
-  function applyProviderCapabilities(caps) {
-    if (!caps || !caps.providers) return;
-    _provState.capabilities = caps;
-    const activeSelect = document.getElementById('prov-active-select');
-    if (activeSelect) {
-      const currentVal = activeSelect.value;
-      for (const opt of Array.from(activeSelect.options)) {
-        const cap = caps.providers[opt.value];
-        const baseLabel = PROVIDER_LABELS[opt.value] || opt.value;
-        if (cap && cap.selectable === false) {
-          opt.disabled = opt.value !== currentVal;
-          opt.textContent = `${baseLabel} [${trKey("console.js.panels.providers.locked_option")}]`;
-        } else {
-          opt.disabled = false;
-          opt.textContent = baseLabel;
-        }
-      }
-    }
-
-    for (const [name, cap] of Object.entries(caps.providers)) {
-      const featEl = document.getElementById('prov-feat-' + name);
-      if (featEl) featEl.innerHTML = renderFeatureBadgesHtml(cap);
-      const lockEl = document.getElementById('prov-cap-' + name);
-      if (lockEl) {
-        if (cap.locked_reason) {
-          setNoticeBox(lockEl, 'danger', trKey("console.js.panels.providers.locked_prefix") + ' ' + cap.locked_reason, false);
-        } else if (cap.embedding_note) {
-          setNoticeBox(lockEl, 'warn', trKey("console.js.panels.providers.advisory") + ' ' + cap.embedding_note, false);
-        } else if (cap.advisory) {
-          setNoticeBox(lockEl, 'warn', cap.advisory, false);
-        } else {
-          setNoticeBox(lockEl, '', '', false);
-        }
-      }
-    }
-
-    const gemCap = caps.providers.gemini;
-    if (gemCap && Array.isArray(gemCap.available_models) && gemCap.available_models.length) {
-      if (_provState.config && _provState.config.providers && _provState.config.providers.gemini) {
-        _provState.config.providers.gemini.available_models = gemCap.available_models;
-        if (Array.isArray(gemCap.available_embed_models) && gemCap.available_embed_models.length) {
-          _provState.config.providers.gemini.available_embed_models = gemCap.available_embed_models;
-        }
-      }
-      const gemSel = document.getElementById('prov-gemini-model');
-      if (gemSel) {
-        const resG = buildModelSelectResult(gemCap.available_models, null, gemSel.value, 'gemini-3.8-flash-medium');
-        gemSel.innerHTML = resG.optionsHtml;
-        gemSel.value = resG.selected;
-      }
-      const tierModelSel = document.getElementById('prov-tier-model');
-      if (tierModelSel && tierModelSel.tagName === 'SELECT') {
-        const resT = buildModelSelectResult(gemCap.available_models, null, tierModelSel.value, 'gemini-3.5-flash-lite-medium');
-        tierModelSel.innerHTML = '<option value="">' + esc(trKey("console.js.panels.providers.tier_none_option")) + '</option>' + resT.optionsHtml;
-        if (tierModelSel.querySelector(`option[value="${CSS.escape(resT.selected)}"]`)) {
-          tierModelSel.value = resT.selected;
-        }
-      }
-    }
-
-    const sttEl = document.getElementById('prov-cap-stt');
-    if (sttEl && caps.stt) {
-      if (caps.stt.enabled && caps.stt.provider === 'gemini' && !caps.stt.ready) {
-        setNoticeBox(sttEl, 'warn', trKey("console.js.panels.providers.stt_warning"), false);
-      } else {
-        setNoticeBox(sttEl, '', '', false);
-      }
-    }
-
-    const sumEl = document.getElementById('prov-cap-summary');
-    if (sumEl) {
-      const locks = Array.isArray(caps.lock_reasons) ? caps.lock_reasons : [];
-      const warns = Array.isArray(caps.warnings) ? caps.warnings : [];
-      if (locks.length > 0) {
-        setNoticeBox(sumEl, 'danger', '<strong>' + esc(trKey("console.js.panels.providers.save_locked")) + '</strong><ul>' + locks.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul>', true);
-      } else if (warns.length > 0) {
-        setNoticeBox(sumEl, 'warn', '<strong>' + esc(trKey("console.js.panels.providers.advisory")) + '</strong><ul>' + warns.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>', true);
-      } else {
-        setNoticeBox(sumEl, 'ok', trKey("console.js.panels.providers.check_passed"), false);
-      }
-    }
-
-    const saveBtn = document.getElementById('prov-save-btn');
-    if (saveBtn) {
-      const canSave = Boolean(caps.can_save);
-      saveBtn.disabled = !canSave;
-      saveBtn.title = canSave ? '' : (caps.lock_reasons || []).join(' / ');
-    }
+  function actionsWithStatus(buttonsHtml) {
+    return uiActions(buttonsHtml + '<span class="result" data-prov-status role="status" aria-live="polite"></span>');
   }
 
-  async function runProviderCapabilityCheck(options) {
-    if (!_provState.config) return;
-    const opts = options || {};
-    if (_capAbortCtrl) _capAbortCtrl.abort();
-    _capAbortCtrl = new AbortController();
-    const saveBtn = document.getElementById('prov-save-btn');
-    const sumEl = document.getElementById('prov-cap-summary');
-    if (saveBtn) saveBtn.disabled = true;
-    setNoticeBox(sumEl, 'info', trKey("console.js.panels.providers.check_in_work"), false);
-    const payload = collectProviderFormPayload();
-    if (opts.live) payload.live = true;
-    try {
-      const url = resolveRootUrl(_provState.opts, 'providers/check');
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: _capAbortCtrl.signal });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const caps = await r.json();
-      applyProviderCapabilities(caps);
-    } catch (e) {
-      if (e && e.name === 'AbortError') return;
-      setNoticeBox(sumEl, 'danger', trKey("console.js.panels.providers.check_failed") + ' ' + (e.message || e), false);
-      if (saveBtn) saveBtn.disabled = true;
-    }
+  function submitBtn(label, value, variant, extra) {
+    return `<button type="submit" name="action" value="${esc(value)}" class="${esc(joinCls('pref-btn', variant === 'accent' ? 'pref-btn-accent' : (variant === 'danger' ? 'pref-btn-danger' : '')))}"${extra || ''}>${esc(label)}</button>`;
   }
 
-  function bindProviderCapabilityEvents() {
-    const standardIds = [
-      'prov-active-select',
-      'prov-gemini-key',
-      'prov-gemini-model',
-      'prov-gemini-embed-model',
-      'prov-jev-enabled',
-      'prov-stt-enabled',
-      'prov-stt-prov',
-      'prov-stt-lang'
-    ];
-    const embedSelEl = document.getElementById('prov-gemini-embed-model');
-    const embedLifecycleEl = document.getElementById('prov-gemini-embed-lifecycle');
-    const embedInfoEl = document.getElementById('prov-gemini-embed-info');
-    if (embedSelEl && embedLifecycleEl) {
-      const syncEmbedLifecycleBanner = () => {
-        const m = String(embedSelEl.value || 'gemini-embedding-2').trim();
-        const isV1 = m === 'gemini-embedding-001';
-        const spaceId = isV1 ? 'google:gemini-embedding-001:3072:v1_param' : `google:${m}:3072:v2_prompt`;
-        let msg = `<code class="pref-mono">${esc(spaceId)}</code> · 3072d`;
-        if (isV1) {
-          msg += '<p class="hint" style="margin-top:0.25rem;color:var(--warn);"><b>EOS Warning (2028-05-14):</b> <code class="pref-mono">gemini-embedding-001</code> is scheduled for retirement. Migrate non-blocking with <code class="pref-mono">./cb-manuscript app re-embed --target-space google:gemini-embedding-2:3072:v2_prompt --mode batch</code></p>';
-        }
-        embedLifecycleEl.innerHTML = msg;
-        if (embedInfoEl) embedInfoEl.dataset.tone = isV1 ? 'warn' : 'info';
-      };
-      embedSelEl.addEventListener('change', syncEmbedLifecycleBanner);
-      syncEmbedLifecycleBanner();
-    }
-    for (const id of standardIds) {
-      const el = document.getElementById(id);
-      if (!el) continue;
-      el.addEventListener('change', () => {
-        if (el.type === 'password' && el.value) delete el.dataset.cleared;
-        refreshLineageVisualizerPreview();
-        runProviderCapabilityCheck();
-      });
-    }
-    const tierProvEl = document.getElementById('prov-tier-provider');
-    const tierModelEl = document.getElementById('prov-tier-model');
-    if (tierProvEl && tierModelEl) {
-      const syncTierState = () => {
-        const isNone = tierProvEl.value === 'none';
-        tierModelEl.disabled = isNone;
-      };
-      tierProvEl.addEventListener('change', syncTierState);
-      syncTierState();
-    }
-    const slotNames = ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm'];
-    for (const slot of slotNames) {
-      const pEl = document.getElementById(`prov-route-${slot}-provider`);
-      const mEl = document.getElementById(`prov-route-${slot}-model`);
-      if (pEl) {
-        pEl.addEventListener('change', () => {
-          updateRouteSlotModelOptions(slot);
-          refreshLineageVisualizerPreview();
-          runProviderCapabilityCheck();
-        });
-      }
-      if (mEl) {
-        mEl.addEventListener('change', () => {
-          refreshLineageVisualizerPreview();
-          runProviderCapabilityCheck();
-        });
-      }
-    }
-  }
-
-  async function testProviderConnection(provName) {
-    const resEl = document.getElementById('prov-test-res-' + provName);
-    if (resEl) {
-      resEl.hidden = false;
-      resEl.style.display = '';
-      resEl.removeAttribute('data-state');
-      resEl.textContent = trKey("console.js.panels.providers.test_in_work");
-    }
-    const payload = { provider: provName, config: {} };
-    if (provName === 'gemini') {
-      const kEl = document.getElementById('prov-gemini-key');
-      if (kEl && kEl.value) payload.config.api_key = kEl.value;
-      const mEl = document.getElementById('prov-gemini-model');
-      if (mEl && mEl.value) payload.config.model = mEl.value;
-    }
-    try {
-      const url = resolveRootUrl(_provState.opts, 'providers/test');
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const d = await r.json();
-      if (resEl) {
-        if (d.ok) {
-          resEl.dataset.state = 'ok';
-          resEl.textContent = '' + (d.message || trKey("console.js.panels.providers.test_ok"));
-          if (provName === 'gemini' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
-            if (_provState.config && _provState.config.providers && _provState.config.providers.gemini) {
-              _provState.config.providers.gemini.available_models = d.details.models;
-              if (Array.isArray(d.details.embed_models)) _provState.config.providers.gemini.available_embed_models = d.details.embed_models;
-            }
-            const gSel = document.getElementById('prov-gemini-model');
-            if (gSel) {
-              const r1 = buildModelSelectResult(d.details.models, null, gSel.value, 'gemini-3.8-flash-medium');
-              gSel.innerHTML = r1.optionsHtml;
-              gSel.value = r1.selected;
-            }
-            for (const sl of ['extract_graph', 'summarize', 'render_detail', 'entity_judge', 'relation_judge', 'classify', 'research', 'stt', 'vlm']) {
-              updateRouteSlotModelOptions(sl);
-            }
-          }
-        } else {
-          resEl.dataset.state = 'error';
-          resEl.textContent = '' + (d.error || trKey("console.js.panels.providers.test_failed"));
-        }
-      }
-      await runProviderCapabilityCheck({ live: provName === 'gemini' });
-    } catch (e) {
-      if (resEl) {
-        resEl.dataset.state = 'error';
-        resEl.textContent = trKey("console.js.panels.comm_error") + ' ' + (e.message || e);
-      }
-    }
-  }
-
-  async function saveProviderSettings() {
-    if (!_provState.config) return;
-    if (_provState.capabilities && _provState.capabilities.can_save === false) return;
-    const updatePayload = collectProviderFormPayload();
-
-    try {
-      const url = resolveRootUrl(_provState.opts, 'providers');
-      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatePayload) });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        renderProviderManagerDOM(trKey("console.js.panels.save_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
-        return;
-      }
-      const resData = await r.json();
-      _provState.config = resData.config;
-      renderProviderManagerDOM(trKey("console.js.panels.providers.saved"), true);
-      if (_provState.opts && typeof _provState.opts.onSave === 'function') {
-        _provState.opts.onSave(resData);
-      }
-    } catch (e) {
-      renderProviderManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
-    }
-  }
-
-  const FEATURE_SLOT_DEFS = [
-    { slot: 'extract_graph', label: trKey("console.js.panels.slot.extract_graph"), note: trKey("console.js.panels.slot.extract_graph_note") },
-    { slot: 'summarize', label: trKey("console.js.panels.slot.summarize"), note: trKey("console.js.panels.slot.summarize_note") },
-    { slot: 'render_detail', label: trKey("console.js.panels.slot.render_detail"), note: trKey("console.js.panels.slot.render_detail_note") },
-    { slot: 'entity_judge', label: trKey("console.js.panels.slot.entity_judge"), note: trKey("console.js.panels.slot.entity_judge_note") },
-    { slot: 'relation_judge', label: trKey("console.js.panels.slot.relation_judge"), note: trKey("console.js.panels.slot.relation_judge_note") },
-    { slot: 'classify', label: trKey("console.js.panels.slot.classify"), note: trKey("console.js.panels.slot.classify_note") },
-    { slot: 'research', label: trKey("console.js.panels.slot.research"), note: trKey("console.js.panels.slot.research_note") },
-    { slot: 'stt', label: trKey("console.js.panels.slot.stt"), note: trKey("console.js.panels.slot.stt_note") },
-    { slot: 'vlm', label: trKey("console.js.panels.slot.vlm"), note: trKey("console.js.panels.slot.vlm_note") }
-  ];
-
-  function resolveEffectiveRouteProvider(cfg, selectedRouteProv) {
-    if (!selectedRouteProv || selectedRouteProv === 'inherit') {
-      const actEl = document.getElementById('prov-active-select');
-      return actEl ? actEl.value : (cfg.active_provider || 'mock');
-    }
-    return selectedRouteProv;
-  }
-
-  function modelsForRouteProvider(cfg, effProv, slot) {
-    const provs = (cfg && cfg.providers) || {};
-    if (effProv === 'gemini') {
-      const list = normalizeModelOptions((provs.gemini || {}).available_models, fallbackGeminiVariants());
-      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
-    }
-    return [{ id: '', label: trKey("console.js.panels.routing.mock") }];
-  }
-
-  function updateRouteSlotModelOptions(slot) {
-    const cfg = _provState.config || {};
-    const pEl = document.getElementById(`prov-route-${slot}-provider`);
-    const mEl = document.getElementById(`prov-route-${slot}-model`);
-    if (!pEl || !mEl) return;
-    const effProv = resolveEffectiveRouteProvider(cfg, pEl.value);
-    const items = modelsForRouteProvider(cfg, effProv, slot);
-    const prev = effProv === 'gemini' ? resolveGeminiVariantSelection(items, null, mEl.value, 'medium', '') : mEl.value;
-    let html = '';
-    let hasPrev = false;
-    for (const item of items) {
-      if (item.id === prev) hasPrev = true;
-      const text = item.id === '' ? (item.label || trKey("console.js.panels.routing.inherit_model")) : item.id;
-      html += `<option value="${esc(item.id)}" ${item.id === prev ? 'selected' : ''}>${esc(text)}</option>`;
-    }
-    if (prev && !hasPrev) {
-      html += `<option value="${esc(prev)}" selected>${esc(prev)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
-    }
-    mEl.innerHTML = html;
-  }
-
-  function computeEffectiveSlotsFromDom(cfg) {
-    const payload = document.getElementById('prov-active-select') ? collectProviderFormPayload() : null;
-    const summarySlots = (cfg.lineage_summary && cfg.lineage_summary.effective_slots) || {};
-    if (!payload) return summarySlots;
-    const active = payload.active_provider || cfg.active_provider || 'mock';
-    const provs = payload.providers || {};
-    const cfgGem = (cfg.providers && cfg.providers.gemini) || {};
-    const out = {};
-    for (const def of FEATURE_SLOT_DEFS) {
-      const slot = def.slot;
-      const r = (payload.feature_routing && payload.feature_routing[slot]) || { provider: 'inherit', model: '', effort: '' };
-      let effProv = (!r.provider || r.provider === 'inherit') ? active : r.provider;
-      let baseModel = '';
-      let baseEffort = '';
-      if (effProv === 'gemini') {
-        baseModel = provs.gemini.model || '';
-        baseEffort = splitGeminiModelEffort(baseModel).effort || provs.gemini.effort || '';
-      } else if (effProv === 'mock') {
-        baseModel = 'mock';
-      }
-      const effModel = r.model || baseModel;
-      const effEffort = effProv === 'gemini' ? (splitGeminiModelEffort(effModel).effort || r.effort || baseEffort) : (r.effort || baseEffort);
-      out[slot] = { provider: effProv, model: effModel, effort: effEffort };
-    }
-    const embedProv = active === 'mock' ? 'mock' : 'gemini';
-    const embedModel = active === 'mock' ? 'mock-embed-64d' : (cfgGem.embed_model || 'gemini-embedding-001');
-    out.embed = { provider: embedProv, model: embedModel, effort: '' };
-    return out;
-  }
-
-  function renderLineageSvg(effectiveSlots, jevCfg) {
-    const slotText = (slot) => {
-      const s = effectiveSlots[slot] || {};
-      const p = s.provider || '-';
-      const m = (s.model || '-').slice(0, 22);
-      const e = s.effort ? ` (${s.effort})` : '';
-      return { line1: `${p}`, line2: `${m}${e}` };
-    };
-    const eg = slotText('extract_graph');
-    const sm = slotText('summarize');
-    const dt = slotText('render_detail');
-    const em = slotText('embed');
-    const ej = slotText('entity_judge');
-    const rj = slotText('relation_judge');
-    const smSub1 = dt.line1 && dt.line1 !== sm.line1 ? `${sm.line1} / ${dt.line1}` : sm.line1;
-    const smSub2 = dt.line2 && dt.line2 !== sm.line2 ? `${sm.line2} · ${dt.line2}` : sm.line2;
-    const jevLabel = jevCfg && jevCfg.enabled ? "jev:shadow" : "jev:off";
-    const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_shadow") : trKey("console.js.panels.lineage.llm_judge");
-    const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
-    const arrow = (x1, y1, x2, y2, label) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6e7781" stroke-width="1.4" marker-end="url(#prov-lineage-arrow)"/>${label ? `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 6}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity="0.78">${esc(label)}</text>` : ''}`;
-    let svg = '<svg id="prov-lineage-svg" viewBox="0 0 920 196" width="100%" style="max-width:920px;height:auto;display:block;border:1px solid var(--border);border-radius:0.5rem;background:var(--card-bg,var(--bg));color:var(--fg);">';
-    svg += '<defs><marker id="prov-lineage-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#6e7781"/></marker></defs>';
-    svg += box(10, 62, 118, 64, trKey("console.js.panels.lineage.box_input"), trKey("console.js.panels.lineage.box_input_sub"), 'PDF/Web/STT/VLM', '#6e7781');
-    svg += arrow(128, 82, 152, 46);
-    svg += arrow(128, 104, 152, 138);
-    svg += box(154, 14, 156, 64, trKey("console.js.panels.lineage.box_extract"), eg.line1, eg.line2, '#0969da');
-    svg += box(154, 108, 156, 64, trKey("console.js.panels.lineage.box_summary"), smSub1, smSub2, '#8250df');
-    svg += arrow(310, 46, 338, 72);
-    svg += arrow(310, 140, 338, 106);
-    svg += box(340, 54, 166, 68, trKey("console.js.panels.lineage.box_embed"), `${em.line1}:${em.line2}`, trKey("console.js.panels.lineage.box_embed_sub"), '#1a7f37');
-    svg += arrow(506, 88, 558, 88, trKey("console.js.panels.lineage.arrow_json"));
-    svg += box(560, 54, 168, 68, '4. JEV System 1', jevLabel, jevSub, '#9a6700');
-    svg += arrow(728, 76, 752, 46);
-    svg += arrow(728, 98, 752, 136);
-    svg += box(754, 14, 156, 64, trKey("console.js.panels.lineage.box_judge"), `${ej.line1} / ${rj.line1}`, `${ej.line2}`, '#bf3989');
-    svg += box(754, 108, 156, 64, trKey("console.js.panels.lineage.box_graph"), 'doc.meta.model_lineage', trKey("console.js.panels.lineage.box_graph_sub"), '#1f883d');
-    svg += '</svg>';
-    return svg;
-  }
-
-  function refreshLineageVisualizerPreview() {
-    const cfg = _provState.config;
-    const host = document.getElementById('prov-lineage-svg-host');
-    if (!cfg || !host) return;
-    const jevEnabledEl = document.getElementById('prov-jev-enabled');
-    const jevSnap = {
-      enabled: jevEnabledEl ? jevEnabledEl.checked : Boolean(((cfg.providers || {}).jev || {}).enabled)
-    };
-    host.innerHTML = renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jevSnap);
-  }
-
-  function renderPipelineLineageHtml(cfg) {
-    const provs = cfg.providers || {};
-    const jev = provs.jev || {};
-    const lineage = cfg.lineage_summary || {};
-    const jevStats = lineage.jev || {};
-    const jevTelemetryHtml = `${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b>`;
-
-    let body = `<div id="prov-lineage-svg-host">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
-    body += uiNotice(jevTelemetryHtml, 'info');
-
-    const specs = Array.isArray(lineage.architecture_specs) ? lineage.architecture_specs : [];
-    if (specs.length > 0) {
-      let specRows = '';
-      for (const sp of specs) {
-        specRows += `<tr><td><strong>${esc(sp.stage)}</strong></td><td><code class="pref-mono">${esc(sp.fixed_value)}</code></td><td><code class="pref-mono">${esc(sp.scope)}</code></td><td>${esc(sp.rationale)}</td></tr>`;
-      }
-      body += `<details class="pref-disclosure" open><summary>${esc(trKey("console.js.panels.lineage.fixed_title"))}</summary>${uiTable({ tableId: 'prov-architecture-spec-table', headers: [trKey("console.js.panels.lineage.col_stage"), trKey("console.js.panels.lineage.col_fixed"), trKey("console.js.panels.lineage.col_code"), trKey("console.js.panels.lineage.col_reason")], bodyHtml: specRows })}</details>`;
-    }
-
-    const fallbacks = Array.isArray(lineage.fallbacks) ? lineage.fallbacks : [];
-    if (fallbacks.length > 0) {
-      let fbRows = '';
-      for (const fb of fallbacks) {
-        const badge = fb.status === 'REMOVED' ? trKey("console.js.panels.lineage.fallback_removed") : trKey("console.js.panels.lineage.fallback_excluded");
-        const pillHtml = uiPill(badge, fb.status === 'REMOVED' ? 'danger' : 'neutral');
-        fbRows += `<tr><td><code class="pref-mono">${esc(fb.id)}</code></td><td><code class="pref-mono">${esc(fb.location)}</code></td><td>${pillHtml}</td><td>${esc(fb.description)}</td></tr>`;
-      }
-      body += `<details class="pref-disclosure"><summary>${esc(trKey("console.js.panels.lineage.fallback_title"))}</summary>${uiTable({ tableId: 'prov-fallback-catalog-table', headers: ['ID', trKey("console.js.panels.lineage.col_location"), trKey("console.js.panels.col_status"), trKey("console.js.panels.col_description")], bodyHtml: fbRows })}</details>`;
-    }
-
-    const recDocs = Array.isArray(lineage.recent_documents) ? lineage.recent_documents : [];
-    let recentContent = '';
-    if (recDocs.length === 0) {
-      recentContent = `<p class="hint">${esc(trKey("console.js.panels.lineage.recent_empty"))}</p>`;
-    } else {
-      let recRows = '';
-      for (const d of recDocs.slice(0, 8)) {
-        const lin = d.lineage || {};
-        const finals = lin.final_output_models || {};
-        const modelTags = Object.entries(finals).map(([st, info]) => `${st}=${(info && info.provider) || '?'}:${(info && info.model) || '?'}`).join(', ');
-        const jevD = lin.jev || {};
-        const jevSummary = jevD.enabled ? `shadow (${Number(jevD.evaluated || 0)})` : 'off';
-        const fbCount = Array.isArray(lin.fallbacks_triggered) ? lin.fallbacks_triggered.length : 0;
-        recRows += `<tr><td>${esc(d.title || d.id)}</td><td><code class="pref-mono">${esc(modelTags || '-')}</code></td><td>${esc(jevSummary)}</td><td>${fbCount}</td></tr>`;
-      }
-      recentContent = uiTable({ tableId: 'prov-recent-lineage-table', headers: [trKey("console.js.panels.lineage.col_document"), trKey("console.js.panels.lineage.col_models"), 'JEV', trKey("console.js.panels.lineage.col_fallback")], bodyHtml: recRows });
-    }
-    body += `<details class="pref-disclosure"${recDocs.length > 0 ? ' open' : ''}><summary>${esc(trKey("console.js.panels.lineage.recent_title", { count: recDocs.length }))}</summary>${recentContent}</details>`;
-
+  function renderKeyFormHtml(cfg) {
+    const gem = ((cfg.providers || {}).gemini) || {};
+    const has = Boolean(gem.has_api_key);
+    const badge = uiPill(trKey(has ? 'console.js.panels.providers.key.set' : 'console.js.panels.providers.key.unset'), has ? 'ok' : 'danger', '', { 'data-prov-key-state': has ? 'set' : 'unset' });
+    const keyRow = `<div class="console-form-row"><input id="prov-gemini-key" name="prov-gemini-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" autocomplete="off" spellcheck="false" placeholder="${esc(trKey(has ? 'console.js.panels.providers.key.placeholder_set' : 'console.js.panels.providers.key.placeholder_unset'))}"/>${renderTogglePassBtn('prov-gemini-key')}</div>`;
+    const buttons = submitBtn(trKey('console.js.panels.providers.key.save'), 'save', 'accent')
+      + submitBtn(trKey('console.js.panels.providers.key.check'), 'check', '', ' formnovalidate')
+      + (has ? submitBtn(trKey('console.js.panels.providers.key.delete'), 'delete', 'danger', ' formnovalidate') : '');
     return uiCard({
-      id: 'prov-lineage-visualizer-card',
-      icon: 'fork',
-      title: trKey("console.js.panels.lineage.title"),
-      hint: trKey("console.js.panels.lineage.desc"),
-      split: false,
-      bodyHtml: body
+      tag: 'form', id: 'prov-key-form', icon: 'lock', title: trKey('console.js.panels.providers.key.title'), badgeHtml: badge,
+      hint: trKey('console.js.panels.providers.key.hint'), split: false, attrs: { 'data-prov-form': 'key', novalidate: true },
+      bodyHtml: uiField({ id: 'prov-gemini-key', label: trKey('console.js.panels.providers.key.label'), controlHtml: keyRow }) + actionsWithStatus(buttons)
     });
   }
 
-  function renderFeatureRoutingHtml(cfg) {
+  function renderModelFormHtml(cfg) {
+    const gem = ((cfg.providers || {}).gemini) || {};
+    const ids = modelIds(gem.available_models);
     const routing = cfg.feature_routing || {};
-    const routeProvChoices = [
-      { id: 'inherit', label: trKey("console.js.panels.routing.inherit_provider") },
-      { id: 'gemini', label: 'Google AI Studio (gemini)' },
-      { id: 'mock', label: 'Mock' }
-    ];
-
-    let rowsHtml = '';
-    for (const def of FEATURE_SLOT_DEFS) {
-      const r = routing[def.slot] || { provider: 'inherit', model: '', effort: '' };
-      const rProv = r.provider || 'inherit';
-      const effProv = resolveEffectiveRouteProvider(cfg, rProv);
-      const modelOpts = modelsForRouteProvider(cfg, effProv, def.slot);
-      const selectedRouteModel = effProv === 'gemini' ? resolveGeminiVariantSelection(modelOpts, null, r.model || '', r.effort || 'medium', '') : (r.model || '');
-
-      let provOptsHtml = '';
-      for (const opt of routeProvChoices) {
-        provOptsHtml += `<option value="${esc(opt.id)}" ${rProv === opt.id ? 'selected' : ''}>${esc(opt.label)}</option>`;
-      }
-      let modelOptsHtml = '';
-      let matchedModel = false;
-      for (const m of modelOpts) {
-        if (m.id === selectedRouteModel) matchedModel = true;
-        const mLabel = m.id === '' ? (m.label || trKey("console.js.panels.routing.inherit_model")) : m.id;
-        modelOptsHtml += `<option value="${esc(m.id)}" ${selectedRouteModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
-      }
-      if (selectedRouteModel && !matchedModel) {
-        modelOptsHtml += `<option value="${esc(selectedRouteModel)}" selected>${esc(selectedRouteModel)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
-      }
-
-      rowsHtml += `<tr data-route-slot="${esc(def.slot)}">`;
-      rowsHtml += `<td><div><strong>${esc(def.label)}</strong></div><div class="hint"><code class="pref-mono">${esc(def.slot)}</code> · ${esc(def.note)}</div></td>`;
-      rowsHtml += `<td><select id="prov-route-${esc(def.slot)}-provider" class="pref-select">${provOptsHtml}</select></td>`;
-      rowsHtml += `<td><select id="prov-route-${esc(def.slot)}-model" class="pref-select">${modelOptsHtml}</select></td>`;
-      rowsHtml += '</tr>';
+    const embedIds = Array.from(new Set(['gemini-embedding-2', 'gemini-embedding-001'].concat((gem.available_embed_models || []).map(x => (typeof x === 'string' ? x : String((x && x.id) || '')))).filter(x => x && x !== 'gemini-embedding-2-preview')));
+    const embedLabel = m => (m === 'gemini-embedding-2' ? `${m} (${trKey('console.js.panels.providers.model.embed_recommended')})` : (m === 'gemini-embedding-001' ? `${m} (${trKey('console.js.panels.providers.model.embed_eos')})` : m));
+    const curEmbed = String(gem.embed_model || 'gemini-embedding-2');
+    let embedSel = '<select id="prov-gemini-embed-model" name="prov-gemini-embed-model" class="pref-select">';
+    for (const m of embedIds) embedSel += `<option value="${esc(m)}"${m === curEmbed ? ' selected' : ''}>${esc(embedLabel(m))}</option>`;
+    embedSel += '</select>';
+    let slotRows = '';
+    for (const slot of PROVIDER_SLOTS) {
+      const r = routing[slot] || {};
+      slotRows += `<tr data-route-slot="${esc(slot)}"><td><label for="prov-route-${esc(slot)}-model">${esc(slotLabel(slot))}</label></td><td>${modelSelectHtml(`prov-route-${slot}-model`, ids, r.model || '', trKey('console.js.panels.providers.model.follow_default'))}</td></tr>`;
     }
-
-    const body = uiTable({
-      headers: [trKey("console.js.panels.routing.col_slot"), trKey("console.js.panels.col_provider"), trKey("console.js.panels.col_model")],
-      bodyHtml: rowsHtml
-    }) + uiNotice(esc(trKey("console.js.panels.routing.embed_fixed_notice")), 'info', '', { id: 'prov-routing-embed-note' });
-
+    const routingHtml = `<details class="pref-disclosure" id="prov-routing"><summary>${esc(trKey('console.js.panels.providers.model.routing_title'))}</summary><p class="hint">${esc(trKey('console.js.panels.providers.model.routing_hint'))}</p>${uiTable({ headers: [trKey('console.js.panels.providers.view.col.feature'), trKey('console.js.panels.col_model')], bodyHtml: slotRows })}</details>`;
     return uiCard({
-      id: 'prov-feature-routing-card',
-      icon: 'settings',
-      title: trKey("console.js.panels.routing.title"),
-      hint: trKey("console.js.panels.routing.desc"),
-      split: false,
-      bodyHtml: body
+      tag: 'form', id: 'prov-model-form', icon: 'bolt', title: trKey('console.js.panels.providers.model.title'), split: false, attrs: { 'data-prov-form': 'model' },
+      bodyHtml: uiField({ id: 'prov-gemini-model', label: trKey('console.js.panels.providers.model.main'), controlHtml: modelSelectHtml('prov-gemini-model', ids, gem.model || '', null), hint: trKey('console.js.panels.providers.model.main_hint') })
+        + uiField({ id: 'prov-gemini-embed-model', label: trKey('console.js.panels.providers.model.embed'), controlHtml: embedSel, hint: trKey('console.js.panels.providers.model.embed_hint') })
+        + routingHtml
+        + actionsWithStatus(submitBtn(trKey('console.js.panels.providers.model.save'), 'save', 'accent'))
     });
   }
 
-  function renderMemberTierCardHtml(cfg) {
-    const tier = cfg.server_tier || { provider: 'none', model: '', max_effort: 'medium', features: [] };
-    const gemini = (cfg.providers || {}).gemini || {};
-    const geminiModels = normalizeModelOptions(gemini.available_models, fallbackGeminiVariants());
-    const selectedTierModel = resolveGeminiVariantSelection(geminiModels, null, tier.model || '', tier.max_effort || 'medium', '');
-    const tierFeats = Array.isArray(tier.features) ? tier.features : [];
-    const featLabels = [
-      ['expand', trKey("console.js.panels.tier.feature_expand")],
-      ['stt', trKey("console.js.panels.tier.feature_stt")],
-      ['vlm', trKey("console.js.panels.tier.feature_vlm")],
-      ['presentation', trKey("console.js.panels.tier.feature_presentation")],
-      ['synthesize', trKey("console.js.panels.tier.feature_synthesize")]
-    ];
+  function renderSttFormHtml(cfg) {
+    const stt = ((cfg.providers || {}).stt) || {};
+    const model = ((cfg.effective || {}).stt || {}).model || 'gemini-3.5-transcribe';
+    const fixed = `<p class="pref-desc" id="prov-stt-fixed">Google AI Studio · <code class="pref-mono">${esc(model)}</code> — ${esc(trKey('console.js.panels.providers.stt.fixed'))}</p>`;
+    return uiCard({
+      tag: 'form', id: 'prov-stt-form', icon: 'mic', title: trKey('console.js.panels.providers.view.feature.stt'), split: false, attrs: { 'data-prov-form': 'stt' },
+      bodyHtml: fixed
+        + uiToggleRow({ id: 'prov-stt-enabled', label: trKey('console.js.panels.providers.stt.enabled'), desc: trKey('console.js.panels.providers.stt.enabled_hint'), checked: stt.enabled !== false })
+        + uiField({ id: 'prov-stt-lang', label: trKey('console.js.panels.providers.stt.language'), controlHtml: `<input id="prov-stt-lang" name="prov-stt-lang" class="pref-input" value="${esc(stt.language || 'ko')}" maxlength="16" required/>`, hint: trKey('console.js.panels.providers.stt.language_hint') })
+        + actionsWithStatus(submitBtn(trKey('console.js.panels.providers.stt.save'), 'save', 'accent'))
+    });
+  }
 
-    const tierProvHtml = `<select id="prov-tier-provider" class="pref-select"><option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.provider_none"))}</option><option value="gemini" ${tier.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (gemini)</option></select>`;
-    let tierModelOptsHtml = `<option value="" ${!selectedTierModel ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
-    let matched = false;
-    for (const m of geminiModels) {
-      if (m.id === selectedTierModel) matched = true;
-      tierModelOptsHtml += `<option value="${esc(m.id)}" ${selectedTierModel === m.id ? 'selected' : ''}>${esc(m.id)}</option>`;
-    }
-    if (selectedTierModel && !matched) {
-      tierModelOptsHtml += `<option value="${esc(selectedTierModel)}" selected>${esc(selectedTierModel)}</option>`;
-    }
-    const tierModelHtml = `<select id="prov-tier-model" class="pref-select">${tierModelOptsHtml}</select>`;
-
-    let featCheckHtml = '';
-    for (const [fKey, fLabel] of featLabels) {
-      const checked = tierFeats.includes(fKey) ? ' checked' : '';
-      featCheckHtml += `<label style="display:inline-flex;align-items:center;gap:0.375rem;font-weight:500;cursor:pointer;"><input type="checkbox" name="prov-tier-feature" value="${esc(fKey)}"${checked}/><span>${esc(fLabel)}</span></label>`;
-    }
-
-    const body = '<div class="console-form-grid">'
-      + uiField({ id: 'prov-tier-provider', label: trKey("console.js.panels.tier.provider"), controlHtml: tierProvHtml })
-      + uiField({ id: 'prov-tier-model', label: trKey("console.js.panels.tier.model"), controlHtml: tierModelHtml })
+  function renderAdvancedFormHtml(cfg) {
+    const gem = ((cfg.providers || {}).gemini) || {};
+    const jev = ((cfg.providers || {}).jev) || {};
+    const eff = cfg.effective || {};
+    let fields = '<div class="console-form-grid">'
+      + uiField({ id: 'prov-gemini-interval', label: trKey('console.js.panels.providers.adv.interval'), controlHtml: `<input id="prov-gemini-interval" name="prov-gemini-interval" type="number" step="0.5" min="0" class="pref-input" value="${esc(gem.min_interval != null ? gem.min_interval : 4)}" required/>` })
+      + uiField({ id: 'prov-gemini-retries', label: trKey('console.js.panels.providers.adv.retries'), controlHtml: `<input id="prov-gemini-retries" name="prov-gemini-retries" type="number" step="1" min="0" class="pref-input" value="${esc(gem.max_retries != null ? gem.max_retries : 5)}" required/>` })
       + '</div>'
-      + `<div class="console-field"><span>${esc(trKey("console.js.panels.tier.features"))}</span>${uiActions(featCheckHtml)}</div>`;
-
+      + `<p class="hint">${esc(trKey('console.js.panels.providers.adv.interval_hint'))}</p>`
+      + uiToggleRow({ id: 'prov-jev-enabled', label: trKey('console.js.panels.providers.adv.jev'), desc: trKey('console.js.panels.providers.adv.jev_hint'), checked: Boolean(jev.enabled) })
+      + uiField({ id: 'prov-jev-key', label: trKey('console.js.panels.providers.adv.jev_key'), controlHtml: `<div class="console-form-row"><input id="prov-jev-key" name="prov-jev-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" autocomplete="off" placeholder="${esc(trKey(jev.has_api_key ? 'console.js.panels.providers.key.placeholder_set' : 'console.js.panels.providers.adv.jev_key_placeholder'))}"/>${renderTogglePassBtn('prov-jev-key')}</div>` })
+      + uiField({ id: 'prov-jev-url', label: trKey('console.js.panels.providers.adv.jev_url'), controlHtml: `<input id="prov-jev-url" name="prov-jev-url" class="pref-input" value="${esc(jev.base_url || 'https://api.typesafe.ai/v1')}"/>` });
+    if (!eff.is_production) {
+      // The test provider exists only on a development server: the server refuses it in production.
+      fields += uiToggleRow({ id: 'prov-mock-enabled', label: trKey('console.js.panels.providers.adv.mock'), desc: trKey('console.js.panels.providers.adv.mock_hint'), checked: (cfg.active_provider || '') === 'mock' });
+    }
     return uiCard({
-      id: 'prov-member-tier-card',
-      icon: 'shield',
-      title: trKey("console.js.panels.tier.title"),
-      hintHtml: `${esc(trKey("console.js.panels.tier.desc"))} <a href="/admin/server">${esc(trKey("console.js.panels.tier.desc_link"))}</a>`,
-      bodyHtml: body
+      tag: 'form', id: 'prov-advanced-form', icon: 'settings', title: trKey('console.js.panels.providers.adv.title'), split: false, attrs: { 'data-prov-form': 'advanced' },
+      bodyHtml: `<details class="pref-disclosure" id="prov-advanced"><summary>${esc(trKey('console.js.panels.providers.adv.summary'))}</summary>${fields}${actionsWithStatus(submitBtn(trKey('console.js.panels.providers.adv.save'), 'save', 'accent'))}</details>`
     });
   }
 
-  function renderProviderManagerDOM(msg, isSuccess) {
+  function renderProviderManagerDOM() {
     const target = _provState.container;
     if (!target || !_provState.config) return;
     const cfg = _provState.config;
-    const provs = cfg.providers || {};
-    const gemini = provs.gemini || {};
-    const jev = provs.jev || {};
-    const stt = provs.stt || {};
-    const active = cfg.active_provider || 'mock';
-
-    let h = renderAlertBanner(msg, isSuccess);
-    h += renderPipelineLineageHtml(cfg);
-
-    const activeOpts = [
-      { val: 'gemini', label: trKey("console.js.panels.providers.gemini_label") },
-      { val: 'mock', label: trKey("console.js.panels.providers.mock_label") }
-    ];
-    let activeSelectHtml = '<select id="prov-active-select" class="pref-select">';
-    for (const opt of activeOpts) {
-      activeSelectHtml += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${esc(opt.label)}</option>`;
+    target.innerHTML = renderEffectiveCardHtml(cfg) + renderKeyFormHtml(cfg) + renderModelFormHtml(cfg) + renderSttFormHtml(cfg) + renderAdvancedFormHtml(cfg);
+    if (target.dataset.provBound !== '1') {
+      target.dataset.provBound = '1';
+      target.addEventListener('submit', onProviderFormSubmit);
     }
-    activeSelectHtml += '</select>';
-    const activeHintHtml = `${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b>`;
-    const mainBody = uiField({ id: 'prov-active-select', label: trKey("console.js.panels.providers.main_provider"), controlHtml: activeSelectHtml, hintHtml: activeHintHtml })
-      + '<div id="prov-feat-mock"></div>'
-      + '<div id="prov-cap-mock" class="pref-notice" hidden></div>';
-    h += uiCard({
-      id: 'prov-main-provider-card',
-      icon: 'bolt',
-      title: trKey("console.js.panels.providers.title_full"),
-      hintHtml: `${esc(trKey("console.js.panels.providers.desc"))} <code class="pref-mono">data/providers.json</code>`,
-      bodyHtml: mainBody
-    });
-
-    const gemKeyPlaceholder = gemini.has_api_key ? trKey("console.js.panels.providers.key_set") : trKey("console.js.panels.providers.key_placeholder");
-    let gemKeyRow = `<div class="console-form-row"><input id="prov-gemini-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" placeholder="${esc(gemKeyPlaceholder)}"/>${renderTogglePassBtn('prov-gemini-key')}`;
-    if (gemini.has_api_key) {
-      gemKeyRow += uiBtn(trKey("common.action.delete"), { variant: 'danger', sm: true, attrs: { onclick: "clearApiKeyInput('prov-gemini-key', 'gemini')" } });
-    }
-    gemKeyRow += '</div>';
-
-    const geminiModelFallback = fallbackGeminiVariants();
-    const selectedGeminiModel = resolveGeminiVariantSelection(gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash-medium', gemini.effort || 'medium', 'gemini-3.8-flash-medium');
-    const selEmbedModel = String(gemini.embed_model || 'gemini-embedding-2').trim() || 'gemini-embedding-2';
-    const rawEmbedModels = Array.isArray(gemini.available_embed_models) && gemini.available_embed_models.length ? gemini.available_embed_models.map((x) => (typeof x === 'string' ? x : String((x && x.id) || ''))).filter(Boolean) : ['gemini-embedding-2', 'gemini-embedding-001'];
-    const embedChoices = Array.from(new Set(['gemini-embedding-2', 'gemini-embedding-001', ...rawEmbedModels, selEmbedModel].filter((x) => x && x !== 'gemini-embedding-2-preview')));
-    let embedOptsHtml = '';
-    for (const em of embedChoices) {
-      const emTag = em === 'gemini-embedding-2' ? ' (3072d · GA Recommended)' : (em === 'gemini-embedding-001' ? ' (3072d · Legacy, EOS 2028-05-14)' : ' (3072d)');
-      embedOptsHtml += `<option value="${esc(em)}" ${selEmbedModel === em ? 'selected' : ''}>${esc(em + emTag)}</option>`;
-    }
-    const embedInfoHtml = `<div id="prov-gemini-embed-info" class="pref-notice" data-tone="${selEmbedModel === 'gemini-embedding-001' ? 'warn' : 'info'}"><div id="prov-gemini-embed-lifecycle"><code class="pref-mono">google:${esc(selEmbedModel)}:3072:${selEmbedModel === 'gemini-embedding-2' ? 'v2_prompt' : 'v1_param'}</code> · 3072d</div><p class="hint" style="margin-top:0.25rem;">${esc(trKey("console.js.panels.providers.embed_fixed_purpose"))}</p></div>`;
-
-    const gemBody = '<div id="prov-feat-gemini"></div>'
-      + uiField({ id: 'prov-gemini-key', label: 'Google AI Studio API Key', controlHtml: gemKeyRow })
-      + uiField({ id: 'prov-gemini-model', label: trKey("console.js.panels.providers.model_label"), controlHtml: renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, selectedGeminiModel, 'gemini-3.8-flash-medium') })
-      + uiField({ id: 'prov-gemini-embed-model', label: trKey("console.js.panels.providers.embed_model_label"), controlHtml: `<select id="prov-gemini-embed-model" class="pref-select">${embedOptsHtml}</select>` })
-      + embedInfoHtml
-      + '<div class="console-form-grid">'
-      + uiField({ id: 'prov-gemini-interval', label: trKey("console.js.panels.providers.min_interval"), controlHtml: `<input id="prov-gemini-interval" type="number" step="0.5" class="pref-input" value="${esc(gemini.min_interval || 4.0)}"/>` })
-      + uiField({ id: 'prov-gemini-retries', label: trKey("console.js.panels.providers.max_retries"), controlHtml: `<input id="prov-gemini-retries" type="number" class="pref-input" value="${esc(gemini.max_retries || 5)}"/>` })
-      + '</div>'
-      + '<div id="prov-cap-gemini" class="pref-notice" hidden></div>'
-      + '<p id="prov-test-res-gemini" class="result" role="status" aria-live="polite" hidden></p>';
-
-    h += uiCard({
-      id: 'prov-gemini-card',
-      icon: 'globe',
-      title: 'Google AI Studio',
-      actionsHtml: uiActions(uiBtn(trKey("console.js.panels.providers.check_api"), { sm: true, attrs: { onclick: "testProviderConnection('gemini')" } })),
-      split: false,
-      bodyHtml: gemBody
-    });
-
-    h += renderFeatureRoutingHtml(cfg);
-    h += renderMemberTierCardHtml(cfg);
-
-    const jevKeyPlaceholder = jev.has_api_key ? trKey("console.js.panels.providers.jev_key_set") : 'Jev API Key';
-    const jevKeyRow = `<div class="console-form-row"><input id="prov-jev-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" placeholder="${esc(jevKeyPlaceholder)}"/>${renderTogglePassBtn('prov-jev-key')}</div>`;
-    const sttProvSelect = `<select id="prov-stt-prov" class="pref-select"><option value="gemini" ${stt.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (API)</option><option value="mock" ${stt.provider === 'mock' ? 'selected' : ''}>Mock</option></select>`;
-    const auxBody = uiToggleRow({ id: 'prov-jev-enabled', label: trKey("console.js.panels.providers.jev_label"), descHtml: `<span id="prov-jev-role">${esc(trKey("console.js.panels.providers.jev_role_shadow"))}</span>`, checked: Boolean(jev.enabled) })
-      + uiField({ id: 'prov-jev-key', label: 'Jev API Key', controlHtml: jevKeyRow })
-      + uiField({ id: 'prov-jev-url', label: 'Base URL', controlHtml: `<input id="prov-jev-url" class="pref-input" placeholder="Base URL" value="${esc(jev.base_url || 'https://api.typesafe.ai/v1')}"/>` })
-      + uiToggleRow({ id: 'prov-stt-enabled', label: trKey("console.js.panels.providers.stt_label"), checked: stt.enabled !== false })
-      + '<div class="console-form-grid">'
-      + uiField({ id: 'prov-stt-prov', label: trKey("console.js.panels.providers.stt_provider"), controlHtml: sttProvSelect })
-      + uiField({ id: 'prov-stt-lang', label: trKey("console.js.panels.providers.stt_language"), controlHtml: `<input id="prov-stt-lang" class="pref-input" value="${esc(stt.language || 'ko')}"/>` })
-      + '</div>'
-      + '<div id="prov-cap-stt" class="pref-notice" data-tone="warn" hidden></div>';
-
-    h += uiCard({
-      id: 'prov-aux-card',
-      icon: 'puzzle',
-      title: trKey("console.js.panels.providers.aux_title"),
-      bodyHtml: auxBody
-    });
-
-    const optsState = _provState.opts || {};
-    const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
-    let saveActionsHtml = uiBtn(trKey("console.js.panels.save_settings"), { id: 'prov-save-btn', variant: 'accent', icon: 'save', attrs: { onclick: 'saveProviderSettings()' } });
-    if (canClose) {
-      saveActionsHtml += uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeProviderManager()' } });
-    }
-    const saveBody = '<div id="prov-cap-summary" class="pref-notice" role="status" aria-live="polite" hidden></div>' + uiActions(saveActionsHtml);
-    h += uiCard({
-      id: 'prov-save-card',
-      icon: 'save',
-      title: trKey("console.js.panels.save_settings"),
-      split: false,
-      bodyHtml: saveBody
-    });
-
-    target.innerHTML = h;
-    if (cfg.capabilities) applyProviderCapabilities(cfg.capabilities);
-    bindProviderCapabilityEvents();
     enhanceConsoleDom();
   }
 
-  async function renderProviderManager(container, opts) {
-    if (container instanceof HTMLElement || (container && container.nodeType === 1) || (typeof container === 'string' && (container.startsWith('#') || container.startsWith('.')))) {
-      _provState.container = resolveContainer(container);
-      _provState.opts = opts || {};
-    } else if (typeof container === 'string') {
-      const msg = container;
-      const isSuccess = Boolean(opts);
-      renderProviderManagerDOM(msg, isSuccess);
-      return;
+  // After a save: the status card and the state of the key show the new config; the forms keep what the person typed.
+  function refreshProviderStatus() {
+    const cfg = _provState.config;
+    const old = document.getElementById('prov-effective-card');
+    if (old) old.outerHTML = renderEffectiveCardHtml(cfg);
+    const keyForm = document.getElementById('prov-key-form');
+    if (keyForm) {
+      const status = keyForm.querySelector('[data-prov-status]');
+      const kept = status ? { text: status.textContent, state: status.getAttribute('data-state') } : null;
+      keyForm.outerHTML = renderKeyFormHtml(cfg);
+      const fresh = document.getElementById('prov-key-form');
+      if (fresh && kept) setFormStatus(fresh, kept.state, kept.text);
     }
+    enhanceConsoleDom();
+  }
+
+  function providerPayload(kind, form, action) {
+    const cfg = _provState.config || {};
+    const val = id => { const el = form.querySelector('#' + id); return el ? el.value : ''; };
+    const checked = id => { const el = form.querySelector('#' + id); return Boolean(el && el.checked); };
+    if (kind === 'key') {
+      if (action === 'delete') return { providers: { gemini: { api_key: '', clear_api_key: true } } };
+      const key = val('prov-gemini-key').trim();
+      if (!key) return null;
+      const payload = { providers: { gemini: { api_key: key } } };
+      // A production server has one real provider: the save of the key makes it the main provider.
+      if ((cfg.effective || {}).is_production) payload.active_provider = 'gemini';
+      return payload;
+    }
+    if (kind === 'model') {
+      const routing = {};
+      for (const slot of PROVIDER_SLOTS) {
+        const m = val(`prov-route-${slot}-model`);
+        routing[slot] = { provider: 'inherit', model: m, effort: m ? splitGeminiModelEffort(m).effort : '' };
+      }
+      return { providers: { gemini: { model: val('prov-gemini-model'), embed_model: val('prov-gemini-embed-model') } }, feature_routing: routing };
+    }
+    if (kind === 'stt') return { providers: { stt: { enabled: checked('prov-stt-enabled'), language: val('prov-stt-lang').trim() } } };
+    if (kind === 'advanced') {
+      const payload = {
+        providers: {
+          gemini: { min_interval: parseFloat(val('prov-gemini-interval')), max_retries: parseInt(val('prov-gemini-retries'), 10) },
+          jev: { enabled: checked('prov-jev-enabled'), base_url: val('prov-jev-url').trim() }
+        }
+      };
+      const jevKey = val('prov-jev-key').trim();
+      if (jevKey) payload.providers.jev.api_key = jevKey;
+      if (form.querySelector('#prov-mock-enabled')) payload.active_provider = checked('prov-mock-enabled') ? 'mock' : 'gemini';
+      return payload;
+    }
+    return null;
+  }
+
+  function providerErrorText(status, body) {
+    const code = body && (body.error || body.detail);
+    if (code === 'mock_not_allowed_in_production') return trKey('console.js.panels.providers.error.mock_production');
+    return trKey('console.js.panels.save_failed') + ' ' + (code || ('HTTP ' + status));
+  }
+
+  async function checkProviderKey(form) {
+    const payload = { provider: 'gemini', config: {} };
+    const key = (form.querySelector('#prov-gemini-key') || {}).value || '';
+    if (key.trim()) payload.config.api_key = key.trim();
+    const r = await fetch(resolveRootUrl(_provState.opts, 'providers/test'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      if (d.details && Array.isArray(d.details.models) && d.details.models.length && _provState.config.providers && _provState.config.providers.gemini) {
+        _provState.config.providers.gemini.available_models = d.details.models;
+      }
+      setFormStatus(form, 'ok', `${d.message || trKey('console.js.panels.providers.key.check_ok')} · ${nowStamp()}`);
+    } else {
+      setFormStatus(form, 'error', d.error || d.detail || trKey('console.js.panels.providers.key.check_failed'));
+    }
+  }
+
+  async function onProviderFormSubmit(event) {
+    const form = event.target && event.target.closest ? event.target.closest('form[data-prov-form]') : null;
+    if (!form) return;
+    event.preventDefault();
+    const kind = form.getAttribute('data-prov-form');
+    const action = (event.submitter && event.submitter.value) || 'save';
+    // Validation of the browser on save (forms guide: route the focus to the first invalid field); the check and the delete do not need it.
+    if (action === 'save' && typeof form.reportValidity === 'function' && !form.reportValidity()) return;
+    const buttons = Array.from(form.querySelectorAll('button[type=submit]'));
+    const done = () => buttons.forEach(b => { b.disabled = false; });
+    buttons.forEach(b => { b.disabled = true; });
+    try {
+      if (kind === 'key' && action === 'check') {
+        setFormStatus(form, 'busy', trKey('console.js.panels.providers.key.checking'));
+        await checkProviderKey(form);
+        return;
+      }
+      if (kind === 'key' && action === 'delete' && !window.confirm(trKey('console.js.panels.providers.key.delete_confirm'))) return;
+      const payload = providerPayload(kind, form, action);
+      if (!payload) {
+        setFormStatus(form, 'error', trKey('console.js.panels.providers.key.need_key'));
+        const keyEl = form.querySelector('#prov-gemini-key');
+        if (keyEl) keyEl.focus();
+        return;
+      }
+      setFormStatus(form, 'busy', trKey('console.js.common.saving'));
+      const r = await fetch(resolveRootUrl(_provState.opts, 'providers'), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setFormStatus(form, 'error', providerErrorText(r.status, body));
+        return;
+      }
+      _provState.config = body.config || _provState.config;
+      const keyEl = form.querySelector('#prov-gemini-key');
+      if (keyEl) keyEl.value = '';
+      const jevKeyEl = form.querySelector('#prov-jev-key');
+      if (jevKeyEl) jevKeyEl.value = '';
+      setFormStatus(form, 'ok', trKey(action === 'delete' ? 'console.js.panels.providers.key.deleted' : 'console.js.panels.providers.saved_at', { time: nowStamp() }));
+      refreshProviderStatus();
+      if (_provState.opts && typeof _provState.opts.onSave === 'function') _provState.opts.onSave(body);
+    } catch (e) {
+      setFormStatus(form, 'error', trKey('console.js.panels.error_occurred') + ' ' + (e.message || e));
+    } finally {
+      done();
+    }
+  }
+
+  async function renderProviderManager(container, opts) {
+    _provState.container = resolveContainer(container);
+    _provState.opts = opts || {};
     const target = _provState.container;
     if (!target) return;
     target.innerHTML = renderPanelLoadingCard('prov-loading-card', 'bolt', 'console.js.panels.providers.title', 'console.js.panels.loading_settings');
     enhanceConsoleDom();
     try {
-      const url = resolveRootUrl(_provState.opts, 'providers');
-      const r = await fetch(url);
+      const r = await fetch(resolveRootUrl(_provState.opts, 'providers'));
       if (!r.ok) throw new Error('HTTP ' + r.status);
       _provState.config = await r.json();
       renderProviderManagerDOM();
@@ -2120,10 +1571,6 @@
     renderThemeManager,
     renderTokenManager,
     togglePassVisibility,
-    clearApiKeyInput,
-    testProviderConnection,
-    saveProviderSettings,
-    closeProviderManager,
     saveLimitSettings,
     resetLimitSettings,
     closeLimitManager,
