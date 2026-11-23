@@ -419,6 +419,12 @@ def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     _, sub1 = mcp_call(env.client, write_tok, "extract_submit", {"document_id": doc_id, "claim_token": c1["claim_token"], "expected_content_hash": content_hash, "payload": payload_v1, "dry_run": False})
     assert _extract_mcp_json(sub1)["committed"] is True
 
+    # 0. Implicit duplicate extracted input returns duplicate=True with force=True confirmation hint.
+    _, s_dup_res = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "full_content": True})
+    s_dup = _extract_mcp_json(s_dup_res)
+    assert s_dup["ok"] is True and s_dup["document_id"] == doc_id and s_dup["duplicate"] is True and s_dup["extraction_status"] == "extracted"
+    assert doc_id in (s_dup.get("message") or "") and "force=True" in (s_dup.get("message") or "")
+
     # 1. Re-ingest duplicate text via extract_stage(force=True)
     _, s_force_res = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "full_content": True, "force": True})
     s_force = _extract_mcp_json(s_force_res)
@@ -503,7 +509,8 @@ def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     finally:
         conn3.close()
     _, blocked_tomb = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "title": "Reingest E2E Note", "full_content": True})
-    assert "tombstoned" in _extract_mcp_json(blocked_tomb)["message"]
+    tomb_msg = _extract_mcp_json(blocked_tomb)["message"]
+    assert "tombstoned" in tomb_msg and "force=True" in tomb_msg
 
     _, lifted_tomb = mcp_call(env.client, write_tok, "extract_stage", {"text": source_text, "title": "Reingest E2E Note", "full_content": True, "force": True})
     lifted_data = _extract_mcp_json(lifted_tomb)

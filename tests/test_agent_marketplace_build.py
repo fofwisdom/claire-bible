@@ -50,14 +50,14 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     repo_a = out_a / "repo"
     marketplace = json.loads((repo_a / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     assert marketplace["name"] == "claire-agents"
-    assert marketplace["metadata"]["version"] == "0.4.3"
+    assert marketplace["metadata"]["version"] == "0.4.4"
     assert [p["name"] for p in marketplace["plugins"]] == ["claire"]
     assert marketplace["plugins"][0]["source"] == "./plugins/claude/claire"
 
     claude_dir = repo_a / "plugins" / "claude" / "claire"
     claude_plugin = json.loads((claude_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert claude_plugin["name"] == "claire"
-    assert claude_plugin["version"] == "0.4.3"
+    assert claude_plugin["version"] == "0.4.4"
     assert claude_plugin["repository"] == "https://github.com/fofwisdom/claire-agents"
     assert sorted(p.name for p in (claude_dir / "skills").iterdir()) == ["extract-runner", "ingest", "query"]
 
@@ -70,6 +70,9 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "extract_stage(" in claude_ingest
     assert "extract_queue(" in claude_ingest
     assert "force=True" in claude_ingest
+    assert "Ask Before Overwriting" in claude_ingest
+    assert "tombstoned" in claude_ingest
+    assert claude_ingest.count("Apply Guardrail 5") + claude_ingest.count("apply Guardrail 5") == 3
     assert "claire:extract-runner" in claude_ingest
     assert "/claire:extract" not in claude_ingest
 
@@ -117,7 +120,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_plugin = json.loads((ag_dir / "plugin.json").read_text(encoding="utf-8"))
     assert ag_plugin["name"] == "claire"
     assert ag_plugin["displayName"] == "Claire Bible"
-    assert ag_plugin["version"] == "0.4.3"
+    assert ag_plugin["version"] == "0.4.4"
     assert ag_plugin["logo"] == "assets/logo.svg"
     assert (ag_dir / "assets" / "logo.svg").is_file()
     assert not (ag_dir / "mcp_config.json.tmpl").exists()
@@ -166,6 +169,9 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "doc_list(" in ag_ingest
     assert "force=True" in ag_ingest
     assert "No Manual Purge" in ag_ingest
+    assert "Ask Before Overwriting" in ag_ingest
+    assert "tombstoned" in ag_ingest
+    assert ag_ingest.count("Apply Guardrail 5") + ag_ingest.count("apply Guardrail 5") == 3
     assert "force=True" in ag_extractor
     assert "claire-query" in (ag_dir / "skills" / "claire-query" / "SKILL.md").read_text(encoding="utf-8")
 
@@ -189,7 +195,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
             assert "Allow using this MCP tool?" in guide_text
             assert "Yes, and always allow" in guide_text
             assert "Add MCP Server (+)" not in guide_text
-            assert "claire-antigravity-v0.4.3.zip" in guide_text
+            assert "claire-antigravity-v0.4.4.zip" in guide_text
         else:
             assert "claude mcp add --transport http --scope user claire https://" in guide_text
             assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in guide_text
@@ -219,7 +225,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     notes_b = (out_b / "release_notes.md").read_bytes()
     assert notes_a == notes_b
     notes_text = notes_a.decode("utf-8")
-    assert "claire-antigravity-v0.4.3.zip" in notes_text
+    assert "claire-antigravity-v0.4.4.zip" in notes_text
     assert "MCP Servers -> claire" in notes_text
     assert "Allow using this MCP tool?" in notes_text
     assert "docs/antigravity.ko.md" in notes_text
@@ -231,7 +237,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
 
     manifest = json.loads((repo_a / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["repo"] == "fofwisdom/claire-agents"
-    assert manifest["version"] == "0.4.3"
+    assert manifest["version"] == "0.4.4"
     assert [p["id"] for p in manifest["plugins"]] == ["claire-antigravity", "claire-claude"]
     assert all(p["plugin_name"] == "claire" for p in manifest["plugins"])
     manifest_ag = next(p for p in manifest["plugins"] if p["id"] == "claire-antigravity")
@@ -242,7 +248,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert any(f["path"] == "assets/logo.svg" for f in manifest_ag["files"])
     assert any(f["path"] == "skills/claire-ingest/SKILL.md" for f in manifest_ag["files"])
 
-    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.4.3.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.4.4.tar.gz", "r:gz") as tf:
         assert "claire/plugin.json" in tf.getnames()
         assert "claire/assets/logo.svg" in tf.getnames()
         assert "claire/README.md" in tf.getnames()
@@ -250,7 +256,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
         assert "claire/skills/claire-query/SKILL.md" in tf.getnames()
         assert "claire/skills/claire-extract/SKILL.md" not in tf.getnames()
         assert "claire/mcp_config.json.tmpl" not in tf.getnames()
-    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.4.3.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.4.4.zip", "r") as zf:
         assert "claire/.claude-plugin/plugin.json" in zf.namelist()
         assert "claire/skills/ingest/SKILL.md" in zf.namelist()
         assert "claire/skills/extract-runner/SKILL.md" in zf.namelist()

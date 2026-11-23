@@ -333,7 +333,10 @@ def _resolve_stage_mode(conn: sqlite3.Connection, *, account_id: int, kb_id: int
 def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int, effective_mode: str, account_mode: str, title: str | None, source_type: str | None, allow_title_update: bool) -> dict[str, Any]:
     """Apply optional metadata overrides after staging and format the standard stage response."""
     if report.error:
-        raise ClientExtractionError(400, "stage_failed", report.error)
+        err_msg = str(report.error)
+        if "tombstoned" in err_msg and "force=True" not in err_msg:
+            err_msg = f"{err_msg}. Ask the user whether to lift the tombstone and re-ingest with force=True."
+        raise ClientExtractionError(400, "stage_failed", err_msg)
 
     row = dbm.get_document_row(conn, report.document_id, kb_id=int(kb_id)) if report.document_id else None
     if row is not None and allow_title_update and (title or source_type):
@@ -355,6 +358,9 @@ def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int,
     doc_hash = (str(row["content_hash"]) if row is not None and row["content_hash"] else None) or report.content_hash
     doc_status = (str(row["extraction_status"]) if row is not None and row["extraction_status"] else None) or report.extraction_status
     doc_chars = int(row["raw_chars"]) if row is not None and row["raw_chars"] is not None else int(report.raw_chars or 0)
+    stage_message = report.message
+    if bool(report.duplicate) and doc_status == "extracted" and not stage_message:
+        stage_message = f"Document '{report.document_id}' is already extracted in the personal knowledge base. Ask the user whether to re-ingest (overwrite source with force=True), regenerate from stored raw text (extract_stage(document_id='{report.document_id}', force=True)), or keep the existing document."
     return {
         "ok": True,
         "document_id": report.document_id,
@@ -370,7 +376,7 @@ def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int,
         "content_hash": doc_hash,
         "raw_chars": doc_chars,
         "full_content": True,
-        "message": report.message,
+        "message": stage_message,
     }
 
 

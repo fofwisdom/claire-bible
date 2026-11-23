@@ -880,6 +880,9 @@ def test_force_reingest_restage_and_force_claim_reextraction(tmp_path: Path) -> 
     try:
         dup_stage = ce.stage_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, settings=world.settings, fetch_fn=lambda target, **_kw: fetched_versions[0])
         assert dup_stage["duplicate"] is True and dup_stage["extraction_status"] == "extracted"
+        assert doc_id in (dup_stage["message"] or "")
+        assert "already extracted" in (dup_stage["message"] or "")
+        assert "force=True" in (dup_stage["message"] or "")
         with pytest.raises(ce.ClientExtractionError) as exc_not_pending:
             ce.claim_staged_source(conn2, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
         assert exc_not_pending.value.code == "document_not_pending"
@@ -1057,7 +1060,7 @@ def test_force_reingest_lifts_tombstones_refetches_in_place_and_purges_old_extra
         dbm.purge_document_cascade(conn3, data_dir=Path(world.settings.data_dir), target_ids=[doc_id], tombstone=True, kb_id=world.alice_kb.id, heal=False, vacuum=False)
         with pytest.raises(ce.ClientExtractionError) as exc_tomb_url:
             ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, force=False, settings=world.settings, fetch_fn=lambda _u, **_kw: first_doc)
-        assert "tombstoned" in exc_tomb_url.value.message
+        assert "tombstoned" in exc_tomb_url.value.message and "force=True" in exc_tomb_url.value.message
 
         unstaged_url = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, force=True, settings=world.settings, fetch_fn=lambda _u, **_kw: first_doc)
         assert unstaged_url["ok"] is True and unstaged_url["extraction_status"] == "pending"
@@ -1069,7 +1072,7 @@ def test_force_reingest_lifts_tombstones_refetches_in_place_and_purges_old_extra
         dbm.purge_document_cascade(conn3, data_dir=Path(world.settings.data_dir), target_ids=[note_id], tombstone=True, kb_id=world.alice_kb.id, heal=False, vacuum=False)
         with pytest.raises(ce.ClientExtractionError) as exc_tomb_text:
             ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=note_text, title="Hash Note", force=False, settings=world.settings)
-        assert "tombstoned" in exc_tomb_text.value.message
+        assert "tombstoned" in exc_tomb_text.value.message and "force=True" in exc_tomb_text.value.message
 
         unstaged_note = ce.stage_source(conn3, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=note_text, title="Hash Note", force=True, settings=world.settings)
         assert unstaged_note["ok"] is True and unstaged_note["extraction_status"] == "pending"
