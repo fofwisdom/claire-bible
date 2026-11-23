@@ -1616,6 +1616,7 @@ def create_support_bundle(
 
                 # 5-3. Subsystems that came after format 3: services, runtime configuration, federation, client.db, auth.db, worker queues, shared knowledge bases (support_bundle_services.py).
                 from . import support_bundle_notifications as notification_collectors
+                from . import host_runtime
                 from . import support_bundle_services as services
 
                 worker_databases: list[tuple[int, str, Path]] = []
@@ -1626,6 +1627,7 @@ def create_support_bundle(
                         admin_kb_ids.add(int(t.id))
                 subsystem_members = (
                     ("diagnostics/services.json", "SERVICES", lambda: services.collect_services(s, now=now)),
+                    ("diagnostics/host.json", "HOST", lambda: host_runtime.collect_host(s, now=now, since=cutoff_epoch)),
                     ("diagnostics/runtime_config.json", "RUNTIME_CONFIG", lambda: services.collect_runtime_config(s)),
                     ("federation/server_queues.json", "SERVER_FEDERATION", lambda: services.collect_server_federation(s, now=now, since=cutoff_epoch)),
                     ("federation/client_db.json", "CLIENT_DB", lambda: services.collect_client_db(s, now=now, since=cutoff_epoch)),
@@ -1636,6 +1638,7 @@ def create_support_bundle(
                     ("notifications/summary.json", "NOTIFICATIONS", lambda: notification_collectors.collect_notifications(s, now=now, since=cutoff_epoch)),
                 )
                 notification_findings: list[str] = []
+                host_findings: list[str] = []
                 federation_findings: list[str] = []
                 for member, warning_code, collect in subsystem_members:
                     try:
@@ -1647,6 +1650,8 @@ def create_support_bundle(
                     if member == "notifications/summary.json" and isinstance(member_report.get("findings"), list):
                         # The manifest names the findings, so that a reader sees a notification problem without the member.
                         notification_findings = [str(item.get("code")) for item in member_report["findings"] if isinstance(item, dict)]
+                    elif member == "diagnostics/host.json" and isinstance(member_report.get("findings"), list):
+                        host_findings = [str(item.get("code")) for item in member_report["findings"] if isinstance(item, dict)]
                     elif member == "federation/server_queues.json" and isinstance(member_report.get("heartbeat_findings"), list):
                         federation_findings = [str(item.get("code")) for item in member_report["heartbeat_findings"] if isinstance(item, dict)]
                     _add_tar_bytes(
@@ -1912,6 +1917,7 @@ def create_support_bundle(
                     },
                     "notification_findings": notification_findings,
                     "federation_findings": federation_findings,
+                    "host_findings": host_findings,
                     "target": sanitize_sensitive_data(target_info) if target_info else None,
                     "request_context": sanitize_sensitive_data(request_context or {}),
                 }

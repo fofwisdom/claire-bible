@@ -5,6 +5,8 @@ Each loop runs in its own Compose service and writes only to its standard output
 - ``logs/<name>-loop.log``: a copy of each output line with the UTC time (rotation at 10 MB, 3 old files). The Support Bundle collects each ``*.log`` file of ``logs/``.
 - ``run/loop_<name>.json``: the start time, the time and the result of the last cycle, and the interval. The Support Bundle reads these files and calculates their age (``diagnostics/services.json``).
 
+``start_loop`` also starts the resource record of the service (``host_runtime.py``, ``logs/host-<name>-loop.log``).
+
 A failure to write a record does not stop the loop.
 """
 
@@ -150,6 +152,9 @@ class LoopRecorder:
 def start_loop(data_dir: Path | str, name: str, *, interval: float) -> LoopRecorder:
     """Start the log copy and the state record of one worker loop."""
     _start_log(data_dir, name)
+    from .host_runtime import start_host_recorder
+
+    start_host_recorder(data_dir, f"{name}-loop")
     return LoopRecorder(data_dir, name, interval=interval)
 
 

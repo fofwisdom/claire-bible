@@ -7736,6 +7736,10 @@ def run_api() -> int:
     except Exception:
         pass
 
+    from ..ops.host_runtime import start_host_recorder
+
+    start_host_recorder(getattr(s, "data_dir", "data"), "api")
+
     from .dev_listeners import dev_listeners
 
     prototype_authority_value = runtime.host_roles.prototype if runtime.host_roles is not None else None

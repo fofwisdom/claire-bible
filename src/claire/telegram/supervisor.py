@@ -226,4 +226,8 @@ def run_bot() -> int:
     except Exception as e:  # noqa: BLE001
         print(f"python-telegram-bot is not installed: {e}")
         return 2
-    return run_supervisor(get_settings())
+    settings = get_settings()
+    from ..ops.host_runtime import start_host_recorder
+
+    start_host_recorder(settings.data_dir, "telegram")
+    return run_supervisor(settings)
