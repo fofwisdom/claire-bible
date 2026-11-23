@@ -316,7 +316,8 @@
 | `/admin/limits` | 서버 적재 제한·슬라이싱 예산(`/limits`) |
 | `/admin/plugins` | 플러그인 폴더·프로젝트 플러그인 폴더의 플러그인, 상태, 버전, 겹침 그룹, 켜기(단계 인증, 권한·다이제스트 대화상자)·끄기 (`plugins.py`, `GET`·`PUT`·`DELETE /api/admin/plugins`, [INGESTION.md](INGESTION.md) §2.2) |
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
-| `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, `POST /support/bundle` |
+| `/admin/audit` | 서버 감사 기록. `/admin/federation`과 같은 탭 부품(`console_ui.console_tabs`, `#admin-audit-tabs`)으로 두 탭을 둔다: 관리자 작업(`admin` 탭, `auth.db`의 `admin_audit` 최신 100행을 서버가 그린다. 기록에는 계정 번호만 있으므로 화면은 계정의 현재 USERNAME을 함께 보이고, 없는 계정은 `#번호 (계정 없음)`), MCP 호출(`mcp` 탭, `mcp_telemetry` 표, `GET /api/admin/mcp/telemetry`) (`console_audit_panels.py`, `console_admin.js`의 `initAuditSection`). 소유자 결정 2026-11-23: 감사 기록을 `/admin/audit`에 모은다 |
+| `/admin/mcp` | RBAC·MCP 권한 비교표, `POST /support/bundle`. MCP 호출 감사 표는 `/admin/audit`에 있다 |
 | `/admin/webmcp` | WebMCP 서버 정책만 둔다: 페이지 도구 등록 전역 허용 스위치(`#admin-webmcp-enabled`, 프로토타입). 계정별 WebMCP 설정은 `/account/webmcp`에 있다(소유자 결정 2026-11-22: MCP·WebMCP 화면을 이용자용과 관리자용으로 분리) |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
 | `/admin/federation` | 연합 상태(연합은 끌 수 없는 고유 기능이라 스위치가 없다), 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |

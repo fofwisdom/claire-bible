@@ -73,9 +73,9 @@ test('the server policy of WebMCP is on its own administrator page', async ({ pa
   const errors = watchErrors(page);
   await authenticateOwner(page, 'acctarea02');
 
-  // /admin/mcp has the audit records and no WebMCP policy.
+  // /admin/mcp has the RBAC comparison and no WebMCP policy.
   await page.goto('/admin/mcp', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#admin-mcp-telemetry-card')).toBeVisible();
+  await expect(page.locator('#admin-mcp-rbac-card')).toBeVisible();
   await expect(page.locator('#admin-webmcp-policy-card')).toHaveCount(0);
 
   // /admin/webmcp has only the server policy switch. The browser keeps its state.

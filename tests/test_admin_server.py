@@ -119,6 +119,7 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
             "/admin/providers",
             "/admin/limits",
             "/admin/tokens",
+            "/admin/audit",
             "/admin/mcp",
         ):
             assert f'href="{path}"' in sidebar

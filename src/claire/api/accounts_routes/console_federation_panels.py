@@ -25,6 +25,7 @@ from .console_ui import (
     console_kv,
     console_result,
     console_table,
+    console_tabs,
     console_toggle_row,
 )
 
@@ -292,19 +293,14 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         hint_html=escape(t("console.federation.blocks.hint")),
         aria_label=t("console.federation.blocks.title"),
     )
-    body = (
-        '<div class="claire-tabs" id="admin-federation-tabs">'
-        '<div class="claire-tablist-wrap"><div class="claire-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="Federation">'
-        f'<button type="button" class="claire-tab" role="tab" data-tab="sw" aria-selected="true" focusgroupstart><span data-icon="globe"></span> <span>{escape(t("console.admin.federation.tab_switches"))}</span></button>'
-        f'<button type="button" class="claire-tab" role="tab" data-tab="known" aria-selected="false"><span data-icon="server"></span> <span>{escape(t("console.admin.federation.tab_known"))}</span></button>'
-        f'<button type="button" class="claire-tab" role="tab" data-tab="blocks" aria-selected="false"><span data-icon="block"></span> <span>{escape(t("console.admin.federation.tab_blocks"))}</span></button>'
-        f'<button type="button" class="claire-tab" role="tab" data-tab="journal" aria-selected="false"><span data-icon="list"></span> <span>{escape(t("console.admin.federation.tab_journal"))}</span></button>'
-        "</div></div>"
-        '<div class="claire-tabpanels">'
-        f'<div role="tabpanel" data-tabpanel="sw"><div class="claire-panel-inner">{sw_panel}</div></div>'
-        f'<div role="tabpanel" data-tabpanel="known" hidden="until-found"><div class="claire-panel-inner">{console_host("admin-federation-known-host")}</div></div>'
-        f'<div role="tabpanel" data-tabpanel="blocks" hidden="until-found"><div class="claire-panel-inner">{blocks_panel}</div></div>'
-        f'<div role="tabpanel" data-tabpanel="journal" hidden="until-found"><div class="claire-panel-inner">{console_host("admin-federation-journal-host")}</div></div>'
-        "</div></div>"
+    body = console_tabs(
+        [
+            {"id": "sw", "label": t("console.admin.federation.tab_switches"), "icon": "globe", "html": sw_panel},
+            {"id": "known", "label": t("console.admin.federation.tab_known"), "icon": "server", "html": console_host("admin-federation-known-host")},
+            {"id": "blocks", "label": t("console.admin.federation.tab_blocks"), "icon": "block", "html": blocks_panel},
+            {"id": "journal", "label": t("console.admin.federation.tab_journal"), "icon": "list", "html": console_host("admin-federation-journal-host")},
+        ],
+        id="admin-federation-tabs",
+        aria_label="Federation",
     )
     return body, {"domain_blocks": [domain_block_view(block) for block in blocks]}

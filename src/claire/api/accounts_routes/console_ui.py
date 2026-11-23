@@ -20,6 +20,7 @@ __all__ = [
     "console_result",
     "console_stat_row",
     "console_table",
+    "console_tabs",
     "console_toggle_row",
 ]
 
@@ -279,3 +280,34 @@ def console_pill(
     classes = _join_classes("pref-pill", extra_class)
     tone_attr = f' data-tone="{escape(tone)}"' if tone else ""
     return f'<span class="{escape(classes)}"{tone_attr}{_attrs_html(attrs)}>{escape(text)}</span>'
+
+
+def console_tabs(
+    tabs: Sequence[Mapping[str, str]],
+    *,
+    id: str,
+    aria_label: str,
+) -> str:
+    """Build a tab set (``.claire-tabs``) that ``ClaireUi.enhance`` binds. Each tab is a mapping with ``id``, ``label`` (plain text), ``icon``, and ``html`` (the panel body). The first tab is selected; the other panels are ``hidden="until-found"``."""
+    if not tabs:
+        raise ValueError("console_tabs requires one tab or more")
+    buttons: list[str] = []
+    panels: list[str] = []
+    for idx, tab in enumerate(tabs):
+        selected = idx == 0
+        tab_id = escape(tab["id"])
+        buttons.append(
+            f'<button type="button" class="claire-tab" role="tab" data-tab="{tab_id}" aria-selected="{"true" if selected else "false"}"{" focusgroupstart" if selected else ""}>'
+            f'{icon_html(tab.get("icon", ""))} <span>{escape(tab["label"])}</span></button>'
+        )
+        hidden = "" if selected else ' hidden="until-found"'
+        panels.append(f'<div role="tabpanel" data-tabpanel="{tab_id}"{hidden}><div class="claire-panel-inner">{tab["html"]}</div></div>')
+    return (
+        f'<div class="claire-tabs" id="{escape(id)}">'
+        f'<div class="claire-tablist-wrap"><div class="claire-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="{escape(aria_label)}">'
+        + "".join(buttons)
+        + "</div></div>"
+        + '<div class="claire-tabpanels">'
+        + "".join(panels)
+        + "</div></div>"
+    )

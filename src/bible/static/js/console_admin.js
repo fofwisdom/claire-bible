@@ -458,7 +458,12 @@
     }
   }
 
-  function initMcpSection() {
+  // --- /admin/audit: the audit records in tabs (administrator actions, MCP calls). The server renders the administrator actions; the MCP calls come from GET /api/admin/mcp/telemetry. ---
+  function initAuditSection() {
+    var auditTabs = document.getElementById("admin-audit-tabs");
+    if (auditTabs && window.ClaireUi) {
+      window.ClaireUi.enhance(auditTabs);
+    }
     var auditTbody = document.getElementById("pref-mcp-audit-tbody");
     var statusFilter = document.getElementById("admin-mcp-filter-status");
     var toolFilter = document.getElementById("admin-mcp-filter-tool");
@@ -504,7 +509,9 @@
         loadMcpTelemetry();
       });
     }
+  }
 
+  function initMcpSection() {
     var bundleForm = document.getElementById("admin-support-bundle-form");
     var bundleResult = document.getElementById("admin-support-bundle-result");
     if (bundleForm) {
@@ -2020,6 +2027,8 @@
       initAccountsSection(bootstrap);
     } else if (section === "idp") {
       initIdpSection(bootstrap);
+    } else if (section === "audit") {
+      initAuditSection();
     } else if (section === "mcp") {
       initMcpSection();
     } else if (section === "webmcp") {

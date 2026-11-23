@@ -625,6 +625,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/moderation/oversight",
                 "/moderation/themes",
                 "/admin/tokens",
+                "/admin/audit",
                 "/admin/mcp",
                 "/admin/webmcp",
                 "/api/admin/mcp/telemetry",

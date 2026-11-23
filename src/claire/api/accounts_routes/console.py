@@ -394,6 +394,13 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="key",
     ),
     ConsoleSectionSpec(
+        slug="audit",
+        path="/admin/audit",
+        area="admin",
+        group_id="admin_system",
+        icon="shield",
+    ),
+    ConsoleSectionSpec(
         slug="mcp",
         path="/admin/mcp",
         area="admin",
@@ -721,41 +728,13 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         body = notice_banner + tokens_host_html + clients_card_html + policy_card_html
         return body, {"oauth_clients": oauth_clients_list}
 
+    if slug == "audit":
+        from .console_audit_panels import admin_audit_body
+
+        return admin_audit_body(ctx)
+
     if slug == "mcp":
-        telemetry_controls = (
-            '<div class="console-form-row">'
-            + console_field(
-                t("console.common.status"),
-                f'<select id="admin-mcp-filter-status" class="pref-select"><option value="">{escape(t("console.admin.mcp.filter_all"))}</option><option value="SUCCESS">SUCCESS</option><option value="success">success</option><option value="ERROR">ERROR</option><option value="UNAUTHORIZED">UNAUTHORIZED</option><option value="auth_error">auth_error</option></select>',
-                for_id="admin-mcp-filter-status",
-            )
-            + console_field(
-                t("console.admin.mcp.filter_tool"),
-                f'<input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="{escape(t("console.admin.mcp.filter_tool_placeholder"))}" style="width:130px"/>',
-                for_id="admin-mcp-filter-tool",
-            )
-            + console_field(
-                t("console.admin.mcp.filter_limit"),
-                f'<select id="admin-mcp-filter-limit" class="pref-select"><option value="25">{escape(t("console.admin.mcp.limit_25"))}</option><option value="50" selected>{escape(t("console.admin.mcp.limit_50"))}</option><option value="100">{escape(t("console.admin.mcp.limit_100"))}</option><option value="200">{escape(t("console.admin.mcp.limit_200"))}</option></select>',
-                for_id="admin-mcp-filter-limit",
-            )
-            + f'<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">{escape(t("console.common.refresh"))}</button>'
-            + "</div>"
-        )
-        telemetry_table_html = console_table(
-            [t("console.admin.mcp.col_time"), "call_type", "tool_name", "status", "duration_ms", "response_bytes", "client_id"],
-            f'<tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.mcp.audit_loading"))}</td></tr>',
-            tbody_id="pref-mcp-audit-tbody",
-        )
-        telemetry_card = console_card(
-            t_code("console.admin.mcp.audit_title", table="mcp_telemetry"),
-            console_result(id="admin-mcp-telemetry-status") + telemetry_table_html,
-            id="admin-mcp-telemetry-card",
-            icon="list",
-            hint_html=t_code("console.admin.mcp.audit_hint", endpoint="GET /api/admin/mcp/telemetry"),
-            actions_html=telemetry_controls,
-            aria_label=t("console.admin.mcp.audit_label"),
-        )
+        # The MCP call audit records are in /admin/audit (tab "mcp").
         rbac_rows = (
             f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td>{console_pill(t("console.admin.mcp.rbac_match"), tone="ok")}</td></tr>'
             f'<tr><td><code class="pref-mono">write</code></td><td>{escape(t("console.admin.mcp.rbac_write_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td>{console_pill(t("console.admin.mcp.rbac_review"), tone="warn")}</td></tr>'
@@ -795,7 +774,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             hint_html=escape(t("console.admin.mcp.bundle_hint")),
             aria_label=t("console.admin.mcp.bundle_label"),
         )
-        return telemetry_card + rbac_card + bundle_card, {}
+        return rbac_card + bundle_card, {}
 
     if slug == "webmcp":
         # The server policy of WebMCP only. The account settings (exposure for each knowledge base, tools, confirmation) are in /account/webmcp.

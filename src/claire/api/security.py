@@ -840,6 +840,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/api/admin/storage"): _system("admin", "none"),
     ("PUT", "/api/admin/storage"): _system("admin", "none"),
     ("POST", "/api/admin/storage/test"): _system("admin", "none"),
+    ("GET", "/admin/audit"): _system("admin", "none"),
+    ("HEAD", "/admin/audit"): _system("admin", "none"),
     ("GET", "/admin/mcp"): _system("admin", "none"),
     ("HEAD", "/admin/mcp"): _system("admin", "none"),
     ("GET", "/admin/webmcp"): _system("admin", "none"),

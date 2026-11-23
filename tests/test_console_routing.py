@@ -37,6 +37,7 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
     "/admin/limits",
     "/admin/themes",
     "/admin/tokens",
+    "/admin/audit",
     "/admin/mcp",
     "/admin/webmcp",
     "/api/admin/mcp/telemetry",
@@ -404,6 +405,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/admin/providers"' in sidebar
         assert 'href="/admin/limits"' in sidebar
         assert 'href="/admin/tokens"' in sidebar
+        assert 'href="/admin/audit"' in sidebar
         assert 'href="/admin/mcp"' in sidebar
         assert 'href="/admin/webmcp"' in sidebar
         assert 'href="/moderation/kb"' not in sidebar
@@ -506,6 +508,33 @@ def test_admin_mcp_telemetry_api_io_and_validation(console_env):
     assert past.json()["count"] == 2
 
 
+def test_admin_audit_page_shows_admin_audit_rows_and_the_mcp_tab(console_env):
+    """/admin/audit reads admin_audit from auth.db and shows the current USERNAME of each account; the MCP call records are the second tab."""
+    from claire.store import auth_db
+
+    client = console_env.client
+    empty = client.get("/admin/audit", headers=console_env.admin_owner)
+    assert empty.status_code == 200
+    assert "data-admin-audit-row" not in empty.text
+    auth = auth_db.connect_auth_db(auth_db.auth_db_path(console_env.data_dir))
+    try:
+        auth_db.record_admin_audit(auth, actor_account_id=1, action="test.audit_action", target_account_id=987654, detail={"domain": "example.org"})
+    finally:
+        auth.close()
+    body = client.get("/admin/audit", headers=console_env.admin_owner).text
+    rows = body.split('id="admin-audit-actions-tbody"', 1)[1].split("</tbody>", 1)[0]
+    assert rows.count("data-admin-audit-row") == 1
+    assert "test.audit_action" in rows
+    assert "(#1)" in rows
+    assert "#987654 (no account)" in rows
+    assert "example.org" in rows
+    tabs = body.split('id="admin-audit-tabs"', 1)[1]
+    assert 'data-tab="admin" aria-selected="true"' in tabs
+    assert 'data-tab="mcp" aria-selected="false"' in tabs
+    assert '<div role="tabpanel" data-tabpanel="mcp" hidden="until-found">' in tabs
+    assert 'id="pref-mcp-audit-tbody"' in tabs
+
+
 def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme_privacy(console_env):
     _set_mode(console_env.db_file, "network")
     client = console_env.client
@@ -519,7 +548,8 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
         "kb": ("moderation", "/moderation/oversight", 'id="admin-kb-host"', 'id="admin-kb-card"'),
         "themes": ("moderation", "/moderation/themes", 'id="admin-themes-host"', 'data-admin-panel-host="themes"'),
         "tokens": ("admin", "/admin/tokens", 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
-        "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-audit-tbody"', 'id="pref-mcp-rbac-tbody"'),
+        "audit": ("admin", "/admin/audit", 'id="admin-audit-actions-tbody"', 'id="pref-mcp-audit-tbody"'),
+        "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-rbac-tbody"', 'id="admin-support-bundle-form"'),
         "webmcp": ("admin", "/admin/webmcp", 'id="admin-webmcp-policy-card"', 'id="admin-webmcp-enabled"'),
     }
 
@@ -539,8 +569,9 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
             assert "Alice Default" not in body
             assert "Bob Default" not in body
         if slug == "mcp":
-            # The WebMCP server policy is on /admin/webmcp only.
+            # The WebMCP server policy is on /admin/webmcp only. The MCP call audit records are on /admin/audit only.
             assert "admin-webmcp" not in body
+            assert "pref-mcp-audit-tbody" not in body
             assert "data-support-bundle-form" in body
         if slug == "webmcp":
             # The page has only the server policy. The account settings of WebMCP (id pref-webmcp-*) are on /account/webmcp.

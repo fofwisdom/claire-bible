@@ -74,7 +74,7 @@ SYSTEM = {
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
     "/api/admin/federation/known-servers", "/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}", "/api/admin/federation/journal/{entry_id}/replay",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
-    "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/admin/webmcp",
+    "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/audit", "/admin/mcp", "/admin/webmcp",
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
@@ -126,7 +126,7 @@ ADMIN_KEYS = {
     *((m, "/moderation/themes") for m in ("GET", "HEAD")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
-    *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/admin/webmcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
+    *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/audit", "/admin/mcp", "/admin/webmcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
     *((m, p) for p in ("/admin/backups", "/api/admin/account-backups") for m in ("GET", "HEAD")),
     ("POST", "/api/admin/account-backups/restore"),
     *((m, p) for p in ("/admin/storage", "/api/admin/storage") for m in ("GET", "HEAD")),

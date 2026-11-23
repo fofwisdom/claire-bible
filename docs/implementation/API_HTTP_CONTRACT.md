@@ -78,7 +78,7 @@
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?kb=` |
-| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,tokens,backups,storage,mcp,webmcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
+| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,plugins,tokens,backups,storage,audit,mcp,webmcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
 | `GET` | `/admin/kb`, `/admin/themes` | `admin` | 호환 308: `/admin/kb` → `/moderation/oversight`, `/admin/themes` → `/moderation/themes` (검증한 `?kb=` 유지) | 404 비관리자(308보다 먼저), 404 잘못된 `?kb=` |
 | `GET` | `/api/admin/server` | `admin` | 200 `{"mode", "readiness", "network_mode_available", "legacy_host_policy", "legacy_hosts", "member_invites_enabled"}` | 404 비관리자 |
 | `POST` | `/api/admin/server/invites` | `admin` | 본문 `{"member_invites_enabled": bool}` -> 200 `{"member_invites_enabled": bool}` (`Cache-Control: no-store`, `admin_audit` `server.invites.update`, same-origin + 단계 인증) | 400 `invalid_request`·`invalid_member_invites_enabled`; 401 `reauth_required`; 403 `step_up_requires_session`·`forbidden`; 404 비관리자 |
