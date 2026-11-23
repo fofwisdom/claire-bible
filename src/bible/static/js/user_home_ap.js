@@ -185,6 +185,15 @@
     if (statsEl) statsEl.textContent = stats;
   }
 
+  // Each post (a note or a document) has the same two actions with its permalink: open, and copy link (PERMALINK_UNIFICATION_DESIGN.md U10).
+  function postLinksHtml(item) {
+    if (!item.share_url) return "";
+    return '<span class="uh-post-links">'
+      + '<a class="uh-btn sm" data-uh-open-post href="' + esc(item.share_url) + '">' + icon("external") + esc(tr("home.timeline.open")) + "</a>"
+      + '<button type="button" class="uh-btn sm" data-uh-copy-link="' + esc(item.share_url) + '">' + icon("link") + esc(tr("home.timeline.copy_link")) + "</button>"
+      + "</span>";
+  }
+
   function postItemHtml(item) {
     var actor = state.actor || {};
     var isArticle = item.kind === "Article";
@@ -196,20 +205,12 @@
 
     var bodyHtml = "";
     if (isArticle) {
-      var workspaceLink = state.mode === "workspace" && item.document_id
-        ? '<button type="button" class="uh-btn sm" data-uh-open-doc="' + esc(item.document_id) + '">' + icon("book") + esc(tr("home.timeline.open_doc")) + "</button>"
-        : "";
-      var shareLink = item.share_url
-        ? '<a class="uh-btn sm" href="' + esc(item.share_url) + '">' + icon("external") + esc(tr("home.timeline.open_share")) + "</a>"
-        : "";
       bodyHtml =
         '<div class="uh-article-card">'
         + '<h3 class="uh-article-title">' + esc(item.title || "") + "</h3>"
         + (item.summary_text ? '<p class="uh-article-summary">' + esc(item.summary_text) + "</p>" : "")
         + '<div class="uh-article-links">'
         + (item.source_type ? '<span class="uh-chip">' + esc(item.source_type) + "</span>" : "")
-        + workspaceLink
-        + shareLink
         + "</div>"
         + "</div>";
     } else {
@@ -254,6 +255,7 @@
       + '<span class="uh-post-stat">' + icon("quote") + esc(tr("home.timeline.quotes", { count: item.quotes || 0 })) + "</span>"
       + "</div>"
       + '<span class="uh-chip">' + esc(tr("home.timeline.quote_policy", { policy: item.quote_policy || "public" })) + "</span>"
+      + postLinksHtml(item)
       + "</div>"
       + "</article>"
     );
@@ -446,6 +448,21 @@
 
       if (e.target.closest("#uh-follow-btn")) {
         syncFollowDialog();
+        return;
+      }
+
+      var copyBtn = e.target.closest("[data-uh-copy-link]");
+      if (copyBtn) {
+        var link = copyBtn.getAttribute("data-uh-copy-link");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link).then(function () {
+            var old = copyBtn.innerHTML;
+            copyBtn.textContent = tr("home.timeline.link_copied");
+            setTimeout(function () { copyBtn.innerHTML = old; }, 1500);
+          }).catch(function () { window.prompt(tr("home.timeline.copy_link"), link); });
+        } else {
+          window.prompt(tr("home.timeline.copy_link"), link);
+        }
         return;
       }
 

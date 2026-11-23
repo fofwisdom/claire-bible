@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.16";
+export const CONTRACT_VERSION = "1.17";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -346,6 +346,8 @@ export interface NoteRecord {
   quote_policy: QuotePolicy;
   quote: string | null;
   quote_authorization: string | null;
+  // Contract 1.17. The permalink of the note ({origin}/silvercord/{token}), or null: then url is the object ID.
+  url: string | null;
 }
 
 // The result of a note read: the record, the time of removal of a deleted note (410), or null (404).
@@ -625,6 +627,7 @@ const noteShape = sealed({
   quote_policy: quotePolicy,
   quote: nullable(str),
   quote_authorization: nullable(str),
+  url: nullable(str),
 });
 const interactionTasksShape = sealed({
   tasks: list(sealed({

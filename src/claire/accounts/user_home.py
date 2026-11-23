@@ -34,6 +34,15 @@ def _is_actor(account: accounts_store.Account | None) -> bool:
     return account is not None and account.status == "active" and bool(account.username)
 
 
+def _note_permalink(conn: sqlite3.Connection, origin: str, public_id: int, account_id: int) -> str | None:
+    """The permalink of a note. A note that has no address token gets one, with a short write connection to the same database."""
+    token = permalinks.token_of(conn, "note", str(public_id))
+    if token is None:
+        db_file = permalinks.database_file(conn)
+        token = None if db_file is None else permalinks.ensure_note_token(db_file, public_id, account_id)
+    return None if token is None else permalinks.permalink_url(origin, token)
+
+
 def _article_excerpt(raw: str | None) -> str:
     collapsed = " ".join((raw or "").split())
     if len(collapsed) <= _ARTICLE_SUMMARY_MAX_CHARS:
@@ -199,7 +208,8 @@ def build_user_home_timeline(
                     "title": None,
                     "summary_text": None,
                     "content_html": nh3.clean(raw_obj.content_html),
-                    "share_url": None,
+                    # The permalink of the note: the same field and the same form as for a document (PERMALINK_UNIFICATION_DESIGN.md U10).
+                    "share_url": _note_permalink(conn, origin, public_id, account.id),
                     "document_id": None,
                     "source_type": None,
                     "published_at": raw_obj.published_at,

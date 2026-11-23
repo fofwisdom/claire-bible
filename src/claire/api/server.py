@@ -6485,6 +6485,61 @@ def create_app(
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 
+    def _wants_activitypub_only(request: Request) -> bool:
+        accept = request.headers.get("accept", "").lower()
+        return ("application/activity+json" in accept or "application/ld+json" in accept) and "text/html" not in accept
+
+    def _note_item_page(found: permalinks.Permalink) -> Response:
+        """The item view of a note (PERMALINK_UNIFICATION_DESIGN.md Section 6): the author, the time, and the text. A note is public."""
+        import nh3
+
+        from ..store import federation_notes as notes_store
+
+        client = _open_optional_client_readonly()
+        if client is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        try:
+            note = notes_store.get_note(client, int(found.target))
+        finally:
+            client.close()
+        if note is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        if note.deleted_at is not None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            author = namespace_directory.account(int(note.account_id))
+        except accounts_store.AccountNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        if author.status != "active" or not author.username:
+            return PlainTextResponse("Not Found", status_code=404)
+        origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else ""
+        display_name = author.display_name or author.username
+        excerpt = " ".join(str(note.summary or note.content_text or "").split())[:160]
+        body = f'<div class="ni-body">{nh3.clean(note.content_html)}</div>'
+        if note.sensitive:
+            body = f'<details class="ni-cw"><summary>{html.escape(_t("home.timeline.cw_prefix", summary=note.summary or ""))}</summary>{body}</details>'
+        reply = ""
+        if note.in_reply_to_iri:
+            reply = f'<div class="ni-reply">{html.escape(_t("home.note_page.reply_to"))}: <a href="{html.escape(note.in_reply_to_iri, quote=True)}" rel="nofollow noopener noreferrer">{html.escape(note.in_reply_to_iri)}</a></div>'
+        published_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(note.published_at)))
+        template_path = Path(__file__).resolve().parent / "templates" / "note_item.html"
+        page = string.Template(template_path.read_text(encoding="utf-8")).safe_substitute(
+            lang=html.escape(get_locale(), quote=True),
+            title=html.escape(f"{display_name}: {excerpt[:80]}", quote=True),
+            description=html.escape(excerpt, quote=True),
+            url=html.escape(permalinks.permalink_url(origin, found.token) if origin else permalinks.permalink_path(found.token), quote=True),
+            object_url=html.escape(f"{origin}/ap/objects/{note.public_id}", quote=True),
+            display_name=html.escape(display_name),
+            handle=html.escape(f"@{author.username}"),
+            home_path=html.escape(f"/@{author.username}/", quote=True),
+            kind_label=html.escape(_t("home.timeline.kind_note")),
+            reply=reply,
+            body=body,
+            published_iso=published_iso,
+            edited="" if note.edited_at is None else f'<span class="ni-chip">{html.escape(_t("home.timeline.edited"))}</span>',
+        )
+        return HTMLResponse(page, headers={"Referrer-Policy": "strict-origin-when-cross-origin"})
+
     async def permalink_route(request: Request) -> Response:
         """``GET /silvercord/{token}``: the one address of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6)."""
         token = str(request.path_params.get("token", ""))
@@ -6517,8 +6572,13 @@ def create_app(
             return RedirectResponse(permalinks.permalink_path(found.token), status_code=308)
         if found.gone_at is not None or gone:
             return PlainTextResponse("Gone", status_code=410)
+        if found.kind == "note":
+            if _wants_activitypub_only(request):
+                # An ActivityPub client at the permalink goes to the object ID (design U11). 303: the permalink did not move.
+                return RedirectResponse(f"/ap/objects/{found.target}", status_code=303, headers={"Vary": "Accept"})
+            return await asyncio.to_thread(_note_item_page, found)
         if found.kind != "document" or document is None:
-            # A note has no view now (design Section 8). An entity is not at this path: Silvercord is only for ActivityPub object kinds, and the address of an entity is ``/entity/{token}``. No fallback.
+            # An entity is not at this path: Silvercord is only for ActivityPub object kinds, and the address of an entity is ``/entity/{token}``. No fallback.
             return PlainTextResponse("Not Found", status_code=404)
         try:
             kb = theme_mgr.get_kb(int(found.kb_id or 0))
@@ -6530,10 +6590,28 @@ def create_app(
             # A document that only its members see (not extracted, or hidden) does not exist for another caller.
             return PlainTextResponse("Not Found", status_code=404)
         readable_kb = _kb_decide(request, kb, "read") == "allow"
+
+        def _object_id() -> int | None:
+            # The public ID of the published object of the document, while its knowledge base is public.
+            if not kb.is_public:
+                return None
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = conn.execute("SELECT public_id FROM federation_objects WHERE kb_id=? AND document_id=?", (kb.id, found.target)).fetchone()
+                return None if row is None else int(row[0])
+            finally:
+                conn.close()
+
+        object_id = await asyncio.to_thread(_object_id) if readable_kb else None
+        if object_id is not None and _wants_activitypub_only(request):
+            # An ActivityPub client at the permalink goes to the object ID (design U11).
+            return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
         if readable_kb or found.link_access:
             base_url = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
             page = get_web_ui_renderer().shared_html(document, s, base_url=base_url, share_token=found.token, can_access_raw=False)
             headers = {"Referrer-Policy": "strict-origin-when-cross-origin"}
+            if object_id is not None:
+                page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{object_id}"/></head>', 1)
             if not readable_kb:
                 # Only link access makes the document readable: search engines must not get the address (U9).
                 page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')

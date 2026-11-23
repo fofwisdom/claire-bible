@@ -218,7 +218,14 @@ Deno.test("the object path gives the Note, a deleted note gives 410 with a Tombs
     const response = await get(NOTE_URL);
     assert.equal(response.status, 200);
     const note = await response.json();
-    assert.deepEqual([note.id, note.type, note.attributedTo, note.inReplyTo, note.url], [NOTE_URL, "Note", ALICE_URL, PARENT, NOTE_URL]);
+    assert.deepEqual([note.id, note.type, note.attributedTo, note.inReplyTo, note.url], [NOTE_URL, "Note", ALICE_URL, PARENT, `${ORIGIN}/silvercord/ntetkn2345678abc`]);
+    // A browser at the object ID goes to the permalink of the note with 303 (contract 1.17).
+    const browser = await get(NOTE_URL, "text/html");
+    assert.deepEqual([browser.status, browser.headers.get("location"), browser.headers.get("vary")], [303, `${ORIGIN}/silvercord/ntetkn2345678abc`, "Accept"]);
+    const articleBrowser = await get(`${ORIGIN}/ap/objects/816412345678901234`, "text/html");
+    assert.deepEqual([articleBrowser.status, articleBrowser.headers.get("location")], [303, `${ORIGIN}/silvercord/sharetkn23456abc`]);
+    // A deleted note has no permalink: 406 as before.
+    assert.equal((await get(GONE_URL, "text/html")).status, 406);
     // The object path makes no network request: only the mention that Claire knows is a tag.
     assert.deepEqual(tags(note).map((t) => t.type), ["Mention", "Hashtag"]);
     assert.deepEqual(note.cc, [`${ALICE_URL}/followers`, CAROL]);
@@ -235,7 +242,6 @@ Deno.test("the object path gives the Note, a deleted note gives 410 with a Tombs
     assert.equal(retracted.status, 410);
     assert.equal((await retracted.json()).formerType, "Article");
     assert.equal((await get(`${ORIGIN}/ap/objects/816412345678901999`)).status, 404);
-    assert.equal((await get(NOTE_URL, "text/html")).status, 406);
   } finally {
     restore();
   }

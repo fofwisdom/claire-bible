@@ -268,3 +268,44 @@ def test_e2e_link_access_of_an_entity_gives_its_graph_to_a_caller_outside_the_kn
     assert stopped.status_code == 200 and stopped.json()["link_access"] is False
     assert "vSAN" not in call("GET", address, member=False).text
     assert call("POST", "/@alice/entities/ent-missing/share", member=True).status_code == 404
+
+
+def test_e2e_a_note_has_a_silvercord_address_with_an_item_view(tmp_path: Path) -> None:
+    from claire.store import client_db
+
+    s, env = _setup_network_env(tmp_path)
+    client_conn = client_db.connect_client_db(client_db.client_db_path(env["db_file"]))
+    try:
+        client_db.init_client_db(client_conn)
+        client_conn.execute(
+            "INSERT INTO federation_notes (public_id, account_id, content_text, content_html, mentions_json, tags_json, published_at, updated_at) VALUES (?, ?, 'A world above.', '<p>A world above.</p><script>x</script>', '[]', '[]', 1800000000, 1800000000)",
+            (900001, env["alice_id"]),
+        )
+        client_conn.execute(
+            "INSERT INTO federation_notes (public_id, account_id, content_text, content_html, mentions_json, tags_json, published_at, updated_at, deleted_at) VALUES (?, ?, '', '', '[]', '[]', 1800000000, 1800000000, 1800000100)",
+            (900002, env["alice_id"]),
+        )
+        client_conn.commit()
+    finally:
+        client_conn.close()
+    token = permalinks.ensure_note_token(env["db_file"], 900001, env["alice_id"])
+    gone_token = permalinks.ensure_note_token(env["db_file"], 900002, env["alice_id"])
+    assert token is not None and gone_token is not None
+    client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    origin = s.public_url.rstrip("/")
+
+    page = client.get(f"/silvercord/{token}", headers={"Accept": "text/html"})
+    assert page.status_code == 200 and 'class="note-item-page"' in page.text
+    assert "<p>A world above.</p>" in page.text and "<script>x" not in page.text
+    assert 'href="/@alice/">@alice</a>' in page.text
+    assert f'<link rel="canonical" href="{origin}/silvercord/{token}"/>' in page.text
+    assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/900001"/>' in page.text
+    # An ActivityPub client goes to the object ID. A deleted note is gone. A note is not at the entity path.
+    activity = client.get(f"/silvercord/{token}", headers={"Accept": "application/activity+json"})
+    assert activity.status_code == 303 and activity.headers["location"] == "/ap/objects/900001"
+    assert client.get(f"/silvercord/{gone_token}").status_code == 410
+    assert client.get(f"/entity/{token}").status_code == 404
+    # The timeline gives the same address for the note.
+    timeline = client.get("/@alice/home-timeline").json()
+    note_items = [item for item in timeline["items"] if item["kind"] == "Note"]
+    assert [item["share_url"] for item in note_items] == [f"{origin}/silvercord/{token}"]

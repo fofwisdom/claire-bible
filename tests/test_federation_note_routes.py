@@ -25,6 +25,13 @@ ORIGIN = "https://claire.example.com"
 
 def _seed(internal) -> None:  # noqa: F811
     """The rows of the contract 1.6 fixtures: one reply of ``alice`` with a content warning, a hashtag, a known mention, and a mention that is not resolved; one deleted note; one item of ``carol``; and four tasks."""
+    # The address token of the note of the fixture (contract 1.17: ``url`` of the note record).
+    main = dbm.connect_existing(internal.settings.db_file)
+    try:
+        main.execute("INSERT INTO permalinks (token, kind, account_id, target, link_access, created_at) VALUES ('ntetkn2345678abc', 'note', ?, ?, 0, 1)", (internal.alice, str(NOTE_ID)))
+        main.commit()
+    finally:
+        main.close()
     text = "@carol@remote.example Hello #Claire @dan@other.example"
     html = note_text.render_note(text, origin=ORIGIN, mention_iris={"@carol@remote.example": CAROL}).html
     mentions = [{"handle": "@carol@remote.example", "iri": CAROL}, {"handle": "@dan@other.example", "iri": None}]

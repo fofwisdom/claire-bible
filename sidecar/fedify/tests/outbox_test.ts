@@ -232,7 +232,9 @@ Deno.test("the object path gives the Article, 410 with a Tombstone for a deleted
     assert.equal(missing.status, 404);
     assert.equal(await missing.text(), "Not Found");
     // A page request gets no activity document, and the object path accepts GET and HEAD only.
-    assert.equal((await get(OBJECT_URL, "text/html")).status, 406);
+    // A browser at the object ID goes to the permalink of the document with 303 (PERMALINK_UNIFICATION_DESIGN.md U11).
+    const browser = await get(OBJECT_URL, "text/html");
+    assert.deepEqual([browser.status, browser.headers.get("location")], [303, "https://claire.example.com/silvercord/sharetkn23456abc"]);
     assert.equal((await sidecar.handle(new Request(OBJECT_URL, { method: "DELETE" }))).status, 405);
     // A read of a deleted object leaves no state: the next read of a different answer is correct.
     fake.overrides.set(`GET ${PREFIX}/objects/${GONE}`, { status: 404, response: { error: "not_found" } });

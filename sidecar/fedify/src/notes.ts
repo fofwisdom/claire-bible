@@ -57,7 +57,8 @@ export function buildNote(ctx: Context<void>, record: NoteRecord, mentions: Note
     replyTarget: record.in_reply_to === null ? null : new URL(record.in_reply_to),
     audience: record.audience === null ? null : new URL(record.audience),
     tags: [...mentions.map((m) => new Mention({ href: new URL(m.iri), name: m.handle ?? m.iri })), ...record.tags.map((t) => new Hashtag({ href: new URL(t.href), name: t.name }))],
-    url: id,
+    // The permalink of the note (contract 1.17). Without it, the object ID.
+    url: record.url === null ? id : new URL(record.url),
     published: instant(record.published_at),
     // Only an edited note has `updated` (Section 5.4 rule 12).
     updated: record.edited_at === null ? null : instant(record.edited_at),

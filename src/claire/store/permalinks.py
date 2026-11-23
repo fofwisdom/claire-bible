@@ -10,6 +10,7 @@ One table, ``permalinks`` in ``claire.db``, gives each document, note, and entit
 
 from __future__ import annotations
 
+import os
 import secrets
 import sqlite3
 import time
@@ -177,6 +178,30 @@ def ensure_entity(conn: sqlite3.Connection, entity_id: str) -> str | None:
 
 def ensure_note(conn: sqlite3.Connection, public_id: int, account_id: int) -> str:
     return ensure(conn, "note", str(int(public_id)), account_id=int(account_id))
+
+
+def database_file(conn: sqlite3.Connection) -> str | None:
+    """The file of the main database of a connection, or None for a database in memory."""
+    for row in conn.execute("PRAGMA database_list"):
+        if row[1] == "main":
+            return str(row[2]) or None
+    return None
+
+
+def ensure_note_token(db_file: str | os.PathLike[str], public_id: int, account_id: int) -> str | None:
+    """The address token of a note, with a short connection of its own to ``claire.db`` (a note is in ``client.db``, and its callers have no write connection to ``claire.db``). None when the database cannot be written."""
+    try:
+        conn = sqlite3.connect(str(db_file), timeout=10)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        token = ensure_note(conn, public_id, account_id)
+        conn.commit()
+        return token
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
 
 
 def resolve(conn: sqlite3.Connection, token: str) -> Permalink | None:

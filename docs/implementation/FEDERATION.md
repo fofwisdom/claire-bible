@@ -225,7 +225,7 @@ Answer of an inbox path, in this sequence:
 | Claire gives the record | 200 with the `Article`, the same form as in the delivery |
 | Claire gives 410 | 410 with `{"@context", "id", "type": "Tombstone", "formerType": "Article", "deleted"}` and the content type `application/activity+json` |
 | All other conditions | 404, the same body as for all 404 answers |
-| The `Accept` header does not permit an ActivityPub format | 406 |
+| The `Accept` header does not permit an ActivityPub format | 303 to the `url` of the object (its permalink, [`PERMALINKS.md`](PERMALINKS.md)) with `Vary: Accept`, for a published document and for a note that has a `url`; 406 for each other case (a deleted object, an object that Claire does not show) |
 
 **Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article` or `Note`: a reader gets it from the object path. For published KB documents, the collection has only objects of KBs that are public now (`knowledge_bases.is_public` 1) regardless of `profile_public`, together with own notes (Section 3.1, Section 25.1). An account that is not an actor, and the server actor, get 404.
 
@@ -310,8 +310,9 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.16"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.17"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Version 1.16 adds nullable `summary` (`str | None`) to `ActorRecord`, mapped to `Person.summary` as escaped `<p>...</p>` HTML when non-empty.
+- Version 1.17 adds nullable `url` (`str | None`) to `NoteRecord`: the permalink of the note (`{origin}/silvercord/{token}`). The sidecar sets `Note.url` to it, or to the object ID when it is null. With it, the sidecar answers a request to `/ap/objects/{id}` that does not accept ActivityPub with 303 to the `url` of the object (`#permalinkOf`, `onNotAcceptable`).
 - Version 1.15 (owner decision GD7, 2026-11-22) adds `discoverable` (`bool`) to `ActorRecord`, mapped to `Person.discoverable` (`bool(accounts.profile_public)`). A sidecar of version 1.14 refuses `1.15` actor records, because the shapes are sealed; Claire and the sidecar must come from the same commit.
 - Version 1.14 (owner decision GD4: federation has no switch) removed `federation` from the answers of `config` and `heartbeat` and the reason `federation_off` from the decisions of `inbox-events`, `timeline-events`, `context-objects`, and `quote-events`. A sidecar of version 1.13 refuses the `config` answer, because the shapes are sealed.
 - Version 1.13 (units GL1 and GL2 of [`FEDERATION_GO_LIVE_DESIGN.md`](../design/FEDERATION_GO_LIVE_DESIGN.md)) changed `POST /heartbeat` (Section 7.2): new necessary fields `marker`, `public_host`, and `traffic`; `self_check.answer`; `knowledge_self_check.answers`; and `knowledge_self_check.signed` is an object with one result for each signature form (`draft_cavage`, `rfc9421`). Claire refuses a heartbeat of version 1.12 (400 `invalid_request`), records nothing, and GF2 fails. No other route changed.

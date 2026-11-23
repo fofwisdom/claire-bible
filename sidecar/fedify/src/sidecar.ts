@@ -63,6 +63,7 @@ const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox|kb\/[1-9][0-9]{0,18}\/
 // The paths that can give 410 with a Tombstone: a deleted object, a purged actor, and a revoked quote authorization.
 const TOMBSTONE_PATH = /^\/ap\/(objects|actors|quote-authorizations)\/([1-9][0-9]{0,18})$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
+const OBJECT_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})$/;
 const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
 // The largest page of the internal followers endpoint.
 const FOLLOWERS_PAGE_SIZE = 80;
@@ -289,7 +290,13 @@ export class Sidecar {
       response = await this.#federationFor(config).fetch(clean, {
         contextData: undefined,
         onNotFound: notFound,
-        onNotAcceptable: () => text(406, "Not Acceptable", { vary: "Accept" }),
+        // A request for an object ID that does not accept ActivityPub (a browser) goes to the permalink of the object, with 303: the object ID did not move, the server only selects a representation (PERMALINK_UNIFICATION_DESIGN.md U11).
+        onNotAcceptable: async () => {
+          const objectPath = OBJECT_PATH.exec(path);
+          const permalink = objectPath === null ? null : await this.#permalinkOf(objectPath[1]);
+          if (permalink !== null) return new Response(null, { status: 303, headers: { location: permalink, vary: "Accept", "cache-control": "no-store" } });
+          return text(406, "Not Acceptable", { vary: "Accept" });
+        },
       });
     } catch (error) {
       // For example: Claire stopped after the config was read. The sender tries again.
@@ -407,6 +414,19 @@ export class Sidecar {
 
   // Sends one self-check request to the public origin and tells what went wrong, or null (FEDERATION_GO_LIVE_DESIGN.md Sections 5.1 to 5.4).
   // The request has the headers of a request of another server (Section 6): the agent of the deliveries of this process and the header of the nonce.
+  // The permalink (url) of a published document or a note of this server, or null: the object does not exist, it is gone, or it has no permalink.
+  async #permalinkOf(publicId: string): Promise<string | null> {
+    try {
+      const result = await this.#api.object(publicId);
+      if (result !== null) return result.state === "found" ? result.record.url : null;
+      const note = await this.#api.note(publicId);
+      return note !== null && note.state === "found" ? note.record.url : null;
+    } catch (error) {
+      console.error(`permalink of object ${publicId} is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
   async #sendProbe(config: ServerConfig, fetcher: typeof fetch, signal: () => AbortSignal, path: string, signed: boolean, make: (url: string, nonce: string, headers: Record<string, string>) => Request | Promise<Request>): Promise<ProbeAnswer | null> {
     let host: string;
     try {

@@ -21,6 +21,7 @@
     "edited_at": null,
     "quote_policy": "followers",
     "quote": "https://remote.example/users/carol/notes/1",
-    "quote_authorization": null
+    "quote_authorization": null,
+    "url": "https://claire.example.com/silvercord/qntetkn234567abc"
   }
 }

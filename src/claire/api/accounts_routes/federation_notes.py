@@ -27,6 +27,7 @@ from ...store import federation as federation_store
 from ...store import federation_client as client_store
 from ...store import federation_notes as notes_store
 from ...store import federation_quotes as quotes_store
+from ...store import permalinks
 from ..principal import request_principal
 from ..security import read_json_body
 from .common import AccountsContext, json_error, not_found, open_client_db, open_db
@@ -253,6 +254,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     content_text=fields["content"], content_html=rendered.html, mentions=mentions, summary=fields["summary"], sensitive=fields["sensitive"], language=fields["language"], tags=list(rendered.tags), now=when,
                     quote_of_iri=None if quoted is None else quoted.object_iri, quote_author_iri=None if quoted is None else quoted.author_iri, quote_policy=fields["quote_policy"],
                 )
+                # The address token of the note (the permalink registry of claire.db): the ``url`` of the note comes from it.
+                main_db_file = permalinks.database_file(conn)
+                if main_db_file is not None:
+                    permalinks.ensure_note_token(main_db_file, note.public_id, account_id)
                 # Section 5.4 rule 9: the own note is an item of the own timeline, so that the thread view shows it. It is read.
                 object_iri = f"{origin}/ap/objects/{note.public_id}"
                 client_store.upsert_timeline_item(client, account_id=account_id, item=notes_store.note_timeline_item(note, object_iri=object_iri, author=_author_profile(account), context_iri=None if parent is None else parent.context_iri), announced_by=None, in_timeline=True, now=when)

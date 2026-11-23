@@ -28,6 +28,7 @@ from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from ..store import federation_quotes as quotes_store
+from ..store import permalinks
 from .federation_routes import _MAX_IRI_LENGTH, _NO_STORE, OUTBOX_LEASE_SECONDS, OUTBOX_TASKS_DEFAULT, OUTBOX_TASKS_MAX, OutboxAckResponse, _error, _json, _not_found, _remote_host, _Sealed
 
 __all__ = ["InteractionAckRequest", "InteractionTasksResponse", "NoteRecord", "note_internal_routes", "note_record", "rendered_note_html"]
@@ -71,6 +72,8 @@ class NoteRecord(_Sealed):
     quote_policy: Literal["public", "followers", "manual", "nobody"]
     quote: str | None
     quote_authorization: str | None
+    # Contract 1.17. The permalink of the note (``{origin}/silvercord/{token}``): the sidecar makes ``url`` from it. ``None``: the sidecar uses the object ID.
+    url: str | None
 
 
 class InteractionQuote(_Sealed):
@@ -117,12 +120,13 @@ class InteractionAckRequest(_Sealed):
     mentions: list[ResolvedMention] = Field(max_length=note_text.NOTE_MAX_MENTIONS)
 
 
-def note_record(note: notes_store.Note, *, actor_public_id: str, origin: str) -> NoteRecord:
+def note_record(note: notes_store.Note, *, actor_public_id: str, origin: str, url: str | None) -> NoteRecord:
     return NoteRecord(
         public_id=str(note.public_id), actor_public_id=actor_public_id, type="Note", content=note.content_html, summary=note.summary, sensitive=note.sensitive, language=note.language, in_reply_to=note.in_reply_to_iri, audience=note.audience_iri,
         mentions=[NoteMention(handle=m.get("handle"), iri=m.get("iri")) for m in note.mentions], tags=[NoteTag(name=f"#{tag}", href=note_text.hashtag_href(origin, tag)) for tag in note.tags],
         published_at=note.published_at, updated_at=note.updated_at, edited_at=note.edited_at,
         quote_policy=note.quote_policy, quote=note.quote_of_iri if note.quote_state in ("pending", "approved") else None, quote_authorization=note.quote_authorization_iri if note.quote_state == "approved" else None,
+        url=url,
     )
 
 
@@ -162,7 +166,8 @@ def note_internal_routes(settings: Any, *, now: Callable[[], float], origin: Cal
         # Decision GD7: own notes follow Mastodon and Fedify defaults and stay public for each actor regardless of ``profile_public``.
         if actor_public_id is None:
             return _not_found()
-        return _json(note_record(found, actor_public_id=actor_public_id, origin=origin()))
+        token = permalinks.ensure_note_token(settings.db_file, found.public_id, found.account_id)
+        return _json(note_record(found, actor_public_id=actor_public_id, origin=origin(), url=None if token is None else permalinks.permalink_url(origin(), token)))
 
     def _blocked(conn: Any, iri: str) -> bool:
         host = _remote_host(iri, origin())

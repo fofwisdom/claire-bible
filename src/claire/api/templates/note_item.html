@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="$lang"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="index, follow"/>
+<title>$title</title>
+<meta name="description" content="$description"/>
+<meta property="og:site_name" content="Claire Bible"/>
+<meta property="og:type" content="article"/>
+<meta property="og:title" content="$title"/>
+<meta property="og:description" content="$description"/>
+<meta property="og:url" content="$url"/>
+<link rel="canonical" href="$url"/>
+<link rel="alternate" type="application/activity+json" href="$object_url"/>
+<style>
+:root{color-scheme:light dark;--bg:#ffffff;--fg:#1f2328;--muted:#57606a;--line:#d0d7de;--card:#f6f8fa;--accent:#0969da}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;--line:#30363d;--card:#161b22;--accent:#58a6ff}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,-apple-system,"Noto Sans KR",sans-serif}
+.ni-wrap{max-width:680px;margin:0 auto;padding:32px 20px 64px}
+.ni-post{border:1px solid var(--line);border-radius:12px;padding:20px 22px;background:var(--card)}
+.ni-author{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-bottom:12px}
+.ni-author strong{font-size:1.05rem}
+.ni-author a,.ni-meta a,.ni-reply a{color:var(--accent);text-decoration:none}
+.ni-handle{color:var(--muted);font-size:.9rem}
+.ni-body{font-size:1.05rem;overflow-wrap:anywhere}
+.ni-body p{margin:.4em 0}
+.ni-reply{color:var(--muted);font-size:.85rem;margin-bottom:10px;overflow-wrap:anywhere}
+.ni-meta{margin-top:14px;color:var(--muted);font-size:.85rem;display:flex;flex-wrap:wrap;gap:10px}
+.ni-chip{border:1px solid var(--line);border-radius:999px;padding:0 9px;font-size:.78rem}
+details.ni-cw summary{cursor:pointer;color:var(--muted)}
+</style>
+</head>
+<body class="note-item-page">
+<main class="ni-wrap">
+<article class="ni-post" id="note-item">
+<div class="ni-author"><strong>$display_name</strong><a class="ni-handle" href="$home_path">$handle</a><span class="ni-chip">$kind_label</span></div>
+$reply
+$body
+<div class="ni-meta"><time datetime="$published_iso">$published_iso</time>$edited</div>
+</article>
+</main>
+</body></html>

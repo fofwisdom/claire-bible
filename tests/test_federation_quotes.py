@@ -25,6 +25,13 @@ CLOSED_NOTE_ID = 816412345678901243
 
 def _seed(internal) -> None:  # noqa: F811
     """The rows of the contract 1.7 fixtures. Notes of ``alice``: one that remote actors can quote (policy ``public``), one that quotes a note of ``carol`` (the quote waits), and one that nobody can quote. Two requests of ``bob`` for the first note: one approved and one revoked. Three tasks."""
+    # The address token of the note of the fixture (contract 1.17: ``url`` of the note record).
+    main = dbm.connect_existing(internal.settings.db_file)
+    try:
+        main.execute("INSERT INTO permalinks (token, kind, account_id, target, link_access, created_at) VALUES ('qntetkn234567abc', 'note', ?, ?, 0, 1)", (internal.alice, str(QUOTING_NOTE_ID)))
+        main.commit()
+    finally:
+        main.close()
     html = note_text.render_note("Look at this", origin=ORIGIN, quote_url=PARENT).html
     client = client_db.connect_client_existing(client_db.client_db_path(internal.settings.db_file))
     try:
