@@ -258,18 +258,9 @@ def test_doc_share_token_reuse():
     token_doc2 = dbm.create_doc_share(conn, "doc-2")
     assert token_doc2 != token1
 
-    # 5. 만료된 토큰이 있는 경우 -> 새 토큰 발급
-    # 강제로 token1 만료시킴
-    conn.execute(
-        "UPDATE doc_shares SET expires_at = ? WHERE token = ?",
-        (time.time() - 100, token1),
-    )
-    conn.commit()
-    token3 = dbm.create_doc_share(conn, "doc-1")
-    assert token3 != token1
-
-    # 6. reuse_existing=False 명시 시 -> 새 토큰 발급
-    token4 = dbm.create_doc_share(conn, "doc-1", reuse_existing=False)
-    assert token4 != token3
+    # 5. A document has one address token (PERMALINK_UNIFICATION_DESIGN.md U4): the stop-sharing action and a new share action keep it.
+    assert dbm.stop_doc_share(conn, "doc-1") is True
+    assert dbm.resolve_doc_share(conn, token1) == "doc-1"
+    assert dbm.create_doc_share(conn, "doc-1") == token1
 
     conn.close()

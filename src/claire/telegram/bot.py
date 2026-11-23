@@ -479,7 +479,7 @@ async def _settle_status(
                     finally:
                         conn.close()
                     if share_tok:
-                        share_url = f"{base_url}/p?s={share_tok}"
+                        share_url = f"{base_url}/silvercord/{share_tok}"
                         markup = InlineKeyboardMarkup(
                             [[InlineKeyboardButton(_t("bot.button.open_reader"), url=share_url)]]
                         )
@@ -1015,7 +1015,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     finally:
                         conn.close()
                     if share_tok:
-                        share_url = f"{base_url}/p?s={share_tok}"
+                        share_url = f"{base_url}/silvercord/{share_tok}"
                         kb.append([InlineKeyboardButton(_t("bot.button.open_reader"), url=share_url)])
             except Exception:  # noqa: BLE001
                 pass
@@ -1419,9 +1419,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     dbm.init_db(conn)
                     target_doc_id = dbm.resolve_doc_share(conn, share_tok, kb_id=active_kb_id)
                     if not target_doc_id:
-                        row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
-                        if row:
-                            target_doc_id = row["document_id"]
+                        target_doc_id = dbm.resolve_doc_share(conn, share_tok, kb_id=None)
                 finally:
                     conn.close()
         elif payload_clean.startswith("doc_") and len(payload_clean.split()) == 1:

@@ -192,7 +192,7 @@ def render_open_graph_tags(doc: dict, base_url: str = "", share_token: str = "",
     published_at = str((doc or {}).get("published_at") or "").strip()
 
     if share_token:
-        page_url = f"{base}/p?s={share_token}" if base else f"/p?s={share_token}"
+        page_url = f"{base}/silvercord/{share_token}" if base else f"/silvercord/{share_token}"
     else:
         page_url = f"{base}/p" if base else "/p"
 

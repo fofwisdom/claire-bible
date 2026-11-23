@@ -370,7 +370,8 @@ def test_root_resolver_308_with_legacy_spa_query(tmp_path: Path) -> None:
     single_root = single_client.get("/?doc=42")
     assert single_root.status_code == 302
     assert single_root.headers["location"] == "/@adminuser/?doc=42"
-    assert single_client.get("/@adminuser/?doc=42").status_code == 200
+    # The document does not exist: 404, with no fallback to the workspace (PERMALINK_UNIFICATION_DESIGN.md U5).
+    assert single_client.get("/@adminuser/?doc=42").status_code == 404
 
 
 def test_root_theme_resolver_in_network_mode(tmp_path: Path) -> None:

@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -913,6 +913,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v40_client_staging(conn)
     _migrate_v41_username_case_and_rename(conn)
     _migrate_v42_account_summary(conn)
+    _migrate_v43_permalinks(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1915,6 +1916,15 @@ def _migrate_v42_account_summary(conn: sqlite3.Connection) -> None:
     """v42 schema: ``accounts.summary`` plain-text bio for ActivityPub Person.summary and User Home."""
     if _table_exists(conn, "accounts"):
         _ensure_column(conn, "accounts", "summary", "TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_v43_permalinks(conn: sqlite3.Connection) -> None:
+    """v43 schema (SCHEMA_VERSIONING.md "v43"): the permalink registry ``permalinks`` (PERMALINK_UNIFICATION_DESIGN.md Section 7). Each document and entity gets one address token. A valid share token of ``doc_shares`` becomes the address token of its document (link access 1) or an alias of it; then the rows of ``doc_shares`` are deleted, because no code reads the table after this step. Idempotent; it runs at each start."""
+    from . import permalinks
+
+    permalinks.migrate(conn)
+    if _table_exists(conn, "doc_shares"):
+        conn.execute("DELETE FROM doc_shares")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
@@ -5012,118 +5022,65 @@ def plausible_share_token(token: str) -> bool:
     )
 
 
-def create_doc_share(conn: sqlite3.Connection, document_id: str,
-                     *, ttl: float | None = None,
-                     reuse_existing: bool = True,
-                     kb_id: int = 0) -> str:
-    """문서 1개의 읽기 공유 토큰을 발급(세션과 분리). ttl=None 이면 무기한.
+def create_doc_share(conn: sqlite3.Connection, document_id: str, *, kb_id: int = 0) -> str:
+    """The share action of a document (PERMALINK_UNIFICATION_DESIGN.md U4): set link access to 1 and return the address token of the document. The token is the one token of the document; a second share returns the same token. Commits."""
+    from . import permalinks
 
-    reuse_existing=True 이면 문서에 이미 유효한(미만료) 토큰이 있는 경우 이를 재사용하여 URL 파편화를 방지하고 분석/참조수 집계를 단일 정규 URL로 통합한다."""
-    now = time.time()
-    if reuse_existing:
-        row = conn.execute(
-            "SELECT token, expires_at FROM doc_shares "
-            "WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) "
-            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            (document_id, kb_id, now),
-        ).fetchone()
-        if row and row["token"]:
-            return str(row["token"])
-
-    token = _short_token(_SHARE_TOKEN_LEN)
-    expires = (now + ttl) if ttl else None
-    conn.execute(
-        "INSERT INTO doc_shares(token, kb_id, document_id, created_at, expires_at) "
-        "VALUES (?,?,?,?,?)", (token, kb_id, document_id, now, expires))
+    token = permalinks.ensure_document(conn, document_id, kb_id)
+    permalinks.set_link_access(conn, "document", document_id, True)
     _sync_published_object(conn, kb_id, document_id)
     conn.commit()
     return token
 
 
+def stop_doc_share(conn: sqlite3.Connection, document_id: str) -> bool:
+    """The stop-sharing action of a document: set link access to 0. The address token stays. Commits."""
+    from . import permalinks
+
+    changed = permalinks.set_link_access(conn, "document", document_id, False)
+    conn.commit()
+    return changed
+
+
 def resolve_doc_share(conn: sqlite3.Connection, token: str, kb_id: int | None = None) -> str | None:
-    """공유 토큰 → document_id(미만료). 없거나 만료면 None. 전체 일치만(프리픽스 불가)."""
-    t = token or ""
-    if not plausible_share_token(t):
+    """Address token (or an alias of it) to document ID. None for an unknown token, a token of another kind, a document that is gone, or a document outside ``kb_id``. This names the document only: the caller decides the access."""
+    from . import permalinks
+
+    found = permalinks.resolve(conn, token or "")
+    if found is None or found.kind != "document" or found.gone_at is not None:
         return None
-    if kb_id is not None:
-        row = conn.execute(
-            "SELECT document_id, expires_at FROM doc_shares WHERE token=? AND kb_id=?", (t, kb_id)).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT document_id, expires_at FROM doc_shares WHERE token=?", (t,)).fetchone()
-    if not row:
+    if kb_id is not None and found.kb_id != kb_id:
         return None
-    if row["expires_at"] is not None and row["expires_at"] < time.time():
-        return None
-    return row["document_id"]
+    return found.target
 
 
 def list_public_sitemap_documents(
     conn: sqlite3.Connection,
     *,
-    ensure_shares: bool = True,
     kb_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """사이트맵 색인을 위한 비숨김(hidden=0) 공개 문서 및 공유 토큰 목록을 조회한다.
+    """The documents of the sitemap (not hidden, not pending) with their address tokens. A document without a row in the registry gets one (no change of link access); with a read-only database such a document is not in the result."""
+    from . import permalinks
 
-    ensure_shares=True 이고 토큰이 없는 문서가 있으면 영구 공유 토큰을 생성한다.
-    (만약 DB가 readonly 모드라면 기존 유효 토큰만 반환한다.)
-    """
-    now = time.time()
-    doc_query = "SELECT id, fetched_at, published_at FROM documents WHERE hidden = 0 AND coalesce(extraction_status, 'extracted') != 'pending'"
+    doc_query = "SELECT d.id, d.kb_id, d.fetched_at, d.published_at, p.token FROM documents d LEFT JOIN permalinks p ON p.kind='document' AND p.target=d.id AND p.alias_of IS NULL WHERE d.hidden = 0 AND coalesce(d.extraction_status, 'extracted') != 'pending'"
     doc_params: list[Any] = []
     if kb_id is not None:
-        doc_query += " AND kb_id = ?"
+        doc_query += " AND d.kb_id = ?"
         doc_params.append(kb_id)
-    doc_query += " ORDER BY fetched_at DESC"
-    docs = conn.execute(doc_query, tuple(doc_params)).fetchall()
-    if not docs:
-        return []
-
-    share_query = "SELECT token, document_id, expires_at FROM doc_shares WHERE (expires_at IS NULL OR expires_at > ?)"
-    share_params: list[Any] = [now]
-    if kb_id is not None:
-        share_query += " AND kb_id = ?"
-        share_params.append(kb_id)
-    share_query += " ORDER BY created_at DESC, rowid DESC"
-    share_rows = conn.execute(share_query, tuple(share_params)).fetchall()
-
-    shares_by_doc: dict[str, str] = {}
-    for r in share_rows:
-        doc_id = str(r["document_id"])
-        if doc_id not in shares_by_doc and r["token"]:
-            shares_by_doc[doc_id] = str(r["token"])
-
+    doc_query += " ORDER BY d.fetched_at DESC"
     results: list[dict[str, Any]] = []
-    missing_docs: list[sqlite3.Row] = []
-
-    for d in docs:
-        doc_id = str(d["id"])
-        tok = shares_by_doc.get(doc_id)
-        if tok:
-            results.append({
-                "token": tok,
-                "document_id": doc_id,
-                "fetched_at": d["fetched_at"],
-                "published_at": d["published_at"],
-            })
-        else:
-            missing_docs.append(d)
-
-    if missing_docs and ensure_shares:
-        try:
-            for d in missing_docs:
-                doc_id = str(d["id"])
-                tok = create_doc_share(conn, doc_id, reuse_existing=True, kb_id=kb_id if kb_id is not None else 0)
-                results.append({
-                    "token": tok,
-                    "document_id": doc_id,
-                    "fetched_at": d["fetched_at"],
-                    "published_at": d["published_at"],
-                })
-        except sqlite3.OperationalError:
-            pass
-
+    made = False
+    for d in conn.execute(doc_query, tuple(doc_params)).fetchall():
+        token = d["token"]
+        if token is None:
+            try:
+                token = permalinks.ensure_document(conn, str(d["id"]), int(d["kb_id"]))
+                made = True
+            except sqlite3.OperationalError:
+                continue
+        results.append({"token": str(token), "document_id": str(d["id"]), "fetched_at": d["fetched_at"], "published_at": d["published_at"]})
+    if made:
+        conn.commit()
     return results
 
 
@@ -5177,15 +5134,6 @@ def resolve_document_targets(
     # 2. 명시적 token
     if token:
         shared_id = resolve_doc_share(conn, token, kb_id=kb_id)
-        if not shared_id:
-            q_share = "SELECT document_id FROM doc_shares WHERE token=?"
-            p_share: list[Any] = [token]
-            if kb_id is not None:
-                q_share += " AND kb_id=?"
-                p_share.append(kb_id)
-            row_share = conn.execute(q_share, tuple(p_share)).fetchone()
-            if row_share:
-                shared_id = row_share["document_id"]
         if shared_id:
             q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
             params = [shared_id]
@@ -5249,7 +5197,12 @@ def resolve_document_targets(
 
         # 5-2. 공유 링크 (?s=token) 또는 16자리 공유 토큰
         resolved_token = None
-        if "?" in raw_target:
+        from .permalinks import PERMALINK_PATH_PREFIX
+
+        if PERMALINK_PATH_PREFIX in raw_target:
+            # A permalink (PERMALINK_UNIFICATION_DESIGN.md U12): the segment after the prefix is the address token.
+            resolved_token = raw_target.split(PERMALINK_PATH_PREFIX, 1)[1].split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        elif "?" in raw_target:
             parsed = urlsplit(raw_target)
             qs = parse_qs(parsed.query)
             if "s" in qs and qs["s"]:
@@ -5261,15 +5214,6 @@ def resolve_document_targets(
 
         if resolved_token:
             shared_id = resolve_doc_share(conn, resolved_token, kb_id=kb_id)
-            if not shared_id:
-                q_share = "SELECT document_id FROM doc_shares WHERE token=?"
-                p_share = [resolved_token]
-                if kb_id is not None:
-                    q_share += " AND kb_id=?"
-                    p_share.append(kb_id)
-                row_share = conn.execute(q_share, tuple(p_share)).fetchone()
-                if row_share:
-                    shared_id = row_share["document_id"]
             if shared_id:
                 q = "SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
                 params = [shared_id]
@@ -6527,6 +6471,12 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
                 (keeper_id, *lo))
         out["deleted"] = conn.execute(
             f"DELETE FROM documents WHERE id IN ({ph}){where_theme}", lo).rowcount
+        # The permalinks of the losers become aliases of the permalink of the keeper (PERMALINK_UNIFICATION_DESIGN.md Section 7).
+        from . import permalinks
+
+        keeper_row = conn.execute("SELECT kb_id FROM documents WHERE id=?", (keeper_id,)).fetchone()
+        if keeper_row is not None:
+            permalinks.merge_documents(conn, keeper_id, list(lo), kb_id=int(keeper_row[0]))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -7432,8 +7382,9 @@ def purge_document_cascade(
         stats["deleted_refresh_queue"] = conn.execute(
             f"DELETE FROM refresh_queue WHERE document_id IN ({ph_matched}){where_th}", matched_ids
         ).rowcount
+        # The permalink of a purged document stays in the registry as gone: the token is not given again, and the address gives 410.
         stats["deleted_doc_shares"] = conn.execute(
-            f"DELETE FROM doc_shares WHERE document_id IN ({ph_matched}){where_th}", matched_ids
+            f"UPDATE permalinks SET gone_at=COALESCE(gone_at, unixepoch()), link_access=0 WHERE kind='document' AND alias_of IS NULL AND target IN ({ph_matched})", matched_ids
         ).rowcount
         stats["deleted_document_snapshots"] = conn.execute(
             f"DELETE FROM document_snapshots WHERE document_id IN ({ph_matched}){where_th}", matched_ids

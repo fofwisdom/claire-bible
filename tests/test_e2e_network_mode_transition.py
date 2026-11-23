@@ -170,8 +170,8 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     assert "Public directory" not in admin_ws_res.text
 
     admin_doc_res = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/?doc=sample", headers=headers, follow_redirects=False)
-    assert admin_doc_res.status_code == 200
-    assert "Knowledge graph" in admin_doc_res.text
+    # An old link to a document that does not exist gives 404 (PERMALINK_UNIFICATION_DESIGN.md U5).
+    assert admin_doc_res.status_code == 404
 
     # 7. Transition back network -> single mode -> succeeds when no non-admin members exist. Federation is no condition: federation works in single mode (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 5 and 6).
     back_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)

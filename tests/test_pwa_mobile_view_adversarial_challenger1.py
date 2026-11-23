@@ -71,6 +71,8 @@ const context = {{
   console: console
 }};
 vm.createContext(context);
+// The permalink route gives the open item in a meta element. In this sandbox, the query ``node`` stands for an entity that the page opens.
+vm.runInContext("Object.defineProperty(globalThis, 'OPEN_ITEM', {{get(){{ const n = new URLSearchParams(window.location.search).get('node'); return n ? {{kind: 'entity', id: n}} : {{kind: '', id: ''}}; }}}});", context);
 
 // Extract helper functions
 const funcMatch = code.match(/function isPwaOrMobileLaunch\\(\\)[\\s\\S]*?var initialDefaultToReader = shouldDefaultToReader\\(null\\);/);

@@ -240,8 +240,8 @@ def test_publish_makes_the_object_and_a_create_task_and_a_second_publish_makes_a
     object_id = int(body["object"]["id"])
     assert _objects(env.settings) == [(env.alpha, 11, "doc-a", env.alpha)]
     assert _tasks(env.settings) == [(env.alpha, "create", object_id, "pending")]
-    # The document has a public share page for the ``url`` of the object.
-    assert len(_rows(env.settings, "SELECT token FROM doc_shares WHERE document_id='doc-a' AND kb_id=11")) == 1
+    # The document has link access and one address token for the ``url`` of the object.
+    assert len(_rows(env.settings, "SELECT token FROM permalinks WHERE kind='document' AND target='doc-a' AND kb_id=11 AND link_access=1 AND alias_of IS NULL")) == 1
 
     second = _publish(env)
     assert second.status_code == 202 and second.json()["created"] is False
@@ -527,18 +527,18 @@ def test_a_new_summary_or_share_link_makes_an_update_task_and_a_new_body_makes_n
         for expected in ([create, update], [create, update]):
             dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The first summary."}), kb_id=11)
             assert _tasks(env.settings) == expected
-        # A new share link changes the object.
-        dbm.create_doc_share(conn, "doc-a", reuse_existing=False, kb_id=11)
-        assert _tasks(env.settings) == [create, update, update]
+        # A second share action gives the same address token: the object does not change.
+        dbm.create_doc_share(conn, "doc-a", kb_id=11)
+        assert _tasks(env.settings) == [create, update]
         # An extraction of a document that is not published makes no task.
         dbm.log_extraction(conn, document_id="doc-b", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "Other."}), kb_id=11)
-        assert len(_tasks(env.settings)) == 3
+        assert len(_tasks(env.settings)) == 2
         # An object from before version 23 has no digest: the first comparison stores the digest and sends nothing (rule 7).
         conn.execute("UPDATE federation_objects SET content_digest=NULL")
         conn.commit()
         dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The second summary."}), kb_id=11)
-        assert len(_tasks(env.settings)) == 3 and _rows(env.settings, "SELECT content_digest IS NOT NULL FROM federation_objects") == [(1,)]
+        assert len(_tasks(env.settings)) == 2 and _rows(env.settings, "SELECT content_digest IS NOT NULL FROM federation_objects") == [(1,)]
         dbm.log_extraction(conn, document_id="doc-a", provider="mock", model="m", prompt_version="1", raw_response=json.dumps({"summary": "The third summary."}), kb_id=11)
-        assert len(_tasks(env.settings)) == 4
+        assert len(_tasks(env.settings)) == 3
     finally:
         conn.close()

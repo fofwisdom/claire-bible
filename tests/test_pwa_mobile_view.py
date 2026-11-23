@@ -76,7 +76,7 @@ def test_static_app_js_should_default_to_reader_contract():
     content = APP_JS_PATH.read_text(encoding="utf-8")
     assert "function shouldDefaultToReader(stats)" in content
     # Node deep-link bypass: ?node= preserves graph view
-    assert "params.get('node')" in content or "sp.get('node')" in content
+    assert "OPEN_ITEM.kind === 'entity'" in content
     # Ingest job checks
     assert "stats.jobs" in content or "stats.active_jobs" in content or "hasActiveIngest" in content
     # Delegates to isPwaOrMobileLaunch
@@ -138,6 +138,8 @@ const context = {{
   console: console
 }};
 vm.createContext(context);
+// The permalink route gives the open item in a meta element. In this sandbox, the query ``node`` stands for an entity that the page opens.
+vm.runInContext("Object.defineProperty(globalThis, 'OPEN_ITEM', {{get(){{ const n = new URLSearchParams(window.location.search).get('node'); return n ? {{kind: 'entity', id: n}} : {{kind: '', id: ''}}; }}}});", context);
 
 // Extract helper functions
 const funcMatch = code.match(/function isPwaOrMobileLaunch\\(\\)[\\s\\S]*?var initialDefaultToReader = shouldDefaultToReader\\(null\\);/);

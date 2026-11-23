@@ -557,7 +557,7 @@ async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
         assert st.markup is not None
         button = st.markup.inline_keyboard[0][0]
         assert button.text == "📖 문서 열람 (Reader)"
-        assert "https://cb.example.com/p?s=" in button.url
+        assert "https://cb.example.com/silvercord/" in button.url
     finally:
         get_settings.cache_clear()
 
@@ -1351,12 +1351,11 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
     )
     assert st.markup is not None
     url = st.markup.inline_keyboard[0][0].url
-    token = url.split("?s=")[1]
+    token = url.rsplit("/", 1)[1]
     # 테마 1 DB에서 검증
     c1 = dbm.connect(t1_settings.db_file)
-    assert dbm.resolve_doc_share(c1, token, kb_id=1) == "doc_settle_t1"
-    # 테마 0 스코프에는 없어야 함
-    assert dbm.resolve_doc_share(c1, token, kb_id=0) is None
+    # The address token names the document; the registry has the knowledge base of the document row.
+    assert dbm.resolve_doc_share(c1, token) == "doc_settle_t1"
     c1.close()
 
     # 2. kb_id=0이지만 테마 0에는 없고 테마 1에 문서가 있는 경우 cross-theme fallback 검증
@@ -1369,7 +1368,7 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
     )
     assert st2.markup is not None
     url2 = st2.markup.inline_keyboard[0][0].url
-    token2 = url2.split("?s=")[1]
+    token2 = url2.rsplit("/", 1)[1]
     c1 = dbm.connect(t1_settings.db_file)
     assert dbm.resolve_doc_share(c1, token2) == "doc_settle_t1"
     c1.close()

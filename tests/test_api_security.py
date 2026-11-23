@@ -288,6 +288,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/fonts/D2Coding.woff2",
         "/fonts/D2CodingBold.woff2",
         "/p",
+        "/silvercord/{token}",
         "/p/presentation",
         "/image",
         "/images/{filename:path}",
@@ -384,6 +385,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/client-extraction/sources/{document_id}/submit",
     }
     write_methods = {
+        ("DELETE", "/share"),
         ("DELETE", "/contributions/{number}"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),

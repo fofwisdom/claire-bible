@@ -16,6 +16,13 @@ const _metaStorageKey = (document.querySelector('meta[name="claire-storage-key"]
 const API_BASE = (_metaApiBase && !_metaApiBase.startsWith('__')) ? _metaApiBase : '/';
 const ROOT_BASE = (_metaRootBase && !_metaRootBase.startsWith('__')) ? _metaRootBase : '/';
 const STORAGE_KEY = (_metaStorageKey && !_metaStorageKey.startsWith('__')) ? _metaStorageKey : 'anon';
+// The item that this page opens. The permalink route (/silvercord/{token}) writes the meta "claire-open-item" with "document:{id}" or "entity:{id}".
+const OPEN_ITEM = (function(){
+  const raw = (document.querySelector('meta[name="claire-open-item"]') || {}).content || '';
+  const cut = raw.indexOf(':');
+  if(cut <= 0) return {kind: '', id: ''};
+  return {kind: raw.slice(0, cut), id: raw.slice(cut + 1)};
+})();
 
 function apiUrl(path) {
   const p = (path || '').startsWith('/') ? path.slice(1) : (path || '');
@@ -93,8 +100,7 @@ function isPwaOrMobileLaunch() {
 }
 
 function shouldDefaultToReader(stats) {
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('node')) return false;
+  if (OPEN_ITEM.kind === 'entity') return false;
   var hasActiveIngest = false;
   if (stats && Array.isArray(stats.jobs)) {
     hasActiveIngest = stats.jobs.some(function(j) { return j.status === 'running' || j.status === 'pending'; });
@@ -119,7 +125,7 @@ var initialDefaultToReader = shouldDefaultToReader(null);
 // The first view is the home overview (design HD1). A launch on a narrow screen or as an installed application starts in the reader, and a link to a node starts in the graph.
 function initialCenterView(){
   if(initialDefaultToReader) return 'reader';
-  try{ if(new URLSearchParams(window.location.search).get('node')) return 'graph'; }catch(_){}
+  if(OPEN_ITEM.kind === 'entity') return 'graph';
   return 'home';
 }
 let activePane='graph', detailOpen=false, centerView=initialCenterView(), drawerOpen=false;
@@ -360,8 +366,7 @@ async function loadThemeDocuments(){
     if(allDocs && allDocs.length > 0){
       let docFromUrl = null;
       try{
-        const sp = new URLSearchParams(window.location.search);
-        const p = sp.get('doc');
+        const p = OPEN_ITEM.kind === 'document' ? OPEN_ITEM.id : null;
         // A deep link to a document that is not on the first page loads the pages up to that document.
         if(p && await ensureDocLoaded(p)){ docFromUrl = p; docScrollToActive = true; }
       }catch(_){}

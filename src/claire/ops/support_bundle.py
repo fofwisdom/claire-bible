@@ -1496,23 +1496,21 @@ def create_support_bundle(
                             if getattr(s, "multi_theme", False):
                                 share_rows = conn.execute(
                                     """
-                                    SELECT token, document_id, created_at, expires_at
-                                    FROM doc_shares
-                                    WHERE kb_id = ?
-                                      AND (created_at >= ? OR expires_at IS NULL OR expires_at >= ?)
+                                    SELECT token, target AS document_id, created_at, NULL AS expires_at
+                                    FROM permalinks
+                                    WHERE kind = 'document' AND link_access = 1 AND kb_id = ?
                                     ORDER BY created_at DESC
                                     """,
-                                    (t.id, cutoff_epoch, now),
+                                    (t.id,),
                                 ).fetchall()
                             else:
                                 share_rows = conn.execute(
                                     """
-                                    SELECT token, document_id, created_at, expires_at
-                                    FROM doc_shares
-                                    WHERE created_at >= ? OR expires_at IS NULL OR expires_at >= ?
+                                    SELECT token, target AS document_id, created_at, NULL AS expires_at
+                                    FROM permalinks
+                                    WHERE kind = 'document' AND link_access = 1
                                     ORDER BY created_at DESC
                                     """,
-                                    (cutoff_epoch, now),
                                 ).fetchall()
                             for sr in share_rows:
                                 s_dict = dict(sr)
@@ -1727,7 +1725,7 @@ def create_support_bundle(
                                 item["theme_label"] = target_info.get("theme_label")
                                 inbox_map[(str(target_db_file), int(item["id"]))] = item
                             doc_shares = conn.execute(
-                                "SELECT * FROM doc_shares WHERE document_id = ?", (target_doc_id,)
+                                "SELECT token, kb_id, target AS document_id, link_access, alias_of, created_at FROM permalinks WHERE kind = 'document' AND target = ?", (target_doc_id,)
                             ).fetchall()
                             extractions = conn.execute(
                                 "SELECT * FROM extractions WHERE document_id = ? ORDER BY id DESC",

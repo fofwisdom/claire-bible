@@ -251,7 +251,7 @@ def _tracked_document(conn: sqlite3.Connection, kb_ids: list[int], target: str) 
     matched_by = "document_id_or_url"
     if doc_row is None:
         share = conn.execute(
-            f"SELECT document_id FROM doc_shares WHERE kb_id IN ({marks}) AND token = ? LIMIT 1",
+            f"SELECT target AS document_id FROM permalinks WHERE kind='document' AND kb_id IN ({marks}) AND token = ? LIMIT 1",
             (*kb_ids, candidate),
         ).fetchone()
         if share is not None:

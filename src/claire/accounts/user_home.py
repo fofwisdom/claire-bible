@@ -15,6 +15,7 @@ from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from ..store import federation_quotes as quotes_store
+from ..store import permalinks
 from ..store.knowledge_base import KnowledgeBaseInfo
 
 __all__ = [
@@ -155,11 +156,8 @@ def build_user_home_timeline(
             doc = dbm.get_document_row(conn, raw_obj.document_id, kb_id=raw_obj.kb_id)
             if doc is None or doc["hidden"]:
                 continue
-            share = conn.execute(
-                "SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
-                (raw_obj.document_id, raw_obj.kb_id, current_time),
-            ).fetchone()
-            share_url = None if share is None else f"{origin}/p?s={share['token']}"
+            address_token = permalinks.token_of(conn, "document", raw_obj.document_id)
+            share_url = None if address_token is None else permalinks.permalink_url(origin, address_token)
             title = str(doc["title"] or "")
             excerpt = _article_excerpt(dbm.latest_extraction_summary(conn, raw_obj.document_id, kb_id=raw_obj.kb_id))
             summary_text = excerpt or title

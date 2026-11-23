@@ -581,7 +581,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if not (document["detail"] or "").strip() and not (document["detail_html"] or "").strip():
                     return 409, {"error": "document_has_no_body"}
                 # The public page of the document is its share page. This call commits, so it comes before the transaction of the object and the task.
-                dbm.create_doc_share(conn, document_id, reuse_existing=True, kb_id=int(theme["id"]))
+                dbm.create_doc_share(conn, document_id, kb_id=int(theme["id"]))
                 try:
                     obj, task, created = federation_store.publish_document(conn, account_id=account_id, kb_id=int(theme["id"]), document_id=document_id, published_by_account_id=account_id, salt=store.id_salt(), now=time.time())
                     conn.commit()

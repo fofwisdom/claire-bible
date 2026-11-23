@@ -835,7 +835,7 @@ def test_anonymous_can_create_share_link_in_public_mode(
         assert response.status_code == 200
         data = response.json()
         assert data["token"] == "tok-doc-public"
-        assert data["path"] == "/p?s=tok-doc-public"
+        assert data["path"] == "/silvercord/tok-doc-public"
     assert calls == [
         ("get_document_row", "doc-public", REQUEST_THEME_ID),
         ("create_doc_share", "doc-public", REQUEST_THEME_ID),
@@ -879,7 +879,7 @@ def test_readonly_can_create_share_link(
     assert response.status_code == 200
     data = response.json()
     assert data["token"] == "tok-ro-doc-ro"
-    assert data["path"] == "/p?s=tok-ro-doc-ro"
+    assert data["path"] == "/silvercord/tok-ro-doc-ro"
     assert calls == [
         ("get_document_row", "doc-ro", REQUEST_THEME_ID),
         ("create_doc_share", "doc-ro", REQUEST_THEME_ID),

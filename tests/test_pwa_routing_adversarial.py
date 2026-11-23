@@ -260,8 +260,10 @@ def test_single_mode_pwa_with_complex_query_params(tmp_path: Path):
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
 
-    # User specified query combination: ?pwa=1&theme=2&doc=doc-abc
-    res = _single_mode_root(client, "pwa=1&theme=2&doc=doc-abc")
+    # An old link to a document that does not exist gives 404, with no fallback to the workspace (PERMALINK_UNIFICATION_DESIGN.md U5).
+    assert _single_mode_root(client, "pwa=1&theme=2&doc=doc-abc").status_code == 404
+
+    res = _single_mode_root(client, "pwa=1&theme=2")
     assert res.status_code == 200
     assert res.history == []
     assert res.headers.get("location") is None

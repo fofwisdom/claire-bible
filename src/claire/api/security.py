@@ -589,6 +589,10 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/entity/primary-label"): _namespaced("owner", "maintain"),
     ("POST", "/resolution/rollback"): _namespaced("owner", "maintain"),
     ("POST", "/share"): _namespaced("read", "share"),
+    ("DELETE", "/share"): _namespaced("write", "share"),
+    # The permalink of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md). The route decides the access from the item.
+    ("GET", "/silvercord/{token}"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}"): _system("public", "none"),
     ("POST", "/support/bundle"): _system("admin", "none"),
     ("GET", "/support/bundle/{token}"): _system("public", "none"),
     ("HEAD", "/support/bundle/{token}"): _system("public", "none"),

@@ -1321,13 +1321,13 @@ class KnowledgeBaseManager:
         try:
             conn = dbm.connect_existing(Path(db_file), readonly=True)
             try:
-                row = conn.execute(
-                    "SELECT kb_id, document_id FROM doc_shares WHERE token = ?",
-                    (token,),
-                ).fetchone()
+                from . import permalinks
+
+                found = permalinks.resolve(conn, token)
+                row = found if found is not None and found.kind == "document" and found.gone_at is None else None
                 if row:
-                    tid = row["kb_id"]
-                    doc_id = row["document_id"]
+                    tid = row.kb_id
+                    doc_id = row.target
                     tdoc = document_detail(conn, doc_id, include_hidden=include_hidden, kb_id=tid)
                     if tdoc:
                         return (tid, doc_id, tdoc)

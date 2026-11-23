@@ -1,7 +1,7 @@
 # One Permalink for Documents, Notes, and Entities
 
 - **Document Identifier**: `DESIGN-PERMALINK-20261123`
-- **Status**: Decided (owner, 2026-11-23). B1 implemented; A1 to A4 not implemented. No open items.
+- **Status**: Decided (owner, 2026-11-23). Partly implemented: B1; A1 for documents (registry, route, redirects, share actions). Not implemented: the views of notes and entities, A2, the rest of A3 and A4. Current behavior and the state of each phase: [`PERMALINKS.md`](../implementation/PERMALINKS.md). No open items.
 - **Date**: 2026-11-23 (base commit `80e3fb14`). Revision 2: notes in the scope, one path form. Revision 3: entities in the scope, term review (§4). Revision 4: the owner decisions of §9 (prefix `/silvercord/`, API, other query forms, bundle paths).
 - **Related**: [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (§4.3 item 3 and the share link row of §6.2: this design replaces them when it is implemented), [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD21 and RT7: not changed), [`GLOSSARY.md`](../implementation/GLOSSARY.md) §1.2 and §1.5, [`PUBLIC_SITE.md`](../implementation/PUBLIC_SITE.md), [`FEDERATION.md`](../implementation/FEDERATION.md)
 

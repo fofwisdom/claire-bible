@@ -83,7 +83,7 @@ The website of the future may assemble itself for every visitor.
         assert duration_ms < 200, f"Option A GET must be fast (<200ms), took {duration_ms}ms"
         assert "Future Web Architecture" in page_res.text
         assert "프레젠테이션이 아직 생성되지 않았습니다" in page_res.text
-        assert f"/p?s={share_token}" in page_res.text  # Link back to document reader
+        assert f"/silvercord/{share_token}" in page_res.text  # Link back to document reader
 
         # Step 3: Check status is still not_created
         status_res = client.get(f"/document/presentation?id={doc_id}", headers=owner_headers)

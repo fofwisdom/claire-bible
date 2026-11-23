@@ -208,7 +208,9 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     share_token = share_resp.json()["token"]
 
     # Step 2: Anonymous user accesses shared doc page
-    anon_page_resp = client.get(f"/p?s={share_token}")
+    old_link = client.get(f"/p?s={share_token}", follow_redirects=False)
+    assert old_link.status_code == 308 and old_link.headers["location"] == f"/silvercord/{share_token}"
+    anon_page_resp = client.get(f"/silvercord/{share_token}")
     assert anon_page_resp.status_code == 200
     # Embedded JSON must have can_access_raw False
     assert '"can_access_raw": false' in anon_page_resp.text or '"can_access_raw":false' in anon_page_resp.text
@@ -216,10 +218,10 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     assert "/raw/files/" not in anon_page_resp.text
     assert "file://" not in anon_page_resp.text
 
-    # Step 3: Collaborator user accesses shared doc page
-    collab_page_resp = client.get(f"/p?s={share_token}", headers=WRITE_HEADERS)
+    # Step 3: The item view never has the raw file link (PERMALINK_UNIFICATION_DESIGN.md Section 6): a member gets it in the workspace. The account of this server has no USERNAME, thus no workspace path: each caller gets the item view.
+    collab_page_resp = client.get(f"/silvercord/{share_token}", headers=WRITE_HEADERS)
     assert collab_page_resp.status_code == 200
-    assert '"can_access_raw": true' in collab_page_resp.text or '"can_access_raw":true' in collab_page_resp.text
+    assert '"can_access_raw": false' in collab_page_resp.text or '"can_access_raw":false' in collab_page_resp.text
 
     # Step 4: Access raw file endpoint with different roles
     # Anonymous -> 404

@@ -85,6 +85,7 @@ docs/
 │   ├── NOTIFICATIONS.md        # 연계 요청 알림: 알림 종류와 이벤트, 웹 푸시 발송, 종 목록, /account/notifications, 서비스 워커
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름
+│   ├── PERMALINKS.md           # 고유 주소: 주소 대장(permalinks), /silvercord/{주소 토큰} 경로, 옛 링크 308, 링크 공개, 설계 단계별 구현 상태
 │   ├── PRESENTATION.md         # 프레젠테이션 저작·컴파일·뷰어·테마별 스위치
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
 │   ├── PUBLIC_SITE.md          # 공개 사이트: robots.txt·sitemap.xml·공유 페이지 메타데이터·GA4 태그

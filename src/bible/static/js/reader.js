@@ -1281,7 +1281,7 @@ function closeReader(focus=false){
 }
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
-// /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
+// POST /share sets link access of the document and gives its permalink (/silvercord/{token}).
 async function editDocTitle(){
   if(!canWrite() || !curReaderDoc) return;
   const current = (curReaderDocData && curReaderDocData.title && curReaderDocData.title !== rtr('home.recent.untitled')) ? curReaderDocData.title : '';

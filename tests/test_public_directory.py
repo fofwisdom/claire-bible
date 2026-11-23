@@ -373,6 +373,10 @@ def test_public_directory_authenticated_user_navigation_e2e(tmp_path: Path):
     assert "Knowledge graph" in ws_res.text
     assert "Public directory" not in ws_res.text
 
+    # An old link to a document gives 308 to its permalink, and the permalink gives the workspace to the member (PERMALINK_UNIFICATION_DESIGN.md U5, Section 6 rule 4).
     ws_doc_res = client.get("/@alice/?doc=doc1", follow_redirects=False)
-    assert ws_doc_res.status_code == 200
-    assert "Knowledge graph" in ws_doc_res.text
+    assert ws_doc_res.status_code == 308 and ws_doc_res.headers["location"].startswith("/silvercord/")
+    permalink_res = client.get(ws_doc_res.headers["location"], follow_redirects=False)
+    assert permalink_res.status_code == 200
+    assert "Knowledge graph" in permalink_res.text
+    assert '<meta name="claire-open-item" content="document:doc1"/>' in permalink_res.text

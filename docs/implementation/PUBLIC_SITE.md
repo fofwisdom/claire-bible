@@ -40,7 +40,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 - In multi-theme mode, `KnowledgeBaseManager.get_kb_by_fqdn` finds a theme for the `Host` name, and that theme is not public. This index comes from the old `themes.fqdn` values. Because of §2, it matches only when an old theme host is also the app host.
 
 **[code] Public case.** The body has these parts:
-1. `User-agent: *` with `Allow` lines for `/$`, `/p?`, `/static/`, `/images/`, `/p/images/`, `/fonts/`, `/favicon.*`.
+1. `User-agent: *` with `Allow` lines for `/$`, `/silvercord/`, `/static/`, `/images/`, `/p/images/`, `/fonts/`, `/favicon.*`.
 2. `Disallow` lines for search, write, authoring, purge, OAuth, MCP, support bundle, graph bundle, statistics, limits, providers, `/themes`, and `/syndication` paths. The full list is in the handler.
 3. When `block_ai_crawlers` is true (default): one group with `User-agent` lines for `GPTBot`, `ChatGPT-User`, `ClaudeBot`, `anthropic-ai`, `CCBot`, `Bytespider`, `PerplexityBot`, `Cohere-ai`, `Diffbot`, `FacebookBot`, and `Disallow: /`.
 4. A `Sitemap:` line with the absolute URL of `/sitemap.xml`. The handler builds it from the request.
@@ -61,11 +61,11 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 | Multi-theme mode, `Host` matches a theme | That theme |
 | Multi-theme mode, other `Host` | All themes with `is_public`, of all accounts (`KnowledgeBaseManager.list_kbs()`) |
 
-- **[code]** For each theme, `list_public_sitemap_documents(conn, ensure_shares=True, kb_id=...)` reads the documents with `hidden = 0`. For each document it uses the newest share token that is not expired.
-- **[code]** When a document has no such token, the function makes one with `create_doc_share(..., reuse_existing=True)`. Thus a sitemap request can write new `doc_shares` rows. If the database is read-only (`sqlite3.OperationalError`), it returns only the existing tokens.
+- **[code]** For each theme, `list_public_sitemap_documents(conn, kb_id=...)` reads the documents with `hidden = 0` and the address token of each one from the permalink registry ([`PERMALINKS.md`](PERMALINKS.md)).
+- **[code]** When a document has no row in the registry, the function makes one (no change of link access). Thus a sitemap request can write new `permalinks` rows. If the database is read-only (`sqlite3.OperationalError`), such a document is not in the result.
 - **[code]** The handler ignores an error of one theme and continues with the other themes.
 
-**[code] XML.** Sitemaps protocol 0.9 (`urlset`). The first `url` is the site root (`changefreq` `daily`, `priority` `1.0`). Then one `url` for each token: `{origin}/p?s={token}`, `changefreq` `weekly`, `priority` `0.8`. `lastmod` is `fetched_at` in UTC (`YYYY-MM-DDTHH:MM:SSZ`), or else the `published_at` text. Presentation pages (`/p/presentation`) are not in the sitemap. There is no sitemap index and no limit on the number of URLs.
+**[code] XML.** Sitemaps protocol 0.9 (`urlset`). The first `url` is the site root (`changefreq` `daily`, `priority` `1.0`). Then one `url` for each token: `{origin}/silvercord/{token}`, `changefreq` `weekly`, `priority` `0.8`. `lastmod` is `fetched_at` in UTC (`YYYY-MM-DDTHH:MM:SSZ`), or else the `published_at` text. Presentation pages (`/p/presentation`) are not in the sitemap. There is no sitemap index and no limit on the number of URLs.
 
 **[code] Cache.** `_sitemap_cache` is a dictionary in process memory. The key is the `Host` value. An entry lives for `sitemap_cache_ttl` seconds (default 900). The `ETag` is the MD5 hash of the XML bytes. A request with a matching `If-None-Match` gets 304. The response has `Cache-Control: public, max-age={ttl}`. A change to a document does not clear the cache; the entry expires.
 
@@ -73,13 +73,13 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 
 ## 5. Metadata of HTML pages
 
-### 5.1 Shared document page (`/p?s={token}`, `shared_html`)
+### 5.1 Item view of a document (`/silvercord/{token}`, `shared_html`)
 
 - **[code]** A hidden document gives 404.
 - **[code]** `render_open_graph_tags` writes:
   - `description`, Open Graph (`og:site_name` is the fixed text `Claire Bible`, `og:type` `article`, title, description, URL, image), `article:*` tags, `keywords` from the knowledge nodes, and Twitter Card tags.
-  - `<link rel="canonical">` with `{base}/p?s={token}`.
-  - `<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">`.
+  - `<link rel="canonical">` with `{base}/silvercord/{token}`.
+  - `<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">`. When only link access makes the document readable (the knowledge base is not readable for the caller), the route changes it to `noindex, nofollow` and sends `X-Robots-Tag: noindex, nofollow` ([`PERMALINKS.md`](PERMALINKS.md) §3).
   - Schema.org JSON-LD of type `TechArticle`: headline, description, `mainEntityOfPage`, `publisher` (an `Organization` with the name from `site_name`), and, when known, `author`, `datePublished`, `dateModified`, `keywords`. The JSON escapes `<` and `>`.
 - **[code]** `base` is `settings.public_url`. When it is empty, the route builds it from the request headers.
 - **[code]** The page has a `<noscript>` block with the title and the escaped summary. When there is no summary, it has the plain text of `detail_html` without tags. The raw `detail_html` does not go into `<noscript>`.

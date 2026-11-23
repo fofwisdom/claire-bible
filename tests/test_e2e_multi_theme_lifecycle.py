@@ -129,8 +129,8 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert status.markup is not None
     btn = status.markup.inline_keyboard[0][0]
     assert btn.text == "📖 문서 열람 (Reader)"
-    assert btn.url.startswith(f"{public_url}/p?s=")
-    bot_token = btn.url.split("?s=")[1]
+    assert btn.url.startswith(f"{public_url}/silvercord/")
+    bot_token = btn.url.rsplit("/", 1)[1]
 
     # Verify: Token MUST exist in Theme 1 partition, and NOT in Theme 0 partition!
     conn1 = dbm.connect_existing(s1.db_file, readonly=True)

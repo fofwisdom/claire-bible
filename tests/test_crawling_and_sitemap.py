@@ -80,44 +80,25 @@ def test_list_public_sitemap_documents_io_and_filtering(tmp_db: Path) -> None:
         ("doc-hidden", "Secret Document", now - 200, 1),
     )
 
-    # 3. Document with existing active share (hidden=0) -> should reuse existing share token
+    # 3. Document with link access (hidden=0) -> the sitemap has its one address token
     conn.execute(
         "INSERT INTO documents (id, title, fetched_at, hidden) VALUES (?, ?, ?, ?)",
         ("doc-2", "Public Document 2", now - 50, 0),
     )
-    conn.execute(
-        "INSERT INTO doc_shares (token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        ("token-existing-12", "doc-2", now - 40, None),
-    )
-
-    # 4. Document with expired share (hidden=0) -> should get newly refreshed unexpired share
-    conn.execute(
-        "INSERT INTO documents (id, title, fetched_at, hidden) VALUES (?, ?, ?, ?)",
-        ("doc-3", "Public Document 3", now - 300, 0),
-    )
-    conn.execute(
-        "INSERT INTO doc_shares (token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        ("token-expired-old", "doc-3", now - 500, now - 10),
-    )
     conn.commit()
+    shared_token = dbm.create_doc_share(conn, "doc-2")
 
-    docs = dbm.list_public_sitemap_documents(conn, ensure_shares=True)
+    docs = dbm.list_public_sitemap_documents(conn)
+    again = dbm.list_public_sitemap_documents(conn)
     conn.close()
 
     doc_ids = {d["document_id"] for d in docs}
-    assert "doc-hidden" not in doc_ids
-    assert "doc-1" in doc_ids
-    assert "doc-2" in doc_ids
-    assert "doc-3" in doc_ids
-
-    # doc-2 must reuse its existing token
-    doc_2_entry = next(d for d in docs if d["document_id"] == "doc-2")
-    assert doc_2_entry["token"] == "token-existing-12"
-
-    # doc-3 must have a fresh valid token, not the expired one
-    doc_3_entry = next(d for d in docs if d["document_id"] == "doc-3")
-    assert doc_3_entry["token"] != "token-expired-old"
-    assert len(doc_3_entry["token"]) == 16
+    assert doc_ids == {"doc-1", "doc-2"}
+    assert next(d for d in docs if d["document_id"] == "doc-2")["token"] == shared_token
+    # doc-1 got an address token, and a second read gives the same token.
+    doc_1_token = next(d for d in docs if d["document_id"] == "doc-1")["token"]
+    assert len(doc_1_token) == 16
+    assert next(d for d in again if d["document_id"] == "doc-1")["token"] == doc_1_token
 
 
 def test_robots_txt_public_rules_and_ai_blocking(app_settings: Settings) -> None:
@@ -131,7 +112,7 @@ def test_robots_txt_public_rules_and_ai_blocking(app_settings: Settings) -> None
 
         # Allow directives
         assert "Allow: /$" in text
-        assert "Allow: /p?" in text
+        assert "Allow: /silvercord/" in text
         assert "Allow: /static/" in text
         assert "Allow: /images/" in text
 
@@ -199,7 +180,7 @@ def test_sitemap_xml_generation_and_etag_caching(app_settings: Settings, tmp_db:
         assert "https://claire.example.com/" in urls
 
         # Must contain document share URL
-        doc_urls = [u for u in urls if "/p?s=" in u]
+        doc_urls = [u for u in urls if "/silvercord/" in u]
         assert len(doc_urls) == 1
 
         # Must NOT contain presentation URLs (decision 3: exclude presentations)
@@ -238,7 +219,7 @@ def test_seo_metadata_jsonld_and_semantic_fallback() -> None:
     # 1. Meta tags and JSON-LD
     og_snippet = render_open_graph_tags(doc, base_url="https://claire.example.com", share_token="share-alpha")
     assert '<meta name="robots" content="index, follow' in og_snippet
-    assert '<link rel="canonical" href="https://claire.example.com/p?s=share-alpha"/>' in og_snippet
+    assert '<link rel="canonical" href="https://claire.example.com/silvercord/share-alpha"/>' in og_snippet
     assert '<script type="application/ld+json">' in og_snippet
 
     # Parse and validate JSON-LD payload

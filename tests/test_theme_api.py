@@ -260,7 +260,7 @@ def test_cross_theme_create_share_route(theme_app_client):
     data = share_resp.json()
     assert "token" in data
     assert data["kb_id"] == 1
-    assert data["path"] == "/p?s=" + data["token"]
+    assert data["path"] == "/silvercord/" + data["token"]
 
     # 3. 클라이언트가 초기 테마를 0(문서 없음)으로 지정하여 요청 -> 테마 1로 자동 확장 검색되어 정상 발급
     # Without the path, the personal knowledge base 0 has no such document: no search in other knowledge bases (CT23)

@@ -5,7 +5,7 @@ Simulates the complete crawler and visitor journey:
 2. Ingest a knowledge document.
 3. Search crawler visits /robots.txt -> verifies allow/disallow directives, AI bot blocks, and Sitemap link.
 4. Search crawler visits /sitemap.xml -> parses sitemap, extracts document share URL, verifies absence of presentation URLs.
-5. Search crawler fetches /p?s={token} -> verifies <meta name="robots">, Schema.org JSON-LD, and <noscript> semantic body fallback.
+5. Search crawler fetches /silvercord/{token} -> verifies <meta name="robots">, Schema.org JSON-LD, and <noscript> semantic body fallback.
 6. Admin hides the document -> verifies subsequent /sitemap.xml removes the hidden document.
 """
 
@@ -134,17 +134,17 @@ def test_public_site_crawling_and_indexing_e2e_journey(e2e_env) -> None:
         assert "https://claire.example.com/" in locs
 
         # Confirm document share entry exists
-        doc_locs = [loc for loc in locs if "/p?s=" in loc]
+        doc_locs = [loc for loc in locs if "/silvercord/" in loc]
         assert len(doc_locs) == 1
         doc_url = doc_locs[0]
-        share_token = doc_url.split("?s=")[1]
+        share_token = doc_url.rsplit("/", 1)[1]
         assert len(share_token) == 16
 
         # Confirm presentation URLs are strictly excluded (decision 3)
         assert not any("/p/presentation" in loc for loc in locs)
 
         # Step 4: Search crawler fetches the shared document page
-        resp_doc = client.get(f"/p?s={share_token}", headers={"Host": "claire.example.com"})
+        resp_doc = client.get(f"/silvercord/{share_token}", headers={"Host": "claire.example.com"})
         assert resp_doc.status_code == 200
         doc_html = resp_doc.text
 
@@ -190,5 +190,5 @@ def test_public_site_crawling_and_indexing_e2e_journey(e2e_env) -> None:
         assert "https://claire.example.com/" in locs2
 
         # Step 7: Anonymous access to the hidden document is denied
-        resp_hidden_doc = client.get(f"/p?s={share_token}", headers={"Host": "claire.example.com"})
+        resp_hidden_doc = client.get(f"/silvercord/{share_token}", headers={"Host": "claire.example.com"})
         assert resp_hidden_doc.status_code == 404

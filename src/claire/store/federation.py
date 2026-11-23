@@ -398,8 +398,10 @@ def object_content_digest(conn: sqlite3.Connection, obj: FederationObject, *, no
 
     title = conn.execute("SELECT title FROM documents WHERE id=? AND kb_id=?", (obj.document_id, obj.kb_id)).fetchone()
     summary = " ".join((dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id) or "").split()) or " ".join(str((title[0] if title else "") or "").split())
-    share = conn.execute("SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1", (obj.document_id, obj.kb_id, now)).fetchone()
-    return hashlib.sha256(f"{summary}\x00{share[0] if share else ''}".encode("utf-8")).hexdigest()
+    from . import permalinks
+
+    token = permalinks.token_of(conn, "document", obj.document_id)
+    return hashlib.sha256(f"{summary}\x00{token or ''}".encode("utf-8")).hexdigest()
 
 
 def _store_content_digest(conn: sqlite3.Connection, obj: FederationObject) -> None:

@@ -4040,7 +4040,7 @@ def cmd_share(args) -> int:
         doc_id = doc_info["id"]
         token = dbm.create_doc_share(conn, doc_id)
         base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-        share_url = f"{base_url}/p?s={token}"
+        share_url = f"{base_url}/silvercord/{token}"
 
         data = {
             "document_id": doc_id,
@@ -5504,7 +5504,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate a zstd-compressed archive containing telemetry, diagnostics, and configurations for root cause analysis (auto-purged after 6 hours).",
     )
     psb.add_argument("--days", type=int, default=1, help="days of data to include (default: 1, cannot exceed telemetry retention limit)")
-    psb.add_argument("--target", type=str, default=None, help="track specific document by share link (e.g. /p?s=xxx), token, or doc ID")
+    psb.add_argument("--target", type=str, default=None, help="track specific document by permalink (e.g. /silvercord/xxx), token, or doc ID")
     psb.add_argument("--list", action="store_true", help="list active unexpired support bundles")
     psb.add_argument("--purge", action="store_true", help="purge all expired support bundles immediately")
     psb.add_argument("--json", action="store_true", help="output bundle metadata in JSON format")
@@ -5946,7 +5946,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="re-ingest a document (URL, doc-id, share link, or text), refetching source and recreating knowledge graph and details (default: dry-run, requires --apply)",
         description="Re-ingest an existing or new document: refetch source, re-extract entities/relations, recompute embeddings, and update summary/detail.",
     )
-    pri.add_argument("target", nargs="?", default=None, help="target document ID, URL, share link (/p?s=token), or payload to re-ingest")
+    pri.add_argument("target", nargs="?", default=None, help="target document ID, URL, permalink (/silvercord/token), or payload to re-ingest")
     pri.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pri.add_argument("--doc-id", default=None, help="specific document ID to re-ingest")
     pri.add_argument("--url", default=None, help="specific URL to re-ingest")
@@ -6019,7 +6019,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Unified reprocess engine: selectively regenerate summary, detail, knowledge graph, format, or metadata.",
     )
     prep.add_argument("target", nargs="?", default=None,
-                      help="document ID, share token, URL, or share link (/p?s=token)")
+                      help="document ID, share token, URL, or permalink (/silvercord/token)")
     prep.add_argument("-c", "--component", choices=["all", "summary", "detail", "graph", "format"], default="all",
                       help="component to reprocess: all, summary, detail, graph, format (default: all)")
     prep.add_argument("-s", "--scope", choices=["all", "missing", "corrupted", "tables"], default="all",
@@ -6047,7 +6047,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Selectively regenerate document summary, readable detail text, or graph nodes/edges using LLM.",
     )
     preg.add_argument("target", nargs="?", default=None,
-                      help="document ID, share token, URL, or share link (/p?s=token)")
+                      help="document ID, share token, URL, or permalink (/silvercord/token)")
     preg.add_argument("--token", default=None, help="specific share token")
     preg.add_argument("--doc-id", default=None, help="specific document ID")
     preg.add_argument("-c", "--component", choices=["all", "summary", "detail", "graph", "format"], default=None,
@@ -6083,7 +6083,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="alias for 'regenerate --summary'",
         description="Selectively regenerate document summary using LLM (alias for 'regenerate --summary').",
     )
-    psum.add_argument("target", nargs="?", default=None, help="document ID, share token, URL, or share link (/p?s=token)")
+    psum.add_argument("target", nargs="?", default=None, help="document ID, share token, URL, or permalink (/silvercord/token)")
     psum.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
@@ -6190,7 +6190,7 @@ def build_parser() -> argparse.ArgumentParser:
     pshare = sub.add_parser(
         "share",
         help="generate and print external anonymous share link and token for a document",
-        description="Create and display an anonymous, read-only external share link (/p?s=token) and 16-character token for a document.",
+        description="Create and display an anonymous, read-only external permalink (/silvercord/token) and 16-character token for a document.",
     )
     pshare.add_argument("target", help="target document ID, URL, or existing share link")
     pshare.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
@@ -6370,7 +6370,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph healing & vacuum (default: dry-run, requires --apply)",
         description="Atomically purge documents from database tables, unlink disk files, heal graph, and record tombstones.",
     )
-    ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share link (/p?s=token), or search keyword to purge")
+    ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, permalink (/silvercord/token), or search keyword to purge")
     ppg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
     ppg.add_argument("--token", default=None, help="specific share token to identify document")

@@ -170,7 +170,7 @@ def internal(tmp_path):
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-published', ?, 'Published Title', 'Hello **world**', 'md', ?, 0, 1)", (ALICE_THEME_ID, '<p>Hello <strong>world</strong></p><script>alert(1)</script>'))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-second', ?, 'Second', 'Second *body*', 'md', 0, 1)", (ALICE_THEME_ID,))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-carol', 32, 'Of Carol', 'x', 'md', 0, 1)")
-        conn.execute("INSERT INTO doc_shares (token, kb_id, document_id, created_at, expires_at) VALUES ('sharetoken123456', ?, 'doc-published', 1, NULL)", (ALICE_THEME_ID,))
+        conn.execute("INSERT INTO permalinks (token, kind, kb_id, target, link_access, created_at) VALUES ('sharetkn23456abc', 'document', ?, 'doc-published', 1, 1)", (ALICE_THEME_ID,))
         for public_id, document_id, account_id, kb_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-carol", carol, 32, 1800000350.0, 1800000350.0)):
             conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, kb_id, document_id, account_id, published_at, updated_at))
         federation_store.add_tombstone(conn, GONE_OBJECT_ID, "object", gone_at=1800000330.0)
@@ -903,7 +903,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
             record = internal("GET", f"/objects/{object_id}").json()
             assert (record["name"], record["actor_public_id"], record["type"]) == ("First Post", str(ALICE_PUBLIC_ID), "Article")
             # RD21: summary (the title, as the document has no extraction) and share link; no text of the body.
-            assert record["url"].startswith(f"{origin}/p?s=")
+            assert record["url"].startswith(f"{origin}/silvercord/")
             assert record["content"].startswith("<p>First Post</p>") and f'href="{record["url"]}"' in record["content"] and "world" not in record["content"] and "<script" not in record["content"]
             # The public page of the object is a page that Claire serves.
             assert httpx.get(record["url"], timeout=10, follow_redirects=True).status_code == 200

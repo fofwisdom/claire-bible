@@ -34,6 +34,7 @@ from starlette.routing import BaseRoute, Route
 from ..store import accounts as accounts_store
 from ..store import actor_keys
 from ..store import auth_db
+from ..store import permalinks
 from ..core import ids
 from ..store import db as dbm
 from ..federation import media_proxy
@@ -1476,11 +1477,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
             if not _is_actor(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
                 return _not_found()
-            share = conn.execute(
-                "SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
-                (obj.document_id, obj.kb_id, now()),
-            ).fetchone()
-            share_url = None if share is None else f"{origin}/p?s={share['token']}"
+            # The ``url`` of the object and the link of its content are the permalink of the document (PERMALINK_UNIFICATION_DESIGN.md U11).
+            address_token = permalinks.token_of(conn, "document", obj.document_id)
+            share_url = None if address_token is None else permalinks.permalink_url(origin, address_token)
             html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), document["title"] or "", share_url)
             record = ObjectRecord(
                 public_id=str(obj.public_id),

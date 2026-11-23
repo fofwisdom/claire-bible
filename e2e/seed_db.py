@@ -139,13 +139,14 @@ def seed(db_path: Path) -> None:
         # Dedicated hidden document with no shared entities for the WebUI purge E2E test.
         dbm.insert_document(conn, Document(id="doc-purge-1", url="https://example.com/purge/1", title="소각 대상 테스트 문서", fetched_at=1699970000))
         dbm.set_document_hidden(conn, "doc-purge-1", True)
+        # The address tokens of two documents, with link access (the permalink registry).
         conn.execute(
-            "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
-            ("23456789abcdefgh", "doc-1", 1700000000, None),
+            "INSERT OR REPLACE INTO permalinks(token, kind, kb_id, target, link_access, created_at) VALUES (?, 'document', 0, ?, 1, ?)",
+            ("23456789abcdefgh", "doc-1", 1700000000),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
-            ("34567892abcdefgh", "doc-3", 1699999000, None),
+            "INSERT OR REPLACE INTO permalinks(token, kind, kb_id, target, link_access, created_at) VALUES (?, 'document', 0, ?, 1, ?)",
+            ("34567892abcdefgh", "doc-3", 1699999000),
         )
         conn.execute(
             "INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)",
@@ -168,6 +169,7 @@ def seed(db_path: Path) -> None:
             ("e2e-regen-nonce", "e2e-regen-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"),
         )
         # A login token is for one login: each test that needs an owner session has its own token.
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-deeplink-nonce", "e2e-deeplink-token-0123456789abcdef", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-regenfail-nonce", "e2e-regenfail-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-aliases-nonce", "e2e-aliases-token-0123456789abcdef0", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-providers-nonce", "e2e-providers-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))

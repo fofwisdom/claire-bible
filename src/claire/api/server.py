@@ -58,6 +58,7 @@ from ..collaboration import reputation
 from ..collaboration import auto_contribution
 from ..notifications import events as notification_events
 from ..accounts import kb_access
+from ..store import permalinks
 from ..accounts import user_home as user_home_mod
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -662,9 +663,14 @@ def create_app(
         else:
             relation = "delegate"
         is_admin = bool(principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None)
-        return JSONResponse(
-            {"scope": scope, "server": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}
-        )
+        answer: dict[str, Any] = {"scope": scope, "server": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}
+        if request.scope.get("claire.permalink_dispatch"):
+            # Only for the permalink route (PERMALINK_UNIFICATION_DESIGN.md Section 6 rule 4): ``member`` is true for the account of the personal knowledge base of the path and for an active member of its shared knowledge base.
+            try:
+                answer["member"] = _is_kb_member(request, _get_theme_ctx(request)[0])
+            except HTTPException:
+                answer["member"] = False
+        return JSONResponse(answer)
 
     async def stats(request: Request) -> JSONResponse:
         theme, theme_settings, theme_svc = _get_theme_ctx(request)
@@ -4165,6 +4171,38 @@ def create_app(
                 raise
             except Exception:
                 pass
+        if not request.scope.get("claire.permalink_dispatch") and any(k in request.query_params for k in ("doc", "node")):
+            # An old link into the content (``?doc=``, ``?node=``): 308 to the permalink of the item, or 404 (PERMALINK_UNIFICATION_DESIGN.md U5). No fallback to the workspace.
+            old_kind = "document" if "doc" in request.query_params else "entity"
+            old_target = request.query_params.get("doc" if old_kind == "document" else "node", "").strip()
+            kb_for_link = theme
+            if kb_for_link is None:
+                try:
+                    kb_for_link, _, _ = _get_theme_ctx(request)
+                except Exception:
+                    kb_for_link = None
+
+            def _old_link_token() -> str | None:
+                if not old_target or kb_for_link is None:
+                    return None
+                conn = dbm.connect_existing(s.db_file)
+                try:
+                    if old_kind == "document":
+                        if dbm.get_document_row(conn, old_target, kb_id=kb_for_link.id) is None:
+                            return None
+                        found_token = permalinks.ensure_document(conn, old_target, kb_for_link.id)
+                    else:
+                        row = conn.execute("SELECT 1 FROM entities WHERE id=? AND kb_id=?", (old_target, kb_for_link.id)).fetchone()
+                        found_token = permalinks.ensure_entity(conn, old_target) if row is not None else None
+                    conn.commit()
+                    return found_token
+                finally:
+                    conn.close()
+
+            old_token = await asyncio.to_thread(_old_link_token)
+            if old_token is None:
+                return PlainTextResponse("Not Found", status_code=404)
+            return RedirectResponse(permalinks.permalink_path(old_token), status_code=308)
         html_text = get_web_ui_renderer().render_graph_html(
             s,
             include_private=include_private,
@@ -4777,7 +4815,7 @@ def create_app(
         lines = [
             "User-agent: *",
             "Allow: /$",
-            "Allow: /p?",
+            "Allow: /silvercord/",
             "Allow: /static/",
             "Allow: /images/",
             "Allow: /p/images/",
@@ -4911,7 +4949,7 @@ def create_app(
             try:
                 conn = dbm.connect_existing(db_file)
                 try:
-                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True, kb_id=target_tid)
+                    entries = dbm.list_public_sitemap_documents(conn, kb_id=target_tid)
                     all_doc_entries.extend(entries)
                 finally:
                     conn.close()
@@ -4934,7 +4972,7 @@ def create_app(
             if not tok or tok in seen_tokens:
                 continue
             seen_tokens.add(tok)
-            loc = f"{base_url}/p?s={tok}"
+            loc = permalinks.permalink_url(base_url, tok)
             lastmod = ""
             fetched_at = doc.get("fetched_at")
             published_at = doc.get("published_at")
@@ -6287,110 +6325,191 @@ def create_app(
             return JSONResponse({"error": "document_not_extracted"}, status_code=409)
         if share_status != "ok" or not token:
             raise HTTPException(status_code=404, detail="document not found")
-        return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
+        return JSONResponse({"token": token, "path": permalinks.permalink_path(token), "link_access": True, "kb_id": target_kb_id})
 
-    async def shared_doc_page(request: Request) -> Response:
-        from ..store.queries import document_detail
+    async def stop_share_route(request: Request) -> JSONResponse:
+        """``DELETE /share``: set link access of a document to 0 (PERMALINK_UNIFICATION_DESIGN.md U4). The permalink stays."""
+        body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
+        document_id = str(body.get("doc_id") or "").strip()
+        if not document_id:
+            raise HTTPException(status_code=400, detail="doc_id required")
 
-        token = request.query_params.get("s", "")
-        if not dbm.plausible_share_token(token):
-            return PlainTextResponse("Not Found", status_code=404)
-
-        def _load() -> dict[str, Any] | None:
-            # 1. 모든 테마 DB에서 공유 토큰 자동 검색 (숨김 문서는 공유 페이지 접근 차단)
-            resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
-            if resolved is not None:
-                doc = resolved[2]
-                if doc and not doc.get("hidden"):
-                    return doc
-                return None
-            # 2. 기본 DB 폴백
-            conn = dbm.connect_existing(s.db_file, readonly=True)
-            document_id = None
+        def _stop() -> str | None:
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                document_id = dbm.resolve_doc_share(conn, token, kb_id=0)
-                if not document_id:
+                if dbm.get_document_row(conn, document_id, kb_id=theme.id) is None:
                     return None
-                doc = document_detail(conn, document_id, include_hidden=False, kb_id=0)
-                if doc is not None and not doc.get("hidden"):
-                    return doc
+                token = permalinks.ensure_document(conn, document_id, theme.id)
+                dbm.stop_doc_share(conn, document_id)
+                return token
             finally:
                 conn.close()
 
-            # When resolving token via default DB fallback: if document_id was found
-            # in doc_shares of Theme 0, but document_detail is None in Theme 0,
-            # search other themes via theme_mgr.resolve_document_targets(doc_id=document_id).
-            if document_id and getattr(s, "multi_theme", False):
-                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
-                for target in targets:
-                    target_db = target.get("db_file")
-                    if not target_db or str(target_db) == str(s.db_file):
-                        continue
-                    try:
-                        t_conn = dbm.connect_existing(Path(target_db), readonly=True)
-                        try:
-                            doc = document_detail(t_conn, document_id, include_hidden=False, kb_id=target["kb_id"])
-                            if doc is not None and not doc.get("hidden"):
-                                return doc
-                        finally:
-                            t_conn.close()
-                    except Exception:
-                        continue
-            return None
+        token = await asyncio.to_thread(_stop)
+        if token is None:
+            raise HTTPException(status_code=404, detail="document not found")
+        return JSONResponse({"token": token, "path": permalinks.permalink_path(token), "link_access": False, "kb_id": theme.id})
 
-        document = await asyncio.to_thread(_load)
-        if document is None or document.get("hidden"):
+    def _workspace_path(kb: KnowledgeBaseInfo) -> str | None:
+        """The workspace path of a knowledge base: ``/kb/{number}/`` for a shared one, ``/@{username}/`` for a personal one. None when it has no path now."""
+        if kb.is_shared:
+            return kb_base_path(kb.number) if kb.number is not None else None
+        try:
+            owner = namespace_directory.account(int(kb.account_id or 0))
+        except accounts_store.AccountNotFound:
+            return None
+        if owner.status != "active" or not owner.username:
+            return None
+        return f"/@{owner.username}/"
+
+    def _is_kb_member(request: Request, kb: KnowledgeBaseInfo) -> bool:
+        """True for the account of a personal knowledge base and for an active member of a shared one (PERMALINK_UNIFICATION_DESIGN.md Section 6 rule 4)."""
+        actor = _kb_actor(request, kb)
+        if actor.account_id is None:
+            return False
+        if kb.is_personal:
+            return actor.account_id == kb.account_id
+        return actor.membership is not None and actor.membership[1] == "active"
+
+    async def _dispatch_workspace(request: Request, path: str, query: str) -> tuple[int, list[tuple[bytes, bytes]], bytes]:
+        """Give the request to the full application again, as a ``GET`` of a workspace path with the credentials of the caller. The result is the status, the headers, and the body. The mark ``claire.permalink_dispatch`` tells the workspace route that the query is not a link from outside."""
+        outer = request.app.state.permalink_outer_app
+        source = request.scope
+        scope = {
+            "type": "http", "asgi": source.get("asgi", {"version": "3.0"}), "http_version": source.get("http_version", "1.1"), "method": "GET",
+            "scheme": source.get("scheme", "http"), "server": source.get("server"), "client": source.get("client"), "root_path": "",
+            "path": path, "raw_path": path.encode("utf-8"), "query_string": query.encode("utf-8"),
+            "headers": [(k, v) for k, v in source.get("headers", []) if k.lower() not in (b"content-length", b"content-type")],
+            "claire.permalink_dispatch": True,
+        }
+        result: dict[str, Any] = {"status": 500, "headers": [], "body": b""}
+
+        async def _receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def _send(message: dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                result["status"] = int(message["status"])
+                result["headers"] = list(message.get("headers", []))
+            elif message["type"] == "http.response.body":
+                result["body"] += message.get("body", b"")
+
+        await outer(scope, _receive, _send)
+        return result["status"], result["headers"], result["body"]
+
+    def _passed_response(status: int, headers: list[tuple[bytes, bytes]], body: bytes) -> Response:
+        response = Response(content=body, status_code=status)
+        for key, value in headers:
+            if key.lower() != b"content-length":
+                response.headers.append(key.decode("latin-1"), value.decode("latin-1"))
+        return response
+
+    async def _caller_is_member(request: Request, kb: KnowledgeBaseInfo) -> bool:
+        """True when the caller is a member of the knowledge base. The permalink route is public and has no validated credential; thus the question goes to ``whoami`` of the workspace path, where the full authentication runs."""
+        path = _workspace_path(kb)
+        if path is None:
+            return False
+        status, _, body = await _dispatch_workspace(request, f"{path}whoami", "")
+        if status != 200:
+            return False
+        try:
+            return json.loads(body).get("member") is True
+        except ValueError:
+            return False
+
+    async def _workspace_view(request: Request, kb: KnowledgeBaseInfo, *, token: str, kind: str, target: str) -> Response:
+        """The workspace of the knowledge base with the item open, at the permalink (Section 6 rule 4). An answer that is not the workspace page (sign-in redirect, 404) goes to the caller as it is (rule 7)."""
+        path = _workspace_path(kb)
+        if path is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        from urllib.parse import quote as _quote
+
+        query = ("doc=" if kind == "document" else "node=") + _quote(target, safe="")
+        status, headers, body = await _dispatch_workspace(request, path, query)
+        content_type = next((v.decode("latin-1") for k, v in headers if k.lower() == b"content-type"), "")
+        if status == 200 and content_type.startswith("text/html"):
+            mark = f'<meta name="claire-open-item" content="{html.escape(kind, quote=True)}:{html.escape(target, quote=True)}"/><link rel="canonical" href="{html.escape(permalinks.permalink_path(token), quote=True)}"/>'.encode("utf-8")
+            body = body.replace(b"</head>", mark + b"</head>", 1)
+        response = _passed_response(status, headers, body)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+    async def permalink_route(request: Request) -> Response:
+        """``GET /silvercord/{token}``: the one address of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6)."""
+        token = str(request.path_params.get("token", ""))
+        if not permalinks.plausible_token(token):
             return PlainTextResponse("Not Found", status_code=404)
 
-        base_url = ""
-        if getattr(s, "public_url", ""):
-            base_url = s.public_url.rstrip("/")
-        else:
-            proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-            host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-            if proto and host:
-                base_url = f"{proto}://{host}".rstrip("/")
-            else:
-                base_url = str(request.base_url).rstrip("/")
+        def _load() -> tuple[permalinks.Permalink | None, dict[str, Any] | None, bool, bool]:
+            from ..store.queries import document_detail
 
-        scope = request_auth_scope(request)
-        if scope not in ("owner", "write"):
-            auth_hdr = request.headers.get("authorization", "")
-            if auth_hdr.lower().startswith("bearer "):
-                bearer_tok = auth_hdr[7:].strip()
-                if (getattr(s, "inject_token", None) and bearer_tok == s.inject_token) or (
-                    getattr(s, "owner_token", None) and bearer_tok == s.owner_token
-                ):
-                    scope = "owner"
-                else:
-                    # A stored API token (design Section 6.6): ``owner`` and ``write`` read the raw file.
-                    entry = get_token_store(data_dir=s.data_dir).validate_api_token(bearer_tok)
-                    if entry is not None:
-                        scope = str(entry.get("scope") or "")
-            elif (cookie_token := read_session_cookie(request.scope)[1]) is not None:
-                try:
-                    conn_sess = dbm.connect_existing(s.db_file, readonly=True)
-                    try:
-                        sess_scope = dbm.validate_session_scope(
-                            conn_sess, cookie_token, scopes=("owner", "write")
-                        )
-                        if sess_scope:
-                            scope = sess_scope
-                    finally:
-                        conn_sess.close()
-                except Exception:
-                    pass
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                found = permalinks.resolve(conn, token)
+                if found is None or found.kind != "document":
+                    return found, None, False, False
+                row = dbm.get_document_row(conn, found.target, kb_id=found.kb_id)
+                if row is None:
+                    if found.gone_at is None:
+                        permalinks.mark_gone(conn, "document", found.target)
+                        conn.commit()
+                    return found, None, True, False
+                is_pending = str((row["extraction_status"] if "extraction_status" in row.keys() else None) or "extracted") == "pending"
+                return found, document_detail(conn, found.target, include_hidden=True, kb_id=found.kb_id), False, is_pending
+            finally:
+                conn.close()
 
-        can_access_raw = scope in ("owner", "write")
-        return HTMLResponse(
-            get_web_ui_renderer().shared_html(
-                document,
-                s,
-                base_url=base_url,
-                share_token=token,
-                can_access_raw=can_access_raw,
-            )
-        )
+        found, document, gone, pending = await asyncio.to_thread(_load)
+        if found is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(permalinks.permalink_path(found.token), status_code=308)
+        if found.gone_at is not None or gone:
+            return PlainTextResponse("Gone", status_code=410)
+        if found.kind != "document" or document is None:
+            # Notes and entities: the views come with the next work items of the design (Section 8). No fallback.
+            return PlainTextResponse("Not Found", status_code=404)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        if await _caller_is_member(request, kb):
+            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target)
+        if pending or document.get("hidden"):
+            # A document that only its members see (not extracted, or hidden) does not exist for another caller.
+            return PlainTextResponse("Not Found", status_code=404)
+        readable_kb = _kb_decide(request, kb, "read") == "allow"
+        if readable_kb or found.link_access:
+            base_url = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+            page = get_web_ui_renderer().shared_html(document, s, base_url=base_url, share_token=found.token, can_access_raw=False)
+            headers = {"Referrer-Policy": "strict-origin-when-cross-origin"}
+            if not readable_kb:
+                # Only link access makes the document readable: search engines must not get the address (U9).
+                page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')
+                headers["X-Robots-Tag"] = "noindex, nofollow"
+            return HTMLResponse(page, headers=headers)
+        return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target)
+
+    async def shared_doc_page(request: Request) -> Response:
+        """``GET /p?s={token}``: an old share link. It redirects to the permalink of its document (PERMALINK_UNIFICATION_DESIGN.md U5). No page is at this path now."""
+        token = request.query_params.get("s", "")
+        if not permalinks.plausible_token(token):
+            return PlainTextResponse("Not Found", status_code=404)
+
+        def _target() -> str | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                found = permalinks.resolve(conn, token)
+                return None if found is None or found.kind != "document" else found.token
+            finally:
+                conn.close()
+
+        target = await asyncio.to_thread(_target)
+        if target is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return RedirectResponse(permalinks.permalink_path(target), status_code=308)
 
     def _resolve_presentation_target(
         request: Request, doc_id: str = "", token: str = ""
@@ -6441,7 +6560,7 @@ def create_app(
             return PlainTextResponse("Not Found" if token else "Missing document id or share token", status_code=404 if token else 400)
 
         if not getattr(target_theme, "presentation_enabled", False):
-            back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
+            back_url = permalinks.permalink_path(token) if token else f"/?id={doc_id}"
             html_content = get_slide_renderer().render_unready_presentation_page(
                 title=doc_title or "프레젠테이션",
                 status="disabled",
@@ -6474,7 +6593,7 @@ def create_app(
         is_ready = bool(res.get("is_ready") or res.get("status") == "ready") and file_path.is_file()
 
         if not is_ready:
-            back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
+            back_url = permalinks.permalink_path(token) if token else f"/?id={doc_id}"
             status = res.get("status", "not_created")
             html_content = get_slide_renderer().render_unready_presentation_page(
                 title=doc_title or "프레젠테이션",
@@ -7595,6 +7714,8 @@ def create_app(
         Route("/resolution/rollback", rollback_resolution_route, methods=["POST"]),
         Route("/resolution/decisions", resolution_decisions_route, methods=["GET"]),
         Route("/share", create_share_route, methods=["POST"]),
+        Route("/share", stop_share_route, methods=["DELETE"]),
+        Route("/silvercord/{token}", permalink_route, methods=["GET", "HEAD"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
@@ -7676,13 +7797,16 @@ def create_app(
 
     legacy_hosts = SqliteLegacyHostDirectory(s.db_file, theme_location=_legacy_theme_location)
     # GateMiddleware는 없앴다(§5.1 Rev. 2.3). 정적 자산도 HostRouter와 보안 헤더 안쪽을 지난다.
-    return wrap_web_app(
+    wrapped = wrap_web_app(
         app,
         s,
         theme_manager=theme_mgr,
         legacy_hosts=legacy_hosts,
         namespace_directory=namespace_directory,
     )
+    # The permalink route gives a request to the full application again (``_dispatch_workspace``).
+    app.state.permalink_outer_app = wrapped
+    return wrapped
 
 
 def run_api() -> int:

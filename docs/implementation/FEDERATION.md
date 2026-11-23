@@ -391,7 +391,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 - A tombstone of kind `object` gives 410 with `gone_at`. This check comes first.
 - The record is given only while the account of the object is an actor (Section 3.1), the KB is public (`knowledge_bases.is_public` 1), and the document exists and is not hidden. All other conditions give the same 404.
 - `content` is the summary of the latest extraction (else the document title; at most 500 characters, cut at a word end with `"…"`) as one paragraph and a paragraph with the link to the share page (`_published_object_content`, cleaned with `nh3.clean`), never the body of the document (`detail` or `detail_html`) (RD21, Section 4.4). `name` is the document title.
-- `url` is the share page of the document, `{origin}/p?s={token}`, or null when the document has no share that is in effect. The publish route makes a share.
+- `url` is the permalink of the document, `{origin}/silvercord/{token}` ([`PERMALINKS.md`](PERMALINKS.md)), or null when the document has no row in the permalink registry. The publish route does the share action (link access 1), which makes the row.
 - For published KB documents, the outbox collection counts and lists only objects of KBs that are public now, together with own notes, for all actors regardless of `profile_public` (Section 4.4, Section 25.1).
 
 ## 6. Keys

@@ -1120,12 +1120,24 @@ class Settings(BaseSettings):
 
 
 def extract_own_share_token(url_candidate: str, settings: Settings | None = None) -> str | None:
-    """URL이 자체 서버의 공유 링크(/p?s=token)인 경우에만 token을 추출. 타 사이트 URL은 None."""
+    """The address token of a permalink of this server (``/silvercord/{token}``) or of an old share link (``/p?s=token``). None for a URL of another site."""
     from urllib.parse import parse_qs, urlsplit
+
+    from ..store.permalinks import PERMALINK_PATH_PREFIX, plausible_token
+
     s = settings or get_settings()
     t = (url_candidate or "").strip()
     if not t:
         return None
+
+    def _permalink_token(path: str) -> str | None:
+        if not path.startswith(PERMALINK_PATH_PREFIX):
+            return None
+        token = path[len(PERMALINK_PATH_PREFIX):].split("/", 1)[0]
+        return token if plausible_token(token) else None
+
+    if t.startswith(PERMALINK_PATH_PREFIX):
+        return _permalink_token(urlsplit(t).path)
 
     # 상대 경로인 경우 (?s=token 또는 /p?s=token)
     if t.startswith("?s="):
@@ -1159,6 +1171,8 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             except Exception:
                 pass
 
+        if is_match and (found := _permalink_token(parsed.path)) is not None:
+            return found
         if is_match and parsed.path.rstrip("/") == "/p":
             qs = parse_qs(parsed.query)
             toks = qs.get("s")

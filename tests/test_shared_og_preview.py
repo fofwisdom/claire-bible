@@ -145,7 +145,7 @@ def test_render_open_graph_tags_structure_and_escaping():
     # 1. 필수 OGP 태그 검증
     assert '<meta property="og:site_name" content="Claire Bible"/>' in tags_html
     assert '<meta property="og:type" content="article"/>' in tags_html
-    assert '<meta property="og:url" content="https://claire.example.com/p?s=tok_12345"/>' in tags_html
+    assert '<meta property="og:url" content="https://claire.example.com/silvercord/tok_12345"/>' in tags_html
     assert '<meta property="og:image" content="https://claire.example.com/image?p=images/arch.png"/>' in tags_html
 
     # 2. XSS 및 속성 탈출 방어 (quote=True)
@@ -170,7 +170,7 @@ def test_render_open_graph_tags_structure_and_escaping():
     assert '<meta name="twitter:title" content="CQRS &amp; &quot;이벤트 소싱&quot; &lt;속성테스트&gt;"/>' in tags_html
 
     # 6. Canonical
-    assert '<link rel="canonical" href="https://claire.example.com/p?s=tok_12345"/>' in tags_html
+    assert '<link rel="canonical" href="https://claire.example.com/silvercord/tok_12345"/>' in tags_html
 
 
 def test_shared_html_integration():
@@ -185,7 +185,7 @@ def test_shared_html_integration():
 
     assert '<meta property="og:site_name" content="Claire Bible"/>' in html_out
     assert '<meta property="og:title" content="공유 페이지 미리보기 테스트"/>' in html_out
-    assert '<meta property="og:url" content="https://claire.example.com/p?s=test_tok"/>' in html_out
+    assert '<meta property="og:url" content="https://claire.example.com/silvercord/test_tok"/>' in html_out
     assert '<meta property="article:tag" content="미리보기"/>' in html_out
     assert '<!-- __OG_TAGS__ -->' not in html_out
 
@@ -238,7 +238,7 @@ def test_shared_doc_page_endpoint_crawler_and_security(tmp_path: Path):
     # 텔레그램용 OG 메타태그 검증
     assert '<meta property="og:site_name" content="Claire Bible"/>' in body
     assert '<meta property="og:title" content="공개 아키텍처 문서"/>' in body
-    assert f'<meta property="og:url" content="https://bible.example.com/p?s={token_pub}"/>' in body
+    assert f'<meta property="og:url" content="https://bible.example.com/silvercord/{token_pub}"/>' in body
     assert '<meta property="og:image" content="https://bible.example.com/icon?p=android-chrome-512x512.png"/>' in body
     assert '<meta property="article:tag" content="분산처리"/>' in body
 

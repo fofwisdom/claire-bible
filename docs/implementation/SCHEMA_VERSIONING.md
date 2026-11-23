@@ -40,8 +40,11 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 37 | 직전 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
 | 38 | 직전 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
 | 39 | 직전 version (아래 "v39" 절) | 임베딩 공간 레지스트리(`embedding_spaces`), KB별 활성/목표 공간(`active_space_id`, `target_space_id`), 다중 공간 벡터 PK(`embeddings(owner_id, kb_id, space_id)`) |
-| 40 | 현재 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
-| 41 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 40 | 직전 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
+| 41 | 직전 version (아래 "v41" 절) | USERNAME 대소문자 보존·비구별 인덱스, 7일 보호 이름 변경 |
+| 42 | 직전 version | `accounts.summary` (코드 `_migrate_v42_account_summary`) |
+| 43 | 현재 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 행의 이관 |
+| 44 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -396,3 +399,11 @@ The retired v12 recovery is described above. Other stores have their own version
   - 유니크 인덱스 `idx_accounts_username_ci ON accounts(lower(username)) WHERE username IS NOT NULL` 생성.
   - 테이블 `username_tombstones`에 열 `reusable_after REAL` 추가 및 인덱스 `idx_username_tombstones_lower ON username_tombstones(lower(username))` 생성.
 - **[테스트]** `tests/test_schema_v41.py`.
+
+## v43 (permalink registry)
+
+Design: [`PERMALINK_UNIFICATION_DESIGN.md`](../design/PERMALINK_UNIFICATION_DESIGN.md) Section 7. Current behavior: [`PERMALINKS.md`](PERMALINKS.md).
+
+- **[code]** New table `permalinks` (`src/claire/store/permalinks.py`): `token` (primary key), `kind` (`document`, `note`, `entity`), `kb_id`, `account_id`, `target`, `identity`, `link_access`, `alias_of`, `gone_at`, `created_at`. Unique index on (`kind`, `target`) for rows without `alias_of`.
+- **[code]** `_migrate_v43_permalinks` runs at each start and is idempotent. For each document with valid rows in `doc_shares`, the newest valid token becomes the address token with `link_access` 1, and the older valid tokens become alias rows. Each other document and each entity gets a new token with `link_access` 0. Then the step deletes all rows of `doc_shares`.
+- **[code]** `doc_shares` stays in the schema as an empty table: the import of old theme database files can still write it, and the next start moves these rows. No other code reads or writes it. The removal of the table is a later step.

@@ -458,7 +458,7 @@ def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(t
             assert all(n["id"] != "ent-pending-only" for n in graph_resp.json()["nodes"])
             assert client.get("/@alice/node", params={"id": "ent-pending-only"}, headers=reader_headers).status_code == 404
 
-        assert client.get("/p", params={"s": share_tok}).status_code == 404
+        assert client.get(f"/silvercord/{share_tok}").status_code == 404
         sitemap_resp = client.get("/sitemap.xml")
         assert sitemap_resp.status_code == 200
         assert pending_id not in sitemap_resp.text

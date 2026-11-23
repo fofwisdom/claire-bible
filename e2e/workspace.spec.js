@@ -467,7 +467,7 @@ test('shared document page allows scrolling and maintains visible fixed rail tra
   page.on('pageerror', error => pageErrors.push(error.message));
 
   await page.setViewportSize({ width: 1024, height: 768 });
-  await page.goto('/p?s=23456789abcdefgh', { waitUntil: 'domcontentloaded' });
+  await page.goto('/silvercord/23456789abcdefgh', { waitUntil: 'domcontentloaded' });
 
   // 1. Verify title and heading rendered
   await expect(page.locator('h1')).toContainText('테스트 문서 1');
@@ -575,13 +575,13 @@ test('anonymous users can generate and open share link in public mode', async ({
   ]);
   expect(shareResponse.status()).toBe(200);
   const shareData = await shareResponse.json();
-  expect(shareData.path).toMatch(/^\/p\?s=/);
+  expect(shareData.path).toMatch(/^\/silvercord\/[2-9a-z]{16}$/);
 
   // 5. Verify reader sharebox displays the generated URL
   const shareBox = page.locator('#reader #sharebox');
   await expect(shareBox).toBeVisible();
   const shareInput = shareBox.locator('#shareurl');
-  await expect(shareInput).toHaveValue(new RegExp(shareData.path.replace('?', '\\?')));
+  await expect(shareInput).toHaveValue(new RegExp(shareData.path + '$'));
 
   // 6. Open the generated share link in a new page and verify content loads
   const sharedPage = await context.newPage();
@@ -630,9 +630,9 @@ test('pdf parser fallback, encoding flaw, and scanned tags render in reader and 
   await expect(scannedTag).toBeVisible();
   await expect(scannedTag).toContainText('스캔본 PDF');
 
-  // 3. Verify public share page (/p?s=34567892abcdefgh) also renders these tags
+  // 3. Verify the item view of the permalink (/silvercord/34567892abcdefgh) also renders these tags
   const sharedPage = await context.newPage();
-  const sharedResponse = await sharedPage.goto('/p?s=34567892abcdefgh');
+  const sharedResponse = await sharedPage.goto('/silvercord/34567892abcdefgh');
   expect(sharedResponse.status()).toBe(200);
 
   const shareFallbackTag = sharedPage.locator('.parser-fallback-tag');
@@ -1845,8 +1845,13 @@ test.describe('document list with server pages', () => {
     page.on('pageerror', error => pageErrors.push(error.message));
     const requests = docRequests(page);
     await page.setViewportSize({ width: 1400, height: 500 });
+    // A member opens the old link of a document: 308 to its permalink, and the permalink gives the workspace with the document open (PERMALINK_UNIFICATION_DESIGN.md U5, Section 6 rule 4). A caller that is not a member gets the item view.
+    await page.goto('/?t=e2e-deeplink-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+    requests.length = 0;
     await page.goto('/?doc=doc-page-35', { waitUntil: 'domcontentloaded' });
-    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('anonymous');
+    await expect(page).toHaveURL(/\/silvercord\/[2-9a-z]{16}$/);
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     await expect(page.locator('#reader')).toContainText('페이징 자료 35');
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
     // The document is row 38 of the list (3 + 35), thus the rendered window has two pages.
@@ -2987,7 +2992,7 @@ test.describe('document context panel (HW-3)', () => {
     expect(postRequests).toEqual([]);
 
     // T3: Entity marks must not appear on share page
-    await page.goto('/p?s=23456789abcdefgh', { waitUntil: 'domcontentloaded' });
+    await page.goto('/silvercord/23456789abcdefgh', { waitUntil: 'domcontentloaded' });
     const shareHighlights = await page.evaluate(() => {
       if (typeof CSS !== 'undefined' && CSS.highlights && CSS.highlights.has('claire-entity')) {
         return CSS.highlights.get('claire-entity').size;

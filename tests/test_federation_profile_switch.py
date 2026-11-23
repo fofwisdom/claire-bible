@@ -207,7 +207,7 @@ def test_profile_page_has_the_alternate_link_of_the_actor(env):
     assert kb_pub.status_code == 200 and '<meta name="robots" content="index, follow"/>' in kb_pub.text and "x-robots-tag" not in kb_pub.headers
     server._sitemap_cache.clear()
     sitemap_pub = env.client.request("GET", "/sitemap.xml")
-    assert sitemap_pub.status_code == 200 and "/p?s=" in sitemap_pub.text
+    assert sitemap_pub.status_code == 200 and "/silvercord/" in sitemap_pub.text
 
     # 2. Private profile + public personal KB (Model 1 / GD8): personal KB remains readable, while noindex + X-Robots-Tag apply and sitemap excludes the personal KB.
     assert env.client.request("PATCH", "/api/me", session=session, json={"profile_public": 0}).status_code == 200
