@@ -2332,7 +2332,12 @@ function renderIngestStatus(){
 let latestIngestEffortSpec = null;
 
 function applyEffortSpecFromStats(stats){
-  if(!stats || !stats.ingest_effort) return;
+  if(!stats) return;
+  // The extraction modes of the ingest dialog (AED4-rev): the API first and checked when the account has one, then the agent client queue.
+  if(Array.isArray(stats.extraction_modes) && window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setExtractionModes === 'function'){
+    window.ClaireIngestDialogs.setExtractionModes(stats.extraction_modes);
+  }
+  if(!stats.ingest_effort) return;
   latestIngestEffortSpec = stats.ingest_effort;
   if(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setEffortSpec === 'function'){
     window.ClaireIngestDialogs.setEffortSpec(stats.ingest_effort);
@@ -2372,13 +2377,17 @@ async function runIngest(){
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
+  const extractionMode=(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.selectedExtractionMode === 'function') ? window.ClaireIngestDialogs.selectedExtractionMode('ingest-extraction') : '';
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-ingest');
+  const toClient=extractionMode==='client';
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
-  const fullContent=!!amountChoice && amountChoice.value==='full';
-  const effort=effortChoice ? effortChoice.value : '';
+  // The queue of the agent client keeps the full source and calls no LLM: amount and effort do not apply.
+  const fullContent=!toClient && !!amountChoice && amountChoice.value==='full';
+  const effort=(!toClient && effortChoice) ? effortChoice.value : '';
   let labelText = tr("ws.common.starting");
   const optionLabels=[];
+  if(toClient) optionLabels.push(tr("ws.ingest.opt_client"));
   if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(optionLabels.length){
@@ -2419,7 +2428,7 @@ async function runIngest(){
     closeDrawer(false, false);
   }
   try{
-    const bodyObj = {payload:payload, full_content:fullContent};
+    const bodyObj = {payload:payload, full_content:fullContent, extraction_mode:extractionMode};
     if(effort) bodyObj.effort=effort;
     const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
@@ -2503,6 +2512,9 @@ async function runIngest(){
 function renderIngestResult(d){
   if(d.error){ panel.innerHTML='<h2><span data-icon="plus"></span> ' + tr("ws.ingest.title_short") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'+
     '<p class=al>' + tr("ws.ingest.kept_for_recover") + '</p>'; return; }
+  // The source waits in the queue of the agent client (AED4-rev): the document shows after the agent client extracts it.
+  if(d.staged){ panel.innerHTML='<h2 id="ingest-staged"><span data-icon="clock"></span> ' + tr("ws.ingest.staged") + '</h2>'+
+    '<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b></p><p class=al>' + tr("ws.ingest.staged_note") + '</p>'; return; }
   let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
   const appliedOptions=[];
@@ -7157,7 +7169,9 @@ function completeIngestMatrixView(result){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr('ws.cockpit.done') + '</strong> (' + tr('ws.ingest.counts', { created: (result && result.entities_created)||0, linked: (result && result.entities_linked)||0, relations: (result && result.relations_added)||0 }) + ')';
+    msgEl.innerHTML = (result && result.staged)
+      ? '<span data-icon="clock"></span> <strong>' + tr('ws.ingest.staged') + '</strong>'
+      : '<span data-icon="check-circle"></span> <strong>' + tr('ws.cockpit.done') + '</strong> (' + tr('ws.ingest.counts', { created: (result && result.entities_created)||0, linked: (result && result.entities_linked)||0, relations: (result && result.relations_added)||0 }) + ')';
   }
   updateCockpitChrome({
     active: false,

@@ -384,42 +384,23 @@ def test_moderation_routes_and_legacy_redirects(env):
         assert (redir.status_code, redir.headers["location"]) == (308, target)
 
 
-def test_providers_page_renders_the_extraction_mode_control_in_both_modes(env):
-    """The extraction mode control is on ``/account/providers`` (not on the profile page), also for a member in single mode who cannot register a key."""
+def test_providers_page_and_mcp_guide_have_no_account_extraction_mode(env):
+    """Each ingest selects its extraction mode (AED4-rev): ``/account/providers`` has no mode control, ``PATCH /api/me`` refuses the old field, and the ``/account/mcp`` guide has no mode row."""
     for server_mode in ("network", "single"):
         _set_mode(env.db_file, server_mode)
         providers_html = _get(env, "/account/providers", env.alice).text
-        assert 'id="settings-extraction-mode"' in providers_html
-        assert 'id="pref-account-extraction-mode"' in providers_html
-        assert 'data-settings-extraction-mode' in providers_html
-        assert 'data-extraction-mode="provider"' in providers_html
-        assert '<option value="provider" selected>' in providers_html
-        assert '<option value="client">' in providers_html
-        assert 'data-extraction-client-guide hidden' in providers_html
-        assert 'href="/account/mcp#pref-mcp-agent-guide"' in providers_html
+        assert "settings-extraction-mode" not in providers_html
+        assert "data-settings-extraction-mode" not in providers_html
         assert "/admin/" not in providers_html
         assert ADMIN_USERNAME not in providers_html
         if server_mode == "single":
             assert MEMBER_USERNAME not in providers_html
         assert _bootstrap(providers_html)["section"] == "providers"
-    assert "settings-extraction-mode" not in _get(env, "/account/profile", env.alice).text
-
-
-def test_e2e_extraction_mode_patch_updates_the_providers_page_and_the_mcp_guide(env):
-    _set_mode(env.db_file, "network")
     patch_resp = env.client.patch("/api/me", headers=env.alice, json={"extraction_mode": "client"})
-    assert patch_resp.status_code == 200
-    assert patch_resp.json()["extraction_mode"] == "client"
-
-    providers_html = _get(env, "/account/providers", env.alice).text
-    assert '<option value="client" selected>' in providers_html
-    assert 'id="settings-extraction-mode" aria-label="Extraction mode" data-extraction-mode="client"' in providers_html
-    assert 'data-extraction-client-guide style=' in providers_html
-    assert 'data-extraction-client-guide hidden' not in providers_html
-    assert "/admin/" not in providers_html
-
+    assert patch_resp.status_code == 400
+    assert patch_resp.json()["error"] == "invalid_request"
     mcp_html = _get(env, "/account/mcp", env.alice).text
-    assert 'id="pref-mcp-agent-guide" data-extraction-mode="client"' in mcp_html
-    assert '<code id="pref-mcp-extraction-mode" class="pref-mono">client</code>' in mcp_html
-    assert 'href="/account/providers#settings-extraction-mode"' in mcp_html
+    assert 'id="pref-mcp-agent-guide"' in mcp_html
+    assert "data-extraction-mode" not in mcp_html
+    assert "pref-mcp-extraction-mode" not in mcp_html
     assert "/admin/" not in mcp_html

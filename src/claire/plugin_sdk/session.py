@@ -17,7 +17,9 @@ class IngestSession:
         self._vstore = vstore
 
     def ingest(self, url: str, *, source: str, full_content: bool = True) -> Any:
-        """Ingest ``url``. The result has ``error`` (``None`` on success) and ``telegram_summary()``."""
+        """Ingest ``url`` with the default extraction mode of the account (the server API when the account has one, else the queue of the agent client). The result has ``error`` (``None`` on success) and ``telegram_summary()``."""
+        from ..accounts.provider_policy import context_of
+        from ..ingest.extraction_mode import available_extraction_modes
         from ..ingest.pipeline import ingest
 
         return ingest(
@@ -28,6 +30,7 @@ class IngestSession:
             data_dir=self.settings.data_dir,
             source=source,
             full_content=full_content,
+            extraction_mode=available_extraction_modes(self.settings, ctx=context_of(self.settings))[0],
         )
 
 

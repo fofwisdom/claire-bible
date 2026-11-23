@@ -1,4 +1,4 @@
-"""Tests for Track D AE4: per-account extraction_mode, untruncated client staging, zero server LLM execution, and pending document isolation."""
+"""Tests for Track D AE4 and AED4-rev: the extraction mode of each ingest request, untruncated client staging, zero server LLM execution, and pending document isolation."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from claire.store.raw import load_artifact
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import get_token_store, reset_token_stores
 from claire.store.vectors import make_vector_store
-from claire.telegram.bot import _settle_status, build_app, parse_force_provider_flag
+from claire.telegram.bot import _settle_status, build_app, parse_extraction_mode_flag
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 
@@ -66,13 +66,13 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Any:
     reset_token_stores()
 
 
-def _add_account(conn: sqlite3.Connection, account_id: int, username: str, *, role: str = "member", extraction_mode: str = "provider") -> None:
+def _add_account(conn: sqlite3.Connection, account_id: int, username: str, *, role: str = "member") -> None:
     now = time.time()
     conn.execute(
-        "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at, extraction_mode) "
-        "VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET username=excluded.username, role=excluded.role, status='active', profile_public=1, extraction_mode=excluded.extraction_mode",
-        (account_id, (1 << 57) + account_id, username, role, username.capitalize(), now, now, now, extraction_mode),
+        "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET username=excluded.username, role=excluded.role, status='active', profile_public=1",
+        (account_id, (1 << 57) + account_id, username, role, username.capitalize(), now, now, now),
     )
 
 
@@ -85,7 +85,7 @@ def _add_kb(conn: sqlite3.Connection, db_file: Path, *, kb_id: int, seq: int, la
     )
 
 
-def _setup_network_env(tmp_path: Path, *, alice_mode: str = "provider") -> SimpleNamespace:
+def _setup_network_env(tmp_path: Path) -> SimpleNamespace:
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -94,8 +94,8 @@ def _setup_network_env(tmp_path: Path, *, alice_mode: str = "provider") -> Simpl
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
     _add_account(conn, 1, "admin", role="admin")
-    _add_account(conn, 2, "alice", extraction_mode=alice_mode)
-    _add_account(conn, 3, "bob", extraction_mode="provider")
+    _add_account(conn, 2, "alice")
+    _add_account(conn, 3, "bob")
     store = accounts_store.AccountStore(conn)
     store.set_setting("mode", "network", updated_by=1)
     _add_kb(conn, db_file, kb_id=20, seq=1, label="Alice KB", account_id=2, personal=True)
@@ -133,45 +133,110 @@ def _setup_network_env(tmp_path: Path, *, alice_mode: str = "provider") -> Simpl
     )
 
 
-def test_account_store_and_me_api_extraction_mode_interface(tmp_path: Path) -> None:
-    """Verify AccountStore and GET/PATCH /api/me expose, update, and validate extraction_mode."""
+def test_ingest_routes_take_the_extraction_mode_of_the_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AED4-rev: the account has no stored mode; /stats gives the modes in the display order, and /ingest needs the mode of the request."""
     env = _setup_network_env(tmp_path)
-    app = server.create_app(env.settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
-
+    monkeypatch.setattr("claire.ingest.pipeline.default_fetch", lambda payload, full_content=False: Document(url=payload, canonical_url=payload, title="Route Note", raw_text=f"text for {payload}", source_type="web", content_hash=hashlib.sha256(payload.encode()).hexdigest()))
     conn = dbm.connect_existing(env.db_file)
     try:
-        store = accounts_store.AccountStore(conn)
-        assert store.get(2).extraction_mode == "provider"
-        with pytest.raises(ValueError, match="invalid_extraction_mode"):
-            store.update_extraction_mode(2, "invalid")
+        assert "extraction_mode" not in {r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        assert not hasattr(accounts_store.AccountStore(conn).get(2), "extraction_mode")
     finally:
         conn.close()
-
+    app = server.create_app(env.settings, SimpleNamespace(provider=MockProvider()))
     with TestClient(app, base_url=PUBLIC_URL) as client:
-        me_initial = client.get("/api/me", headers=env.alice_headers)
-        assert me_initial.status_code == 200
-        assert me_initial.json()["extraction_mode"] == "provider"
+        assert "extraction_mode" not in client.get("/api/me", headers=env.alice_headers).json()
+        refused = client.patch("/api/me", json={"extraction_mode": "client"}, headers=env.alice_headers)
+        assert refused.status_code == 400
+        assert refused.json()["error"] == "invalid_request"
 
-        bad = client.patch("/api/me", json={"extraction_mode": "local_bad"}, headers=env.alice_headers)
-        assert bad.status_code == 400
-        assert bad.json()["error"] == "invalid_extraction_mode"
+        # The server providers (mock) are the API of the administrator; a member without a key and without a server tier has no API.
+        assert client.get("/stats", headers=env.admin_headers).json()["extraction_modes"] == ["provider", "client"]
+        assert client.get("/stats", headers=env.alice_headers).json()["extraction_modes"] == ["client"]
 
-        bad_type = client.patch("/api/me", json={"extraction_mode": 123}, headers=env.alice_headers)
-        assert bad_type.status_code == 400
-        assert bad_type.json()["error"] == "invalid_extraction_mode"
+        for bad in ({}, {"extraction_mode": "local"}, {"extraction_mode": 1}):
+            res = client.post("/ingest", json={"payload": "https://example.com/route-bad", **bad}, headers=env.alice_headers)
+            assert res.status_code == 400
+            assert res.json()["error"] == "invalid_extraction_mode"
 
-        updated = client.patch("/api/me", json={"extraction_mode": "client"}, headers=env.alice_headers)
-        assert updated.status_code == 200
-        assert updated.json()["extraction_mode"] == "client"
-        assert client.get("/api/me", headers=env.alice_headers).json()["extraction_mode"] == "client"
+        staged = client.post("/ingest", json={"payload": "https://example.com/route-queue", "extraction_mode": "client"}, headers=env.alice_headers)
+        assert staged.status_code == 200
+        assert staged.json()["staged"] is True
+        assert staged.json()["extraction_status"] == "pending"
 
-        # Other account keeps default provider mode.
-        assert client.get("/api/me", headers=env.bob_headers).json()["extraction_mode"] == "provider"
+        # The API mode of an account without an API fails with the policy error; the source does not go to the queue (no fallback, C2).
+        no_api = client.post("/ingest", json={"payload": "https://example.com/route-api", "extraction_mode": "provider"}, headers=env.alice_headers)
+        assert no_api.status_code == 200
+        assert no_api.json()["staged"] is False
+        assert str(no_api.json()["error"]).startswith("provider_not_configured")
+
+
+def test_agent_client_requests_never_run_the_server_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AED4-rev: a request with the OAuth 2.1 access token of an agent client gets 403 for the API mode, re-ingest, and regenerate; the queue mode works."""
+    env = _setup_network_env(tmp_path)
+    monkeypatch.setattr("claire.ingest.pipeline.default_fetch", lambda payload, full_content=False: Document(url=payload, canonical_url=payload, title="Agent Note", raw_text=f"text for {payload}", source_type="web", content_hash=hashlib.sha256(payload.encode()).hexdigest()))
+    now = time.time()
+    agent_token = "agent-access-" + "a" * 32
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        conn.execute("INSERT INTO oauth_clients (client_id, client_secret, client_name, redirect_uris, created_at) VALUES ('agent-cli', NULL, 'Agent', '[\"http://127.0.0.1:9999/cb\"]', ?)", (now,))
+        conn.execute(
+            "INSERT INTO oauth_tokens (token, refresh_token, client_id, scope, granted_scope, created_at, expires_at, account_id) VALUES (?, ?, 'agent-cli', 'write', 'write', ?, ?, 2)",
+            (agent_token, "agent-refresh-" + "b" * 32, now, now + 3600),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    agent = {"Authorization": f"Bearer {agent_token}"}
+    app = server.create_app(env.settings, SimpleNamespace(provider=MockProvider()))
+    with TestClient(app, base_url=PUBLIC_URL) as client:
+        for path, body in (
+            ("/ingest", {"payload": "https://example.com/agent-api", "extraction_mode": "provider"}),
+            ("/ingest-stream", {"payload": "https://example.com/agent-api", "extraction_mode": "provider"}),
+            ("/reingest", {"target": "https://example.com/agent-api"}),
+            ("/regenerate", {"target": "https://example.com/agent-api", "component": "summary"}),
+        ):
+            refused = client.post(path, json=body, headers=agent)
+            assert (refused.status_code, refused.json()) == (403, {"error": "agent_client_provider_refused"}), path
+        queued = client.post("/ingest", json={"payload": "https://example.com/agent-queue", "extraction_mode": "client"}, headers=agent)
+        assert queued.status_code == 200
+        assert queued.json()["staged"] is True
+        # A manual API token of the same account is not an agent client: the API mode runs (and fails here only because Alice has no API).
+        manual = client.post("/ingest", json={"payload": "https://example.com/manual-api", "extraction_mode": "provider"}, headers=env.alice_headers)
+        assert manual.status_code == 200
+        assert str(manual.json()["error"]).startswith("provider_not_configured")
+
+
+def test_recover_retries_an_inbox_row_with_the_mode_of_its_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """v45 raw_inbox.extraction_mode: a failed queue request is retried in the queue, also when the account has an API (no change to the API)."""
+    env = _setup_network_env(tmp_path)
+    monkeypatch.setattr("claire.ingest.pipeline.default_fetch", lambda payload, full_content=False: Document(url=payload, canonical_url=payload, title="Retry Note", raw_text=f"text for {payload}", source_type="web", content_hash=hashlib.sha256(payload.encode()).hexdigest()))
+    spy = _SpyProvider()
+    # The personal knowledge base of the administrator (0): the server providers (mock) are its API.
+    svc = IngestService(env.settings, provider=spy, kb_id=0)
+    assert svc.available_extraction_modes() == ["provider", "client"]
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        iid = dbm.log_inbox(conn, source="web", payload="https://example.com/retry-queue", kind="url", kb_id=0, extraction_mode="client")
+        dbm.update_inbox(conn, iid, status="error", error="temporary fetch error", kb_id=0)
+        assert dbm.get_inbox(conn, iid, kb_id=0)["extraction_mode"] == "client"
+    finally:
+        conn.close()
+    results = svc.recover_failed()
+    assert results == [{"inbox_id": iid, "status": "done"}]
+    assert spy.calls == []
+    conn = dbm.connect_existing(env.db_file)
+    try:
+        row = dbm.get_inbox(conn, iid, kb_id=0)
+        assert row["status"] == "staged"
+        assert dbm.get_document_row(conn, row["document_id"], kb_id=0)["extraction_status"] == "pending"
+    finally:
+        conn.close()
 
 
 def test_stage_raw_preserves_untruncated_content_and_txt_zst_archive(tmp_path: Path) -> None:
     """Verify stage_raw stores full untruncated content, SHA-256 hash, raw_chars, .txt.zst archive, and staged inbox state."""
-    env = _setup_network_env(tmp_path, alice_mode="client")
+    env = _setup_network_env(tmp_path)
     long_text = "Segment-Alpha " * 4500
     expected_sha = hashlib.sha256(long_text.strip().encode("utf-8")).hexdigest()
     seen_full_content: list[bool] = []
@@ -233,12 +298,12 @@ def test_stage_raw_preserves_untruncated_content_and_txt_zst_archive(tmp_path: P
 
 
 def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify client-mode ingest performs zero provider calls, recover_failed skips staged rows, and force_provider overrides cleanly."""
-    env = _setup_network_env(tmp_path, alice_mode="client")
+    """Verify client-mode ingest performs zero provider calls, recover_failed skips staged rows, and the provider mode extracts the staged document."""
+    env = _setup_network_env(tmp_path)
     spy = _SpyProvider()
     monkeypatch.setattr("claire.ingest.pipeline.default_fetch", lambda payload, full_content=False: Document(url=payload if payload.startswith("http") else None, canonical_url=payload if payload.startswith("http") else None, title="PDF Spec", raw_text=f"Full payload for {payload} (full_content={full_content})", source_type="pdf", content_hash=hashlib.sha256(payload.encode()).hexdigest()))
 
-    # Direct pipeline.ingest on client-mode personal KB (even with full_content=False passed).
+    # Direct pipeline.ingest in client mode (even with full_content=False passed).
     conn = dbm.connect_existing(env.db_file)
     try:
         vstore = make_vector_store(conn, "brute", kb_id=20)
@@ -252,6 +317,7 @@ def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp
             full_content=False,
             kb_id=20,
             settings=env.settings,
+            extraction_mode="client",
         )
         assert rep1.error is None
         assert rep1.staged is True
@@ -262,8 +328,11 @@ def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp
     finally:
         conn.close()
 
-    # IngestService on member account without any server key or tier still stages cleanly without LLM quota failure.
+    # A member account without any server key or tier has no API: an ingest without a mode takes the default mode of the account, the queue, without LLM quota failure.
     svc = IngestService(env.settings, provider=spy, kb_id=20, account_id=2)
+    assert svc.available_extraction_modes() == ["client"]
+    with pytest.raises(ValueError, match="invalid_extraction_mode"):
+        svc.ingest("https://example.com/article-bad", source="telegram", extraction_mode="local")
     rep2 = svc.ingest("https://example.com/article-two", source="telegram")
     assert rep2.error is None
     assert rep2.staged is True
@@ -280,7 +349,7 @@ def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp
     assert svc.recover_failed() == []
     assert spy.calls == []
 
-    # force_provider=True overrides client mode and completes extraction of the previously staged document.
+    # extraction_mode="provider" completes extraction of the previously staged document.
     mock_prov = MockProvider()
     conn3 = dbm.connect_existing(env.db_file)
     try:
@@ -294,7 +363,7 @@ def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp
             source="cli",
             kb_id=20,
             settings=env.settings,
-            force_provider=True,
+            extraction_mode="provider",
         )
         assert forced_rep.error is None
         assert forced_rep.staged is False
@@ -309,11 +378,11 @@ def test_client_mode_ingest_service_and_recover_isolation_and_force_provider(tmp
 
 
 @pytest.mark.asyncio
-async def test_cli_and_telegram_interfaces_for_client_staging_and_force_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    """Verify CLI cmd_ingest/reingest and Telegram bot handle client staging without share links and honor --force-provider."""
+async def test_cli_and_telegram_interfaces_for_the_extraction_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify CLI cmd_ingest and the Telegram bot take the default mode of the account, honor --extraction-mode and the message flags, and stage without share links."""
     from claire.cli import build_parser, cmd_ingest
 
-    env = _setup_network_env(tmp_path, alice_mode="client")
+    env = _setup_network_env(tmp_path)
     monkeypatch.setattr("claire.ingest.pipeline.default_fetch", lambda payload, full_content=False: Document(url=payload, canonical_url=payload, title="CLI Note", raw_text=f"text for {payload}", source_type="web", content_hash=hashlib.sha256(payload.encode()).hexdigest()))
     personal_settings = env.settings.model_copy(update={"account_id": 2})
     theme_obj = SimpleNamespace(id=20, icon="📁", label="Alice KB")
@@ -324,25 +393,30 @@ async def test_cli_and_telegram_interfaces_for_client_staging_and_force_provider
 
     monkeypatch.setattr("claire.extract.provider.get_provider", _fail_get_provider)
     parser = build_parser()
-    args = parser.parse_args(["ingest", "https://example.com/cli-staged"])
+    args = parser.parse_args(["ingest", "--extraction-mode", "client", "https://example.com/cli-staged"])
     rc = cmd_ingest(args)
     assert rc == 0
     captured = capsys.readouterr().out
     assert "(mode=client-staging)" in captured
     assert STAGED_INGEST_MESSAGE in captured
 
-    # CLI --force-provider invokes provider cleanly.
+    # CLI --extraction-mode provider invokes the provider cleanly. The CLI runs with the server providers (mock here): without the option it takes the API, the default mode.
     monkeypatch.setattr("claire.extract.provider.get_provider", lambda s: MockProvider())
-    args_forced = parser.parse_args(["ingest", "--force-provider", "https://example.com/cli-forced"])
+    args_forced = parser.parse_args(["ingest", "--extraction-mode", "provider", "https://example.com/cli-forced"])
     rc_forced = cmd_ingest(args_forced)
     assert rc_forced == 0
     assert "(provider=mock)" in capsys.readouterr().out
+    assert cmd_ingest(parser.parse_args(["ingest", "https://example.com/cli-default"])) == 0
+    assert "(provider=mock)" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ingest", "--force-provider", "https://example.com/cli-old"])
 
     # Telegram flag parsing and _settle_status staged handling (no public share link created).
-    cleaned, forced = parse_force_provider_flag("https://example.com/a --force-provider")
-    assert forced is True and cleaned == "https://example.com/a"
-    _, not_forced = parse_force_provider_flag("https://example.com/a")
-    assert not_forced is False
+    assert parse_extraction_mode_flag("https://example.com/a --force-provider") == ("https://example.com/a", "provider")
+    assert parse_extraction_mode_flag("https://example.com/a --agent-client") == ("https://example.com/a", "client")
+    assert parse_extraction_mode_flag("https://example.com/a") == ("https://example.com/a", None)
+    with pytest.raises(ValueError, match="extraction_flags_conflict"):
+        parse_extraction_mode_flag("https://example.com/a --agent-client --force-provider")
 
     status_msg = AsyncMock()
     orig_msg = AsyncMock()
@@ -368,15 +442,15 @@ async def test_cli_and_telegram_interfaces_for_client_staging_and_force_provider
     finally:
         conn.close()
 
-    # Telegram on_ingest forwards --force-provider to target_svc.ingest.
+    # Telegram on_ingest forwards the flag mode to target_svc.ingest; a message without a flag gives None (the default mode of the account).
     tg_settings = env.settings.model_copy(update={"telegram_bot_token": "12345:token", "allowed_user_ids": []})
     bot_app = build_app(tg_settings)
     on_ingest = next(h.callback for h in bot_app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
-    seen_force_flags: list[bool] = []
+    seen_modes: list[str | None] = []
 
     def _spy_svc_ingest(self, payload: str, **kwargs: Any) -> pipeline.IngestReport:
-        seen_force_flags.append(bool(kwargs.get("force_provider", False)))
-        return pipeline.IngestReport(document_id="doc_tg_1", title="TG", staged=not kwargs.get("force_provider", False), message=STAGED_INGEST_MESSAGE)
+        seen_modes.append(kwargs.get("extraction_mode"))
+        return pipeline.IngestReport(document_id="doc_tg_1", title="TG", staged=kwargs.get("extraction_mode") != "provider", message=STAGED_INGEST_MESSAGE)
 
     monkeypatch.setattr("claire.ingest.service.IngestService.ingest", _spy_svc_ingest)
     msg = AsyncMock()
@@ -387,15 +461,20 @@ async def test_cli_and_telegram_interfaces_for_client_staging_and_force_provider
     upd.effective_chat = SimpleNamespace(id=200)
     upd.message = msg
     upd.update_id = 999
+    for flags in (["--force-provider"], ["--agent-client"], []):
+        ctx = MagicMock()
+        ctx.args = ["https://example.com/tg-item", "#1", *flags]
+        await on_ingest(upd, ctx)
+    assert seen_modes == ["provider", "client", None]
     ctx = MagicMock()
-    ctx.args = ["https://example.com/tg-item", "#1", "--force-provider"]
+    ctx.args = ["https://example.com/tg-item", "#1", "--force-provider", "--agent-client"]
     await on_ingest(upd, ctx)
-    assert seen_force_flags == [True]
+    assert seen_modes == ["provider", "client", None]
 
 
 def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(tmp_path: Path) -> None:
     """End-to-end test: pending staged documents stay visible to owner only and blocked from anonymous, cross-account, sitemap, publish, and contributions until extracted."""
-    env = _setup_network_env(tmp_path, alice_mode="provider")
+    env = _setup_network_env(tmp_path)
     app = server.create_app(env.settings, SimpleNamespace(provider=MockProvider()))
 
     conn = dbm.connect_existing(env.db_file)
@@ -411,12 +490,7 @@ def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(t
         conn.close()
 
     with TestClient(app, base_url=PUBLIC_URL) as client:
-        # 1. Alice opts into client extraction mode via /api/me.
-        patch_res = client.patch("/api/me", json={"extraction_mode": "client"}, headers=env.alice_headers)
-        assert patch_res.status_code == 200
-        assert patch_res.json()["extraction_mode"] == "client"
-
-        # 2. Stage a raw document via stage_raw (simulating client-mode ingest).
+        # 1-2. Stage a raw document via stage_raw (simulating an ingest in client mode).
         conn = dbm.connect_existing(env.db_file)
         try:
             staged_rep = stage_raw(
@@ -486,7 +560,7 @@ def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(t
         finally:
             conn2.close()
 
-        # 7. Once force_provider=True completes extraction, document becomes visible and publishable.
+        # 7. Once extraction_mode="provider" completes extraction, document becomes visible and publishable.
         conn3 = dbm.connect_existing(env.db_file)
         try:
             vstore3 = make_vector_store(conn3, "brute", kb_id=20)
@@ -500,7 +574,7 @@ def test_e2e_pending_document_isolation_across_reads_publish_and_contributions(t
                 kb_id=20,
                 settings=env.settings,
                 account_id=2,
-                force_provider=True,
+                extraction_mode="provider",
             )
             assert done_rep.error is None
             assert done_rep.document_id == pending_id
@@ -547,7 +621,7 @@ def test_auto_contribution_excludes_restaged_pending_documents(tmp_path: Path) -
     from claire.collaboration import auto_contribution
     from claire.ontology.base import normalize_name
 
-    env = _setup_network_env(tmp_path, alice_mode="client")
+    env = _setup_network_env(tmp_path)
     conn = dbm.connect_existing(env.db_file)
     try:
         doc = Document(id="doc-auto-1", url="https://auto.example/item", canonical_url="https://auto.example/item", title="Auto Candidate", raw_text="Korea Seoul Busan semiconductor policy overview.", source_type="web", content_hash="h_auto_1")
@@ -571,7 +645,7 @@ def test_auto_contribution_excludes_restaged_pending_documents(tmp_path: Path) -
 
 def test_pipeline_near_duplicate_syncs_pending_staged_state(tmp_path: Path) -> None:
     """Verify Dedup 3 near-duplicate match syncs extraction_status and staged state when the matched document is pending."""
-    env = _setup_network_env(tmp_path, alice_mode="client")
+    env = _setup_network_env(tmp_path)
     base_words = [f"token_{i:03d}" for i in range(180)]
     text_v1 = " ".join(base_words)
     text_v2 = " ".join(base_words[:-2] + ["variant_alpha", "variant_beta"])

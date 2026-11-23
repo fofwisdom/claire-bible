@@ -16,14 +16,21 @@
       <label class="ingest-label" for="ingin"><span data-i18n="ws.ingest.material">${t:ws.ingest.material}</span> <span class="ingest-help" data-i18n="ws.ingest.url_or_text">${t:ws.ingest.url_or_text}</span></label>
       <textarea id="ingin" rows="5" required autofocus placeholder="https://example.com/article"></textarea>
     </div>
-    <fieldset class="ingest-options">
+    <fieldset class="ingest-options" aria-describedby="ingest-extraction-hint">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.extraction">${t:ws.ingest.extraction}</span> <span id="ingest-extraction-hint" class="ingest-help" data-i18n="ws.ingest.extraction_no_api_hint" hidden>${t:ws.ingest.extraction_no_api_hint}</span></legend>
+      <div id="ingest-extraction-grid" class="ingest-choice-grid extraction" data-extraction-prefix="ingextraction" data-extraction-name="ingest-extraction" data-extraction-hint-id="ingest-extraction-hint">
+        <div class="ingest-choice"><input id="ingextraction-provider" type="radio" name="ingest-extraction" value="provider" checked/><label for="ingextraction-provider" data-i18n-title="ws.ingest.extraction_provider_title" title="${t:ws.ingest.extraction_provider_title}" data-i18n="ws.ingest.extraction_provider">${t:ws.ingest.extraction_provider}</label></div>
+        <div class="ingest-choice"><input id="ingextraction-client" type="radio" name="ingest-extraction" value="client"/><label for="ingextraction-client" data-i18n-title="ws.ingest.extraction_client_title" title="${t:ws.ingest.extraction_client_title}" data-i18n="ws.ingest.extraction_client">${t:ws.ingest.extraction_client}</label></div>
+      </div>
+    </fieldset>
+    <fieldset class="ingest-options" data-api-only>
       <legend class="ingest-label" data-i18n="ws.ingest.amount">${t:ws.ingest.amount}</legend>
       <div class="ingest-choice-grid">
         <div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked/><label for="ingamount-standard" data-i18n-title="ws.ingest.amount_standard_title" title="${t:ws.ingest.amount_standard_title}" data-i18n="ws.ingest.amount_standard">${t:ws.ingest.amount_standard}</label></div>
         <div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"/><label for="ingamount-full" data-i18n-title="ws.ingest.amount_full_title" title="${t:ws.ingest.amount_full_title}" data-i18n="ws.ingest.amount_full">${t:ws.ingest.amount_full}</label></div>
       </div>
     </fieldset>
-    <fieldset class="ingest-options" aria-describedby="ingest-effort-hint">
+    <fieldset class="ingest-options" aria-describedby="ingest-effort-hint" data-api-only>
       <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span id="ingest-effort-hint" class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
       <div id="ingest-effort-grid" class="ingest-choice-grid effort" data-effort-prefix="ingeffort" data-effort-name="ingest-effort" data-effort-hint-id="ingest-effort-hint">
         <div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked/><label for="ingeffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>

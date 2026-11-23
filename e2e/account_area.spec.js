@@ -1,16 +1,10 @@
-// The account area (/account/*) against the real E2E server (ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md decision D6): the old /settings/* paths of the account pages, the profile and security pages, the extraction mode on the provider page, the old directory path, and the administrator WebMCP page.
+// The account area (/account/*) against the real E2E server (ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md decision D6): the old /settings/* paths of the account pages, the profile and security pages, the provider and MCP pages without an account extraction mode (AED4-rev), the old directory path, and the administrator WebMCP page.
 const { test, expect } = require('@playwright/test');
 const { authenticateOwner, watchErrors } = require('./support/console_pages');
 
 test.use({ serviceWorkers: 'block' });
 
-async function setExtractionMode(page, mode) {
-  const patched = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH');
-  await page.locator('#pref-account-extraction-mode').selectOption(mode);
-  expect((await patched).status()).toBe(200);
-}
-
-test('old settings paths open the account pages, and the provider page changes the extraction mode', async ({ page, request }) => {
+test('old settings paths open the account pages, and the provider and MCP pages have no account extraction mode', async ({ page, request }) => {
   const errors = watchErrors(page);
 
   // The old path of the public account directory redirects with 308 and keeps the query.
@@ -32,27 +26,13 @@ test('old settings paths open the account pages, and the provider page changes t
   const aiLinks = await page.locator('#console-grp-ai a').evaluateAll((els) => els.map((el) => new URL(el.href).pathname));
   expect(aiLinks).toEqual(['/account/providers', '/account/mcp', '/account/webmcp']);
 
-  // The extraction mode control is on the provider page. The change shows the guide to the MCP page.
-  const guide = page.locator('[data-extraction-client-guide]');
-  await expect(page.locator('#pref-account-extraction-mode')).toHaveValue('provider');
-  await expect(guide).toBeHidden();
-  await setExtractionMode(page, 'client');
-  try {
-    await expect(guide).toBeVisible();
-    await expect(page.locator('#settings-extraction-mode')).toHaveAttribute('data-extraction-mode', 'client');
-    await expect(guide.locator('a[href="/account/mcp#pref-mcp-agent-guide"]')).toBeVisible();
-
-    // The MCP page shows the mode of the account and goes back to the provider page for a change.
-    await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#pref-mcp-extraction-mode')).toHaveText('client');
-    await page.locator('#pref-mcp-agent-guide a[href="/account/providers#settings-extraction-mode"]').click();
-    await expect(page).toHaveURL(/\/account\/providers#settings-extraction-mode$/);
-  } finally {
-    // The extraction mode is a setting of the seed account, which other tests share: set it back.
-    await page.goto('/account/providers', { waitUntil: 'domcontentloaded' });
-    await setExtractionMode(page, 'provider');
-  }
-  await expect(page.locator('[data-extraction-client-guide]')).toBeHidden();
+  // Each ingest selects its extraction mode in the ingest dialog (AED4-rev): the provider page has no mode control, and the MCP guide has two steps and no mode row.
+  await expect(page.locator('#settings-extraction-mode')).toHaveCount(0);
+  await expect(page.locator('#pref-account-extraction-mode')).toHaveCount(0);
+  await page.goto('/account/mcp', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#pref-mcp-agent-guide')).toBeVisible();
+  await expect(page.locator('#pref-mcp-extraction-mode')).toHaveCount(0);
+  await expect(page.locator('#pref-mcp-agent-guide ol.pref-flow > li')).toHaveCount(2);
 
   // The old account page opens the profile page. The password form is on the security page only.
   await page.goto('/settings/account', { waitUntil: 'domcontentloaded' });

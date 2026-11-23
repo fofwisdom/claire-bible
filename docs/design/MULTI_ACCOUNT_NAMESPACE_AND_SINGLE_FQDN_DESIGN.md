@@ -688,7 +688,7 @@ class RouteRule:
 1. **관리자**: 지금과 같다(`providers.json`).
 2. **멤버, 자기 키 있음**: 그 키의 `api-key` 프로바이더(현재 구현: `gemini`)를 쓴다. 모델과 effort는 멤버 설정이고, 상한은 서버 등급의 `byok_caps`다.
 3. **멤버, 자기 키 없음**: 서버 등급(§10.3)을 쓴다. 등급 프로바이더로는 `api-key` 분류(현재 구현: `gemini`)를 고른다.
-4. **서버 등급이 `none`(D6 기본값)** 또는 계정이 `extraction_mode = "client"`인 경우: 서버 LLM 단계를 자동 호출하지 않는다. `client` 모드는 원문을 스테이징(`full_content=True`)해 에이전트 클라이언트에 맡기고(`AED4`, `AED9`), 키 없는 `provider` 모드는 원문 저장과 FTS를 유지한 채 키 등록 후 재적재할 수 있게 남긴다(A1).
+4. **서버 등급이 `none`(D6 기본값)** 또는 적재 요청이 `extraction_mode = "client"`를 고른 경우: 서버 LLM 단계를 자동 호출하지 않는다. `client` 모드는 원문을 스테이징(`full_content=True`)해 에이전트 클라이언트에 맡기고(`AED4-rev`, `AED9`; API가 없는 계정의 기본 모드), 키 없는 계정이 `provider` 모드를 명시하면 원문 저장과 FTS를 유지한 채 키 등록 후 재적재할 수 있게 남긴다(A1).
 
 적용 지점은 다음과 같다. 하나라도 빠지면 멤버가 관리자의 자격을 쓰게 된다.
 - `get_provider`, `get_transcript_provider`, `get_vision_provider`

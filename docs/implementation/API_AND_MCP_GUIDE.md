@@ -194,18 +194,16 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 새로운 웹 URL 또는 텍스트 본문을 지식베이스에 적재하고 온톨로지 지식그래프를 추출한다.
 - **헤더**: `Content-Type: application/json`, `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (또는 세션 헤더)
 - **본문 필드**:
-  - `url` (str, 선택): 수집할 대상 웹 페이지/PDF/동영상 URL
-  - `text` (str, 선택): 직접 적재할 텍스트 본문 (URL이 없는 경우 필수)
-  - `title` (str, 선택): 문서 제목
-  - `theme` (str/int, 선택): 적재 대상 테마
+  - `payload` (str, 필수): 수집할 웹 페이지/PDF/동영상 URL 또는 적재할 텍스트 본문. 적재 대상은 호출자의 개인 지식베이스이다.
+  - `extraction_mode` (str, 필수): `provider`(서버 API로 바로 추출) 또는 `client`(에이전트 클라이언트가 연결될 때까지 대기열에 넣음, 응답 `staged: true`). 없거나 다른 값이면 400 `invalid_extraction_mode`. 에이전트 클라이언트의 OAuth 2.1 액세스 토큰으로는 `provider`가 403 `agent_client_provider_refused`이다(AED4-rev). `GET /stats`의 `extraction_modes`가 이 계정의 선택지이다.
+  - `full_content`, `effort` (선택): `provider` 추출에만 적용된다.
 ```bash
 curl -s -X POST https://claire.example.com/ingest \
      -H "Authorization: Bearer <CLAIRE_INJECT_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
-       "url": "https://datatracker.ietf.org/doc/html/rfc7636",
-       "title": "RFC 7636 - PKCE for OAuth Public Clients",
-       "theme": 0
+       "payload": "https://datatracker.ietf.org/doc/html/rfc7636",
+       "extraction_mode": "provider"
      }'
 ```
 
@@ -381,11 +379,11 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 ### 2.8 클라이언트 추출 스테이징 및 제출 API (`/api/client-extraction/*`, `AE5`)
 
-계정의 `extraction_mode = 'client'`(`PATCH /api/me`, `AE4`)이거나 클라이언트가 원문을 직접 스테이징·추출할 때 사용하는 HTTP REST API다 (`src/claire/api/server.py`, `src/claire/ingest/client_extraction.py`, 스키마 `"agent-extract-v1"`). 모든 경로는 호출자의 개인 지식베이스만 대상으로 하며(`CT4`), 타인 `kb`·`kb_id`·`theme` 매개변수는 거부한다. 세부 4계층 검증 및 옵션 B 서버 임베딩 파이프라인은 [`EXTRACTION.md`](EXTRACTION.md) §9에 있다.
+적재 요청이 `extraction_mode = 'client'`(에이전트 클라이언트 대기열, 설계 결정 AED4-rev)를 고른 원문이나 클라이언트가 직접 스테이징한 원문을 클라이언트가 추출할 때 사용하는 HTTP REST API다 (`src/claire/api/server.py`, `src/claire/ingest/client_extraction.py`, 스키마 `"agent-extract-v1"`). 모든 경로는 호출자의 개인 지식베이스만 대상으로 하며(`CT4`), 타인 `kb`·`kb_id`·`theme` 매개변수는 거부한다. 세부 4계층 검증 및 옵션 B 서버 임베딩 파이프라인은 [`EXTRACTION.md`](EXTRACTION.md) §9에 있다.
 
 | 메서드 | 경로 | 최소 스코프 | 요청 매개변수 / 본문 | 응답 / 주요 오류 |
 | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/client-extraction/stage` | `write` | JSON `{url_or_text \| url \| text, title?, source_type?, full_content?: bool (기본 true), mode?}`, JSON `{filename, content_base64, ...}`, 또는 `multipart/form-data` `file` (PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC, 최대 20 MiB) | 200 `{document_id, kb_id, content_hash, raw_chars, extraction_status: "pending", ...}` / 400 `invalid_full_content`·`file_required` / 413 `file_too_large` |
+| `POST` | `/api/client-extraction/stage` | `write` | JSON `{url_or_text \| url \| text, title?, source_type?, full_content?: bool (기본 true)}`, JSON `{filename, content_base64, ...}`, 또는 `multipart/form-data` `file` (PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC, 최대 20 MiB) | 200 `{document_id, kb_id, content_hash, raw_chars, extraction_status: "pending", ...}` / 400 `invalid_full_content`·`file_required` / 413 `file_too_large` |
 | `GET` | `/api/client-extraction/sources` | `write` | query `status` (기본 `"pending"`, `"all"` 허용), `limit` (기본 `50`) | 200 `{sources: [...], count}` |
 | `POST` | `/api/client-extraction/sources/{document_id}/claim` | `write` | 선택 JSON `{client_id?, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at, content_hash, ...}` / 400 `invalid_lease_seconds` / 409 임대 충돌 |
 | `POST` | `/api/client-extraction/sources/{document_id}/renew` | `write` | JSON `{claim_token, lease_seconds?: float (기본 300.0)}` | 200 `{document_id, claim_token, lease_expires_at}` / 400 `invalid_lease_seconds` / 409 |
@@ -499,7 +497,7 @@ Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호�
 | 툴 이름 | 입력 파라미터 | 스코프 / 제약 | 주요 역할 |
 |---|---|---|---|
 | `extract_spec` | (없음) | 읽기 (`readonly`) | `"agent-extract-v1"` 엄격 JSON 스키마, 활성 온톨로지 타입·domain/range 규칙, AsciiDoc 검증 규칙 반환. |
-| `extract_stage` | `url?`, `text?`, `filename?`, `content_base64?`, `title?`, `source_type?`, `full_content: bool = True`, `mode?`, `kb?` | `write` (`CT4` 개인 KB, `openWorldHint: true`) | 서버 LLM 없이 URL, 일반 텍스트 또는 `content_base64` 파일(PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC)을 `pending` 상태로 스테이징. |
+| `extract_stage` | `url?`, `text?`, `filename?`, `content_base64?`, `title?`, `source_type?`, `full_content: bool = True`, `kb?` | `write` (`CT4` 개인 KB, `openWorldHint: true`) | 서버 LLM 없이 URL, 일반 텍스트 또는 `content_base64` 파일(PDF·DOCX·ODT·HTML·MD·TXT·RST·ADOC)을 `pending` 상태로 스테이징. 에이전트 클라이언트의 요청은 서버 API를 쓰지 않으므로 `mode` 매개변수가 없다(AED4-rev). |
 | `extract_queue` | `status: str? = "pending"`, `limit: int = 50`, `kb?` | `write` (`CT4` 개인 KB) | 개인 지식베이스의 스테이징 대기 목록 조회. |
 | `extract_claim` | `document_id: str`, `claim_token: str?`, `client_id: str?`, `lease_seconds: float\|int = 300.0`, `kb?` | `write` (`CT4` 개인 KB) | 300초 기본 임대로 대기 문서를 선점(`client_id` 미지정 시 OAuth 클라이언트 자동 추론)하거나 `claim_token` 전달 시 기존 임대를 연장. |
 | `extract_read` | `document_id: str`, `claim_token: str?`, `offset: int = 0`, `limit: int?`, `full_content: bool = True`, `line_offset: int?`, `line_limit: int?`, `kb?` | `write` (`CT4` 개인 KB, 격리 서브에이전트 전용) | 난수 nonce가 포함된 `<untrusted_source_document nonce="..." document_id="..." sha256="...">` 태그로 감싼 원문 조각(기본 `32000`자 또는 줄 슬라이스)과 `expected_content_hash` 반환. |
@@ -607,7 +605,7 @@ claire token revoke "cb_xX9vY..." --json
 ### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/account/mcp`, `/account/tokens`)
 
 - **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
-- **`/account/mcp` (권장)**: 최상단 빠른 시작 가이드(3단계 녹색/붉은색 진행 체크리스트 — ① `extraction_mode = 'client'`, ② OAuth 2.1 `write` 인가 연결, ③ 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크(Antigravity `#pref-mcp-antigravity-prompt`·`#pref-mcp-antigravity-guide`, Claude `#pref-mcp-claude-prompt`·`#pref-mcp-claude-guide`·`#pref-mcp-claude-setup`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
+- **`/account/mcp` (권장)**: 최상단 빠른 시작 가이드(2단계 녹색/붉은색 진행 체크리스트 — ① OAuth 2.1 `write` 인가 연결, ② 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크(Antigravity `#pref-mcp-antigravity-prompt`·`#pref-mcp-antigravity-guide`, Claude `#pref-mcp-claude-prompt`·`#pref-mcp-claude-guide`·`#pref-mcp-claude-setup`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
 - **`/account/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/account/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
 
 ### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)

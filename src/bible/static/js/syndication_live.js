@@ -1010,6 +1010,10 @@
         const r = await fetch(personal ? "/stats" : kbPath(state.themeId, "/stats"), { cache: "no-store" });
         if (!r.ok) return;
         const d = await r.json();
+        // The extraction modes of the ingest dialogs (AED4-rev): the API first and checked when the account has one, then the agent client queue.
+        if (d && Array.isArray(d.extraction_modes) && window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setExtractionModes === "function") {
+          window.ClaireIngestDialogs.setExtractionModes(d.extraction_modes);
+        }
         if (d && d.ingest_effort) {
           latestSyndEffortSpec = d.ingest_effort;
           if (window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setEffortSpec === "function") {
@@ -1033,12 +1037,15 @@
       const payload = payloadEl ? payloadEl.value.trim() : "";
       const amountChoice = document.querySelector('input[name="ingest-amount"]:checked');
       const effortChoice = document.querySelector('input[name="ingest-effort"]:checked');
+      const extractionMode = window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.selectedExtractionMode === "function" ? window.ClaireIngestDialogs.selectedExtractionMode("ingest-extraction") : "";
+      const toClient = extractionMode === "client";
       if (!payload) return;
       if (submitBtn) submitBtn.disabled = true;
       ticker(tr("synd.kb.ingest.sending"));
       try {
-        const bodyObj = { payload, full_content: !!(amountChoice && amountChoice.value === "full") };
-        if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
+        // The queue of the agent client keeps the full source and calls no LLM: amount and effort do not apply.
+        const bodyObj = { payload, full_content: !toClient && !!(amountChoice && amountChoice.value === "full"), extraction_mode: extractionMode };
+        if (!toClient && effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
         const resp = await fetch("/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -1060,8 +1067,8 @@
             window.ClaireIngestDialogs.closeDialog("modal-ingest");
           }
           if (payloadEl) payloadEl.value = "";
-          if (data.document_id) state.selectedDocId = data.document_id;
-          ticker(tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
+          if (data.document_id && !data.staged) state.selectedDocId = data.document_id;
+          ticker(data.staged ? tr("synd.ingest.staged", { id: data.document_id || "" }) : tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
           await syncLiveThemeDb();
         }
       } catch (err) {

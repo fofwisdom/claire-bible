@@ -63,7 +63,7 @@ async function switchOn(page, id) {
 // The ingest request goes from the page, as the application sends it (same origin, the session cookie).
 async function ingest(page, url) {
   return page.evaluate(async (payload) => {
-    const response = await fetch('/ingest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ payload }) });
+    const response = await fetch('/ingest', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ payload, extraction_mode: 'provider' }) });
     let body = null;
     try { body = await response.json(); } catch (e) { body = null; }
     return { status: response.status, body };

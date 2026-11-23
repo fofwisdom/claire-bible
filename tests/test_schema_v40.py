@@ -16,7 +16,7 @@ def test_v40_fresh_schema_has_oauth_v21_columns_and_tables(tmp_path: Path) -> No
     conn = _connect(tmp_path / "claire.db")
     dbm.init_db(conn)
     try:
-        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION == 40
+        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION
         code_cols = {r["name"] for r in conn.execute("PRAGMA table_info(oauth_codes)").fetchall()}
         assert "granted_scope" in code_cols
 
@@ -85,7 +85,7 @@ def test_v39_to_v40_migration_backfills_existing_oauth_tokens(tmp_path: Path) ->
     conn = _connect(db_file)
     dbm.init_db(conn)
     try:
-        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 40
+        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION
         code_cols = {r["name"] for r in conn.execute("PRAGMA table_info(oauth_codes)").fetchall()}
         assert "granted_scope" in code_cols
         code_row = conn.execute("SELECT granted_scope FROM oauth_codes WHERE code='legacy_code_1'").fetchone()
@@ -115,14 +115,9 @@ def test_v40_fresh_schema_has_client_staging_columns_and_index(tmp_path: Path) -
     conn = _connect(tmp_path / "claire_ae4.db")
     dbm.init_db(conn)
     try:
+        # v45 retires the v40 account column: each ingest request selects its extraction mode.
         acct_cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
-        assert "extraction_mode" in acct_cols
-        admin_row = conn.execute("SELECT extraction_mode FROM accounts WHERE id=1").fetchone()
-        assert admin_row is not None
-        assert admin_row["extraction_mode"] == "provider"
-
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute("UPDATE accounts SET extraction_mode='invalid' WHERE id=1")
+        assert "extraction_mode" not in acct_cols
 
         doc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(documents)").fetchall()}
         assert {"content_hash", "extraction_status", "claim_token", "lease_expires_at", "claimed_by_client_id", "raw_chars"} <= doc_cols
@@ -147,7 +142,6 @@ def test_v39_to_v40_migration_adds_client_staging_columns_idempotently(tmp_path:
     db_file = tmp_path / "v39_staging.db"
     conn = _connect(db_file)
     dbm.init_db(conn)
-    conn.execute("ALTER TABLE accounts DROP COLUMN extraction_mode")
     conn.execute("DROP INDEX IF EXISTS idx_documents_kb_extraction_status")
     for col in ("extraction_status", "claim_token", "lease_expires_at", "claimed_by_client_id", "raw_chars"):
         conn.execute(f"ALTER TABLE documents DROP COLUMN {col}")
@@ -160,10 +154,8 @@ def test_v39_to_v40_migration_adds_client_staging_columns_idempotently(tmp_path:
     dbm.init_db(conn)
     dbm.init_db(conn)
     try:
-        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == 40
-        acct_row = conn.execute("SELECT extraction_mode FROM accounts WHERE id=1").fetchone()
-        assert acct_row is not None
-        assert acct_row["extraction_mode"] == "provider"
+        assert int(conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]) == dbm.SCHEMA_VERSION
+        assert "extraction_mode" not in {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
 
         doc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(documents)").fetchall()}
         assert {"content_hash", "extraction_status", "claim_token", "lease_expires_at", "claimed_by_client_id", "raw_chars"} <= doc_cols
@@ -184,10 +176,10 @@ def test_v40_staged_document_lifecycle_io(tmp_path: Path) -> None:
     conn = _connect(tmp_path / "staging_io.db")
     dbm.init_db(conn)
     try:
-        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at, extraction_mode) VALUES (9001, 'alice_member', 'member', 'active', 'Alice', 0, 1.0, 1.0, 1.0, 'client')")
+        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (9001, 'alice_member', 'member', 'active', 'Alice', 0, 1.0, 1.0, 1.0)")
         alice_id = int(conn.execute("SELECT id FROM accounts WHERE username='alice_member'").fetchone()["id"])
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id) VALUES (10, 10, 'Alice Personal', 1, 0, 1.0, 1.0, ?)", (alice_id,))
-        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at, extraction_mode) VALUES (9002, 'bob_member', 'member', 'active', 'Bob', 0, 1.0, 1.0, 1.0, 'client')")
+        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (9002, 'bob_member', 'member', 'active', 'Bob', 0, 1.0, 1.0, 1.0)")
         bob_id = int(conn.execute("SELECT id FROM accounts WHERE username='bob_member'").fetchone()["id"])
         conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id) VALUES (20, 20, 'Bob Personal', 1, 0, 1.0, 1.0, ?)", (bob_id,))
 

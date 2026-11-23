@@ -41,7 +41,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "track_d: Track D agent marketplace, staging, and client extraction tests",
         "ae1a: AE1a agent marketplace source validation and contract tests",
         "ae1b: AE1b marketplace metadata and settings UI guidance tests",
-        "ae4: AE4 per-account extraction_mode, full-content staging, and pending isolation tests",
+        "ae4: AE4 extraction mode of each ingest request, full-content staging, and pending isolation tests",
         "ae5: AE5 client extraction MCP/HTTP contract, validation gates, and atomic commit tests",
         "ae7: AE7 reference agent plugin extraction flow and documentation tests",
         "tier1: Tier 1 isolated happy-path E2E tests",

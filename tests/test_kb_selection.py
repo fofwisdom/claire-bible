@@ -96,7 +96,7 @@ def test_the_path_selects_the_knowledge_base(kb_env):
 
 def test_e2e_ingest_writes_only_to_the_personal_knowledge_base(kb_env):
     client, _settings, _tm, other = kb_env
-    resp = client.post("/ingest", json={"payload": "New\na new text for the personal knowledge base.", "theme": _number(other)}, headers=OWNER_HEADERS)
+    resp = client.post("/ingest", json={"payload": "New\na new text for the personal knowledge base.", "theme": _number(other), "extraction_mode": "provider"}, headers=OWNER_HEADERS)
     assert resp.status_code == 200, resp.text
     assert resp.json()["kb_id"] == 0
     assert _titles(client.get("/documents", headers=OWNER_HEADERS)) == ["New", "Personal"]

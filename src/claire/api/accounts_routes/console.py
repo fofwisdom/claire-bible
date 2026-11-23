@@ -1342,31 +1342,6 @@ def _settings_entity_language_html(account: accounts_store.Account) -> str:
     return console_card(escape(t("console.account.entity_language_title")), body, id="settings-entity-language", icon="globe", aria_label=label)
 
 
-def _extraction_mode_text(mode: str) -> str:
-    """Return the localized label for the given extraction_mode value."""
-    return t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
-
-
-def _settings_extraction_mode_html(account: accounts_store.Account) -> str:
-    """Render the per-account extraction_mode selector (#pref-account-extraction-mode) and the Agent Client onboarding notice. The card is on /account/providers: the mode selects who does the extraction of the account."""
-    label = t("console.settings.account.extraction_mode_label")
-    mode = "client" if account.extraction_mode == "client" else "provider"
-    options = f'<option value="provider"{" selected" if mode == "provider" else ""}>{escape(t("console.settings.account.extraction_mode_provider"))}</option><option value="client"{" selected" if mode == "client" else ""}>{escape(t("console.settings.account.extraction_mode_client"))}</option>'
-    guide_notice = console_notice(
-        f'<p style="margin:0 0 8px">{escape(t("console.settings.account.extraction_mode_client_next"))}</p>'
-        f'<a class="pref-btn" href="/account/mcp#pref-mcp-agent-guide"><span data-icon="puzzle"></span> {escape(t("console.settings.account.extraction_mode_open_mcp"))}</a>',
-        tone="ok",
-        attrs={"data-extraction-client-guide": True, "hidden": mode != "client", "style": "margin-top:8px"},
-    )
-    body = (
-        console_field(label, f'<select id="pref-account-extraction-mode" class="pref-input" data-settings-extraction-mode>{options}</select>', for_id="pref-account-extraction-mode")
-        + f'<p class="hint">{escape(t("console.settings.account.extraction_mode_hint"))}</p>'
-        + guide_notice
-        + console_result(attrs={"data-settings-result": True})
-    )
-    return console_card(escape(t("console.settings.account.extraction_mode_title")), body, id="settings-extraction-mode", icon="bolt", aria_label=label, attrs={"data-extraction-mode": mode})
-
-
 def _account_providers_body(
     ctx: AccountsContext,
     *,
@@ -1375,8 +1350,7 @@ def _account_providers_body(
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
-    """The body of ``/account/providers``: who does the LLM jobs of the account. It has the extraction mode, the personal provider key (BYOK), the record of the key decryptions, and the server tier with the usage."""
-    extraction_mode_card = _settings_extraction_mode_html(account)
+    """The body of ``/account/providers``: who does the LLM jobs of the account. It has the personal provider key (BYOK), the record of the key decryptions, and the server tier with the usage."""
     if not admin_viewer and (mode != "network" or principal.server_role != "member"):
         # 싱글 모드의 비관리자: /api/me/provider-keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
@@ -1389,7 +1363,6 @@ def _account_providers_body(
                 aria_label=t("console.settings.keys.unavailable_label"),
                 attrs={"data-keys-mode": "unavailable"},
             )
-            + extraction_mode_card
         )
         return body, {"keys_mode": "unavailable"}
 
@@ -1471,7 +1444,6 @@ def _account_providers_body(
     )
     body = (
         admin_card
-        + extraction_mode_card
         + meta_card
         + _settings_reauth_form_html(has_password=has_password, form_id="settings-keys-reauth")
         + console_form_card(escape(t("console.settings.keys.put_title")), put_body, id="settings-keys-put", icon="plus", aria_label=t("console.settings.keys.put_title"), attrs={"data-settings-form": "provider-key-put"})

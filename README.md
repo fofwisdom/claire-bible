@@ -35,7 +35,7 @@ flowchart LR
 - **하이브리드 검색과 AsciiDoc AOT 렌더링**: SQLite FTS5(BM25, 한국어 `kiwipiepy` 형태소 분석)와 지식 베이스별 고정 임베딩 공간의 코사인 유사도, 그래프 이웃 확장을 RRF로 결합한다. 본문은 AsciiDoc 원문에서 사전 컴파일한 `detail_html`(KaTeX 수식·표·코드 지원)로 렌더링하며, AsciiDoc/Markdown 내보내기와 Asciidoctor reveal.js 프레젠테이션 저작을 지원한다.
 - **개인·공유 지식 베이스와 테마**: 단일 `claire.db` 내 `kb_id` 격리로 계정별 개인 지식 베이스와 협업용 공유 지식 베이스를 운영하며, 주제별 컬렉션 테마와 기여·검토·평판 워크플로를 제공한다.
 - **멀티 계정·보안·통합 콘솔·PWA 알림**: 싱글·네트워크 모드, 초대제 가입, OIDC/GitHub 외부 IdP, 4계층 RBAC(`owner`/`write`/`readonly`/`anonymous`), OAuth 2.1(`S256` PKCE, RFC 8628 `/device`, RFC 8693 토큰 교환)을 지원한다. 한/영 i18n 기반 Web UI(홈 개요, 엔티티 마크 리더, 2D 그래프, 명령 팔레트, `/syndication`, `/directory`)와 `/account/*`·`/settings/*`·`/moderation/*`·`/admin/*` 통합 콘솔, 연계 요청 알림 및 PWA Web Push를 제공한다.
-- **서버 프로바이더와 외부 AI 에이전트 연동**: `data/providers.json` 기반 Gemini 프로바이더(관리자·멤버 BYOK·서버 등급 격리)뿐만 아니라 클라이언트 에이전트 주도 추출(`extraction_mode=client`)을 지원한다. Streamable HTTP MCP 서버와 `agent_clients/` 공식 플러그인(`fofwisdom/claire-agents`, Antigravity·Claude Code)으로 OAuth 2.1 인증, 직접 적재, 격리된 추출, 그래프 질의를 연결한다.
+- **서버 프로바이더와 외부 AI 에이전트 연동**: `data/providers.json` 기반 Gemini 프로바이더(관리자·멤버 BYOK·서버 등급 격리)과 클라이언트 에이전트 주도 추출을 함께 쓴다. 적재할 때마다 API로 바로 적재할지 에이전트 클라이언트 대기열에 넣을지 고른다(`extraction_mode`). Streamable HTTP MCP 서버와 `agent_clients/` 공식 플러그인(`fofwisdom/claire-agents`, Antigravity·Claude Code)으로 OAuth 2.1 인증, 직접 적재, 격리된 추출, 그래프 질의를 연결한다.
 - **ActivityPub 및 지식 연합**: Deno 기반 Fedify 사이드카로 계정 액터 발행, 원격 타임라인·노트·답글·부스트·인용(FEP-044f)을 처리하며, 서버 간 공유 지식 베이스 큐레이션·교차 기여(Knowledge Federation)와 운영 환경 내장 `edge` 리버스 프록시를 제공한다.
 
 ---

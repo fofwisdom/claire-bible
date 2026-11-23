@@ -745,34 +745,6 @@
     });
   }
 
-  function bindExtractionModeSelect() {
-    var select = document.querySelector("select[data-settings-extraction-mode]");
-    if (!select) return;
-    var saved = select.value;
-    select.addEventListener("change", function () {
-      var section = select.closest("section") || select.parentElement;
-      var fail = function () {
-        select.value = saved;
-        show(section, tr("console.js.account.extraction_mode_error"), true);
-      };
-      select.disabled = true;
-      request("PATCH", "/api/me", { extraction_mode: select.value }).then(function (r) {
-        if (r.ok) {
-          saved = select.value;
-          var card = select.closest("[data-extraction-mode]");
-          if (card) card.setAttribute("data-extraction-mode", select.value);
-          var guide = document.querySelector("[data-extraction-client-guide]");
-          if (guide) guide.hidden = select.value !== "client";
-          show(section, tr("console.js.common.saved"), false);
-        } else {
-          fail();
-        }
-      }).catch(fail).then(function () {
-        select.disabled = false;
-      });
-    });
-  }
-
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
     // The console page has no app.js apiUrl/rootUrl. Unprefixed /tokens resolves to the caller's own account (N3). The page /settings/kb (console_kb.js) has the function of the old /settings/themes.
@@ -800,7 +772,6 @@
     } else if (section === "federation") {
       bindFederation();
     } else if (section === "providers") {
-      bindExtractionModeSelect();
       if (extra.keys_mode === "byok") {
         refreshKeys();
       }

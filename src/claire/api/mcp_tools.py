@@ -193,7 +193,7 @@ _MCP_TOOL_SPECS: tuple[dict[str, Any], ...] = (
         "read_only": False,
         "scope": "write",
         "annotations": _OPEN_WRITE_ANNOTATIONS,
-        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("document_id", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("force", "boolean"), _param("refetch", "boolean"), _param("mode", "string"), _param("kb", "string")],
+        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("document_id", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("force", "boolean"), _param("refetch", "boolean"), _param("kb", "string")],
     },
     {
         "name": "extract_queue",
@@ -1147,7 +1147,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
         full_content: bool = True,
         force: bool = False,
         refetch: bool = False,
-        mode: str | None = None,
         kb: str | int | None = None,
     ) -> dict[str, Any]:
         """Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (scope write)."""
@@ -1201,7 +1200,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                         title=title,
                         source_type=source_type,
                         full_content=full_content,
-                        mode=mode,
                         settings=kb_settings,
                         data_dir=data_dir,
                     )
@@ -1215,7 +1213,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                         title=title,
                         source_type=source_type,
                         full_content=full_content,
-                        mode=mode,
                         force=force,
                         settings=kb_settings,
                         data_dir=data_dir,
@@ -1228,7 +1225,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
                     title=title,
                     source_type=source_type,
                     full_content=full_content,
-                    mode=mode,
                     force=force,
                     settings=kb_settings,
                     data_dir=data_dir,

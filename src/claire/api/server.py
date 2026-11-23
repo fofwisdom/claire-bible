@@ -48,6 +48,7 @@ from ..core.config import Settings, get_settings
 from ..i18n import get_locale
 from ..i18n import t as _t
 from ..i18n.catalog import LOCALES_DIR
+from ..ingest.extraction_mode import available_extraction_modes, parse_extraction_mode
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
@@ -475,6 +476,35 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    def _is_agent_client_request(request: Request) -> bool:
+        """True when an OAuth 2.1 access token of an agent client authenticates the request (AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md decision AED4-rev). A browser session, a session token sent as a bearer, and a manual API token are not agent clients."""
+        from ..ingest.client_extraction import resolve_oauth_client_id
+
+        principal = request_principal(request)
+        credential_id = principal.credential_id or ""
+        if principal.channel != "bearer" or principal.account_id is None or not credential_id or credential_id.startswith(("api:", "env:")):
+            return False
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            return resolve_oauth_client_id(conn, account_id=int(principal.account_id), credential_id=credential_id, credential_kind="bearer") is not None
+        finally:
+            conn.close()
+
+    async def _refuse_server_api_for_agent_client(request: Request) -> None:
+        """A request of an agent client never runs the server API (AED4-rev): 403 ``agent_client_provider_refused``. The agent client extracts the sources itself (``/api/client-extraction/*``, MCP ``extract_*``)."""
+        if await asyncio.to_thread(_is_agent_client_request, request):
+            raise HTTPException(status_code=403, detail="agent_client_provider_refused")
+
+    async def _request_extraction_mode(request: Request, body: dict[str, Any]) -> str:
+        """The extraction mode of an ingest request: the required body field ``extraction_mode``, ``provider`` (the server API extracts at once) or ``client`` (the source waits in the queue for an agent client). No default: a missing or unknown value gets 400 ``invalid_extraction_mode``."""
+        try:
+            mode = parse_extraction_mode(body.get("extraction_mode"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_extraction_mode") from None
+        if mode == "provider":
+            await _refuse_server_api_for_agent_client(request)
+        return mode
+
     # --- 프로바이더 정책 (설계 §10.1–§10.4) ---------------------------------------------
 
     def _account_limits_context(account_id: int | None) -> policy.ProviderContext | None:
@@ -689,6 +719,12 @@ def create_app(
         res = await asyncio.to_thread(_counts)
         if request_auth_scope(request) in ("owner", "write"):
             res["ingest_effort"] = policy.describe_ingest_effort_options(
+                getattr(theme_svc, "s", theme_settings),
+                ctx=getattr(theme_svc, "provider_context", None),
+                provider_error=getattr(theme_svc, "provider_error", None),
+            )
+            # The extraction modes of the ingest dialog, in the display order (AED4-rev): the API first when the account has one, then the agent client queue.
+            res["extraction_modes"] = available_extraction_modes(
                 getattr(theme_svc, "s", theme_settings),
                 ctx=getattr(theme_svc, "provider_context", None),
                 provider_error=getattr(theme_svc, "provider_error", None),
@@ -3619,12 +3655,14 @@ def create_app(
 
         payload, _sealed_focus = parse_message_focus(payload)
 
+        extraction_mode = await _request_extraction_mode(request, body)
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
         ingest_kwargs: dict[str, Any] = {
             "source": "api",
             "expand_max": expand_max,
+            "extraction_mode": extraction_mode,
         }
         if full_content:
             ingest_kwargs["full_content"] = True
@@ -3686,7 +3724,8 @@ def create_app(
         item = await asyncio.to_thread(_load)
         if item is None:
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        ingest_kwargs: dict[str, Any] = {"source": "federation"}
+        extraction_mode = await _request_extraction_mode(request, body)
+        ingest_kwargs: dict[str, Any] = {"source": "federation", "extraction_mode": extraction_mode}
         try:
             report = await _run_expensive(theme_svc.ingest, item.url or item.object_iri, **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -3731,7 +3770,7 @@ def create_app(
         raw_id = request.path_params["item_id"]
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        await _json_object(request)
+        body = await _json_object(request)
         # Ingest writes only to the personal knowledge base of the caller (design Section 5.2 rule 3). A ``theme`` or ``kb_id`` field is ignored.
         theme, _, theme_svc = _get_personal_kb_ctx(request)
         if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
@@ -3751,7 +3790,8 @@ def create_app(
         # The URL ingest needs an address. An item without a link stays in the feed only.
         if not item["url"]:
             return JSONResponse({"error": "item_without_url"}, status_code=409)
-        ingest_kwargs: dict[str, Any] = {"source": "feed"}
+        extraction_mode = await _request_extraction_mode(request, body)
+        ingest_kwargs: dict[str, Any] = {"source": "feed", "extraction_mode": extraction_mode}
         try:
             report = await _run_expensive(theme_svc.ingest, item["url"], **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -3782,6 +3822,8 @@ def create_app(
 
     async def do_reingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        # Re-ingest and regenerate extract with the server API (AED4-rev); an agent client re-opens a document with ``extract_stage(document_id=..., force=True)``.
+        await _refuse_server_api_for_agent_client(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
@@ -3840,6 +3882,7 @@ def create_app(
                 ingest_kwargs: dict[str, Any] = {
                     "source": "api-reingest",
                     "expand_max": expand_max,
+                    "extraction_mode": "provider",
                 }
                 if full_content:
                     ingest_kwargs["full_content"] = True
@@ -3864,6 +3907,8 @@ def create_app(
 
     async def do_regenerate(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        # Re-ingest and regenerate extract with the server API (AED4-rev); an agent client re-opens a document with ``extract_stage(document_id=..., force=True)``.
+        await _refuse_server_api_for_agent_client(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
@@ -4655,12 +4700,15 @@ def create_app(
 
         target_svc = service_pool.get_service(target_theme.id)
         payload = src_doc.url or src_doc.raw_text or src_doc.title or "cross_theme_dispatch"
+        # The copy has no dialog: it takes the default extraction mode of the account. A copy that an agent client requests waits in the queue for the agent client (AED4-rev).
+        copy_mode = "client" if await asyncio.to_thread(_is_agent_client_request, request) else None
         try:
             report = await _run_expensive(
                 target_svc.ingest,
                 payload,
                 prefetched=target_doc,
                 source=f"syndication:{src_theme.id}",
+                extraction_mode=copy_mode,
             )
         except (HTTPException, policy.ProviderPolicyError):
             raise
@@ -5824,6 +5872,7 @@ def create_app(
 
         payload, _sealed_focus = parse_message_focus(payload)
 
+        extraction_mode = await _request_extraction_mode(request, body)
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
@@ -5855,6 +5904,7 @@ def create_app(
                 ingest_kwargs: dict[str, Any] = {
                     "source": "web",
                     "expand_max": expand_max,
+                    "extraction_mode": extraction_mode,
                 }
                 if full_content:
                     ingest_kwargs["full_content"] = True
@@ -5916,6 +5966,8 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
+        # Re-ingest and regenerate extract with the server API (AED4-rev); an agent client re-opens a document with ``extract_stage(document_id=..., force=True)``.
+        await _refuse_server_api_for_agent_client(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
@@ -5999,6 +6051,7 @@ def create_app(
                     ingest_kwargs: dict[str, Any] = {
                         "source": "api-reingest",
                         "expand_max": expand_max,
+                        "extraction_mode": "provider",
                     }
                     if full_content:
                         ingest_kwargs["full_content"] = True
@@ -6061,6 +6114,8 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
+        # Re-ingest and regenerate extract with the server API (AED4-rev); an agent client re-opens a document with ``extract_stage(document_id=..., force=True)``.
+        await _refuse_server_api_for_agent_client(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
@@ -7271,7 +7326,6 @@ def create_app(
         url_or_text = ""
         title: Any = None
         source_type: Any = None
-        mode: Any = None
         full_content = True
         force = False
         refetch = False
@@ -7297,7 +7351,6 @@ def create_app(
             filename = str(getattr(uploaded, "filename", None) or form.get("filename") or "").strip()
             title = form.get("title")
             source_type = form.get("source_type")
-            mode = form.get("mode")
             parsed_fc = _parse_bool_flag(form.get("full_content"), default=True)
             if parsed_fc is None:
                 return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
@@ -7311,7 +7364,6 @@ def create_app(
             _reject_foreign_kb_param(request, theme, body)
             title = body.get("title")
             source_type = body.get("source_type")
-            mode = body.get("mode")
             full_content_raw = body.get("full_content", True)
             if not isinstance(full_content_raw, bool):
                 return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
@@ -7344,7 +7396,6 @@ def create_app(
                     "title": str(title) if title is not None else None,
                     "source_type": str(source_type) if source_type is not None else None,
                     "full_content": full_content,
-                    "mode": str(mode) if mode is not None else None,
                     "settings": theme_settings,
                     "data_dir": Path(s.data_dir) if getattr(s, "data_dir", None) else None,
                 }

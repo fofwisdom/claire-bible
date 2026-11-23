@@ -33,6 +33,7 @@ from ..retrieval.query import SearchMode
 from ..store import db as dbm
 from ..store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 from ..store.vectors import make_vector_store
+from .extraction_mode import available_extraction_modes, parse_extraction_mode
 from .fetchers.base import bound_fetch_settings
 from .pipeline import (
     IngestReport,
@@ -231,6 +232,15 @@ def _item_context(
         yield step_cb
 
 
+def _inbox_extraction_mode(row: Any) -> str | None:
+    """The extraction mode that the request of an inbox row selected (v45 ``raw_inbox.extraction_mode``): a retry takes the same mode. A row from before v45 has none, and the retry takes the default mode of the account."""
+    try:
+        value = row["extraction_mode"]
+    except (IndexError, KeyError):
+        return None
+    return value if value in ("provider", "client") else None
+
+
 class IngestService:
     _kb_id: int = 0
 
@@ -334,6 +344,7 @@ class IngestService:
         chat_id: int | None,
         file_ref: str | None,
         file_name: str | None,
+        extraction_mode: str | None = None,
     ) -> IngestReport:
         """적재가 정책으로 막혔다. 원문은 ``raw_inbox``에 남기고(A1) 오류(``code: …``)를 기록한다."""
         report = IngestReport()
@@ -345,7 +356,7 @@ class IngestService:
                 inbox_id = dbm.log_inbox(
                     conn, source=source, payload=payload, kind=inbox_kind or _guess_kind(payload),
                     user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
-                    kb_id=self.kb_id,
+                    kb_id=self.kb_id, extraction_mode=extraction_mode,
                 )
             dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=self.kb_id)
         finally:
@@ -370,16 +381,15 @@ class IngestService:
             return "기본 지식베이스"
         return f"테마 #{self.kb_id}"
 
-    def is_client_staging(self, *, force_provider: bool = False) -> bool:
-        """Return True when this service resolves to client extraction mode without a force_provider override."""
-        if force_provider:
-            return False
-        conn = dbm.connect(self.s.db_file)
-        try:
-            dbm.init_db(conn)
-            return dbm.resolve_extraction_mode(conn, account_id=getattr(self, "account_id", None), kb_id=self.kb_id) == "client"
-        finally:
-            conn.close()
+    def available_extraction_modes(self) -> list[str]:
+        """The extraction modes of the account of this service, in the display order: the API first when the account has one, then the agent client queue (``extraction_mode.py``)."""
+        return available_extraction_modes(self.s, ctx=getattr(self, "provider_context", None), provider_error=getattr(self, "provider_error", None))
+
+    def resolve_extraction_mode(self, extraction_mode: str | None) -> str:
+        """The extraction mode of one ingest: the given mode, or the default mode of the account (the first available mode) when the caller gives none. An unknown mode raises ``ValueError('invalid_extraction_mode')``."""
+        if extraction_mode is None:
+            return self.available_extraction_modes()[0]
+        return parse_extraction_mode(extraction_mode)
 
     def ingest(
         self,
@@ -397,11 +407,12 @@ class IngestService:
         format: str | None = None,
         effort: str | None = None,
         full_content: bool = False,
-        force_provider: bool = False,
+        extraction_mode: str | None = None,
     ) -> IngestReport:
-        """Ingest one item; stage raw content with zero server LLM calls when the account uses client extraction mode."""
+        """Ingest one item. ``extraction_mode="client"`` stages the raw content for an agent client with zero server LLM calls; ``None`` takes the default mode of the account."""
         tlabel = self.get_theme_label()
-        client_staging = self.is_client_staging(force_provider=force_provider)
+        mode = self.resolve_extraction_mode(extraction_mode)
+        client_staging = mode == "client"
         if effort and not client_staging:
             effort = validate_ingest_effort(self.s, effort, ctx=getattr(self, "provider_context", None), allow_mock_standard=True)
         with ExitStack() as stack:
@@ -413,6 +424,7 @@ class IngestService:
                 return self._reject_ingest(
                     exc, payload, source=source, inbox_id=inbox_id, inbox_kind=inbox_kind,
                     user_id=user_id, chat_id=chat_id, file_ref=file_ref, file_name=file_name,
+                    extraction_mode=mode,
                 )
             reserved = stack.enter_context(_reserved_ingest())
             del reserved
@@ -420,7 +432,7 @@ class IngestService:
                 payload, source=source, expand_max=expand_max, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name, inbox_id=inbox_id,
                 prefetched=prefetched, format=format, effort=effort,
-                full_content=full_content, tlabel=tlabel, force_provider=force_provider,
+                full_content=full_content, tlabel=tlabel, extraction_mode=mode,
             )
 
     def _ingest_now(
@@ -440,7 +452,7 @@ class IngestService:
         effort: str | None,
         full_content: bool,
         tlabel: str,
-        force_provider: bool = False,
+        extraction_mode: str = "provider",
     ) -> IngestReport:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -462,7 +474,7 @@ class IngestService:
                 kb_id=tid, theme_label=tlabel,
                 settings=self.s, provider_context=getattr(self, "provider_context", None),
                 account_id=getattr(self, "account_id", None),
-                force_provider=force_provider,
+                extraction_mode=extraction_mode,
             )
         finally:
             conn.close()
@@ -481,10 +493,11 @@ class IngestService:
         full_content: bool = False,
         inbox_id: int | None = None,
         format: str | None = None,
-        force_provider: bool = False,
+        extraction_mode: str | None = None,
     ) -> IngestReport:
-        """첨부 파일과 외부 하이퍼링크를 단일 지식 문서로 통합 복합 적재."""
-        client_staging = self.is_client_staging(force_provider=force_provider)
+        """첨부 파일과 외부 하이퍼링크를 단일 지식 문서로 통합 복합 적재. ``extraction_mode`` is as in ``ingest``."""
+        mode = self.resolve_extraction_mode(extraction_mode)
+        client_staging = mode == "client"
         with ExitStack() as stack:
             try:
                 stack.enter_context(self.job_scope())
@@ -494,12 +507,13 @@ class IngestService:
                 return self._reject_ingest(
                     exc, url, source=source, inbox_id=inbox_id, inbox_kind="composite",
                     user_id=user_id, chat_id=chat_id, file_ref=str(file_path), file_name=file_name,
+                    extraction_mode=mode,
                 )
             stack.enter_context(_reserved_ingest())
             return self._ingest_composite_now(
                 file_path, file_name, url, source=source, expand_max=expand_max, user_id=user_id,
                 chat_id=chat_id, effort=effort, full_content=(True if client_staging else full_content),
-                inbox_id=inbox_id, format=format, force_provider=force_provider, client_staging=client_staging,
+                inbox_id=inbox_id, format=format, extraction_mode=mode,
             )
 
     def _ingest_composite_now(
@@ -516,8 +530,7 @@ class IngestService:
         full_content: bool,
         inbox_id: int | None,
         format: str | None,
-        force_provider: bool = False,
-        client_staging: bool = False,
+        extraction_mode: str = "provider",
     ) -> IngestReport:
         import json
         from .composite import compose_composite_document, fetch_composite_components
@@ -544,11 +557,12 @@ class IngestService:
                     file_name=file_name,
                     file_ref=str(file_path),
                     kb_id=self.kb_id,
+                    extraction_mode=extraction_mode,
                 )
         finally:
             conn.close()
 
-        fetch_cfg = _fetch_settings_for_staging(self.s) if client_staging else self.s
+        fetch_cfg = _fetch_settings_for_staging(self.s) if extraction_mode == "client" else self.s
         try:
             emit_progress("원문 및 첨부 파일 수집 중…")
             file_doc, url_doc, file_bytes = fetch_composite_components(
@@ -583,7 +597,7 @@ class IngestService:
             format=format,
             effort=effort,
             full_content=full_content,
-            force_provider=force_provider,
+            extraction_mode=extraction_mode,
         )
 
     @_service_job()
@@ -720,7 +734,7 @@ class IngestService:
         *,
         format: str | None = None,
         on_progress: Callable[[str, str], None] | None = None,
-        force_provider: bool = False,
+        extraction_mode: str | None = None,
     ) -> dict:
         """[복원] 한 문서를 원본 payload 로 재fetch→재추출하여 in-place 갱신.
 
@@ -731,7 +745,7 @@ class IngestService:
         if not document_id:
             return {"status": "error", "document_id": document_id,
                     "error": "document_id required"}
-        client_staging = self.is_client_staging(force_provider=force_provider)
+        client_staging = self.resolve_extraction_mode(extraction_mode) == "client"
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
@@ -1892,6 +1906,7 @@ class IngestService:
                 payload, source="replay-failed",
                 inbox_kind=row["kind"], file_name=row["file_name"],
                 file_ref=row["file_ref"],
+                extraction_mode=_inbox_extraction_mode(row),
             )
             out.append((row["id"], rep))
         return out
@@ -1978,6 +1993,7 @@ class IngestService:
                         inbox_id=inbox_id,
                         effort=ceffort,
                         full_content=cfull,
+                        extraction_mode=_inbox_extraction_mode(row),
                     )
                 else:
                     payload = row["file_ref"] or row["payload"]
@@ -1985,6 +2001,7 @@ class IngestService:
                         payload, source="manual-retry", inbox_id=inbox_id,
                         inbox_kind=row["kind"], file_name=row["file_name"],
                         file_ref=row["file_ref"],
+                        extraction_mode=_inbox_extraction_mode(row),
                     )
             except Exception:
                 payload = row["file_ref"] or row["payload"]
@@ -1992,6 +2009,7 @@ class IngestService:
                     payload, source="manual-retry", inbox_id=inbox_id,
                     inbox_kind=row["kind"], file_name=row["file_name"],
                     file_ref=row["file_ref"],
+                    extraction_mode=_inbox_extraction_mode(row),
                 )
         else:
             payload = row["file_ref"] or row["payload"]
@@ -1999,6 +2017,7 @@ class IngestService:
                 payload, source="manual-retry", inbox_id=inbox_id,
                 inbox_kind=row["kind"], file_name=row["file_name"],
                 file_ref=row["file_ref"],
+                extraction_mode=_inbox_extraction_mode(row),
             )
         if rep.error:
             conn2 = dbm.connect(self.s.db_file)
@@ -2071,6 +2090,7 @@ class IngestService:
                                 inbox_id=row["id"],
                                 effort=ceffort,
                                 full_content=cfull,
+                                extraction_mode=_inbox_extraction_mode(row),
                             )
                         else:
                             payload = row["file_ref"] or row["payload"]
@@ -2079,6 +2099,7 @@ class IngestService:
                                 payload, source="recover", inbox_id=row["id"],
                                 inbox_kind=row["kind"], file_name=row["file_name"],
                                 file_ref=row["file_ref"],
+                                extraction_mode=_inbox_extraction_mode(row),
                             )
                     except Exception:
                         payload = row["file_ref"] or row["payload"]
@@ -2087,6 +2108,7 @@ class IngestService:
                             payload, source="recover", inbox_id=row["id"],
                             inbox_kind=row["kind"], file_name=row["file_name"],
                             file_ref=row["file_ref"],
+                            extraction_mode=_inbox_extraction_mode(row),
                         )
                 else:
                     payload = row["file_ref"] or row["payload"]
@@ -2095,6 +2117,7 @@ class IngestService:
                         payload, source="recover", inbox_id=row["id"],
                         inbox_kind=row["kind"], file_name=row["file_name"],
                         file_ref=row["file_ref"],
+                        extraction_mode=_inbox_extraction_mode(row),
                     )
                 if rep.error is None:
                     # ingest 가 이미 done/duplicate 로 갱신함 → due 에 다시 안 잡힘.

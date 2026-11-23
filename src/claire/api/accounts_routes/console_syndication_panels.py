@@ -110,40 +110,33 @@ def _query_agent_onboarding_progress(conn: Any, account: accounts_store.Account,
     pending_docs = int(pending_row[0]) if pending_row else 0
     agent_extractions = int(extracted_row[0]) if extracted_row else 0
     has_write_oauth = any({"write", "owner"} & set(str(g.get("scope") or "").replace(",", " ").split()) for g in oauth_grants)
-    step1_ok = account.extraction_mode == "client"
-    step2_ok = has_write_oauth
-    step3_ok = agent_extractions > 0
     return {
-        "step1_ok": step1_ok,
-        "step2_ok": step2_ok,
-        "step3_ok": step3_ok,
+        "step1_ok": has_write_oauth,
+        "step2_ok": agent_extractions > 0,
         "pending_docs": pending_docs,
         "agent_extractions": agent_extractions,
     }
 
 
-def _render_agent_extraction_guide_block(account: accounts_store.Account, progress: dict[str, Any]) -> str:
-    """Render the Agent-Driven Extraction quick start guide at the top of /account/mcp."""
-    mode = "client" if account.extraction_mode == "client" else "provider"
-    mode_text = t("console.settings.account.extraction_mode_client") if mode == "client" else t("console.settings.account.extraction_mode_provider")
+def _render_agent_extraction_guide_block(progress: dict[str, Any]) -> str:
+    """Render the Agent-Driven Extraction quick start guide at the top of /account/mcp. Each ingest selects its extraction mode (AED4-rev), thus the guide has no account mode: step 1 connects the agent client, step 2 is its first extraction."""
     step1_ok = bool(progress.get("step1_ok"))
     step2_ok = bool(progress.get("step2_ok"))
-    step3_ok = bool(progress.get("step3_ok"))
     pending_docs = int(progress.get("pending_docs") or 0)
     agent_extractions = int(progress.get("agent_extractions") or 0)
     done_text = t("console.synd.mcp.guide_status_done")
     pending_text = t("console.synd.mcp.guide_status_pending")
-    step3_badge = (
-        t("console.synd.mcp.guide_step_3_counts_done", extracted=agent_extractions, pending=pending_docs)
-        if step3_ok
-        else t("console.synd.mcp.guide_step_3_counts_pending", extracted=agent_extractions, pending=pending_docs)
+    step2_badge = (
+        t("console.synd.mcp.guide_step_2_counts_done", extracted=agent_extractions, pending=pending_docs)
+        if step2_ok
+        else t("console.synd.mcp.guide_step_2_counts_pending", extracted=agent_extractions, pending=pending_docs)
     )
     steps_spec = (
         (1, step1_ok, done_text if step1_ok else pending_text),
-        (2, step2_ok, done_text if step2_ok else pending_text),
-        (3, step3_ok, step3_badge),
+        (2, step2_ok, step2_badge),
     )
     done_count = sum(1 for _i, ok, _badge in steps_spec if ok)
+    total = len(steps_spec)
     steps_html = "".join(
         f'<li data-step="{idx}" data-ok="{"true" if ok else "false"}">'
         f'<div class="pref-flow-head"><span>{escape(t(f"console.synd.mcp.guide_step_{idx}_title"))}</span>'
@@ -152,19 +145,12 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
         "</li>"
         for idx, ok, badge_text in steps_spec
     )
-    mode_pill = console_pill(mode_text, tone="ok" if step1_ok else "danger")
     progress_pill = console_pill(
-        t("console.synd.mcp.guide_progress_badge", done=done_count, total=3),
-        tone="ok" if done_count == 3 else ("warn" if done_count > 0 else "danger"),
+        t("console.synd.mcp.guide_progress_badge", done=done_count, total=total),
+        tone="ok" if done_count == total else ("warn" if done_count > 0 else "danger"),
     )
     body_html = (
         f'<p class="pref-desc">{escape(t("console.synd.mcp.guide_desc"))}</p>'
-        '<div class="pref-row">'
-        f'<div class="pref-row-label"><strong>{escape(t("console.synd.mcp.guide_mode_label"))}</strong></div>'
-        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-        f'{mode_pill}<code id="pref-mcp-extraction-mode" class="pref-mono">{escape(mode)}</code>'
-        f'<a class="pref-btn" href="/account/providers#settings-extraction-mode">{escape(t("console.synd.mcp.guide_mode_change"))}</a>'
-        "</div></div>"
         f'<h3 style="margin:14px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">{escape(t("console.synd.mcp.guide_steps_title"))} {progress_pill}</h3>'
         f'<ol class="pref-flow" style="margin:0 0 12px">{steps_html}</ol>'
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'
@@ -178,7 +164,6 @@ def _render_agent_extraction_guide_block(account: accounts_store.Account, progre
         icon="bolt",
         split=False,
         extra_class="pref-card",
-        attrs={"data-extraction-mode": mode},
     )
 
 
@@ -329,7 +314,7 @@ def build_syndication_section(
         "tokens_label": escape(tokens_label),
         "oauth_grants_rows": grant_rows,
         "deprecation_notice_html": deprecation_notice_html,
-        "agent_extraction_guide_html": _render_agent_extraction_guide_block(account, onboarding_progress) if slug == "mcp" else "",
+        "agent_extraction_guide_html": _render_agent_extraction_guide_block(onboarding_progress) if slug == "mcp" else "",
         "agent_clients_delivery_html": _render_agent_marketplace_block(marketplace_repo) if marketplace_repo is not None else "",
     }
     panel_html = _render_partial(slug, values)

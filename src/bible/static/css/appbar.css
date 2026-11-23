@@ -119,6 +119,7 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
 .claire-dialog textarea,.claire-dialog input[type="text"],.claire-dialog select{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
 .claire-dialog textarea:focus-visible,.claire-dialog input:focus-visible,.claire-dialog select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .claire-dialog fieldset.ingest-options{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin:0}
+.claire-dialog fieldset.ingest-options:disabled{opacity:.55}
 .claire-dialog .ingest-choice-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .claire-dialog .ingest-choice{display:inline-flex;align-items:center;gap:4px;font-size:12px}
 .claire-dialog .ingest-choice input{margin:0;cursor:pointer}

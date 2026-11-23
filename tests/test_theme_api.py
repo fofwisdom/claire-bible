@@ -87,7 +87,7 @@ def test_theme_api_single_mode_behavior(tmp_path):
         # 5. POST /ingest: a ``theme`` field is ignored (CT23); the ingest goes to the personal knowledge base 0
         ingest_valid = client.post(
             "/ingest",
-            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999},
+            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999, "extraction_mode": "provider"},
             headers=OWNER_HEADERS,
         )
         assert ingest_valid.status_code == 200

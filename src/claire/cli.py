@@ -2195,6 +2195,17 @@ def cmd_expand_loop(args) -> int:
         time.sleep(max(60, args.interval))
 
 
+def _cli_extraction_mode(args, s) -> str:
+    """The extraction mode of a CLI ingest (AED4-rev): ``--extraction-mode``, or the default mode of the account when the option is not given (the server API when the account has one, else the queue of the agent client)."""
+    from .accounts.provider_policy import context_of
+    from .ingest.extraction_mode import available_extraction_modes
+
+    chosen = getattr(args, "extraction_mode", None)
+    if chosen:
+        return str(chosen)
+    return available_extraction_modes(s, ctx=context_of(s))[0]
+
+
 def cmd_ingest(args) -> int:
     from .extract.provider import get_provider
     from .ingest.pipeline import ingest
@@ -2207,8 +2218,8 @@ def cmd_ingest(args) -> int:
     dbm.init_db(conn)
     target_kb_id = theme.id if theme else getattr(s, "kb_id", 0)
     account_id = getattr(s, "account_id", None)
-    force_provider = bool(getattr(args, "force_provider", False))
-    client_staging = (not force_provider) and (dbm.resolve_extraction_mode(conn, account_id=account_id, kb_id=target_kb_id) == "client")
+    extraction_mode = _cli_extraction_mode(args, s)
+    client_staging = extraction_mode == "client"
     provider = None if client_staging else get_provider(s)
     vstore = None if client_staging else make_vector_store(conn, s.vector_backend, kb_id=target_kb_id)
     print("(mode=client-staging)" if client_staging else f"(provider={provider.name})")
@@ -2223,7 +2234,7 @@ def cmd_ingest(args) -> int:
         full_content=full_content,
         kb_id=target_kb_id,
         account_id=account_id,
-        force_provider=force_provider,
+        extraction_mode=extraction_mode,
     )
     print(report.telegram_summary())
     # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
@@ -2241,7 +2252,7 @@ def cmd_ingest(args) -> int:
                          data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
                          effort=effort, full_content=full_content,
-                         kb_id=target_kb_id, account_id=account_id, force_provider=force_provider)  # 2홉 방지
+                         kb_id=target_kb_id, account_id=account_id, extraction_mode=extraction_mode)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] Candidate URLs (use --expand to ingest them):")
@@ -2395,19 +2406,19 @@ def cmd_reingest(args) -> int:
             else:
                 print(f"[{stage}]", flush=True)
 
-    force_provider = bool(getattr(args, "force_provider", False))
+    extraction_mode = svc.resolve_extraction_mode(getattr(args, "extraction_mode", None))
     target_kb_id = theme.id if theme else getattr(s, "kb_id", 0)
     account_id = getattr(s, "account_id", None)
 
     if matched_targets:
-        if svc.is_client_staging(force_provider=force_provider):
+        if extraction_mode == "client":
             staged_results = []
             for m in matched_targets:
                 payload_url = m.get("url") or m.get("canonical_url")
                 if not payload_url:
-                    staged_results.append({"document_id": m["id"], "title": m.get("title"), "status": "error", "error": "no URL payload to refetch; pass --force-provider for server extraction"})
+                    staged_results.append({"document_id": m["id"], "title": m.get("title"), "status": "error", "error": "no URL payload to refetch; pass --extraction-mode provider for server extraction"})
                 else:
-                    r = svc.refresh_document(m["id"], payload_url, format=fmt, on_progress=_on_progress, force_provider=False)
+                    r = svc.refresh_document(m["id"], payload_url, format=fmt, on_progress=_on_progress, extraction_mode="client")
                     staged_results.append({"document_id": m["id"], "title": m.get("title"), **r})
             res = {"count": len(staged_results), "targets": staged_results}
         else:
@@ -2447,7 +2458,7 @@ def cmd_reingest(args) -> int:
 
         conn2 = dbm.connect(s.db_file)
         dbm.init_db(conn2)
-        client_staging = (not force_provider) and (dbm.resolve_extraction_mode(conn2, account_id=account_id, kb_id=target_kb_id) == "client")
+        client_staging = extraction_mode == "client"
         provider = None if client_staging else get_provider(s)
         vstore = None if client_staging else make_vector_store(conn2, s.vector_backend, kb_id=target_kb_id)
         try:
@@ -2464,7 +2475,7 @@ def cmd_reingest(args) -> int:
                 full_content=full_content,
                 kb_id=target_kb_id,
                 account_id=account_id,
-                force_provider=force_provider,
+                extraction_mode=extraction_mode,
             )
             if is_json:
                 import json
@@ -5937,7 +5948,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not use link expansion for this document")
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
-    pi.add_argument("--force-provider", action="store_true", help="extract with server provider even when account extraction_mode is client")
+    pi.add_argument("--extraction-mode", choices=["provider", "client"], default=None, help="provider: the server API extracts at once; client: the source waits in the queue for an agent client (default: provider when the account has an API, else client)")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
@@ -5960,7 +5971,7 @@ def build_parser() -> argparse.ArgumentParser:
     pri.add_argument("--no-expand", action="store_true", help="do not use link expansion for this document")
     pri.add_argument("--untombstone", action="store_true",
                      help="lift and delete tombstone registry if target was previously purged, unblocking re-ingestion")
-    pri.add_argument("--force-provider", action="store_true", help="extract with server provider even when account extraction_mode is client")
+    pri.add_argument("--extraction-mode", choices=["provider", "client"], default=None, help="provider: the server API extracts again; client: the source waits in the queue for an agent client (default: provider when the account has an API, else client)")
     pri.add_argument("--apply", action="store_true", help="execute actual re-ingest operation (default: dry-run inspection)")
     pri.add_argument("--dry-run", action="store_true", help="simulate re-ingest inspection without modifying database (default)")
     pri.add_argument("--yes", "-y", action="store_true", help="confirm re-ingest operation without interactive prompt")

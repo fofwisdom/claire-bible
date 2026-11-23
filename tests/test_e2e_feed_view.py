@@ -193,12 +193,12 @@ def test_e2e_single_mode_subscribe_read_and_ingest(tmp_path, site, monkeypatch, 
         assert _call(tc, "POST", "/api/feeds/items/999999/ingest", owner, json={"theme": "0"}).status_code == 404
         assert _call(tc, "POST", f"/api/feeds/items/{listed[0]['id']}/ingest", owner, json={"theme": "0"}).status_code == 409
         assert calls == []
-        res = _call(tc, "POST", path, owner, json={"theme": "0"})
+        res = _call(tc, "POST", path, owner, json={"theme": "0", "extraction_mode": "provider"})
         assert res.status_code == 200, res.text
         linked = res.json()["linked"]
         assert res.json()["document_id"] == "doc_from_feed" and linked["document_id"] == "doc_from_feed"
         # The existing URL ingest got the address of the item.
-        assert calls == [(f"{site.base}/posts/tomatoes", {"source": "feed"})]
+        assert calls == [(f"{site.base}/posts/tomatoes", {"source": "feed", "extraction_mode": "provider"})]
         # The item stays in the feed and has the link to the document.
         assert _call(tc, "GET", f"/api/feeds/items/{item['id']}", owner).json()["item"]["linked"] == linked
         assert len(_call(tc, "GET", f"/api/feeds/items?feed_id={feed_id}", owner).json()["items"]) == 2
@@ -255,8 +255,8 @@ def test_e2e_network_mode_merge_by_url_and_account_isolation(tmp_path, site, mon
         assert calls == []
 
         # The ingest of the feed item gives the document link to the timeline item too.
-        res = _call(tc, "POST", f"/api/feeds/items/{item['id']}/ingest", alice, json={"theme": "523456789012345"})
+        res = _call(tc, "POST", f"/api/feeds/items/{item['id']}/ingest", alice, json={"theme": "523456789012345", "extraction_mode": "client"})
         assert res.status_code == 200, res.text
         assert res.json()["linked"] == {"kb_id": 11, "document_id": "doc_from_feed"}
-        assert calls == [(item_url, {"source": "feed"})]
+        assert calls == [(item_url, {"source": "feed", "extraction_mode": "client"})]
         assert _call(tc, "GET", f"/api/federation/timeline/{timeline_id}", alice).json()["item"]["linked"] == {"kb_id": 11, "document_id": "doc_from_feed"}

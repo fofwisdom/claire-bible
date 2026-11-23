@@ -427,6 +427,11 @@
     $("item-ingest-note").textContent = tr("synd.feeds.ingest_note");
     $("item-ingest-source").textContent = `${item.feed_title || ""} — ${item.url}`;
     $("btn-item-ingest").disabled = false;
+    // The extraction choice (AED4-rev): the API first and checked when the account has one, then the agent client queue.
+    if (window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.resetExtractionGrid === "function") {
+      window.ClaireIngestDialogs.resetExtractionGrid("item-ingest-extraction-grid");
+      window.ClaireIngestDialogs.refreshExtractionModes();
+    }
     dialog.showModal();
   }
 
@@ -436,14 +441,14 @@
     const button = $("btn-item-ingest");
     button.disabled = true;
     msg.textContent = tr("synd.ingest.running");
-    const result = await api("POST", `/api/feeds/items/${encodeURIComponent(id)}/ingest`, {});
+    const result = await api("POST", `/api/feeds/items/${encodeURIComponent(id)}/ingest`, { extraction_mode: window.ClaireIngestDialogs ? window.ClaireIngestDialogs.selectedExtractionMode("item-ingest-extraction") : "" });
     button.disabled = false;
     if (!result.ok || result.data.error || !result.data.linked) {
       msg.textContent = tr("synd.ingest.failed", { error: errorText(result) });
       return;
     }
     $("modal-item-ingest").close();
-    bridge.ticker(tr("synd.ingest.done", { id: result.data.linked.document_id }));
+    bridge.ticker(tr(result.data.staged ? "synd.ingest.staged" : "synd.ingest.done", { id: result.data.linked.document_id }));
     applyItem(id, { linked: result.data.linked });
     render();
     // The new document is in the personal knowledge base of the account (design Section 5.2 rule 3). Read the list again when stage 2 shows that knowledge base.

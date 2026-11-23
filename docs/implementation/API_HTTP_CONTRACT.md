@@ -8,7 +8,7 @@
 |---|---|---|---|
 | `GET` | `/health` | `public` | 서비스 liveness 및 DB 연결 검사 (`{"ok": true}`) |
 | `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "server": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
-| `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 (`owner`·`collaborator` 요청에는 현재 활성 적재 프로바이더의 선택 가능 사고 수준 메타 `ingest_effort`를 포함한다) |
+| `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 (`owner`·`write` 요청에는 현재 활성 적재 프로바이더의 선택 가능 사고 수준 메타 `ingest_effort`와 적재 창의 추출 모드 선택지 `extraction_modes`를 포함한다: API가 있으면 `["provider", "client"]`, 없으면 `["client"]`, 첫 값이 기본값이다, AED4-rev) |
 | `POST` | `/oauth/register` | `public` | OAuth 2.1 동적 클라이언트 등록 (RFC 7591) |
 | `GET`/`POST` | `/oauth/authorize` | `public` | OAuth 2.1 `S256` PKCE 인가·동의 화면(`/login?tx=` 경유, `write` 스코프는 단계 인증 요구; 동의 폼에서 `grant_write` 체크를 끄면 `readonly`만 발급) |
 | `POST` | `/oauth/token` | `public` | OAuth 2.1 토큰 엔드포인트 (`authorization_code` PKCE `S256`, `refresh_token` 회전·재사용 시 패밀리 전체 폐기, `urn:ietf:params:oauth:grant-type:device_code`, RFC 8693 `token-exchange`, [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md) §2.5, §3.1) |
@@ -23,7 +23,7 @@
 | `GET` | `/document/export` | `read` | 문서 하나를 파일로 내보낸다. `id`(필수), `format=markdown`(기본값, `md`도 받는다). AsciiDoc 본문을 Markdown으로 바꾸고 YAML 머리말(title, source, date, summary, claire_document_id)을 붙여 `text/markdown; charset=utf-8` 첨부 파일로 준다. 읽기 전용. 다른 `format`과 `id` 누락은 `400`, 없는 문서는 `404`. Claire가 Markdown을 쓰는 유일한 곳이다(RD24, 현재 동작: [DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §5) |
 | `GET` | `/graph` | `read` | 전체 온톨로지 지식 그래프 데이터 (JSON). `nodes[]`의 각 항목은 `id`, `label`, `group`, `sources`, `obs`, `degree`, `created_at` (`entities.created_at`, 에포크 초)를 가진다. 요청 계정에 엔티티 언어(`accounts.entity_language`)가 있으면 `label`은 그 언어의 이름이다([ACCOUNTS.md](ACCOUNTS.md) "엔티티 언어") |
 | `GET` | `/node` | `read` | 특정 엔티티 노드 세부정보 및 연결선. 선택 파라미터 `docs=brief`: 각 출처 문서를 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file` 만으로 줄인다(`detail`, `detail_format`, `detail_html` 제외). 파라미터가 없으면 기본 응답은 변하지 않는다 |
-| `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
+| `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출. 본문 `extraction_mode` 필수: `provider`(서버 API로 바로 추출) 또는 `client`(에이전트 클라이언트 대기열, `staged: true`). 없거나 다른 값이면 400 `invalid_extraction_mode`. 에이전트 클라이언트의 OAuth 2.1 액세스 토큰 요청은 `provider`에 403 `agent_client_provider_refused`를 받는다. `/ingest-stream`도 같다. `/reingest*`·`/regenerate*`는 API로 추출하며 에이전트 클라이언트 요청에 403 `agent_client_provider_refused`를 준다 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
 | `GET` | `/support/bundle/{token}` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
 | `GET` | `/tokens` | `owner` | [Deprecated, `AE3`] 발급된 레거시 상시 토큰 목록 조회 (마스킹, `Deprecation: true` · `Link: </account/mcp>; rel="successor-version"` 헤더) |
@@ -60,8 +60,8 @@
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET`/`HEAD` | `/api/admin/accounts/signup-trace` | `admin` | 200 `{"summary", "roots", "accounts"}` (`Cache-Control: no-store`) | 404 |
 | `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/account/profile` (쿼리를 넘기지 않음) | 404 |
-| `GET` | `/api/me` | `owner` | 200 계정 정보 (`extraction_mode` 포함) | 404 |
-| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`), `personal_source_public`(`true`·`false`), `extraction_mode`(`provider`·`client`) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language`, 400 `invalid_personal_source_public`, 400 `invalid_extraction_mode` |
+| `GET` | `/api/me` | `owner` | 200 계정 정보 (v45부터 `extraction_mode` 없음: 적재 요청마다 고른다) | 404 |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`), `personal_source_public`(`true`·`false`). 그 밖의 키(`extraction_mode` 포함)는 400 `invalid_request` | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language`, 400 `invalid_personal_source_public` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
 
 ### 2.1 단계 인증 응답 규약
@@ -146,7 +146,7 @@
 | `PATCH` | `/api/feeds/items` | 본문 `{"item_ids": [...], "unread"?, "starred"?}`(1–500개) 또는 `{"feed_id", "unread"}`. 200 `{"changed": n}` | 400 `invalid_request`, 404 `feed_not_found` |
 | `GET` | `/api/feeds/items/{item_id}` | 200 `{"item"}`: the keys of the list, `has_body`, `render_url` (FP4-F3, [FEDERATION.md](FEDERATION.md) §23) | 404 `item_not_found` |
 | `POST` | `/api/feeds/discover` | Body `{"url"}`. 200 `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}` | 400 `invalid_request`, 400 `invalid_url` |
-| `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"theme"}`. 200: the ingest report with `linked` (`{"kb_id", "document_id"}` or `null`) | 400 `invalid_request`, 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"extraction_mode"}` (`provider` or `client`, required; a `theme` field is ignored). 200: the ingest report with `linked` (`{"kb_id", "document_id"}` or `null`). `POST /api/federation/timeline/{item_id}/ingest` has the same body | 400 `invalid_request`, 400 `invalid_extraction_mode` (after the item check), 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
 | `GET` | `/render/feed/{item_id}?t={token}` | 200 HTML for a sandbox `iframe`. On the app origin only without a `usercontent` host | 404 |
 
 ## 4. 연합 클라이언트 발신 상호작용 경로 (FP4-9)

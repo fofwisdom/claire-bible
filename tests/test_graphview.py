@@ -149,7 +149,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="ingfocus"' not in GRAPH_HTML
     assert 'id="reingfocus"' not in GRAPH_HTML
     assert 'id="regenfocus"' not in GRAPH_HTML
-    assert "const bodyObj = {payload:payload, full_content:fullContent};" in GRAPH_HTML
+    assert "const bodyObj = {payload:payload, full_content:fullContent, extraction_mode:extractionMode};" in GRAPH_HTML
     assert "if(effort) bodyObj.effort=effort;" in GRAPH_HTML
     assert "const sepIdx = rawText.search" not in GRAPH_HTML
     assert "줄바꿈 두 번" not in GRAPH_HTML

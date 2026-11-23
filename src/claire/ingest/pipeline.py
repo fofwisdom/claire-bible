@@ -376,15 +376,16 @@ def ingest(
     settings: Any = None,
     provider_context: Any = None,
     account_id: int | None = None,
-    force_provider: bool = False,
+    extraction_mode: str = "provider",
 ) -> IngestReport:
-    """Ingest a payload; stage raw content with zero server LLM calls when the account extraction_mode is client."""
+    """Ingest a payload. ``extraction_mode="client"`` stages the raw content for an agent client with zero server LLM calls (``extraction_mode.py``)."""
+    from .extraction_mode import parse_extraction_mode
+
+    stage_only = parse_extraction_mode(extraction_mode) == "client"
     tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     job_settings = resolve_job_settings(settings, provider)
     ctx = provider_context if provider_context is not None else context_of(job_settings)
     effective_account_id = account_id if account_id is not None else getattr(ctx, "account_id", None)
-    account_mode = dbm.resolve_extraction_mode(conn, account_id=effective_account_id, kb_id=tid)
-    stage_only = (account_mode == "client") and not force_provider
     # AED9: client staging always preserves untruncated raw content so the external client does not lose source text.
     effective_full_content = True if stage_only else full_content
     report = _ingest_core(
@@ -526,7 +527,7 @@ def _ingest_core(
         inbox_id = dbm.log_inbox(
             conn, source=source, payload=payload, kind=kind,
             user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
-            kb_id=tid,
+            kb_id=tid, extraction_mode=("client" if stage_only else "provider"),
         )
     report.inbox_id = inbox_id
 

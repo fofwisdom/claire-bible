@@ -3,6 +3,9 @@
 
   var handlers = null;
   var currentEffortSpec = null;
+  var currentExtractionModes = null;
+  var EXTRACTION_MODES = ["provider", "client"];
+  var EXTRACTION_LABELS = { provider: "Ingest now with the API", client: "Wait for the agent client" };
   var EFFORT_LABELS = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Very high", max: "Maximum" };
 
   function byId(id) { return document.getElementById(id); }
@@ -87,6 +90,68 @@
     }
   }
 
+  // The extraction modes of the account in the display order (``extraction_modes`` of GET stats, AED4-rev): the API first and checked when the account has one, then the queue of the agent client. Without an API the grid has only the queue and shows the hint.
+  function renderExtractionGrid(grid, modes, keepSelection) {
+    if (!grid) return;
+    var prefix = grid.getAttribute("data-extraction-prefix") || "ingextraction";
+    var name = grid.getAttribute("data-extraction-name") || "ingest-extraction";
+    var hintId = grid.getAttribute("data-extraction-hint-id") || "";
+    var known = Array.isArray(modes);
+    var list = [];
+    var src = known ? modes : EXTRACTION_MODES;
+    for (var i = 0; i < src.length; i++) {
+      if (EXTRACTION_MODES.indexOf(src[i]) >= 0 && list.indexOf(src[i]) < 0) list.push(src[i]);
+    }
+    if (!list.length) list = EXTRACTION_MODES.slice();
+    var checkedEl = grid.querySelector('input[type="radio"]:checked');
+    var prevVal = checkedEl ? checkedEl.value : "";
+    var html = [];
+    for (var j = 0; j < list.length; j++) {
+      var m = list[j];
+      html.push('<div class="ingest-choice"><input id="' + prefix + "-" + m + '" type="radio" name="' + name + '" value="' + m + '"/><label for="' + prefix + "-" + m + '" data-i18n-title="ws.ingest.extraction_' + m + '_title" title="' + escHtml(translate("ws.ingest.extraction_" + m + "_title", null, "")) + '" data-i18n="ws.ingest.extraction_' + m + '">' + escHtml(translate("ws.ingest.extraction_" + m, null, EXTRACTION_LABELS[m])) + "</label></div>");
+    }
+    grid.innerHTML = html.join("");
+    var target = (keepSelection && list.indexOf(prevVal) >= 0) ? prevVal : list[0];
+    var radio = byId(prefix + "-" + target);
+    if (radio) radio.checked = true;
+    var hintEl = hintId ? byId(hintId) : null;
+    if (hintEl) hintEl.hidden = !(known && list.indexOf("provider") < 0);
+    syncApiOnly(grid);
+  }
+
+  // The queue of the agent client makes the amount and the effort of the same form inactive: the server keeps the full source and calls no LLM.
+  function syncApiOnly(grid) {
+    var form = grid && grid.closest ? grid.closest("form") : null;
+    if (!form) return;
+    var checked = grid.querySelector('input[type="radio"]:checked');
+    var client = !!checked && checked.value === "client";
+    var sets = form.querySelectorAll("fieldset[data-api-only]");
+    for (var i = 0; i < sets.length; i++) sets[i].disabled = client;
+  }
+
+  function renderExtractionGrids(modes, keepSelection) {
+    if (modes !== undefined) currentExtractionModes = Array.isArray(modes) ? modes.slice() : null;
+    var grids = document.querySelectorAll(".ingest-choice-grid.extraction");
+    for (var i = 0; i < grids.length; i++) {
+      renderExtractionGrid(grids[i], currentExtractionModes, keepSelection);
+    }
+  }
+
+  // GET /stats of the personal knowledge base (where each ingest writes) gives the extraction modes of the account. The syndication page uses it for the item dialog.
+  function refreshExtractionModes() {
+    return fetch("/stats", { cache: "no-store", credentials: "same-origin", headers: { "Accept": "application/json" } }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (d) {
+      if (d && Array.isArray(d.extraction_modes)) renderExtractionGrids(d.extraction_modes, true);
+    }).catch(function () {});
+  }
+
+  // The value of the request field ``extraction_mode``: the checked mode of the radio group ``name``.
+  function selectedExtractionMode(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : "";
+  }
+
   function closeDialog(id) {
     var dlg = typeof id === "string" ? byId(id) : id;
     if (dlg && dlg.open) dlg.close();
@@ -107,6 +172,7 @@
     showMsg("ingest-modal-msg", "", false);
     var noticesEl = byId("ingest-notices");
     if (noticesEl) noticesEl.innerHTML = "";
+    renderExtractionGrid(byId("ingest-extraction-grid"), opts.extractionModes !== undefined ? opts.extractionModes : currentExtractionModes, false);
     renderEffortGrid(byId("ingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     if (!dlg.open) dlg.showModal();
     var ta = byId("ingin");
@@ -163,6 +229,12 @@
   }
 
   function bindEvents() {
+    document.addEventListener("change", function (ev) {
+      var input = ev.target;
+      var grid = input && input.closest ? input.closest(".ingest-choice-grid.extraction") : null;
+      if (grid) syncApiOnly(grid);
+    });
+
     document.addEventListener("click", function (ev) {
       var closeBtn = ev.target && ev.target.closest("[data-close-dialog]");
       if (closeBtn) {
@@ -308,6 +380,17 @@
     getEffortSpec: function () {
       return currentEffortSpec;
     },
+    setExtractionModes: function (modes) {
+      renderExtractionGrids(modes, true);
+    },
+    getExtractionModes: function () {
+      return currentExtractionModes;
+    },
+    resetExtractionGrid: function (id) {
+      renderExtractionGrid(byId(id), currentExtractionModes, false);
+    },
+    selectedExtractionMode: selectedExtractionMode,
+    refreshExtractionModes: refreshExtractionModes,
     openIngestDialog: openIngestDialog,
     openReingestDialog: openReingestDialog,
     openRegenDialog: openRegenDialog,

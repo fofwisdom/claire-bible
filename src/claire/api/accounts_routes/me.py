@@ -78,8 +78,6 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "entity_language": account.entity_language,
         # personal_source_public: a reader other than this account sees the sources ("open source") of the documents of its personal knowledge base.
         "personal_source_public": account.personal_source_public,
-        # extraction_mode: 'provider' uses server LLM extraction; 'client' stages raw content for Agent Client extraction.
-        "extraction_mode": account.extraction_mode,
     }
 
 
@@ -114,14 +112,6 @@ def update_personal_source_public(ctx: AccountsContext, account_id: int, value: 
     conn = open_db(ctx)
     try:
         accounts_store.AccountStore(conn).update_personal_source_public(account_id, value)
-    finally:
-        conn.close()
-
-
-def update_extraction_mode(ctx: AccountsContext, account_id: int, extraction_mode: str) -> None:
-    conn = open_db(ctx)
-    try:
-        accounts_store.AccountStore(conn).update_extraction_mode(account_id, extraction_mode)
     finally:
         conn.close()
 
@@ -295,8 +285,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"}):
-            return json_error(400, "invalid_request", fields=["display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public", "extraction_mode"])
+        if not body or not (set(body) <= {"display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public"}):
+            return json_error(400, "invalid_request", fields=["display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
@@ -321,12 +311,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         source_public = body.get("personal_source_public")
         if "personal_source_public" in body and not isinstance(source_public, bool):
             return json_error(400, "invalid_personal_source_public")
-        extraction_mode: str | None = None
-        if "extraction_mode" in body:
-            raw_mode = body["extraction_mode"]
-            if not isinstance(raw_mode, str) or raw_mode not in accounts_store.EXTRACTION_MODES:
-                return json_error(400, "invalid_extraction_mode")
-            extraction_mode = raw_mode
         locale: LocaleCode | None = None
         if "locale" in body:
             try:
@@ -352,8 +336,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             await asyncio.to_thread(update_entity_language, ctx, principal.account_id, entity_language)
         if isinstance(source_public, bool):
             await asyncio.to_thread(update_personal_source_public, ctx, principal.account_id, source_public)
-        if extraction_mode is not None:
-            await asyncio.to_thread(update_extraction_mode, ctx, principal.account_id, extraction_mode)
         if "locale" not in body:
             return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
         # The locale needs no recent authentication (I18N design Section 5.4). The response reports the locale after the change.

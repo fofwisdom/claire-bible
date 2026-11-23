@@ -11,7 +11,6 @@ from typing import Any
 import pytest
 
 from claire.ingest import client_extraction as ce
-from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 from tests.e2e_agent_extraction.conftest import ClaireTestEnv, issue_session_cookie, mcp_call, mcp_tools_list, register_oauth_client, run_oauth_pkce_flow, same_origin_headers
@@ -48,7 +47,6 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     # Switch Alice to client extraction mode and seed a foreign entity in shared KB + Bob KB.
     conn = sqlite3.connect(env.db_path)
     try:
-        accounts_store.AccountStore(conn).update_extraction_mode(env.alice.account_id, "client")
         conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, aliases, observations, sources, provisional, created_at, updated_at) VALUES (?, ?, 'Tool', 'SharedForeignTool', 'sharedforeigntool', '[]', '[]', '[\"shared-doc\"]', 0, 0, 0)", ("ent_foreign_shared", shared_kb.id))
         conn.commit()
     finally:
@@ -260,12 +258,6 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
 
 def test_e2e_http_client_extraction_routes_and_optimistic_hash_conflict(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
-    conn = sqlite3.connect(env.db_path)
-    try:
-        accounts_store.AccountStore(conn).update_extraction_mode(env.alice.account_id, "client")
-        conn.commit()
-    finally:
-        conn.close()
 
     oauth_client = register_oauth_client(env.client, client_name="HTTP Agent E2E")
     write_tok = run_oauth_pkce_flow(
@@ -328,12 +320,6 @@ def test_e2e_http_client_extraction_routes_and_optimistic_hash_conflict(claire_f
 
 def test_e2e_direct_docx_and_multipart_file_staging_then_extraction(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
-    conn = sqlite3.connect(env.db_path)
-    try:
-        accounts_store.AccountStore(conn).update_extraction_mode(env.alice.account_id, "client")
-        conn.commit()
-    finally:
-        conn.close()
 
     oauth_client = register_oauth_client(env.client, client_name="File Staging E2E")
     write_tok = run_oauth_pkce_flow(
@@ -407,12 +393,6 @@ def test_e2e_direct_docx_and_multipart_file_staging_then_extraction(claire_facto
 
 def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
-    conn = sqlite3.connect(env.db_path)
-    try:
-        accounts_store.AccountStore(conn).update_extraction_mode(env.alice.account_id, "client")
-        conn.commit()
-    finally:
-        conn.close()
 
     oauth_client = register_oauth_client(env.client, client_name="Reingest Agent E2E")
     write_tok = run_oauth_pkce_flow(

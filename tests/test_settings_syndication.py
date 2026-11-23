@@ -382,8 +382,8 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
 
 def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
     for lang, expected_title, expected_steps_heading, expected_step in (
-        ("en", "Agent-Driven Extraction Quick Start", "Setup Progress Steps", "Switch Extraction mode to client in the LLM provider settings"),
-        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "설정 진행 절차", "LLM 프로바이더 설정에서 추출 모드를 client로 전환하세요"),
+        ("en", "Agent-Driven Extraction Quick Start", "Setup Progress Steps", "In the web UI ingest dialog, select &quot;Wait for the agent client&quot;"),
+        ("ko", "에이전트 주도 추출 빠른 시작 가이드", "설정 진행 절차", "Web UI 적재 창에서 &#x27;에이전트 클라이언트 대기&#x27;를 고르거나"),
     ):
         resp = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": lang})
         assert resp.status_code == 200
@@ -393,28 +393,23 @@ def test_settings_mcp_agent_guide_and_bundle_prominence_localized(env):
         assert expected_steps_heading in html
         assert expected_step in html
         assert '<ol class="pref-flow"' in html
-        assert 'href="/account/providers#settings-extraction-mode"' in html
+        # Each ingest selects its extraction mode (AED4-rev): the guide has no account mode and no link to it.
+        assert "settings-extraction-mode" not in html
+        assert "pref-mcp-extraction-mode" not in html
         assert 'href="#pref-mcp-client-bundles"' in html
         assert html.index('id="pref-mcp-agent-guide"') < html.index('id="pref-mcp-endpoint"')
         assert html.index('id="pref-mcp-client-bundles"') < html.index('id="pref-mcp-tools-tbody"')
 
 
 def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
-    # Initially: all 3 steps are pending (red: data-ok="false").
+    # Initially: the 2 steps are pending (red: data-ok="false"). The account has no extraction mode (AED4-rev), thus no step for it.
     initial_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "0 / 3 completed" in initial_html
-    for step_idx in range(1, 4):
+    assert "0 / 2 completed" in initial_html
+    for step_idx in range(1, 3):
         assert f'data-step="{step_idx}" data-ok="false"' in initial_html
+    assert 'data-step="3"' not in initial_html
 
-    # Step 1: Switch account extraction_mode to client.
-    assert env.client.patch("/api/me", headers=env.alice_owner, json={"extraction_mode": "client"}).status_code == 200
-    s1_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "1 / 3 completed" in s1_html
-    assert 'data-step="1" data-ok="true"' in s1_html
-    assert 'data-step="2" data-ok="false"' in s1_html
-    assert 'data-step="3" data-ok="false"' in s1_html
-
-    # Step 2: Issue an OAuth 2.1 token with write scope -> marks Step 2 green!
+    # Step 1: Issue an OAuth 2.1 token with write scope -> marks Step 1 green!
     now = time.time()
     conn = dbm.connect_existing(env.db_file)
     try:
@@ -429,12 +424,12 @@ def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
         conn.commit()
     finally:
         conn.close()
-    s2_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
-    assert "2 / 3 completed" in s2_html
-    assert 'data-step="2" data-ok="true"' in s2_html
-    assert 'data-step="3" data-ok="false"' in s2_html
+    s1_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "en"}).text
+    assert "1 / 2 completed" in s1_html
+    assert 'data-step="1" data-ok="true"' in s1_html
+    assert 'data-step="2" data-ok="false"' in s1_html
 
-    # Step 3: Record an agent_client extraction in the user's personal KB -> all 3 steps green!
+    # Step 2: Record an agent_client extraction in the user's personal KB -> the 2 steps green!
     conn = dbm.connect_existing(env.db_file)
     try:
         conn.execute(
@@ -449,6 +444,6 @@ def test_settings_mcp_agent_onboarding_step_states_green_and_red(env):
     finally:
         conn.close()
     s3_html = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "ko"}).text
-    assert "3 / 3 완료" in s3_html
-    for step_idx in range(1, 4):
+    assert "2 / 2 완료" in s3_html
+    for step_idx in range(1, 3):
         assert f'data-step="{step_idx}" data-ok="true"' in s3_html

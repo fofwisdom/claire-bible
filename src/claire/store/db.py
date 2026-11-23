@@ -21,13 +21,12 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
 _RETIRED_SUPPORT_RECOVERY_TARGET = 11
-EXTRACTION_MODES: frozenset[str] = frozenset({"provider", "client"})
 DOCUMENT_EXTRACTION_STATUSES: frozenset[str] = frozenset({"pending", "extracted", "failed"})
 DEFAULT_STAGED_CLAIM_TTL_SECONDS: float = 300.0
 logger = logging.getLogger(__name__)
@@ -208,7 +207,9 @@ CREATE TABLE IF NOT EXISTS raw_inbox (
     -- 도달하면 status='failed'(영구실패)로 굳혀 무한재시도를 막는다.
     attempts INTEGER DEFAULT 0,
     last_attempt REAL,
-    next_retry_at REAL
+    next_retry_at REAL,
+    -- v45: the extraction mode that the request selected ('provider' | 'client'). A retry takes the same mode; NULL (a row from before v45) takes the default mode of the account.
+    extraction_mode TEXT CHECK (extraction_mode IS NULL OR extraction_mode IN ('provider', 'client'))
 );
 CREATE INDEX IF NOT EXISTS idx_raw_inbox_status ON raw_inbox(status);
 
@@ -901,6 +902,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v42_account_summary(conn)
     _migrate_v43_permalinks(conn)
     _migrate_v44_username_required(conn)
+    _migrate_v45_retire_account_extraction_mode(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1873,10 +1875,7 @@ def _migrate_v40_oauth_v21(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v40_client_staging(conn: sqlite3.Connection) -> None:
-    """Apply the v40 client-staging columns on accounts and documents without losing existing rows."""
-    if _table_exists(conn, "accounts"):
-        _ensure_column(conn, "accounts", "extraction_mode", "TEXT NOT NULL DEFAULT 'provider' CHECK (extraction_mode IN ('provider', 'client'))")
-        conn.execute("UPDATE accounts SET extraction_mode='provider' WHERE extraction_mode IS NULL OR extraction_mode NOT IN ('provider', 'client')")
+    """Apply the v40 client-staging columns on documents without losing existing rows. The v40 column ``accounts.extraction_mode`` is retired in v45."""
     if _table_exists(conn, "documents"):
         _ensure_column(conn, "documents", "content_hash", "TEXT")
         _ensure_column(conn, "documents", "extraction_status", "TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed'))")
@@ -1919,6 +1918,14 @@ def _migrate_v44_username_required(conn: sqlite3.Connection) -> None:
         return
     conn.execute("CREATE TRIGGER IF NOT EXISTS accounts_username_required_insert BEFORE INSERT ON accounts WHEN NEW.username IS NULL AND NEW.status != 'setup_required' BEGIN SELECT RAISE(ABORT, 'username required'); END")
     conn.execute("CREATE TRIGGER IF NOT EXISTS accounts_username_required_update BEFORE UPDATE ON accounts WHEN NEW.username IS NULL AND NEW.status != 'setup_required' BEGIN SELECT RAISE(ABORT, 'username required'); END")
+
+
+def _migrate_v45_retire_account_extraction_mode(conn: sqlite3.Connection) -> None:
+    """v45 schema (SCHEMA_VERSIONING.md "v45"): each ingest request selects its extraction mode. The account setting ``accounts.extraction_mode`` of v40 has no function and the step drops the column; ``raw_inbox.extraction_mode`` keeps the mode of each request for its retries (old rows stay NULL). Idempotent; it runs at each start."""
+    if _table_exists(conn, "accounts") and "extraction_mode" in _table_columns(conn, "accounts"):
+        conn.execute("ALTER TABLE accounts DROP COLUMN extraction_mode")
+    if _table_exists(conn, "raw_inbox"):
+        _ensure_column(conn, "raw_inbox", "extraction_mode", "TEXT CHECK (extraction_mode IS NULL OR extraction_mode IN ('provider', 'client'))")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
@@ -3137,21 +3144,6 @@ def get_document(conn: sqlite3.Connection, document_id: str, kb_id: int | None =
     )
 
 
-def resolve_extraction_mode(conn: sqlite3.Connection, *, account_id: int | None = None, kb_id: int | None = None) -> str:
-    """Return the extraction mode ('provider' or 'client') for an account or its personal KB."""
-    if not _table_exists(conn, "accounts") or "extraction_mode" not in _column_names(conn, "accounts"):
-        return "provider"
-    row: sqlite3.Row | None = None
-    if account_id is not None:
-        row = conn.execute("SELECT extraction_mode FROM accounts WHERE id=?", (int(account_id),)).fetchone()
-    elif kb_id is not None and _table_exists(conn, "knowledge_bases") and "account_id" in _column_names(conn, "knowledge_bases"):
-        row = conn.execute("SELECT a.extraction_mode FROM knowledge_bases kb JOIN accounts a ON a.id = kb.account_id WHERE kb.id=? AND coalesce(kb.is_personal, 0)=1", (int(kb_id),)).fetchone()
-    if row is None:
-        return "provider"
-    mode = str(row["extraction_mode"] or "provider").strip().lower()
-    return mode if mode in EXTRACTION_MODES else "provider"
-
-
 def _staging_kb_scope(conn: sqlite3.Connection, *, kb_id: int | None = None, account_id: int | None = None) -> tuple[int | None, bool]:
     """Resolve the permitted personal KB id for account-scoped or KB-scoped staging calls."""
     if account_id is None:
@@ -3844,12 +3836,13 @@ def log_inbox(
     file_name: str | None = None,
     file_ref: str | None = None,
     kb_id: int = 0,
+    extraction_mode: str | None = None,
 ) -> int:
-    """[Layer 1] inbound 원본 기록. 처리 전에 무조건 먼저 호출. row id 반환."""
+    """[Layer 1] inbound 원본 기록. 처리 전에 무조건 먼저 호출. row id 반환. ``extraction_mode`` is the mode that the request selected; its retries take the same mode."""
     cur = conn.execute(
         "INSERT INTO raw_inbox(kb_id,received_at,source,user_id,chat_id,kind,payload,"
-        "file_name,file_ref,status) VALUES (?,?,?,?,?,?,?,?,?, 'received')",
-        (kb_id, time.time(), source, user_id, chat_id, kind, payload, file_name, file_ref),
+        "file_name,file_ref,status,extraction_mode) VALUES (?,?,?,?,?,?,?,?,?, 'received',?)",
+        (kb_id, time.time(), source, user_id, chat_id, kind, payload, file_name, file_ref, extraction_mode),
     )
     conn.commit()
     return int(cur.lastrowid)

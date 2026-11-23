@@ -217,7 +217,7 @@ def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_f
         assert client.get("/whoami", headers=write).json()["scope"] == "write"
 
         # Ingest goes to the personal knowledge base of the account of the token.
-        ingested = client.post("/ingest", json={"payload": "A note about the harbor of Busan."}, headers=write)
+        ingested = client.post("/ingest", json={"payload": "A note about the harbor of Busan.", "extraction_mode": "provider"}, headers=write)
         assert ingested.status_code == 200, ingested.text
         document_id = ingested.json()["document_id"]
         conn = dbm.connect_existing(settings.db_file, readonly=True)

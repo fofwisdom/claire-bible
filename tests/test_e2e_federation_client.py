@@ -179,11 +179,15 @@ def test_e2e_ingest_of_one_item_links_the_document(env, monkeypatch):
     assert env.client.request("POST", f"{TIMELINE}/999999/ingest", session=env.alpha_session, json={}).status_code == 404
     assert calls == []
 
-    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": "ignored"})
+    # The dialog sends the extraction mode of the ingest (AED4-rev); without it the route gives 400.
+    missing = env.client.request("POST", path, session=env.alpha_session, json={"theme": "ignored"})
+    assert (missing.status_code, missing.json()) == (400, {"error": "invalid_extraction_mode"})
+    assert calls == []
+    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": "ignored", "extraction_mode": "client"})
     assert res.status_code == 200, res.text
     assert res.json()["document_id"] == "doc_from_item" and res.json()["linked"] == {"kb_id": 11, "document_id": "doc_from_item"}
-    # The existing URL ingest got the address of the post.
-    assert calls == [(f"{CAROL}/notes/1", {"source": "federation"})]
+    # The existing URL ingest got the address of the post and the mode of the dialog.
+    assert calls == [(f"{CAROL}/notes/1", {"source": "federation", "extraction_mode": "client"})]
     # The item stays in the timeline and has the link to the document.
     item = _get(env, f"{TIMELINE}/{item_id}").json()["item"]
     assert item["linked"] == {"kb_id": 11, "document_id": "doc_from_item"}

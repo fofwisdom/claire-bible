@@ -301,7 +301,7 @@ def test_tier_none_member_ingest_keeps_raw_and_records_code(world, admin_built, 
     svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "none"
 
-    rep = svc.ingest(LONG_TEXT, source="cli")
+    rep = svc.ingest(LONG_TEXT, source="cli", extraction_mode="provider")
 
     assert rep.error and rep.error.startswith("provider_not_configured")
     rows = _inbox_rows(world, MEMBER_THEME)
@@ -327,7 +327,7 @@ def test_member_pdf_classifier_never_uses_admin_provider(world, admin_built, fak
     pdf = Document(title="paper.pdf", raw_text=LONG_TEXT, source_type="pdf", content_hash="h-pdf-1",
                    url="https://example.test/p.pdf", canonical_url="https://example.test/p.pdf")
 
-    rep = svc.ingest("https://example.test/p.pdf", source="cli", prefetched=pdf)
+    rep = svc.ingest("https://example.test/p.pdf", source="cli", prefetched=pdf, extraction_mode="provider")
 
     assert rep.error and rep.error.startswith("provider_not_configured")
     assert seen and all(ctx is not None and not ctx.is_admin for ctx, _ in seen)
@@ -340,8 +340,8 @@ def test_daily_ingest_limit_fails_and_preserves_raw(world, admin_built, fake_gen
     _save_tier(world, ServerTier(daily_ingests=1))
     svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
 
-    first = svc.ingest(LONG_TEXT, source="cli")
-    second = svc.ingest(LONG_TEXT + " 두 번째", source="cli")
+    first = svc.ingest(LONG_TEXT, source="cli", extraction_mode="provider")
+    second = svc.ingest(LONG_TEXT + " 두 번째", source="cli", extraction_mode="provider")
 
     assert first.error.startswith("provider_not_configured")
     assert second.error.startswith("provider_budget_exceeded")
@@ -507,7 +507,8 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
     settings = world.settings.model_copy(update={"provider": "mock"})
     conn = dbm.connect(world.db_file)
     for tid in (ADMIN_THEME, MEMBER_THEME):
-        iid = dbm.log_inbox(conn, source="cli", payload=LONG_TEXT + f" {tid}", kind="text", kb_id=tid)
+        # The request selected the API (v45 raw_inbox.extraction_mode): the retry takes the same mode.
+        iid = dbm.log_inbox(conn, source="cli", payload=LONG_TEXT + f" {tid}", kind="text", kb_id=tid, extraction_mode="provider")
         dbm.update_inbox(conn, iid, status="error", error="temporary", kb_id=tid)
     conn.execute("UPDATE raw_inbox SET next_retry_at=?", (time.time() - 100,))
     conn.commit()

@@ -133,6 +133,7 @@ Limits:
 4. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
 5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `src/claire/telegram/bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
 6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
+7. 추출 모드(AED4-rev): 재적재·재생성 창에는 추출 모드 선택이 없고 API로만 다시 추출한다(에이전트 클라이언트로 다시 추출하려면 에이전트가 `extract_stage(document_id=…, force=True)`를 쓴다). 문서 복사(`/api/syndication/dispatch`)는 창이 없어 계정의 기본 모드를 쓴다. v45 이전의 `raw_inbox` 행은 모드가 없어 재시도 때 계정의 기본 모드를 쓴다. 대기열로 적재한 피드·타임라인 항목은 추출 전에도 `linked`를 받지만 문서는 추출 뒤에 보인다.
 
 ### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 

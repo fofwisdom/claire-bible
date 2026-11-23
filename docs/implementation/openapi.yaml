@@ -133,6 +133,11 @@ paths:
                   theme_label:
                     type: string
                     example: 기본 테마
+                  extraction_modes:
+                    type: array
+                    items: {type: string, enum: [provider, client]}
+                    description: Only for owner and write requests. The extraction modes of the ingest dialog in the display order (design decision AED4-rev). With an API of the account, [provider, client]; without an API, [client]. The first mode is the default.
+                    example: [provider, client]
 
   /kb:
     get:
@@ -2960,12 +2965,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [payload]
+              required: [payload, extraction_mode]
               properties:
                 payload:
                   type: string
                   description: Target URL or raw text content.
                   example: "https://example.com/article"
+                extraction_mode:
+                  type: string
+                  enum: [provider, client]
+                  description: The extraction mode of this ingest (design decision AED4-rev). `provider` extracts at once with the server API; `client` keeps the full source in the queue for an agent client (`staged` true in the report). No default. A request with the OAuth 2.1 access token of an agent client gets 403 `agent_client_provider_refused` for `provider`. `POST /ingest-stream` takes the same field.
                 format:
                   type: string
                   enum: [adoc, md]
@@ -2983,13 +2992,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/IngestResponse'
         '400':
-          description: Missing payload or invalid parameters.
+          description: Missing payload, `invalid_extraction_mode` (missing or unknown extraction_mode), or invalid parameters.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '403':
-          description: Owner permission required.
+          description: Owner permission required, or `agent_client_provider_refused` (an agent client request with extraction_mode provider).
           content:
             application/json:
               schema:
@@ -4543,10 +4552,6 @@ paths:
                 personal_source_public:
                   description: When true, a reader other than the account sees the sources (url, extra_sources, and each key with "url" in its name) of the documents of the personal knowledge base. When false, only the account sees them, except for a document with a visible contribution in a shared knowledge base.
                   type: boolean
-                extraction_mode:
-                  description: Default extraction mode for the account (`provider` runs server LLM extraction; `client` stages raw sources as `pending` for connected `agent_client` extraction).
-                  type: string
-                  enum: [provider, client]
       responses:
         '200':
           description: Updated account.
@@ -4555,7 +4560,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, locale, entity_language, personal_source_public, and extraction_mode), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, `invalid_entity_language`, `invalid_personal_source_public`, or `invalid_extraction_mode`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, summary, profile_public, locale, entity_language, and personal_source_public; since schema v45 also extraction_mode), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, `invalid_entity_language`, or `invalid_personal_source_public`.'
           content:
             application/json:
               schema:
@@ -5566,14 +5571,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [theme]
+              required: [extraction_mode]
               properties:
-                theme: {type: string, description: Public theme reference of the caller.}
+                extraction_mode: {type: string, enum: [provider, client], description: The extraction mode of the item dialog (design decision AED4-rev). The ingest goes to the personal knowledge base of the caller; a theme field is ignored.}
       responses:
         '200':
           description: The ingest report with linked (kb_id and document_id, or null).
         '400':
-          description: '`invalid_request`.'
+          description: '`invalid_request`, or `invalid_extraction_mode` (after the item check).'
         '404':
           description: '`item_not_found`, or the theme is not a theme of the caller.'
         '409':
@@ -5647,7 +5652,6 @@ paths:
                 full_content: {type: boolean, default: true}
                 force: {type: boolean, default: false, description: 'When true, re-stage duplicate URL/text/file sources as pending for re-ingest.'}
                 refetch: {type: boolean, default: false, description: 'When true with document_id, re-fetch its URL before staging as pending.'}
-                mode: {type: string, nullable: true}
                 kb: {type: string, nullable: true, description: 'Optional; must omit or pass "personal" / caller personal kb number.'}
           multipart/form-data:
             schema:
@@ -5660,7 +5664,6 @@ paths:
                 source_type: {type: string, nullable: true}
                 full_content: {type: boolean, default: true}
                 force: {type: boolean, default: false}
-                mode: {type: string, nullable: true}
                 kb: {type: string, nullable: true}
       responses:
         '200':
@@ -6335,10 +6338,6 @@ components:
         personal_source_public:
           type: boolean
           description: True when a reader other than the account sees the sources of the documents of its personal knowledge base. The default is true.
-        extraction_mode:
-          type: string
-          enum: [provider, client]
-          description: Default extraction mode for the account (`provider` uses server LLM; `client` stages raw sources for connected `agent_client` extraction).
 
     AccountSummary:
       type: object

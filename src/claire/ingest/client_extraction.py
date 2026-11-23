@@ -320,17 +320,7 @@ def _inspect_document_claim_error(conn: sqlite3.Connection, document_id: str, *,
     return row, None
 
 
-def _resolve_stage_mode(conn: sqlite3.Connection, *, account_id: int, kb_id: int, mode: str | None) -> tuple[str, str]:
-    """Validate optional extraction mode override and resolve effective account mode."""
-    if mode is not None and mode not in ("client", "provider"):
-        raise ClientExtractionError(400, "invalid_mode", f"Unsupported mode {mode!r}; expected 'client' or 'provider'.")
-    account_mode = dbm.resolve_extraction_mode(conn, account_id=account_id, kb_id=kb_id)
-    if mode == "provider":
-        raise ClientExtractionError(400, "provider_mode_use_ingest", "Use standard ingest endpoint when mode='provider' is explicitly requested.")
-    return mode or account_mode, account_mode
-
-
-def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int, effective_mode: str, account_mode: str, title: str | None, source_type: str | None, allow_title_update: bool) -> dict[str, Any]:
+def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int, title: str | None, source_type: str | None, allow_title_update: bool) -> dict[str, Any]:
     """Apply optional metadata overrides after staging and format the standard stage response."""
     if report.error:
         err_msg = str(report.error)
@@ -368,8 +358,6 @@ def _finalize_stage_report(conn: sqlite3.Connection, *, report: Any, kb_id: int,
         "title": doc_title,
         "source_type": (str(row["source_type"]) if row is not None else report.source_type),
         "extraction_status": doc_status,
-        "extraction_mode": effective_mode,
-        "account_extraction_mode": account_mode,
         "staged": bool(report.staged),
         "duplicate": bool(report.duplicate),
         "updated": bool(report.updated),
@@ -400,19 +388,17 @@ def stage_source(
     title: str | None = None,
     source_type: str | None = None,
     full_content: bool = True,
-    mode: str | None = None,
     force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
     fetch_fn: Any = None,
 ) -> dict[str, Any]:
-    """Stage full raw source content in the caller personal knowledge base with zero LLM calls when in client mode."""
+    """Stage full raw source content in the caller personal knowledge base with zero LLM calls. A request of an agent client never runs the server API (AED4-rev)."""
     if not isinstance(force, bool):
         raise ClientExtractionError(400, "invalid_force", "force must be a boolean.")
     text_or_url = str(url_or_text or "").strip()
     if not text_or_url:
         raise ClientExtractionError(400, "source_required", "url_or_text must not be empty.")
-    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
 
     prefetched = None
     is_url = text_or_url.startswith(("http://", "https://"))
@@ -440,7 +426,7 @@ def stage_source(
         account_id=int(account_id),
         force=force,
     )
-    return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=title, source_type=source_type, allow_title_update=is_url)
+    return _finalize_stage_report(conn, report=report, kb_id=kb_id, title=title, source_type=source_type, allow_title_update=is_url)
 
 
 def stage_file_bytes(
@@ -453,7 +439,6 @@ def stage_file_bytes(
     title: str | None = None,
     source_type: str | None = None,
     full_content: bool = True,
-    mode: str | None = None,
     force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
@@ -467,7 +452,6 @@ def stage_file_bytes(
     data = bytes(raw_bytes)
     if len(data) > MAX_STAGE_FILE_BYTES:
         raise ClientExtractionError(413, "file_too_large", f"File size {len(data)} bytes exceeds limit of {MAX_STAGE_FILE_BYTES} bytes.")
-    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
 
     try:
         doc = fetch_file_bytes(data, filename=safe_name, full_content=bool(full_content), max_bytes=MAX_STAGE_FILE_BYTES)
@@ -499,7 +483,7 @@ def stage_file_bytes(
         account_id=int(account_id),
         force=force,
     )
-    return _finalize_stage_report(conn, report=report, kb_id=kb_id, effective_mode=effective_mode, account_mode=account_mode, title=None, source_type=None, allow_title_update=False)
+    return _finalize_stage_report(conn, report=report, kb_id=kb_id, title=None, source_type=None, allow_title_update=False)
 
 
 def stage_file_base64(
@@ -512,7 +496,6 @@ def stage_file_base64(
     title: str | None = None,
     source_type: str | None = None,
     full_content: bool = True,
-    mode: str | None = None,
     force: bool = False,
     settings: Any = None,
     data_dir: Path | None = None,
@@ -539,7 +522,6 @@ def stage_file_base64(
         title=title,
         source_type=source_type,
         full_content=full_content,
-        mode=mode,
         force=force,
         settings=settings,
         data_dir=data_dir,
@@ -556,7 +538,6 @@ def restage_existing_source(
     title: str | None = None,
     source_type: str | None = None,
     full_content: bool = True,
-    mode: str | None = None,
     settings: Any = None,
     data_dir: Path | None = None,
     fetch_fn: Any = None,
@@ -567,7 +548,6 @@ def restage_existing_source(
         raise ClientExtractionError(400, "document_id_required", "document_id is required.")
     if not isinstance(refetch, bool):
         raise ClientExtractionError(400, "invalid_refetch", "refetch must be a boolean.")
-    effective_mode, account_mode = _resolve_stage_mode(conn, account_id=account_id, kb_id=kb_id, mode=mode)
     row = dbm.get_document_row(conn, doc_id, kb_id=int(kb_id))
     if row is None:
         raise ClientExtractionError(404, "document_not_found", f"Document {doc_id!r} was not found in your personal knowledge base.")
@@ -647,8 +627,6 @@ def restage_existing_source(
             "title": str(updated_row["title"]) if updated_row["title"] else doc.title,
             "source_type": str(updated_row["source_type"]) if updated_row["source_type"] else doc.source_type,
             "extraction_status": "pending",
-            "extraction_mode": effective_mode,
-            "account_extraction_mode": account_mode,
             "staged": True,
             "duplicate": False,
             "updated": True,
@@ -683,8 +661,6 @@ def restage_existing_source(
         "title": str(updated_row["title"]) if updated_row["title"] else None,
         "source_type": str(updated_row["source_type"]) if updated_row["source_type"] else None,
         "extraction_status": "pending",
-        "extraction_mode": effective_mode,
-        "account_extraction_mode": account_mode,
         "staged": True,
         "duplicate": False,
         "updated": True,
@@ -706,8 +682,7 @@ def list_staged_sources(conn: sqlite3.Connection, *, kb_id: int, account_id: int
     if capped < 1 or capped > 500:
         raise ClientExtractionError(400, "invalid_limit", "limit must be between 1 and 500.")
     sources = dbm.list_staged_documents(conn, kb_id=int(kb_id), account_id=int(account_id), status=status, limit=capped, now=now)
-    mode = dbm.resolve_extraction_mode(conn, account_id=account_id, kb_id=kb_id)
-    return {"kb_id": int(kb_id), "extraction_mode": mode, "status": status, "count": len(sources), "sources": sources}
+    return {"kb_id": int(kb_id), "status": status, "count": len(sources), "sources": sources}
 
 
 def claim_staged_source(conn: sqlite3.Connection, *, kb_id: int, account_id: int, document_id: str, client_id: str | None = None, lease_seconds: float | int = dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS, now: float | None = None, force: bool = False) -> dict[str, Any]:

@@ -267,24 +267,24 @@ v15로 올릴 때 한 계정에 기본 테마(`is_personal=1`)가 둘 이상이�
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
-* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--force-provider]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--extraction-mode {provider,client}]`
 * **주요 옵션**:
   * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 링크 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
-  * `--force-provider`: 계정의 `extraction_mode`가 `client`인 경우에도 원문만 스테이징하지 않고 서버 LLM 프로바이더로 즉시 추출(`AE4`).
+  * `--extraction-mode {provider,client}`: 이 적재의 추출 모드(AED4-rev). `provider`는 서버 프로바이더로 즉시 추출하고, `client`는 원문을 에이전트 클라이언트 대기열에 넣는다(`(mode=client-staging)` 출력). 미지정 시 API(서버 프로바이더)가 있으면 `provider`, 없으면 `client`.
 
 #### `reingest <target>`
 기존 문서 또는 URL을 다시 수집하여 엔티티, 관계, 임베딩, 요약, 상세(detail)를 완전히 재적재한다.
-* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--force-provider] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
+* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--extraction-mode {provider,client}] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
 * **주요 옵션**:
   * `target`: 재적재 대상 문서 ID, URL, 공유 링크(`/p?s=token`), 검색어, 또는 신규 적재 페이로드.
   * `-t <theme>`, `--theme <theme>`: 대상 테마 지정 (ID, 시퀀스, 또는 레이블).
   * `--full`, `--full-content`: 원문 길이 제한 없이 전체 무절단 수집.
   * `--effort <level>`: LLM 사고/추론 레벨 지정 (`none`, `minimal`, `low`, `medium`, `high`, `max`).
-  * `--force-provider`: 계정의 `extraction_mode`가 `client`여도 서버 프로바이더로 즉시 재추출(`AE4`; URL 없는 기존 문서는 이 플래그를 지정해 서버 추출).
+  * `--extraction-mode {provider,client}`: `provider`는 서버 프로바이더로 다시 추출하고, `client`는 원문을 다시 수집해 에이전트 클라이언트 대기열에 넣는다(URL 없는 기존 문서는 `provider`로만 다시 추출). 미지정 시 `ingest`와 같은 기본값.
   * `--untombstone`: 대상 문서가 이전에 소각(Purge)되어 툼스톤이 등록된 경우, 툼스톤을 원자적으로 해제하고 재적재 허용.
   * `--apply`: 실제 재적재 실행 (기본값: Dry-Run 진단 리포트 출력).
   * `--dry-run`: 변경 없이 시뮬레이션 진단만 출력 (기본값).

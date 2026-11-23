@@ -40,12 +40,13 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 37 | 직전 version (아래 "v37" 절) | 개인 지식베이스 출처 공개(`accounts.personal_source_public`) |
 | 38 | 직전 version (아래 "v38" 절) | 엔티티 쌍 검토(`pair_review_items`, `pair_review_verdicts`)와 옛 shadow 기록의 1회 채움 |
 | 39 | 직전 version (아래 "v39" 절) | 임베딩 공간 레지스트리(`embedding_spaces`), KB별 활성/목표 공간(`active_space_id`, `target_space_id`), 다중 공간 벡터 PK(`embeddings(owner_id, kb_id, space_id)`) |
-| 40 | 직전 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
+| 40 | 직전 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`(v45에서 제거), `documents` 스테이징 열) |
 | 41 | 직전 version (아래 "v41" 절) | USERNAME 대소문자 보존·비구별 인덱스, 7일 보호 이름 변경 |
 | 42 | 직전 version | `accounts.summary` (코드 `_migrate_v42_account_summary`) |
 | 43 | 직전 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
-| 44 | 현재 version (아래 "v44" 절) | USERNAME 없는 계정을 `setup_required` 상태로만 허용하는 트리거 |
-| 45 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 44 | 직전 version (아래 "v44" 절) | USERNAME 없는 계정을 `setup_required` 상태로만 허용하는 트리거 |
+| 45 | 현재 version (아래 "v45" 절) | 계정 추출 모드 `accounts.extraction_mode` 제거, 요청의 추출 모드 `raw_inbox.extraction_mode` |
+| 46 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -385,7 +386,7 @@ The retired v12 recovery is described above. Other stores have their own version
   - 테이블 `oauth_pending_requests(tx_id PRIMARY KEY, client_id, client_name, redirect_uri, code_challenge, code_challenge_method, scope, state, account_id, created_at, expires_at, consumed_at)`.
   - 테이블 `oauth_device_codes(device_code PRIMARY KEY, user_code UNIQUE, client_id, client_name, scope, status, account_id, interval, last_poll_at, created_at, expires_at)` 및 인덱스 `idx_oauth_device_codes_user(user_code)`.
 - **[코드] 추가·변경 객체**(`_migrate_v40_client_staging`, 멱등):
-  - 열 `accounts.extraction_mode` (`TEXT NOT NULL DEFAULT 'provider' CHECK (extraction_mode IN ('provider', 'client'))`).
+  - 열 `accounts.extraction_mode` (`TEXT NOT NULL DEFAULT 'provider' CHECK (extraction_mode IN ('provider', 'client'))`). v45부터 이 단계는 이 열을 만들지 않고, v45 단계가 이 열을 제거한다.
   - 열 `documents.content_hash`, `documents.extraction_status` (`TEXT NOT NULL DEFAULT 'extracted' CHECK (extraction_status IN ('pending', 'extracted', 'failed'))`), `documents.claim_token`, `documents.lease_expires_at`, `documents.claimed_by_client_id`, `documents.raw_chars` 및 인덱스 `idx_documents_kb_extraction_status(kb_id, extraction_status)`.
 - **[코드] 데이터 이관**: v39 이하의 기존 `oauth_codes`·`oauth_tokens` 행은 `granted_scope`가 비어 있을 때 `scope`로 백필하고, `token_family_id`가 없는 기존 토큰은 고유 패밀리 ID를 부여한다. 기존 `accounts.extraction_mode`가 비어 있거나 허용 값 밖인 행은 `'provider'`로, 기존 `documents.extraction_status`가 비어 있거나 허용 값 밖인 행은 `'extracted'`로 정규화한다.
 - **[테스트]** `tests/test_schema_v40.py`, `tests/test_oauth_flow.py`, `tests/test_client_staging_ae4.py`.
@@ -415,3 +416,12 @@ Design: [`PERMALINK_UNIFICATION_DESIGN.md`](../design/PERMALINK_UNIFICATION_DESI
 - **[decision]** An account without a USERNAME must not exist, except the administrator row before the setup (owner, 2026-11-23). The production database had no such row on 2026-11-23 (owner, read-only query).
 - **[code]** `_migrate_v44_username_required` makes two triggers on `accounts`: `accounts_username_required_insert` (before insert) and `accounts_username_required_update` (before update). Each refuses a row whose `username` is NULL and whose `status` is not `setup_required`, with the error `username required`. The trigger `accounts_username_not_null` of v41 stops the removal of a USERNAME.
 - **[code]** The step runs at each start, is idempotent, and does not read or change a row. A row that broke the rule before the step stays; an update of that row is refused until it has a USERNAME.
+
+## v45 (the extraction mode of each ingest request)
+
+Design: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) decision `AED4-rev`. Current behavior: [`INGESTION.md`](INGESTION.md) §1 step 6.
+
+- **[decision]** The agent client and the API are both usable; each ingest request selects its extraction mode (owner, 2026-11-24). The account setting of v40 has no function.
+- **[code]** `_migrate_v45_retire_account_extraction_mode` drops the column `accounts.extraction_mode` (`ALTER TABLE ... DROP COLUMN`; the stored values are not used again) and adds the column `raw_inbox.extraction_mode` (`TEXT`, `NULL` or `'provider'` or `'client'`). The step runs at each start and is idempotent.
+- **[code]** `log_inbox` writes the mode of the request. A retry (`recover-loop`, `replay-failed`, manual retry) takes the same mode; a row from before v45 has NULL and takes the default mode of the account.
+- **[test]** `tests/test_schema_v45.py`, `tests/test_client_staging_ae4.py`.

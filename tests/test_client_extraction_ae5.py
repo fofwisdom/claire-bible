@@ -54,7 +54,6 @@ def _setup_world(tmp_path: Path, *, provider: str = "mock") -> SimpleNamespace:
         acc.complete_setup(1, username="admin_ae5", display_name="Admin")
         acc.set_setting("mode", "network", updated_by=1)
         alice = acc.create_member(username="alice_ae5", display_name="Alice")
-        acc.update_extraction_mode(alice.id, "client")
         conn.commit()
     finally:
         conn.close()

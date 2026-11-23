@@ -189,6 +189,13 @@
       </div>
       <p id="item-ingest-source" class="synd-note"></p>
       <p id="item-ingest-note" class="synd-note" data-i18n="synd.ingest.note">The post stays in the timeline. The new document goes into your personal knowledge base.</p>
+      <fieldset class="ingest-options" aria-describedby="item-ingest-extraction-hint">
+        <legend class="ingest-label"><span data-i18n="ws.ingest.extraction">Extraction</span> <span id="item-ingest-extraction-hint" class="ingest-help" data-i18n="ws.ingest.extraction_no_api_hint" hidden>No API is registered: the source waits for the agent client. To ingest at once, register an API key in the AI provider settings.</span></legend>
+        <div id="item-ingest-extraction-grid" class="ingest-choice-grid extraction" data-extraction-prefix="itemextraction" data-extraction-name="item-ingest-extraction" data-extraction-hint-id="item-ingest-extraction-hint">
+          <div class="ingest-choice"><input id="itemextraction-provider" type="radio" name="item-ingest-extraction" value="provider" checked/><label for="itemextraction-provider" data-i18n-title="ws.ingest.extraction_provider_title" title="The server API extracts the source at once." data-i18n="ws.ingest.extraction_provider">Ingest now with the API</label></div>
+          <div class="ingest-choice"><input id="itemextraction-client" type="radio" name="item-ingest-extraction" value="client"/><label for="itemextraction-client" data-i18n-title="ws.ingest.extraction_client_title" title="The source waits in the job queue until your agent client connects. Then the agent client extracts it." data-i18n="ws.ingest.extraction_client">Wait for the agent client</label></div>
+        </div>
+      </fieldset>
       <div id="item-ingest-msg" class="synd-note" role="status"></div>
       <div class="synd-dialog-foot">
         <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>

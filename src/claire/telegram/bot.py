@@ -258,6 +258,14 @@ async def _run_with_ticker(status, label: str, work, interval: float = 5.0):
         tk.cancel()
 
 
+async def _reply_extraction_flags_conflict(msg) -> None:
+    """The message has --force-provider and --agent-client: Claire does not ingest it."""
+    try:
+        await msg.reply_text(_t("bot.ingest.extraction_flags_conflict"))
+    except Exception:  # noqa: BLE001
+        log.debug("extraction flags notice failed", exc_info=True)
+
+
 async def _reply_focus_sealed(msg) -> None:
     """CT28: tell the sender that the text after the separator is not used as a focus."""
     try:
@@ -590,21 +598,27 @@ _REFETCH_FULL_FLAG_RE = re.compile(
 _REFETCH_FLAG_RE = re.compile(
     r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch)|-r)(?:\s+|$)",
 )
-_FORCE_PROVIDER_FLAG_RE = re.compile(
-    r"(?:\s+|^)[-–—―]{1,2}(?i:force[-_]provider)(?:\s+|$)",
-)
+# The extraction mode flags of an ingest message (AED4-rev): --force-provider selects the server API, --agent-client selects the queue of the agent client.
+_EXTRACTION_MODE_FLAGS_RE: dict[str, re.Pattern[str]] = {
+    "provider": re.compile(r"(?:\s+|^)[-–—―]{1,2}(?i:force[-_]provider)(?:\s+|$)"),
+    "client": re.compile(r"(?:\s+|^)[-–—―]{1,2}(?i:agent[-_]client)(?:\s+|$)"),
+}
 
 
-def parse_force_provider_flag(text: str | None) -> tuple[str, bool]:
-    """Extract and strip --force-provider from message or caption text."""
+def parse_extraction_mode_flag(text: str | None) -> tuple[str, str | None]:
+    """Extract and strip the extraction mode flag from message or caption text. Return the text and the mode, or ``None`` when the text has no flag (the ingest then takes the default mode of the account). Both flags in one text raise ``ValueError('extraction_flags_conflict')``."""
     t = (text or "").strip()
     if not t:
-        return "", False
-    m = _FORCE_PROVIDER_FLAG_RE.search(t)
-    if not m:
-        return t, False
-    cleaned = (t[:m.start()] + " " + t[m.end():]).strip()
-    return cleaned, True
+        return "", None
+    found: list[str] = []
+    for mode, pattern in _EXTRACTION_MODE_FLAGS_RE.items():
+        m = pattern.search(t)
+        if m:
+            found.append(mode)
+            t = (t[:m.start()] + " " + t[m.end():]).strip()
+    if len(found) > 1:
+        raise ValueError("extraction_flags_conflict")
+    return t, (found[0] if found else None)
 
 
 def parse_regenerate_flags(text: str) -> tuple[str, bool, bool, str | None]:
@@ -1167,7 +1181,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         doc_work=None,
         has_effort: str | None = None,
         has_refetch_full: bool = False,
-        force_provider: bool = False,
+        extraction_mode: str | None = None,
         kind_label: str = "",
         uid: int | None = None,
         cid: int | None = None,
@@ -1203,7 +1217,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 chat_id=cid,
                 effort=has_effort,
                 full_content=has_refetch_full,
-                force_provider=force_provider,
+                extraction_mode=extraction_mode,
             )
 
         try:
@@ -1394,7 +1408,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         payload, sealed_focus = parse_message_focus(text)
         if sealed_focus:
             await _reply_focus_sealed(update.message)
-        payload_fp_clean, has_force_provider = parse_force_provider_flag(payload)
+        try:
+            payload_fp_clean, flag_mode = parse_extraction_mode_flag(payload)
+        except ValueError:
+            await _reply_extraction_flags_conflict(update.message)
+            return
         payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
 
         # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
@@ -1614,7 +1632,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "payload": payload_to_ingest,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
-                "force_provider": has_force_provider,
+                "extraction_mode": flag_mode,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1632,7 +1650,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             payload=payload_to_ingest,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
-            force_provider=has_force_provider,
+            extraction_mode=flag_mode,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1660,7 +1678,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if is_multi:
             theme_mgr.reload()
 
-        caption_clean, has_force_provider = parse_force_provider_flag(caption)
+        try:
+            caption_clean, flag_mode = parse_extraction_mode_flag(caption)
+        except ValueError:
+            await _reply_extraction_flags_conflict(msg)
+            return
         composite_url, sealed_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
             caption_clean or None, theme_mgr if is_multi else None
         )
@@ -1707,7 +1729,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         chat_id=cid,
                         effort=has_effort,
                         full_content=has_refetch_full,
-                        force_provider=has_force_provider,
+                        extraction_mode=flag_mode,
                     )
                 return target_svc.ingest(
                     kept,
@@ -1719,7 +1741,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     file_name=name,
                     effort=has_effort,
                     full_content=has_refetch_full,
-                    force_provider=has_force_provider,
+                    extraction_mode=flag_mode,
                 )
             pending_ingest[token] = {
                 "orig_msg": msg,
@@ -1755,7 +1777,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     chat_id=cid,
                     effort=has_effort,
                     full_content=has_refetch_full,
-                    force_provider=has_force_provider,
+                    extraction_mode=flag_mode,
                 )
             return target_svc.ingest(
                 kept,
@@ -1767,7 +1789,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 file_name=name,
                 effort=has_effort,
                 full_content=has_refetch_full,
-                force_provider=has_force_provider,
+                extraction_mode=flag_mode,
             )
         await _execute_ingest(
             status,
@@ -1805,7 +1827,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         payload, sealed_focus = parse_message_focus(raw_clean_theme)
         if sealed_focus:
             await _reply_focus_sealed(update.message)
-        payload_fp_clean, has_force_provider = parse_force_provider_flag(payload)
+        try:
+            payload_fp_clean, flag_mode = parse_extraction_mode_flag(payload)
+        except ValueError:
+            await _reply_extraction_flags_conflict(update.message)
+            return
         payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
         payload_to_ingest = payload_clean or payload
         msg = update.message
@@ -1831,7 +1857,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "payload": payload_to_ingest,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
-                "force_provider": has_force_provider,
+                "extraction_mode": flag_mode,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1849,7 +1875,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             payload=payload_to_ingest,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
-            force_provider=has_force_provider,
+            extraction_mode=flag_mode,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1931,7 +1957,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 doc_work=item.get("doc_work"),
                 has_effort=item.get("has_effort"),
                 has_refetch_full=item.get("has_refetch_full", False),
-                force_provider=item.get("force_provider", False),
+                extraction_mode=item.get("extraction_mode"),
                 kind_label=item.get("kind_label", ""),
                 uid=item.get("uid"),
                 cid=item.get("cid"),

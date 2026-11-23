@@ -62,8 +62,6 @@ SERVER_MODES: frozenset[str] = frozenset({"single", "network"})
 MEMBER_INVITES_SETTING_KEY = "member_invites_enabled"
 _MEMBER_INVITES_TRUE_VALUES: frozenset[str] = frozenset({"1", "true", "on"})
 _MEMBER_INVITES_FALSE_VALUES: frozenset[str] = frozenset({"0", "false", "off"})
-ExtractionMode = Literal["provider", "client"]
-EXTRACTION_MODES: frozenset[str] = dbm.EXTRACTION_MODES
 
 # v15 이관이 만드는 관리자 행. v15 이전 자격증명과 테마는 모두 이 계정의 것이다(§8.3, §8.4).
 # 값(1)의 정의는 v15 이관과 자격증명 쓰기 함수가 있는 `store.db`에 하나만 둔다.
@@ -74,7 +72,7 @@ SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode, summary"
+    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, summary"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -108,8 +106,6 @@ class Account:
     entity_language: str | None = None
     # v37: a reader other than the account sees the sources of the documents of its personal knowledge base.
     personal_source_public: bool = True
-    # v40 (AE4): per-account extraction mode ('provider' uses server LLM; 'client' stages raw content for Agent Client extraction).
-    extraction_mode: ExtractionMode = "provider"
     # v42: plain-text profile bio exported as ActivityPub Person.summary and shown on User Home.
     summary: str = ""
 
@@ -152,9 +148,8 @@ def _normalize_lookup(username: str) -> str | None:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, extraction_mode, summary,
+        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, summary,
     ) = tuple(row)
-    mode_value: ExtractionMode = "client" if str(extraction_mode or "provider") == "client" else "provider"
     return Account(
         id=int(account_id),
         public_id=int(public_id),
@@ -170,7 +165,6 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         locale=None if locale is None else str(locale),  # type: ignore[arg-type]  # the column CHECK admits 'en' and 'ko' only
         entity_language=None if entity_language is None else str(entity_language),
         personal_source_public=bool(personal_source_public),
-        extraction_mode=mode_value,
         summary="" if summary is None else str(summary),
     )
 
@@ -578,18 +572,6 @@ class AccountStore:
             raise ValueError("invalid_personal_source_public")
         when = time.time() if now is None else now
         cur = self.conn.execute("UPDATE accounts SET personal_source_public=?, updated_at=? WHERE id=?", (1 if value else 0, when, account_id))
-        if cur.rowcount != 1:
-            self.conn.rollback()
-            raise AccountNotFound(account_id)
-        self.conn.commit()
-        return self.get(account_id)
-
-    def update_extraction_mode(self, account_id: int, extraction_mode: str, *, now: float | None = None) -> Account:
-        """Set the account extraction_mode ('provider' or 'client'). Raise ValueError('invalid_extraction_mode') on other values."""
-        if not isinstance(extraction_mode, str) or extraction_mode not in EXTRACTION_MODES:
-            raise ValueError("invalid_extraction_mode")
-        when = time.time() if now is None else now
-        cur = self.conn.execute("UPDATE accounts SET extraction_mode=?, updated_at=? WHERE id=?", (extraction_mode, when, account_id))
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)
