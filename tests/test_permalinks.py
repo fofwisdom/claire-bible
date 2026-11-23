@@ -219,3 +219,52 @@ def test_e2e_the_entity_address_opens_the_graph_with_the_entity(tmp_path: Path) 
         conn.close()
     client.cookies.clear()
     assert client.get(address).status_code == 410
+
+
+def test_e2e_link_access_of_an_entity_gives_its_graph_to_a_caller_outside_the_knowledge_base(tmp_path: Path) -> None:
+    s, env = _setup_network_env(tmp_path)
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        session_token = accounts_store.create_account_session(conn, account_id=env["alice_id"], scope="owner")
+        conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=10")
+        conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, aliases, observations, sources) VALUES ('ent-vsan', 10, 'Tool', 'vSAN', 'vsan', '[\"Virtual SAN\"]', '[\"A storage tool.\"]', '[\"doc1\", \"doc2\"]')")
+        conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, sources) VALUES ('ent-esx', 10, 'Tool', 'ESX', 'esx', '[\"doc1\"]')")
+        conn.execute("INSERT INTO relations (id, kb_id, type, source_id, target_id, sources) VALUES ('rel-1', 10, 'uses', 'ent-vsan', 'ent-esx', '[\"doc1\"]')")
+        dbm.create_doc_share(conn, "doc1", kb_id=10)
+        conn.commit()
+    finally:
+        conn.close()
+    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    origin = s.public_url.rstrip("/")
+
+    def call(method: str, path: str, *, member: bool):
+        headers = {"Origin": origin} if method not in ("GET", "HEAD") else {}
+        if member:
+            headers["Cookie"] = f"claire_session={session_token}"
+        test_client.cookies.clear()
+        response = test_client.request(method, path, headers=headers, json={} if method != "GET" else None)
+        test_client.cookies.clear()
+        return response
+
+    # The entity detail of the member has the address of the entity.
+    detail = call("GET", "/@alice/node?id=ent-vsan", member=True).json()
+    address = detail["address"]["path"]
+    assert address.startswith("/entity/") and detail["address"] == {"path": address, "link_access": False, "kb_public": False}
+    # Without link access, a caller outside the knowledge base does not get the entity.
+    assert "vSAN" not in call("GET", address, member=False).text
+
+    shared = call("POST", "/@alice/entities/ent-vsan/share", member=True)
+    assert shared.status_code == 200 and shared.json()["path"] == address and shared.json()["link_access"] is True
+    page = call("GET", address, member=False)
+    assert page.status_code == 200 and 'class="entity-link-page"' in page.text
+    assert page.headers["x-robots-tag"] == "noindex, nofollow"
+    # The page has the entity, its direct relation, and the one source document that has link access. It has no internal ID.
+    assert "<h1>vSAN<small>Tool</small></h1>" in page.text and "Virtual SAN" in page.text and "A storage tool." in page.text
+    assert "→ uses</span>ESX" in page.text and '"label": "ESX"' in page.text
+    assert 'href="/silvercord/' in page.text and "Doc 1" in page.text and "Doc 2" not in page.text
+    assert "ent-vsan" not in page.text and "ent-esx" not in page.text and "doc1" not in page.text
+
+    stopped = call("DELETE", "/@alice/entities/ent-vsan/share", member=True)
+    assert stopped.status_code == 200 and stopped.json()["link_access"] is False
+    assert "vSAN" not in call("GET", address, member=False).text
+    assert call("POST", "/@alice/entities/ent-missing/share", member=True).status_code == 404

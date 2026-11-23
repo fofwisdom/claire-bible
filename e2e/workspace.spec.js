@@ -551,6 +551,10 @@ test('the entity address opens the graph with the entity selected, and the old n
   // The context panel shows the entity of the address.
   await expect(page.locator('#panel')).toContainText('허브 엔티티');
   await expect(page).toHaveURL(/\/entity\/45678923abcdefgh$/);
+  // The context panel has the action "copy link" with the address of the entity. The knowledge base is public, thus it has no link access switch.
+  await expect(page.locator('#node-copy-link-btn')).toHaveAttribute('data-entity-path', '/entity/45678923abcdefgh');
+  await expect(page.locator('#node-copy-link-btn')).toContainText('링크 복사');
+  await expect(page.locator('#node-link-access-btn')).toHaveCount(0);
   // An old link with the entity ID gives the same address.
   const old = await page.request.get('/?node=ent-hub', { maxRedirects: 0 });
   expect([302, 308]).toContain(old.status());

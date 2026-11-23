@@ -363,7 +363,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/syndication",
         "/api/client-extraction/spec",
     }
-    read_post = {"/search", "/mcp", "/share"}
+    read_post = {"/search", "/mcp", "/share", "/entities/{entity_id}/share"}
     # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
     write_post = {
         "/ingest",
@@ -387,6 +387,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     }
     write_methods = {
         ("DELETE", "/share"),
+        ("DELETE", "/entities/{entity_id}/share"),
         ("DELETE", "/contributions/{number}"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),

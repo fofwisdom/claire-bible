@@ -133,6 +133,8 @@ KB_ROUTES = [
     ("DELETE|PUT", "/api/admin/kb/{number}/moderators/{account}", "owner", "moderators"),
     ("POST", "/share", "readonly", "share"),
     ("DELETE", "/share", "write", "share"),
+    ("POST", "/entities/{entity_id}/share", "readonly", "share"),
+    ("DELETE", "/entities/{entity_id}/share", "write", "share"),
     ("POST", "/api/federation/timeline/{item_id}/ingest", "owner", "write"),
     ("POST", "/api/feeds/items/{item_id}/ingest", "owner", "write"),
     ("POST", "/api/federation/publish", "write", "write"),

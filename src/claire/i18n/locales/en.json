@@ -4322,5 +4322,19 @@
   "home.timeline.open_share": "Read shared page",
   "home.timeline.likes": "{count}",
   "home.timeline.boosts": "{count}",
-  "home.timeline.quotes": "{count}"
+  "home.timeline.quotes": "{count}",
+  "ws.node.copy_link": "Copy link",
+  "ws.node.copy_link_title": "Copy the address of this entity",
+  "ws.node.link_copied": "Copied",
+  "ws.node.link_access_on": "Link access: on",
+  "ws.node.link_access_off": "Link access: off",
+  "ws.node.link_access_title": "When link access is on, each person with the address sees this entity and its direct relations. The address does not change.",
+  "ws.node.link_access_failed": "Link access did not change.",
+  "ws.entity_link.graph_label": "Graph of {name} and its direct relations",
+  "ws.entity_link.aliases": "Aliases",
+  "ws.entity_link.observations": "Observations",
+  "ws.entity_link.relations": "Relations ({count})",
+  "ws.entity_link.documents": "Source documents ({count})",
+  "ws.entity_link.documents_closed": "{count} documents are not open to you.",
+  "ws.entity_link.note": "This page shows one entity and its direct relations. The other parts of the knowledge base are not open."
 }

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="$lang"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>$title</title>
+<link rel="canonical" href="$canonical"/>
+<style>
+:root{color-scheme:light dark;--bg:#ffffff;--fg:#1f2328;--muted:#57606a;--line:#d0d7de;--card:#f6f8fa;--accent:#0969da}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;--line:#30363d;--card:#161b22;--accent:#58a6ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}
+.el-wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;min-height:100vh}
+.el-graph{position:relative;min-height:60vh;border-right:1px solid var(--line)}
+.el-graph #entity-net{position:absolute;inset:0}
+.el-panel{padding:20px 22px;overflow:auto}
+.el-panel h1{margin:0 0 4px;font-size:1.5rem}
+.el-panel h1 small{font-size:.8rem;font-weight:400;color:var(--muted);margin-left:6px}
+.el-panel h2{margin:22px 0 8px;font-size:.95rem;color:var(--accent)}
+.el-chips{display:flex;flex-wrap:wrap;gap:6px}
+.el-chip{border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:.82rem;background:var(--card)}
+.el-panel ul{margin:0;padding-left:18px}
+.el-panel li{margin:4px 0}
+.el-rel{color:var(--muted);font-size:.82rem;margin-right:6px}
+.el-note{margin-top:24px;color:var(--muted);font-size:.82rem;border-top:1px solid var(--line);padding-top:12px}
+.el-panel a{color:var(--accent)}
+@media (max-width: 860px){.el-wrap{grid-template-columns:1fr}.el-graph{min-height:48vh;border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body class="entity-link-page">
+<div class="el-wrap">
+<div class="el-graph"><div id="entity-net" role="img" aria-label="$graph_label"></div></div>
+<main class="el-panel" id="entity-panel">
+$panel
+<p class="el-note">$note</p>
+</main>
+</div>
+<script type="application/json" id="entity-data">$data</script>
+<script src="/static/js/graph/core.js"></script>
+<script src="/static/js/graph/simulation.js"></script>
+<script src="/static/js/graph/renderers.js"></script>
+<script src="/static/js/graph/network.js"></script>
+<script>
+(function(){
+  var data = JSON.parse(document.getElementById('entity-data').textContent);
+  var G = window.ClaireGraph, el = document.getElementById('entity-net');
+  if(!G || !G.DataSet || !G.Network || !el) return;
+  var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var colors = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',Event:'#0969da',Note:'#6e7781'};
+  var border = dark ? '#30363d' : '#d0d7de', lit = dark ? '#58a6ff' : '#0969da', font = dark ? '#e6edf3' : '#1f2328';
+  var groups = {};
+  data.nodes.forEach(function(n){ var c = colors[n.group] || '#8b949e'; groups[n.group] = {color:{background:c,border:border,highlight:{background:c,border:lit},hover:{background:c,border:lit}}}; });
+  var nodes = data.nodes.map(function(n, i){ return {id:n.id, label:n.label, group:n.group, degree:n.degree, size:i === 0 ? 14 : 7, font:{size:i === 0 ? 16 : 12}}; });
+  var net = new G.Network(el, {nodes:new G.DataSet(nodes), edges:new G.DataSet(data.edges)}, {
+    nodes:{size:6, font:{color:font, size:13}},
+    edges:{color:{color:dark ? '#484f58' : '#c4ccd6', highlight:lit, opacity:0.7}, font:{color:font, size:10, strokeColor:dark ? '#0d1117' : '#ffffff'}},
+    groups:groups, physics:true, interaction:{hover:true, multiselect:false, zoomView:true}
+  });
+  window.claireEntityNet = net;
+  try{ net.selectNodes([data.nodes[0].id]); }catch(_){}
+})();
+</script>
+</body></html>

@@ -5222,7 +5222,54 @@ def create_app(
         report = await asyncio.to_thread(_load)
         if report is None:
             raise HTTPException(status_code=404, detail="not found")
+
+        def _address() -> dict[str, Any] | None:
+            # The address of the entity (``/entity/{token}``) and its link access, for the actions "copy link" and "link access" of the context panel.
+            try:
+                conn = dbm.connect_existing(theme_settings.db_file)
+            except sqlite3.OperationalError:
+                return None
+            try:
+                token = permalinks.ensure_entity(conn, node_id)
+                conn.commit()
+                if token is None:
+                    return None
+                return {"path": permalinks.entity_path(token), "link_access": permalinks.link_access(conn, "entity", node_id), "kb_public": bool(theme.is_public)}
+            except sqlite3.OperationalError:
+                return None
+            finally:
+                conn.close()
+
+        report["address"] = await asyncio.to_thread(_address)
         return JSONResponse(report)
+
+    async def entity_share_route(request: Request) -> JSONResponse:
+        """``POST`` and ``DELETE {namespace}/entities/{entity_id}/share``: set link access of an entity to 1 or 0 (PERMALINK_UNIFICATION_DESIGN.md U4, Section 6.2). The address of the entity stays."""
+        from ..store.queries import node_detail as _detail
+
+        theme, theme_settings, _ = _get_theme_ctx(request)
+        entity_id = str(request.path_params.get("entity_id", ""))
+        value = request.method == "POST"
+        include_hidden = _sees_hidden(request, theme)
+
+        def _set() -> str | None:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                if _detail(conn, entity_id, include_hidden=include_hidden, kb_id=theme.id, docs_brief=True) is None:
+                    return None
+                token = permalinks.ensure_entity(conn, entity_id)
+                if token is None:
+                    return None
+                permalinks.set_link_access(conn, "entity", entity_id, value)
+                conn.commit()
+                return token
+            finally:
+                conn.close()
+
+        token = await asyncio.to_thread(_set)
+        if token is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return JSONResponse({"token": token, "path": permalinks.entity_path(token), "link_access": value, "kb_id": theme.id})
 
     async def document_export_route(request: Request) -> Response:
         """Export of one document as a file (RD24, MD-3). ``format=markdown`` (or ``md``) is the only format: the AsciiDoc body becomes Markdown with a YAML front matter header. Read-only. The access rule is the rule of ``GET /document``. The federation client offers it in the context menu of an item."""
@@ -6494,6 +6541,72 @@ def create_app(
             return HTMLResponse(page, headers=headers)
         return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
+    def _entity_link_page(found: permalinks.Permalink, kb: KnowledgeBaseInfo) -> str | None:
+        """The page of an entity for a caller who has only link access (PERMALINK_UNIFICATION_DESIGN.md Section 6.2 rule 3): the graph of this entity and the entities that have a direct relation with it. The page has no internal ID. A source document is a link only when it has link access itself; the other source documents are only in the count."""
+        from ..store.queries import node_detail as _detail
+
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            detail = _detail(conn, found.target, include_hidden=False, kb_id=kb.id, docs_brief=True)
+            if detail is None:
+                return None
+            open_documents: list[tuple[str, str]] = []
+            closed = 0
+            for document in detail.get("documents") or []:
+                document_token = permalinks.token_of(conn, "document", str(document["id"]))
+                if document_token is not None and permalinks.link_access(conn, "document", str(document["id"])):
+                    open_documents.append((str(document.get("title") or ""), permalinks.permalink_path(document_token)))
+                else:
+                    closed += 1
+        finally:
+            conn.close()
+
+        name, entity_type = str(detail["name"]), str(detail["type"])
+        index: dict[str, str] = {}
+        nodes: list[dict[str, Any]] = [{"id": "e0", "label": name, "group": entity_type, "degree": 0}]
+        edges: list[dict[str, Any]] = []
+        relations_html: list[str] = []
+        for neighbor in detail.get("neighbors") or []:
+            node_id = index.get(str(neighbor["id"]))
+            if node_id is None:
+                node_id = f"e{len(nodes)}"
+                index[str(neighbor["id"])] = node_id
+                nodes.append({"id": node_id, "label": str(neighbor["name"]), "group": str(neighbor["type"]), "degree": 0})
+            outgoing = neighbor.get("dir") == "out"
+            edges.append({"id": f"r{len(edges)}", "from": "e0" if outgoing else node_id, "to": node_id if outgoing else "e0", "label": str(neighbor["rel"]), "arrows": "to", "dashes": bool(neighbor.get("provisional"))})
+            relations_html.append(f'<li><span class="el-rel">{"→" if outgoing else "←"} {html.escape(str(neighbor["rel"]))}</span>{html.escape(str(neighbor["name"]))} <span class="el-rel">{html.escape(str(neighbor["type"]))}</span></li>')
+        degrees: dict[str, int] = {}
+        for edge in edges:
+            degrees[edge["from"]] = degrees.get(edge["from"], 0) + 1
+            degrees[edge["to"]] = degrees.get(edge["to"], 0) + 1
+        for node in nodes:
+            node["degree"] = degrees.get(node["id"], 0)
+
+        panel = [f'<h1>{html.escape(name)}<small>{html.escape(entity_type)}</small></h1>']
+        aliases = [str(a) for a in detail.get("aliases") or []]
+        if aliases:
+            panel.append(f'<h2>{html.escape(_t("ws.entity_link.aliases"))}</h2><div class="el-chips">' + "".join(f'<span class="el-chip">{html.escape(a)}</span>' for a in aliases) + "</div>")
+        observations = [str(o) for o in detail.get("observations") or []]
+        if observations:
+            panel.append(f'<h2>{html.escape(_t("ws.entity_link.observations"))}</h2><ul>' + "".join(f"<li>{html.escape(o)}</li>" for o in observations) + "</ul>")
+        panel.append(f'<h2>{html.escape(_t("ws.entity_link.relations", count=len(edges)))}</h2><ul id="entity-relations">' + "".join(relations_html) + "</ul>")
+        panel.append(f'<h2>{html.escape(_t("ws.entity_link.documents", count=len(open_documents) + closed))}</h2>')
+        if open_documents:
+            panel.append("<ul>" + "".join(f'<li><a href="{html.escape(path, quote=True)}">{html.escape(title)}</a></li>' for title, path in open_documents) + "</ul>")
+        if closed:
+            panel.append(f'<p class="el-rel">{html.escape(_t("ws.entity_link.documents_closed", count=closed))}</p>')
+        data = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        template_path = Path(__file__).resolve().parent / "templates" / "entity_link.html"
+        return string.Template(template_path.read_text(encoding="utf-8")).safe_substitute(
+            lang=html.escape(get_locale(), quote=True),
+            title=html.escape(f"{name} · Claire Bible"),
+            canonical=html.escape(permalinks.entity_path(found.token), quote=True),
+            graph_label=html.escape(_t("ws.entity_link.graph_label", name=name), quote=True),
+            panel="".join(panel),
+            note=html.escape(_t("ws.entity_link.note")),
+            data=data,
+        )
+
     async def entity_address_route(request: Request) -> Response:
         """``GET /entity/{token}``: the address of an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6.2). A caller that can read the knowledge base gets its graph with the entity selected."""
         token = str(request.path_params.get("token", ""))
@@ -6525,6 +6638,11 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
         # A member, a reader of a public knowledge base, and each other caller get the answer of the workspace path: the graph with the entity selected, or the sign-in redirect, the private profile page, or 404. The view for link access alone is not made.
         readable = await _caller_is_member(request, kb) or _kb_decide(request, kb, "read") == "allow"
+        if not readable and found.link_access:
+            page = await asyncio.to_thread(_entity_link_page, found, kb)
+            if page is None:
+                return PlainTextResponse("Not Found", status_code=404)
+            return HTMLResponse(page, headers={"X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "strict-origin-when-cross-origin", "Cache-Control": "no-store"})
         return await _workspace_view(request, kb, token=found.token, kind="entity", target=found.target, readable=readable)
 
     async def shared_doc_page(request: Request) -> Response:
@@ -7752,6 +7870,7 @@ def create_app(
         Route("/share", stop_share_route, methods=["DELETE"]),
         Route("/silvercord/{token}", permalink_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
+        Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),

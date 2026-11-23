@@ -2135,6 +2135,13 @@ function renderPanel(d){
   const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="' + tr("ws.node.isolate_title") + '">'+(isIsolated?tr("ws.node.isolate_off"):'<span data-icon="search"></span> ' + tr("ws.node.isolate_on"))+'</button>';
   h+='<div class="node-actions-bar">';
   h+=isoBtn;
+  // The address of the entity (/entity/{token}): copy it, and in a knowledge base that is not public, set link access.
+  if(d.address && d.address.path){
+    h+='<button type="button" class="sec" id="node-copy-link-btn" data-entity-path="' + esc(d.address.path) + '" onclick="copyEntityLink(this)" title="' + tr("ws.node.copy_link_title") + '"><span data-icon="link"></span> ' + tr("ws.node.copy_link") + '</button>';
+    if(!d.address.kb_public && canIngest()){
+      h+='<button type="button" class="sec' + (d.address.link_access ? ' active' : '') + '" id="node-link-access-btn" aria-pressed="' + (d.address.link_access ? 'true' : 'false') + '" data-entity-id="' + esc(d.id) + '" data-link-access="' + (d.address.link_access ? '1' : '0') + '" onclick="toggleEntityLinkAccess(this)" title="' + tr("ws.node.link_access_title") + '">' + tr(d.address.link_access ? "ws.node.link_access_on" : "ws.node.link_access_off") + '</button>';
+    }
+  }
   if(canWrite()){
     h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?tr("ws.node.in_synth"):'<span data-icon="plus"></span> ' + tr("ws.node.add_synth"))+'</button>';
     if(d.aliases && d.aliases.length){
@@ -4523,6 +4530,20 @@ function closeEntityRow(){
   renderEntityList();
 }
 // A click on a row or on a neighbor: one GET /node request through loadNode(). The graph selects the node and the camera moves to it.
+function copyEntityLink(btn){
+  const url = window.location.origin + btn.dataset.entityPath;
+  const done = () => { const old = btn.innerHTML; btn.textContent = tr("ws.node.link_copied"); setTimeout(() => { btn.innerHTML = old; }, 1500); };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done).catch(() => window.prompt(tr("ws.node.copy_link"), url)); }
+  else { window.prompt(tr("ws.node.copy_link"), url); }
+}
+async function toggleEntityLinkAccess(btn){
+  const id = btn.dataset.entityId, on = btn.dataset.linkAccess !== '1';
+  try{
+    const r = await fetch(apiUrl('entities/' + encodeURIComponent(id) + '/share'), {method: on ? 'POST' : 'DELETE', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    if(selectedNodeId === id) loadNode(id);
+  }catch(_){ alert(tr("ws.node.link_access_failed")); }
+}
 function selectEntity(id){
   selectedNodeId = id;
   loadNode(id);
