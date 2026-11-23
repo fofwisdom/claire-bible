@@ -16,6 +16,7 @@ docs/
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
 │   ├── CLAUDE_AGENT_CLIENT_DESIGN.md      # Claude용 claire 플러그인 실동작: CL0–CL8 구현(v0.4.0 공통 사양 진화는 AGENT_CLIENT_COMMON_SPEC.md → API_AND_MCP_GUIDE.md §3.4, EXTERNAL_ACCESS.md), CL9(업로드 링크) 미구현, CL10(Cowork·claude.ai) 설계 없음, 결정 CD1–CD4 확정
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
+│   ├── DOCUMENT_ADDRESS_UNIFICATION_DESIGN.md  # 적재 본문 하나의 주소 /doc/{주소 토큰} 제안(U1–U10), 미구현, 소유자 답변 대기 O1–O5
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: GL1–GL3 구현(→ implementation/FEDERATION.md §7.2·§10.1), GL4(L0–L6)는 소유자 단계, 결정 GD1–GD7 확정(→ §3.1·§7.1·§8.1)
