@@ -43,8 +43,9 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 40 | 직전 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
 | 41 | 직전 version (아래 "v41" 절) | USERNAME 대소문자 보존·비구별 인덱스, 7일 보호 이름 변경 |
 | 42 | 직전 version | `accounts.summary` (코드 `_migrate_v42_account_summary`) |
-| 43 | 현재 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
-| 44 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 43 | 직전 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
+| 44 | 현재 version (아래 "v44" 절) | USERNAME 없는 계정을 `setup_required` 상태로만 허용하는 트리거 |
+| 45 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
 
@@ -408,3 +409,9 @@ Design: [`PERMALINK_UNIFICATION_DESIGN.md`](../design/PERMALINK_UNIFICATION_DESI
 - **[code]** `_migrate_v43_permalinks` runs at each start and is idempotent. For each document with valid rows in `doc_shares`, the newest valid token becomes the address token with `link_access` 1, and the older valid tokens become alias rows. Each other document and each entity gets a new token with `link_access` 0. Then the step removes the table `doc_shares` (`DROP TABLE IF EXISTS`).
 - **[code]** `doc_shares` is not in the schema now, and no code reads or writes it. The import of an old theme database file (`migrate_multi_db_to_single_db`) reads the `doc_shares` table of that file and puts its tokens into `permalinks` (`permalinks.adopt_share_tokens`).
 - **[code]** A review of the 106 tables that the code declares (2026-11-23) found no other table without a read and a write in the code.
+
+## v44 (an account has a USERNAME)
+
+- **[decision]** An account without a USERNAME must not exist, except the administrator row before the setup (owner, 2026-11-23). The production database had no such row on 2026-11-23 (owner, read-only query).
+- **[code]** `_migrate_v44_username_required` makes two triggers on `accounts`: `accounts_username_required_insert` (before insert) and `accounts_username_required_update` (before update). Each refuses a row whose `username` is NULL and whose `status` is not `setup_required`, with the error `username required`. The trigger `accounts_username_not_null` of v41 stops the removal of a USERNAME.
+- **[code]** The step runs at each start, is idempotent, and does not read or change a row. A row that broke the rule before the step stays; an update of that row is refused until it has a USERNAME.

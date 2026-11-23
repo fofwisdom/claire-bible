@@ -246,7 +246,7 @@ def _bundle_members(settings: Any, now: float) -> dict[str, bytes]:
 def _seed_notifications(settings: StubSettings, now: float) -> None:
     """Account 1 (the admin of a new database): two unread notifications, one of them of an unknown kind; two devices (one fails, and none has a session in effect); one message that waits for 10 minutes; one kind without push; the VAPID row."""
     conn = dbm.connect_existing(settings.db_file)
-    conn.execute("UPDATE accounts SET status='active' WHERE id=1")
+    conn.execute("UPDATE accounts SET username='owner1', status='active' WHERE id=1")
     conn.execute("INSERT INTO kb_contributions (public_id, kb_id, document_id, origin, state, contributed_at, updated_at) VALUES (901, 0, 'doc-901', 'bulk', 'pending', ?, ?)", (now, now))
     conn.commit()
     conn.close()

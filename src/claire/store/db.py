@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -900,6 +900,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v41_username_case_and_rename(conn)
     _migrate_v42_account_summary(conn)
     _migrate_v43_permalinks(conn)
+    _migrate_v44_username_required(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1910,6 +1911,14 @@ def _migrate_v43_permalinks(conn: sqlite3.Connection) -> None:
 
     permalinks.migrate(conn)
     conn.execute("DROP TABLE IF EXISTS doc_shares")
+
+
+def _migrate_v44_username_required(conn: sqlite3.Connection) -> None:
+    """v44 schema (SCHEMA_VERSIONING.md "v44"): an account without a USERNAME can exist only in the status ``setup_required`` (the administrator row before the setup). Two triggers refuse each other insert and update. A row that is in the table does not change, and the step does not read the rows. Idempotent; it runs at each start."""
+    if not _table_exists(conn, "accounts"):
+        return
+    conn.execute("CREATE TRIGGER IF NOT EXISTS accounts_username_required_insert BEFORE INSERT ON accounts WHEN NEW.username IS NULL AND NEW.status != 'setup_required' BEGIN SELECT RAISE(ABORT, 'username required'); END")
+    conn.execute("CREATE TRIGGER IF NOT EXISTS accounts_username_required_update BEFORE UPDATE ON accounts WHEN NEW.username IS NULL AND NEW.status != 'setup_required' BEGIN SELECT RAISE(ABORT, 'username required'); END")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

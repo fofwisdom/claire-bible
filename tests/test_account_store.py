@@ -104,7 +104,7 @@ def test_complete_setup_rejects_non_admin_and_wrong_state(conn: sqlite3.Connecti
     _add_member(conn, 2, None, status="setup_required")
     with pytest.raises(acc.AccountStateError):
         store.complete_setup(2, username="carol", display_name="")
-    conn.execute("UPDATE accounts SET status='suspended' WHERE id=1")
+    conn.execute("UPDATE accounts SET username='owner1', status='suspended' WHERE id=1")
     conn.commit()
     with pytest.raises(acc.AccountStateError):
         store.complete_setup(1, username="alice", display_name="")

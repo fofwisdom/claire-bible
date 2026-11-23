@@ -104,11 +104,11 @@ def _setup_network_env(
     )
     eve_id = int(cur.lastrowid)
 
-    # Member 6: Frank (username NULL)
+    # Member 6: Frank (profile not public). An active account always has a USERNAME (schema v44).
     frank_pub = ids.timestamp_id("accounts", salt=salt, unix_ms=int(now * 1000) + 6)
     cur = conn.execute(
         "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
-        "VALUES (?, NULL, 'member', 'active', 'Frank Ghost', 0, ?, ?, ?)",
+        "VALUES (?, 'frank', 'member', 'active', 'Frank Ghost', 0, ?, ?, ?)",
         (frank_pub, now, now, now),
     )
     frank_id = int(cur.lastrowid)
@@ -594,10 +594,10 @@ def test_adversarial_and_malformed_session_cookies(tmp_path: Path):
 
 @pytest.mark.parametrize(
     "session_key",
-    ["carol_session", "dave_session", "eve_session", "frank_session"],
+    ["carol_session", "dave_session", "eve_session"],
 )
 def test_inactive_or_invalid_account_status_credential_rejection(tmp_path: Path, session_key: str):
-    """Verify suspended (carol), deleting (dave), retired (eve), or nameless (frank) accounts are rejected."""
+    """Verify suspended (carol), deleting (dave), or retired (eve) accounts are rejected. An active account without a USERNAME cannot exist (schema v44)."""
     s, ids_dict = _setup_network_env(tmp_path, anonymous_readonly=True)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)

@@ -191,11 +191,11 @@ def test_only_one_admin() -> None:
     now = time.time()
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO accounts (public_id, role, status, created_at, updated_at) VALUES (?, 'admin', 'active', ?, ?)",
+            "INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (?, 'second_admin', 'admin', 'active', ?, ?)",
             (1 << 57, now, now),
         )
     conn.execute(
-        "INSERT INTO accounts (public_id, role, status, created_at, updated_at) VALUES (?, 'member', 'active', ?, ?)",
+        "INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (?, 'member_one', 'member', 'active', ?, ?)",
         (1 << 57, now, now),
     )
     with pytest.raises(sqlite3.IntegrityError):
@@ -259,7 +259,7 @@ def test_create_session_only_replaces_same_account_same_scope() -> None:
     conn = _memory_database()
     now = time.time()
     conn.execute(
-        "INSERT INTO accounts (id, public_id, role, status, created_at, updated_at) VALUES (2, ?, 'member', 'active', ?, ?)",
+        "INSERT INTO accounts (id, public_id, username, role, status, created_at, updated_at) VALUES (2, ?, 'member_two', 'member', 'active', ?, ?)",
         (1 << 57, now, now),
     )
     other = "member-session-token-bbbbbbbbbbbbbbbbbbbbbb"
@@ -324,3 +324,16 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
         assert {(r["account_id"], r["created_by_account_id"]) for r in conn.execute("SELECT account_id, created_by_account_id FROM knowledge_bases")} == {(1, None), (None, 1)}
     finally:
         conn.close()
+
+
+def test_an_account_without_a_username_exists_only_before_the_setup() -> None:
+    """Schema v44: the triggers refuse an account without a USERNAME in each status other than ``setup_required``."""
+    conn = _memory_database()
+    now = time.time()
+    assert conn.execute("SELECT username, status FROM accounts WHERE id=1").fetchone()[:] == (None, "setup_required")
+    with pytest.raises(sqlite3.IntegrityError, match="username required"):
+        conn.execute("INSERT INTO accounts (public_id, role, status, created_at, updated_at) VALUES (?, 'member', 'active', ?, ?)", (1 << 57, now, now))
+    with pytest.raises(sqlite3.IntegrityError, match="username required"):
+        conn.execute("UPDATE accounts SET status='active' WHERE id=1")
+    conn.execute("UPDATE accounts SET username='owner1', status='active' WHERE id=1")
+    conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (?, 'member_one', 'member', 'active', ?, ?)", (1 << 57, now, now))
