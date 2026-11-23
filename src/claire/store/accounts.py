@@ -23,6 +23,7 @@ from ..accounts.username_policy import UsernameRejected
 from ..i18n.locales import SUPPORTED_LOCALE_SET, LocaleCode
 from ..ontology.label_language import parse_entity_language
 from . import db as dbm
+from . import permalinks
 from .raw import remove_artifact
 
 __all__ = [
@@ -261,13 +262,17 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
             for tbl in (
                 "documents", "document_snapshots", "document_presentations", "raw_inbox",
                 "extractions", "proposals", "jobs", "refresh_queue", "expand_queue", "same_subject_shadow",
-                "doc_shares", "purged_tombstones", "syndication_dispatches",
+                "purged_tombstones", "syndication_dispatches",
                 *dbm.V20_RETIRED_SYNDICATION_TABLES,
             ):
                 try:
                     conn.execute(f"DELETE FROM {tbl} WHERE kb_id=?", (tid,))
                 except sqlite3.OperationalError:
                     pass
+            try:
+                permalinks.mark_kb_gone(conn, tid)
+            except sqlite3.OperationalError:
+                pass
             try:
                 conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (tid,))
             except sqlite3.OperationalError:

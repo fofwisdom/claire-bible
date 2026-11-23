@@ -20,7 +20,7 @@ This document tells what the code does now. Evidence tags follow [`PRINCIPLES.md
 - **[code]** The address token has 16 characters of `23456789abcdefghjkmnpqrstuvwxyz`. The path word is in one constant, `PERMALINK_PATH_PREFIX` (`/silvercord/`). `silvercord` is a reserved USERNAME (`accounts/username_policy.py`).
 - **[code]** A row is made by the migration (documents and entities that exist) and by `ensure` at the first use of an item without a row: the share action, the sitemap, an old link (`?doc=`, `?node=`). The insert paths of documents and entities have no hook. A note has no row until code calls `ensure_note`; no code calls it now.
 - **[code]** `merge_documents` (near-duplicate merge) makes the tokens of the losers aliases of the token of the keeper. The keeper gets link access 1 when one document of the group had it.
-- **[code]** A purge sets `gone_at` and link access 0. The route also sets `gone_at` when it does not find the document.
+- **[code]** A purge sets `gone_at` and link access 0 (`stats["gone_permalinks"]`). The deletion or the reset of a knowledge base and the purge of an account do the same for each document and entity of the knowledge base (`mark_kb_gone`). The route also sets `gone_at` when it does not find the document.
 - **[code]** `ensure_entity` gives an entity the row of the same knowledge base and identity (type and normalized name) when exactly one such row has no live entity. Else it makes a new row.
 
 ## 3. Route `GET /silvercord/{token}`
@@ -38,7 +38,7 @@ This document tells what the code does now. Evidence tags follow [`PRINCIPLES.md
 
 **[code] Membership.** The route is public, thus the authentication layer validates no credential for it. `_caller_is_member` gives the request to the full application again (`_dispatch_workspace`) as `GET {workspace path}whoami` with the headers of the caller. In this internal request only, `whoami` has the key `member`: true for the account of a personal knowledge base and for an active member of a shared one. The workspace page of rule 5 comes from a second internal request. The scope mark `claire.permalink_dispatch` tells the workspace route that the query of the internal request is not an old link.
 
-**[code] Workspace path.** `/kb/{number}/` for a shared knowledge base, `/@{username}/` for a personal one. An account without a USERNAME has no workspace path: each caller gets rule 6 to 8.
+**[code] Workspace path.** `/kb/{number}/` for a shared knowledge base, `/@{username}/` for a personal one. Each active account has a USERNAME: the code makes an account without one only as the administrator row in the status `setup_required`, before the setup, and a trigger stops the removal of a USERNAME. For a knowledge base whose account is not active or has no USERNAME, the route has no workspace path and no member.
 
 ## 4. Old links
 

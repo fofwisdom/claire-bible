@@ -105,6 +105,8 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
         ("doc_1e8c5a3772fb", "https://uttu.merui.net/profiles/voyager/", "https://uttu.merui.net/profiles/voyager", "Voyager", "raw", voyager_adoc, "adoc", stale_voyager_html, 1000.0),
     )
     # Also add a share token in theme 2
+    # An old theme database has the table ``doc_shares``; the import moves its tokens to the permalink registry (schema v43).
+    conn2.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, kb_id INTEGER NOT NULL DEFAULT 0, document_id TEXT NOT NULL, created_at REAL, expires_at REAL)")
     conn2.execute(
         """
         INSERT INTO doc_shares (token, document_id, created_at)

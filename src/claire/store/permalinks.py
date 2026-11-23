@@ -194,6 +194,11 @@ def link_access(conn: sqlite3.Connection, kind: Kind, target: str | int) -> bool
     return bool(row and row[0])
 
 
+def mark_kb_gone(conn: sqlite3.Connection, kb_id: int, *, now: float | None = None) -> None:
+    """Record that the documents and entities of a knowledge base do not exist now (the knowledge base was deleted or emptied). The caller commits."""
+    conn.execute("UPDATE permalinks SET gone_at=COALESCE(gone_at, ?), link_access=0 WHERE kb_id=? AND kind IN ('document', 'entity') AND alias_of IS NULL", (time.time() if now is None else now, int(kb_id)))
+
+
 def mark_gone(conn: sqlite3.Connection, kind: Kind, target: str | int, *, now: float | None = None) -> None:
     """Record that the item does not exist now. The row stays: the token is not given again. The caller commits."""
     conn.execute("UPDATE permalinks SET gone_at=COALESCE(gone_at, ?) WHERE kind=? AND target=? AND alias_of IS NULL", (time.time() if now is None else now, kind, str(target)))
@@ -215,10 +220,36 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str, loser_ids: list[st
         set_link_access(conn, "document", keeper_id, True)
 
 
+def adopt_share_tokens(conn: sqlite3.Connection, rows: list, *, now: float | None = None) -> None:
+    """Take the rows of an old ``doc_shares`` table into the registry. A row is ``(token, document_id, created_at, expires_at)``.
+
+    For each document, the newest valid token becomes its address token with link access 1, and its older valid tokens become aliases. A document that has an address token keeps it and gets link access 1: then each valid token becomes an alias. Thus each share link that worked before still opens. A token that is expired, that does not have the format, that the registry has, or whose document does not exist is not taken.
+    """
+    current = time.time() if now is None else now
+    valid = [r for r in rows if r[3] is None or float(r[3]) > current]
+    for token, document_id, _created_at, _expires_at in sorted(valid, key=lambda r: float(r[2] or 0), reverse=True):
+        token = str(token)
+        if not plausible_token(token) or conn.execute("SELECT 1 FROM permalinks WHERE token=?", (token,)).fetchone():
+            continue
+        document = conn.execute("SELECT kb_id FROM documents WHERE id=?", (str(document_id),)).fetchone()
+        if document is None:
+            continue
+        kb_id = int(document[0])
+        main = token_of(conn, "document", str(document_id))
+        if main is None:
+            _insert(conn, kind="document", target=str(document_id), kb_id=kb_id, account_id=None, identity=None, link_access=1, now=current, token=token)
+        else:
+            conn.execute(
+                "INSERT INTO permalinks(token, kind, kb_id, target, link_access, alias_of, created_at) VALUES (?, 'document', ?, ?, 0, ?, ?)",
+                (token, kb_id, str(document_id), main, current),
+            )
+            set_link_access(conn, "document", str(document_id), True)
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """Schema v43. Make the registry and the rows of the documents and entities that exist. Idempotent.
 
-    A document with valid share tokens keeps its newest one as the address token, with link access 1; its older valid tokens become aliases. Thus each share link that worked before the migration still opens.
+    The share tokens of ``doc_shares`` go into the registry first (``adopt_share_tokens``). The caller removes the table after this function.
     """
     ensure_schema(conn)
     now = time.time()
@@ -226,22 +257,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     if "documents" not in tables:
         return
     if "doc_shares" in tables:
-        rows = conn.execute(
-            "SELECT s.token, s.document_id, d.kb_id FROM doc_shares s JOIN documents d ON d.id = s.document_id WHERE (s.expires_at IS NULL OR s.expires_at > ?) ORDER BY s.created_at DESC, s.rowid DESC",
-            (now,),
-        ).fetchall()
-        for token, document_id, kb_id in rows:
-            token = str(token)
-            if not plausible_token(token) or conn.execute("SELECT 1 FROM permalinks WHERE token=?", (token,)).fetchone():
-                continue
-            main = token_of(conn, "document", str(document_id))
-            if main is None:
-                _insert(conn, kind="document", target=str(document_id), kb_id=int(kb_id), account_id=None, identity=None, link_access=1, now=now, token=token)
-            else:
-                conn.execute(
-                    "INSERT INTO permalinks(token, kind, kb_id, target, link_access, alias_of, created_at) VALUES (?, 'document', ?, ?, 0, ?, ?)",
-                    (token, int(kb_id), str(document_id), main, now),
-                )
+        adopt_share_tokens(conn, conn.execute("SELECT token, document_id, created_at, expires_at FROM doc_shares").fetchall(), now=now)
     for document_id, kb_id in conn.execute("SELECT d.id, d.kb_id FROM documents d WHERE NOT EXISTS (SELECT 1 FROM permalinks p WHERE p.kind='document' AND p.target=d.id AND p.alias_of IS NULL)").fetchall():
         _insert(conn, kind="document", target=str(document_id), kb_id=int(kb_id), account_id=None, identity=None, link_access=0, now=now)
     if "entities" in tables:

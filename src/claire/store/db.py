@@ -255,18 +255,6 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     scope TEXT DEFAULT 'owner'
 );
 
--- [문서 공유 핫링크] 세션 토큰(claire_session, 전체 UI 인증)과 **완전 분리**된, 문서 1개의
--- 읽기 뷰만 비인증으로 열어주는 공유 토큰. 유출돼도 그 문서 1개만 노출(읽기전용). 발급은
--- 인증된 UI 에서만(/share), 열람은 게이트 예외(/p?s=token)로 토큰 자체가 인증을 대신한다.
-CREATE TABLE IF NOT EXISTS doc_shares (
-    token TEXT PRIMARY KEY,
-    kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
-    document_id TEXT NOT NULL,
-    created_at REAL,
-    expires_at REAL          -- NULL=무기한. 향후 만료 정책 시 사용.
-);
-CREATE INDEX IF NOT EXISTS idx_doc_shares_doc ON doc_shares(document_id);
-
 -- [OAuth 2.1 인가 서버] MCP 클라이언트(Gemini 등)와의 연동을 위한 독립 OAuth 상태 테이블.
 CREATE TABLE IF NOT EXISTS oauth_clients (
     client_id TEXT PRIMARY KEY,
@@ -794,7 +782,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "expand_queue",
         "document_snapshots",
         "document_presentations",
-        "doc_shares",
         "purged_tombstones",
         "syndication_dispatches",
     )
@@ -835,7 +822,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_kb_status ON document_presentations(kb_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_kb_key ON document_presentations(kb_id, cache_key)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_pres_kb_doc ON document_presentations(document_id, kb_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_shares_kb_doc ON doc_shares(kb_id, document_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_kb_canon ON purged_tombstones(kb_id, canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_kb_hash ON purged_tombstones(kb_id, content_hash)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tombstones_kb_id ON purged_tombstones(id, kb_id)")
@@ -1919,12 +1905,11 @@ def _migrate_v42_account_summary(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v43_permalinks(conn: sqlite3.Connection) -> None:
-    """v43 schema (SCHEMA_VERSIONING.md "v43"): the permalink registry ``permalinks`` (PERMALINK_UNIFICATION_DESIGN.md Section 7). Each document and entity gets one address token. A valid share token of ``doc_shares`` becomes the address token of its document (link access 1) or an alias of it; then the rows of ``doc_shares`` are deleted, because no code reads the table after this step. Idempotent; it runs at each start."""
+    """v43 schema (SCHEMA_VERSIONING.md "v43"): the permalink registry ``permalinks`` (PERMALINK_UNIFICATION_DESIGN.md Section 7). Each document and entity gets one address token. A valid share token of ``doc_shares`` becomes the address token of its document (link access 1) or an alias of it; then the step removes the table ``doc_shares``, because no code reads it after this step. Idempotent; it runs at each start."""
     from . import permalinks
 
     permalinks.migrate(conn)
-    if _table_exists(conn, "doc_shares"):
-        conn.execute("DELETE FROM doc_shares")
+    conn.execute("DROP TABLE IF EXISTS doc_shares")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:
@@ -2575,7 +2560,6 @@ def migrate_multi_db_to_single_db(
             "expand_queue",
             "document_snapshots",
             "document_presentations",
-            "doc_shares",
             "purged_tombstones",
             "syndication_dispatches",
         )
@@ -2653,6 +2637,14 @@ def migrate_multi_db_to_single_db(
                         f"SELECT {kb_id}, {cols_str} FROM src_db.{tbl}"
                     )
                     copied_tables.append(tbl)
+
+                # The share tokens of an old theme database go to the permalink registry (schema v43): the table ``doc_shares`` does not exist in this database.
+                if conn.execute("SELECT 1 FROM src_db.sqlite_master WHERE type='table' AND name='doc_shares'").fetchone():
+                    from . import permalinks
+
+                    permalinks.ensure_schema(conn)
+                    permalinks.adopt_share_tokens(conn, conn.execute("SELECT token, document_id, created_at, expires_at FROM src_db.doc_shares").fetchall())
+                    copied_tables.append("doc_shares")
 
                 # Sync FTS if entities were imported
                 has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
@@ -6575,7 +6567,7 @@ def counts(
     partitioned_tables = {
         "documents", "entities", "relations", "embeddings", "proposals",
         "jobs", "raw_inbox", "extractions", "refresh_queue", "purged_tombstones",
-        "expand_queue", "document_snapshots", "document_presentations", "doc_shares",
+        "expand_queue", "document_snapshots", "document_presentations",
     }
     out = {}
     for tbl in tables:
@@ -7383,7 +7375,7 @@ def purge_document_cascade(
             f"DELETE FROM refresh_queue WHERE document_id IN ({ph_matched}){where_th}", matched_ids
         ).rowcount
         # The permalink of a purged document stays in the registry as gone: the token is not given again, and the address gives 410.
-        stats["deleted_doc_shares"] = conn.execute(
+        stats["gone_permalinks"] = conn.execute(
             f"UPDATE permalinks SET gone_at=COALESCE(gone_at, unixepoch()), link_access=0 WHERE kind='document' AND alias_of IS NULL AND target IN ({ph_matched})", matched_ids
         ).rowcount
         stats["deleted_document_snapshots"] = conn.execute(

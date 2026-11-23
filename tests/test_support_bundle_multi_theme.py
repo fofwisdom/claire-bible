@@ -54,8 +54,8 @@ def _seed_doc(
         import time
 
         conn.execute(
-            "INSERT INTO doc_shares(kb_id, token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-            (kb_id, share_token, doc_id, time.time(), None),
+            "INSERT INTO permalinks(kb_id, token, kind, target, link_access, created_at) VALUES (?, ?, 'document', ?, 1, ?)",
+            (kb_id, share_token, doc_id, time.time()),
         )
         conn.commit()
 

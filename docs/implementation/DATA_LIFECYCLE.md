@@ -40,7 +40,7 @@ Code: `src/claire/store/raw.py`.
 
 1. **[code]** Read the target documents (limited to the theme when a theme is given) and collect the files: all raw artifacts (`artifact_paths`), images `data/images/<doc_id>_*`, and attachments under `data/raw/attachments/<doc_id>/`. A dry run stops here and returns the counts.
 2. **[code]** Remove the graph contributions of the documents (`rollback_document_graph_contributions`).
-3. **[code]** In one `BEGIN IMMEDIATE` transaction: write tombstones (unless disabled), delete rows from `expand_queue`, `refresh_queue`, `doc_shares`, `document_snapshots`, `extractions`, `proposals`, `raw_inbox`, and `documents`, and retract published federation objects of these documents (`federation.retract_objects`, which makes a tombstone and a Delete task). On an error the transaction rolls back.
+3. **[code]** In one `BEGIN IMMEDIATE` transaction: write tombstones (unless disabled), delete rows from `expand_queue`, `refresh_queue`, `permalinks` (the rows of the purged documents get `gone_at`; they are not deleted), `document_snapshots`, `extractions`, `proposals`, `raw_inbox`, and `documents`, and retract published federation objects of these documents (`federation.retract_objects`, which makes a tombstone and a Delete task). On an error the transaction rolls back.
 4. **[code]** Delete the collected files and the attachment directories.
 5. **[code]** Trigger CDN invalidation for the documents (`media.trigger_cdn_invalidation`; errors are ignored).
 6. **[code]** Run `heal_graph`: clean stale document references in entity and relation sources, remove dangling relations, ghost entities, and orphan embeddings, and rebuild the FTS index.

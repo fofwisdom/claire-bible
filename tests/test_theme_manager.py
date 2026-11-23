@@ -298,7 +298,7 @@ def test_resolve_share_token_single_mode_fallback(tmp_path):
 
     conn0 = dbm.connect(settings.db_file)
     dbm.init_db(conn0)
-    conn0.execute("INSERT INTO doc_shares (token, document_id) VALUES (?, ?)", ("single_tok", "doc_missing"))
+    conn0.execute("INSERT INTO permalinks (token, kind, kb_id, target, link_access, created_at) VALUES (?, 'document', 0, ?, 1, 1)", ("single_tok", "doc_missing"))
     conn0.commit()
     conn0.close()
 

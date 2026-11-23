@@ -151,7 +151,7 @@ The migration completes itself at the start. The operator does nothing.
 
 1. Each document with a valid row in `doc_shares`: the newest valid token becomes its address token (the selection of `create_doc_share(reuse_existing=True)`), `link_access` 1. The older valid tokens of the document become alias rows. Each existing share link keeps its access.
 2. Each other document, each note (also a deleted note, with `gone_at`), and each entity: a new token, `link_access` 0.
-3. `doc_shares` is then not used: remove it after the migration copied it.
+3. `doc_shares` is then not used: the migration removes the table after it copied the rows.
 
 **Lifecycle.**
 

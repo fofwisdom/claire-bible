@@ -71,8 +71,8 @@ def populated_service(temp_db: Path) -> tuple[IngestService, str, str]:
     # 3. Create share token
     share_token = "dzr73zpxh2bah4vp"
     conn.execute(
-        "INSERT INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
-        (share_token, doc_id, 1700000000.0, None),
+        "INSERT INTO permalinks(token, kind, kb_id, target, link_access, created_at) VALUES (?, 'document', 0, ?, 1, ?)",
+        (share_token, doc_id, 1700000000.0),
     )
     conn.commit()
 

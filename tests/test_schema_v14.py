@@ -69,7 +69,6 @@ def test_schema_v14_contains_required_tables_and_columns() -> None:
         "expand_queue",
         "document_snapshots",
         "document_presentations",
-        "doc_shares",
         "purged_tombstones",
     )
     for table in partitioned_tables:

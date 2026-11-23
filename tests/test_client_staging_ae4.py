@@ -364,7 +364,7 @@ async def test_cli_and_telegram_interfaces_for_client_staging_and_force_provider
     assert "reply_markup" not in call_kwargs
     conn = dbm.connect_existing(env.db_file)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM doc_shares").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM permalinks WHERE link_access = 1").fetchone()[0] == 0
     finally:
         conn.close()
 

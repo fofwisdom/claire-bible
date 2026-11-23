@@ -607,7 +607,7 @@ The routes need the scope `write` or `owner`, in both server modes (`ROUTE_POLIC
 - The first publish of a document makes the `federation_objects` row and a `create` task. A later publish changes `updated_at` and makes an `update` task. The object ID stays.
 - A new summary (a new row of `extractions`) or a new share link of a published document makes an `update` task without an action of the owner (`store.federation.sync_object_content`, called from `dbm.log_extraction` and `dbm.create_doc_share`). `federation_objects.content_digest` (`claire.db` version 23) has the digest of the summary, else the title, and the share token that the followers got last. A change of the body alone makes no task. An object from before version 23 has no digest: the first comparison stores the digest and sends nothing. A share that expires makes no task; the object then has no link until the next publish or update (design Section 5.5 rule 3).
 - The object row and the task row are in one transaction. If the task insert fails, the object row is not stored.
-- Before that transaction the route makes sure that the document has a share page (`doc_shares`). That page is the public page of the document.
+- Before that transaction the route makes sure that the document has link access and an address token (`permalinks`, [`PERMALINKS.md`](PERMALINKS.md)). That page is the public page of the document.
 - `object.url` is `{origin}/ap/objects/{id}`. The sidecar serves that path (Section 4.4).
 - The account of the task and `published_by_account_id` are the account of the caller. No function has a default account (`tests/test_federation_publish.py` reads the federation modules for this).
 

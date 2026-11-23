@@ -491,8 +491,8 @@ def test_support_bundle_redactions_and_auth_exclusion(test_environment, tmp_path
             (now,),
         )
         conn.execute(
-            "INSERT INTO doc_shares (token, kb_id, document_id, created_at) "
-            "VALUES ('SECRET_SHARE_TOKEN_VAL', 23, 'doc_alice_sec', ?)",
+            "INSERT INTO permalinks (token, kind, kb_id, target, link_access, created_at) "
+            "VALUES ('SECRET_SHARE_TOKEN_VAL', 'document', 23, 'doc_alice_sec', 1, ?)",
             (now,),
         )
         conn.commit()

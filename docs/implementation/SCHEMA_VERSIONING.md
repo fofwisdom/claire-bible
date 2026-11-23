@@ -43,7 +43,7 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 40 | 직전 version (아래 "v40" 절) | OAuth 2.1 스코프·회전·TX·Device Grant(`oauth_*`) 및 클라이언트 추출 스테이징(`accounts.extraction_mode`, `documents` 스테이징 열) |
 | 41 | 직전 version (아래 "v41" 절) | USERNAME 대소문자 보존·비구별 인덱스, 7일 보호 이름 변경 |
 | 42 | 직전 version | `accounts.summary` (코드 `_migrate_v42_account_summary`) |
-| 43 | 현재 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 행의 이관 |
+| 43 | 현재 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
 | 44 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
@@ -405,5 +405,6 @@ The retired v12 recovery is described above. Other stores have their own version
 Design: [`PERMALINK_UNIFICATION_DESIGN.md`](../design/PERMALINK_UNIFICATION_DESIGN.md) Section 7. Current behavior: [`PERMALINKS.md`](PERMALINKS.md).
 
 - **[code]** New table `permalinks` (`src/claire/store/permalinks.py`): `token` (primary key), `kind` (`document`, `note`, `entity`), `kb_id`, `account_id`, `target`, `identity`, `link_access`, `alias_of`, `gone_at`, `created_at`. Unique index on (`kind`, `target`) for rows without `alias_of`.
-- **[code]** `_migrate_v43_permalinks` runs at each start and is idempotent. For each document with valid rows in `doc_shares`, the newest valid token becomes the address token with `link_access` 1, and the older valid tokens become alias rows. Each other document and each entity gets a new token with `link_access` 0. Then the step deletes all rows of `doc_shares`.
-- **[code]** `doc_shares` stays in the schema as an empty table: the import of old theme database files can still write it, and the next start moves these rows. No other code reads or writes it. The removal of the table is a later step.
+- **[code]** `_migrate_v43_permalinks` runs at each start and is idempotent. For each document with valid rows in `doc_shares`, the newest valid token becomes the address token with `link_access` 1, and the older valid tokens become alias rows. Each other document and each entity gets a new token with `link_access` 0. Then the step removes the table `doc_shares` (`DROP TABLE IF EXISTS`).
+- **[code]** `doc_shares` is not in the schema now, and no code reads or writes it. The import of an old theme database file (`migrate_multi_db_to_single_db`) reads the `doc_shares` table of that file and puts its tokens into `permalinks` (`permalinks.adopt_share_tokens`).
+- **[code]** A review of the 106 tables that the code declares (2026-11-23) found no other table without a read and a write in the code.

@@ -20,6 +20,7 @@ from typing import Any, Literal
 from ..core import ids
 from ..core.config import ROOT, Settings, get_settings
 from . import db as dbm
+from . import permalinks
 from . import themes as _themes_store
 
 log = logging.getLogger("claire.theme")
@@ -1120,7 +1121,6 @@ class KnowledgeBaseManager:
                     "refresh_queue",
                     "expand_queue",
                     "same_subject_shadow",
-                    "doc_shares",
                     "purged_tombstones",
                     "syndication_dispatches",
                     *dbm.V20_RETIRED_SYNDICATION_TABLES,
@@ -1129,6 +1129,10 @@ class KnowledgeBaseManager:
                         conn.execute(f"DELETE FROM {tbl} WHERE kb_id = ?", (tid,))
                     except sqlite3.OperationalError:
                         pass
+                try:
+                    permalinks.mark_kb_gone(conn, tid)
+                except sqlite3.OperationalError:
+                    pass
                 conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (tid,))
                 conn.commit()
             else:
@@ -1207,7 +1211,6 @@ class KnowledgeBaseManager:
                 "refresh_queue",
                 "expand_queue",
                 "same_subject_shadow",
-                "doc_shares",
                 "purged_tombstones",
                 "syndication_dispatches",
                 *dbm.V20_RETIRED_SYNDICATION_TABLES,
@@ -1216,6 +1219,10 @@ class KnowledgeBaseManager:
                     conn.execute(f"DELETE FROM {tbl} WHERE kb_id = ?", (tid,))
                 except sqlite3.OperationalError:
                     pass
+            try:
+                permalinks.mark_kb_gone(conn, tid)
+            except sqlite3.OperationalError:
+                pass
 
             now = time.time()
             # 임베딩이 모두 지워졌으므로 고정도 푼다. 다음 첫 저장이 그때의 모델로 다시 고정한다(§10.4).
@@ -1321,7 +1328,6 @@ class KnowledgeBaseManager:
         try:
             conn = dbm.connect_existing(Path(db_file), readonly=True)
             try:
-                from . import permalinks
 
                 found = permalinks.resolve(conn, token)
                 row = found if found is not None and found.kind == "document" and found.gone_at is None else None
