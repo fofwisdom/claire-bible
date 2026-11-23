@@ -70,6 +70,11 @@ def format_chapters(chapters: list[dict[str, Any]] | None) -> str:
     return "\n".join(lines).strip()
 
 
+def stt_language_for(stt_language: str | None, caption_languages: list[str]) -> str:
+    """The language that STT gets when a video has no usable caption: the STT language of the server, else the first preferred language."""
+    return str(stt_language or "").strip() or (caption_languages[0] if caption_languages else "ko")
+
+
 def normalize_language_tag(value: object) -> str:
     """BCP 47 비교용 정규화. 원래 표기는 CaptionCandidate에 그대로 보존한다."""
     return str(value or "").strip().replace("_", "-").lower()

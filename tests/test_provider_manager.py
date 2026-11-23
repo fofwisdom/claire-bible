@@ -388,11 +388,6 @@ def test_server_scope_locks_embedding_selection_and_documents_purpose(tmp_path: 
     assert "gemini-embedding-2" in avail_emb and "gemini-embedding-001" in avail_emb
     assert "gemini-embedding-2-preview" not in avail_emb
 
-    specs = sanitized_default["lineage_summary"]["architecture_specs"]
-    assert specs[0]["fixed_value"].startswith("gemini-embedding-2")
-    assert "3072d" in specs[0]["fixed_value"]
-    assert "색인" in specs[0]["rationale"]
-    assert "검색" in specs[0]["rationale"]
     lifecycle = sanitized_default["lineage_summary"]["embedding_lifecycle"]
     assert lifecycle["active_model"] == "gemini-embedding-2"
     assert lifecycle["output_dimensionality"] == 3072

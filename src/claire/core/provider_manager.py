@@ -519,14 +519,11 @@ class ProviderManager:
 
         recent_docs: list[dict[str, Any]] = []
         extraction_models: list[dict[str, Any]] = []
-        decision_gates: list[dict[str, Any]] = []
+        # Jev has the shadow role only; its results are in the decision record of each document (documents.meta.resolution_log) and in the model lineage of each document.
         jev_stats: dict[str, Any] = {
             "enabled": bool(jev_cfg.get("enabled", False)),
             "role": "shadow",
             "model": str(jev_cfg.get("model") or "jev-latest"),
-            "shadow_pairs": 0,
-            "ok_calls": 0,
-            "avg_latency_ms": None,
         }
 
         db_candidates = []
@@ -541,36 +538,22 @@ class ProviderManager:
                 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
                 conn.row_factory = sqlite3.Row
                 try:
-                    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)").fetchall()}
-                    if "meta_json" in cols:
-                        rows = conn.execute("SELECT id, title, meta_json, created_at FROM documents ORDER BY created_at DESC LIMIT 20").fetchall()
-                        for row in rows:
-                            try:
-                                meta = json.loads(row["meta_json"] or "{}")
-                            except Exception:
-                                meta = {}
-                            if isinstance(meta, dict) and isinstance(meta.get("model_lineage"), dict):
-                                recent_docs.append({
-                                    "id": row["id"],
-                                    "title": row["title"],
-                                    "created_at": row["created_at"],
-                                    "lineage": meta["model_lineage"],
-                                })
-                    tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-                    if "extractions" in tbls:
-                        for er in conn.execute("SELECT provider, model, COUNT(*) AS cnt FROM extractions GROUP BY provider, model ORDER BY cnt DESC LIMIT 12").fetchall():
-                            extraction_models.append({"provider": er["provider"], "model": er["model"], "count": int(er["cnt"])})
-                    if "resolution_decisions" in tbls:
-                        for gr in conn.execute("SELECT gate, outcome, COUNT(*) AS cnt FROM resolution_decisions GROUP BY gate, outcome ORDER BY cnt DESC").fetchall():
-                            decision_gates.append({"gate": gr["gate"], "outcome": gr["outcome"], "count": int(gr["cnt"])})
-                    if "review_shadow_pairs" in tbls:
-                        jr = conn.execute(
-                            "SELECT COUNT(*) AS total, SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_cnt, AVG(CASE WHEN status='ok' THEN latency_ms END) AS avg_ms FROM review_shadow_pairs",
-                        ).fetchone()
-                        if jr is not None:
-                            jev_stats["shadow_pairs"] = int(jr["total"] or 0)
-                            jev_stats["ok_calls"] = int(jr["ok_cnt"] or 0)
-                            jev_stats["avg_latency_ms"] = round(float(jr["avg_ms"]), 1) if jr["avg_ms"] is not None else None
+                    # The pipeline writes doc.meta["model_lineage"] into documents.meta (ingest/pipeline.py, step 11 of EXTRACTION.md §1).
+                    rows = conn.execute("SELECT id, title, meta, fetched_at FROM documents WHERE meta LIKE '%\"model_lineage\"%' ORDER BY fetched_at DESC LIMIT 20").fetchall()
+                    for row in rows:
+                        try:
+                            meta = json.loads(row["meta"] or "{}")
+                        except ValueError:
+                            continue
+                        if isinstance(meta, dict) and isinstance(meta.get("model_lineage"), dict):
+                            recent_docs.append({
+                                "id": row["id"],
+                                "title": row["title"],
+                                "fetched_at": row["fetched_at"],
+                                "lineage": meta["model_lineage"],
+                            })
+                    for er in conn.execute("SELECT provider, model, COUNT(*) AS cnt FROM extractions GROUP BY provider, model ORDER BY cnt DESC LIMIT 12").fetchall():
+                        extraction_models.append({"provider": er["provider"], "model": er["model"], "count": int(er["cnt"])})
                 finally:
                     conn.close()
             except Exception as exc:
@@ -600,35 +583,8 @@ class ProviderManager:
                 "eos_warning": eos_warning,
                 "supported_models": list(GEMINI_EMBED_LIFECYCLE_CATALOG.values()),
             },
-            "architecture_specs": [
-                {
-                    "stage": "벡터 임베딩 모델 (기본값 / 라이프사이클)",
-                    "fixed_value": f"{eff_embed_model} (3072d · Google AI Studio)",
-                    "scope": "config.py, extract/gemini_provider.py, store/vectors.py",
-                    "rationale": "엔티티 프레임(이름·타입·별칭·관찰) 색인, 하이브리드 검색, 유사 엔티티 후보 탐색에 사용하며 KB별 공간 핀 및 EOS 무중단 그림자 전환을 지원합니다.",
-                },
-                {
-                    "stage": "임베딩 Task Type (문서 색인)",
-                    "fixed_value": "RETRIEVAL_DOCUMENT",
-                    "scope": "extract/gemini_provider.py, ingest/pipeline.py",
-                    "rationale": "엔티티·문서 벡터 DB 색인 시 비대칭 검색(문서 측) 용도로 코드에서 고정 적용합니다.",
-                },
-                {
-                    "stage": "임베딩 Task Type (검색 질의)",
-                    "fixed_value": "RETRIEVAL_QUERY",
-                    "scope": "retrieval/query.py",
-                    "rationale": "사용자 질의 임베딩 시 검색 질문 전용 좌표계로 코드에서 고정 적용합니다.",
-                },
-                {
-                    "stage": "임베딩 -> JEV 데이터 전달",
-                    "fixed_value": "후보 루프에 들어온 모든 후보의 자연어 JSON 스냅샷 (shadow, 판정 불관여)",
-                    "scope": "extract/resolver.py, extract/jev.py",
-                    "rationale": "벡터 좌표를 직접 JEV에 넣지 않고 병합 전 상태의 이름·타입·별칭·관찰만 전달합니다. 결과는 판정 기록에만 남습니다.",
-                },
-            ],
             "recent_documents": recent_docs,
             "extraction_models": extraction_models,
-            "decision_gates": decision_gates,
         }
 
     def _merge_payload(self, base: dict[str, Any], payload: dict[str, Any], *, validate_models: bool = True) -> dict[str, Any]:

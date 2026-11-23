@@ -12,6 +12,7 @@ __all__ = [
     "console_actions",
     "console_card",
     "console_field",
+    "console_flow",
     "console_form_card",
     "console_host",
     "console_kv",
@@ -311,3 +312,26 @@ def console_tabs(
         + "".join(panels)
         + "</div></div>"
     )
+
+
+def console_flow(
+    steps: Sequence[Mapping[str, Any]],
+    *,
+    aria_label: str = "",
+    attrs: Mapping[str, Any] | None = None,
+) -> str:
+    """Build a flow diagram (``.console-flow``): the steps of a process in order. Each step is a mapping with ``key``, ``title`` (plain text), ``body_html``, and the optional ``marks_html`` (pills after the title), ``side_html`` (a note beside the step), and ``kind`` (``ai`` or ``rule``: a step without an AI call)."""
+    if not steps:
+        raise ValueError("console_flow requires one step or more")
+    items: list[str] = []
+    for number, step in enumerate(steps, 1):
+        kind = str(step.get("kind") or "ai")
+        marks = f' <span class="console-flow-marks">{step["marks_html"]}</span>' if step.get("marks_html") else ""
+        side = f'<aside class="console-flow-side">{step["side_html"]}</aside>' if step.get("side_html") else ""
+        items.append(
+            f'<li class="console-flow-step{" has-side" if side else ""}" data-flow-step="{escape(str(step["key"]))}" data-flow-kind="{escape(kind)}">'
+            f'<div class="console-flow-main"><h3 class="console-flow-title"><span class="console-flow-num" aria-hidden="true">{number}</span>{escape(str(step["title"]))}{marks}</h3>{step.get("body_html", "")}</div>{side}</li>'
+        )
+    aria_attr = f' aria-label="{escape(aria_label)}"' if aria_label else ""
+    # role="list": a list with list-style none keeps its list role in each screen reader.
+    return f'<ol class="console-flow" role="list"{aria_attr}{_attrs_html(attrs)}>{"".join(items)}</ol>'

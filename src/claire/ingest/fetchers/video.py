@@ -21,6 +21,7 @@ from .captions import (
     acquire_caption,
     format_chapters,
     is_valid_speech_vtt,
+    stt_language_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ def fetch_video(
                 try:
                     stt_provider = get_transcript_provider(settings)
                     attach_usage_hooks(stt_provider, settings)
-                    lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
+                    lang_code = stt_language_for(settings.stt_language, target_langs)
                     stt_result = stt_provider.transcribe(
                         cached_file, language=lang_code, timestamps=True
                     )
@@ -259,7 +260,7 @@ def fetch_video(
                             downloaded_file = audio_candidates[0]
                             stt_provider = get_transcript_provider(settings)
                             attach_usage_hooks(stt_provider, settings)
-                            lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
+                            lang_code = stt_language_for(settings.stt_language, target_langs)
                             stt_result = stt_provider.transcribe(
                                 downloaded_file, language=lang_code, timestamps=True
                             )

@@ -10,7 +10,7 @@ Anchors are file paths and function names, not line numbers. Evidence tags follo
 
 `extract_resolve_store` in `src/claire/ingest/pipeline.py` does the work for one document. New ingest, refresh, re-extraction, and the same-subject source merge all call it with the same `doc.id`. Thus a second run adds to the sources of the existing entities and does not make new ones for the same names. [code]
 
-The steps, in order: [code]
+The steps, in order (the page `/support/pipeline` shows them with the model of each step, [PROVIDERS.md](PROVIDERS.md) §5A): [code]
 
 1. **Content check.** `validate_extractable_content` stops the run when the text is empty, when a video document has no transcript and no presentation, or when `validate_web_content` (in `src/claire/ingest/fetchers/guard.py`) rejects a `web` or `custom` document. The result is `insufficient_content: <reason>`.
 2. **Effort.** The effort selection (paper classification for PDF and ODT, else the provider effort) is in [INGESTION.md](INGESTION.md) §7.4. The value goes to `doc.meta["applied_effort"]`.

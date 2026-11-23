@@ -313,7 +313,7 @@ def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(co
     assert re.findall(r'data-nav-group="([a-z_]+)"', sidebar) == ["workspace", "ai", "kb", "syndication", "support"]
     groups = {m.group(1): re.findall(r'href="([^"?]+)', m.group(2)) for m in re.finditer(r'data-nav-group="([a-z_]+)">(.*?)</ul>', sidebar, re.S)}
     assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/backups"]
-    assert groups["support"] == ["/support/bundles"]
+    assert groups["support"] == ["/support/bundles", "/support/pipeline"]
     assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp", "/account/tokens"]
     assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 7
     assert 'data-active-area="account"' in html and 'data-nav-section="providers" aria-current="page"' in html

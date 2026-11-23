@@ -20,7 +20,7 @@
 | STT provider select (Gemini or mock) | The only real STT is Google AI Studio with the fixed model `gemini-3.5-transcribe`; "mock" makes fake transcripts, also on a production server. |
 | Routing hint "the member defaults" | Wrong: the routing applies only to the server jobs and the administrator jobs; a member key uses its own model or the main model. |
 | Server tier card on `/admin/providers` | The same record as `/admin/server`, saved without step-up and admin audit; a stale `/admin/server` tab could overwrite it. |
-| Lineage diagram, fixed values table, fallback catalog | Read-only developer information, not settings. |
+| Lineage diagram, fixed values table, fallback catalog | Read-only developer information, not settings. Now on `/support/pipeline` (PS8). |
 | Save on `/admin/providers` | One save button at the end; the result banner was the first element of the re-rendered page; a failed save threw away the typed values. |
 | Main provider `mock` | Selectable on a production server, although the principles allow it in development only. |
 | Account page | No view of the source (key, server tier, none), of the model of each feature, or of the limits that apply. Key put, check, and delete were three cards. A model change needed the key again. |
@@ -44,6 +44,7 @@
 | PS5 | A production server refuses `active_provider = "mock"` (400 `mock_not_allowed_in_production`); the page shows the switch only on a development server. A save of the key on a production server makes Google AI Studio the main provider. |
 | PS6 | A save of a part does not stop at a main provider without a key; only a change of the main provider is checked. The status view shows the problem. |
 | PS7 | `/account/providers`: the card "What applies to my jobs" (source, model of each feature and where it comes from, STT, VLM, other features, ingest choices, the limits that apply) and one key card (new key, model, save, check again, delete). `PATCH /api/me/provider-keys` changes only the model of a key. The defaults of a key show the main model, not the server routing. |
+| PS8 | Owner request 2026-11-24: the lineage diagram goes to `/support/pipeline` for each account, with its contradictions corrected: Jev was drawn inside the main path between the embedding and the judge (it only records); the summary and the detail were drawn as the input of the embedding (the embedding text is the entity frame, and the embedding is made only when gate 1 has no match); the relation judge was grouped with the entity judge (it is the later step across documents); the classification slot was missing; the fallback table read a field `description` that does not exist (`behavior`); the task type was described as a parameter (`gemini-embedding-2` uses a prompt prefix); the recent document list read columns that do not exist. The STT card and the account card show the order of a video: publisher captions, automatic captions, each in the preferred language order, then STT. |
 
 ## 5. Modern web guidance applied
 

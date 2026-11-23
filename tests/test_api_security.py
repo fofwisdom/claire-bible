@@ -511,6 +511,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/account/notifications",
                 "/account/bundles",
                 "/support/bundles",
+                "/support/pipeline",
                 "/account/backups",
                 "/account/federation",
                 "/api/federation/status",

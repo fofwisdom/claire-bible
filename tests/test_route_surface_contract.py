@@ -82,6 +82,8 @@ SYSTEM = {
     "/account/telegram", "/account/notifications", "/account/bundles", "/account/backups", "/account/federation",
     # One page for the bundles of each account and of the server (the old /account/bundles is a 308 to it).
     "/support/bundles",
+    # The steps of one document and the AI of each step, for each account.
+    "/support/pipeline",
     # The old /settings/* paths of the /account/* pages: 308 redirects.
     "/settings/account", "/settings/keys", "/settings/invites", "/settings/federation", "/settings/telegram", "/settings/notifications", "/settings/bundles", "/settings/backups", "/settings/mcp", "/settings/webmcp", "/settings/tokens",
     "/settings", "/account", "/account/profile", "/account/security", "/account/invites", "/account/providers", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/account/tokens",

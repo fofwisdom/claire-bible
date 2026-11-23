@@ -170,7 +170,7 @@ def _find_starlette_routes(app: object) -> list[Route]:
 
 
 # The console pages outside the four console prefixes (the token links under /support/ are archives, not pages).
-CONSOLE_PAGES_OUTSIDE_PREFIXES = ("/support/bundles",)
+CONSOLE_PAGES_OUTSIDE_PREFIXES = ("/support/bundles", "/support/pipeline")
 
 
 def _is_console_route_path(path: str) -> bool:
@@ -311,7 +311,7 @@ def test_all_console_html_routes_match_shell_contract_and_isolation(console_env)
         assert "console-sidebar" in inspector.ids, path
         assert inspector.nested_cards == [], (path, inspector.nested_cards)
 
-    assert "/account/tokens" in rendered_member_pages and "/support/bundles" in rendered_member_pages
+    assert "/account/tokens" in rendered_member_pages and "/support/bundles" in rendered_member_pages and "/support/pipeline" in rendered_member_pages
     assert f"/moderation/kb/{shared_number}" in rendered_member_pages
 
 

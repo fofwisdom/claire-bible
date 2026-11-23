@@ -186,7 +186,15 @@ SUPPORT_BUNDLES_SPEC = ConsoleSectionSpec(
     group_id="support",
     icon="package",
 )
-SUPPORT_SPECS: tuple[ConsoleSectionSpec, ...] = (SUPPORT_BUNDLES_SPEC,)
+# The steps of one document and the AI of each step (the model lineage diagram), for each account (api.accounts_routes.pipeline).
+SUPPORT_PIPELINE_SPEC = ConsoleSectionSpec(
+    slug="pipeline",
+    path="/support/pipeline",
+    area="support",
+    group_id="support",
+    icon="fork",
+)
+SUPPORT_SPECS: tuple[ConsoleSectionSpec, ...] = (SUPPORT_BUNDLES_SPEC, SUPPORT_PIPELINE_SPEC)
 
 # The AI group of the account: who does the LLM jobs of the account (providers) and how AI agents connect (mcp, webmcp, tokens). The mcp and webmcp pages show their examples and their exposure for the selected knowledge base.
 ACCOUNT_AI_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -934,6 +942,8 @@ def _build_settings_account_section(
         body, extra = settings_federation_body(ctx, account=account)
     elif spec.slug == "providers":
         body, extra = _account_providers_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
+    elif spec.slug == "pipeline":
+        return SettingsSectionRender(body_html=_support_pipeline_body(ctx, account=account, admin_viewer=admin_viewer))
     elif spec.slug == "kb":
         # An account has one personal knowledge base (design Section 3). The page shows its number.
         personal_num = next((ids.format_public_id(kb.number) for kb in owned_themes if kb.is_personal and kb.number is not None), "")
@@ -1355,6 +1365,22 @@ def _account_provider_view(ctx: AccountsContext, account: accounts_store.Account
     return describe_account_providers(settings, account_id=account.id, db_path=ctx.db_file, auth_db_path=ctx.auth_db_file, kb_embed_model=kb_embed)
 
 
+def _support_pipeline_body(ctx: AccountsContext, *, account: accounts_store.Account, admin_viewer: bool) -> str:
+    """The body of ``/support/pipeline``: the administrator sees the server providers and the server-wide records; a member sees the AI of the jobs of the account."""
+    from ...accounts.provider_view import describe_server_providers
+    from . import pipeline as pipeline_page
+
+    settings = _current_settings(ctx)
+    if settings is None:
+        return pipeline_page.support_pipeline_body(settings=None, view=None, admin_viewer=admin_viewer)
+    if not admin_viewer:
+        return pipeline_page.support_pipeline_body(settings=settings, view=_account_provider_view(ctx, account), admin_viewer=False)
+    from ...core.provider_manager import ProviderManager
+
+    lineage = ProviderManager(data_dir=ctx.data_dir or ctx.db_file.parent, auto_migrate=False).get_lineage_summary()
+    return pipeline_page.support_pipeline_body(settings=settings, view=describe_server_providers(settings), admin_viewer=True, lineage=lineage)
+
+
 _SOURCE_TONE = {"byok": "ok", "server": "ok", "tier": "ok", "key_problem": "danger", "none": "warn", "blocked": "danger"}
 
 
@@ -1431,7 +1457,10 @@ def _effective_providers_card(view: dict[str, Any] | None, usage: dict[str, Any]
         if limits.get("max_concurrency") is not None:
             limit_rows.append((t("console.settings.providers.limits.concurrency"), f"{limits['max_concurrency']:,}"))
         limit_html = f'<h3>{escape(t("console.settings.providers.limits.title"))}</h3>' + console_kv(limit_rows, attrs={"data-effective-limits": "applied"})
-    body = f'<p class="hint">{intro_html}</p>' + table + limit_html
+    order = view["stt"].get("order") or {}
+    chain = " → ".join(f'<code class="pref-mono">{escape(str(code))}</code>' for code in order.get("caption_languages") or []) or "-"
+    stt_order_html = f'<p class="hint" data-effective-stt-order>{interpolate(escape(t("console.settings.providers.stt_order")), {"languages": chain})} <a href="/support/pipeline#pipeline-stt-order">{escape(t("console.settings.providers.stt_order_more"))}</a></p>'
+    body = f'<p class="hint">{intro_html}</p>' + table + stt_order_html + limit_html
     return console_card(
         escape(t("console.settings.providers.effective_title")),
         body,

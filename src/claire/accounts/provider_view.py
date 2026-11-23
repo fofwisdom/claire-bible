@@ -55,6 +55,21 @@ def _media_row(settings: Any, kind: str) -> dict[str, Any]:
     return {"enabled": enabled, "provider": provider, "model": model, "ready": enabled and reason is None, "problem": reason}
 
 
+def media_language_order(settings: Any) -> dict[str, Any]:
+    """The language order of a video without a choice per ingest (``ingest/fetchers/video.py``): publisher captions, then automatic captions, each in the order of ``caption_languages``; STT only when no caption is usable, in ``stt_language`` (``stt_detects_language``: Google detects the spoken language). VLM writes in ``vlm_language``."""
+    from ..extract.transcript.gemini_stt import stt_language_codes
+    from ..ingest.fetchers.captions import stt_language_for
+
+    languages = list(settings.effective_preferred_languages)
+    stt_language = stt_language_for(getattr(settings, "stt_language", ""), languages)
+    return {
+        "caption_languages": languages,
+        "stt_language": stt_language,
+        "stt_detects_language": not stt_language_codes(stt_language),
+        "vlm_language": str(settings.effective_vlm_language),
+    }
+
+
 def describe_server_providers(settings: Any) -> dict[str, Any]:
     """The AI of the server jobs and of the administrator account without a personal key (``providers.json``)."""
     configured = str(getattr(settings, "provider", "") or "").strip().lower()
@@ -67,6 +82,7 @@ def describe_server_providers(settings: Any) -> dict[str, Any]:
         problems.append("mock_provider")
     stt = _media_row(settings, "stt")
     stt["language"] = str(getattr(settings, "stt_language", "") or "")
+    stt["order"] = media_language_order(settings)
     if stt["enabled"] and not stt["ready"]:
         problems.append("stt_not_ready")
     vlm = _media_row(settings, "vlm")
@@ -186,6 +202,8 @@ def describe_account_providers(
             reason = None
         if kind == "stt" and server_on:
             row["model"] = str(getattr(settings, "stt_model", "") or "").strip() or STT_MODEL
+        if kind == "stt":
+            row["order"] = media_language_order(settings)
         return {**row, "available": reason is None, "reason": reason}
 
     features = {name: (has_api and ctx.feature_allowed(name)) for name in ("expand", "presentation", "synthesize")}

@@ -26,6 +26,16 @@ from .base import TranscriptProvider, TranscriptResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 
+# STT language values that send no language code: Google detects the spoken language. "ko" is the default value of the STT language; it does not force Korean, thus a video in another language without captions still gets a correct transcript.
+AUTO_DETECT_LANGUAGES = frozenset({"", "auto", "ko"})
+
+
+def stt_language_codes(language: str | None) -> list[str]:
+    """The ``language_codes`` of the transcription request (Interactions API). An empty list lets Google detect the spoken language."""
+    code = str(language or "").strip()
+    return [] if code.lower() in AUTO_DETECT_LANGUAGES else [code]
+
+
 _TS_LINE_RE = re.compile(
     r"^\[?(\d{1,2}:)?(\d{1,2}):(\d{2})\]?\s*(.*)$"
 )
@@ -374,10 +384,9 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                 "timestamp_granularities": ["word"],
                             }
                         }
-                        # language_codes는 생략 시 Google이 음성 언어를 자동 감지(en, ko 등).
-                        # 명시적으로 target_lang이 auto나 기본 ko가 아닌 특정 언어일 때 주입.
-                        if target_lang and target_lang not in ("auto", "ko"):
-                            trans_cfg["language_codes"] = [target_lang]
+                        codes = stt_language_codes(target_lang)
+                        if codes:
+                            trans_cfg["language_codes"] = codes
 
                         try:
                             interaction = self._invoke(lambda: client.interactions.create(

@@ -101,6 +101,31 @@ def test_gemini_provider_transcribe_mocked(tmp_path, monkeypatch):
     mock_client.files.delete.assert_called_with(name="files/test_audio_123")
 
 
+@pytest.mark.parametrize(("language", "codes"), [("ko", None), ("auto", None), ("en", ["en"]), ("ja-JP", ["ja-JP"])])
+def test_gemini_transcription_request_sends_a_language_code_only_for_a_forced_language(tmp_path, language, codes):
+    """The STT language of the server goes to the Interactions API as ``language_codes``; "ko" (the default) and "auto" send none, thus Google detects the spoken language (``stt_language_codes``)."""
+    fake_audio = tmp_path / "test.mp3"
+    fake_audio.write_bytes(b"\xFF\xFB\x90\x00" * 1000)
+    s = Settings(enable_video_transcription=True, stt_provider="gemini", stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key", video_chunk_duration_sec=900)
+    provider = GeminiTranscriptProvider(s)
+    mock_client = MagicMock()
+    mock_file = MagicMock()
+    mock_file.name = "files/test_audio_lang"
+    mock_file.state = types.FileState.ACTIVE
+    mock_client.files.upload.return_value = mock_file
+    mock_client.files.get.return_value = mock_file
+    mock_resp = MagicMock()
+    mock_resp.output_text = "[00:01] Hello world from the speaker of this test."
+    mock_resp.text = mock_resp.output_text
+    mock_resp.steps = []
+    mock_client.interactions.create.return_value = mock_resp
+    with patch.object(provider, "_get_genai_client", return_value=mock_client), \
+         patch("claire.extract.transcript.gemini_stt.get_audio_duration_sec", return_value=60.0):
+        provider.transcribe(fake_audio, language=language)
+    trans_cfg = mock_client.interactions.create.call_args.kwargs["generation_config"]["transcription_config"]
+    assert trans_cfg.get("language_codes") == codes
+
+
 def test_is_valid_speech_vtt():
     assert is_valid_speech_vtt("") is False
     assert is_valid_speech_vtt("sprite.jpg#xywh=0,0,160,90") is False

@@ -258,7 +258,7 @@ The selected value goes to `meta.applied_effort` and `IngestReport.effort`. [cod
 1. `fetch_video` is the media service of the core; plugins call it as `claire.plugin_sdk.fetch_media`. A plugin can give `media_url` (the URL that yt-dlp reads); the document keeps `url`.
 2. `resolve_video_target_url` finds a Brightcove embed, an HTML5 `<video>` source, or `og:video` in given HTML.
 3. `yt-dlp` reads the metadata (`skip_download`) with `CLAIRE_YTDLP_EXTRACTOR_ARGS`. `acquire_caption` (§9.2) gets a publisher caption.
-4. If no valid caption exists and `enable_video_transcription` is on: a cached media file (§9.4) or a `yt-dlp` audio download goes to the STT provider (`get_transcript_provider`) with `stt_language`. `ffmpeg` must exist (`find_ffmpeg_executable`), else `stt_error` is set.
+4. If no valid caption exists and `enable_video_transcription` is on: a cached media file (§9.4) or a `yt-dlp` audio download goes to the STT provider (`get_transcript_provider`) with `stt_language_for(stt_language, preferred languages)`: the STT language of the server, else the first preferred language. `stt_language_codes` in `gemini_stt.py` sends no `language_codes` for `ko` (the default) or `auto`, thus Google detects the spoken language; another code is sent as the language of the speech. `ffmpeg` must exist (`find_ffmpeg_executable`), else `stt_error` is set.
 5. The text has these blocks: play time, `[영상 챕터]`, `[영상 자막]` or `[영상 음성 전사 (STT)]`, `[영상 설명]`, `[태그]`. With no transcript, the caption block has a notice text.
 6. Meta keys include `has_transcript`, `transcript_segments`, `transcript_source` (`manual_caption`, `automatic_caption`, or `stt`), `caption_status`, `caption_language`, `caption_format`, `caption_content_hash`, `caption_error`, `is_stt`, `stt_error`, `stt_truncated` (budget cut, or more than 120 seconds between the last segment and the end), `video_cached`, `video_cache_used`.
 
@@ -270,6 +270,7 @@ YouTube has its own fetcher in the project plugin `claire.youtube` (`fetch_youtu
 
 `src/claire/ingest/fetchers/captions.py`: [code]
 
+- The order of a video: publisher (manual) captions, then automatic captions, each in the order of `effective_preferred_languages` (`CLAIRE_PREFERRED_LANGUAGES` with `en` always last); a caption in another language is not a candidate; STT only when no valid caption exists. `accounts/provider_view.media_language_order` gives this order to `/admin/providers`, `/account/providers`, and `/support/pipeline`.
 - `select_caption_candidates` normalizes language tags, matches the preferred languages exactly first and then by primary subtag, prefers manual captions to automatic captions, and prefers inline data, then HTTPS VTT, then HTTP VTT, then other tracks.
 - `_read_caption` reads inline data or downloads the track with the `yt-dlp` session. `MAX_CAPTION_BYTES` is 8 MiB.
 - `is_valid_speech_vtt` needs a `WEBVTT` header, timed cues, and text, and refuses thumbnail sprite tracks (`xywh`).

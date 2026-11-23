@@ -366,6 +366,7 @@
   - 데이터 번들 카드(`#data-bundles-card`): 내 지식 베이스를 골라 데이터 번들을 만든다(`/api/me/data-bundles`).
   - 번들을 만들면 그 링크(토큰 주소 `/support/bundle/…`, `/support/graph-bundle/…`)를 읽기 전용 칸(`[data-bundle-link]`)과 "링크 복사" 버튼으로 바로 보인다. 목록의 각 행도 같은 링크의 "링크 복사"와 삭제만 있다. 내려받기 버튼과 계정 내려받기 경로는 없다. 링크는 로그인 없이 열린다.
   - 관리자 목록에는 내 계정 번들과 서버 번들이 범위 열과 함께 있다. 멤버 응답에는 `/admin/*` 링크와 `console_admin.js`가 없다.
+- **`/support/pipeline`** (area `support`, sidebar group `support`, rule `_system("owner")`, owner request 2026-11-24): the steps of one document and the AI of each step for the account, and the order of captions and transcription of a video. A member sees the AI of the jobs of the account; only the administrator sees Jev, the model lineage of recent documents of all accounts, and the removed fallbacks. A member response has no `/admin/*` link. Details: [PROVIDERS.md](PROVIDERS.md) §5A. `/account/providers` links to the video order from the card `#settings-effective` (`[data-effective-stt-order]`).
 - **옛 `/settings/*` 계정 경로의 호환 308** (`LEGACY_SETTINGS_ACCOUNT_REDIRECTS`): `/settings/account` → `/account/profile`, `/settings/keys` → `/account/providers`, `/settings/{invites,federation,telegram,notifications,backups,mcp,webmcp,tokens}` → `/account/<같은 이름>`, `/settings/bundles`와 `/account/bundles` → `/support/bundles`. owner가 아니면 리디렉트 전에 404다. 쿼리는 그대로 넘기고 대상 화면이 검증한다.
 - **`/settings`, `/settings/*`**: 지식 베이스별 설정이다(공유 지식, 신디케이션). 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 `write`·`readonly`·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
 
@@ -583,7 +584,7 @@ All paths are in `ROUTE_POLICY`. `_any("owner")` uses the account of the credent
 | `/api/me/backups/policy` | PUT | `_any("owner")` |
 | `/api/admin/account-backups` | GET, HEAD | `_system("admin")` |
 | `/api/admin/account-backups/restore` | POST | `_system("admin")` |
-| `/account/telegram`, `/account/backups`, `/support/bundles` | GET, HEAD | `_system("owner")` |
+| `/account/telegram`, `/account/backups`, `/support/bundles`, `/support/pipeline` | GET, HEAD | `_system("owner")` |
 | `/account/bundles` | GET, HEAD | `_system("owner")`, 308 to `/support/bundles` |
 | `/admin/backups` | GET, HEAD | `_system("admin")` |
 

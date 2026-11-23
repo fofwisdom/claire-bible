@@ -369,7 +369,7 @@
     const rows = [
       ['text', trKey('console.js.panels.providers.view.feature.text') + ' · ' + slotLabel('research'), `${esc(providerName)}${code(eff.model)}${textSub}`, statePill(textState)],
       ['embed', trKey('console.js.panels.providers.eff.embed'), `${code(eff.embed_model)}<div class="hint">${esc(trKey('console.js.panels.providers.eff.embed_sub'))}</div>`, statePill(eff.api_key_set || effProv === 'mock' ? 'ok' : 'broken')],
-      ['stt', trKey('console.js.panels.providers.view.feature.stt'), `Google AI Studio ${code(stt.model)} ${uiPill(trKey('console.js.panels.providers.fixed'), 'neutral')}<div class="hint">${esc(trKey('console.js.panels.providers.eff.stt_sub', { language: stt.language || '-' }))}</div>`, statePill(sttState)],
+      ['stt', trKey('console.js.panels.providers.view.feature.stt'), `Google AI Studio ${code(stt.model)} ${uiPill(trKey('console.js.panels.providers.fixed'), 'neutral')}<div class="hint">${esc(trKey('console.js.panels.providers.eff.stt_sub', { language: sttLanguageText(stt.order) }))}</div>`, statePill(sttState)],
       ['vlm', trKey('console.js.panels.providers.view.feature.vlm'), `${code(vlm.model)}<div class="hint">${esc(trKey('console.js.panels.providers.eff.vlm_sub'))}</div>`, statePill(vlmState)],
       ['jev', trKey('console.js.panels.providers.eff.jev'), esc(trKey('console.js.panels.providers.eff.jev_sub')), statePill(eff.jev_enabled ? 'on' : 'off')],
       ['members', trKey('console.js.panels.providers.eff.members'), esc(tierText), `<a href="/admin/server#server-tier">${esc(trKey('console.js.panels.providers.eff.members_edit'))}</a>`]
@@ -389,6 +389,7 @@
       }).join('');
       h += `<details class="pref-disclosure" id="prov-recent-models"><summary>${esc(trKey('console.js.panels.providers.eff.recent', { count: recent.length }))}</summary>${uiTable({ headers: [trKey('console.js.panels.lineage.col_document'), trKey('console.js.panels.lineage.col_models')], bodyHtml: recRows })}</details>`;
     }
+    h += `<p class="hint"><a href="/support/pipeline" data-prov-pipeline-link>${esc(trKey('console.js.panels.providers.eff.pipeline'))}</a></p>`;
     const badge = uiPill(trKey(problems.length ? 'console.js.panels.providers.eff.badge_problem' : 'console.js.panels.providers.eff.badge_ok'), problems.length ? 'danger' : 'ok');
     return uiCard({ id: 'prov-effective-card', icon: 'check-circle', title: trKey('console.js.panels.providers.eff.title'), badgeHtml: badge, hint: trKey('console.js.panels.providers.eff.hint'), split: false, bodyHtml: h });
   }
@@ -441,6 +442,23 @@
     });
   }
 
+  // The language order of a video (accounts/provider_view.media_language_order): publisher captions, then automatic captions, each in the order of the preferred languages; STT only when no caption is usable.
+  function sttLanguageText(order) {
+    const o = order || {};
+    return o.stt_detects_language ? trKey('console.js.panels.providers.stt.order_detect') : trKey('console.js.panels.providers.stt.order_language', { language: o.stt_language || '-' });
+  }
+
+  function renderSttOrderHtml(cfg) {
+    const order = (((cfg.effective || {}).stt || {}).order) || {};
+    const langs = Array.isArray(order.caption_languages) ? order.caption_languages : [];
+    const chain = langs.map(l => `<code class="pref-mono">${esc(l)}</code>`).join(' → ') || '-';
+    return `<div id="prov-stt-order"><h3>${esc(trKey('console.js.panels.providers.stt.order_title'))}</h3>`
+      + `<ol class="console-steps"><li data-stt-order="manual">${esc(trKey('console.js.panels.providers.stt.order_manual'))}: ${chain}</li>`
+      + `<li data-stt-order="automatic">${esc(trKey('console.js.panels.providers.stt.order_automatic'))}: ${chain}</li>`
+      + `<li data-stt-order="stt">${esc(trKey('console.js.panels.providers.stt.order_stt'))} · ${esc(sttLanguageText(order))}</li></ol>`
+      + `<p class="hint">${esc(trKey('console.js.admin.providers.stt_order_hint'))} <a href="/support/pipeline#pipeline-stt-order">${esc(trKey('console.js.panels.providers.stt.order_more'))}</a></p></div>`;
+  }
+
   function renderSttFormHtml(cfg) {
     const stt = ((cfg.providers || {}).stt) || {};
     const model = ((cfg.effective || {}).stt || {}).model || 'gemini-3.5-transcribe';
@@ -448,6 +466,7 @@
     return uiCard({
       tag: 'form', id: 'prov-stt-form', icon: 'mic', title: trKey('console.js.panels.providers.view.feature.stt'), split: false, attrs: { 'data-prov-form': 'stt' },
       bodyHtml: fixed
+        + renderSttOrderHtml(cfg)
         + uiToggleRow({ id: 'prov-stt-enabled', label: trKey('console.js.panels.providers.stt.enabled'), desc: trKey('console.js.panels.providers.stt.enabled_hint'), checked: stt.enabled !== false })
         + uiField({ id: 'prov-stt-lang', label: trKey('console.js.panels.providers.stt.language'), controlHtml: `<input id="prov-stt-lang" name="prov-stt-lang" class="pref-input" value="${esc(stt.language || 'ko')}" maxlength="16" required/>`, hint: trKey('console.js.panels.providers.stt.language_hint') })
         + actionsWithStatus(submitBtn(trKey('console.js.panels.providers.stt.save'), 'save', 'accent'))
@@ -493,6 +512,8 @@
     const cfg = _provState.config;
     const old = document.getElementById('prov-effective-card');
     if (old) old.outerHTML = renderEffectiveCardHtml(cfg);
+    const sttOrder = document.getElementById('prov-stt-order');
+    if (sttOrder) sttOrder.outerHTML = renderSttOrderHtml(cfg);
     const keyForm = document.getElementById('prov-key-form');
     if (keyForm) {
       const status = keyForm.querySelector('[data-prov-status]');

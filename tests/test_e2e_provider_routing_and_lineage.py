@@ -166,7 +166,6 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         assert cfg["lineage_summary"]["effective_slots"]["summarize"]["model"] == "gemini-4-argon"
         assert cfg["lineage_summary"]["effective_slots"]["render_detail"]["model"] == "gemini-3.8-flash-high"
         assert cfg["lineage_summary"]["effective_slots"]["render_detail"]["effort"] == "high"
-        assert len(cfg["lineage_summary"]["architecture_specs"]) >= 4
         assert any(f["id"] == "F2" and f["status"] == "REMOVED" for f in cfg["lineage_summary"]["fallbacks"])
         assert not [f for f in cfg["lineage_summary"]["fallbacks"] if "antigravity" in f["location"] or "codex" in f["location"]]
         assert any(f["id"] == "F10" and f["status"] == "OUT_OF_SCOPE" for f in cfg["lineage_summary"]["fallbacks"])

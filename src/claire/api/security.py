@@ -874,6 +874,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/account/bundles"): _system("owner", "none"),
     ("GET", "/support/bundles"): _system("owner", "none"),
     ("HEAD", "/support/bundles"): _system("owner", "none"),
+    ("GET", "/support/pipeline"): _system("owner", "none"),
+    ("HEAD", "/support/pipeline"): _system("owner", "none"),
     ("GET", "/account/backups"): _system("owner", "none"),
     ("HEAD", "/account/backups"): _system("owner", "none"),
     ("GET", "/account/providers"): _system("owner", "none"),
